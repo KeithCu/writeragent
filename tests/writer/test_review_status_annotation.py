@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 
 from plugin.writer.content import ApplyDocumentContent
+import pytest
 
 _tool = ApplyDocumentContent()
 
@@ -38,11 +39,15 @@ def test_wait_mode_also_annotated():
     assert out["pending_review"] is True and out["review_mode"] == "wait"
 
 
-def test_error_result_not_annotated():
-    out = _annotate("record", {"status": "error", "message": "old_content not found"})
+@pytest.mark.parametrize(
+    "value, value_2, value_3",
+    [
+        pytest.param("record", "error", "old_content not found", id="test_error_result_not_annotated"),
+        pytest.param("nonsense", "ok", "x", id="test_unknown_mode_not_annotated"),
+    ],
+)
+def test_error_result_not_annotated(value, value_2, value_3):
+    out = _annotate(value, {"status": value_2, "message": value_3})
     assert "pending_review" not in out
 
 
-def test_unknown_mode_not_annotated():
-    out = _annotate("nonsense", {"status": "ok", "message": "x"})
-    assert "pending_review" not in out

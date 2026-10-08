@@ -415,31 +415,24 @@ def test_web_research_cache_chat_text_hit_and_saved():
     assert "execute" in saved
 
 
-def test_web_research_cache_chat_text_fuzzy_hit():
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4, value_5, value_6",
+    [
+        pytest.param("research_cache_jaccard", "hit_fuzzy", "english|elevator physics", 0.65, "fuzzy", "65%", id="test_web_research_cache_chat_text_fuzzy_hit"),
+        pytest.param("research_cache_similarity", "hit_embedding", "english|space elevator physics", 0.82, "embedding", "82%", id="test_web_research_cache_chat_text_embedding_hit"),
+    ],
+)
+def test_web_research_cache_chat_text_fuzzy_hit(value, value_2, value_3, value_4, value_5, value_6):
     block = web_research_cache_chat_text({
-        "research_cache_event": "hit_fuzzy",
+        "research_cache_event": value_2,
         "research_cache_key": "elevator space",
-        "research_cache_matched_key": "english|elevator physics",
+        "research_cache_matched_key": value_3,
         "research_cache_lang": "english",
-        "research_cache_jaccard": 0.65,
+        value: value_4,
     })
-    assert "fuzzy" in block.lower()
-    assert "65%" in block
+    assert value_5 in block.lower()
+    assert value_6 in block
     assert "elevator space" in block
-
-
-def test_web_research_cache_chat_text_embedding_hit():
-    block = web_research_cache_chat_text({
-        "research_cache_event": "hit_embedding",
-        "research_cache_key": "elevator space",
-        "research_cache_matched_key": "english|space elevator physics",
-        "research_cache_lang": "english",
-        "research_cache_similarity": 0.82,
-    })
-    assert "embedding" in block.lower()
-    assert "82%" in block
-    assert "elevator space" in block
-
 
 # =============================================================================
 # Web research query override tests (from test_web_research_query_override.py)
@@ -466,23 +459,23 @@ def test_apply_override_dict_mutable():
     assert step.arguments == {"query": "new", "x": 1}
 
 
-def test_apply_override_json_string():
-    step = SimpleNamespace(arguments='{"query": "old"}')
-    assert _apply_web_search_query_override(step, "edited") is True
-    assert step.arguments == {"query": "edited"}
+@pytest.mark.parametrize(
+    "arguments, value, value_2",
+    [
+        pytest.param('{"query": "old"}', "edited", "edited", id="test_apply_override_json_string"),
+        pytest.param("<<<", "only-override", "only-override", id="test_apply_override_invalid_json_string"),
+    ],
+)
+def test_apply_override_json_string(arguments, value, value_2):
+    step = SimpleNamespace(arguments=arguments)
+    assert _apply_web_search_query_override(step, value) is True
+    assert step.arguments == {"query": value_2}
 
 
 def test_apply_override_json_string_keeps_recency():
     step = SimpleNamespace(arguments='{"query": "old", "recency": "week"}')
     assert _apply_web_search_query_override(step, "edited") is True
     assert step.arguments == {"query": "edited", "recency": "week"}
-
-
-def test_apply_override_invalid_json_string():
-    step = SimpleNamespace(arguments="<<<")
-    assert _apply_web_search_query_override(step, "only-override") is True
-    assert step.arguments == {"query": "only-override"}
-
 
 def test_apply_override_non_dict_non_string():
     step = SimpleNamespace(arguments=["list"])
@@ -1678,9 +1671,6 @@ def test_uncacheable_deep_notes_are_returned_and_not_stored(tmp_path):
     assert "cacheable" not in res
     db_file = str(tmp_path / "writeragent_web_cache.db")
     assert _web_cache_list_keys(db_file, "research", 30) == []
-
-
-
 
 def test_chromium_cdp_enabled():
     from plugin.chatbot.web_research import WebResearchTool

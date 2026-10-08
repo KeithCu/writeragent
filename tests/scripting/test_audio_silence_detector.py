@@ -16,6 +16,7 @@ from plugin.scripting.audio_silence_detector import (
     load_silence_detector_config,
     pcm_energy_int16,
 )
+import pytest
 
 
 def _pcm_silence(sample_count: int) -> bytes:
@@ -134,9 +135,16 @@ def test_should_emit_silence_progress_throttles_updates():
     assert not detector.should_emit_silence_progress(first)
 
 
-def test_resolve_silence_stop_ms_prefers_chatbot_key():
-    with patch("plugin.framework.config.get_config_dict", return_value={"chatbot.audio_silence_stop_ms": 2500}):
-        assert _resolve_silence_stop_ms() == 2500
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param(2500, 2500, id="test_resolve_silence_stop_ms_prefers_chatbot_key"),
+        pytest.param(0, 0, id="test_resolve_silence_stop_ms_zero_disables"),
+    ],
+)
+def test_resolve_silence_stop_ms_prefers_chatbot_key(value, expected):
+    with patch("plugin.framework.config.get_config_dict", return_value={"chatbot.audio_silence_stop_ms": value}):
+        assert _resolve_silence_stop_ms() == expected
 
 
 def test_resolve_silence_stop_ms_ignores_legacy_flat_key():
@@ -145,15 +153,6 @@ def test_resolve_silence_stop_ms_ignores_legacy_flat_key():
         return_value={"audio_silence_stop_ms": 1500},
     ):
         assert _resolve_silence_stop_ms() == DEFAULT_SILENCE_STOP_MS
-
-
-def test_resolve_silence_stop_ms_zero_disables():
-    with patch(
-        "plugin.framework.config.get_config_dict",
-        return_value={"chatbot.audio_silence_stop_ms": 0},
-    ):
-        assert _resolve_silence_stop_ms() == 0
-
 
 def test_five_second_fixture_has_long_pause_then_auto_stop_after_speech():
     """5s MP3 is leading silence + phrase (speech at the tail). Auto-stop needs

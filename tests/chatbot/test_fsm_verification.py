@@ -251,23 +251,27 @@ def test_hypothesis_send_state_sequences(state: SendButtonState, events) -> None
         cur = tr.state
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("plugin/chatbot/send_state.py", id="test_crosshair_send_state_if_available"),
+        pytest.param("plugin/chatbot/audio_recorder_state.py", id="test_crosshair_audio_recorder_state_if_available"),
+    ],
+)
 @pytest.mark.slow
-def test_crosshair_send_state_if_available() -> None:
-    _run_crosshair("plugin/chatbot/send_state.py")
+def test_crosshair_send_state_if_available(value) -> None:
+    _run_crosshair(value)
 
-
+@pytest.mark.parametrize(
+    "value, timeout",
+    [
+        pytest.param("plugin/chatbot/state_machine.py", 300, id="test_crosshair_state_machine_if_available"),
+        pytest.param("plugin/chatbot/tool_loop_state.py", 180, id="test_crosshair_tool_loop_state_if_available"),
+    ],
+)
 @pytest.mark.slow
-def test_crosshair_audio_recorder_state_if_available() -> None:
-    _run_crosshair("plugin/chatbot/audio_recorder_state.py")
-
-
-@pytest.mark.slow
-def test_crosshair_state_machine_if_available() -> None:
+def test_crosshair_state_machine_if_available(value, timeout) -> None:
     # next_state is # crosshair: off; module check covers pure helpers with @deal.
-    _run_crosshair("plugin/chatbot/state_machine.py", timeout=300)
+    _run_crosshair(value, timeout=timeout)
 
 
-@pytest.mark.slow
-def test_crosshair_tool_loop_state_if_available() -> None:
-    # next_state is # crosshair: off; module check covers pure helpers with @deal.
-    _run_crosshair("plugin/chatbot/tool_loop_state.py", timeout=180)

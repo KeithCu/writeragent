@@ -9,6 +9,8 @@
 #   Draw/Impress     — close_draw_family_doc
 #   reset            — _reset_writer_doc / _reset_calc_doc
 #   TestingFactory   — create_native_doc, native_doc, execute_tool
+#   suite helpers    — execute_calc_tool, native_writer_tool_context,
+#                      writer_services_tool_context
 #   HTTP mocks       — create_mock_http_response
 
 import contextlib
@@ -1989,6 +1991,48 @@ class TestingFactory:
             return get_tools().execute(name, tctx, **(args or {}))
         except (KeyError, ValueError) as e:
             return {"status": "error", "error": str(e)}
+
+
+def execute_calc_tool(doc, ctx, name, args):
+    """Registered Calc tool. One copy of the old per-file ``_execute_calc_tool``.
+
+    ``doc_type`` stays ``calc`` (also the ``TestingFactory.execute_tool`` default).
+    Analysis suites that call GoalSeek/Solver directly do not use this: those
+    tools are ToolBaseDummy and are not in the chat registry.
+    """
+    return TestingFactory.execute_tool(doc, ctx, name, args, doc_type="calc")
+
+
+def native_writer_tool_context(doc, ctx, *, skip_reason: str | None = None):
+    """Native Writer ToolContext via ``TestingFactory.create_context``.
+
+    ``skip_reason`` is the Windows leftover-Hidden skip string. The GHA comment
+    stays at the call site. ``doc_type`` stays the create_context default
+    (``writer``).
+    """
+    if skip_reason:
+        skip_windows_leftover_hidden_load(skip_reason)
+    return TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+
+def writer_services_tool_context(doc, ctx, *, skip_reason: str):
+    """Writer ToolContext using live ``get_services()``.
+
+    Page header/footer tools need the plugin registry. A partial bootstrap
+    where ``get_services`` cannot be imported must still build a context
+    (``services=None``) so the suite fails in the tool, not at import.
+    """
+    skip_windows_leftover_hidden_load(skip_reason)
+    from plugin.framework.tool import ToolContext
+
+    services = None
+    try:
+        from plugin.main import get_services
+
+        services = get_services()
+    except Exception:
+        services = None
+    return ToolContext(doc, ctx, "writer", services, "test")
 
 
 def with_native_doc(doc_type="writer", hidden=True, reuse=None):

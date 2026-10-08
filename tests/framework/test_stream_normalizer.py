@@ -7,18 +7,20 @@
 from plugin.framework.client import stream_normalizer as sn
 from plugin.framework.client.stream_normalizer import _extract_thinking_from_delta, iterate_sse
 from plugin.tests.testing_utils import create_mock_http_response
+import pytest
 
 
-def test_extract_thinking_from_delta_reasoning_field():
-    """Ollama OpenAI-compat streams Qwen3 thinking on delta.reasoning, not reasoning_content."""
-    chunk = {"choices": [{"delta": {"reasoning": "Let me think about this..."}}]}
-    assert _extract_thinking_from_delta(chunk) == "Let me think about this..."
-
-
-def test_extract_thinking_from_delta_reasoning_content_field():
-    chunk = {"choices": [{"delta": {"reasoning_content": "Chain of thought here."}}]}
-    assert _extract_thinking_from_delta(chunk) == "Chain of thought here."
-
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        # Ollama OpenAI-compat streams Qwen3 thinking on delta.reasoning, not reasoning_content.
+        pytest.param("reasoning", "Let me think about this...", "Let me think about this...", id="test_extract_thinking_from_delta_reasoning_field"),
+        pytest.param("reasoning_content", "Chain of thought here.", "Chain of thought here.", id="test_extract_thinking_from_delta_reasoning_content_field"),
+    ],
+)
+def test_extract_thinking_from_delta_reasoning_field(value, value_2, expected):
+    chunk = {"choices": [{"delta": {value: value_2}}]}
+    assert _extract_thinking_from_delta(chunk) == expected
 
 def test_extract_thinking_from_delta_prefers_reasoning_content_over_reasoning():
     chunk = {
@@ -43,36 +45,27 @@ def test_extract_thinking_from_delta_empty_when_no_fields():
     assert _extract_thinking_from_delta({"choices": [{"delta": {"content": "hello"}}]}) == ""
 
 
-def test_extract_thinking_from_delta_reasoning_details_text():
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param("text", "Let me think", "Let me think", id="test_extract_thinking_from_delta_reasoning_details_text"),
+        # OpenRouter may send type/format/index before text arrives (pydantic-ai#3658).
+        pytest.param("format", "anthropic-claude-v1", "", id="test_extract_thinking_from_delta_reasoning_details_metadata_only"),
+    ],
+)
+def test_extract_thinking_from_delta_reasoning_details_text(value, value_2, expected):
     chunk = {
         "choices": [
             {
                 "delta": {
                     "reasoning_details": [
-                        {"type": "reasoning.text", "text": "Let me think", "index": 0},
+                        {"type": "reasoning.text", value: value_2, "index": 0},
                     ]
                 }
             }
         ]
     }
-    assert _extract_thinking_from_delta(chunk) == "Let me think"
-
-
-def test_extract_thinking_from_delta_reasoning_details_metadata_only():
-    """OpenRouter may send type/format/index before text arrives (pydantic-ai#3658)."""
-    chunk = {
-        "choices": [
-            {
-                "delta": {
-                    "reasoning_details": [
-                        {"type": "reasoning.text", "format": "anthropic-claude-v1", "index": 0},
-                    ]
-                }
-            }
-        ]
-    }
-    assert _extract_thinking_from_delta(chunk) == ""
-
+    assert _extract_thinking_from_delta(chunk) == expected
 
 def test_extract_thinking_from_delta_nested_choices_one_level_only():
     """Pathological nested choices: one normalize step, no recursion hang."""
@@ -312,23 +305,23 @@ def test_think_tag_stream_splitter_trailing_buffer_flush():
     assert out2 == [(False, "<")]
 
 
-def test_strip_think_tags():
-    clean, thinking = sn.strip_think_tags("<think>step 1\nstep 2</think>The final answer is 42.")
-    assert clean == "The final answer is 42."
-    assert thinking == "step 1\nstep 2"
+@pytest.mark.parametrize(
+    "value, expected, expected_2",
+    [
+        pytest.param("<think>step 1\nstep 2</think>The final answer is 42.", "The final answer is 42.", "step 1\nstep 2", id="test_strip_think_tags"),
+        pytest.param("<think>only thinking here", "", "only thinking here", id="test_strip_think_tags_unclosed"),
+    ],
+)
+def test_strip_think_tags(value, expected, expected_2):
+    clean, thinking = sn.strip_think_tags(value)
+    assert clean == expected
+    assert thinking == expected_2
 
 
 def test_strip_think_tags_no_tags():
     clean, thinking = sn.strip_think_tags("Direct output without tags.")
     assert clean == "Direct output without tags."
     assert thinking is None
-
-
-def test_strip_think_tags_unclosed():
-    clean, thinking = sn.strip_think_tags("<think>only thinking here")
-    assert clean == ""
-    assert thinking == "only thinking here"
-
 
 def test_streaming_replay_truncates_encrypted_fragments_to_shape_dim():
     from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM

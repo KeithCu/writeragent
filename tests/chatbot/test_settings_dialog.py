@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_LABELS, get_settings_field_specs
+import pytest
 
 
 def test_image_default_aspect_has_sidebar_matching_options():
@@ -106,11 +107,18 @@ def test_core_field_specs_omit_stt_model():
     assert "text_analytics_sentiment_engine" not in names
 
 
-def test_update_lru_for_audio_stt_model():
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4",
+    [
+        pytest.param("audio__stt_model", "whisper-1", "whisper-1", "audio_model_lru", id="test_update_lru_for_audio_stt_model"),
+        pytest.param("audio__tts_model", "hexgrad/Kokoro-82M", "hexgrad/Kokoro-82M", "tts_model_lru", id="test_update_lru_for_tts_model"),
+    ],
+)
+def test_update_lru_for_audio_stt_model(value, value_2, value_3, value_4):
     from plugin.chatbot.settings_dialog import _lru_rows_for_key
 
-    assert _lru_rows_for_key("audio__stt_model", "whisper-1", "https://openrouter.ai/api") == [
-        ("whisper-1", "audio_model_lru", "https://openrouter.ai/api"),
+    assert _lru_rows_for_key(value, value_2, "https://openrouter.ai/api") == [
+        (value_3, value_4, "https://openrouter.ai/api"),
     ]
 
 
@@ -194,15 +202,6 @@ def test_apply_settings_writes_audio_stt_model():
     assert stored.get("audio_model_lru@https://openrouter.ai/api") == ["whisper-1"]
     batch.assert_called_once()
     mock_lru.assert_not_called()
-
-
-def test_update_lru_for_tts_model():
-    from plugin.chatbot.settings_dialog import _lru_rows_for_key
-
-    assert _lru_rows_for_key("audio__tts_model", "hexgrad/Kokoro-82M", "https://openrouter.ai/api") == [
-        ("hexgrad/Kokoro-82M", "tts_model_lru", "https://openrouter.ai/api"),
-    ]
-
 
 def test_apply_settings_result_tts_provider_and_voice():
     from plugin.chatbot.settings_dialog import apply_settings_result

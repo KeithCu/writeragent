@@ -17,21 +17,23 @@ from plugin.chatbot.smol_examples import get_examples_block
 from plugin.chatbot.brainstorming import get_brainstorming_sub_agent_instructions
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.writer.specialized_base import DelegateToSpecializedWriter
+import pytest
 
 
 def _brainstorming_domains(gateway):
     return gateway.parameters["properties"]["domain"]["enum"]
 
 
-def test_brainstorming_not_in_writer_delegate_enum():
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("brainstorming", id="test_brainstorming_not_in_writer_delegate_enum"),
+        pytest.param("writing_plan", id="test_writing_plan_not_in_writer_delegate_enum"),
+    ],
+)
+def test_brainstorming_not_in_writer_delegate_enum(value):
     gw = DelegateToSpecializedWriter()
-    assert "brainstorming" not in _brainstorming_domains(gw)
-
-
-def test_writing_plan_not_in_writer_delegate_enum():
-    gw = DelegateToSpecializedWriter()
-    assert "writing_plan" not in _brainstorming_domains(gw)
-
+    assert value not in _brainstorming_domains(gw)
 
 def test_brainstorming_examples_use_html_only():
     block = get_examples_block("brainstorming")

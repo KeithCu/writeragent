@@ -13,6 +13,7 @@ import stat
 import sys
 import types
 from unittest.mock import MagicMock, patch
+import pytest
 
 
 if "fcntl" not in sys.modules:
@@ -234,25 +235,21 @@ def test_detect_flatpak_via_file():
         _reset_cache()
 
 
-def test_detect_flatpak_via_env():
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param("FLATPAK_ID", "org.libreoffice.LibreOffice", "flatpak", id="test_detect_flatpak_via_env"),
+        pytest.param("SNAP_NAME", "libreoffice", "snap", id="test_detect_snap"),
+    ],
+)
+def test_detect_flatpak_via_env(value, value_2, expected):
     _reset_cache()
     try:
         with patch("plugin.scripting.sandbox.os.path.exists", return_value=False):
-            with patch.dict("os.environ", {"FLATPAK_ID": "org.libreoffice.LibreOffice"}, clear=True):
-                assert detect_sandbox() == "flatpak"
+            with patch.dict("os.environ", {value: value_2}, clear=True):
+                assert detect_sandbox() == expected
     finally:
         _reset_cache()
-
-
-def test_detect_snap():
-    _reset_cache()
-    try:
-        with patch("plugin.scripting.sandbox.os.path.exists", return_value=False):
-            with patch.dict("os.environ", {"SNAP_NAME": "libreoffice"}, clear=True):
-                assert detect_sandbox() == "snap"
-    finally:
-        _reset_cache()
-
 
 def test_detect_none():
     _reset_cache()

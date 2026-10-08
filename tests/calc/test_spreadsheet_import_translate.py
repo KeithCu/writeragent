@@ -17,20 +17,30 @@ from plugin.calc.spreadsheet_import.emit import build_converted_output_model
 from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.calc.spreadsheet_import.translate import translate_formula
+import pytest
 
 
-def test_preprocess_semicolon_to_comma():
-    assert normalize_lo_formula_for_parse("=IF(A1>0;B1;C1)") == "=IF(A1>0,B1,C1)"
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("=IF(A1>0;B1;C1)", "=IF(A1>0,B1,C1)", id="test_preprocess_semicolon_to_comma"),
+        pytest.param('=CONCAT("a;b";A1)', '=CONCAT("a;b",A1)', id="test_preprocess_preserves_quoted_semicolon"),
+    ],
+)
+def test_preprocess_semicolon_to_comma(value, expected):
+    assert normalize_lo_formula_for_parse(value) == expected
 
-
-def test_preprocess_preserves_quoted_semicolon():
-    assert normalize_lo_formula_for_parse('=CONCAT("a;b";A1)') == '=CONCAT("a;b",A1)'
-
-
-def test_translate_sum_range():
-    result = translate_formula("=SUM(A1:A10)")
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("=SUM(A1:A10)", "UNSUPPORTED_FUNCTION", id="test_translate_sum_range"),
+        pytest.param("not a formula", "PARSE_ERROR", id="test_translate_parse_error"),
+    ],
+)
+def test_translate_sum_range(value, expected):
+    result = translate_formula(value)
     assert not result.ok
-    assert result.reason == "UNSUPPORTED_FUNCTION"
+    assert result.reason == expected
 
 
 def test_translate_if_semicolon():
@@ -58,13 +68,6 @@ def test_translate_unsupported_function():
     result = translate_formula("=OFFSET(A1;1;1)")
     assert not result.ok
     assert result.reason in ("UNSUPPORTED_FUNCTION", "PARSE_ERROR", "CROSS_SHEET_REF")
-
-
-def test_translate_parse_error():
-    result = translate_formula("not a formula")
-    assert not result.ok
-    assert result.reason == "PARSE_ERROR"
-
 
 def test_translate_p2_functions():
     # Text
@@ -1226,80 +1229,40 @@ def test_translate_group_f_functions():
     assert abs(exec_result(res, []) - 0.4338161674) < 1e-6
 
 
-def test_translate_norminv():
-    res = translate_formula("=NORMINV(0.5; 0; 1)")
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("=NORMINV(0.5; 0; 1)", "calc.norminv(0.5, 0, 1)", id="test_translate_norminv"),
+        pytest.param("=NORMSDIST(1)", "calc.normsdist(1)", id="test_translate_normsdist"),
+        pytest.param("=NORMSINV(0.5)", "calc.normsinv(0.5)", id="test_translate_normsinv"),
+        pytest.param("=PERMUT(5; 2)", "calc.permut(5, 2)", id="test_translate_permut"),
+        pytest.param("=POISSON(2; 2; 0)", "calc.poisson(2, 2, 0)", id="test_translate_poisson"),
+        pytest.param("=STANDARDIZE(42; 40; 1.5)", "calc.standardize(42, 40, 1.5)", id="test_translate_standardize"),
+        pytest.param("=TDIST(1.96; 60; 2)", "calc.tdist(1.96, 60, 2)", id="test_translate_tdist"),
+        pytest.param("=TINV(0.05; 60)", "calc.tinv(0.05, 60)", id="test_translate_tinv"),
+        pytest.param("=WEIBULL(105; 20; 100; 1)", "calc.weibull(105, 20, 100, 1)", id="test_translate_weibull"),
+    ],
+)
+def test_translate_norminv(value, expected):
+    res = translate_formula(value)
     assert res.ok
-    assert res.code == "calc.norminv(0.5, 0, 1)"
+    assert res.code == expected
 
-def test_translate_normsdist():
-    res = translate_formula("=NORMSDIST(1)")
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("=PEARSON(A1:A10; B1:B10)", "calc.pearson(data[0], data[1])", id="test_translate_pearson"),
+        pytest.param("=PERCENTRANK(A1:A10; 5)", "calc.percentrank(data, 5)", id="test_translate_percentrank"),
+        pytest.param("=PROB(A1:A10; B1:B10; 2; 5)", "calc.prob(data[0], data[1], 2, 5)", id="test_translate_prob"),
+        pytest.param("=TTEST(A1:A10; B1:B10; 2; 1)", "calc.ttest(data[0], data[1], 2, 1)", id="test_translate_ttest"),
+        pytest.param("=ZTEST(A1:A10; 4)", "calc.ztest(data, 4)", id="test_translate_ztest"),
+        pytest.param("=ASC(A1)", "calc.asc(data)", id="test_translate_asc"),
+    ],
+)
+def test_translate_pearson(value, value_2):
+    res = translate_formula(value)
     assert res.ok
-    assert res.code == "calc.normsdist(1)"
-
-def test_translate_normsinv():
-    res = translate_formula("=NORMSINV(0.5)")
-    assert res.ok
-    assert res.code == "calc.normsinv(0.5)"
-
-def test_translate_pearson():
-    res = translate_formula("=PEARSON(A1:A10; B1:B10)")
-    assert res.ok
-    assert "calc.pearson(data[0], data[1])" in res.code
-
-def test_translate_percentrank():
-    res = translate_formula("=PERCENTRANK(A1:A10; 5)")
-    assert res.ok
-    assert "calc.percentrank(data, 5)" in res.code
-
-def test_translate_permut():
-    res = translate_formula("=PERMUT(5; 2)")
-    assert res.ok
-    assert res.code == "calc.permut(5, 2)"
-
-def test_translate_poisson():
-    res = translate_formula("=POISSON(2; 2; 0)")
-    assert res.ok
-    assert res.code == "calc.poisson(2, 2, 0)"
-
-def test_translate_prob():
-    res = translate_formula("=PROB(A1:A10; B1:B10; 2; 5)")
-    assert res.ok
-    assert "calc.prob(data[0], data[1], 2, 5)" in res.code
-
-def test_translate_standardize():
-    res = translate_formula("=STANDARDIZE(42; 40; 1.5)")
-    assert res.ok
-    assert res.code == "calc.standardize(42, 40, 1.5)"
-
-def test_translate_tdist():
-    res = translate_formula("=TDIST(1.96; 60; 2)")
-    assert res.ok
-    assert res.code == "calc.tdist(1.96, 60, 2)"
-
-def test_translate_tinv():
-    res = translate_formula("=TINV(0.05; 60)")
-    assert res.ok
-    assert res.code == "calc.tinv(0.05, 60)"
-
-def test_translate_ttest():
-    res = translate_formula("=TTEST(A1:A10; B1:B10; 2; 1)")
-    assert res.ok
-    assert "calc.ttest(data[0], data[1], 2, 1)" in res.code
-
-def test_translate_weibull():
-    res = translate_formula("=WEIBULL(105; 20; 100; 1)")
-    assert res.ok
-    assert res.code == "calc.weibull(105, 20, 100, 1)"
-
-def test_translate_ztest():
-    res = translate_formula("=ZTEST(A1:A10; 4)")
-    assert res.ok
-    assert "calc.ztest(data, 4)" in res.code
-
-def test_translate_asc():
-    res = translate_formula("=ASC(A1)")
-    assert res.ok
-    assert "calc.asc(data)" in res.code
+    assert value_2 in res.code
 
 def test_translate_group_h():
     assert translate_formula("=BAHTTEXT(A1)").code == 'calc.bahttext(data)'
@@ -1638,6 +1601,4 @@ def test_translate_quoted_sheet_names():
     assert res.data_ranges == ["'My Sheet'.A1"]
     py_f = emit_py_formula(res.code, res.data_ranges)
     assert "'My Sheet'.A1" in py_f
-
-
 

@@ -52,39 +52,35 @@ def test_unknown_slice_raises() -> None:
         get_slice_spec("not_a_slice")
 
 
-def test_calc_core_injection_replaces_fragment_on_calc_tasks() -> None:
-    baseline = get_slice_baseline("calc_core")
-    assert "SORT:" in baseline
-    prompt, patches = apply_named_slice("tax_column", "calc_core", "SLICE_MARKER_XYZ")
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4, value_5",
+    [
+        pytest.param("calc_core", "SORT:", "tax_column", "calc_core", "tax_column", id="test_calc_core_injection_replaces_fragment_on_calc_tasks"),
+        pytest.param("apply_html", "APPLY_DOCUMENT_CONTENT AND HTML", "table_from_mess", "apply_html", "table_from_mess", id="test_apply_html_injection_replaces_fragment_on_writer_tasks"),
+    ],
+)
+def test_calc_core_injection_replaces_fragment_on_calc_tasks(value, value_2, value_3, value_4, value_5) -> None:
+    baseline = get_slice_baseline(value)
+    assert value_2 in baseline
+    prompt, patches = apply_named_slice(value_3, value_4, "SLICE_MARKER_XYZ")
     assert patches is None
     assert "SLICE_MARKER_XYZ" in prompt
     assert baseline not in prompt
-    assert get_eval_system_prompt("tax_column") != prompt
+    assert get_eval_system_prompt(value_5) != prompt
 
 
-def test_calc_core_injection_is_noop_on_writer_tasks() -> None:
-    prompt, patches = apply_named_slice("table_from_mess", "calc_core", "SLICE_MARKER_XYZ")
+@pytest.mark.parametrize(
+    "value, value_2, value_3",
+    [
+        pytest.param("table_from_mess", "calc_core", "table_from_mess", id="test_calc_core_injection_is_noop_on_writer_tasks"),
+        pytest.param("tax_column", "apply_html", "tax_column", id="test_apply_html_injection_is_noop_on_calc_tasks"),
+    ],
+)
+def test_calc_core_injection_is_noop_on_writer_tasks(value, value_2, value_3) -> None:
+    prompt, patches = apply_named_slice(value, value_2, "SLICE_MARKER_XYZ")
     assert patches is None
     assert "SLICE_MARKER_XYZ" not in prompt
-    assert prompt == get_eval_system_prompt("table_from_mess")
-
-
-def test_apply_html_injection_replaces_fragment_on_writer_tasks() -> None:
-    baseline = get_slice_baseline("apply_html")
-    assert "APPLY_DOCUMENT_CONTENT AND HTML" in baseline
-    prompt, patches = apply_named_slice("table_from_mess", "apply_html", "SLICE_MARKER_XYZ")
-    assert patches is None
-    assert "SLICE_MARKER_XYZ" in prompt
-    assert baseline not in prompt
-    assert get_eval_system_prompt("table_from_mess") != prompt
-
-
-def test_apply_html_injection_is_noop_on_calc_tasks() -> None:
-    prompt, patches = apply_named_slice("tax_column", "apply_html", "SLICE_MARKER_XYZ")
-    assert patches is None
-    assert "SLICE_MARKER_XYZ" not in prompt
-    assert prompt == get_eval_system_prompt("tax_column")
-
+    assert prompt == get_eval_system_prompt(value_3)
 
 def test_sort_range_slice_patches_specialized_schema() -> None:
     marker = "SORT_SLICE_MARKER"

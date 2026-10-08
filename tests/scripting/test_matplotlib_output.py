@@ -44,27 +44,30 @@ def test_ensure_mpl_agg_does_not_retry_after_use_failure(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_is_image_payload_valid_png():
-    payload = {"__wa_payload__": "image", "format": "png", "data": b"\x89PNG\r\n\x1a\nfake"}
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("png", b"\x89PNG\r\n\x1a\nfake", id="test_is_image_payload_valid_png"),
+        pytest.param("svg", b"<svg xmlns=...></svg>", id="test_is_image_payload_valid_svg"),
+    ],
+)
+def test_is_image_payload_valid_png(value, value_2):
+    payload = {"__wa_payload__": "image", "format": value, "data": value_2}
     assert is_image_payload(payload) is True
 
-
-def test_is_image_payload_valid_svg():
-    payload = {"__wa_payload__": "image", "format": "svg", "data": b"<svg xmlns=...></svg>"}
-    assert is_image_payload(payload) is True
-
-
-def test_is_image_payload_missing_data():
-    assert is_image_payload({"__wa_payload__": "image"}) is False
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("__wa_payload__", "image", id="test_is_image_payload_missing_data"),
+        pytest.param("foo", "bar", id="test_is_image_payload_unrelated_dict"),
+    ],
+)
+def test_is_image_payload_missing_data(value, value_2):
+    assert is_image_payload({value: value_2}) is False
 
 
 def test_is_image_payload_wrong_type():
     assert is_image_payload({"__wa_payload__": "image", "data": "not bytes"}) is False
-
-
-def test_is_image_payload_unrelated_dict():
-    assert is_image_payload({"foo": "bar"}) is False
-
 
 def test_is_image_payload_non_dict():
     assert is_image_payload([1, 2, 3]) is False
@@ -145,35 +148,27 @@ def test_serialize_result_figure():
 # ---------------------------------------------------------------------------
 
 
-def test_implicit_open_figure_capture():
-    """Open pyplot figure with no result assignment should produce an SVG image payload (post-run get_fignums)."""
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Open pyplot figure with no result assignment should produce an SVG image payload (post-run get_fignums).
+        pytest.param("import matplotlib.pyplot as plt\nplt.plot([1, 2, 3])", id="test_implicit_open_figure_capture"),
+        # result = fig should produce an SVG image payload via serialize_result.
+        pytest.param("import matplotlib.pyplot as plt\nfig, ax = plt.subplots()\nax.plot([1, 2, 3])\nresult = fig", id="test_explicit_figure_result"),
+    ],
+)
+def test_implicit_open_figure_capture(value):
     pytest.importorskip("matplotlib")
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     res = run_sandboxed_code(
-        "import matplotlib.pyplot as plt\nplt.plot([1, 2, 3])",
+        value,
         timeout_sec=30,
     )
     assert res["status"] == "ok"
     assert is_image_payload(res["result"])
     assert res["result"]["format"] == "svg"
     assert b"<svg" in res["result"]["data"]
-
-
-def test_explicit_figure_result():
-    """result = fig should produce an SVG image payload via serialize_result."""
-    pytest.importorskip("matplotlib")
-    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
-
-    res = run_sandboxed_code(
-        "import matplotlib.pyplot as plt\nfig, ax = plt.subplots()\nax.plot([1, 2, 3])\nresult = fig",
-        timeout_sec=30,
-    )
-    assert res["status"] == "ok"
-    assert is_image_payload(res["result"])
-    assert res["result"]["format"] == "svg"
-    assert b"<svg" in res["result"]["data"]
-
 
 def test_non_matplotlib_code_unaffected():
     """Scalar results should not be wrapped in an image payload."""

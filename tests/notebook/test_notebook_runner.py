@@ -287,38 +287,23 @@ def test_run_cell_busy_guard_shares_url_key_across_wrappers():
     assert getattr(nested[0], "status") == "busy"
 
 
-def test_insert_run_image_svg_mime():
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param("svg", b"<svg></svg>", "image/svg+xml", id="test_insert_run_image_svg_mime"),
+        pytest.param("webp", b"RIFF", "image/webp", id="test_insert_run_image_webp_mime"),
+        pytest.param("gif", b"GIF89a", "image/gif", id="test_insert_run_image_gif_mime"),
+    ],
+)
+def test_insert_run_image_svg_mime(value, value_2, expected):
     from plugin.notebook.notebook_runner import _insert_run_image
 
     doc = MagicMock()
-    payload = {"__wa_payload__": "image", "format": "svg", "data": b"<svg></svg>"}
+    payload = {"__wa_payload__": "image", "format": value, "data": value_2}
     with patch("plugin.notebook.notebook_runner._insert_image_in_flow", return_value=True) as insert_flow:
         assert _insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
     insert_flow.assert_called_once()
-    assert insert_flow.call_args.kwargs["mime"] == "image/svg+xml"
-
-
-def test_insert_run_image_webp_mime():
-    from plugin.notebook.notebook_runner import _insert_run_image
-
-    doc = MagicMock()
-    payload = {"__wa_payload__": "image", "format": "webp", "data": b"RIFF"}
-    with patch("plugin.notebook.notebook_runner._insert_image_in_flow", return_value=True) as insert_flow:
-        assert _insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
-    insert_flow.assert_called_once()
-    assert insert_flow.call_args.kwargs["mime"] == "image/webp"
-
-
-def test_insert_run_image_gif_mime():
-    from plugin.notebook.notebook_runner import _insert_run_image
-
-    doc = MagicMock()
-    payload = {"__wa_payload__": "image", "format": "gif", "data": b"GIF89a"}
-    with patch("plugin.notebook.notebook_runner._insert_image_in_flow", return_value=True) as insert_flow:
-        assert _insert_run_image(doc, payload, ctx=MagicMock(), images_before=0) is True
-    insert_flow.assert_called_once()
-    assert insert_flow.call_args.kwargs["mime"] == "image/gif"
-
+    assert insert_flow.call_args.kwargs["mime"] == expected
 
 def test_shared_notebook_session_via_sandbox():
     from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, run_sandboxed_code
@@ -445,9 +430,14 @@ def test_clear_cell_output_uses_set_string_not_delete_contents():
     sel.gotoRange.assert_called_once_with("end-pos", True)
     sel.setString.assert_called_once_with("")
 
-
-
-def test_clear_cell_output_stops_at_markdown_blockquote():
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("Quotations", "A blockquote", id="test_clear_cell_output_stops_at_markdown_blockquote"),
+        pytest.param("Heading 3", "Cell 3: Markdown", id="test_clear_cell_output_stops_at_markdown_cell_heading"),
+    ],
+)
+def test_clear_cell_output_stops_at_markdown_blockquote(value, value_2):
     cell = new_code_cell_entry(1, None, "nb_cell_1_code")
     start = MagicMock(name="start")
     start.ParaStyleName = "Preformatted Text"
@@ -458,8 +448,8 @@ def test_clear_cell_output_stops_at_markdown_blockquote():
     walker.getString.return_value = "Array: [10 20 30]"
 
     def goto_next(_expand):
-        walker.ParaStyleName = "Quotations"
-        walker.getString.return_value = "A blockquote"
+        walker.ParaStyleName = value
+        walker.getString.return_value = value_2
         return True
 
     walker.gotoNextParagraph.side_effect = goto_next
@@ -482,44 +472,6 @@ def test_clear_cell_output_stops_at_markdown_blockquote():
 
     sel.setString.assert_called_once_with("")
     walker.gotoStartOfParagraph.assert_called_once()
-
-
-def test_clear_cell_output_stops_at_markdown_cell_heading():
-    cell = new_code_cell_entry(1, None, "nb_cell_1_code")
-    start = MagicMock(name="start")
-    start.ParaStyleName = "Preformatted Text"
-    start.getString.return_value = "Array: [10 20 30]"
-
-    walker = MagicMock(name="walker")
-    walker.ParaStyleName = "Preformatted Text"
-    walker.getString.return_value = "Array: [10 20 30]"
-
-    def goto_next(_expand):
-        walker.ParaStyleName = "Heading 3"
-        walker.getString.return_value = "Cell 3: Markdown"
-        return True
-
-    walker.gotoNextParagraph.side_effect = goto_next
-    walker.getStart.return_value = "md-start"
-
-    range_start = MagicMock(name="range_start")
-    sel = MagicMock(name="sel")
-    sel.getString.return_value = "Array: [10 20 30]\n"
-
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
-    doc = MagicMock()
-    doc.getText.return_value = text
-
-    with (
-        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
-    ):
-        clear_cell_output(doc, cell)
-
-    sel.setString.assert_called_once_with("")
-    walker.gotoStartOfParagraph.assert_called_once()
-
 
 def test_clear_cell_output_collapsed_cursor_stops_at_markdown():
     """Live Writer collapsed cursors return empty getString(); expand to find chrome."""
@@ -956,9 +908,6 @@ def test_run_cell_for_doc_hex_execution_error_does_not_msgbox():
     boxed.assert_not_called()
     assert apply_calls
     assert isinstance(apply_calls, list) and len(apply_calls) > 0 and isinstance(apply_calls[0], dict) and apply_calls[0].get("status") == "error"
-
-
-
 
 def test_run_cell_for_doc_hex_setup_error_shows_msgbox():
     """Empty code or missing field surfaces a msgbox, as there's no result inline."""

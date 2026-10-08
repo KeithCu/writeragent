@@ -17,31 +17,43 @@ from plugin.calc.formula_fill import (
 from plugin.framework.errors import CalcError
 
 
-def test_j2_j5_h2_fill_down():
-    """J2:J5 + =H2 → H2…H5 (the AFC pin case)."""
-    assert expand_single_formula("=H2", 4, 1) == ["=H2", "=H3", "=H4", "=H5"]
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4, value_5",
+    [
+        # J2:J5 + =H2 → H2…H5 (the AFC pin case).
+        pytest.param("=H2", "=H2", "=H3", "=H4", "=H5", id="test_j2_j5_h2_fill_down"),
+        pytest.param("=$H$2", "=$H$2", "=$H$2", "=$H$2", "=$H$2", id="test_absolute_dollar_stays_on_fill_down"),
+    ],
+)
+def test_j2_j5_h2_fill_down(value, value_2, value_3, value_4, value_5):
+    assert expand_single_formula(value, 4, 1) == [value_2, value_3, value_4, value_5]
 
-
-def test_absolute_dollar_stays_on_fill_down():
-    assert expand_single_formula("=$H$2", 4, 1) == ["=$H$2", "=$H$2", "=$H$2", "=$H$2"]
-
-
-def test_mixed_absolute_fill_down():
-    assert expand_single_formula("=$H2+H$2", 3, 1) == [
-        "=$H2+H$2",
-        "=$H3+H$2",
-        "=$H4+H$2",
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4, value_5, value_6",
+    [
+        pytest.param("=$H2+H$2", 3, 1, "=$H2+H$2", "=$H3+H$2", "=$H4+H$2", id="test_mixed_absolute_fill_down"),
+        pytest.param("=A1", 1, 3, "=A1", "=B1", "=C1", id="test_fill_across_relative"),
+    ],
+)
+def test_mixed_absolute_fill_down(value, value_2, value_3, value_4, value_5, value_6):
+    assert expand_single_formula(value, value_2, value_3) == [
+        value_4,
+        value_5,
+        value_6,
     ]
 
-
-def test_fill_across_relative():
-    assert expand_single_formula("=A1", 1, 3) == ["=A1", "=B1", "=C1"]
-
-
-def test_py_multirow_datarange_is_verbatim():
-    formula = '=PY("result = data.mean()"; A1:H10)'
+@pytest.mark.parametrize(
+    "value, value_2, value_3",
+    [
+        pytest.param('=PY("result = data.mean()"; A1:H10)', 4, 4, id="test_py_multirow_datarange_is_verbatim"),
+        pytest.param('=PY("looks like A1:H10"; A1:H10)', 3, 3, id="test_py_quoted_block_plus_multirow_datarange_is_verbatim"),
+        pytest.param('=PY("unterminated', 3, 3, id="test_py_unparseable_is_verbatim"),
+    ],
+)
+def test_py_multirow_datarange_is_verbatim(value, value_2, value_3):
+    formula = value
     assert should_adjust_formula_fill(formula) is False
-    assert expand_single_formula(formula, 4, 1) == [formula] * 4
+    assert expand_single_formula(formula, value_2, 1) == [formula] * value_3
 
 
 def test_py_samerow_datarange_adjusts_down_a_column():
@@ -65,24 +77,10 @@ def test_py_quoted_a1_looking_text_is_not_a_sheet_ref():
     assert should_adjust_formula_fill(formula) is True
     assert adjust_a1_formula(formula, 0, 1) == formula
 
-
-def test_py_quoted_block_plus_multirow_datarange_is_verbatim():
-    formula = '=PY("looks like A1:H10"; A1:H10)'
-    assert should_adjust_formula_fill(formula) is False
-    assert expand_single_formula(formula, 3, 1) == [formula] * 3
-
-
 def test_py_whole_column_datarange_is_verbatim():
     formula = '=PY("result = data"; A:A)'
     assert classify_sheet_ref_span("A:A") == "multi_row"
     assert should_adjust_formula_fill(formula) is False
-
-
-def test_py_unparseable_is_verbatim():
-    formula = '=PY("unterminated'
-    assert should_adjust_formula_fill(formula) is False
-    assert expand_single_formula(formula, 3, 1) == [formula] * 3
-
 
 def test_py_index_arg_is_ambiguous_verbatim():
     formula = '=PY("result = data"; 1)'

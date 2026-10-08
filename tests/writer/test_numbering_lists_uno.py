@@ -29,11 +29,7 @@ import re
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import (
-    TestingFactory,
-    skip_windows_leftover_hidden_load,
-    with_native_doc,
-)
+from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.content import ApplyDocumentContent, GetDocumentContent
 from plugin.writer.search import SearchInDocument
 
@@ -76,8 +72,9 @@ _LIST_FIXTURE_HTML = [
 def _tool_ctx(doc, ctx):
     # apply_document_content HTML import opens a Hidden StarWriter temp doc.
     # Same leftover-Hidden skip as other apply_document_content UNO suites.
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
-    return TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    return native_writer_tool_context(
+        doc, ctx, skip_reason="apply_document_content Hidden _default swriter"
+    )
 
 
 def _rule_prop(rules, level, name):

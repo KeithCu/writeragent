@@ -646,39 +646,34 @@ def test_active_spans_overlap_after_threshold_drops_short_fragments() -> None:
     assert [t for _s, _e, t in active] == ["Sentence three."]
 
 
-def test_merge_dialogue_basic() -> None:
-    sents = [(0, '"Fire! '), (7, 'Fire!" he yelled.')]
+@pytest.mark.parametrize(
+    "value, value_2, value_3",
+    [
+        pytest.param('"Fire! ', 'Fire!" he yelled.', '"Fire! Fire!" he yelled.', id="test_merge_dialogue_basic"),
+        pytest.param('\u201cFire! ', 'Fire!\u201d he yelled.', '\u201cFire! Fire!\u201d he yelled.', id="test_merge_dialogue_curly_quotes"),
+        pytest.param('\u201eFire! ', 'Fire!\u201c sagte er.', '\u201eFire! Fire!\u201c sagte er.', id="test_merge_dialogue_german_low9"),
+    ],
+)
+def test_merge_dialogue_basic(value, value_2, value_3) -> None:
+    sents = [(0, value), (7, value_2)]
     merged = gt.merge_dialogue_sentences(sents)
-    assert merged == [(0, '"Fire! Fire!" he yelled.')]
+    assert merged == [(0, value_3)]
 
-
-def test_merge_dialogue_curly_quotes() -> None:
-    sents = [(0, '\u201cFire! '), (7, 'Fire!\u201d he yelled.')]
-    merged = gt.merge_dialogue_sentences(sents)
-    assert merged == [(0, '\u201cFire! Fire!\u201d he yelled.')]
-
-
-def test_merge_dialogue_balanced_no_merge() -> None:
-    sents = [(0, '"Hello!" she said. '), (20, '"Bye!" he said.')]
-    merged = gt.merge_dialogue_sentences(sents)
-    assert len(merged) == 2
-    assert merged[0] == (0, '"Hello!" she said. ')
-    assert merged[1] == (20, '"Bye!" he said.')
-
-
-def test_merge_dialogue_german_low9() -> None:
-    sents = [(0, '\u201eFire! '), (7, 'Fire!\u201c sagte er.')]
-    merged = gt.merge_dialogue_sentences(sents)
-    assert merged == [(0, '\u201eFire! Fire!\u201c sagte er.')]
-
-
-def test_merge_dialogue_guillemets() -> None:
-    sents = [(0, '\u00abBonjour!\u00bb dit-il. '), (20, '\u00abAu revoir!\u00bb')]
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4, value_5, value_6",
+    [
+        pytest.param('"Hello!" she said. ', 20, '"Bye!" he said.', '"Hello!" she said. ', 20, '"Bye!" he said.', id="test_merge_dialogue_balanced_no_merge"),
+        pytest.param('\u00abBonjour!\u00bb dit-il. ', 20, '\u00abAu revoir!\u00bb', '\u00abBonjour!\u00bb dit-il. ', 20, '\u00abAu revoir!\u00bb', id="test_merge_dialogue_guillemets"),
+        pytest.param("It's fine! ", 11, "Don't worry.", "It's fine! ", 11, "Don't worry.", id="test_merge_dialogue_ignores_apostrophes"),
+        pytest.param("\"He said 'wow!' to them.\" she noted. ", 38, "Next.", "\"He said 'wow!' to them.\" she noted. ", 38, "Next.", id="test_merge_dialogue_nested"),
+    ],
+)
+def test_merge_dialogue_balanced_no_merge(value, value_2, value_3, value_4, value_5, value_6) -> None:
+    sents = [(0, value), (value_2, value_3)]
     merged = gt.merge_dialogue_sentences(sents)
     assert len(merged) == 2
-    assert merged[0] == (0, '\u00abBonjour!\u00bb dit-il. ')
-    assert merged[1] == (20, '\u00abAu revoir!\u00bb')
-
+    assert merged[0] == (0, value_4)
+    assert merged[1] == (value_5, value_6)
 
 def test_merge_dialogue_unclosed_at_end() -> None:
     sents = [(0, '"Fire!')]
@@ -708,23 +703,6 @@ def test_merge_dialogue_max_consecutive_cap() -> None:
     assert len(merged) == 2
     assert merged[0] == (0, '"One! Two! Three! ')
     assert merged[1] == (18, 'Four!"')
-
-
-def test_merge_dialogue_ignores_apostrophes() -> None:
-    sents = [(0, "It's fine! "), (11, "Don't worry.")]
-    merged = gt.merge_dialogue_sentences(sents)
-    assert len(merged) == 2
-    assert merged[0] == (0, "It's fine! ")
-    assert merged[1] == (11, "Don't worry.")
-
-
-def test_merge_dialogue_nested() -> None:
-    sents = [(0, "\"He said 'wow!' to them.\" she noted. "), (38, "Next.")]
-    merged = gt.merge_dialogue_sentences(sents)
-    assert len(merged) == 2
-    assert merged[0] == (0, "\"He said 'wow!' to them.\" she noted. ")
-    assert merged[1] == (38, "Next.")
-
 
 def test_candidate_sentence_spans_merges_dialogue() -> None:
     text = '"Fire! Fire!" he yelled. Next sentence.'

@@ -9,18 +9,15 @@ import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
 from plugin.writer.content import ApplyDocumentContent
-from plugin.tests.testing_utils import (
-    TestingFactory,
-    skip_windows_leftover_hidden_load,
-    with_native_doc,
-)
+from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 
 _NBSP = chr(0xA0)  # non-breaking space U+00A0 (ASCII-safe in source)
 
 
 def _tool_ctx(doc, ctx):
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
-    return TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    return native_writer_tool_context(
+        doc, ctx, skip_reason="apply_document_content Hidden _default swriter"
+    )
 
 
 @native_test

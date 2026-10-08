@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import plugin.calc.python.cell_editor_ui as ui
+import pytest
 
 
 class _FakeModel:
@@ -542,26 +543,19 @@ def _open_with_formula(formula, *, resolve_cell=None, initial_code=None):
     return captured
 
 
-def test_open_range_code_arg_does_not_follow():
-    captured = _open_with_formula("=PY(A1:A10)")
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("=PY(A1:A10)", "A1:A10", id="test_open_range_code_arg_does_not_follow"),
+        pytest.param("=PY(A1+B1)", "A1+B1", id="test_open_a1_plus_b1_does_not_follow"),
+        pytest.param("=PY(sp.prime(100))", "sp.prime(100)", id="test_open_sp_prime_does_not_follow"),
+    ],
+)
+def test_open_range_code_arg_does_not_follow(value, expected):
+    captured = _open_with_formula(value)
     captured["resolve"].assert_not_called()
     assert captured["load_message"]["follow_code_ref"] is False
-    assert captured["load_message"]["code"] == "A1:A10"
-
-
-def test_open_a1_plus_b1_does_not_follow():
-    captured = _open_with_formula("=PY(A1+B1)")
-    captured["resolve"].assert_not_called()
-    assert captured["load_message"]["follow_code_ref"] is False
-    assert captured["load_message"]["code"] == "A1+B1"
-
-
-def test_open_sp_prime_does_not_follow():
-    captured = _open_with_formula("=PY(sp.prime(100))")
-    captured["resolve"].assert_not_called()
-    assert captured["load_message"]["follow_code_ref"] is False
-    assert captured["load_message"]["code"] == "sp.prime(100)"
-
+    assert captured["load_message"]["code"] == expected
 
 def test_open_relative_a1_follows_code_cell():
     code_cell = MagicMock()
@@ -573,35 +567,26 @@ def test_open_relative_a1_follows_code_cell():
     assert captured["load_message"]["follow_code_ref"] is True
 
 
-def test_open_sheet2_follows_code_cell():
+@pytest.mark.parametrize(
+    "Sheet, value, value_2, initial_code, expected",
+    [
+        pytest.param(1, "result = 7", "=PY(Sheet2.A1; C1:C2)", "Sheet2.A1", "result = 7", id="test_open_sheet2_follows_code_cell"),
+        pytest.param(0, "result = 5", "=PYTHON($A$1; C1:C2)", "$A$1", "result = 5", id="test_open_python_alias_follows_code_cell"),
+    ],
+)
+def test_open_sheet2_follows_code_cell(Sheet, value, value_2, initial_code, expected):
     code_cell = MagicMock()
-    code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=1)
-    code_cell.getString.return_value = "result = 7"
+    code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=Sheet)
+    code_cell.getString.return_value = value
     captured = _open_with_formula(
-        "=PY(Sheet2.A1; C1:C2)",
+        value_2,
         resolve_cell=code_cell,
-        initial_code="Sheet2.A1",
+        initial_code=initial_code,
     )
     captured["resolve"].assert_called_once()
-    assert captured["load_message"]["code"] == "result = 7"
+    assert captured["load_message"]["code"] == expected
     assert captured["load_message"]["follow_code_ref"] is True
     assert captured["load_message"]["data_binding"] == "C1:C2"
-
-
-def test_open_python_alias_follows_code_cell():
-    code_cell = MagicMock()
-    code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=0)
-    code_cell.getString.return_value = "result = 5"
-    captured = _open_with_formula(
-        "=PYTHON($A$1; C1:C2)",
-        resolve_cell=code_cell,
-        initial_code="$A$1",
-    )
-    captured["resolve"].assert_called_once()
-    assert captured["load_message"]["code"] == "result = 5"
-    assert captured["load_message"]["follow_code_ref"] is True
-    assert captured["load_message"]["data_binding"] == "C1:C2"
-
 
 def test_open_missing_code_cell_shows_error():
     from plugin.calc.python import editor as ed

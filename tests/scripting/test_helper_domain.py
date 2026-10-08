@@ -18,6 +18,7 @@ from plugin.scripting.helper_domain import (
     rps_insert_failed_outcome,
     script_uses_run_import,
 )
+import pytest
 
 
 def test_parse_valid_header():
@@ -28,15 +29,16 @@ def test_parse_valid_header():
     assert meta.params == {"value": "10"}
 
 
-def test_parse_missing_tag():
-    code = '# writeragent:analysis helper=describe_data params={}\n'
-    assert parse_helper_script_header(code, tag="units", helper_names={"convert_quantity"}) is None
-
-
-def test_parse_unknown_helper():
-    code = "# writeragent:analysis helper=not_real params={}\n"
-    assert parse_helper_script_header(code, tag="analysis", helper_names={"describe_data"}) is None
-
+@pytest.mark.parametrize(
+    "value, tag, value_2",
+    [
+        pytest.param('# writeragent:analysis helper=describe_data params={}\n', "units", "convert_quantity", id="test_parse_missing_tag"),
+        pytest.param("# writeragent:analysis helper=not_real params={}\n", "analysis", "describe_data", id="test_parse_unknown_helper"),
+    ],
+)
+def test_parse_missing_tag(value, tag, value_2):
+    code = value
+    assert parse_helper_script_header(code, tag=tag, helper_names={value_2}) is None
 
 def test_parse_bad_json_empty():
     code = "# writeragent:units helper=convert_quantity params={not-json}\n"

@@ -42,21 +42,21 @@ class TestExcelXlShim:
         xl = make_xl((r0,))
         assert (xl("%p2%")) is (r0)
 
-    def test_unbound_index_raises(self):
+    @pytest.mark.parametrize(
+        "value, value_2",
+        [
+            pytest.param("%P9%", "ref 9", id="test_unbound_index_raises"),
+            pytest.param("%P1%", "ref 1", id="test_unbound_p1_reports_ref_1"),
+        ],
+    )
+    def test_unbound_index_raises(self, value, value_2):
         xl = make_xl((CalcRange([[1]]),))
         with pytest.raises(ValueError) as ctx:
-            xl("%P9%")
+            xl(value)
         err = str(ctx.value)
         assert ("no matching data binding") in err
-        assert "ref 9" in err
+        assert value_2 in err
 
-    def test_unbound_p1_reports_ref_1(self):
-        xl = make_xl((CalcRange([[1]]),))
-        with pytest.raises(ValueError) as ctx:
-            xl("%P1%")
-        err = str(ctx.value)
-        assert "no matching data binding" in err
-        assert "ref 1" in err
 
     def test_a1_literal_raises(self):
         xl = make_xl((CalcRange([[1]]),))

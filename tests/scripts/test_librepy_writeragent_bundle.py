@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -19,9 +20,16 @@ def test_librepy_bundle_includes_writeragent_namespace():
     assert "plugin/scripting/host_rpc.py" in paths
 
 
-def test_librepy_bundle_excludes_writeragent_api():
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("plugin/scripting/writeragent_api.py", id="test_librepy_bundle_excludes_writeragent_api"),
+        pytest.param("plugin/framework/tool.py", id="test_librepy_bundle_excludes_dead_tool_module"),
+    ],
+)
+def test_librepy_bundle_excludes_writeragent_api(value):
     paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/scripting/writeragent_api.py" not in paths
+    assert value not in paths
 
 
 def test_librepy_bundle_includes_settings_fields():
@@ -30,30 +38,33 @@ def test_librepy_bundle_includes_settings_fields():
     assert "plugin/scripting/venv_probe_ui.py" in paths
 
 
-def test_librepy_bundle_includes_ast_stmt_edit():
-    """Still on the LibrePy allowlist. No plugin module imports it; strip_code does at build time."""
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Still on the LibrePy allowlist. No plugin module imports it; strip_code does at build time.
+        pytest.param("plugin/framework/ast_stmt_edit.py", id="test_librepy_bundle_includes_ast_stmt_edit"),
+        # constants and other framework modules import deal via deal_shim; must ship in LibrePy.oxt.
+        pytest.param("plugin/framework/deal_shim.py", id="test_librepy_bundle_includes_deal_shim"),
+    ],
+)
+def test_librepy_bundle_includes_ast_stmt_edit(value):
     paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/framework/ast_stmt_edit.py" in paths
+    assert value in paths
 
-
-def test_librepy_bundle_includes_deal_shim():
-    """constants and other framework modules import deal via deal_shim; must ship in LibrePy.oxt."""
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4",
+    [
+        pytest.param("plugin/doc/doc_type.py", "plugin/doc/text_helpers.py", "plugin/calc/datetime_wire.py", "plugin/calc/analyzer.py", id="test_librepy_bundle_includes_doc_type_and_datetime_wire"),
+        # Weekly update check + sync_request deps must ship in LibrePy.oxt.
+        pytest.param("plugin/chatbot/extension_update_check.py", "plugin/framework/client/requests.py", "plugin/framework/client/ssl_helpers.py", "plugin/framework/client/provider_detection.py", id="test_librepy_bundle_includes_extension_update_check"),
+    ],
+)
+def test_librepy_bundle_includes_doc_type_and_datetime_wire(value, value_2, value_3, value_4):
     paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/framework/deal_shim.py" in paths
-
-
-def test_librepy_bundle_includes_doc_type_and_datetime_wire():
-    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/doc/doc_type.py" in paths
-    assert "plugin/doc/text_helpers.py" in paths
-    assert "plugin/calc/datetime_wire.py" in paths
-    assert "plugin/calc/analyzer.py" in paths
-
-
-def test_librepy_bundle_excludes_dead_tool_module():
-    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/framework/tool.py" not in paths
-
+    assert value in paths
+    assert value_2 in paths
+    assert value_3 in paths
+    assert value_4 in paths
 
 def test_librepy_bundle_excludes_chat_document_helpers_and_smolagents_tools():
     paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
@@ -110,10 +121,3 @@ def test_librepy_bundle_includes_notebook_and_nbformat():
     assert "plugin/doc/document_helpers.py" not in paths
 
 
-def test_librepy_bundle_includes_extension_update_check():
-    """Weekly update check + sync_request deps must ship in LibrePy.oxt."""
-    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/chatbot/extension_update_check.py" in paths
-    assert "plugin/framework/client/requests.py" in paths
-    assert "plugin/framework/client/ssl_helpers.py" in paths
-    assert "plugin/framework/client/provider_detection.py" in paths

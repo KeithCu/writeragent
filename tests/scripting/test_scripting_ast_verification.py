@@ -14,6 +14,7 @@ from hypothesis import strategies as st
 
 from plugin.contrib.smolagents.local_python_executor import ALLOWED_DUNDER_ATTRIBUTES
 from plugin.scripting.sandbox_cache import validate_sandbox_ast, get_hot_entry
+import pytest
 
 
 def test_validate_sandbox_ast_safe_code() -> None:
@@ -23,21 +24,19 @@ def test_validate_sandbox_ast_safe_code() -> None:
     assert error is None
 
 
-def test_validate_sandbox_ast_forbidden_dunder() -> None:
-    code = "x = obj.__code__"
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("x = obj.__code__", "Forbidden access to dunder attribute", id="test_validate_sandbox_ast_forbidden_dunder"),
+        pytest.param("import os", "Import of os is not allowed", id="test_validate_sandbox_ast_unauthorized_import"),
+    ],
+)
+def test_validate_sandbox_ast_forbidden_dunder(value, value_2) -> None:
+    code = value
     module = ast.parse(code)
     error = validate_sandbox_ast(module, ["math"])
     assert error is not None
-    assert "Forbidden access to dunder attribute" in error
-
-
-def test_validate_sandbox_ast_unauthorized_import() -> None:
-    code = "import os"
-    module = ast.parse(code)
-    error = validate_sandbox_ast(module, ["math"])
-    assert error is not None
-    assert "Import of os is not allowed" in error
-
+    assert value_2 in error
 
 @given(attr=st.text(min_size=1, max_size=20))
 @settings(max_examples=100)

@@ -333,33 +333,25 @@ def _assert_forbidden_origin(err: urllib.error.HTTPError) -> None:
     assert err.headers.get("Access-Control-Allow-Methods") is None
 
 
-def test_options_mcp_unsafe_origin_no_allow_origin(mcp_server):
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("http://example.com", id="test_options_mcp_unsafe_origin_no_allow_origin"),
+        pytest.param("http://example.com/?x", id="test_options_mcp_junk_origin_is_403_not_500"),
+    ],
+)
+def test_options_mcp_unsafe_origin_no_allow_origin(mcp_server, value):
     req = urllib.request.Request(
         f"{mcp_server}/mcp",
         method="OPTIONS",
         headers={
-            "Origin": "http://example.com",
+            "Origin": value,
             "Access-Control-Request-Method": "POST",
         },
     )
     with pytest.raises(urllib.error.HTTPError) as exc_info:
         urllib.request.urlopen(req, timeout=5)
     _assert_forbidden_origin(exc_info.value)
-
-
-def test_options_mcp_junk_origin_is_403_not_500(mcp_server):
-    req = urllib.request.Request(
-        f"{mcp_server}/mcp",
-        method="OPTIONS",
-        headers={
-            "Origin": "http://example.com/?x",
-            "Access-Control-Request-Method": "POST",
-        },
-    )
-    with pytest.raises(urllib.error.HTTPError) as exc_info:
-        urllib.request.urlopen(req, timeout=5)
-    _assert_forbidden_origin(exc_info.value)
-
 
 def test_post_mcp_unsafe_origin_is_403_without_jsonrpc(mcp_server):
     before = mcp_protocol._mcp_session_id

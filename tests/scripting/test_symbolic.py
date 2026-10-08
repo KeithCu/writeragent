@@ -91,28 +91,33 @@ def test_insert_symbolic_result_into_calc() -> None:
         mock_insert.assert_called_once()
 
 
-def test_differentiate_atan():
+@pytest.mark.parametrize(
+    "expression, value, expected",
+    [
+        pytest.param("atan(x)", "1/(x**2 + 1)", "\\frac{1}{x^{2} + 1}", id="test_differentiate_atan"),
+        pytest.param("ln(x)", "1/x", "\\frac{1}{x}", id="test_differentiate_ln"),
+    ],
+)
+def test_differentiate_atan(expression, value, expected):
     from plugin.scripting.venv.symbolic import differentiate
 
-    res = differentiate(expression="atan(x)", variable="x")
+    res = differentiate(expression=expression, variable="x")
     assert res["status"] == "ok"
-    assert "1/(x**2 + 1)" in res["text"] or res["latex"] == "\\frac{1}{x^{2} + 1}"
+    assert value in res["text"] or res["latex"] == expected
 
-
-def test_differentiate_ln():
+@pytest.mark.parametrize(
+    "expression, expected, value, expected_2",
+    [
+        pytest.param("x^2", "ok", "text", "2*x", id="test_differentiate_xor_power"),
+        pytest.param("custom_fn(x)", "error", "code", "PARSE_ERROR", id="test_undefined_function_is_parse_error"),
+    ],
+)
+def test_differentiate_xor_power(expression, expected, value, expected_2):
     from plugin.scripting.venv.symbolic import differentiate
 
-    res = differentiate(expression="ln(x)", variable="x")
-    assert res["status"] == "ok"
-    assert "1/x" in res["text"] or res["latex"] == "\\frac{1}{x}"
-
-
-def test_differentiate_xor_power():
-    from plugin.scripting.venv.symbolic import differentiate
-
-    res = differentiate(expression="x^2", variable="x")
-    assert res["status"] == "ok"
-    assert res["text"] == "2*x"
+    res = differentiate(expression=expression, variable="x")
+    assert res["status"] == expected
+    assert res[value] == expected_2
 
 
 def test_differentiate_multi_letter_variable():
@@ -183,15 +188,6 @@ def test_variable_returned_stripped():
 
     res_sol = solve_equation(equation="x = 1", variable=" x ")
     assert res_sol["variable"] == "x"
-
-
-def test_undefined_function_is_parse_error():
-    from plugin.scripting.venv.symbolic import differentiate
-
-    res = differentiate(expression="custom_fn(x)", variable="x")
-    assert res["status"] == "error"
-    assert res["code"] == "PARSE_ERROR"
-
 
 def test_is_symbolic_result():
     from plugin.scripting.symbolic import is_symbolic_result

@@ -11,6 +11,7 @@ from plugin.calc.spreadsheet_import.emit import build_converted_output_model, em
 from plugin.calc.spreadsheet_import.ingest import ingest_from_arrays
 from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
 from plugin.calc.spreadsheet_import.translate import translate_formula
+import pytest
 
 
 def _assert_lexer_safe_formula(formula: str | None) -> None:
@@ -25,21 +26,19 @@ def test_corpus_sum_left_as_calc():
     assert res.reason == "UNSUPPORTED_FUNCTION"
 
 
-def test_corpus_text_month_emission():
-    res = translate_formula('=TEXT(B5; "MMMM")')
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param('=TEXT(B5; "MMMM")', "calc.fmt", id="test_corpus_text_month_emission"),
+        pytest.param("=ROUNDUP(C4; 0)", "np.ceil", id="test_corpus_roundup_emission"),
+    ],
+)
+def test_corpus_text_month_emission(value, value_2):
+    res = translate_formula(value)
     assert res.ok
     formula = emit_py_formula(res.code, res.data_ranges or [])
     _assert_lexer_safe_formula(formula)
-    assert "calc.fmt" in formula
-
-
-def test_corpus_roundup_emission():
-    res = translate_formula("=ROUNDUP(C4; 0)")
-    assert res.ok
-    formula = emit_py_formula(res.code, res.data_ranges or [])
-    _assert_lexer_safe_formula(formula)
-    assert "np.ceil" in formula
-
+    assert value_2 in formula
 
 def test_corpus_ratio_arithmetic_emission():
     res = translate_formula("=C4/C5")

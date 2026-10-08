@@ -15,6 +15,7 @@ import json
 
 from compute_service.executor import execute_code
 from compute_service.json_egress import to_dumb_json_value
+import pytest
 
 
 class TestOnlinePyJsonContract:
@@ -26,17 +27,19 @@ class TestOnlinePyJsonContract:
         assert out["result"] == 2
         json.dumps(out, allow_nan=False)
 
-    def test_null_and_nan(self) -> None:
-        out = execute_code("result = [float('nan'), None]")
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param("result = [float('nan'), None]", id="test_null_and_nan"),
+            pytest.param("result = [float('inf'), float('-inf')]", id="test_inf_is_null"),
+        ],
+    )
+    def test_null_and_nan(self, value) -> None:
+        out = execute_code(value)
         assert out["status"] == "ok"
         assert out["result"] == [None, None]
         json.dumps(out, allow_nan=False)
 
-    def test_inf_is_null(self) -> None:
-        out = execute_code("result = [float('inf'), float('-inf')]")
-        assert out["status"] == "ok"
-        assert out["result"] == [None, None]
-        json.dumps(out, allow_nan=False)
 
     def test_one_by_one_stays_nested(self) -> None:
         out = execute_code("result = [[7]]")
@@ -63,10 +66,17 @@ class TestOnlinePyJsonContract:
         assert out["status"] == "ok"
         assert out["result"] == [10, 20, 30]
 
-    def test_2d_grid(self) -> None:
-        out = execute_code("result = [[1, 2], [3, 4]]")
+    @pytest.mark.parametrize(
+        "value, value_2, value_3, value_4",
+        [
+            pytest.param("result = [[1, 2], [3, 4]]", 2, 3, 4, id="test_2d_grid"),
+            pytest.param('result = [[1, "a"], [2, "b"]]', "a", 2, "b", id="test_mixed_type_grid"),
+        ],
+    )
+    def test_2d_grid(self, value, value_2, value_3, value_4) -> None:
+        out = execute_code(value)
         assert out["status"] == "ok"
-        assert out["result"] == [[1, 2], [3, 4]]
+        assert out["result"] == [[1, value_2], [value_3, value_4]]
 
     def test_column_vector_stays_nested(self) -> None:
         # C++ parse keeps [[1],[2],[3]] as 3×1 (emit may flatten ranges the other way).
@@ -79,10 +89,6 @@ class TestOnlinePyJsonContract:
         assert out["status"] == "ok"
         assert out["result"] == [[1], [2], [3]]
 
-    def test_mixed_type_grid(self) -> None:
-        out = execute_code('result = [[1, "a"], [2, "b"]]')
-        assert out["status"] == "ok"
-        assert out["result"] == [[1, "a"], [2, "b"]]
 
     def test_images_top_level_on_plot(self) -> None:
         out = execute_code(

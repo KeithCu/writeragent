@@ -7,25 +7,23 @@ from unittest.mock import MagicMock, patch
 
 
 from plugin.writer.math.latex_dialog import show_latex_input_dialog  # noqa: E402
+import pytest
 
 
-def test_show_latex_input_dialog_sets_update_label() -> None:
+@pytest.mark.parametrize(
+    "update, expected",
+    [
+        pytest.param(True, "Update", id="test_show_latex_input_dialog_sets_update_label"),
+        pytest.param(False, "Insert", id="test_show_latex_input_dialog_sets_insert_label"),
+    ],
+)
+def test_show_latex_input_dialog_sets_update_label(update, expected) -> None:
     dlg = MagicMock()
     btn = MagicMock()
     dlg.getControl.side_effect = lambda name: btn if name == "BtnInsert" else MagicMock()
     with patch("plugin.writer.math.latex_dialog.load_writeragent_dialog", return_value=dlg):
-        show_latex_input_dialog(object(), update=True)
-    assert btn.getModel().Label == "Update"
-
-
-def test_show_latex_input_dialog_sets_insert_label() -> None:
-    dlg = MagicMock()
-    btn = MagicMock()
-    dlg.getControl.side_effect = lambda name: btn if name == "BtnInsert" else MagicMock()
-    with patch("plugin.writer.math.latex_dialog.load_writeragent_dialog", return_value=dlg):
-        show_latex_input_dialog(object(), update=False)
-    assert btn.getModel().Label == "Insert"
-
+        show_latex_input_dialog(object(), update=update)
+    assert btn.getModel().Label == expected
 
 def test_latex_dialog_uno_skips_windows_leftover_hidden_mml() -> None:
     """GHA 34675151298: leftover writer reuse then Hidden _blank .mml hung 30s."""

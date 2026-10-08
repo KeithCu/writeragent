@@ -5,6 +5,7 @@ from plugin.chatbot.config_ui_helpers import (
     sync_sidebar_text_model,
     update_lru_history,
 )
+import pytest
 
 class TestConfigUiHelpers:
 
@@ -497,7 +498,14 @@ class TestPopulateComboboxWithLruFetchOptions:
         assert ('google/gemini-2.5-flash') in (items)
         ctrl.setText.assert_called_with('mistralai/voxtral-mini-transcribe')
 
-    def test_openrouter_stt_defaults_voxtral(self):
+    @pytest.mark.parametrize(
+        "value, value_2",
+        [
+            pytest.param('audio_model_lru', 'mistralai/voxtral-mini-transcribe', id="test_openrouter_stt_defaults_voxtral"),
+            pytest.param('tts_model_lru', 'hexgrad/Kokoro-82M', id="test_openrouter_tts_defaults_kokoro"),
+        ],
+    )
+    def test_openrouter_stt_defaults_voxtral(self, value, value_2):
         ctrl = MagicMock()
         ctrl.getItemCount.return_value = 0
         ep = 'https://openrouter.ai/api'
@@ -505,27 +513,13 @@ class TestPopulateComboboxWithLruFetchOptions:
             self.ctx,
             ctrl,
             '',
-            'audio_model_lru',
+            value,
             ep,
             skip_remote_fetch=True,
             api_key_override='test-key',
         )
-        ctrl.setText.assert_called_with('mistralai/voxtral-mini-transcribe')
+        ctrl.setText.assert_called_with(value_2)
 
-    def test_openrouter_tts_defaults_kokoro(self):
-        ctrl = MagicMock()
-        ctrl.getItemCount.return_value = 0
-        ep = 'https://openrouter.ai/api'
-        populate_combobox_with_lru(
-            self.ctx,
-            ctrl,
-            '',
-            'tts_model_lru',
-            ep,
-            skip_remote_fetch=True,
-            api_key_override='test-key',
-        )
-        ctrl.setText.assert_called_with('hexgrad/Kokoro-82M')
 
     def test_tts_placeholder_sanitized_and_excluded(self):
         ctrl = MagicMock()

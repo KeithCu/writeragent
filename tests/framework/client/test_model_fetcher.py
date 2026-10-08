@@ -3,6 +3,7 @@ import json
 import tempfile
 from unittest.mock import patch
 from plugin.framework.client.model_fetcher import endpoint_url_suitable_for_v1_models_fetch
+import pytest
 
 class TestEndpointUrlSuitableForModelFetch:
 
@@ -164,23 +165,19 @@ class TestGetModelCapabilityOpenRouter:
 
 
 class TestHasNativeAudio:
-    def test_audio_only_stt_model_is_not_native_audio(self):
+    @pytest.mark.parametrize(
+        "value, value_2, expected",
+        [
+            pytest.param('mistralai/voxtral-mini-transcribe', 'https://openrouter.ai/api', False, id="test_audio_only_stt_model_is_not_native_audio"),
+            pytest.param('whisper-1', 'https://example.invalid/v1', False, id="test_uncatalogued_whisper_is_not_native_audio"),
+            pytest.param('some-chat-model', 'https://example.invalid/v1', None, id="test_unknown_model_stays_unknown"),
+        ],
+    )
+    def test_audio_only_stt_model_is_not_native_audio(self, value, value_2, expected):
         from plugin.framework.client.model_fetcher import has_native_audio
         with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
-            result = has_native_audio('mistralai/voxtral-mini-transcribe', 'https://openrouter.ai/api')
-        assert result is False
-
-    def test_uncatalogued_whisper_is_not_native_audio(self):
-        from plugin.framework.client.model_fetcher import has_native_audio
-        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
-            result = has_native_audio('whisper-1', 'https://example.invalid/v1')
-        assert result is False
-
-    def test_unknown_model_stays_unknown(self):
-        from plugin.framework.client.model_fetcher import has_native_audio
-        with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
-            result = has_native_audio('some-chat-model', 'https://example.invalid/v1')
-        assert result is None
+            result = has_native_audio(value, value_2)
+        assert result is expected
 
     def test_chat_and_audio_model_is_native_audio(self):
         from plugin.framework.client.model_fetcher import has_native_audio
@@ -757,31 +754,26 @@ class TestV1ContextHarvest:
 
 
 class TestGetSttModel:
-    def test_audio_stt_model_wins_over_legacy(self):
+    @pytest.mark.parametrize(
+        "value, value_2, expected",
+        [
+            pytest.param("speech-new", "speech-old", "speech-new", id="test_audio_stt_model_wins_over_legacy"),
+            pytest.param("", "whisper-legacy", "whisper-legacy", id="test_legacy_stt_model_when_new_key_empty"),
+        ],
+    )
+    def test_audio_stt_model_wins_over_legacy(self, value, value_2, expected):
         from plugin.framework.client.model_fetcher import get_stt_model
 
         def fake_get(key):
             if key == "audio.stt_model":
-                return "speech-new"
+                return value
             if key == "stt_model":
-                return "speech-old"
+                return value_2
             return ""
 
         with patch("plugin.framework.client.model_fetcher.get_config", side_effect=fake_get):
-            assert get_stt_model() == "speech-new"
+            assert get_stt_model() == expected
 
-    def test_legacy_stt_model_when_new_key_empty(self):
-        from plugin.framework.client.model_fetcher import get_stt_model
-
-        def fake_get(key):
-            if key == "audio.stt_model":
-                return ""
-            if key == "stt_model":
-                return "whisper-legacy"
-            return ""
-
-        with patch("plugin.framework.client.model_fetcher.get_config", side_effect=fake_get):
-            assert get_stt_model() == "whisper-legacy"
 
     def test_default_from_provider_when_both_empty(self):
         from plugin.framework.client.model_fetcher import get_stt_model

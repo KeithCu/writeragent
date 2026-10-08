@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import ast
 
+import pytest
+
 from plugin.framework.ast_stmt_edit import (
     is_name_call_expr,
     iter_matching_expr_statements,
@@ -47,28 +49,24 @@ def test_one_line_suite_splices_pass_after_colon() -> None:
     ast.parse(out)
 
 
-def test_same_line_sibling_is_kept() -> None:
-    src = "print(1); keep()\n"
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("print(1); keep()\n", 1, id="test_same_line_sibling_is_kept"),
+        # Two cuts share a line. Offsets must be taken from the original line.
+        #
+        #     Rewriting the first ``print`` in place used to shift columns so the second
+        #     cut deleted ``keep()`` and left ``print(2)``.
+        pytest.param("print(1); print(2); keep()\n", 2, id="test_same_line_two_removed_calls_keep_sibling"),
+    ],
+)
+def test_same_line_sibling_is_kept(value, expected) -> None:
+    src = value
     out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
-    assert n == 1
+    assert n == expected
     assert "print" not in out
     assert "keep()" in out
     ast.parse(out)
-
-
-def test_same_line_two_removed_calls_keep_sibling() -> None:
-    """Two cuts share a line. Offsets must be taken from the original line.
-
-    Rewriting the first ``print`` in place used to shift columns so the second
-    cut deleted ``keep()`` and left ``print(2)``.
-    """
-    src = "print(1); print(2); keep()\n"
-    out, n = remove_expr_statements(src, lambda node: is_name_call_expr(node, frozenset({"print"})))
-    assert n == 2
-    assert "print" not in out
-    assert "keep()" in out
-    ast.parse(out)
-
 
 def test_multiline_call_fully_removed() -> None:
     src = (

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import pytest
 
 from plugin.framework.client.llm_client import (
     OPENROUTER_CHAT_EXTRA_BLOCKLIST,
     merge_openrouter_chat_extra,
 )
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def test_blocklist_keys_documented() -> None:
@@ -61,33 +58,25 @@ def test_resolve_editor_argv_windows_returns_none(monkeypatch: "pytest.MonkeyPat
     assert ee.resolve_editor_argv("C:\\a.json") is None
 
 
-def test_resolve_editor_argv_linux_kate_first(monkeypatch: "pytest.MonkeyPatch") -> None:
+@pytest.mark.parametrize(
+    "expected, value, value_2",
+    [
+        pytest.param("kate", "/usr/bin/kate", "/usr/bin/kate", id="test_resolve_editor_argv_linux_kate_first"),
+        pytest.param("gedit", "/usr/bin/gedit", "/usr/bin/gedit", id="test_resolve_editor_argv_linux_gedit_if_no_kate"),
+    ],
+)
+def test_resolve_editor_argv_linux_kate_first(monkeypatch: "pytest.MonkeyPatch", expected, value, value_2) -> None:
     from plugin.chatbot import external_editor as ee
 
     monkeypatch.setattr("sys.platform", "linux")
 
     def _which(cmd: str) -> str | None:
-        if cmd == "kate":
-            return "/usr/bin/kate"
+        if cmd == expected:
+            return value
         return None
 
     monkeypatch.setattr(ee.shutil, "which", _which)
-    assert ee.resolve_editor_argv("/p.json") == ["/usr/bin/kate", "/p.json"]
-
-
-def test_resolve_editor_argv_linux_gedit_if_no_kate(monkeypatch: "pytest.MonkeyPatch") -> None:
-    from plugin.chatbot import external_editor as ee
-
-    monkeypatch.setattr("sys.platform", "linux")
-
-    def _which(cmd: str) -> str | None:
-        if cmd == "gedit":
-            return "/usr/bin/gedit"
-        return None
-
-    monkeypatch.setattr(ee.shutil, "which", _which)
-    assert ee.resolve_editor_argv("/p.json") == ["/usr/bin/gedit", "/p.json"]
-
+    assert ee.resolve_editor_argv("/p.json") == [value_2, "/p.json"]
 
 def test_resolve_editor_argv_linux_editor_env(monkeypatch: "pytest.MonkeyPatch") -> None:
     from plugin.chatbot import external_editor as ee

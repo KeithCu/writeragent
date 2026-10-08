@@ -914,43 +914,30 @@ def test_sync_api_key_preset_loads_saved_key() -> None:
     mock_set.assert_called_once_with(api, "sk-together")
 
 
-def test_populate_fields_wires_audio_stt_model_lru() -> None:
+@pytest.mark.parametrize(
+    "expected, value, value_2, value_3",
+    [
+        pytest.param("audio__stt_model", "audio__stt_model", "whisper-1", "whisper-1", id="test_populate_fields_wires_audio_stt_model_lru"),
+        pytest.param("stt_model", "stt_model", "whisper-legacy", "whisper-legacy", id="test_populate_fields_wires_legacy_stt_control_id"),
+    ],
+)
+def test_populate_fields_wires_audio_stt_model_lru(expected, value, value_2, value_3) -> None:
     from plugin.chatbot.dialog_views import SettingsDialog
 
     dlg = MagicMock()
     stt_ctrl = MagicMock()
-    dlg.getControl.side_effect = lambda name: stt_ctrl if name == "audio__stt_model" else None
+    dlg.getControl.side_effect = lambda name: stt_ctrl if name == expected else None
 
     view = SettingsDialog(MagicMock())
     view._dlg = dlg
-    field_specs = [{"name": "audio__stt_model", "value": "whisper-1"}]
+    field_specs = [{"name": value, "value": value_2}]
 
     with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
         view._populate_fields(field_specs, "https://openrouter.ai/api")
         mock_lru.assert_called_once_with(
-            view._ctx, stt_ctrl, "whisper-1", "audio_model_lru", "https://openrouter.ai/api",
+            view._ctx, stt_ctrl, value_3, "audio_model_lru", "https://openrouter.ai/api",
             api_key_override="", skip_remote_fetch=True,
         )
-
-
-def test_populate_fields_wires_legacy_stt_control_id() -> None:
-    from plugin.chatbot.dialog_views import SettingsDialog
-
-    dlg = MagicMock()
-    stt_ctrl = MagicMock()
-    dlg.getControl.side_effect = lambda name: stt_ctrl if name == "stt_model" else None
-
-    view = SettingsDialog(MagicMock())
-    view._dlg = dlg
-    field_specs = [{"name": "stt_model", "value": "whisper-legacy"}]
-
-    with patch("plugin.chatbot.config_ui_helpers.populate_combobox_with_lru") as mock_lru:
-        view._populate_fields(field_specs, "https://openrouter.ai/api")
-        mock_lru.assert_called_once_with(
-            view._ctx, stt_ctrl, "whisper-legacy", "audio_model_lru", "https://openrouter.ai/api",
-            api_key_override="", skip_remote_fetch=True,
-        )
-
 
 def test_populate_fields_wires_tts_model_lru() -> None:
     from plugin.chatbot.dialog_views import SettingsDialog
@@ -1614,8 +1601,6 @@ def test_tts_settings_listener_keeps_voice_when_remote_list_is_sorted():
         assert stored.get("audio.tts_voice_openrouter") == "Puck"
     finally:
         cfg._tts_supported_voices.pop(model_id, None)
-
-
 
 def test_tts_test_voice_progress_uses_modeless_box_not_msgbox():
     from plugin.chatbot.dialog_views import TtsTestVoiceListener, _TtsTestStatusSink

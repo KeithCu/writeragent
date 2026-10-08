@@ -79,14 +79,21 @@ class TestDefaultExtraArgs:
             backend._load_config()
         assert (backend._extra_args) == ([])
 
-    def test_hermes_unrelated_basename_skips_defaults(self):
+    @pytest.mark.parametrize(
+        "path, expected",
+        [
+            pytest.param("/opt/my-wrapper", "/opt/my-wrapper", id="test_hermes_unrelated_basename_skips_defaults"),
+            pytest.param("/usr/bin/hermes.sh", "/usr/bin/hermes.sh", id="test_non_windows_suffix_skips_defaults"),
+        ],
+    )
+    def test_hermes_unrelated_basename_skips_defaults(self, path, expected):
         with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/opt/my-wrapper", args="")),
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path=path, args="")),
             patch("os.path.isfile", return_value=True),
             patch("shutil.which", return_value=None),
         ):
             backend = HermesBackend()
-        assert (backend._binary_path) == ("/opt/my-wrapper")
+        assert (backend._binary_path) == (expected)
         assert (backend._extra_args) == ([])
 
     def test_opencode_defaults_when_settings_args_empty(self):
@@ -159,15 +166,6 @@ class TestDefaultExtraArgs:
         assert (backend._binary_path) == (path)
         assert (backend._extra_args) == (["acp"])
 
-    def test_non_windows_suffix_skips_defaults(self):
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/hermes.sh", args="")),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = HermesBackend()
-        assert (backend._binary_path) == ("/usr/bin/hermes.sh")
-        assert (backend._extra_args) == ([])
 
     def test_windows_wrapper_stem_skips_defaults(self):
         with (
@@ -475,23 +473,22 @@ class TestPermissionResult:
         assert (tool_call["title"]) == ("Edit main.py")
         assert (msg_id) == (5)
 
-    def test_approve_selects_allow_once(self):
+    @pytest.mark.parametrize(
+        "value, value_2",
+        [
+            pytest.param(True, "allow-once", id="test_approve_selects_allow_once"),
+            pytest.param(False, "reject-once", id="test_reject_selects_reject_once"),
+        ],
+    )
+    def test_approve_selects_allow_once(self, value, value_2):
         backend = _bare_backend()
         conn = MagicMock()
         conn.is_alive = True
         backend._conn = conn
         self._request(backend, msg_id=5)
-        backend.submit_approval(5, True)
-        conn.send_response.assert_called_once_with(5, result={"outcome": {"outcome": "selected", "optionId": "allow-once"}})
+        backend.submit_approval(5, value)
+        conn.send_response.assert_called_once_with(5, result={"outcome": {"outcome": "selected", "optionId": value_2}})
 
-    def test_reject_selects_reject_once(self):
-        backend = _bare_backend()
-        conn = MagicMock()
-        conn.is_alive = True
-        backend._conn = conn
-        self._request(backend, msg_id=5)
-        backend.submit_approval(5, False)
-        conn.send_response.assert_called_once_with(5, result={"outcome": {"outcome": "selected", "optionId": "reject-once"}})
 
     def test_reject_without_reject_option_is_cancelled(self):
         backend = _bare_backend()
@@ -922,6 +919,4 @@ class TestEnsureSessionMcp:
         params = backend._conn.send_request.call_args[0][1]
         assert len(params["mcpServers"]) == 1
         assert params["mcpServers"][0]["url"] == "http://localhost:8765/mcp"
-
-
 

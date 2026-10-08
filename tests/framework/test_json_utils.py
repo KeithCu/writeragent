@@ -3,9 +3,17 @@
 from unittest.mock import MagicMock
 
 from plugin.framework.json_utils import safe_json_loads
+import pytest
 
 
-def test_literal_eval_logs_stage_name_not_payload(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4",
+    [
+        pytest.param("{'key': 'secret-literal'}", "secret-literal", "literal_eval", "secret-literal", id="test_literal_eval_logs_stage_name_not_payload"),
+        pytest.param('{"key": "secret-repaired"', "secret-repaired", "json_repair", "secret-repaired", id="test_repaired_json_logs_stage_name_not_payload"),
+    ],
+)
+def test_literal_eval_logs_stage_name_not_payload(monkeypatch, value, value_2, value_3, value_4) -> None:
     # What was wrong: logger.debug calls are stripped in release builds.
     # Why: skip when running against stripped release bundle.
     from tests.harness.strip_bundle import skip_if_release_build
@@ -15,35 +23,14 @@ def test_literal_eval_logs_stage_name_not_payload(monkeypatch) -> None:
 
     mock_log = MagicMock()
     monkeypatch.setattr(json_utils, "log", mock_log)
-    payload = "{'key': 'secret-literal'}"
-    assert safe_json_loads(payload) == {"key": "secret-literal"}
+    payload = value
+    assert safe_json_loads(payload) == {"key": value_2}
     mock_log.debug.assert_called_once()
     args = mock_log.debug.call_args[0]
-    assert "literal_eval" in args
+    assert value_3 in args
     joined = " ".join(str(part) for part in args)
-    assert "secret-literal" not in joined
+    assert value_4 not in joined
     assert payload not in joined
-
-
-def test_repaired_json_logs_stage_name_not_payload(monkeypatch) -> None:
-    # What was wrong: logger.debug calls are stripped in release builds.
-    # Why: skip when running against stripped release bundle.
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("log.debug stripped in release bundle")
-    import plugin.framework.json_utils as json_utils
-
-    mock_log = MagicMock()
-    monkeypatch.setattr(json_utils, "log", mock_log)
-    payload = '{"key": "secret-repaired"'
-    assert safe_json_loads(payload) == {"key": "secret-repaired"}
-    mock_log.debug.assert_called_once()
-    args = mock_log.debug.call_args[0]
-    assert "json_repair" in args
-    joined = " ".join(str(part) for part in args)
-    assert "secret-repaired" not in joined
-    assert payload not in joined
-
 
 def test_strict_json_does_not_log_a_stage(monkeypatch) -> None:
     import plugin.framework.json_utils as json_utils

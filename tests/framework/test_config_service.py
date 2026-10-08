@@ -97,13 +97,17 @@ class TestSetGet():
 
 class TestAccessControl():
 
-    def test_read_own_key_ok(self, config_svc, manifest):
+    @pytest.mark.parametrize(
+        "caller_module",
+        [
+            pytest.param('mcp', id="test_read_own_key_ok"),
+            pytest.param('chatbot', id="test_read_public_key_ok"),
+        ],
+    )
+    def test_read_own_key_ok(self, config_svc, manifest, caller_module):
         config_svc.set_manifest(manifest)
-        assert (config_svc.get('mcp.mcp_port', caller_module='mcp') == 18765)
+        assert (config_svc.get('mcp.mcp_port', caller_module=caller_module) == 18765)
 
-    def test_read_public_key_ok(self, config_svc, manifest):
-        config_svc.set_manifest(manifest)
-        assert (config_svc.get('mcp.mcp_port', caller_module='chatbot') == 18765)
 
     def test_read_private_key_denied(self, config_svc, manifest):
         config_svc.set_manifest(manifest)
@@ -150,10 +154,17 @@ class TestEvents():
 
 class TestModuleConfigProxy():
 
-    def test_auto_prefix(self, config_svc, manifest):
+    @pytest.mark.parametrize(
+        "value, value_2",
+        [
+            pytest.param('mcp', 'mcp_port', id="test_auto_prefix"),
+            pytest.param('chatbot', 'mcp.mcp_port', id="test_cross_module_read_public"),
+        ],
+    )
+    def test_auto_prefix(self, config_svc, manifest, value, value_2):
         config_svc.set_manifest(manifest)
-        proxy = config_svc.proxy_for('mcp')
-        assert (proxy.get('mcp_port') == 18765)
+        proxy = config_svc.proxy_for(value)
+        assert (proxy.get(value_2) == 18765)
 
     def test_set_auto_prefix(self, config_svc, manifest):
         config_svc.set_manifest(manifest)
@@ -161,10 +172,6 @@ class TestModuleConfigProxy():
         proxy.set('mcp_port', 9000)
         assert (proxy.get('mcp_port') == 9000)
 
-    def test_cross_module_read_public(self, config_svc, manifest):
-        config_svc.set_manifest(manifest)
-        proxy = config_svc.proxy_for('chatbot')
-        assert (proxy.get('mcp.mcp_port') == 18765)
 
     def test_cross_module_read_private_denied(self, config_svc, manifest):
         config_svc.set_manifest(manifest)

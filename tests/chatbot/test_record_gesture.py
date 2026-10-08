@@ -18,6 +18,7 @@ from plugin.chatbot.record_gesture import (
     stop_during_take,
     sticky_restart,
 )
+import pytest
 
 
 def _run(events: list[str], *, start_sticky: bool = False) -> tuple[RecordGesture, int]:
@@ -68,10 +69,17 @@ def test_long_press_sets_sticky_and_records_once() -> None:
     assert gesture.suppress_action is False
 
 
-def test_long_press_action_before_timer_records_once() -> None:
-    gesture, records = _run(["press", "action", "hold", "release"])
-    assert records == 1
-    assert gesture.sticky is True
+@pytest.mark.parametrize(
+    "value, value_2, value_3, expected, expected_2",
+    [
+        pytest.param("action", "hold", "release", 1, True, id="test_long_press_action_before_timer_records_once"),
+        pytest.param("exit", "release", "action", 0, False, id="test_exit_clears_sticky_and_swallows_in_flight_hold"),
+    ],
+)
+def test_long_press_action_before_timer_records_once(value, value_2, value_3, expected, expected_2) -> None:
+    gesture, records = _run(["press", value, value_2, value_3])
+    assert records == expected
+    assert gesture.sticky is expected_2
 
 
 def test_second_hold_does_not_dispatch_again() -> None:
@@ -100,13 +108,6 @@ def test_press_on_stop_rec_does_not_start_a_hold() -> None:
     assert step.dispatch_record is False
     assert step.gesture.sticky is True
     assert step.gesture.holding is False
-
-
-def test_exit_clears_sticky_and_swallows_in_flight_hold() -> None:
-    gesture, records = _run(["press", "exit", "release", "action"])
-    assert records == 0
-    assert gesture.sticky is False
-
 
 def test_exit_while_idle_sticky_does_not_swallow_the_next_action() -> None:
     gesture = exit_sticky(RecordGesture(sticky=True))

@@ -636,41 +636,45 @@ def test_empty_doc_fails_structural() -> None:
     assert check_oracle("bulk_cleanup", "hello")
 
 
-def test_section_refactor_accepts_heading1_paragraph() -> None:
-    doc = (
-        '<p data-lo-style="Heading1">Introduction</p>'
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param('<p data-lo-style="Heading1">Introduction</p>'
         "<p>Background info here.</p>"
         '<p data-lo-style="Heading1">Goal</p>'
         "<p>Final thoughts and call to action.</p>"
         '<p data-lo-style="Heading1">Body</p>'
-        "<p>Main content goes here. See the Goal for next steps.</p>"
-    )
-    assert check_oracle("section_refactor", doc) == []
-
-
-def test_logical_rewriting_accepts_unicode_hyphen() -> None:
-    doc = "<p>WriterAgent 2.0 Dual-Mode uses G\u2011Eval and Prometheus.</p>"
-    assert check_oracle("logical_rewriting", doc) == []
-
-
-def test_tax_numeric_values_fail() -> None:
-    fails = check_oracle("tax_column", _TAX_BAD)
-    assert any("wrong" in f.lower() for f in fails)
-
-
-def test_bullet_consistency_accepts_unicode_bullet() -> None:
-    doc = (
-        "<p>• Pack the crate.</p>"
+        "<p>Main content goes here. See the Goal for next steps.</p>", "section_refactor", id="test_section_refactor_accepts_heading1_paragraph"),
+        pytest.param("<p>WriterAgent 2.0 Dual-Mode uses G\u2011Eval and Prometheus.</p>", "logical_rewriting", id="test_logical_rewriting_accepts_unicode_hyphen"),
+        pytest.param("<p>• Pack the crate.</p>"
         "<p>• Ship to Oslo.</p>"
         "<p>• Call the depot.</p>"
         "<p>• Label the pallet.</p>"
         "<p>• Sweep the bay.</p>"
         "<p>• File the docket.</p>"
         "<p>• Seal the hatch.</p>"
-        "<p>Note: do not bullet this line</p>"
+        "<p>Note: do not bullet this line</p>", "bullet_consistency", id="test_bullet_consistency_accepts_unicode_bullet"),
+        pytest.param("<p>This sentence has extra spaces. So does this one.</p>"
+        "<p>Another paragraph here, with spaces before commas. "
+        "Fix all double spaces and ensure one space after sentences.</p>"
+        '<p>https://example.com/test with URL. "Quoted text" should stay intact.</p>'
+        "<p>Too many line breaks above. Normalize to single paragraph breaks. "
+        "Also fix this one with trailing period.</p>"
+        "<p>CMD: git  log  --oneline</p>", "bulk_cleanup", id="test_bulk_cleanup_quoted_inner_space_is_cleaned"),
+        pytest.param("<h1>John Doe</h1><p>WORK HISTORY</p><p>EDUCATION</p><p>SKILLS</p>"
+        "<p>Acme Corp</p><p>TechStart</p>"
+        "<p>Scaled to 100,000 users and 100 000 000 requests per month.</p>", "reformat_resume", id="test_resume_accepts_expanded_user_counts"),
+    ],
+)
+def test_section_refactor_accepts_heading1_paragraph(value, value_2) -> None:
+    doc = (
+        value
     )
-    assert check_oracle("bullet_consistency", doc) == []
+    assert check_oracle(value_2, doc) == []
 
+def test_tax_numeric_values_fail() -> None:
+    fails = check_oracle("tax_column", _TAX_BAD)
+    assert any("wrong" in f.lower() for f in fails)
 
 def test_bullet_consistency_accepts_asterisk_list() -> None:
     doc = (
@@ -694,20 +698,6 @@ def test_bullet_consistency_accepts_asterisk_list() -> None:
     assert oracle_failures == []
     assert found_reject == []
     assert score == 1.0
-
-
-def test_bulk_cleanup_quoted_inner_space_is_cleaned() -> None:
-    doc = (
-        "<p>This sentence has extra spaces. So does this one.</p>"
-        "<p>Another paragraph here, with spaces before commas. "
-        "Fix all double spaces and ensure one space after sentences.</p>"
-        '<p>https://example.com/test with URL. "Quoted text" should stay intact.</p>'
-        "<p>Too many line breaks above. Normalize to single paragraph breaks. "
-        "Also fix this one with trailing period.</p>"
-        "<p>CMD: git  log  --oneline</p>"
-    )
-    assert check_oracle("bulk_cleanup", doc) == []
-
 
 def test_py_dest_i1_document_oracle() -> None:
     assert check_oracle("py_refuse_overlap", _PY_GOOD.replace("J1", "I1")) == []
@@ -845,15 +835,25 @@ def test_tax_fill_down_blob_passes() -> None:
     assert check_oracle("tax_column", doc) == []
 
 
-def test_summary_accepts_10k_without_rps() -> None:
-    doc = (
-        "<h1>Findings</h1><p>stats</p>"
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("<h1>Findings</h1><p>stats</p>"
         "<h1>Executive Summary</h1>"
         "<ul><li>99.9%</li><li>45ms</li><li>0.01%</li>"
-        "<li>10 k requests per second</li><li>40%</li></ul>"
+        "<li>10 k requests per second</li><li>40%</li></ul>", "10k", id="test_summary_accepts_10k_without_rps"),
+        pytest.param("<h1>Findings</h1><p>stats</p>"
+        "<h1>Executive Summary</h1>"
+        "<ul><li>99.9%</li><li>45\u202fms</li><li>0.01%</li>"
+        "<li>10k RPS</li><li>40%</li></ul>", "45ms", id="test_summary_nnbsp_matches_45ms_oracle"),
+    ],
+)
+def test_summary_accepts_10k_without_rps(value, value_2) -> None:
+    doc = (
+        value
     )
     fails = check_oracle("smart_summarization", doc)
-    assert not any("10k" in f for f in fails), fails
+    assert not any(value_2 in f for f in fails), fails
 
 
 def test_summary_accepts_expanded_10k_scale() -> None:
@@ -918,16 +918,6 @@ def test_haystack_has_accepts_scale_expansions() -> None:
     assert haystack_has("100,000,000 requests", "100M")
     assert not haystack_has("BattleBorn", "Battle Born")
 
-
-def test_resume_accepts_expanded_user_counts() -> None:
-    doc = (
-        "<h1>John Doe</h1><p>WORK HISTORY</p><p>EDUCATION</p><p>SKILLS</p>"
-        "<p>Acme Corp</p><p>TechStart</p>"
-        "<p>Scaled to 100,000 users and 100 000 000 requests per month.</p>"
-    )
-    assert check_oracle("reformat_resume", doc) == []
-
-
 def test_resume_nnbsp_matches_100k_oracle() -> None:
     doc = (
         "<h1>John Doe</h1><p>WORK HISTORY</p><p>EDUCATION</p><p>SKILLS</p>"
@@ -937,18 +927,6 @@ def test_resume_nnbsp_matches_100k_oracle() -> None:
     assert check_oracle("reformat_resume", doc) == []
     assert haystack_has(doc, "100K")
     assert haystack_has(doc, "100M")
-
-
-def test_summary_nnbsp_matches_45ms_oracle() -> None:
-    doc = (
-        "<h1>Findings</h1><p>stats</p>"
-        "<h1>Executive Summary</h1>"
-        "<ul><li>99.9%</li><li>45\u202fms</li><li>0.01%</li>"
-        "<li>10k RPS</li><li>40%</li></ul>"
-    )
-    fails = check_oracle("smart_summarization", doc)
-    assert not any("45ms" in f for f in fails), fails
-
 
 def test_flowchart_login_labels_pass_without_process_decision_words() -> None:
     doc = json.dumps(

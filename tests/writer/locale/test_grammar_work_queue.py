@@ -20,6 +20,7 @@ from plugin.writer.locale.grammar_work_queue import (
     should_replace_for_key,
 )
 from unittest.mock import MagicMock, patch
+import pytest
 
 
 def _grammar_obs_call_sites_present() -> bool:
@@ -196,11 +197,19 @@ def test_reverse_prefix_chain_executes_only_latest() -> None:
     assert item.text == "W"
 
 
-def test_two_sentences_same_document_distinct_inflight_keys_survive() -> None:
-    """Different sentences should have different keys (based on their text) and both remain."""
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        # Different sentences should have different keys (based on their text) and both remain.
+        pytest.param("First sentence.", "Second sentence.", id="test_two_sentences_same_document_distinct_inflight_keys_survive"),
+        # Two different complete sentences with same relative start (handled by text-based keys) survive.
+        pytest.param("Paragraph one is unique.", "Paragraph two is also unique.", id="test_paragraph_collision_survives_dedup"),
+    ],
+)
+def test_two_sentences_same_document_distinct_inflight_keys_survive(value, value_2) -> None:
     from plugin.writer.locale.grammar_proofread_locale import grammar_inflight_key
-    s1 = "First sentence."
-    s2 = "Second sentence."
+    s1 = value
+    s2 = value_2
     key1 = grammar_inflight_key("doc1", "en-US", s1, is_complete=True)
     key2 = grammar_inflight_key("doc1", "en-US", s2, is_complete=True)
     
@@ -212,28 +221,6 @@ def test_two_sentences_same_document_distinct_inflight_keys_survive() -> None:
     ]
     result = deduplicate_grammar_batch(items)
     assert len(result) == 2
-
-
-def test_paragraph_collision_survives_dedup() -> None:
-    """Two different complete sentences with same relative start (handled by text-based keys) survive."""
-    from plugin.writer.locale.grammar_proofread_locale import grammar_inflight_key
-    
-    s1 = "Paragraph one is unique."
-    s2 = "Paragraph two is also unique."
-    
-    key1 = grammar_inflight_key("doc1", "en-US", s1, is_complete=True)
-    key2 = grammar_inflight_key("doc1", "en-US", s2, is_complete=True)
-    
-    assert key1 != key2
-    
-    items = [
-        _make_item(s1, seq=1, inflight_key=key1),
-        _make_item(s2, seq=2, inflight_key=key2),
-    ]
-    
-    result = deduplicate_grammar_batch(items)
-    assert len(result) == 2
-
 
 def test_two_sentences_string_prefix_collision_both_survive() -> None:
     """Regression: ``deduplicate_grammar_batch`` must not apply text-prefix rules across *different* ``inflight_key`` values.
@@ -420,18 +407,17 @@ def test_should_replace_for_key_first_item_always_replaces() -> None:
     assert should_replace_for_key(None, _item(1)) is True
 
 
-def test_should_replace_for_key_newer_wins() -> None:
-    assert should_replace_for_key(_item(3), _item(5)) is True
-
-
-def test_should_replace_for_key_older_loses() -> None:
-    assert should_replace_for_key(_item(5), _item(3)) is False
-
-
-def test_should_replace_for_key_equal_seq_loses() -> None:
-    """Same seq does not replace — only strictly newer wins."""
-    assert should_replace_for_key(_item(4), _item(4)) is False
-
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param(3, 5, True, id="test_should_replace_for_key_newer_wins"),
+        pytest.param(5, 3, False, id="test_should_replace_for_key_older_loses"),
+        # Same seq does not replace — only strictly newer wins.
+        pytest.param(4, 4, False, id="test_should_replace_for_key_equal_seq_loses"),
+    ],
+)
+def test_should_replace_for_key_newer_wins(value, value_2, expected) -> None:
+    assert should_replace_for_key(_item(value), _item(value_2)) is expected
 
 # ---------------------------------------------------------------------------
 # Tests for filter_stale_and_group (TD4 extraction)

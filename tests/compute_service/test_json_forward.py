@@ -103,15 +103,18 @@ class TestPeelExecuteRequest:
             payload = b'{"id": "\\u12",", "code": "1"}'
             parse_execute_request(payload, None)
 
-    def test_nested_nonfinite_id_rejected(self) -> None:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param(b'{"id": [1e9999], "code": "1"}', id="test_nested_nonfinite_id_rejected"),
+            pytest.param(b'{"timeout_ms": [1000], "code": "1"}', id="test_non_scalar_timeout_ms_rejected"),
+        ],
+    )
+    def test_nested_nonfinite_id_rejected(self, value) -> None:
         with pytest.raises(ExecuteRequestError):
-            payload = b'{"id": [1e9999], "code": "1"}'
+            payload = value
             parse_execute_request(payload, None)
 
-    def test_non_scalar_timeout_ms_rejected(self) -> None:
-        with pytest.raises(ExecuteRequestError):
-            payload = b'{"timeout_ms": [1000], "code": "1"}'
-            parse_execute_request(payload, None)
     def test_keeps_exact_data_bytes(self) -> None:
         data_literal = b'[1, 2, {"k": "caf\\u00e9"}]'
         body = b'{"id":"r1","code":"result = data","data":' + data_literal + b',"mode":"isolated"}'
@@ -159,17 +162,17 @@ class TestPeelExecuteRequest:
         assert parts.code == "result = 2"
         assert parts.timeout_ms == 1500
 
-    def test_rejects_non_object(self) -> None:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param(b"[1,2,3]", id="test_rejects_non_object"),
+            pytest.param(b'{"code":"result=1",}', id="test_rejects_trailing_comma"),
+            pytest.param(b'{"code":"result=1"}{"x":1}', id="test_rejects_trailing_junk"),
+        ],
+    )
+    def test_rejects_non_object(self, value) -> None:
         with pytest.raises(ExecuteRequestError):
-            peel_execute_request(b"[1,2,3]")
-
-    def test_rejects_trailing_comma(self) -> None:
-        with pytest.raises(ExecuteRequestError):
-            peel_execute_request(b'{"code":"result=1",}')
-
-    def test_rejects_trailing_junk(self) -> None:
-        with pytest.raises(ExecuteRequestError):
-            peel_execute_request(b'{"code":"result=1"}{"x":1}')
+            peel_execute_request(value)
 
     def test_overflow_id_is_rejected(self) -> None:
         with pytest.raises(ExecuteRequestError, match="non-finite"):

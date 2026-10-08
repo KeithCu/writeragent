@@ -12,6 +12,7 @@ from plugin.draw.placeholders import (
     _role_from_label,
     _role_miss_error_kwargs,
 )
+import pytest
 
 
 class _FakeShape:
@@ -44,32 +45,25 @@ def test_role_from_label_priority_title_not_body():
     assert _role_from_label("TextShape") is None
 
 
-def test_body_does_not_match_title_text_shape():
-    """A2: 'text' in 'titletextshape' used to return the title as body."""
+@pytest.mark.parametrize(
+    "class_name, text, class_name_2, text_2, expected, expected_2",
+    [
+        # A2: 'text' in 'titletextshape' used to return the title as body.
+        pytest.param("TitleTextShape", "Title", "OutlinerShape", "Body", 0, 1, id="test_body_does_not_match_title_text_shape"),
+        pytest.param("OutlinerShape", "Body", "TitleTextShape", "Title", 1, 0, id="test_role_match_independent_of_shape_order"),
+    ],
+)
+def test_body_does_not_match_title_text_shape(class_name, text, class_name_2, text_2, expected, expected_2):
     page = _FakePage(
         [
-            _FakeShape(class_name="TitleTextShape", text="Title"),
-            _FakeShape(class_name="OutlinerShape", text="Body"),
+            _FakeShape(class_name=class_name, text=text),
+            _FakeShape(class_name=class_name_2, text=text_2),
         ]
     )
     _unused_shape, title_idx = _find_placeholder(page, "title")
     _unused_body, body_idx = _find_placeholder(page, "body")
-    assert title_idx == 0
-    assert body_idx == 1
-
-
-def test_role_match_independent_of_shape_order():
-    page = _FakePage(
-        [
-            _FakeShape(class_name="OutlinerShape", text="Body"),
-            _FakeShape(class_name="TitleTextShape", text="Title"),
-        ]
-    )
-    _unused_shape, title_idx = _find_placeholder(page, "title")
-    _unused_body, body_idx = _find_placeholder(page, "body")
-    assert title_idx == 1
-    assert body_idx == 0
-
+    assert title_idx == expected
+    assert body_idx == expected_2
 
 def test_subtitle_not_classified_as_title():
     """'title' is a substring of 'subtitle'; SubTitle must win."""

@@ -561,15 +561,18 @@ class TestManageChartsSpecializedTier:
 
         return _make_registry(ManageCharts())
 
-    def test_manage_charts_hidden_from_main_chat_calc(self, chart_registry):
-        doc = TestingFactory.create_doc(doc_type="calc", content=[])
+    @pytest.mark.parametrize(
+        "doc_type",
+        [
+            pytest.param("calc", id="test_manage_charts_hidden_from_main_chat_calc"),
+            pytest.param("writer", id="test_manage_charts_hidden_from_main_chat_writer"),
+        ],
+    )
+    def test_manage_charts_hidden_from_main_chat_calc(self, chart_registry, doc_type):
+        doc = TestingFactory.create_doc(doc_type=doc_type, content=[])
         names = {t.name for t in chart_registry.get_tools(doc=doc)}
         assert "manage_charts" not in names
 
-    def test_manage_charts_hidden_from_main_chat_writer(self, chart_registry):
-        doc = TestingFactory.create_doc(doc_type="writer", content=[])
-        names = {t.name for t in chart_registry.get_tools(doc=doc)}
-        assert "manage_charts" not in names
 
     def test_manage_charts_in_charts_domain_calc(self, chart_registry):
         doc = TestingFactory.create_doc(doc_type="calc", content=[])
@@ -1530,8 +1533,6 @@ def test_execute_dict_literal_bypass_cannot_skip_thread_guard() -> None:
     assert calls == ["execute_safe"]
     assert seen == [{"note": "keep"}]
     assert out == {"status": "ok", "note": "keep"}
-
-
 
 def test_tool_get_parameters_value_error_returns_registry_error() -> None:
     class FailingTool(ToolBase):

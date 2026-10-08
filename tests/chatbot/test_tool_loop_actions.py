@@ -330,7 +330,14 @@ def test_sync_tool_returns_before_the_tool_finishes():
     assert item[0] == StreamQueueKind.TOOL_DONE
 
 
-def test_sync_tool_stop_before_body_does_not_run_the_tool():
+@pytest.mark.parametrize(
+    "is_async",
+    [
+        pytest.param(False, id="test_sync_tool_stop_before_body_does_not_run_the_tool"),
+        pytest.param(True, id="test_async_tool_stop_before_body_does_not_run_the_tool"),
+    ],
+)
+def test_sync_tool_stop_before_body_does_not_run_the_tool(is_async):
     host = FakeHost()
     host.resolve_stop_checker = lambda: (lambda: True)
     started: list = []
@@ -342,33 +349,12 @@ def test_sync_tool_stop_before_body_does_not_run_the_tool():
                 func_name="apply_document_content",
                 func_args_str="{}",
                 func_args={},
-                is_async=False,
+                is_async=is_async,
             )
         )
     started[0]()
     host._active_execute_tool_fn.assert_not_called()
     assert host._active_q.get_nowait()[0] == StreamQueueKind.STOPPED
-
-
-def test_async_tool_stop_before_body_does_not_run_the_tool():
-    host = FakeHost()
-    host.resolve_stop_checker = lambda: (lambda: True)
-    started: list = []
-    interpreter = ToolLoopEffectInterpreter(host)
-    with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)):
-        interpreter.execute(
-            SpawnToolWorkerEffect(
-                call_id="call_1",
-                func_name="apply_document_content",
-                func_args_str="{}",
-                func_args={},
-                is_async=True,
-            )
-        )
-    started[0]()
-    host._active_execute_tool_fn.assert_not_called()
-    assert host._active_q.get_nowait()[0] == StreamQueueKind.STOPPED
-
 
 def test_execute_fn_reraises_document_disposed_payload():
     """execute_safe reports disposal as a dict. Chat must not treat that as a normal result."""
@@ -951,9 +937,6 @@ def test_async_tool_uses_fn_and_model_captured_at_spawn():
     assert old_fn.call_args.kwargs["captured_q"] is first_q
     assert old_fn.call_args.kwargs["captured_call_id"] == "call_old"
     host._active_execute_tool_fn.assert_not_called()
-
-
-
 
 def test_async_tool_aborted_before_run_drops_execution():
     from plugin.chatbot.tool_loop_actions import begin_send_turn

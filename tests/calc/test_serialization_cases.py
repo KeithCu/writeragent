@@ -11,6 +11,7 @@ from tests.calc.serialization_cases import (
     all_serialization_cases,
     cases_by_sheet,
 )
+import pytest
 
 
 def test_all_sheets_have_cases():
@@ -23,17 +24,17 @@ def test_case_ids_unique():
     assert len(ids) == len(set(ids))
 
 
-def test_grid_4x4_sum_expected():
-    case = next(c for c in all_serialization_cases() if c.id == "grid_4x4_sum")
-    assert case.expected == 136.0
+@pytest.mark.parametrize(
+    "expected, expected_2",
+    [
+        pytest.param("grid_4x4_sum", 136.0, id="test_grid_4x4_sum_expected"),
+        pytest.param("grid_3x3_sum", 45.0, id="test_below_threshold_3x3"),
+    ],
+)
+def test_grid_4x4_sum_expected(expected, expected_2):
+    case = next(c for c in all_serialization_cases() if c.id == expected)
+    assert case.expected == expected_2
     assert "below_threshold" in case.tags
-
-
-def test_below_threshold_3x3():
-    case = next(c for c in all_serialization_cases() if c.id == "grid_3x3_sum")
-    assert case.expected == 45.0
-    assert "below_threshold" in case.tags
-
 
 def test_no_average_or_min_cases():
     ids = {c.id for c in all_serialization_cases()}
@@ -42,17 +43,17 @@ def test_no_average_or_min_cases():
     assert "nan_count_nonempty" not in ids
 
 
-def test_int_float_sum_case():
-    case = next(c for c in all_serialization_cases() if c.id == "row_int_float_sum")
+@pytest.mark.parametrize(
+    "expected",
+    [
+        pytest.param("row_int_float_sum", id="test_int_float_sum_case"),
+        pytest.param("mixed_cols_sum", id="test_mixed_sum_uses_calc_oracle"),
+    ],
+)
+def test_int_float_sum_case(expected):
+    case = next(c for c in all_serialization_cases() if c.id == expected)
     assert case.calc_oracle == "SUM"
     assert case.expected == 110.0
-
-
-def test_mixed_sum_uses_calc_oracle():
-    case = next(c for c in all_serialization_cases() if c.id == "mixed_cols_sum")
-    assert case.calc_oracle == "SUM"
-    assert case.expected == 110.0
-
 
 def test_error_cases_marked():
     errors = cases_by_sheet("errors")

@@ -16,6 +16,7 @@ from plugin.chatbot.state_machine import (
     ui_lines_for_handler_error,
     stop_effects_exclude_spawns,
 )
+import pytest
 
 class TestSendHandlerStateMachine:
     def test_start_image(self):
@@ -162,15 +163,18 @@ class TestSendHandlerHelpers:
         effects = spawn_effects_for_start("agent", "do work", "m", "writer")
         assert any(isinstance(e, SpawnAgentWorkerEffect) for e in effects)
 
-    def test_ui_lines_web(self):
-        status, append = ui_lines_for_handler_error("web", "boom")
+    @pytest.mark.parametrize(
+        "value, value_2",
+        [
+            pytest.param("web", "Research Chat error: boom", id="test_ui_lines_web"),
+            pytest.param("image", "Operation failed: boom", id="test_ui_lines_other"),
+        ],
+    )
+    def test_ui_lines_web(self, value, value_2):
+        status, append = ui_lines_for_handler_error(value, "boom")
         assert status == "Error"
-        assert "Research Chat error: boom" in append
+        assert value_2 in append
 
-    def test_ui_lines_other(self):
-        status, append = ui_lines_for_handler_error("image", "boom")
-        assert status == "Error"
-        assert "Operation failed: boom" in append
 
     def test_stop_effects_exclude_spawns(self):
         assert stop_effects_exclude_spawns([SendHandlerUIEffect("status", "Stopped"), CompleteJobEffect("Stopped")])

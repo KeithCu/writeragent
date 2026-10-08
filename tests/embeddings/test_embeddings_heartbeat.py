@@ -7,17 +7,19 @@
 from __future__ import annotations
 
 from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
+import pytest
 
 
-def test_format_index_heartbeat_line_singular():
-    line = format_index_heartbeat_line("a.odt", paragraphs=1, chunks=1, elapsed_sec=0.12)
-    assert line == "a.odt: 1 paragraph, 1 chunk, 0.12s"
-
-
-def test_format_index_heartbeat_line_plural():
-    line = format_index_heartbeat_line("b.odt", paragraphs=105, chunks=107, elapsed_sec=1.234)
-    assert line == "b.odt: 105 paragraphs, 107 chunks, 1.23s"
-
+@pytest.mark.parametrize(
+    "value, paragraphs, chunks, elapsed_sec, expected",
+    [
+        pytest.param("a.odt", 1, 1, 0.12, "a.odt: 1 paragraph, 1 chunk, 0.12s", id="test_format_index_heartbeat_line_singular"),
+        pytest.param("b.odt", 105, 107, 1.234, "b.odt: 105 paragraphs, 107 chunks, 1.23s", id="test_format_index_heartbeat_line_plural"),
+    ],
+)
+def test_format_index_heartbeat_line_singular(value, paragraphs, chunks, elapsed_sec, expected):
+    line = format_index_heartbeat_line(value, paragraphs=paragraphs, chunks=chunks, elapsed_sec=elapsed_sec)
+    assert line == expected
 
 def test_heartbeat_counts_from_payload_prefers_upserted():
     paragraphs, chunks = heartbeat_counts_from_payload({"paragraphs": 5, "upserted": 6})

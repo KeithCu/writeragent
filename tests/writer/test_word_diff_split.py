@@ -73,8 +73,15 @@ def test_tokenize_word_vs_separator_classification():
 # split_change: mode + sub-edit shape on the required edge cases
 # ---------------------------------------------------------------------------
 
-def test_identical_strings_no_sub_edits():
-    r = split_change("the quick brown fox", "the quick brown fox")
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("the quick brown fox", "the quick brown fox", id="test_identical_strings_no_sub_edits"),
+        pytest.param("", "", id="test_both_empty_no_sub_edits"),
+    ],
+)
+def test_identical_strings_no_sub_edits(value, value_2):
+    r = split_change(value, value_2)
     assert r.mode == "surgical"
     assert r.sub_edits == []
     assert r.fraction_changed == 0.0
@@ -84,14 +91,6 @@ def test_split_change_non_str_new_and_bad_threshold():
     r = split_change("hi", 0, threshold="")
     assert r.mode in ("surgical", "block")
     assert 0.0 <= r.fraction_changed <= 1.0
-
-
-def test_both_empty_no_sub_edits():
-    r = split_change("", "")
-    assert r.mode == "surgical"
-    assert r.sub_edits == []
-    assert r.fraction_changed == 0.0
-
 
 def test_single_word_changed_in_long_sentence_one_surgical_edit():
     old = "the quick brown fox jumps over the lazy dog today"
@@ -319,9 +318,17 @@ def test_block_op_is_replace_when_both_sides_nonempty():
 # whitespace / punctuation specifics
 # ---------------------------------------------------------------------------
 
-def test_leading_trailing_whitespace_preserved_in_reconstruction():
-    old = "   the quick brown fox jumps over the lazy dog   "
-    new = "   the quick brown cat jumps over the lazy dog   "
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("   the quick brown fox jumps over the lazy dog   ", "   the quick brown cat jumps over the lazy dog   ", id="test_leading_trailing_whitespace_preserved_in_reconstruction"),
+        pytest.param("   hello world here", " hello world here", id="test_leading_whitespace_only_change_reconstructs"),
+        pytest.param("hello world here   ", "hello world here ", id="test_trailing_whitespace_only_change_reconstructs"),
+    ],
+)
+def test_leading_trailing_whitespace_preserved_in_reconstruction(value, value_2):
+    old = value
+    new = value_2
     r = split_change(old, new)
     assert r.mode == "surgical"
     assert apply_sub_edits(old, r.sub_edits) == new
@@ -366,23 +373,6 @@ def test_internal_multispace_change_reconstructs():
     assert e.old_text == "   "
     assert e.new_text == ""
     assert e.op == "delete"
-
-
-def test_leading_whitespace_only_change_reconstructs():
-    old = "   hello world here"
-    new = " hello world here"
-    r = split_change(old, new)
-    assert r.mode == "surgical"
-    assert apply_sub_edits(old, r.sub_edits) == new
-
-
-def test_trailing_whitespace_only_change_reconstructs():
-    old = "hello world here   "
-    new = "hello world here "
-    r = split_change(old, new)
-    assert r.mode == "surgical"
-    assert apply_sub_edits(old, r.sub_edits) == new
-
 
 # ---------------------------------------------------------------------------
 # reconstruction property: applying sub-edits to `old` yields `new` exactly

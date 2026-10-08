@@ -8,6 +8,7 @@ from docx import Document
 from odf.opendocument import OpenDocumentText
 from odf.table import Table, TableCell, TableRow
 from odf.text import H, P
+import pytest
 
 _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(_SCRIPTS) not in sys.path:
@@ -131,9 +132,16 @@ def test_empty_memo_fails(tmp_path: Path) -> None:
     assert any("empty" in item or "word_count" in item for item in result.failures)
 
 
-def test_wrong_survey_counts_fail() -> None:
-    text = _padded().replace("9/20 (45%)", "4/20 (20%)").replace("5/20 (25%)", "2/20 (10%)")
-    result = score_text(text, para_count=12)
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4, para_count",
+    [
+        pytest.param("9/20 (45%)", "4/20 (20%)", "5/20 (25%)", "2/20 (10%)", 12, id="test_wrong_survey_counts_fail"),
+        pytest.param("rent increase 9/20 (45%)", "rent increase\n4\n45.0%", "lack of community / feeling disconnected 5/20 (25%)", "lack of community / feeling disconnected\n2\n25.0%", 16, id="test_wrong_split_counts_still_fail"),
+    ],
+)
+def test_wrong_survey_counts_fail(value, value_2, value_3, value_4, para_count) -> None:
+    text = _padded().replace(value, value_2).replace(value_3, value_4)
+    result = score_text(text, para_count=para_count)
     assert not result.passed
     assert any("9/20" in item for item in result.failures)
     assert any("5/20" in item for item in result.failures)
@@ -180,22 +188,6 @@ def test_split_table_counts_pass() -> None:
     assert "5/20" not in text
     result = score_text(text, para_count=16)
     assert result.passed, result.failures
-
-
-def test_wrong_split_counts_still_fail() -> None:
-    text = (
-        _padded()
-        .replace("rent increase 9/20 (45%)", "rent increase\n4\n45.0%")
-        .replace(
-            "lack of community / feeling disconnected 5/20 (25%)",
-            "lack of community / feeling disconnected\n2\n25.0%",
-        )
-    )
-    result = score_text(text, para_count=16)
-    assert not result.passed
-    assert any("9/20" in item for item in result.failures)
-    assert any("5/20" in item for item in result.failures)
-
 
 def test_word_count_between_1400_and_1800_passes() -> None:
     text = _PASSING

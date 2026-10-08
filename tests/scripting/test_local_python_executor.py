@@ -8,6 +8,8 @@
 
 import ast
 
+import pytest
+
 from plugin.contrib.smolagents.local_python_executor import (
     BASE_BUILTIN_MODULES,
     InterpreterError,
@@ -65,18 +67,18 @@ def _executor_with_dummy_version():
     return executor
 
 
-def test_executor_allows_version_attribute():
-    """Scientific notebooks print np.__version__; the blanket dunder deny blocked that."""
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Scientific notebooks print np.__version__; the blanket dunder deny blocked that.
+        pytest.param("result = np.__version__", id="test_executor_allows_version_attribute"),
+        pytest.param('result = getattr(np, "__version__")', id="test_executor_allows_version_via_getattr"),
+    ],
+)
+def test_executor_allows_version_attribute(value):
     executor = _executor_with_dummy_version()
-    executor("result = np.__version__")
+    executor(value)
     assert executor.state["result"] == "1.2.3"
-
-
-def test_executor_allows_version_via_getattr():
-    executor = _executor_with_dummy_version()
-    executor('result = getattr(np, "__version__")')
-    assert executor.state["result"] == "1.2.3"
-
 
 def test_executor_still_forbids_class_dunder():
     executor = _executor_with_dummy_version()
@@ -117,26 +119,22 @@ def test_direct_import_os_still_forbidden():
         raise AssertionError("import os must stay unauthorized")
 
 
-def test_platform_os_is_not_the_os_module():
-    """Allowed platform must not re-export raw os (get_safe_module used to return os as-is)."""
-    executor = LocalPythonExecutor(additional_authorized_imports=["platform"])
+@pytest.mark.parametrize(
+    "value, value_2, value_3",
+    [
+        # Allowed platform must not re-export raw os (get_safe_module used to return os as-is).
+        pytest.param("platform", "import platform\nresult = platform.os", "platform.os must not resolve to a live os module", id="test_platform_os_is_not_the_os_module"),
+        pytest.param("writeragent", "import writeragent\nresult = writeragent.sys", "writeragent.sys must not resolve to a live sys module", id="test_writeragent_sys_is_not_the_sys_module"),
+    ],
+)
+def test_platform_os_is_not_the_os_module(value, value_2, value_3):
+    executor = LocalPythonExecutor(additional_authorized_imports=[value])
     executor.send_tools({})
     try:
-        executor("import platform\nresult = platform.os")
+        executor(value_2)
     except (InterpreterError, AttributeError):
         return
-    raise AssertionError("platform.os must not resolve to a live os module")
-
-
-def test_writeragent_sys_is_not_the_sys_module():
-    executor = LocalPythonExecutor(additional_authorized_imports=["writeragent"])
-    executor.send_tools({})
-    try:
-        executor("import writeragent\nresult = writeragent.sys")
-    except (InterpreterError, AttributeError):
-        return
-    raise AssertionError("writeragent.sys must not resolve to a live sys module")
-
+    raise AssertionError(value_3)
 
 def test_evaluate_import_does_not_dump_allowlist():
     """Executor import failure must not dump the allowlist or expose duckdb."""

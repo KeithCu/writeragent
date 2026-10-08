@@ -23,6 +23,7 @@ import threading
 import time
 
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
+import pytest
 
 
 class _FakeMainThread:
@@ -143,41 +144,43 @@ def test_backpressure_path_serializes_via_semaphore():
     assert reg.max_concurrency == 1, "expected SERIALIZED (1), got %d" % reg.max_concurrency
 
 
-def test_long_running_mutating_same_document_serializes():
-    reg = _Registry(is_mutation=True)
+@pytest.mark.parametrize(
+    "is_mutation, value, expected, value_2",
+    [
+        pytest.param(True, "long_running should not error: %s", 1, "expected SERIALIZED (1) for same-doc mutation, got %d", id="test_long_running_mutating_same_document_serializes"),
+        pytest.param(False, "long_running read-only should not error: %s", 2, "expected CONCURRENT (2) for read-only, got %d", id="test_long_running_readonly_same_document_runs_concurrently"),
+    ],
+)
+def test_long_running_mutating_same_document_serializes(is_mutation, value, expected, value_2):
+    reg = _Registry(is_mutation=is_mutation)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
     errors = _run_concurrent(handler._execute_long_running, ["file:///same.odt"] * 2)
 
-    assert not errors, "long_running should not error: %s" % errors
-    assert reg.max_concurrency == 1, (
-        "expected SERIALIZED (1) for same-doc mutation, got %d" % reg.max_concurrency
+    assert not errors, value % errors
+    assert reg.max_concurrency == expected, (
+        value_2 % reg.max_concurrency
     )
 
 
-def test_long_running_mutating_different_documents_run_concurrently():
+@pytest.mark.parametrize(
+    "value, value_2, expected, value_3",
+    [
+        pytest.param("file:///a.odt", "file:///b.odt", 2, "expected CONCURRENT (2) across different docs, got %d", id="test_long_running_mutating_different_documents_run_concurrently"),
+        # file:///same.odt and file:///same.odt/ must serialize mutating long-running tools.
+        pytest.param("file:///same.odt", "file:///same.odt/", 1, "expected SERIALIZED (1) for normalized same doc, got %d", id="test_normalized_doc_urls_share_mutation_gate"),
+    ],
+)
+def test_long_running_mutating_different_documents_run_concurrently(value, value_2, expected, value_3):
     reg = _Registry(is_mutation=True)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
-    errors = _run_concurrent(handler._execute_long_running, ["file:///a.odt", "file:///b.odt"])
+    errors = _run_concurrent(handler._execute_long_running, [value, value_2])
 
     assert not errors, "long_running should not error: %s" % errors
-    assert reg.max_concurrency == 2, (
-        "expected CONCURRENT (2) across different docs, got %d" % reg.max_concurrency
+    assert reg.max_concurrency == expected, (
+        value_3 % reg.max_concurrency
     )
-
-
-def test_long_running_readonly_same_document_runs_concurrently():
-    reg = _Registry(is_mutation=False)
-    handler = MCPProtocolHandler(_FakeServices(reg))
-
-    errors = _run_concurrent(handler._execute_long_running, ["file:///same.odt"] * 2)
-
-    assert not errors, "long_running read-only should not error: %s" % errors
-    assert reg.max_concurrency == 2, (
-        "expected CONCURRENT (2) for read-only, got %d" % reg.max_concurrency
-    )
-
 
 def test_long_running_tool_can_opt_out_of_document_lock():
     reg = _Registry(is_mutation=True, lock_required=False)
@@ -189,23 +192,6 @@ def test_long_running_tool_can_opt_out_of_document_lock():
     assert reg.max_concurrency == 2, (
         "expected CONCURRENT (2) when the tool opts out of the lock, got %d" % reg.max_concurrency
     )
-
-
-def test_normalized_doc_urls_share_mutation_gate():
-    """file:///same.odt and file:///same.odt/ must serialize mutating long-running tools."""
-    reg = _Registry(is_mutation=True)
-    handler = MCPProtocolHandler(_FakeServices(reg))
-
-    errors = _run_concurrent(
-        handler._execute_long_running,
-        ["file:///same.odt", "file:///same.odt/"],
-    )
-
-    assert not errors, "long_running should not error: %s" % errors
-    assert reg.max_concurrency == 1, (
-        "expected SERIALIZED (1) for normalized same doc, got %d" % reg.max_concurrency
-    )
-
 
 def test_unknown_tool_is_rejected_up_front_without_executing():
     """An unknown tool name returns a structured UNKNOWN_TOOL error BEFORE the mutation gate and

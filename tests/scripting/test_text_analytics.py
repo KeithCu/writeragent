@@ -136,13 +136,21 @@ def test_run_text_analytics_diagnostics_dispatch():
 # --- Topics (fancier analytics; sklearn optional) ---
 
 
-def test_text_analytics_topics_in_helernames_and_templates():
-    assert "topics" in ta.HELPER_NAMES
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4, value_5",
+    [
+        pytest.param("topics", "topics", "topics", "run_text_analytics", "'n_topics': 4", id="test_text_analytics_topics_in_helernames_and_templates"),
+        # --- Sentiment (lexicon-based, no extra deps beyond what's already used for spacy path) ---
+        pytest.param("sentiment", "sentiment", "sentiment", "from writeragent.scripting.text_analytics import run_text_analytics", "'helper': 'sentiment'", id="test_text_analytics_sentiment_in_helernames_and_templates"),
+    ],
+)
+def test_text_analytics_topics_in_helernames_and_templates(value, value_2, value_3, value_4, value_5):
+    assert value in ta.HELPER_NAMES
     temps = ta.get_text_analytics_script_templates()
-    assert "topics" in temps
-    code = temps["topics"]
-    assert "run_text_analytics" in code
-    assert "'n_topics': 4" in code
+    assert value_2 in temps
+    code = temps[value_3]
+    assert value_4 in code
+    assert value_5 in code
 
 
 def test_text_analytics_topics_result_shape():
@@ -174,19 +182,6 @@ def test_text_analytics_topics_accepts_list_for_sections():
         # When list provided we expect assignments
         if res.get("topics"):
             assert "assignments" in res or True  # may be present
-
-
-# --- Sentiment (lexicon-based, no extra deps beyond what's already used for spacy path) ---
-
-
-def test_text_analytics_sentiment_in_helernames_and_templates():
-    assert "sentiment" in ta.HELPER_NAMES
-    temps = ta.get_text_analytics_script_templates()
-    assert "sentiment" in temps
-    code = temps["sentiment"]
-    assert "from writeragent.scripting.text_analytics import run_text_analytics" in code
-    assert "'helper': 'sentiment'" in code
-
 
 def test_text_analytics_sentiment_uses_config_model_via_params():
     # Model override via JSON setting is passed as params (host reads config).

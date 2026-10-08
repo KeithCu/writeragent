@@ -5,6 +5,7 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 _SCRIPTS = _REPO / "scripts"
@@ -61,19 +62,19 @@ def test_chatbot_selection_token_fields_absent_from_settings(tmp_path: Path) -> 
     assert "chatbot__edit_selection_max_new_tokens" not in tops
 
 
-def test_chatbot_paired_checkbox_fields_share_row(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("chatbot__web_research_cache_enabled", "chatbot__prompt_for_web_research", id="test_chatbot_paired_checkbox_fields_share_row"),
+        pytest.param("chatbot__web_cache_max_mb", "chatbot__web_cache_validity_days", id="test_chatbot_paired_cache_fields_share_row"),
+        pytest.param("doc__grammar_proofreader_batch_sentences", "doc__grammar_proofreader_max_in_flight", id="test_doc_batch_sentences_and_concurrent_share_row"),
+    ],
+)
+def test_chatbot_paired_checkbox_fields_share_row(tmp_path: Path, value, value_2) -> None:
     xdl_path, _xdl = _generate_settings_xdl(tmp_path)
     tops = _control_tops(xdl_path)
 
-    assert tops["chatbot__web_research_cache_enabled"] == tops["chatbot__prompt_for_web_research"]
-
-
-def test_chatbot_paired_cache_fields_share_row(tmp_path: Path) -> None:
-    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
-    tops = _control_tops(xdl_path)
-
-    assert tops["chatbot__web_cache_max_mb"] == tops["chatbot__web_cache_validity_days"]
-
+    assert tops[value] == tops[value_2]
 
 def test_web_research_cache_before_web_cache_size_controls(tmp_path: Path) -> None:
     _xdl_path, xdl = _generate_settings_xdl(tmp_path)
@@ -83,11 +84,18 @@ def test_web_research_cache_before_web_cache_size_controls(tmp_path: Path) -> No
     assert cache_idx < max_mb_idx
 
 
-def test_right_column_number_labels_use_label_x(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(r'dlg:id="label_chatbot__web_cache_validity_days"[^>]*dlg:left="220"', id="test_right_column_number_labels_use_label_x"),
+        pytest.param(r'dlg:id="label_doc__grammar_proofreader_model"[^>]*dlg:left="220"', id="test_doc_model_label_uses_right_column"),
+    ],
+)
+def test_right_column_number_labels_use_label_x(tmp_path: Path, value) -> None:
     _xdl_path, xdl = _generate_settings_xdl(tmp_path)
 
     assert re.search(
-        r'dlg:id="label_chatbot__web_cache_validity_days"[^>]*dlg:left="220"',
+        value,
         xdl,
     )
 
@@ -115,23 +123,6 @@ def test_doc_recheck_and_pause_share_row_below_checker(tmp_path: Path) -> None:
         r'dlg:id="doc__grammar_proofreader_recheck"[^>]*dlg:width="70"',
         xdl,
     )
-
-
-def test_doc_batch_sentences_and_concurrent_share_row(tmp_path: Path) -> None:
-    xdl_path, _xdl = _generate_settings_xdl(tmp_path)
-    tops = _control_tops(xdl_path)
-
-    assert tops["doc__grammar_proofreader_batch_sentences"] == tops["doc__grammar_proofreader_max_in_flight"]
-
-
-def test_doc_model_label_uses_right_column(tmp_path: Path) -> None:
-    _xdl_path, xdl = _generate_settings_xdl(tmp_path)
-
-    assert re.search(
-        r'dlg:id="label_doc__grammar_proofreader_model"[^>]*dlg:left="220"',
-        xdl,
-    )
-
 
 def test_settings_tab_buttons_in_user_facing_order(tmp_path: Path) -> None:
     """Module tabs follow SETTINGS_TAB_MODULE_ORDER, not manifest/topo-sort order."""

@@ -46,25 +46,22 @@ def test_run_analysis_happy_path(ctx):
     assert kwargs["timeout_sec"] == 30
 
 
-def test_run_analysis_worker_error(ctx):
+@pytest.mark.parametrize(
+    "value, match",
+    [
+        pytest.param("boom", "boom", id="test_run_analysis_worker_error"),
+        pytest.param("unexpected result", "unexpected result", id="test_run_analysis_malformed_result"),
+    ],
+)
+def test_run_analysis_worker_error(ctx, value, match):
     with (
         patch("plugin.scripting.client.configured_python_exec_timeout", return_value=10),
         patch(
             "plugin.scripting.client.run_trusted_worker_action",
-            side_effect=ToolExecutionError("boom", code="ANALYSIS_ERROR"),
+            side_effect=ToolExecutionError(value, code="ANALYSIS_ERROR"),
         ),
     ):
-        with pytest.raises(ToolExecutionError, match="boom"):
+        with pytest.raises(ToolExecutionError, match=match):
             run_analysis(ctx, "describe_data", [])
 
 
-def test_run_analysis_malformed_result(ctx):
-    with (
-        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=10),
-        patch(
-            "plugin.scripting.client.run_trusted_worker_action",
-            side_effect=ToolExecutionError("unexpected result", code="ANALYSIS_ERROR"),
-        ),
-    ):
-        with pytest.raises(ToolExecutionError, match="unexpected result"):
-            run_analysis(ctx, "describe_data", [])

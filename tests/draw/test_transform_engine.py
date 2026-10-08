@@ -6,6 +6,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from plugin.draw.transform_engine import SlideCommandEngine
+import pytest
 
 
 class _Pages:
@@ -91,17 +92,17 @@ def test_delete_slide_at_or_before_current_decrements() -> None:
     assert eng.current_slide == 1
 
 
-def test_delete_current_slide_selects_previous() -> None:
-    eng, _deck, _bridge = _engine(2, 4)
-    eng._delete_slide(2)
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param(2, 2, id="test_delete_current_slide_selects_previous"),
+        pytest.param(1, 3, id="test_delete_after_current_keeps_index"),
+    ],
+)
+def test_delete_current_slide_selects_previous(value, value_2) -> None:
+    eng, _deck, _bridge = _engine(value, 4)
+    eng._delete_slide(value_2)
     assert eng.current_slide == 1
-
-
-def test_delete_after_current_keeps_index() -> None:
-    eng, _deck, _bridge = _engine(1, 4)
-    eng._delete_slide(3)
-    assert eng.current_slide == 1
-
 
 def test_delete_past_end_clamps_current() -> None:
     # Index 99 is out of range: warn instead of deleting the last slide.

@@ -9,6 +9,7 @@
 """Unit tests for plugin.chatbot.rich_text (append_rich_text, theme colors, HTML detection)."""
 
 from unittest.mock import MagicMock, patch
+import pytest
 
 
 class MockTextCursor:
@@ -98,17 +99,19 @@ class TestAppendRichText:
         append_rich_text(doc, text, role=role)
         return doc
 
-    def test_user_role_prefix(self):
-        doc = self._call("Hello", role="user")
+    @pytest.mark.parametrize(
+        "value, role, value_2, value_3",
+        [
+            pytest.param("Hello", "user", "You: ", "Hello", id="test_user_role_prefix"),
+            pytest.param("World", "assistant", "Assistant: ", "World", id="test_assistant_role_prefix"),
+        ],
+    )
+    def test_user_role_prefix(self, value, role, value_2, value_3):
+        doc = self._call(value, role=role)
         content = doc.getText().getString()
-        assert ("You: ") in (content)
-        assert ("Hello") in (content)
+        assert (value_2) in (content)
+        assert (value_3) in (content)
 
-    def test_assistant_role_prefix(self):
-        doc = self._call("World", role="assistant")
-        content = doc.getText().getString()
-        assert ("Assistant: ") in (content)
-        assert ("World") in (content)
 
     def test_assistant_role_prefix_uses_gettext(self):
         with patch("plugin.chatbot.rich_text._", side_effect=lambda message: "アシスタント:" if message == "Assistant:" else message):
@@ -117,16 +120,19 @@ class TestAppendRichText:
         assert "アシスタント: World" in content
         assert "Assistant:" not in content
 
-    def test_plain_text_inserted_for_non_html(self):
-        """Non-HTML text is inserted via insertString (no HTML import)."""
-        doc = self._call("Just some text", role="assistant")
+    @pytest.mark.parametrize(
+        "value, value_2",
+        [
+            # Non-HTML text is inserted via insertString (no HTML import).
+            pytest.param("Just some text", "Just some text", id="test_plain_text_inserted_for_non_html"),
+            pytest.param("", "Assistant: ", id="test_empty_text"),
+        ],
+    )
+    def test_plain_text_inserted_for_non_html(self, value, value_2):
+        doc = self._call(value, role="assistant")
         content = doc.getText().getString()
-        assert ("Just some text") in (content)
+        assert (value_2) in (content)
 
-    def test_empty_text(self):
-        doc = self._call("", role="assistant")
-        content = doc.getText().getString()
-        assert ("Assistant: ") in (content)
 
     def test_go_right_chunks_large_moves(self):
         from plugin.chatbot.rich_text import _go_right
@@ -414,8 +420,15 @@ class TestLeadingListImport:
             assert append_rich_text(MockDoc(), html, role="assistant")
         return seen
 
-    def test_leading_ordered_list_gets_sentinel_paragraph(self):
-        assert self._imported("<ol><li>a</li><li>b</li></ol>") == ["<p>\u200b</p><ol><li>a</li><li>b</li></ol>"]
+    @pytest.mark.parametrize(
+        "value, value_2",
+        [
+            pytest.param("<ol><li>a</li><li>b</li></ol>", "<p>\u200b</p><ol><li>a</li><li>b</li></ol>", id="test_leading_ordered_list_gets_sentinel_paragraph"),
+            pytest.param("<p>Here:</p><ol><li>a</li></ol>", "<p>Here:</p><ol><li>a</li></ol>", id="test_intro_paragraph_keeps_sharing_the_prefix_line"),
+        ],
+    )
+    def test_leading_ordered_list_gets_sentinel_paragraph(self, value, value_2):
+        assert self._imported(value) == [value_2]
 
     def test_leading_list_with_whitespace_and_attributes(self):
         seen = self._imported('\n  <OL start="11">\n<li>a</li></OL>')
@@ -434,8 +447,6 @@ class TestLeadingListImport:
         for html in ("<p>2024 was a good year.</p>", "<p>**Bold** text</p>", "<p>1.5 million keepers</p>"):
             assert self._imported(html) == [html], html
 
-    def test_intro_paragraph_keeps_sharing_the_prefix_line(self):
-        assert self._imported("<p>Here:</p><ol><li>a</li></ol>") == ["<p>Here:</p><ol><li>a</li></ol>"]
 
     def test_sentinel_is_deleted_after_import(self):
         from plugin.chatbot.rich_text import _drop_list_sentinel
@@ -589,115 +600,59 @@ class TestHtmlDetectionRegex:
 
     # --- True positives ---
 
-    def test_p_tag(self):
-        assert (self._matches("<p>hello</p>"))
-
-    def test_p_with_attrs(self):
-        assert (self._matches('<p class="intro">text</p>'))
-
-    def test_br_self_closing(self):
-        assert (self._matches("<br/>"))
-
-    def test_br_space_closing(self):
-        assert (self._matches("<br />"))
-
-    def test_br_uppercase(self):
-        assert (self._matches("<BR>"))
-
-    def test_closing_h1(self):
-        assert (self._matches("</h1>"))
-
-    def test_closing_h2(self):
-        assert (self._matches("</h2>"))
-
-    def test_closing_h6(self):
-        assert (self._matches("</h6>"))
-
-    def test_ul(self):
-        assert (self._matches("<ul>"))
-
-    def test_ol_uppercase(self):
-        assert (self._matches("<OL>"))
-
-    def test_li(self):
-        assert (self._matches("<li>"))
-
-    def test_strong(self):
-        assert (self._matches("<strong>bold</strong>"))
-
-    def test_strong_mixed_case(self):
-        assert (self._matches("<Strong>text</Strong>"))
-
-    def test_em(self):
-        assert (self._matches("<em>italic</em>"))
-
-    def test_code(self):
-        assert (self._matches("<code>x</code>"))
-
-    def test_pre(self):
-        assert (self._matches("<pre>block</pre>"))
-
-    def test_div(self):
-        assert (self._matches("<div>content</div>"))
-
-    def test_table(self):
-        assert (self._matches("<table>"))
-
-    def test_html_embedded_in_prose(self):
-        assert (self._matches("some text\n<ul>\n<li>item</li>\n</ul>"))
-
-    def test_p_all_uppercase(self):
-        assert (self._matches("<P>"))
-
-    def test_tag_at_start(self):
-        assert (self._matches("<div>first thing"))
-
-    def test_tag_at_end(self):
-        assert (self._matches("last thing<br/>"))
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param("<p>hello</p>", id="test_p_tag"),
+            pytest.param('<p class="intro">text</p>', id="test_p_with_attrs"),
+            pytest.param("<br/>", id="test_br_self_closing"),
+            pytest.param("<br />", id="test_br_space_closing"),
+            pytest.param("<BR>", id="test_br_uppercase"),
+            pytest.param("</h1>", id="test_closing_h1"),
+            pytest.param("</h2>", id="test_closing_h2"),
+            pytest.param("</h6>", id="test_closing_h6"),
+            pytest.param("<ul>", id="test_ul"),
+            pytest.param("<OL>", id="test_ol_uppercase"),
+            pytest.param("<li>", id="test_li"),
+            pytest.param("<strong>bold</strong>", id="test_strong"),
+            pytest.param("<Strong>text</Strong>", id="test_strong_mixed_case"),
+            pytest.param("<em>italic</em>", id="test_em"),
+            pytest.param("<code>x</code>", id="test_code"),
+            pytest.param("<pre>block</pre>", id="test_pre"),
+            pytest.param("<div>content</div>", id="test_div"),
+            pytest.param("<table>", id="test_table"),
+            pytest.param("some text\n<ul>\n<li>item</li>\n</ul>", id="test_html_embedded_in_prose"),
+            pytest.param("<P>", id="test_p_all_uppercase"),
+            pytest.param("<div>first thing", id="test_tag_at_start"),
+            pytest.param("last thing<br/>", id="test_tag_at_end"),
+        ],
+    )
+    def test_p_tag(self, value):
+        assert (self._matches(value))
 
     # --- True negatives ---
 
-    def test_plain_text(self):
-        assert not (self._matches("Hello world"))
-
-    def test_math_comparisons(self):
-        assert not (self._matches("a < b and c > d"))
-
-    def test_numeric_comparisons(self):
-        assert not (self._matches("3 < 5 and 10 > 7"))
-
-    def test_prevent_not_p(self):
-        assert not (self._matches("<prevent>"))
-
-    def test_tablet_not_table(self):
-        assert not (self._matches("<tablet>"))
-
-    def test_preview_not_pre(self):
-        assert not (self._matches("Use <preview> mode"))
-
-    def test_coding_not_code(self):
-        assert not (self._matches("<coding>"))
-
-    def test_olive_not_ol(self):
-        assert not (self._matches("the <olive> tree"))
-
-    def test_empty_string(self):
-        assert not (self._matches(""))
-
-    def test_email_angle_brackets(self):
-        assert not (self._matches("email@<domain>"))
-
-    def test_lt_without_gt(self):
-        assert not (self._matches("a < b"))
-
-    def test_emphasis_not_em(self):
-        assert not (self._matches("<emphasis>"))
-
-    def test_listing_not_li(self):
-        assert not (self._matches("<listing>"))
-
-    def test_division_not_div(self):
-        assert not (self._matches("<division>"))
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param("Hello world", id="test_plain_text"),
+            pytest.param("a < b and c > d", id="test_math_comparisons"),
+            pytest.param("3 < 5 and 10 > 7", id="test_numeric_comparisons"),
+            pytest.param("<prevent>", id="test_prevent_not_p"),
+            pytest.param("<tablet>", id="test_tablet_not_table"),
+            pytest.param("Use <preview> mode", id="test_preview_not_pre"),
+            pytest.param("<coding>", id="test_coding_not_code"),
+            pytest.param("the <olive> tree", id="test_olive_not_ol"),
+            pytest.param("", id="test_empty_string"),
+            pytest.param("email@<domain>", id="test_email_angle_brackets"),
+            pytest.param("a < b", id="test_lt_without_gt"),
+            pytest.param("<emphasis>", id="test_emphasis_not_em"),
+            pytest.param("<listing>", id="test_listing_not_li"),
+            pytest.param("<division>", id="test_division_not_div"),
+        ],
+    )
+    def test_plain_text(self, value):
+        assert not (self._matches(value))
 
     # --- Edge cases ---
 

@@ -6,6 +6,7 @@ from plugin.chatbot.web_research_chat import (
     document_open_step_chat_text,
     format_sub_agent_conversation_history,
 )
+import pytest
 
 
 def test_format_sub_agent_history_empty_session():
@@ -50,13 +51,15 @@ def test_format_sub_agent_history_strips_html():
     assert "are" in history
 
 
-def test_display_name_uses_basename_for_absolute_path():
-    assert display_name_for_path_or_name("/tmp/Budget_2026.ods") == "Budget_2026.ods"
-
-
-def test_display_name_keeps_relative_name():
-    assert display_name_for_path_or_name("Budget.ods") == "Budget.ods"
-
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("/tmp/Budget_2026.ods", "Budget_2026.ods", id="test_display_name_uses_basename_for_absolute_path"),
+        pytest.param("Budget.ods", "Budget.ods", id="test_display_name_keeps_relative_name"),
+    ],
+)
+def test_display_name_uses_basename_for_absolute_path(value, expected):
+    assert display_name_for_path_or_name(value) == expected
 
 def test_step_zero_tool_and_preview_only():
     q = "/tmp/Budget_2026.ods"

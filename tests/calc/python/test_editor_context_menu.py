@@ -10,25 +10,23 @@ from unittest.mock import MagicMock, patch
 
 from plugin.calc.python.editor_context_menu import _looks_like_cell_context_menu
 from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
+import pytest
 
 
-def test_looks_like_cell_context_menu_matches_cut():
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param(".uno:Cut", True, id="test_looks_like_cell_context_menu_matches_cut"),
+        pytest.param(".uno:Insert", False, id="test_looks_like_cell_context_menu_rejects_other_menus"),
+    ],
+)
+def test_looks_like_cell_context_menu_matches_cut(value, expected):
     first = MagicMock()
-    first.getPropertyValue.return_value = ".uno:Cut"
+    first.getPropertyValue.return_value = value
     container = MagicMock()
     container.getCount.return_value = 1
     container.getByIndex.return_value = first
-    assert _looks_like_cell_context_menu(container) is True
-
-
-def test_looks_like_cell_context_menu_rejects_other_menus():
-    first = MagicMock()
-    first.getPropertyValue.return_value = ".uno:Insert"
-    container = MagicMock()
-    container.getCount.return_value = 1
-    container.getByIndex.return_value = first
-    assert _looks_like_cell_context_menu(container) is False
-
+    assert _looks_like_cell_context_menu(container) is expected
 
 def test_register_frame_uses_uno_type_by_name():
     from plugin.calc.python.editor_context_menu import _register_frame

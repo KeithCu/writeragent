@@ -722,21 +722,19 @@ def test_uno_same_eq_when_not_same_ref():
     assert uno_same(AlwaysEq(), AlwaysEq()) is True
 
 
-def test_uno_same_issame_when_is_and_eq_fail():
+@pytest.mark.parametrize(
+    "return_value, expected",
+    [
+        pytest.param(True, True, id="test_uno_same_issame_when_is_and_eq_fail"),
+        pytest.param(False, False, id="test_uno_same_false_when_all_paths_differ"),
+    ],
+)
+def test_uno_same_issame_when_is_and_eq_fail(return_value, expected):
     from plugin.framework.uno_context import uno_same
 
     a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", return_value=True, create=True):
-        assert uno_same(a, b) is True
-
-
-def test_uno_same_false_when_all_paths_differ():
-    from plugin.framework.uno_context import uno_same
-
-    a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", return_value=False, create=True):
-        assert uno_same(a, b) is False
-
+    with patch.object(sys.modules["uno"], "isSame", return_value=return_value, create=True):
+        assert uno_same(a, b) is expected
 
 def test_uno_same_false_when_issame_missing():
     from plugin.framework.uno_context import uno_same
@@ -994,8 +992,6 @@ def test_doc_identity_url_repairs_file_slash_without_changing_normalize():
     assert normalize_doc_url("file:/tmp/note.odt") == "file:/tmp/note.odt"
     assert _doc_identity_url("file:/tmp/note.odt") == _doc_identity_url("file:///tmp/note.odt")
 
-
-
 def test_resolve_document_by_url_reraises_disposed_on_nextelement():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.framework.uno_context import resolve_document_by_url, set_fallback_ctx, reset_desktop_create_is_unsafe_for_tests
@@ -1037,23 +1033,22 @@ def test_resolve_document_by_url_reraises_disposed_on_nextelement():
         set_fallback_ctx(saved_ctx)
         reset_desktop_create_is_unsafe_for_tests()
 
-def test_desktop_create_is_unsafe_now_false_for_soffice_with_uno_arg():
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4, expected",
+    [
+        pytest.param("/usr/lib/libreoffice/program/soffice.bin", "soffice.bin", "/usr/lib/libreoffice/program/soffice.bin", "/home/u/uno", False, id="test_desktop_create_is_unsafe_now_false_for_soffice_with_uno_arg"),
+        pytest.param("/usr/lib/libreoffice/program/uno.bin", "uno.bin", "/usr/lib/libreoffice/program/uno.bin", "arg", True, id="test_desktop_create_is_unsafe_now_true_for_uno_bin_exe"),
+    ],
+)
+def test_desktop_create_is_unsafe_now_false_for_soffice_with_uno_arg(value, value_2, value_3, value_4, expected):
     from plugin.framework.uno_context import _desktop_create_is_unsafe_now
-    proc = ("/usr/lib/libreoffice/program/soffice.bin", "soffice.bin", ["/usr/lib/libreoffice/program/soffice.bin", "/home/u/uno"])
+    proc = (value, value_2, [value_3, value_4])
     with (
         patch.object(sys, "argv", [""]),
         patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
     ):
-        assert _desktop_create_is_unsafe_now() is False
+        assert _desktop_create_is_unsafe_now() is expected
 
-def test_desktop_create_is_unsafe_now_true_for_uno_bin_exe():
-    from plugin.framework.uno_context import _desktop_create_is_unsafe_now
-    proc = ("/usr/lib/libreoffice/program/uno.bin", "uno.bin", ["/usr/lib/libreoffice/program/uno.bin", "arg"])
-    with (
-        patch.object(sys, "argv", [""]),
-        patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
-    ):
-        assert _desktop_create_is_unsafe_now() is True
 
 def test_new_blank_writer_returns_none_and_closes_when_body_unreadable():
     from plugin.framework.uno_context import new_blank_writer

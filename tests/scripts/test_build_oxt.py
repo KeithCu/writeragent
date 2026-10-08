@@ -19,21 +19,22 @@ from scripts.build_oxt import (
     should_exclude,
     sync_vendor_into_lib,
 )
+import pytest
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def test_python_logo_dev_sources_excluded_from_oxt():
-    assert should_exclude("extension/assets/python_logo.svg") is True
-    assert should_exclude("extension/assets/python_logo.NOTICE") is True
-    assert should_exclude("extension/assets/python_32.png") is False
-
-
-def test_jupyter_logo_dev_sources_excluded_from_oxt():
-    assert should_exclude("extension/assets/jupyter_logo.svg") is True
-    assert should_exclude("extension/assets/jupyter_logo.NOTICE") is True
-    assert should_exclude("extension/assets/gear_32.png") is False
-
+@pytest.mark.parametrize(
+    "value, value_2, value_3",
+    [
+        pytest.param("extension/assets/python_logo.svg", "extension/assets/python_logo.NOTICE", "extension/assets/python_32.png", id="test_python_logo_dev_sources_excluded_from_oxt"),
+        pytest.param("extension/assets/jupyter_logo.svg", "extension/assets/jupyter_logo.NOTICE", "extension/assets/gear_32.png", id="test_jupyter_logo_dev_sources_excluded_from_oxt"),
+    ],
+)
+def test_python_logo_dev_sources_excluded_from_oxt(value, value_2, value_3):
+    assert should_exclude(value) is True
+    assert should_exclude(value_2) is True
+    assert should_exclude(value_3) is False
 
 def test_provider_logo_pngs_ship_notice_excluded():
     assert should_exclude("extension/assets/provider_logos.NOTICE") is True

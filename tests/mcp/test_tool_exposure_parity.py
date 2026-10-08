@@ -148,28 +148,23 @@ def test_an_unavailable_domains_tools_are_dropped_from_the_list(monkeypatch):
     assert [s["name"] for s in kept] == ["style_list"]
 
 
-def test_a_configured_domain_stays_listed(monkeypatch):
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4",
+    [
+        pytest.param(True, "extract_structure_from_image", "vision", "extract_structure_from_image", id="test_a_configured_domain_stays_listed"),
+        # Core tools have no specialized domain and must pass through whatever the gate says.
+        pytest.param(False, "get_document_content", None, "get_document_content", id="test_tools_without_a_domain_are_never_dropped"),
+    ],
+)
+def test_a_configured_domain_stays_listed(monkeypatch, value, value_2, value_3, value_4):
     from plugin.mcp.mcp_protocol import drop_unavailable_domains
 
     monkeypatch.setattr("plugin.vision.vision_availability.vision_venv_configured",
-                        lambda _ctx: True)
-    registry = _FakeRegistry({"extract_structure_from_image": "vision"})
-    schemas = [{"name": "extract_structure_from_image"}]
+                        lambda _ctx: value)
+    registry = _FakeRegistry({value_2: value_3})
+    schemas = [{"name": value_4}]
 
     assert drop_unavailable_domains(schemas, registry, object()) == schemas
-
-
-def test_tools_without_a_domain_are_never_dropped(monkeypatch):
-    """Core tools have no specialized domain and must pass through whatever the gate says."""
-    from plugin.mcp.mcp_protocol import drop_unavailable_domains
-
-    monkeypatch.setattr("plugin.vision.vision_availability.vision_venv_configured",
-                        lambda _ctx: False)
-    registry = _FakeRegistry({"get_document_content": None})
-    schemas = [{"name": "get_document_content"}]
-
-    assert drop_unavailable_domains(schemas, registry, object()) == schemas
-
 
 def test_no_context_means_no_filtering():
     """tools/list before a document resolves has no ctx to ask; advertising is the safe default."""

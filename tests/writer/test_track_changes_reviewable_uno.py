@@ -17,7 +17,7 @@ import contextlib
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
-    TestingFactory,
+    native_writer_tool_context,
     skip_windows_leftover_hidden_load,
     with_native_doc,
 )
@@ -112,8 +112,9 @@ def _tool_ctx(doc, ctx):
     # GHA 34683742049: leftover Hidden _default apply hung after the
     # first apply-suite skips. This file is the next ApplyDocumentContent
     # victim on leftover_open>0.
-    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
-    return TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    return native_writer_tool_context(
+        doc, ctx, skip_reason="apply_document_content Hidden _default swriter"
+    )
 
 
 # --- replace primitives must be Track-Changes-safe: a clean Delete+Insert, not a char-by-char

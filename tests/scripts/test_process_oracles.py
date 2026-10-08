@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+import pytest
 
 _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
@@ -26,23 +27,33 @@ def _write(dest: str, formula: str = '=PY("result = 1"; A1:H500)') -> dict:
     }
 
 
-def test_py_dest_j1_passes() -> None:
-    assert check_process("py_refuse_overlap", [_write("J1")]) == []
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("J1", id="test_py_dest_j1_passes"),
+        pytest.param("I1", id="test_py_dest_i1_passes"),
+    ],
+)
+def test_py_dest_j1_passes(value) -> None:
+    assert check_process("py_refuse_overlap", [_write(value)]) == []
 
 
-def test_py_process_accepts_a1_c8() -> None:
+@pytest.mark.parametrize(
+    "value, value_2, value_3",
+    [
+        pytest.param("py_no_bulk_read", "J1", '=PY("result = 1"; A1:C8)', id="test_py_process_accepts_a1_c8"),
+        pytest.param("py_no_bulk_read", "D1", '=PY("result = 1"; A1:C8)', id="test_py_d1_with_fixture_range_passes"),
+        pytest.param("tax_column", "C1", "0.8", id="test_non_py_task_ignores_dest"),
+    ],
+)
+def test_py_process_accepts_a1_c8(value, value_2, value_3) -> None:
     assert (
         check_process(
-            "py_no_bulk_read",
-            [_write("J1", '=PY("result = 1"; A1:C8)')],
+            value,
+            [_write(value_2, value_3)],
         )
         == []
     )
-
-
-def test_py_dest_i1_passes() -> None:
-    assert check_process("py_refuse_overlap", [_write("I1")]) == []
-
 
 def test_py_dest_h1_fails() -> None:
     fails = check_process("py_refuse_overlap", [_write("H1")])
@@ -52,17 +63,6 @@ def test_py_dest_h1_fails() -> None:
 def test_py_all_writes_earlier_inside_fails() -> None:
     fails = check_process("py_refuse_overlap", [_write("H1"), _write("J1")])
     assert any("overlap" in f for f in fails)
-
-
-def test_py_d1_with_fixture_range_passes() -> None:
-    assert (
-        check_process(
-            "py_no_bulk_read",
-            [_write("D1", '=PY("result = 1"; A1:C8)')],
-        )
-        == []
-    )
-
 
 def test_bulk_read_fails_no_bulk_task() -> None:
     trace = [
@@ -110,5 +110,3 @@ def test_domain_python_fails() -> None:
     assert any("domain=python" in f for f in fails)
 
 
-def test_non_py_task_ignores_dest() -> None:
-    assert check_process("tax_column", [_write("C1", "0.8")]) == []

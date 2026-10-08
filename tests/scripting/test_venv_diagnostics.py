@@ -70,26 +70,20 @@ def test_run_venv_self_check_worker_start_error():
     assert "boom" in msg
 
 
-def test_run_venv_self_check_worker_error_response():
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("nope", "nope", id="test_run_venv_self_check_worker_error_response"),
+        pytest.param("Python worker failed: Command timed out after 1 seconds", "Timed out", id="test_run_venv_self_check_timeout"),
+    ],
+)
+def test_run_venv_self_check_worker_error_response(value, value_2):
     mock_mgr = MagicMock()
-    mock_mgr.execute.return_value = {"status": "error", "message": "nope"}
+    mock_mgr.execute.return_value = {"status": "error", "message": value}
     with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr):
         ok, msg = run_venv_self_check("/x/python", timeout=1.0)
     assert ok is False
-    assert "nope" in msg
-
-
-def test_run_venv_self_check_timeout():
-    mock_mgr = MagicMock()
-    mock_mgr.execute.return_value = {
-        "status": "error",
-        "message": "Python worker failed: Command timed out after 1 seconds",
-    }
-    with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr):
-        ok, msg = run_venv_self_check("/x/python", timeout=1.0)
-    assert ok is False
-    assert "Timed out" in msg
-
+    assert value_2 in msg
 
 def test_run_venv_self_check_reports_architecture():
     """Self-check success message includes platform.machine() from the worker payload."""

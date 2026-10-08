@@ -9,6 +9,7 @@ from pathlib import Path
 from scripts.lint_thread_safety import (
     scan_cross_file_callgraph,
 )
+import pytest
 
 
 def test_clean_plugin_scan() -> None:
@@ -83,13 +84,11 @@ def step_c():
     assert "start_job -> step_b -> step_c -> get_desktop" in f.message
 
 
-def test_marshaled_call_is_sanitized(tmp_path: Path) -> None:
-    """Calls dispatched via execute_on_main_thread or post_to_main_thread are safe."""
-    file_a = tmp_path / "mod_a.py"
-    file_b = tmp_path / "mod_b.py"
-
-    file_a.write_text(
-        """
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        # Calls dispatched via execute_on_main_thread or post_to_main_thread are safe.
+        pytest.param("""
 from plugin.framework.thread_guard import background
 from plugin.framework.queue_executor import execute_on_main_thread
 from mod_b import step_b
@@ -97,43 +96,21 @@ from mod_b import step_b
 @background
 def safe_job():
     execute_on_main_thread(step_b)
-""",
-        encoding="utf-8",
-    )
-
-    file_b.write_text(
-        """
+""", """
 from plugin.framework.uno_context import get_active_document
 
 def step_b():
     return get_active_document()
-""",
-        encoding="utf-8",
-    )
-
-    findings = scan_cross_file_callgraph(tmp_path)
-    assert findings == []
-
-
-def test_guarded_branch_is_sanitized(tmp_path: Path) -> None:
-    """A UNO call guarded by on_main_thread() check must not be flagged."""
-    file_a = tmp_path / "mod_a.py"
-    file_b = tmp_path / "mod_b.py"
-
-    file_a.write_text(
-        """
+""", id="test_marshaled_call_is_sanitized"),
+        # A UNO call guarded by on_main_thread() check must not be flagged.
+        pytest.param("""
 from plugin.framework.thread_guard import background
 from mod_b import step_b
 
 @background
 def guarded_job():
     step_b()
-""",
-        encoding="utf-8",
-    )
-
-    file_b.write_text(
-        """
+""", """
 from plugin.framework.thread_guard import on_main_thread
 from plugin.framework.uno_context import get_desktop
 
@@ -141,13 +118,25 @@ def step_b():
     if not on_main_thread():
         return None
     return get_desktop()
-""",
+""", id="test_guarded_branch_is_sanitized"),
+    ],
+)
+def test_marshaled_call_is_sanitized(tmp_path: Path, value, value_2) -> None:
+    file_a = tmp_path / "mod_a.py"
+    file_b = tmp_path / "mod_b.py"
+
+    file_a.write_text(
+        value,
+        encoding="utf-8",
+    )
+
+    file_b.write_text(
+        value_2,
         encoding="utf-8",
     )
 
     findings = scan_cross_file_callgraph(tmp_path)
     assert findings == []
-
 
 def test_run_in_background_target_detected(tmp_path: Path) -> None:
     """Functions passed as target to run_in_background are treated as background roots."""

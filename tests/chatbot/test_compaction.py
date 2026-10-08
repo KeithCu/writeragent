@@ -631,16 +631,17 @@ def test_openrouter_nitro_equivalence_not_raw_ids():
     assert C.resolve_context_window(unknown) is None
 
 
-def test_resolve_context_window_uses_client_config_model():
-    client = DummyClient(provider="openrouter", model="openai/gpt-oss-120b")
-    assert C.resolve_context_window(client) == 131072
-
-
-def test_resolve_context_window_openrouter_free_catalog():
-    """OpenRouter lists the free router at 200k (hop may be smaller)."""
-    client = DummyClient(provider="openrouter", model="openrouter/free")
-    assert C.resolve_context_window(client) == 200000
-
+@pytest.mark.parametrize(
+    "model, expected",
+    [
+        pytest.param("openai/gpt-oss-120b", 131072, id="test_resolve_context_window_uses_client_config_model"),
+        # OpenRouter lists the free router at 200k (hop may be smaller).
+        pytest.param("openrouter/free", 200000, id="test_resolve_context_window_openrouter_free_catalog"),
+    ],
+)
+def test_resolve_context_window_uses_client_config_model(model, expected):
+    client = DummyClient(provider="openrouter", model=model)
+    assert C.resolve_context_window(client) == expected
 
 def test_resolve_context_window_writeragent_mock():
     """Mock soak id is not a hosted provider; catalog + any-id fallback."""

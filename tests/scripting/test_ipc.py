@@ -317,15 +317,16 @@ def test_json_line_roundtrip():
     assert read_json_line(buf) == {"status": "ready"}
 
 
-def test_invalid_json_line_raises():
-    with pytest.raises(ValueError, match="Invalid JSON line"):
-        read_json_line(io.StringIO("{not-json}\n"))
-
-
-def test_json_line_non_object_raises():
-    with pytest.raises(ValueError, match="must contain an object"):
-        read_json_line(io.StringIO("[1, 2]\n"))
-
+@pytest.mark.parametrize(
+    "match, value",
+    [
+        pytest.param("Invalid JSON line", "{not-json}\n", id="test_invalid_json_line_raises"),
+        pytest.param("must contain an object", "[1, 2]\n", id="test_json_line_non_object_raises"),
+    ],
+)
+def test_invalid_json_line_raises(match, value):
+    with pytest.raises(ValueError, match=match):
+        read_json_line(io.StringIO(value))
 
 def test_pickle_frame_timeout_on_pipe():
     read_fd, write_fd = os.pipe()

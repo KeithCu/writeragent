@@ -200,22 +200,20 @@ def _phase_item(key: str = "k1") -> GrammarWorkItem:
     )
 
 
-def test_decide_language_validation_ja_tag_matches_ja_jp() -> None:
-    """LLM ``ja`` and document ``ja-JP`` must not trigger a locale change."""
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        # LLM ``ja`` and document ``ja-JP`` must not trigger a locale change.
+        pytest.param("ja-JP", "ja", "ja-JP", id="test_decide_language_validation_ja_tag_matches_ja_jp"),
+        pytest.param("en-US", "fr-FR", "fr-FR", id="test_decide_language_validation_single_mismatch_updates_target"),
+    ],
+)
+def test_decide_language_validation_ja_tag_matches_ja_jp(value, value_2, expected) -> None:
     item = _phase_item()
-    decision = decide_language_validation([(item, item.text)], "ja-JP", ["ja"])
-    assert decision.target_bcp47 == "ja-JP"
+    decision = decide_language_validation([(item, item.text)], value, [value_2])
+    assert decision.target_bcp47 == expected
     assert decision.result_chunk == [(item, item.text)]
     assert decision.requeues == ()
-
-
-def test_decide_language_validation_single_mismatch_updates_target() -> None:
-    item = _phase_item()
-    decision = decide_language_validation([(item, item.text)], "en-US", ["fr-FR"])
-    assert decision.target_bcp47 == "fr-FR"
-    assert decision.result_chunk == [(item, item.text)]
-    assert decision.requeues == ()
-
 
 def test_decide_language_validation_multi_mismatch_requeues() -> None:
     a, b = _phase_item("k1"), _phase_item("k2")
@@ -242,28 +240,22 @@ def test_decide_language_validation_multi_none_drops_from_result_chunk() -> None
     assert decision.target_bcp47 == "en-US"
 
 
-def test_decide_grammar_completion_mismatch_requeues_all() -> None:
-    decision = decide_grammar_completion(3, 2, "en-US", "en-US")
-    assert decision.requeue_all is True
-    assert decision.apply_locale_after_success is False
-
-
-def test_decide_grammar_completion_success_with_locale_change() -> None:
-    decision = decide_grammar_completion(1, 1, "ja-JP", "zh-CN")
-    assert decision.requeue_all is False
-    assert decision.apply_locale_after_success is True
-
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4, expected, expected_2",
+    [
+        pytest.param(3, 2, "en-US", "en-US", True, False, id="test_decide_grammar_completion_mismatch_requeues_all"),
+        pytest.param(1, 1, "ja-JP", "zh-CN", False, True, id="test_decide_grammar_completion_success_with_locale_change"),
+        pytest.param(2, 2, "en-US", "en-US", False, False, id="test_decide_grammar_completion_success_same_locale"),
+    ],
+)
+def test_decide_grammar_completion_mismatch_requeues_all(value, value_2, value_3, value_4, expected, expected_2) -> None:
+    decision = decide_grammar_completion(value, value_2, value_3, value_4)
+    assert decision.requeue_all is expected
+    assert decision.apply_locale_after_success is expected_2
 
 def test_decide_grammar_completion_no_apply_when_tags_equivalent() -> None:
     decision = decide_grammar_completion(1, 1, "ja-JP", "ja")
     assert decision.apply_locale_after_success is False
-
-
-def test_decide_grammar_completion_success_same_locale() -> None:
-    decision = decide_grammar_completion(2, 2, "en-US", "en-US")
-    assert decision.requeue_all is False
-    assert decision.apply_locale_after_success is False
-
 
 def test_batch_result_summary() -> None:
     from plugin.writer.locale.grammar_worker import _BatchResultSummary
@@ -391,8 +383,6 @@ def test_persistence_get_and_put_cached_language() -> None:
 
     grammar_registry.clear_all()
     assert grammar_registry.get_cached_language("Test text") is None
-
-
 
 def test_run_llm_and_cache_batch_success() -> None:
     """Verify that multiple items are batched and results are stored in cache."""
@@ -982,8 +972,4 @@ def test_grammar_check_routes_to_harper() -> None:
 
         mock_harper_check.assert_called_once_with(ec.ctx, "This is a test sentence.", "/tmp", bcp47="en-AU")
         mock_process.assert_called_once()
-
-
-
-
 

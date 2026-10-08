@@ -26,6 +26,7 @@ from plugin.calc.python.formula_edit import (
     rebuild_python_formula_with_data,
     sanitize_inline_py_code,
 )
+import pytest
 
 
 def test_parse_simple():
@@ -51,17 +52,19 @@ def test_parse_with_comma_data_range():
     assert format_data_binding_display(parts.data_suffix) == "A2:C2"
 
 
-def test_parse_escaped_quotes():
-    parts = parse_python_formula('=PYTHON("say ""hi""")')
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param('=PYTHON("say ""hi""")', 'say "hi"', id="test_parse_escaped_quotes"),
+        pytest.param('=PYTHON("a\nb")', "a\nb", id="test_parse_multiline"),
+        pytest.param('=PYTHON("sp.prime(100)")', "sp.prime(100)", id="test_parse_sp_prime_quoted"),
+        pytest.param("=PYTHON(sp.prime(100))", "sp.prime(100)", id="test_parse_unquoted_code"),
+    ],
+)
+def test_parse_escaped_quotes(value, expected):
+    parts = parse_python_formula(value)
     assert parts is not None
-    assert parts.code == 'say "hi"'
-
-
-def test_parse_multiline():
-    parts = parse_python_formula('=PYTHON("a\nb")')
-    assert parts is not None
-    assert parts.code == "a\nb"
-
+    assert parts.code == expected
 
 def test_replace_preserves_data():
     old = '=PYTHON("result = 1"; Sheet1.A1:B2)'
@@ -86,19 +89,6 @@ def test_replace_escapes_quotes():
 
 def test_non_python_returns_none():
     assert parse_python_formula("=SUM(A1)") is None
-
-
-def test_parse_sp_prime_quoted():
-    parts = parse_python_formula('=PYTHON("sp.prime(100)")')
-    assert parts is not None
-    assert parts.code == "sp.prime(100)"
-
-
-def test_parse_unquoted_code():
-    parts = parse_python_formula("=PYTHON(sp.prime(100))")
-    assert parts is not None
-    assert parts.code == "sp.prime(100)"
-
 
 def test_py_code_arg_is_cell_ref():
     assert py_code_arg_is_cell_ref("A1") is True

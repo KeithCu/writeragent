@@ -22,6 +22,7 @@ from plugin.scripting.config_limits import (
     python_max_data_cells_min,
     resolve_python_exec_timeout,
 )
+import pytest
 
 
 def test_timeout_fallbacks_match_manifest():
@@ -89,11 +90,18 @@ def test_run_venv_python_script_schema_has_no_timeout_sec():
     assert "timeout_sec" not in props
 
 
-def test_settings_field_specs_include_python_exec_timeout():
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("scripting__python_exec_timeout", id="test_settings_field_specs_include_python_exec_timeout"),
+        pytest.param("scripting__python_max_data_cells", id="test_settings_field_specs_include_python_max_data_cells"),
+    ],
+)
+def test_settings_field_specs_include_python_exec_timeout(value):
     from plugin.chatbot.settings_dialog import get_settings_field_specs
 
     names = {f["name"] for f in get_settings_field_specs(MagicMock())}
-    assert "scripting__python_exec_timeout" in names
+    assert value in names
 
 
 def test_max_data_cells_schema_limits_from_manifest():
@@ -126,8 +134,3 @@ def test_configured_python_max_data_cells_clamps_low(mock_get):
     assert configured_python_max_data_cells() == 1000
 
 
-def test_settings_field_specs_include_python_max_data_cells():
-    from plugin.chatbot.settings_dialog import get_settings_field_specs
-
-    names = {f["name"] for f in get_settings_field_specs(MagicMock())}
-    assert "scripting__python_max_data_cells" in names

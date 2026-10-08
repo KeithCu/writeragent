@@ -22,19 +22,21 @@ from eval_core import (  # noqa: E402
 )
 
 
-def test_weighted_judge_score_structural() -> None:
-    assert _weighted_judge_score(5, 5, "N/A", "structural") == pytest.approx(1.0)
+@pytest.mark.parametrize(
+    "value, value_2, value_3",
+    [
+        pytest.param(5, "structural", 1.0, id="test_weighted_judge_score_structural"),
+        pytest.param(1, "table", 0.36, id="test_weighted_judge_score_table"),
+    ],
+)
+def test_weighted_judge_score_structural(value, value_2, value_3) -> None:
+    assert _weighted_judge_score(5, value, "N/A", value_2) == pytest.approx(value_3)
 
 
 def test_weighted_judge_score_creative() -> None:
     assert _weighted_judge_score(5, 5, 5, "creative") == pytest.approx(1.0)
     # Accuracy-first: 50/20/30, not 30/20/50.
     assert _weighted_judge_score(5, 1, 1, "creative") == pytest.approx(0.6)
-
-
-def test_weighted_judge_score_table() -> None:
-    assert _weighted_judge_score(5, 1, "N/A", "table") == pytest.approx(0.36)
-
 
 def test_parse_judge_json_object() -> None:
     payload = {

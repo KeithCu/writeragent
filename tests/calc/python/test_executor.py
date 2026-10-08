@@ -42,19 +42,16 @@ def test_no_persistence_across_executor_instances():
     with pytest.raises(WriterAgentException):
         e2.execute_with_return("z + 10")
 
-def test_fn_definition():
-    executor = PythonExecutor("test_url")
-    code = """
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("""
 def add_five(n):
     return n + 5
 
 add_five(10)
-"""
-    assert executor.execute_with_return(code) == 15
-
-def test_class_definition():
-    executor = PythonExecutor("test_url")
-    code = """
+""", 15, id="test_fn_definition"),
+        pytest.param("""
 class Counter:
     def __init__(self):
         self.count = 0
@@ -65,8 +62,14 @@ class Counter:
 c = Counter()
 c.inc()
 c.inc()
-"""
-    assert executor.execute_with_return(code) == 2
+""", 2, id="test_class_definition"),
+    ],
+)
+def test_fn_definition(value, expected):
+    executor = PythonExecutor("test_url")
+    code = value
+    assert executor.execute_with_return(code) == expected
+
 
 def test_syntax_error():
     executor = PythonExecutor("test_url")

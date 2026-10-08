@@ -333,27 +333,24 @@ def test_obs_result_window_empty_lint_omits_rule_ids() -> None:
     assert "rule_ids" not in kwargs
 
 
-def test_apply_proofreading_end_positions_skips_space_after_sentence() -> None:
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("Hi. Bye.", id="test_apply_proofreading_end_positions_skips_space_after_sentence"),
+        pytest.param("Hi.\tBye.", id="test_apply_proofreading_end_positions_skips_tab_after_sentence"),
+    ],
+)
+def test_apply_proofreading_end_positions_skips_space_after_sentence(value) -> None:
     from plugin.writer.locale.ai_grammar_proofreader import _apply_proofreading_end_positions
     class Res:
         nStartOfNextSentencePosition = 0
         nBehindEndOfSentencePosition = 0
-    text = "Hi. Bye."
+    text = value
     r = Res()
     _apply_proofreading_end_positions(r, text, 3)
     assert r.nStartOfNextSentencePosition == 4
     assert r.nBehindEndOfSentencePosition == 4
 
-def test_apply_proofreading_end_positions_skips_tab_after_sentence() -> None:
-    from plugin.writer.locale.ai_grammar_proofreader import _apply_proofreading_end_positions
-    class Res:
-        nStartOfNextSentencePosition = 0
-        nBehindEndOfSentencePosition = 0
-    text = "Hi.\tBye."
-    r = Res()
-    _apply_proofreading_end_positions(r, text, 3)
-    assert r.nStartOfNextSentencePosition == 4
-    assert r.nBehindEndOfSentencePosition == 4
 
 def test_sentence_terminators_cover_multilingual_cases() -> None:
     assert looks_complete_sentence("Hello world.")
@@ -1112,8 +1109,6 @@ def test_writeragent_proofreader_init_does_not_start_harper() -> None:
     ):
         WriterAgentAiGrammarProofreader(ctx)
         mock_warmup.assert_not_called()
-
-
 
 def test_try_harper_fast_path_emits_status_when_ready() -> None:
     from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader

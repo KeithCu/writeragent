@@ -1,6 +1,7 @@
 """Unit tests for menu icon DPI size probe (no UNO)."""
 
 from plugin.framework.menu_icon_dpi import interpolate_menu_icon_px, reset_menu_icon_dpi_cache
+import pytest
 
 
 def test_candidate_windows_skips_desktop_create_on_no_vcl():
@@ -18,21 +19,17 @@ def test_candidate_windows_skips_desktop_create_on_no_vcl():
     smgr.createInstanceWithContext.assert_not_called()
 
 
-def test_one_x_keeps_16():
-    assert interpolate_menu_icon_px(1.0) == 16
-
-
-def test_hidpi_prefers_32():
-    assert interpolate_menu_icon_px(2.0) == 32
-
-
-def test_mid_scale_snaps_to_26():
-    assert interpolate_menu_icon_px(1.5) == 26
-
-
-def test_ultra_hidpi_caps_at_32():
-    assert interpolate_menu_icon_px(3.0) == 32
-
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param(1.0, 16, id="test_one_x_keeps_16"),
+        pytest.param(2.0, 32, id="test_hidpi_prefers_32"),
+        pytest.param(1.5, 26, id="test_mid_scale_snaps_to_26"),
+        pytest.param(3.0, 32, id="test_ultra_hidpi_caps_at_32"),
+    ],
+)
+def test_one_x_keeps_16(value, expected):
+    assert interpolate_menu_icon_px(value) == expected
 
 def test_failed_probe_defaults_to_hidpi_large(monkeypatch):
     from plugin.framework import menu_icon_dpi as m

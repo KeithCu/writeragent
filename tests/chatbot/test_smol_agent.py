@@ -4,6 +4,7 @@ from types import ModuleType, SimpleNamespace
 import sys
 import time
 from unittest.mock import MagicMock, patch
+import pytest
 
 # =============================================================================
 # UNO mocks for librarian handoff tests
@@ -861,9 +862,16 @@ def test_get_os_login_name_returns_normalized_login():
         assert get_os_login_name() == "Keith"
 
 
-def test_get_libreoffice_user_display_name_prefers_givenname():
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param("Alice", "Smith", "Alice", id="test_get_libreoffice_user_display_name_prefers_givenname"),
+        pytest.param("", "Jones", "Jones", id="test_get_libreoffice_user_display_name_falls_back_to_sn"),
+    ],
+)
+def test_get_libreoffice_user_display_name_prefers_givenname(value, value_2, expected):
     access = MagicMock()
-    access.getPropertyValue.side_effect = lambda key: {"givenname": "Alice", "sn": "Smith"}[key]
+    access.getPropertyValue.side_effect = lambda key: {"givenname": value, "sn": value_2}[key]
     provider = MagicMock()
     provider.createInstanceWithArguments.return_value = access
     smgr = MagicMock()
@@ -873,37 +881,20 @@ def test_get_libreoffice_user_display_name_prefers_givenname():
     ctx.getServiceManager.return_value = smgr
 
     with patch.dict("sys.modules", {"com.sun.star.beans": MagicMock()}):
-        assert get_libreoffice_user_display_name(ctx) == "Alice"
+        assert get_libreoffice_user_display_name(ctx) == expected
 
-
-def test_get_libreoffice_user_display_name_falls_back_to_sn():
-    access = MagicMock()
-    access.getPropertyValue.side_effect = lambda key: {"givenname": "", "sn": "Jones"}[key]
-    provider = MagicMock()
-    provider.createInstanceWithArguments.return_value = access
-    smgr = MagicMock()
-    smgr.createInstanceWithContext.return_value = provider
+@pytest.mark.parametrize(
+    "return_value, expected",
+    [
+        pytest.param("Alice", "Alice", id="test_get_suggested_user_name_prefers_libreoffice_over_os"),
+        pytest.param(None, "keithcu", id="test_get_suggested_user_name_falls_back_to_os_login"),
+    ],
+)
+def test_get_suggested_user_name_prefers_libreoffice_over_os(return_value, expected):
     ctx = MagicMock()
-    ctx.ctx = ctx
-    ctx.getServiceManager.return_value = smgr
-
-    with patch.dict("sys.modules", {"com.sun.star.beans": MagicMock()}):
-        assert get_libreoffice_user_display_name(ctx) == "Jones"
-
-
-def test_get_suggested_user_name_prefers_libreoffice_over_os():
-    ctx = MagicMock()
-    with patch("plugin.chatbot.librarian.get_libreoffice_user_display_name", return_value="Alice"):
+    with patch("plugin.chatbot.librarian.get_libreoffice_user_display_name", return_value=return_value):
         with patch("plugin.chatbot.librarian.get_os_login_name", return_value="keithcu"):
-            assert get_suggested_user_name(ctx) == "Alice"
-
-
-def test_get_suggested_user_name_falls_back_to_os_login():
-    ctx = MagicMock()
-    with patch("plugin.chatbot.librarian.get_libreoffice_user_display_name", return_value=None):
-        with patch("plugin.chatbot.librarian.get_os_login_name", return_value="keithcu"):
-            assert get_suggested_user_name(ctx) == "keithcu"
-
+            assert get_suggested_user_name(ctx) == expected
 
 # =============================================================================
 # Librarian handoff tests (from test_librarian_handoff.py)

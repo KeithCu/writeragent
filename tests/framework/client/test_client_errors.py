@@ -7,6 +7,7 @@ from plugin.framework.client.errors import (
     local_model_overflow_message,
 )
 from plugin.framework.config import validate_api_config
+import pytest
 
 
 class TestZaiUnknownModelHint:
@@ -19,18 +20,18 @@ class TestZaiUnknownModelHint:
         assert ("api/coding/paas/v4") in (out)
         assert ("glm-5.2") in (out)
 
-    def test_no_hint_on_coding_endpoint(self):
+    @pytest.mark.parametrize(
+        "value, value_2, value_3",
+        [
+            pytest.param("/api/coding/paas/v4/chat/completions", "zai", "glm-5.2", id="test_no_hint_on_coding_endpoint"),
+            pytest.param("/api/paas/v4/chat/completions", "openai", "gpt-4o", id="test_no_hint_for_other_providers"),
+        ],
+    )
+    def test_no_hint_on_coding_endpoint(self, value, value_2, value_3):
         msg = "HTTP Error 400"
         err_body = '{"error":{"code":"1211","message":"Unknown Model"}}'
-        out = append_zai_unknown_model_hint(msg, err_body, "/api/coding/paas/v4/chat/completions", "zai", "glm-5.2")
+        out = append_zai_unknown_model_hint(msg, err_body, value, value_2, value_3)
         assert (out) == (msg)
-
-    def test_no_hint_for_other_providers(self):
-        msg = "HTTP Error 400"
-        err_body = '{"error":{"code":"1211","message":"Unknown Model"}}'
-        out = append_zai_unknown_model_hint(msg, err_body, "/api/paas/v4/chat/completions", "openai", "gpt-4o")
-        assert (out) == (msg)
-
 
 class TestLlamaServerOverflowSentence:
     """Issue #570: sidebar sentence names overflow; no raw HTTP 500 dict."""
@@ -75,8 +76,6 @@ class TestLlamaServerOverflowSentence:
         assert format_context_window_label(float("nan")) is None
         assert format_context_window_label(4096) == "4K"
         assert format_context_window_label("8192") == "8K"
-
-
 
 class TestValidateApiConfigPlaceholders:
 

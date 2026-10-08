@@ -9,6 +9,7 @@ from plugin.contrib.smolagents.utils import (
     parse_json_blob,
     try_parse_implicit_final_answer_tool_call,
 )
+import pytest
 
 USER_LOG_SNIPPET = (
     "Calling tools:\n"
@@ -74,15 +75,16 @@ def test_try_parse_implicit_final_answer_mercury_style_blob():
     }
 
 
-def test_try_parse_implicit_final_answer_none_for_web_search_shape():
-    text = '{"name": "web_search", "arguments": {"query": "pizza"}}'
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param('{"name": "web_search", "arguments": {"query": "pizza"}}', id="test_try_parse_implicit_final_answer_none_for_web_search_shape"),
+        pytest.param('{"name": "final_answer", "arguments": "Done."}', id="test_try_parse_implicit_final_answer_none_for_proper_tool_call"),
+    ],
+)
+def test_try_parse_implicit_final_answer_none_for_web_search_shape(value):
+    text = value
     assert try_parse_implicit_final_answer_tool_call(text, "final_answer") is None
-
-
-def test_try_parse_implicit_final_answer_none_for_proper_tool_call():
-    text = '{"name": "final_answer", "arguments": "Done."}'
-    assert try_parse_implicit_final_answer_tool_call(text, "final_answer") is None
-
 
 def test_content_looks_like_tool_call_false_for_answer_only_json():
     known = {"web_search", "final_answer"}

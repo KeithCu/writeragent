@@ -9,6 +9,7 @@ from plugin.writer.tracking import (
     TrackChangesShow,
     ManageTrackedChanges,
 )
+import pytest
 
 def _create_mock_ctx():
     ctx = MagicMock()
@@ -192,21 +193,21 @@ def test_track_changes_show_calc_like_controller_returns_stub():
     assert res.get("calc_track_changes_show_unsupported") is True
     assert "not supported" in res["message"].lower()
 
-def test_manage_tracked_changes_accept_all():
+@pytest.mark.parametrize(
+    "action, value",
+    [
+        pytest.param("accept_all", ".uno:AcceptAllTrackedChanges", id="test_manage_tracked_changes_accept_all"),
+        pytest.param("reject_all", ".uno:RejectAllTrackedChanges", id="test_manage_tracked_changes_reject_all"),
+    ],
+)
+def test_manage_tracked_changes_accept_all(action, value):
     ctx, dispatcher, frame, _ = _create_mock_ctx()
     tool = ManageTrackedChanges()
     
-    res = tool.execute(ctx, action="accept_all")
+    res = tool.execute(ctx, action=action)
     assert res["status"] == "ok"
-    dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+    dispatcher.executeDispatch.assert_called_with(frame, value, "", 0, ())
 
-def test_manage_tracked_changes_reject_all():
-    ctx, dispatcher, frame, _ = _create_mock_ctx()
-    tool = ManageTrackedChanges()
-    
-    res = tool.execute(ctx, action="reject_all")
-    assert res["status"] == "ok"
-    dispatcher.executeDispatch.assert_called_with(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
 
 def _redline_property_set():
     """A redline like the real UNO one: a property set with RedlineStart/RedlineEnd and NO

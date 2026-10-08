@@ -15,11 +15,19 @@ from plugin.calc.python.cell_discovery import (
     list_python_cells_on_sheet,
 )
 from plugin.tests.testing_utils import CalcDocStub
+import pytest
 
 
-def test_canonicalize_writeragent_addin_prefix():
-    raw = '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("result = 1")'
-    assert canonicalize_py_formula_for_parse(raw).upper().startswith("=PYTHON(")
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param('=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("result = 1")', "=PYTHON(", id="test_canonicalize_writeragent_addin_prefix"),
+        pytest.param('=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("result = 1")', "=PY(", id="test_canonicalize_collabora_getpy_prefix"),
+    ],
+)
+def test_canonicalize_writeragent_addin_prefix(value, value_2):
+    raw = value
+    assert canonicalize_py_formula_for_parse(raw).upper().startswith(value_2)
     assert is_py_formula_text(raw)
     assert extract_code_from_formula(raw) == "result = 1"
 
@@ -28,14 +36,6 @@ def test_canonicalize_librepy_addin_prefix():
     raw = '=ORG.EXTENSION.LIBREPY.PYTHONFUNCTION.PYTHON("result = 2")'
     assert is_py_formula_text(raw)
     assert extract_code_from_formula(raw) == "result = 2"
-
-
-def test_canonicalize_collabora_getpy_prefix():
-    raw = '=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("result = 1")'
-    assert canonicalize_py_formula_for_parse(raw).upper().startswith("=PY(")
-    assert is_py_formula_text(raw)
-    assert extract_code_from_formula(raw) == "result = 1"
-
 
 def test_short_py_formula():
     assert is_py_formula_text('=PY("result = 3")')

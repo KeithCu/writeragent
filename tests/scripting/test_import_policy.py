@@ -22,6 +22,7 @@ from plugin.scripting.import_policy import (
     venv_authorized_top_level_modules,
     venv_blocked_modules,
 )
+import pytest
 
 
 def test_venv_authorized_includes_json_numpy_matplotlib():
@@ -99,10 +100,17 @@ def test_inprocess_policy_is_stdlib_focused():
     assert "numpy" not in inprocess_authorized_modules()
 
 
-def test_python_specialized_sub_agent_hint_includes_full_policy():
-    hint = python_specialized_sub_agent_hint("Writer")
-    assert "Allowed stdlib in this sandbox" in hint
-    assert "does not inject spreadsheet" in hint
+@pytest.mark.parametrize(
+    "value, value_2, value_3",
+    [
+        pytest.param("Writer", "Allowed stdlib in this sandbox", "does not inject spreadsheet", id="test_python_specialized_sub_agent_hint_includes_full_policy"),
+        pytest.param("Calc", "PLOTS:", "Do not call image_insert", id="test_python_specialized_sub_agent_calc_plot_hint"),
+    ],
+)
+def test_python_specialized_sub_agent_hint_includes_full_policy(value, value_2, value_3):
+    hint = python_specialized_sub_agent_hint(value)
+    assert value_2 in hint
+    assert value_3 in hint
 
 
 def test_tool_note_includes_sandbox_prefix():
@@ -140,13 +148,6 @@ def test_venv_policy_has_no_cross_app_plot_branches():
     policy = format_venv_import_policy_for_prompt(compact=False)
     assert "image_insert" not in policy
     assert "PLOTS:" not in policy
-
-
-def test_python_specialized_sub_agent_calc_plot_hint():
-    hint = python_specialized_sub_agent_hint("Calc")
-    assert "PLOTS:" in hint
-    assert "Do not call image_insert" in hint
-
 
 def test_venv_policy_does_not_advertise_duckdb():
     """LLM-facing =PY / Calc policy blurbs must not steer agents toward DuckDB."""

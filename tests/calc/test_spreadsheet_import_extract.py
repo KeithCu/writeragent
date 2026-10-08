@@ -62,26 +62,19 @@ def test_normalize_python_to_py_prefix():
     assert "," not in norm.split("(", 1)[1]
 
 
-def test_normalize_preserves_code_and_data_args():
-    formula = '=PYTHON("np.sum(data)"; Sheet1.A1:B2; C3)'
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param('=PYTHON("np.sum(data)"; Sheet1.A1:B2; C3)', id="test_normalize_preserves_code_and_data_args"),
+        pytest.param('=PYTHON("x = ""hi""")', id="test_normalize_escapes_quotes_in_code"),
+        pytest.param('=PY("np.sum(data)"; A1:B2)', id="test_normalize_already_canonical_semantics_unchanged"),
+    ],
+)
+def test_normalize_preserves_code_and_data_args(value):
+    formula = value
     norm = normalize_py_formula(formula)
     assert norm is not None
     assert py_formula_semantics(formula) == py_formula_semantics(norm)
-
-
-def test_normalize_escapes_quotes_in_code():
-    formula = '=PYTHON("x = ""hi""")'
-    norm = normalize_py_formula(formula)
-    assert norm is not None
-    assert py_formula_semantics(formula) == py_formula_semantics(norm)
-
-
-def test_normalize_already_canonical_semantics_unchanged():
-    formula = '=PY("np.sum(data)"; A1:B2)'
-    norm = normalize_py_formula(formula)
-    assert norm is not None
-    assert py_formula_semantics(formula) == py_formula_semantics(norm)
-
 
 def test_normalize_non_python_returns_none():
     assert normalize_py_formula("=SUM(A1)") is None

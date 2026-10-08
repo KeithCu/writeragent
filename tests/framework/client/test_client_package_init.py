@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _CLIENT_INIT = _REPO_ROOT / "plugin" / "framework" / "client" / "__init__.py"
@@ -43,35 +44,25 @@ def test_client_init_source_does_not_import_llm_stack():
     assert not hit, "client/__init__.py top-level imports LLM stack: %s" % hit
 
 
-def test_import_requests_does_not_load_llm_client():
-    code = (
-        "import sys\n"
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("import sys\n"
         "from plugin.framework.client.requests import sync_request\n"
         "assert sync_request is not None\n"
         "assert 'plugin.framework.client.llm_client' not in sys.modules\n"
-        "assert 'plugin.embeddings.embedding_client' not in sys.modules\n"
-    )
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(_REPO_ROOT)
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        cwd=str(_REPO_ROOT),
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-
-
-def test_import_extension_update_check_does_not_load_llm_client():
-    code = (
-        "import sys\n"
+        "assert 'plugin.embeddings.embedding_client' not in sys.modules\n", id="test_import_requests_does_not_load_llm_client"),
+        pytest.param("import sys\n"
         "from plugin.chatbot.extension_update_check import schedule_extension_update_check_once\n"
         "from plugin.framework.client.requests import sync_request\n"
         "assert schedule_extension_update_check_once is not None\n"
         "assert sync_request is not None\n"
-        "assert 'plugin.framework.client.llm_client' not in sys.modules\n"
+        "assert 'plugin.framework.client.llm_client' not in sys.modules\n", id="test_import_extension_update_check_does_not_load_llm_client"),
+    ],
+)
+def test_import_requests_does_not_load_llm_client(value):
+    code = (
+        value
     )
     env = os.environ.copy()
     env["PYTHONPATH"] = str(_REPO_ROOT)
@@ -84,3 +75,5 @@ def test_import_extension_update_check_does_not_load_llm_client():
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+

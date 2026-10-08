@@ -10,14 +10,10 @@
 
 from plugin.testing_runner import _progress_verbose as _progress, native_test
 from plugin.tests.testing_utils import (
-    TestingFactory,
+    execute_calc_tool as _execute_calc_tool,
     note_windows_html_paste_leftover,
     with_native_doc,
 )
-
-
-def _execute_calc_tool(doc, ctx, name, args):
-    return TestingFactory.execute_tool(doc, ctx, name, args, doc_type="calc")
 
 
 def _diagnose_insert_cell_html_bold(cell) -> str:

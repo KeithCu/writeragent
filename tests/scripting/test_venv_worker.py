@@ -784,37 +784,32 @@ def test_normalize_response_unpacks_split_grid():
     assert out["result"][4][4] == pytest.approx(44.0)
 
 
-def test_automatic_imports_math():
-    r = run_sandboxed_code("result = math.sqrt(16)", None)
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param("result = math.sqrt(16)", 4.0, id="test_automatic_imports_math"),
+        pytest.param("import math as my_math\nresult = my_math.sqrt(16)", 4.0, id="test_automatic_imports_already_imported"),
+        pytest.param("import math\nresult = math.sqrt(25)", 5.0, id="test_automatic_imports_explicit"),
+    ],
+)
+def test_automatic_imports_math(value, expected):
+    r = run_sandboxed_code(value, None)
     assert r["status"] == "ok"
-    assert r["result"] == 4.0
+    assert r["result"] == expected
 
 
-def test_automatic_imports_numpy():
-    pytest.importorskip("numpy")
-    r = run_sandboxed_code("result = float(np.sum([1, 2, 3]))", None)
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param("numpy", "result = float(np.sum([1, 2, 3]))", 6.0, id="test_automatic_imports_numpy"),
+        pytest.param("sympy", "result = str(sp.Symbol('x'))", "x", id="test_automatic_imports_sympy"),
+    ],
+)
+def test_automatic_imports_numpy(value, value_2, expected):
+    pytest.importorskip(value)
+    r = run_sandboxed_code(value_2, None)
     assert r["status"] == "ok"
-    assert r["result"] == 6.0
-
-
-def test_automatic_imports_sympy():
-    pytest.importorskip("sympy")
-    r = run_sandboxed_code("result = str(sp.Symbol('x'))", None)
-    assert r["status"] == "ok"
-    assert r["result"] == "x"
-
-
-def test_automatic_imports_already_imported():
-    r = run_sandboxed_code("import math as my_math\nresult = my_math.sqrt(16)", None)
-    assert r["status"] == "ok"
-    assert r["result"] == 4.0
-
-
-def test_automatic_imports_explicit():
-    r = run_sandboxed_code("import math\nresult = math.sqrt(25)", None)
-    assert r["status"] == "ok"
-    assert r["result"] == 5.0
-
+    assert r["result"] == expected
 
 def test_build_request_sets_heartbeat_on_trusted_action():
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
@@ -1494,21 +1489,21 @@ class TestReadResponseBytesThreaded:
         assert decoded["status"] == "ok"
         assert decoded["result"] == 42
 
-    def test_returns_empty_on_eof(self):
-        stdout = io.BytesIO(b"")
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param(b"", id="test_returns_empty_on_eof"),
+            pytest.param(b"\x00\x00", id="test_returns_empty_on_short_header"),
+        ],
+    )
+    def test_returns_empty_on_eof(self, value):
+        stdout = io.BytesIO(value)
         mgr = PythonWorkerManager.__new__(PythonWorkerManager)
         mgr.exe = "python"
         mgr._proc = True
         got = mgr._read_response_bytes_threaded(stdout, timeout_sec=2)
         assert got == b""
 
-    def test_returns_empty_on_short_header(self):
-        stdout = io.BytesIO(b"\x00\x00")
-        mgr = PythonWorkerManager.__new__(PythonWorkerManager)
-        mgr.exe = "python"
-        mgr._proc = True
-        got = mgr._read_response_bytes_threaded(stdout, timeout_sec=2)
-        assert got == b""
 
     def test_returns_empty_on_truncated_payload(self):
         header = struct.pack("!I", 100)
@@ -2104,8 +2099,6 @@ def test_drain_stderr_fallback_does_not_wait_for_eof():
     finally:
         os.close(write_fd)
         proc.stderr.close()
-
-
 
 def test_warm_venv_worker_embeddings_timeout(monkeypatch):
     from plugin.scripting import venv_worker as vw

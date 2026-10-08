@@ -1,6 +1,7 @@
 """Unit tests for paragraph range helpers moved out of document_helpers."""
 
 from plugin.doc.paragraph_search import find_paragraph_for_range, get_paragraph_ranges, search_paragraph_texts
+import pytest
 
 
 class _Enum:
@@ -119,21 +120,19 @@ def test_get_paragraph_ranges_keeps_tables_for_enumeration_index():
     assert get_paragraph_ranges(_Doc(elements)) == elements
 
 
-def test_find_paragraph_after_table_keeps_enumeration_index():
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param(24, 24, 2, id="test_find_paragraph_after_table_keeps_enumeration_index"),
+        pytest.param(15, 15, 1, id="test_find_table_anchor_maps_to_table_slot"),
+    ],
+)
+def test_find_paragraph_after_table_keeps_enumeration_index(value, value_2, expected):
     table = _Table(15)
     elements = [_Para(0, 10), table, _Para(20, 30)]
-    match = _Para(24, 24)
-    assert find_paragraph_for_range(match, elements, _TextObj()) == 2
+    match = _Para(value, value_2)
+    assert find_paragraph_for_range(match, elements, _TextObj()) == expected
     assert table.start_calls == 0
-
-
-def test_find_table_anchor_maps_to_table_slot():
-    table = _Table(15)
-    elements = [_Para(0, 10), table, _Para(20, 30)]
-    match = _Para(15, 15)
-    assert find_paragraph_for_range(match, elements, _TextObj()) == 1
-    assert table.start_calls == 0
-
 
 def test_confirm_paragraph_index_keeps_real_zero_and_rejects_unplaced():
     """Index 0 is a real hit only when the anchor start is inside that paragraph."""

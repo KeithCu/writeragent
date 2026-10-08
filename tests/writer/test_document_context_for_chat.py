@@ -10,6 +10,7 @@ from plugin.doc.document_helpers import (
 )
 from plugin.doc.text_helpers import _read_writer_text_slice, _writer_selection_overlaps_windows
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+import pytest
 
 
 @patch("plugin.doc.text_helpers.get_string_without_tracked_deletions", return_value="visible text")
@@ -25,17 +26,17 @@ def test_read_writer_text_slice_uses_deletion_filter(mock_get_cursor, mock_witho
     cursor.getString.assert_not_called()
 
 
-def test_inject_markers_into_excerpt_selection_inside():
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param(2, 5, "[START]\nab[SELECTION_START]cde[SELECTION_END]fghij\n[END]", id="test_inject_markers_into_excerpt_selection_inside"),
+        pytest.param(20, 25, "[START]\nabcdefghij\n[END]", id="test_inject_markers_no_overlap"),
+    ],
+)
+def test_inject_markers_into_excerpt_selection_inside(value, value_2, expected):
     excerpt = "abcdefghij"
-    out = _inject_markers_into_excerpt(excerpt, 0, 10, 2, 5, "[START]\n", "\n[END]")
-    assert out == "[START]\nab[SELECTION_START]cde[SELECTION_END]fghij\n[END]"
-
-
-def test_inject_markers_no_overlap():
-    excerpt = "abcdefghij"
-    out = _inject_markers_into_excerpt(excerpt, 0, 10, 20, 25, "[START]\n", "\n[END]")
-    assert out == "[START]\nabcdefghij\n[END]"
-
+    out = _inject_markers_into_excerpt(excerpt, 0, 10, value, value_2, "[START]\n", "\n[END]")
+    assert out == expected
 
 @patch("plugin.doc.text_helpers._read_writer_text_slice")
 @patch("plugin.doc.text_helpers._writer_char_count", return_value=20000)

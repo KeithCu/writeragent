@@ -46,15 +46,16 @@ def _find_crosshair() -> str | None:
     return None
 
 
-def test_latex_repair_keeps_real_newline_before_word() -> None:
-    raw = '{"note": "line1' + "\n" + 'end"}'
-    assert safe_json_loads(raw) == {"note": "line1\nend"}
-
-
-def test_latex_repair_still_restores_nabla_control_char() -> None:
-    raw = '{"eq": "' + "\nabla" + ' x"}'
-    assert safe_json_loads(raw) == {"eq": "\\nabla x"}
-
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4, value_5",
+    [
+        pytest.param('{"note": "line1', "\n", 'end"}', "note", "line1\nend", id="test_latex_repair_keeps_real_newline_before_word"),
+        pytest.param('{"eq": "', "\nabla", ' x"}', "eq", "\\nabla x", id="test_latex_repair_still_restores_nabla_control_char"),
+    ],
+)
+def test_latex_repair_keeps_real_newline_before_word(value, value_2, value_3, value_4, value_5) -> None:
+    raw = value + value_2 + value_3
+    assert safe_json_loads(raw) == {value_4: value_5}
 
 def test_non_str_returns_default() -> None:
     assert safe_json_loads(None, default={"x": 1}) == {"x": 1}

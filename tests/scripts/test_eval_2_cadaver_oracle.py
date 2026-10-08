@@ -10,6 +10,7 @@ from odf.draw import Frame, TextBox
 from odf.opendocument import OpenDocumentText
 from odf.table import Table, TableCell, TableRow
 from odf.text import H, P
+import pytest
 
 _SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 _REPO = Path(__file__).resolve().parents[2]
@@ -180,21 +181,19 @@ def test_missing_standard_36_fails() -> None:
     assert any("20-36" in item for item in result.failures)
 
 
-def test_does_not_require_exact_dollars() -> None:
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("$", "2,000", id="test_does_not_require_exact_dollars"),
+        pytest.param("Hope Hospital", "Silverview", id="test_does_not_require_hope_or_silverview"),
+    ],
+)
+def test_does_not_require_exact_dollars(value, value_2) -> None:
     text = _padded()
-    assert "$" not in text
-    assert "2,000" not in text
+    assert value not in text
+    assert value_2 not in text
     result = score_text(text, para_count=12)
     assert result.passed, result.failures
-
-
-def test_does_not_require_hope_or_silverview() -> None:
-    text = _padded()
-    assert "Hope Hospital" not in text
-    assert "Silverview" not in text
-    result = score_text(text, para_count=12)
-    assert result.passed, result.failures
-
 
 def test_husk_body_fails() -> None:
     text = _padded() + "\nError: tool failed\n"

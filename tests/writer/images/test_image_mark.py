@@ -39,15 +39,16 @@ def test_to_pixel_box_rejects_malformed(box):
         image_mark.to_pixel_box(box, "px", 2000, 1000)
 
 
-def test_to_pixel_box_rejects_box_outside_picture():
-    with pytest.raises(ValueError, match="outside the picture"):
-        image_mark.to_pixel_box([2100, 0, 50, 50], "px", 2000, 1000)
-
-
-def test_to_pixel_box_rejects_unknown_units():
-    with pytest.raises(ValueError, match="units"):
-        image_mark.to_pixel_box([0, 0, 10, 10], "mm", 2000, 1000)
-
+@pytest.mark.parametrize(
+    "match, value, value_2, value_3, value_4",
+    [
+        pytest.param("outside the picture", 2100, 50, 50, "px", id="test_to_pixel_box_rejects_box_outside_picture"),
+        pytest.param("units", 0, 10, 10, "mm", id="test_to_pixel_box_rejects_unknown_units"),
+    ],
+)
+def test_to_pixel_box_rejects_box_outside_picture(match, value, value_2, value_3, value_4):
+    with pytest.raises(ValueError, match=match):
+        image_mark.to_pixel_box([value, 0, value_2, value_3], value_4, 2000, 1000)
 
 def test_parse_marks_defaults_and_colors():
     marks = image_mark.parse_marks(

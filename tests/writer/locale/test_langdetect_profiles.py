@@ -35,25 +35,21 @@ def test_langdetect_profiles_for_grammar_registry() -> None:
         assert prof in allowed, f"missing profile mapping for {tag} -> {prof}"
 
 
-def test_get_grammar_detect_language_mode_legacy_bool() -> None:
+@pytest.mark.parametrize(
+    "value, expected, value_2",
+    [
+        pytest.param(True, "llm", False, id="test_get_grammar_detect_language_mode_legacy_bool"),
+        pytest.param("langdetect", "langdetect", "off", id="test_get_grammar_detect_language_mode_strings"),
+    ],
+)
+def test_get_grammar_detect_language_mode_legacy_bool(value, expected, value_2) -> None:
     from plugin.framework import config
 
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(config, "get_config", lambda _key: True)
-        assert get_grammar_detect_language_mode(object()) == "llm"
-        mp.setattr(config, "get_config", lambda _key: False)
+        mp.setattr(config, "get_config", lambda _key: value)
+        assert get_grammar_detect_language_mode(object()) == expected
+        mp.setattr(config, "get_config", lambda _key: value_2)
         assert get_grammar_detect_language_mode(object()) == "off"
-
-
-def test_get_grammar_detect_language_mode_strings() -> None:
-    from plugin.framework import config
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(config, "get_config", lambda _key: "langdetect")
-        assert get_grammar_detect_language_mode(object()) == "langdetect"
-        mp.setattr(config, "get_config", lambda _key: "off")
-        assert get_grammar_detect_language_mode(object()) == "off"
-
 
 def test_langdetect_rpc_smoke_french() -> None:
     from plugin.embeddings.venv import langdetect_rpc as rpc_mod

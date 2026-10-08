@@ -43,7 +43,12 @@ def test_later_apply_uno_skips_windows_leftover_hidden_apply() -> None:
         "test_track_changes_reviewable_uno.py",
     ):
         src = (writer / name).read_text(encoding="utf-8")
-        assert "skip_windows_leftover_hidden_load" in src, name
+        # Suites that share native_writer_tool_context pass the reason in;
+        # the skip call itself lives in testing_utils.
+        assert (
+            "skip_windows_leftover_hidden_load" in src
+            or "native_writer_tool_context" in src
+        ), name
         assert "apply_document_content Hidden _default swriter" in src, name
     style_src = (writer / "test_content_style_model_uno.py").read_text(encoding="utf-8")
     assert "34683742049" in style_src
@@ -126,11 +131,19 @@ def test_read_only_attribute_sent_back_is_flagged():
     assert "apply_style" in res["message"]
 
 
-def test_content_without_the_attribute_is_untouched():
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("<p>A quoted clause.</p>", id="test_content_without_the_attribute_is_untouched"),
+        # Substring 'data-lo-para' in body text is not the attribute; do not flag ignored_attributes.
+        pytest.param("<p>The words data-lo-para describe a read-only report.</p>", id="test_body_text_mentioning_data_lo_para_is_not_a_false_positive"),
+    ],
+)
+def test_content_without_the_attribute_is_untouched(value):
     from plugin.writer.content import _note_read_only_attrs
 
     original = {"status": "ok", "message": "Replaced entire document."}
-    res = _note_read_only_attrs(original, ["<p>A quoted clause.</p>"])
+    res = _note_read_only_attrs(original, [value])
 
     assert res == original
     assert "ignored_attributes" not in res
@@ -152,20 +165,6 @@ def test_plain_string_content_is_accepted():
     res = _note_read_only_attrs({"status": "ok"}, '<p data-lo-para="text-align:center">x</p>')
 
     assert res["ignored_attributes"] == ["data-lo-para"]
-
-
-def test_body_text_mentioning_data_lo_para_is_not_a_false_positive():
-    """Substring 'data-lo-para' in body text is not the attribute; do not flag ignored_attributes."""
-    from plugin.writer.content import _note_read_only_attrs
-
-    original = {"status": "ok", "message": "Replaced entire document."}
-    res = _note_read_only_attrs(
-        original, ["<p>The words data-lo-para describe a read-only report.</p>"])
-
-    assert res == original
-    assert "ignored_attributes" not in res
-
-
 
 def test_search_occurrence_selects_requested_match(monkeypatch):
     first = MockRange()

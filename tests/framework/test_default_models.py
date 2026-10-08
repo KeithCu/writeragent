@@ -2,6 +2,7 @@
 
 
 from plugin.framework.default_models import get_provider_defaults, resolve_model_id
+import pytest
 
 
 class TestGetProviderDefaults:
@@ -12,13 +13,22 @@ class TestGetProviderDefaults:
         assert (bool(d.get("stt_model")))
         assert (bool(d.get("tts_model")))
 
-    def test_openrouter_default_tts_model_uses_kokoro(self):
-        d = get_provider_defaults("openrouter")
-        assert (d.get("tts_model")) == ("hexgrad/Kokoro-82M")
+    @pytest.mark.parametrize(
+        "value, value_2, expected",
+        [
+            pytest.param("openrouter", "tts_model", "hexgrad/Kokoro-82M", id="test_openrouter_default_tts_model_uses_kokoro"),
+            pytest.param("together", "tts_model", "hexgrad/Kokoro-82M", id="test_together_default_tts_model_uses_kokoro"),
+            pytest.param("openai", "tts_model", "tts-1", id="test_openai_default_tts_model_uses_tts_1"),
+            pytest.param("groq", "text_model", "openai/gpt-oss-120b", id="test_groq_default_text_model_uses_gpt_oss_120b"),
+            pytest.param("openrouter", "text_model", "openai/gpt-oss-120b:nitro", id="test_openrouter_default_text_model_uses_nitro"),
+            pytest.param("openrouter", "stt_model", "mistralai/voxtral-mini-transcribe", id="test_openrouter_default_stt_model_uses_voxtral"),
+            pytest.param("openrouter", "image_model", "google/gemini-3.1-flash-lite-image", id="test_openrouter_default_image_model"),
+        ],
+    )
+    def test_openrouter_default_tts_model_uses_kokoro(self, value, value_2, expected):
+        d = get_provider_defaults(value)
+        assert (d.get(value_2)) == (expected)
 
-    def test_together_default_tts_model_uses_kokoro(self):
-        d = get_provider_defaults("together")
-        assert (d.get("tts_model")) == ("hexgrad/Kokoro-82M")
 
     def test_together_serverless_audio_catalog(self):
         from plugin.framework.default_models import catalog_speech_ids, together_speech_ids
@@ -51,9 +61,6 @@ class TestGetProviderDefaults:
         assert merged[-1] == "cartesia/sonic-4"
         assert merged.count("hexgrad/Kokoro-82M") == 1
 
-    def test_openai_default_tts_model_uses_tts_1(self):
-        d = get_provider_defaults("openai")
-        assert (d.get("tts_model")) == ("tts-1")
 
     def test_resolve_model_id_requires_ids_dict(self):
         assert (resolve_model_id({"": 0, "ids": ""}, 0)) is None
@@ -79,22 +86,6 @@ class TestGetProviderDefaults:
         assert (oss20["ids"].get("openrouter")) == ("openai/gpt-oss-20b")
         assert (oss20["ids"].get("together")) == ("openai/gpt-oss-20b")
         assert (oss20["ids"].get("groq")) == ("openai/gpt-oss-20b")
-
-    def test_groq_default_text_model_uses_gpt_oss_120b(self):
-        d = get_provider_defaults("groq")
-        assert (d.get("text_model")) == ("openai/gpt-oss-120b")
-
-    def test_openrouter_default_text_model_uses_nitro(self):
-        d = get_provider_defaults("openrouter")
-        assert (d.get("text_model")) == ("openai/gpt-oss-120b:nitro")
-
-    def test_openrouter_default_stt_model_uses_voxtral(self):
-        d = get_provider_defaults("openrouter")
-        assert (d.get("stt_model")) == ("mistralai/voxtral-mini-transcribe")
-
-    def test_openrouter_default_image_model(self):
-        d = get_provider_defaults("openrouter")
-        assert (d.get("image_model")) == ("google/gemini-3.1-flash-lite-image")
 
     def test_together_default_image_model_is_flux2_dev(self):
         from plugin.framework.default_models import DEFAULT_MODELS

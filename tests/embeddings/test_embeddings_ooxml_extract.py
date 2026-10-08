@@ -20,17 +20,17 @@ def test_extract_csv_rows(tmp_path: Path):
     assert ooxml.extract_csv_rows(str(path)) == ["a\tb", "1\t2"]
 
 
-def test_extract_plaintext_paragraphs_blank_lines(tmp_path: Path):
-    path = tmp_path / "notes.txt"
-    path.write_text("First block\n\nSecond block\n", encoding="utf-8")
-    assert ooxml.extract_plaintext_paragraphs(str(path)) == ["First block", "Second block"]
-
-
-def test_extract_plaintext_paragraphs_lines(tmp_path: Path):
-    path = tmp_path / "lines.txt"
-    path.write_text("alpha\nbeta\n", encoding="utf-8")
-    assert ooxml.extract_plaintext_paragraphs(str(path)) == ["alpha", "beta"]
-
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4",
+    [
+        pytest.param("notes.txt", "First block\n\nSecond block\n", "First block", "Second block", id="test_extract_plaintext_paragraphs_blank_lines"),
+        pytest.param("lines.txt", "alpha\nbeta\n", "alpha", "beta", id="test_extract_plaintext_paragraphs_lines"),
+    ],
+)
+def test_extract_plaintext_paragraphs_blank_lines(tmp_path: Path, value, value_2, value_3, value_4):
+    path = tmp_path / value
+    path.write_text(value_2, encoding="utf-8")
+    assert ooxml.extract_plaintext_paragraphs(str(path)) == [value_3, value_4]
 
 def test_extract_rtf_paragraphs(tmp_path: Path):
     path = tmp_path / "doc.rtf"
@@ -38,17 +38,31 @@ def test_extract_rtf_paragraphs(tmp_path: Path):
     assert ooxml.extract_rtf_paragraphs(str(path)) == ["hello", "world"]
 
 
-def test_extract_pptx_passages(tmp_path: Path):
-    slide_xml = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+@pytest.mark.parametrize(
+    "value, value_2, value_3",
+    [
+        pytest.param(b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
  xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
   <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Slide text</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
-</p:sld>"""
-    pptx = tmp_path / "deck.pptx"
+</p:sld>""", "deck.pptx", "[Slide: Slide1]\tSlide text", id="test_extract_pptx_passages"),
+        pytest.param(b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+  <p:cSld><p:spTree><p:sp><p:txBody>
+    <a:p><a:r><a:t>First </a:t></a:r><a:r><a:t>run</a:t></a:r></a:p>
+    <a:p><a:r><a:t>Second paragraph</a:t></a:r></a:p>
+  </p:txBody></p:sp></p:spTree></p:cSld>
+</p:sld>""", "deck3.pptx", "[Slide: Slide1]\tFirst run\nSecond paragraph", id="test_extract_pptx_passages_paragraphs_and_runs"),
+    ],
+)
+def test_extract_pptx_passages(tmp_path: Path, value, value_2, value_3):
+    slide_xml = value
+    pptx = tmp_path / value_2
     with zipfile.ZipFile(pptx, "w") as zf:
         zf.writestr("ppt/slides/slide1.xml", slide_xml)
     passages = ooxml.extract_pptx_passages(str(pptx))
-    assert passages == ["[Slide: Slide1]\tSlide text"]
+    assert passages == [value_3]
 
 
 def test_extract_pptx_passages_order_and_notes(tmp_path: Path):
@@ -121,17 +135,3 @@ def test_extract_spreadsheet_rows_xlsx(tmp_path: Path):
     rows = ooxml.extract_spreadsheet_rows(str(path))
     assert rows == ["[Sheet: Budget]\tRevenue\t100"]
 
-def test_extract_pptx_passages_paragraphs_and_runs(tmp_path: Path):
-    slide_xml = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
- xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-  <p:cSld><p:spTree><p:sp><p:txBody>
-    <a:p><a:r><a:t>First </a:t></a:r><a:r><a:t>run</a:t></a:r></a:p>
-    <a:p><a:r><a:t>Second paragraph</a:t></a:r></a:p>
-  </p:txBody></p:sp></p:spTree></p:cSld>
-</p:sld>"""
-    pptx = tmp_path / "deck3.pptx"
-    with zipfile.ZipFile(pptx, "w") as zf:
-        zf.writestr("ppt/slides/slide1.xml", slide_xml)
-    passages = ooxml.extract_pptx_passages(str(pptx))
-    assert passages == ["[Slide: Slide1]\tFirst run\nSecond paragraph"]

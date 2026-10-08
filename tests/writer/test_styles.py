@@ -672,17 +672,17 @@ def test_line_spacing_mode_accepts_the_word():
     assert out["ParaLineSpacing"].Mode == 3
 
 
-def test_unknown_line_spacing_mode_is_refused_with_the_options():
-    out, err = _normalize_with_fake_struct({"ParaLineSpacing": {"Mode": "duplo"}})
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4",
+    [
+        pytest.param("Mode", "duplo", "prop", "duplo", id="test_unknown_line_spacing_mode_is_refused_with_the_options"),
+        pytest.param("Altura", 150, "Altura", "Height", id="test_unknown_struct_field_names_the_real_fields"),
+    ],
+)
+def test_unknown_line_spacing_mode_is_refused_with_the_options(value, value_2, value_3, value_4):
+    out, err = _normalize_with_fake_struct({"ParaLineSpacing": {value: value_2}})
     assert out == {}
-    assert "prop" in err and "duplo" in err
-
-
-def test_unknown_struct_field_names_the_real_fields():
-    out, err = _normalize_with_fake_struct({"ParaLineSpacing": {"Altura": 150}})
-    assert out == {}
-    assert "Altura" in err and "Height" in err
-
+    assert value_3 in err and value_4 in err
 
 def test_struct_property_given_a_scalar_is_refused():
     out, err = _normalize_with_fake_struct({"ParaLineSpacing": 150})

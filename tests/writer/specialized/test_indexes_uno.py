@@ -1,7 +1,7 @@
 """Native tests for indexes bibliography v1 (cite insert, list, table)."""
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.specialized.indexes import (
     IndexesAddMark,
     IndexesCreate,
@@ -16,7 +16,8 @@ from plugin.writer.specialized.indexes import (
 
 
 def _tool_ctx(ctx, doc):
-    return TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
+    # Argument order stays (ctx, doc) so existing call sites do not swap.
+    return native_writer_tool_context(doc, ctx)
 
 
 @native_test

@@ -1295,27 +1295,22 @@ def test_maybe_start_harper_async_writeragent_harper_submits_job(mock_bg: MagicM
         assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING
 
 
+@pytest.mark.parametrize(
+    "return_value, return_value_2",
+    [
+        pytest.param(False, "off", id="test_maybe_start_harper_async_writeragent_off_skips"),
+        pytest.param(True, "llm", id="test_maybe_start_harper_async_writeragent_llm_skips"),
+    ],
+)
 @patch("plugin.framework.worker_pool.run_in_background")
-def test_maybe_start_harper_async_writeragent_off_skips(mock_bg: MagicMock) -> None:
+def test_maybe_start_harper_async_writeragent_off_skips(mock_bg: MagicMock, return_value, return_value_2) -> None:
     with patch("plugin.framework.uno_context.is_libreharper", return_value=False), \
-         patch("plugin.framework.config.is_grammar_enabled", return_value=False), \
-         patch("plugin.framework.config.get_grammar_provider", return_value="off"):
+         patch("plugin.framework.config.is_grammar_enabled", return_value=return_value), \
+         patch("plugin.framework.config.get_grammar_provider", return_value=return_value_2):
         submitted = maybe_start_harper_async(user_config_dir="/tmp")
         assert submitted is False
         mock_bg.assert_not_called()
         assert harper_module._HARPER_STATE is HarperRuntimeState.IDLE
-
-
-@patch("plugin.framework.worker_pool.run_in_background")
-def test_maybe_start_harper_async_writeragent_llm_skips(mock_bg: MagicMock) -> None:
-    with patch("plugin.framework.uno_context.is_libreharper", return_value=False), \
-         patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
-         patch("plugin.framework.config.get_grammar_provider", return_value="llm"):
-        submitted = maybe_start_harper_async(user_config_dir="/tmp")
-        assert submitted is False
-        mock_bg.assert_not_called()
-        assert harper_module._HARPER_STATE is HarperRuntimeState.IDLE
-
 
 @patch("plugin.framework.worker_pool.run_in_background")
 def test_maybe_start_harper_async_idempotent_when_resolving(mock_bg: MagicMock) -> None:
@@ -1401,8 +1396,6 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
         assert listener.processLinguServiceEvent.call_args[0][0].nEvent == 8
     finally:
         grammar_registry.live_proofreaders.discard(pr)
-
-
 
 @patch("plugin.framework.worker_pool.run_in_background")
 def test_harper_try_lint_empty_config_dir_does_not_ensure(mock_bg: MagicMock, caplog: pytest.LogCaptureFixture) -> None:

@@ -37,14 +37,19 @@ class TestQueryEnterSend:
     def test_enter_without_shift_triggers(self):
         assert (query_enter_triggers_primary_send(1280, 0))
 
-    def test_shift_enter_does_not_trigger(self):
-        assert not (query_enter_triggers_primary_send(1280, 1))
+    @pytest.mark.parametrize(
+        "value, value_2",
+        [
+            pytest.param(1280, 1, id="test_shift_enter_does_not_trigger"),
+            pytest.param(1279, 0, id="test_non_return_key_ignored"),
+        ],
+    )
+    def test_shift_enter_does_not_trigger(self, value, value_2):
+        assert not (query_enter_triggers_primary_send(value, value_2))
 
     def test_shift_with_other_modifiers(self):
         assert not (query_enter_triggers_primary_send(1280, 1 | 2))
 
-    def test_non_return_key_ignored(self):
-        assert not (query_enter_triggers_primary_send(1279, 0))
 
     def test_doc_yaml_default_enter_sends_true(self):
         pass

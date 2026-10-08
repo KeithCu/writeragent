@@ -212,35 +212,36 @@ def test_rewrite_multi_and_scalar():
     assert used == ["0", "1", "2"]
 
 
-def test_rewrite_rejects_dynamic():
-    code, issues, _used, _modes = rewrite_excel_code('df = xl(f"A1:A{n}")', num_deps=0)
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param('df = xl(f"A1:A{n}")', id="test_rewrite_rejects_dynamic"),
+        pytest.param('x = xl("A1")', id="test_rewrite_assignment_literal_xl_still_dynamic"),
+    ],
+)
+def test_rewrite_rejects_dynamic(value):
+    code, issues, _used, _modes = rewrite_excel_code(value, num_deps=0)
     assert any("dynamic" in i for i in issues)
     assert "xl(" in code
 
 
-def test_rewrite_ignores_xl_in_strings_and_comments():
-    src = "a = 'xl(%P2%)'\n# xl(%P3%)\nb = xl(%P2%)\n"
-    code, issues, used, _modes = rewrite_excel_code(src, num_deps=1)
-    assert "a = 'xl(%P2%)'" in code
-    assert "# xl(%P3%)" in code
-    assert 'b = xl("%P2%")' in code
-    assert used == ["0"]
-    assert not any("dynamic" in i for i in issues)
-
-
-def test_rewrite_ignores_xl_in_escaped_and_triple_quoted_strings():
-    src = (
-        'a = "say \\"xl(%P3%)\\" please"\n'
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4",
+    [
+        pytest.param("a = 'xl(%P2%)'\n# xl(%P3%)\nb = xl(%P2%)\n", "a = 'xl(%P2%)'", "# xl(%P3%)", 'b = xl("%P2%")', id="test_rewrite_ignores_xl_in_strings_and_comments"),
+        pytest.param('a = "say \\"xl(%P3%)\\" please"\n'
         'b = """xl(%P4%)\nstill string"""\n'
-        "c = xl(%P2%)\n"
-    )
+        "c = xl(%P2%)\n", 'xl(%P3%)', 'xl(%P4%)', 'c = xl("%P2%")', id="test_rewrite_ignores_xl_in_escaped_and_triple_quoted_strings"),
+    ],
+)
+def test_rewrite_ignores_xl_in_strings_and_comments(value, value_2, value_3, value_4):
+    src = value
     code, issues, used, _modes = rewrite_excel_code(src, num_deps=1)
-    assert 'xl(%P3%)' in code
-    assert 'xl(%P4%)' in code
-    assert 'c = xl("%P2%")' in code
+    assert value_2 in code
+    assert value_3 in code
+    assert value_4 in code
     assert used == ["0"]
     assert not any("dynamic" in i for i in issues)
-
 
 def test_rewrite_quoted_placeholder_constant():
     """Quoted ``xl("%P2%")`` is valid Python; AST Constant path must still bind."""
@@ -307,13 +308,6 @@ def test_rewrite_top_level_xl_still_egress_binding():
     assert code.strip() == 'xl("%P2%")'
     assert used == ["0"]
     assert not any("dynamic" in i for i in issues)
-
-
-def test_rewrite_assignment_literal_xl_still_dynamic():
-    code, issues, _used, _modes = rewrite_excel_code('x = xl("A1")', num_deps=0)
-    assert any("dynamic" in i for i in issues)
-    assert "xl(" in code
-
 
 def test_rewrite_multiline_xl_statement_quoted():
     src = "if True:\n    xl(\n        %P2%,\n        headers=True,\n    )\n"
@@ -473,9 +467,6 @@ def test_excel_deps_roundtrip_on_xlws_export():
     assert c1.data_args == ["Data!A1:AA5850"]
     assert deps_for_xlws_export(c1) == ["tradeData[#All]"]
     assert "tradeData[#All]" in c1.excel_formula
-
-
-
 
 def test_demo6_multi_range_and_headers_false():
     report = convert_model_to_dag(demo6_correlation())

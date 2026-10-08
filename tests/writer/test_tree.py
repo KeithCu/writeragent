@@ -48,15 +48,18 @@ class TestTreeServiceSearch:
         assert (res["para_index"]) == (0)
         assert (res["bookmark"]) == ("bm_intro")
 
-    def test_exact_match_case_insensitive(self):
-        res = self.tree_svc._find_heading_by_text(self.doc, "introduction")
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param("introduction", id="test_exact_match_case_insensitive"),
+            pytest.param("  Introduction  ", id="test_exact_match_with_whitespace"),
+        ],
+    )
+    def test_exact_match_case_insensitive(self, value):
+        res = self.tree_svc._find_heading_by_text(self.doc, value)
         assert (res) is not None
         assert (res["text"]) == ("Introduction")
 
-    def test_exact_match_with_whitespace(self):
-        res = self.tree_svc._find_heading_by_text(self.doc, "  Introduction  ")
-        assert (res) is not None
-        assert (res["text"]) == ("Introduction")
 
     def test_prefix_match(self):
         # "Install" should match "Installation Guide"

@@ -11,11 +11,11 @@
 import unittest
 
 from plugin.testing_runner import native_test, show_window
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
-
-
-def _execute_calc_tool(doc, ctx, name, args):
-    return TestingFactory.execute_tool(doc, ctx, name, args, doc_type="calc")
+from plugin.tests.testing_utils import (
+    TestingFactory,
+    execute_calc_tool as _execute_calc_tool,
+    with_native_doc,
+)
 
 
 @native_test

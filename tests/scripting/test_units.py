@@ -176,31 +176,24 @@ def test_run_units_format_quantity():
     assert "3.5" in result["formatted"]
 
 
-def test_run_units_check_dimensionality_compatible():
+@pytest.mark.parametrize(
+    "value, value_2, expected",
+    [
+        pytest.param("10 m/s", "5 km/h", True, id="test_run_units_check_dimensionality_compatible"),
+        pytest.param("10 m", "5 kg", False, id="test_run_units_check_dimensionality_incompatible"),
+    ],
+)
+def test_run_units_check_dimensionality_compatible(value, value_2, expected):
     result = run_units(
         {
             "helper": "check_dimensionality",
-            "params": {"quantity_a": "10 m/s", "quantity_b": "5 km/h"},
+            "params": {"quantity_a": value, "quantity_b": value_2},
         },
         None,
         {},
     )
     assert result["status"] == "ok"
-    assert result["compatible"] is True
-
-
-def test_run_units_check_dimensionality_incompatible():
-    result = run_units(
-        {
-            "helper": "check_dimensionality",
-            "params": {"quantity_a": "10 m", "quantity_b": "5 kg"},
-        },
-        None,
-        {},
-    )
-    assert result["status"] == "ok"
-    assert result["compatible"] is False
-
+    assert result["compatible"] is expected
 
 def test_run_units_missing_package():
     with patch("plugin.scripting.venv.units._require_pint", return_value=None):

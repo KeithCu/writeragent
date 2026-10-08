@@ -12,6 +12,7 @@ from plugin.calc.python.collabora_formula import (
     rewrite_collabora_addin_prefix,
 )
 from plugin.calc.python.formula_edit import parse_python_formula
+import pytest
 
 
 _GETPY = '=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("result = 1"; A1:A2)'
@@ -32,15 +33,16 @@ def test_rewrite_getpython_to_python():
     assert "result = 2" in out
 
 
-def test_rewrite_is_case_insensitive():
-    raw = '=org.collaboraoffice.sheet.addin.PythonComputeFunctions.getPy("x")'
-    assert rewrite_collabora_addin_prefix(raw).startswith("=PY(")
-
-
-def test_rewrite_preserves_space_after_equals():
-    raw = '= ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("x")'
-    assert rewrite_collabora_addin_prefix(raw).startswith("= PY(")
-
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param('=org.collaboraoffice.sheet.addin.PythonComputeFunctions.getPy("x")', "=PY(", id="test_rewrite_is_case_insensitive"),
+        pytest.param('= ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("x")', "= PY(", id="test_rewrite_preserves_space_after_equals"),
+    ],
+)
+def test_rewrite_is_case_insensitive(value, value_2):
+    raw = value
+    assert rewrite_collabora_addin_prefix(raw).startswith(value_2)
 
 def test_rewrite_leaves_writeragent_and_short_py_alone():
     wa = '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("result = 1")'

@@ -31,19 +31,18 @@ def test_classify_empty():
     assert error is None
 
 
-def test_classify_constant_number():
-    cell_type, value, formula, _ = classify_cell(42.0, "")
+@pytest.mark.parametrize(
+    "value_2, expected",
+    [
+        pytest.param(42.0, 42.0, id="test_classify_constant_number"),
+        pytest.param("hello", "hello", id="test_classify_constant_text"),
+    ],
+)
+def test_classify_constant_number(value_2, expected):
+    cell_type, value, formula, _ = classify_cell(value_2, "")
     assert cell_type == "constant"
-    assert value == 42.0
+    assert value == expected
     assert formula is None
-
-
-def test_classify_constant_text():
-    cell_type, value, formula, _ = classify_cell("hello", "")
-    assert cell_type == "constant"
-    assert value == "hello"
-    assert formula is None
-
 
 def test_classify_sum_formula():
     cell_type, value, formula, _ = classify_cell(10.0, "=SUM(A1:A3)")
@@ -52,29 +51,19 @@ def test_classify_sum_formula():
     assert formula == "=SUM(A1:A3)"
 
 
-def test_classify_py_formula():
-    cell_type, _, formula, _ = classify_cell(1.0, '=PY("result = 1"; A1)')
-    assert cell_type == "py_formula"
-    assert formula == '=PY("result = 1"; A1)'
-
-
-def test_classify_python_alias():
-    cell_type, _, formula, _ = classify_cell(2.0, '=PYTHON("result = 2")')
-    assert cell_type == "py_formula"
-    assert formula == '=PYTHON("result = 2")'
-
-
-def test_classify_prompt_formula():
-    cell_type, _, formula, _ = classify_cell("answer", '=PROMPT("summarize")')
-    assert cell_type == "prompt"
-    assert formula == '=PROMPT("summarize")'
-
-
-def test_classify_array_formula():
-    cell_type, _, formula, _ = classify_cell(6.0, "{=SUM(A1:A2)}")
-    assert cell_type == "array_formula"
-    assert formula == "{=SUM(A1:A2)}"
-
+@pytest.mark.parametrize(
+    "value, value_2, expected, expected_2",
+    [
+        pytest.param(1.0, '=PY("result = 1"; A1)', "py_formula", '=PY("result = 1"; A1)', id="test_classify_py_formula"),
+        pytest.param(2.0, '=PYTHON("result = 2")', "py_formula", '=PYTHON("result = 2")', id="test_classify_python_alias"),
+        pytest.param("answer", '=PROMPT("summarize")', "prompt", '=PROMPT("summarize")', id="test_classify_prompt_formula"),
+        pytest.param(6.0, "{=SUM(A1:A2)}", "array_formula", "{=SUM(A1:A2)}", id="test_classify_array_formula"),
+    ],
+)
+def test_classify_py_formula(value, value_2, expected, expected_2):
+    cell_type, _, formula, _ = classify_cell(value, value_2)
+    assert cell_type == expected
+    assert formula == expected_2
 
 def test_classify_error_display():
     cell_type, value, formula, error = classify_cell("#DIV/0!", "=A1/0")

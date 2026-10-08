@@ -8,6 +8,7 @@
 from unittest.mock import MagicMock
 
 from plugin.calc.bridge import CalcBridge
+import pytest
 
 
 def _sheet(name: str) -> MagicMock:
@@ -32,15 +33,22 @@ def test_resolve_prefix_wins_over_sheet_name():
     assert address == "D4:D6"
 
 
-def test_resolve_conflict_raises():
+@pytest.mark.parametrize(
+    "value, sheet_name, value_2",
+    [
+        pytest.param("Summary.A1", "Other", "Other", id="test_resolve_conflict_raises"),
+        pytest.param("Summary.B4:B6", "Sources", "Sources", id="test_resolve_disagreeing_prefix_and_sheet_name_raises"),
+    ],
+)
+def test_resolve_conflict_raises(value, sheet_name, value_2):
     doc = MagicMock()
     bridge = CalcBridge(doc)
     try:
-        bridge.resolve("Summary.A1", sheet_name="Other")
+        bridge.resolve(value, sheet_name=sheet_name)
         assert False, "expected ValueError"
     except ValueError as e:
         assert "Summary" in str(e)
-        assert "Other" in str(e)
+        assert value_2 in str(e)
 
 
 def test_get_cell_range_honours_sheet_prefix():
@@ -57,18 +65,6 @@ def test_get_cell_range_honours_sheet_prefix():
     bridge.get_cell_range(active, "Data.A1:B2")
     data.getCellRangeByPosition.assert_called_once_with(0, 0, 1, 1)
     active.getCellRangeByPosition.assert_not_called()
-
-
-def test_resolve_disagreeing_prefix_and_sheet_name_raises():
-    doc = MagicMock()
-    bridge = CalcBridge(doc)
-    try:
-        bridge.resolve("Summary.B4:B6", sheet_name="Sources")
-        assert False, "expected ValueError"
-    except ValueError as e:
-        assert "Summary" in str(e)
-        assert "Sources" in str(e)
-
 
 def test_get_sheet_error_lists_available_sheets():
     doc = MagicMock()

@@ -35,8 +35,16 @@ def test_scalar_is_1x1_grid():
     assert calc_addin_data_to_python(3.14) == [[3.14]]
 
 
-def test_empty_string_becomes_none_in_cell():
-    assert calc_addin_data_to_python("") == [[None]]
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("", None, id="test_empty_string_becomes_none_in_cell"),
+        # Text fidelity: literal text True is not coerced if no coercion sets are passed.
+        pytest.param("True", "True", id="test_text_true_string_stays_string_when_no_sets_provided"),
+    ],
+)
+def test_empty_string_becomes_none_in_cell(value, value_2):
+    assert calc_addin_data_to_python(value) == [[value_2]]
 
 
 def test_2d_tuple_range_stays_2d():
@@ -133,12 +141,6 @@ def test_pack_calc_data_for_wire_uses_list_below_threshold():
     assert is_calc_range_payload(wire)
     assert isinstance(wire["data"], list)
     assert not is_split_grid(wire["data"])
-
-
-def test_text_true_string_stays_string_when_no_sets_provided():
-    """Text fidelity: literal text True is not coerced if no coercion sets are passed."""
-    assert calc_addin_data_to_python("True") == [["True"]]
-
 
 def test_logical_coercion_standard_scope():
     """Verify coercion for formulas, plain text, and Python constants."""

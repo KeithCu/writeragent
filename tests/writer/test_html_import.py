@@ -327,21 +327,19 @@ def test_full_document_without_review_imports_in_place():
     imp.assert_called_once()
 
 
-def test_styled_div_is_a_slot_and_plain_div_is_not():
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param('<div data-lo-style="Standard">Pelotas.</div><div><p data-lo-style="Standard">Adv</p></div>', "Standard", id="test_styled_div_is_a_slot_and_plain_div_is_not"),
+        pytest.param('<p data-lo-style="Standard">a<p data-lo-style="Heading2">b</p>', "Heading2", id="test_omitted_paragraph_end_tag_does_not_nest_the_next_block"),
+    ],
+)
+def test_styled_div_is_a_slot_and_plain_div_is_not(value, value_2):
     from plugin.writer.html_import import _extract_block_lo_styles
 
     _clean, styles = _extract_block_lo_styles(
-        '<div data-lo-style="Standard">Pelotas.</div><div><p data-lo-style="Standard">Adv</p></div>')
-    assert styles == ["Standard", "Standard"]
-
-
-def test_omitted_paragraph_end_tag_does_not_nest_the_next_block():
-    from plugin.writer.html_import import _extract_block_lo_styles
-
-    _clean, styles = _extract_block_lo_styles(
-        '<p data-lo-style="Standard">a<p data-lo-style="Heading2">b</p>')
-    assert styles == ["Standard", "Heading2"]
-
+        value)
+    assert styles == ["Standard", value_2]
 
 # --- data-less images kept (get_document_content leaves the picture data out) ------------------
 

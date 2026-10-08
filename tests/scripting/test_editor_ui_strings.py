@@ -11,12 +11,20 @@ from plugin.scripting.editor_ui_strings import (
     build_monaco_ui_strings,
     enrich_monaco_load_message,
 )
+import pytest
 
 
-def test_init_script_ui_uses_initialization_strings():
-    ui = build_monaco_ui_strings(mode="init_script")
-    assert ui["save_label"] == _("Save")
-    assert ui["saved_default"] == _("Initialization script saved.")
+@pytest.mark.parametrize(
+    "mode, value, value_2",
+    [
+        pytest.param("init_script", "Save", "Initialization script saved.", id="test_init_script_ui_uses_initialization_strings"),
+        pytest.param("latex", "Insert", "Formula inserted.", id="test_latex_ui_uses_insert_label"),
+    ],
+)
+def test_init_script_ui_uses_initialization_strings(mode, value, value_2):
+    ui = build_monaco_ui_strings(mode=mode)
+    assert ui["save_label"] == _(value)
+    assert ui["saved_default"] == _(value_2)
 
 
 def test_calc_cell_ui_includes_data_binding_and_cancel():
@@ -36,13 +44,6 @@ def test_run_script_ui_matches_native_dialog_labels():
     assert ui["save_as_label"] == _("Save As...")
     assert ui["save_as_title"] == _("Save Script As")
     assert ui["delete_label"] == _("Delete")
-
-
-def test_latex_ui_uses_insert_label():
-    ui = build_monaco_ui_strings(mode="latex")
-    assert ui["save_label"] == _("Insert")
-    assert ui["saved_default"] == _("Formula inserted.")
-
 
 def test_enrich_monaco_load_message_adds_ui_and_merges_overrides():
     msg = enrich_monaco_load_message(

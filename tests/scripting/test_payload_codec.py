@@ -782,23 +782,21 @@ def test_mixed_grid_preserves_non_numeric_string() -> None:
     assert out[0][1] == "hello"
 
 
-def test_whitespace_only_cell_does_not_crash_child_unpack() -> None:
-    """Pasted '   ' is numeric-coercible for Calc but np.float64 cannot convert it."""
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        # Pasted '   ' is numeric-coercible for Calc but np.float64 cannot convert it.
+        pytest.param("   ", "   ", id="test_whitespace_only_cell_does_not_crash_child_unpack"),
+        # Bare '' on mixed split_grid must not raise (Calc usually maps '' to None first).
+        pytest.param("", "", id="test_empty_string_mixed_split_grid_does_not_crash_child_unpack"),
+    ],
+)
+def test_whitespace_only_cell_does_not_crash_child_unpack(value, expected) -> None:
     pytest.importorskip("numpy")
-    grid = [[1.0, "   ", 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]]
+    grid = [[1.0, value, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]]
     out = child_unpack_data(host_pack_data(grid, force="always"))
     assert isinstance(out, list)
-    assert out[0][1] == "   "
-
-
-def test_empty_string_mixed_split_grid_does_not_crash_child_unpack() -> None:
-    """Bare '' on mixed split_grid must not raise (Calc usually maps '' to None first)."""
-    pytest.importorskip("numpy")
-    grid = [[1.0, "", 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]]
-    out = child_unpack_data(host_pack_data(grid, force="always"))
-    assert isinstance(out, list)
-    assert out[0][1] == ""
-
+    assert out[0][1] == expected
 
 def test_mixed_grid_real_nan_becomes_none_on_child() -> None:
     """Documented: mixed-grid ingress has no blank-vs-NaN wire bit."""

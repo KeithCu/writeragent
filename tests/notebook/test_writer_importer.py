@@ -93,9 +93,16 @@ def test_format_error_strips_ansi():
     assert "\x1b" not in format_output_text(out)
 
 
-def test_format_execute_result_plain():
-    out = {"output_type": "execute_result", "data": {"text/plain": "42"}}
-    assert format_output_text(out) == "42"
+@pytest.mark.parametrize(
+    "value, value_2, value_3, expected",
+    [
+        pytest.param("execute_result", "text/plain", "42", "42", id="test_format_execute_result_plain"),
+        pytest.param("display_data", "image/png", "abc", "", id="test_format_output_image_empty_for_body"),
+    ],
+)
+def test_format_execute_result_plain(value, value_2, value_3, expected):
+    out = {"output_type": value, "data": {value_2: value_3}}
+    assert format_output_text(out) == expected
 
 
 def test_coerce_notebook_text_joins_list():
@@ -107,12 +114,6 @@ def test_prepare_display_text_truncates():
     display, truncated = _prepare_display_text(long_text)
     assert truncated is True
     assert len(display) <= _MAX_IMPORT_TEXT_CHARS + 50
-
-
-def test_format_output_image_empty_for_body():
-    out = {"output_type": "display_data", "data": {"image/png": "abc"}}
-    assert format_output_text(out) == ""
-
 
 def test_notebook_image_payload():
     data = {"image/png": "abc", "text/plain": "hi"}
@@ -133,10 +134,17 @@ def test_image_mime_from_bytes_webp_is_not_png():
     assert _webp_pixel_size(raw) == (32, 16)
 
 
-def test_notebook_image_payload_webp_when_no_png():
-    data = {"image/webp": "abc", "text/plain": "hi"}
-    assert _notebook_image_payload(data) == ("image/webp", "abc")
-    both = {"image/png": "png", "image/webp": "webp"}
+@pytest.mark.parametrize(
+    "value, value_2, value_3, value_4",
+    [
+        pytest.param("image/webp", "image/webp", "image/webp", "webp", id="test_notebook_image_payload_webp_when_no_png"),
+        pytest.param("image/gif", "image/gif", "image/gif", "gif", id="test_notebook_image_payload_gif_when_no_png"),
+    ],
+)
+def test_notebook_image_payload_webp_when_no_png(value, value_2, value_3, value_4):
+    data = {value: "abc", "text/plain": "hi"}
+    assert _notebook_image_payload(data) == (value_2, "abc")
+    both = {"image/png": "png", value_3: value_4}
     assert _notebook_image_payload(both) == ("image/png", "png")
 
 
@@ -145,14 +153,6 @@ def test_image_mime_from_bytes_gif_is_not_png():
     assert _image_mime_from_bytes(raw, "plot.png") == "image/gif"
     assert _image_mime_from_bytes(b"not-an-image", "badge.gif") == "image/gif"
     assert _gif_pixel_size(raw) == (32, 16)
-
-
-def test_notebook_image_payload_gif_when_no_png():
-    data = {"image/gif": "abc", "text/plain": "hi"}
-    assert _notebook_image_payload(data) == ("image/gif", "abc")
-    both = {"image/png": "png", "image/gif": "gif"}
-    assert _notebook_image_payload(both) == ("image/png", "png")
-
 
 def test_png_pixel_size_1x1():
     # 1x1 PNG IHDR

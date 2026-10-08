@@ -7,6 +7,7 @@ from plugin.writer.search import (
     normalize_search_string_for_find,
     SPACE_NORMALIZE_MAP,
 )
+import pytest
 
 
 def test_all_start_indices_non_overlapping():
@@ -82,25 +83,27 @@ class _FakeDocWithShapes:
         return self._dp
 
 
-def test_drawing_shape_containing_returns_name():
-    doc = _FakeDocWithShapes([_FakeShape("body of box", name="Caixa de Texto 8")])
-    assert drawing_shape_containing(doc, "of box") == "Caixa de Texto 8"
+@pytest.mark.parametrize(
+    "value, name, value_2, expected",
+    [
+        pytest.param("body of box", "Caixa de Texto 8", "of box", "Caixa de Texto 8", id="test_drawing_shape_containing_returns_name"),
+        pytest.param("<O QUE ORIGINOU A DEMANDA?>", "", "ORIGINOU", "(unnamed shape)", id="test_drawing_shape_containing_unnamed_shape"),
+    ],
+)
+def test_drawing_shape_containing_returns_name(value, name, value_2, expected):
+    doc = _FakeDocWithShapes([_FakeShape(value, name=name)])
+    assert drawing_shape_containing(doc, value_2) == expected
 
-
-def test_drawing_shape_containing_unnamed_shape():
-    doc = _FakeDocWithShapes([_FakeShape("<O QUE ORIGINOU A DEMANDA?>", name="")])
-    assert drawing_shape_containing(doc, "ORIGINOU") == "(unnamed shape)"
-
-
-def test_drawing_shape_containing_not_found_returns_none():
-    doc = _FakeDocWithShapes([_FakeShape("something else")])
-    assert drawing_shape_containing(doc, "missing") is None
-
-
-def test_drawing_shape_containing_empty_needle_returns_none():
-    doc = _FakeDocWithShapes([_FakeShape("anything")])
-    assert drawing_shape_containing(doc, "   ") is None
-
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("something else", "missing", id="test_drawing_shape_containing_not_found_returns_none"),
+        pytest.param("anything", "   ", id="test_drawing_shape_containing_empty_needle_returns_none"),
+    ],
+)
+def test_drawing_shape_containing_not_found_returns_none(value, value_2):
+    doc = _FakeDocWithShapes([_FakeShape(value)])
+    assert drawing_shape_containing(doc, value_2) is None
 
 def test_drawing_shape_containing_no_draw_page_returns_none():
     assert drawing_shape_containing(object(), "x") is None
@@ -115,8 +118,6 @@ def test_drawing_shape_containing_skips_failing_shape():
 def test_drawing_shape_containing_fails_safe_on_count_error():
     doc = _FakeDocWithShapes([_FakeShape("marker")], raise_count=True)
     assert drawing_shape_containing(doc, "marker") is None
-
-
 
 # --- an empty replacement deletes a table only when it removes the last text --
 # Regression: asked to delete a table, agents emptied its text with
@@ -215,20 +216,21 @@ def test_empty_replacement_of_the_only_text_marks_the_table():
     assert _names([_Match(table.cells["A1"])], "") == ["Fee"]
 
 
-def test_clearing_one_cell_while_another_has_text_keeps_the_table():
-    table = _Table("Fee", {"A1": _Cell("Custas"), "B1": _Cell("Honorarios")})
-    assert _names([_Match(table.cells["A1"])], "") == []
+@pytest.mark.parametrize(
+    "value, value_2",
+    [
+        pytest.param("Honorarios", "", id="test_clearing_one_cell_while_another_has_text_keeps_the_table"),
+        pytest.param("", "novo valor", id="test_non_empty_replacement_does_not_delete"),
+    ],
+)
+def test_clearing_one_cell_while_another_has_text_keeps_the_table(value, value_2):
+    table = _Table("Fee", {"A1": _Cell("Custas"), "B1": _Cell(value)})
+    assert _names([_Match(table.cells["A1"])], value_2) == []
 
 
 def test_substring_clear_keeps_the_table():
     table = _Table("Fee", {"A1": _Cell("Custas processuais"), "B1": _Cell("")})
     assert _names([_Match(table.cells["A1"], text="Custas")], "") == []
-
-
-def test_non_empty_replacement_does_not_delete():
-    table = _Table("Fee", {"A1": _Cell("Custas"), "B1": _Cell("")})
-    assert _names([_Match(table.cells["A1"])], "novo valor") == []
-
 
 def test_matches_that_together_cover_every_cell_mark_the_table():
     table = _Table("Fee", {"A1": _Cell("Custas"), "B1": _Cell("Honorarios")})

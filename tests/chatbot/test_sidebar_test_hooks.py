@@ -1210,7 +1210,15 @@ def test_open_calc_document_times_out(monkeypatch) -> None:
         open_calc_document(object(), timeout=1.0)
 
 
-def test_handle_debug_sidebar_open_calc_posts_to_queue(fake_listener, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("chatbot.debug_sidebar.OPEN_CALC", id="test_handle_debug_sidebar_open_calc_posts_to_queue"),
+        # LO often delivers Path as ``chatbot.debug_sidebar?OPEN_CALC`` (Query empty).
+        pytest.param("chatbot.debug_sidebar?OPEN_CALC", id="test_handle_debug_sidebar_open_calc_accepts_query_form"),
+    ],
+)
+def test_handle_debug_sidebar_open_calc_posts_to_queue(fake_listener, monkeypatch, value) -> None:
     posted: list = []
     fake_listener.queue_executor = SimpleNamespace(post=lambda fn, *a, **k: posted.append(fn))
     loaded: list[bool] = []
@@ -1225,33 +1233,10 @@ def test_handle_debug_sidebar_open_calc_posts_to_queue(fake_listener, monkeypatc
     monkeypatch.setattr(
         "plugin.chatbot.sidebar_test_hooks._write_debug_snapshot", lambda sl: {}
     )
-    handle_debug_sidebar_command("chatbot.debug_sidebar.OPEN_CALC")
+    handle_debug_sidebar_command(value)
     assert posted
     posted[0]()
     assert loaded == [True]
-
-
-def test_handle_debug_sidebar_open_calc_accepts_query_form(fake_listener, monkeypatch) -> None:
-    """LO often delivers Path as ``chatbot.debug_sidebar?OPEN_CALC`` (Query empty)."""
-    posted: list = []
-    fake_listener.queue_executor = SimpleNamespace(post=lambda fn, *a, **k: posted.append(fn))
-    loaded: list[bool] = []
-    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.adopt_runtime_send_listeners", lambda: 0)
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks.send_listener", lambda frame=None: fake_listener
-    )
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks._load_visible_calc_factory",
-        lambda: loaded.append(True),
-    )
-    monkeypatch.setattr(
-        "plugin.chatbot.sidebar_test_hooks._write_debug_snapshot", lambda sl: {}
-    )
-    handle_debug_sidebar_command("chatbot.debug_sidebar?OPEN_CALC")
-    assert posted
-    posted[0]()
-    assert loaded == [True]
-
 
 def test_post_to_soffice_vcl_inits_async_callback(monkeypatch) -> None:
     inited: list[bool] = []

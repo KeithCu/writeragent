@@ -31,9 +31,16 @@ class TestPythonRunnerFormatting:
         assert (format_elapsed_time(0.0005)) == ("<1 ms")
         assert (format_elapsed_time(0.0)) == ("<1 ms")
 
-    def test_format_string(self):
-        assert (format_result_for_writer("hello")) == ("hello")
-        assert (format_result_for_writer(123)) == ("123")
+    @pytest.mark.parametrize(
+        "value, expected, value_2, expected_2",
+        [
+            pytest.param("hello", "hello", 123, "123", id="test_format_string"),
+            pytest.param(0, "0", 0.0, "0.0", id="test_format_zero"),
+        ],
+    )
+    def test_format_string(self, value, expected, value_2, expected_2):
+        assert (format_result_for_writer(value)) == (expected)
+        assert (format_result_for_writer(value_2)) == (expected_2)
 
     def test_format_escapes_html_specials_for_insert_unescape(self):
         # Double-escape so html.unescape in insert_content_at_position still
@@ -43,9 +50,6 @@ class TestPythonRunnerFormatting:
         assert ("<td>&amp;lt;td&amp;gt;</td>") in (table)
         assert ("<td>a&amp;amp;b</td>") in (table)
 
-    def test_format_zero(self):
-        assert (format_result_for_writer(0)) == ("0")
-        assert (format_result_for_writer(0.0)) == ("0.0")
 
     def test_is_shape_tool_status_result(self):
         assert (is_shape_tool_status_result({
@@ -241,8 +245,6 @@ def test_insert_result_into_calc_exception_propagates():
     doc.getCurrentController.side_effect = RuntimeError("no controller")
     with pytest.raises(RuntimeError, match="no controller"):
         insert_result_into_calc(doc, MagicMock(), 1)
-
-
 
 def test_insert_result_into_calc_skips_shape_status_dict():
     from unittest.mock import MagicMock, patch

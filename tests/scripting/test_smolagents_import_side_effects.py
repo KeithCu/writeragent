@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 
@@ -35,25 +36,22 @@ def test_sandbox_import_does_not_load_huggingface_hub() -> None:
     assert "plugin.contrib.smolagents.tools" not in mods
 
 
-def test_worker_base_import_does_not_load_huggingface_hub() -> None:
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("import compute_service.worker_base", id="test_worker_base_import_does_not_load_huggingface_hub"),
+        # formula_worker.py imports executor + worker_base + payload_codec.
+        pytest.param("import compute_service.executor, compute_service.worker_base, "
+        "plugin.scripting.payload_codec", id="test_formula_executor_import_does_not_load_huggingface_hub"),
+    ],
+)
+def test_worker_base_import_does_not_load_huggingface_hub(value) -> None:
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("compute_service/ not in stripped release tree")
-    mods = _child_modules_after("import compute_service.worker_base")
+    mods = _child_modules_after(value)
     leaked = {m for m in mods if m == "huggingface_hub" or m.startswith("huggingface_hub.")}
     assert not leaked
     assert "plugin.contrib.smolagents.tools" not in mods
 
 
-def test_formula_executor_import_does_not_load_huggingface_hub() -> None:
-    """formula_worker.py imports executor + worker_base + payload_codec."""
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("compute_service/ not in stripped release tree")
-    mods = _child_modules_after(
-        "import compute_service.executor, compute_service.worker_base, "
-        "plugin.scripting.payload_codec"
-    )
-    leaked = {m for m in mods if m == "huggingface_hub" or m.startswith("huggingface_hub.")}
-    assert not leaked
-    assert "plugin.contrib.smolagents.tools" not in mods

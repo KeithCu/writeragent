@@ -14,6 +14,7 @@ from plugin.calc.analysis import (
     _should_reject_solver_for_headless,
     _user_requested_java_nlp_engine,
 )
+import pytest
 
 
 class _FakeSolver:
@@ -25,13 +26,18 @@ class _FakeSolver:
 
 
 class TestCalcSolverEngineSelection:
-    def test_deps_impl_name_is_unsafe_without_nlpsolver_substring(self) -> None:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param("com.sun.star.comp.Calc.NLPSolver.DEPSSolverImpl", id="test_deps_impl_name_is_unsafe_without_nlpsolver_substring"),
+            pytest.param("Some.NLPSolver.Foo", id="test_nlpsolver_in_name_is_unsafe"),
+        ],
+    )
+    def test_deps_impl_name_is_unsafe_without_nlpsolver_substring(self, value) -> None:
         assert (_impl_name_is_java_nlp_headless_unsafe(
-                "com.sun.star.comp.Calc.NLPSolver.DEPSSolverImpl"
+                value
             ))
 
-    def test_nlpsolver_in_name_is_unsafe(self) -> None:
-        assert (_impl_name_is_java_nlp_headless_unsafe("Some.NLPSolver.Foo"))
 
     def test_coinmp_not_unsafe(self) -> None:
         assert not (_impl_name_is_java_nlp_headless_unsafe("com.sun.star.comp.Calc.CoinMPSolver"))

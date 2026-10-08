@@ -618,10 +618,17 @@ class TestComputeHttp:
         )
         assert r2["status"] == "ok" and r2["result"] == 99
 
-    def test_session_id_in_json_body_returns_400(self, compute_url: str) -> None:
+    @pytest.mark.parametrize(
+        "value, value_2, value_3, expected, value_4",
+        [
+            pytest.param("session_id", "body-sid-req", "bad-body-sid", "body-sid-req", "query parameter", id="test_session_id_in_json_body_returns_400"),
+            pytest.param("mode", "missing-sid-req", "shared", "missing-sid-req", "requires a 'session_id' URL query parameter", id="test_shared_mode_missing_session_id_returns_400"),
+        ],
+    )
+    def test_session_id_in_json_body_returns_400(self, compute_url: str, value, value_2, value_3, expected, value_4) -> None:
         req = urllib.request.Request(
             f"{compute_url}/v1/execute",
-            data=json.dumps({"id": "body-sid-req", "code": "result = 1", "session_id": "bad-body-sid"}).encode("utf-8"),
+            data=json.dumps({"id": value_2, "code": "result = 1", value: value_3}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
@@ -629,9 +636,9 @@ class TestComputeHttp:
             urllib.request.urlopen(req)
         assert exc_info.value.code == 400
         body = json.loads(exc_info.value.read().decode("utf-8"))
-        assert body.get("id") == "body-sid-req"
+        assert body.get("id") == expected
         assert body.get("status") == "error"
-        assert "query parameter" in body.get("error", "")
+        assert value_4 in body.get("error", "")
 
     def test_session_reset_clears_shared_names(self, compute_url: str) -> None:
         """After shared executes, reset drops the kernel so later shared code cannot see prior names."""
@@ -663,20 +670,6 @@ class TestComputeHttp:
         assert r2["status"] == "error"
         assert "prior_name" in r2.get("error", "") or "NameError" in r2.get("error", "")
 
-    def test_shared_mode_missing_session_id_returns_400(self, compute_url: str) -> None:
-        req = urllib.request.Request(
-            f"{compute_url}/v1/execute",
-            data=json.dumps({"id": "missing-sid-req", "code": "result = 1", "mode": "shared"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with pytest.raises(urllib.error.HTTPError) as exc_info:
-            urllib.request.urlopen(req)
-        assert exc_info.value.code == 400
-        body = json.loads(exc_info.value.read().decode("utf-8"))
-        assert body.get("id") == "missing-sid-req"
-        assert body.get("status") == "error"
-        assert "requires a 'session_id' URL query parameter" in body.get("error", "")
 
     def test_matplotlib_images_top_level(self, compute_url: str) -> None:
         body = _post_execute(
@@ -957,23 +950,23 @@ class TestComputeSettings:
         with pytest.raises(ConfigError):
             load_settings(workers=0, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
-    def test_negative_shared_kernel_ttl_rejected(self, tmp_path) -> None:
-        """Negative shared_kernel_ttl_sec must be rejected by validate()."""
+    @pytest.mark.parametrize(
+        "value, value_2, value_3, match",
+        [
+            # Negative shared_kernel_ttl_sec must be rejected by validate().
+            pytest.param("neg_ttl.json", "shared_kernel_ttl_sec", 1, "shared_kernel_ttl_sec", id="test_negative_shared_kernel_ttl_rejected"),
+            # Negative idle_worker_ttl_sec must be rejected by validate().
+            pytest.param("neg_idle_ttl.json", "idle_worker_ttl_sec", 5, "idle_worker_ttl_sec", id="test_negative_idle_worker_ttl_rejected"),
+        ],
+    )
+    def test_negative_shared_kernel_ttl_rejected(self, tmp_path, value, value_2, value_3, match) -> None:
         from compute_service.config import ConfigError
 
-        cfg = tmp_path / "neg_ttl.json"
-        cfg.write_text(json.dumps({"limits": {"shared_kernel_ttl_sec": -1}}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="shared_kernel_ttl_sec"):
+        cfg = tmp_path / value
+        cfg.write_text(json.dumps({"limits": {value_2: -value_3}}), encoding="utf-8")
+        with pytest.raises(ConfigError, match=match):
             load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
-    def test_negative_idle_worker_ttl_rejected(self, tmp_path) -> None:
-        """Negative idle_worker_ttl_sec must be rejected by validate()."""
-        from compute_service.config import ConfigError
-
-        cfg = tmp_path / "neg_idle_ttl.json"
-        cfg.write_text(json.dumps({"limits": {"idle_worker_ttl_sec": -5}}), encoding="utf-8")
-        with pytest.raises(ConfigError, match="idle_worker_ttl_sec"):
-            load_settings(config_path=cfg, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
 
     def test_env_api_key_keeps_surrounding_spaces(self, tmp_path) -> None:
         """The env secret used to be strip()'d. The key file is not, so the same text differed."""
@@ -1415,23 +1408,22 @@ class TestSessionResetHttp:
         assert body == {"id": "unk-1", "status": "ok"}
         assert seen == ["never-seen"]
 
-    def test_empty_body_is_ok(self) -> None:
+    @pytest.mark.parametrize(
+        "value, query",
+        [
+            pytest.param(b"", "session_id=empty-body", id="test_empty_body_is_ok"),
+            pytest.param(None, "session_id=no-cl", id="test_missing_content_length_is_ok"),
+        ],
+    )
+    def test_empty_body_is_ok(self, value, query) -> None:
         app = create_wsgi_app(
             ComputeSettings(),
             reset_fn=lambda sid, **_kw: {"status": "ok"},
         )
-        status, _headers, body = _wsgi_post(app, b"", query="session_id=empty-body")
+        status, _headers, body = _wsgi_post(app, value, query=query)
         assert status.startswith("200")
         assert body == {"status": "ok"}
 
-    def test_missing_content_length_is_ok(self) -> None:
-        app = create_wsgi_app(
-            ComputeSettings(),
-            reset_fn=lambda sid, **_kw: {"status": "ok"},
-        )
-        status, _headers, body = _wsgi_post(app, None, query="session_id=no-cl")
-        assert status.startswith("200")
-        assert body == {"status": "ok"}
 
     def test_chunked_transfer_encoding_is_400(self) -> None:
         """Chunked reset used to succeed as an empty body and drop the payload."""
@@ -1984,16 +1976,12 @@ class TestSessionResetHttp:
 
 
 class TestImportBoundary:
-    def test_config_auth_startup_avoids_writeragent_config(self) -> None:
-        """Config + auth app construction must not import plugin.framework.config
-        or open writeragent.json (executor sandbox coupling is deferred to first execute).
-        """
-        import subprocess
-        import sys
-        from pathlib import Path
-
-        repo = Path(__file__).resolve().parents[2]
-        code = r"""
+    @pytest.mark.parametrize(
+        "value",
+        [
+            # Config + auth app construction must not import plugin.framework.config
+            #         or open writeragent.json (executor sandbox coupling is deferred to first execute).
+            pytest.param(r"""
 import builtins
 import sys
 from pathlib import Path
@@ -2018,25 +2006,9 @@ assert principal == "default" and err is None
 assert "plugin.framework.config" not in sys.modules
 assert not any(Path(p).name == "writeragent.json" for p in opened), opened
 print("ok")
-"""
-        proc = subprocess.run(
-            [sys.executable, "-c", code],
-            cwd=str(repo),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert proc.returncode == 0, proc.stderr
-        assert "ok" in proc.stdout
-
-    def test_server_startup_does_not_import_numpy_or_sympy(self) -> None:
-        """Master compute service server must not load heavy packages (numpy, sympy) into memory."""
-        import subprocess
-        import sys
-        from pathlib import Path
-
-        repo = Path(__file__).resolve().parents[2]
-        code = r"""
+""", id="test_config_auth_startup_avoids_writeragent_config"),
+            # Master compute service server must not load heavy packages (numpy, sympy) into memory.
+            pytest.param(r"""
 import sys
 from compute_service.config import load_settings
 from compute_service.server import create_wsgi_app, WSGIDualStackServer
@@ -2046,7 +2018,16 @@ app = create_wsgi_app(s)
 assert "numpy" not in sys.modules, f"numpy was loaded into master process: {sys.modules.get('numpy')}"
 assert "sympy" not in sys.modules, f"sympy was loaded into master process: {sys.modules.get('sympy')}"
 print("ok")
-"""
+""", id="test_server_startup_does_not_import_numpy_or_sympy"),
+        ],
+    )
+    def test_config_auth_startup_avoids_writeragent_config(self, value) -> None:
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[2]
+        code = value
         proc = subprocess.run(
             [sys.executable, "-c", code],
             cwd=str(repo),
@@ -2056,6 +2037,7 @@ print("ok")
         )
         assert proc.returncode == 0, proc.stderr
         assert "ok" in proc.stdout
+
 
     def test_check_dependencies_exit_on_failure(self, monkeypatch, capsys) -> None:
         """check_dependencies should print error and exit with code 1 if worker pool reports failure."""
@@ -2972,12 +2954,6 @@ def test_session_id_reserved_namespace_rejected() -> None:
         )
         assert status == "400 Bad Request"
         assert parsed.get("code") == "INVALID_SESSION_ID"
-
-
-
-
-
-
 
 def test_empty_multi_data_result() -> None:
     payload = {

@@ -23,10 +23,18 @@ from plugin.chatbot.web_research_deep import (
 
 
 class TestDeepResearchParsers:
-    def test_parse_search_queries_json_array(self):
-        raw = '[{"query": "foo bar", "researchGoal": "learn foo"}]'
+    @pytest.mark.parametrize(
+        "value, value_2, value_3",
+        [
+            pytest.param('[{"query": "foo bar", "researchGoal": "learn foo"}]', "foo bar", "learn foo", id="test_parse_search_queries_json_array"),
+            pytest.param('[{"query": "foo bar"}]', "foo bar", "Research: foo bar", id="test_parse_search_queries_missing_goal"),
+            pytest.param("Query: climate policy\nResearch Goal: survey regulations", "climate policy", "survey regulations", id="test_parse_search_queries_line_fallback"),
+        ],
+    )
+    def test_parse_search_queries_json_array(self, value, value_2, value_3):
+        raw = value
         out = parse_search_queries_response(raw, 3)
-        assert out == [{"query": "foo bar", "researchGoal": "learn foo"}]
+        assert out == [{"query": value_2, "researchGoal": value_3}]
 
     def test_parse_search_queries_bare_strings(self):
         raw = '["foo bar", "climate policy"]'
@@ -35,16 +43,6 @@ class TestDeepResearchParsers:
             {"query": "foo bar", "researchGoal": "Research: foo bar"},
             {"query": "climate policy", "researchGoal": "Research: climate policy"}
         ]
-
-    def test_parse_search_queries_missing_goal(self):
-        raw = '[{"query": "foo bar"}]'
-        out = parse_search_queries_response(raw, 3)
-        assert out == [{"query": "foo bar", "researchGoal": "Research: foo bar"}]
-
-    def test_parse_search_queries_line_fallback(self):
-        raw = "Query: climate policy\nResearch Goal: survey regulations"
-        out = parse_search_queries_response(raw, 3)
-        assert out == [{"query": "climate policy", "researchGoal": "survey regulations"}]
 
     def test_parse_follow_up_questions_json(self):
         raw = '{"questions": ["What changed in 2024?", "Who leads the field?"]}'

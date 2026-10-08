@@ -19,8 +19,8 @@ from plugin.framework.uno_context import uno_same
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
     TestingFactory,
-    skip_windows_leftover_hidden_load,
     with_native_doc,
+    writer_services_tool_context,
 )
 from plugin.writer.images.image_tools import insert_image_into_header_footer
 from plugin.writer.page import (
@@ -46,17 +46,9 @@ def _tool_ctx(doc, ctx):
     # GHA 34689136372: leftover Hidden `_blank` in xtext_to_content
     # hung page-header get. This file is the next PageGetHeaderFooterText
     # victim.
-    skip_windows_leftover_hidden_load("page_header Hidden _blank xtext_to_content")
-    from plugin.framework.tool import ToolContext
-
-    services = None
-    try:
-        from plugin.main import get_services
-
-        services = get_services()
-    except Exception:
-        services = None
-    return ToolContext(doc, ctx, "writer", services, "test")
+    return writer_services_tool_context(
+        doc, ctx, skip_reason="page_header Hidden _blank xtext_to_content"
+    )
 
 
 def _style_name(doc):

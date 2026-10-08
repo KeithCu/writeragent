@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.scripting import python_runner as pr
 from plugin.scripting import python_runner_ui as ui
+import pytest
 
 
 def _patch_modal_native():
@@ -364,8 +365,16 @@ def test_run_python_monaco_on_save_persists_and_executes():
                         mock_execute.assert_not_called()
 
 
-def test_run_python_monaco_on_save_does_not_upsert_unknown_user_name():
-    """Document/domain picker names must not be written into My Scripts."""
+@pytest.mark.parametrize(
+    "return_value, selected_script_name, value, value_2",
+    [
+        # Document/domain picker names must not be written into My Scripts.
+        pytest.param("Regional", "Regional", "new", "new", id="test_run_python_monaco_on_save_does_not_upsert_unknown_user_name"),
+        # Document scripts prefixed with [Doc] in config must be stripped and saved to document.
+        pytest.param("[Doc] Regional", "[Doc] Regional", "new_code", "new_code", id="test_run_python_monaco_on_save_persists_doc_script_with_prefix"),
+    ],
+)
+def test_run_python_monaco_on_save_does_not_upsert_unknown_user_name(return_value, selected_script_name, value, value_2):
     ctx = MagicMock()
     doc = MagicMock()
     captured: dict = {}
@@ -378,51 +387,20 @@ def test_run_python_monaco_on_save_does_not_upsert_unknown_user_name():
         with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
             with patch("plugin.scripting.document_scripts.save_document_script") as mock_doc_save:
                 with patch.object(pr, "execute_and_insert_result", return_value={"ok": True}):
-                    with patch.object(pr, "get_config_str", return_value="Regional"):
+                    with patch.object(pr, "get_config_str", return_value=return_value):
                         with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
                             with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Regional": "old"}):
                                 pr._run_python_monaco(
                                     ctx,
                                     doc,
                                     initial_code="old",
-                                    selected_script_name="Regional",
+                                    selected_script_name=selected_script_name,
                                     exe="/venv/bin/python",
                                 )
-                                captured["on_save"]("new", False, None, "save")
+                                captured["on_save"](value, False, None, "save")
 
     mock_save.assert_not_called()
-    mock_doc_save.assert_called_once_with(doc, "Regional", "new")
-
-
-def test_run_python_monaco_on_save_persists_doc_script_with_prefix():
-    """Document scripts prefixed with [Doc] in config must be stripped and saved to document."""
-    ctx = MagicMock()
-    doc = MagicMock()
-    captured: dict = {}
-
-    def fake_launch(_ctx, *, exe, load_message, on_save, on_closed=None):
-        captured["on_save"] = on_save
-        return True
-
-    with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
-        with patch("plugin.scripting.document_scripts.save_user_script") as mock_save:
-            with patch("plugin.scripting.document_scripts.save_document_script") as mock_doc_save:
-                with patch.object(pr, "execute_and_insert_result", return_value={"ok": True}):
-                    with patch.object(pr, "get_config_str", return_value="[Doc] Regional"):
-                        with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
-                            with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Regional": "old"}):
-                                pr._run_python_monaco(
-                                    ctx,
-                                    doc,
-                                    initial_code="old",
-                                    selected_script_name="[Doc] Regional",
-                                    exe="/venv/bin/python",
-                                )
-                                captured["on_save"]("new_code", False, None, "save")
-
-    mock_save.assert_not_called()
-    mock_doc_save.assert_called_once_with(doc, "Regional", "new_code")
-
+    mock_doc_save.assert_called_once_with(doc, "Regional", value_2)
 
 def test_run_python_monaco_on_save_errors_when_script_was_deleted():
     """A library name in neither store must not report Save as success."""

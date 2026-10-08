@@ -83,9 +83,17 @@ def test_grammar_tags_include_english_variants() -> None:
 def test_grammar_tag_count() -> None:
     assert len(gl.GRAMMAR_REGISTRY_LOCALE_TAGS) == 5 + len(_GETTEXT_LOCALE_DIRS)
 
-def test_normalize_german_regional() -> None:
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("de", "AT")) == "de-DE"
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("de", "DE")) == "de-DE"
+@pytest.mark.parametrize(
+    "value, value_2, expected, value_3, value_4, expected_2",
+    [
+        pytest.param("de", "AT", "de-DE", "de", "DE", "de-DE", id="test_normalize_german_regional"),
+        pytest.param("zh", "CN", "zh-CN", "zh", "TW", "zh-TW", id="test_normalize_chinese"),
+        pytest.param("pt", "BR", "pt-BR", "pt", "PT", "pt-BR", id="test_normalize_pt_any_region_to_brazil"),
+    ],
+)
+def test_normalize_german_regional(value, value_2, expected, value_3, value_4, expected_2) -> None:
+    assert gl.normalize_uno_locale_to_bcp47(_uno_locale(value, value_2)) == expected
+    assert gl.normalize_uno_locale_to_bcp47(_uno_locale(value_3, value_4)) == expected_2
 
 def test_bcp47_to_icu_sentence_breaker_locale() -> None:
     assert gl.bcp47_to_icu_sentence_breaker_locale("en-US") == "en@ss=standard"
@@ -100,14 +108,6 @@ def test_normalize_english_choices() -> None:
     assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "AU")) == "en-AU"
     assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "CA")) == "en-CA"
     assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "IN")) == "en-IN"
-
-def test_normalize_chinese() -> None:
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("zh", "CN")) == "zh-CN"
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("zh", "TW")) == "zh-TW"
-
-def test_normalize_pt_any_region_to_brazil() -> None:
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("pt", "BR")) == "pt-BR"
-    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("pt", "PT")) == "pt-BR"
 
 def test_english_name_is_nonempty() -> None:
     for tag in gl.GRAMMAR_REGISTRY_LOCALE_TAGS:

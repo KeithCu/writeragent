@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -25,22 +26,16 @@ def test_librepy_bundle_excludes_calc_functions():
         assert excluded not in paths, f"LibrePy bundle must not include {excluded}"
 
 
-def test_librepy_bundle_includes_calc_functions_common():
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("plugin/scripting/calc_functions_common.py", id="test_librepy_bundle_includes_calc_functions_common"),
+        pytest.param("plugin/chatbot/bug_report.py", id="test_librepy_bundle_includes_bug_report"),
+        pytest.param("plugin/doc/udprops.py", id="test_librepy_bundle_includes_udprops"),
+        pytest.param("plugin/calc/calc_utils.py", id="test_librepy_bundle_includes_calc_utils"),
+    ],
+)
+def test_librepy_bundle_includes_calc_functions_common(value):
     paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/scripting/calc_functions_common.py" in paths
-
-
-def test_librepy_bundle_includes_bug_report():
-    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/chatbot/bug_report.py" in paths
-
-
-def test_librepy_bundle_includes_udprops():
-    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/doc/udprops.py" in paths
-
-
-def test_librepy_bundle_includes_calc_utils():
-    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/calc/calc_utils.py" in paths
+    assert value in paths
 
