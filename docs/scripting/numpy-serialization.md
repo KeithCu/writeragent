@@ -219,7 +219,7 @@ flowchart TD
 ```
 
 1. **Host Packing**:
-   - Flat double-precision binary `array` preserves all numeric values (`int`, `float`, `bool`).
+   - Flat double-precision binary `array` preserves `float`, `bool`, and integers inside the 53-bit mantissa. Integers outside ±2^53 round (locked: [Int fidelity](../calc/py-data-shapes.md)).
    - String values or empty/None cells are encoded as `math.nan` in the binary array.
    - Any string cell is registered in the parallel `strings` dictionary keyed natively by its integer flat cell index (e.g. `{7: "banana", 12: "apple"}`).
    - Per-column `column_kinds` (`int` or `float`) are identified to allow precise type restoration in the child.
@@ -252,7 +252,7 @@ This section keeps **codec / wire** invariants only.
 
 The split-grid codec is the project's reference Tier-0 verification target: `deal` contracts on pack/unpack functions, optional CrossHair concolic checking, and pytest round-trip oracles. The A/B suite ([`tests/scripting/test_serialization_ab.py`](../../tests/scripting/test_serialization_ab.py) + Hypothesis + venv worker harness) compares `force="always"` (split_grid) vs `force="never"` (nested list) on small varied grids. See [`serialization-verification.md`](serialization-verification.md); background in [`../framework/formal-verification.md`](../framework/formal-verification.md).
 
-**Wire fidelity:** split_grid + Pickle5 must behave like nested Python lists + standard pickle — no extra type coercion in [`payload_codec.py`](../../plugin/scripting/payload_codec.py). Optimized `frombuffer` paths are a performance implementation of that contract.
+**Wire fidelity:** split_grid + Pickle5 must behave like nested Python lists + standard pickle — no extra type coercion in [`payload_codec.py`](../../plugin/scripting/payload_codec.py), except integers outside ±2^53, which the float64 buffer rounds ([Int fidelity](../calc/py-data-shapes.md)). Optimized `frombuffer` paths are a performance implementation of that contract.
 
 #### Split-Grid encoding (host pack)
 

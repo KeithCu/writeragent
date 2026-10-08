@@ -824,6 +824,72 @@ def test_split_grid_unpack_rejects_non_dict_strings() -> None:
         child_unpack_split_grid(envelope)
 
 
+@pytest.mark.parametrize("key", [float("inf"), 1.5, True])
+def test_split_grid_rejects_non_integer_string_keys(key: object) -> None:
+    """Float, inf, and bool keys must not truncate into another cell.
+
+    What was wrong: ``int(1.5)`` stored the string at index 1, and
+    ``int(float("inf"))`` raised OverflowError. The child contract only
+    declares ValueError, so under deal that became RaisesContractError.
+    """
+    envelope = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [2],
+        "buffer": array.array("d", [7.0, 8.0]).tobytes(),
+        "strings": {key: "x"},
+    }
+    with pytest.raises(ValueError, match="not an integer"):
+        host_unpack_split_grid(envelope)
+    pytest.importorskip("numpy")
+    with pytest.raises(ValueError, match="not an integer"):
+        child_unpack_split_grid(envelope)
+
+
+def test_split_grid_digit_string_key_still_maps() -> None:
+    """Legacy harnesses sent stringified indexes. ``-1`` is an int, then out of bounds."""
+    ok = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [2],
+        "buffer": array.array("d", [7.0, 8.0]).tobytes(),
+        "strings": {"0": "zip"},
+    }
+    assert host_unpack_split_grid(ok) == ["zip", 8.0]
+    neg = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [2],
+        "buffer": array.array("d", [7.0, 8.0]).tobytes(),
+        "strings": {"-1": "x"},
+    }
+    with pytest.raises(ValueError, match="out of bounds"):
+        host_unpack_split_grid(neg)
+    pytest.importorskip("numpy")
+    assert child_unpack_split_grid(ok) == ["zip", 8.0]
+
+
+def test_integers_past_float64_mantissa_round_only_on_split_grid() -> None:
+    """``2**53 + 1`` survives a nested list and rounds once the float64 buffer is used.
+
+    Locked in docs/calc/py-data-shapes.md (no int64 wire lane). A list-packing
+    fallback would change the wire for every oversized integer.
+    """
+    big = 2**53 + 1
+    small = [[big, 1], [2, 3]]
+    assert host_unpack_data(host_pack_data(small, force="never")) == small
+    assert host_unpack_data(host_pack_data(small, force="always"))[0][0] == 2**53
+
+    grid = [[0] * 10 for unused in range(10)]
+    grid[0][0] = big
+    packed = host_pack_data(grid)
+    assert is_split_grid(packed)
+    assert host_unpack_data(packed)[0][0] == 2**53
+
+    np = pytest.importorskip("numpy")
+    arr = np.array([[big, 1], [2, 3]], dtype=np.int64)
+    assert host_unpack_data(child_pack_result(arr, force="always"))[0][0] == 2**53
+    child = child_unpack_data(host_pack_data(grid, force="always"))
+    assert int(child[0, 0]) == 2**53
+
+
 def test_host_unpack_split_grid_rejects_short_buffer() -> None:
     """Declared shape must match the float buffer. A short buffer is not a short grid."""
     buf = array.array("d", [1.0])

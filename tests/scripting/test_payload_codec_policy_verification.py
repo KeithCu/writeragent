@@ -320,7 +320,6 @@ def test_payload_codec_cover_all_33797534946_offs() -> None:
         "binary_envelope_skip_reason",
         "image_payload_suffix",
         "_uniform_column_kind",
-        "_host_cell_from_float",
     ):
         assert not any(f.endswith(f".{name}") for f in fqns), name
     assert any(f.endswith(".should_use_binary_envelope") for f in fqns)

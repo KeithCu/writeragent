@@ -19,7 +19,6 @@ from plugin.scripting.payload_codec import (
     PAYLOAD_SPLIT_GRID,
     SPLIT_GRID_WIRE_DTYPE,
     _flatten_grid_to_components,
-    _host_cell_from_float,
     _apply_column_kinds_to_ndarray,
     envelope_column_kinds,
     envelope_uniform_column_kind,
@@ -28,6 +27,17 @@ from plugin.scripting.payload_codec import (
     child_pack_split_grid,
     child_unpack_split_grid,
 )
+
+
+def _host_cell_from_float(val: float, *, kind: str) -> Any:
+    """Legacy b64 oracle: NaN becomes None, int columns become int.
+
+    Production unpack does not use this. The oracle is meant to drift from
+    the host path so a wire change shows up as a difference.
+    """
+    if math.isnan(val):
+        return None
+    return int(val) if kind == "int" else val
 
 
 def pickle5_roundtrip(envelope: dict[str, Any]) -> dict[str, Any]:

@@ -64,6 +64,16 @@ _MAX_UNPACK_DEPTH = 128
 _HOST_UNPACK_ERRORS = (ValueError, OverflowError, TypeError, AttributeError, KeyError)
 
 
+def _profile(crosshair_fn: Any, pytest_fn: Any) -> Any:
+    """Pick the contract predicate once at import.
+
+    Do not branch on ``UNDER_CROSSHAIR`` inside ``@deal.pre``; CrossHair would
+    explore both arms.
+    """
+    # crosshair: off  # import-time selector; covering both arms is the bug this avoids.
+    return crosshair_fn if UNDER_CROSSHAIR else pytest_fn
+
+
 def _deal_return(*args: Any, result: Any = _DEAL_RETURN, **_kwargs: Any) -> Any:
     if result is not _DEAL_RETURN:
         return result
@@ -456,9 +466,7 @@ def _deal_numeric_cell_ok_crosshair(value: object) -> bool:
     return False
 
 
-_deal_numeric_cell_ok = (
-    _deal_numeric_cell_ok_crosshair if UNDER_CROSSHAIR else _deal_numeric_cell_ok_pytest
-)
+_deal_numeric_cell_ok = _profile(_deal_numeric_cell_ok_crosshair, _deal_numeric_cell_ok_pytest)
 
 
 def _deal_wire_dict_ok_crosshair(obj: object) -> bool:
@@ -488,8 +496,7 @@ def _deal_wire_dict_ok_pytest(obj: object) -> bool:
     return True
 
 
-# Import-time pick. Do not branch inside @deal.pre — CrossHair would explore both.
-_deal_wire_dict_ok = _deal_wire_dict_ok_crosshair if UNDER_CROSSHAIR else _deal_wire_dict_ok_pytest
+_deal_wire_dict_ok = _profile(_deal_wire_dict_ok_crosshair, _deal_wire_dict_ok_pytest)
 
 
 def _is_multi_data_envelope(envelope: object) -> bool:
@@ -577,15 +584,10 @@ def find_image_payloads(
         if marker in _seen:
             return []
         _seen.add(marker)
-    if isinstance(obj, dict):
+        items = obj.values() if isinstance(obj, dict) else obj
         res = []
-        for v in obj.values():
-            res.extend(find_image_payloads(v, _depth=_depth + 1, _seen=_seen))
-        return res
-    if isinstance(obj, (list, tuple)):
-        res = []
-        for x in obj:
-            res.extend(find_image_payloads(x, _depth=_depth + 1, _seen=_seen))
+        for item in items:
+            res.extend(find_image_payloads(item, _depth=_depth + 1, _seen=_seen))
         return res
     return []
 
@@ -745,7 +747,7 @@ def _is_ndarray(obj: object) -> bool:
 
 # Pytest accepts real sheets. ``_deal_grid_ok``'s 256-row cap raised
 # PreContractError on a sheet pack accepts. CrossHair keeps that small domain.
-_deal_column_kinds_grid_ok = _deal_grid_ok if UNDER_CROSSHAIR else _deal_product_grid_ok
+_deal_column_kinds_grid_ok = _profile(_deal_grid_ok, _deal_product_grid_ok)
 
 
 @deal.pre(lambda grid, *_unused, **__: _deal_column_kinds_grid_ok(grid))
@@ -795,16 +797,6 @@ def envelope_uniform_column_kind(envelope: dict[str, Any], *, ncols: int) -> str
     """Decode-only: all-int or all-float fast path when ``column_kinds`` are uniform; None if mixed."""
     # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     return _uniform_column_kind(envelope_column_kinds(envelope, ncols=ncols))
-
-
-def _host_cell_from_float(val: float, *, kind: str) -> Any:  # pyright: ignore[reportUnusedFunction]  # test helper for host cell kind coercion
-    # Kept here: the legacy b64 oracle and the cover-all skip list name it.
-    # Moving it into the test tree would drop that production symbol.
-    # crosshair: off
-    # cover-all 33797534946 (~46.5m payload_codec). Float/kind coercion leftover. Doable later with closed kind Literal.
-    if math.isnan(val):
-        return None
-    return int(val) if kind == "int" else val
 
 
 def _apply_column_kinds_to_ndarray(
@@ -922,7 +914,7 @@ def _deal_shape_ok_crosshair(shape: object) -> bool:
     )
 
 
-_deal_shape_ok = _deal_shape_ok_crosshair if UNDER_CROSSHAIR else _deal_shape_ok_pytest
+_deal_shape_ok = _profile(_deal_shape_ok_crosshair, _deal_shape_ok_pytest)
 
 
 @deal.pre(lambda shape: _deal_shape_ok(shape))
@@ -1584,16 +1576,73 @@ def host_pack_multi_data(
     return envelope
 
 
+def _split_grid_string_index(key: Any) -> int:
+    """Flat cell index for one ``strings`` key.
+
+    What was wrong: ``int(k)`` truncated a float key (``1.5`` landed in cell 1)
+    and ``int(float("inf"))`` raised OverflowError. The child unpack contract
+    only declares ValueError, so under deal that became RaisesContractError.
+    Why this works: production keys are ``int``. Legacy harnesses used digit
+    strings. A bool is an int subclass and used to become index 0 or 1; only
+    a real ``int``, or one optional minus plus ASCII digits, is accepted.
+    """
+    # crosshair: off  # malformed wire keys (Any key, not a closed int/str domain).
+    if type(key) is int:
+        return key
+    if type(key) is str:
+        body = key[1:] if key.startswith("-") else key
+        if body.isascii() and body.isdigit():
+            return int(key)
+    raise ValueError(f"split_grid string key {key!r} is not an integer")
+
+
+def _decode_split_grid_buffer(envelope: dict[str, Any], expected_cells: int) -> bytes:
+    """Return the float64 payload bytes, or raise if they do not match *expected_cells*.
+
+    Host and child each used to pick ``buffer`` vs ``b64`` and check length.
+    Decode is cold next to materializing the grid.
+
+    What was wrong: the host sliced whatever bytes arrived, so a short buffer
+    became a short grid while ``wire_cell_count`` still reported the declared
+    shape. The child numeric path rejected that, but the 1D mixed path
+    reshaped only for 2D and returned a shorter list (or kept extra floats).
+    Why this works: both unpackers call here before ``array.frombytes`` /
+    ``np.frombuffer``, so a short, long, or non-multiple-of-8 buffer raises
+    instead of changing the grid.
+    """
+    # crosshair: off  # buffer/b64 bytes (cover-all: envelope Any). Same reason as the unpackers.
+    if "buffer" in envelope:
+        raw = envelope["buffer"]
+    elif "b64" in envelope:
+        import base64
+
+        raw = base64.b64decode(envelope["b64"].encode("ascii"))
+    else:
+        raise ValueError("Missing payload binary buffer or b64 representation")
+    if isinstance(raw, memoryview):
+        raw = raw.tobytes()
+    elif isinstance(raw, bytearray):
+        raw = bytes(raw)
+    elif not isinstance(raw, bytes):
+        raise TypeError(f"a bytes-like object is required, not '{type(raw).__name__}'")
+    if len(raw) % 8 != 0:
+        # Same message as array.array('d').frombytes on a truncated byte string.
+        raise ValueError("bytes length not a multiple of item size")
+    nvals = len(raw) // 8
+    if nvals != expected_cells:
+        raise ValueError(
+            f"split_grid buffer has {nvals} values but shape {list(envelope['shape'])} needs {expected_cells}"
+        )
+    return raw
+
+
 def _validate_split_grid_strings(envelope: dict[str, Any], expected_cells: int) -> dict[int, str]:
     raw_strings = envelope.get("strings", {})
     if not isinstance(raw_strings, dict):
         raise ValueError("split_grid strings must be a dict")
     strings: dict[int, str] = {}
     for k, v in raw_strings.items():
-        try:
-            ik = int(k)
-        except (ValueError, TypeError) as exc:
-            raise ValueError(f"split_grid string key {k!r} is not an integer") from exc
+        ik = _split_grid_string_index(k)
         if not (0 <= ik < expected_cells):
             raise ValueError(f"split_grid string key {ik} out of bounds for {expected_cells} cells")
         if not isinstance(v, str):
@@ -1621,27 +1670,12 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     Python None is only introduced for string cells (from the strings map) or for genuine None in mixed results.
     """
     # crosshair: off
-    # Host and child each decode buffer/b64 inline. A shared helper would keep
-    # the two sites from drifting; left inline so this hot path stays obvious.
-    buf = array.array("d")
-    if "buffer" in envelope:
-        buf.frombytes(envelope["buffer"])
-    elif "b64" in envelope:
-        import base64
-        buf.frombytes(base64.b64decode(envelope["b64"].encode("ascii")))
-    else:
-        raise ValueError("Missing payload binary buffer or b64 representation")
     shape = envelope["shape"]
     is_1d = len(shape) == 1
     nrows, ncols = (shape[0], 1) if is_1d else (shape[0], shape[1])
-    # Bugfix: the child reshape rejects a buffer that does not match shape.
-    # The host used to slice whatever bytes arrived, so a short buffer became a
-    # short grid while wire_cell_count still reported the declared shape.
     expected_cells = int(nrows) * int(ncols)
-    if len(buf) != expected_cells:
-        raise ValueError(
-            f"split_grid buffer has {len(buf)} values but shape {list(shape)} needs {expected_cells}"
-        )
+    buf = array.array("d")
+    buf.frombytes(_decode_split_grid_buffer(envelope, expected_cells))
 
     # Convert keys of strings to integers in case legacy test harnesses sent stringified keys.
     # Production wire is length-prefixed Pickle5 carrying split_grid (or nested lists for < BINARY_MIN_CELLS).
@@ -1707,8 +1741,8 @@ def _deal_host_unpack_wire_ok_crosshair(wire: object) -> bool:
     )
 
 
-_deal_host_unpack_wire_ok = (
-    _deal_host_unpack_wire_ok_crosshair if UNDER_CROSSHAIR else _deal_host_unpack_wire_ok_pytest
+_deal_host_unpack_wire_ok = _profile(
+    _deal_host_unpack_wire_ok_crosshair, _deal_host_unpack_wire_ok_pytest
 )
 
 
@@ -1790,28 +1824,13 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
 
         import numpy as np
 
-        # Same buffer/b64 choice as host_unpack_split_grid. See the comment there.
-        if "buffer" in envelope:
-            raw = envelope["buffer"]
-        elif "b64" in envelope:
-            import base64
-            raw = base64.b64decode(envelope["b64"].encode("ascii"))
-        else:
-            raise ValueError("Missing payload binary buffer or b64 representation")
         expected_cells = int(nrows) * int(ncols)
+        raw = _decode_split_grid_buffer(envelope, expected_cells)
         strings = _validate_split_grid_strings(envelope, expected_cells)
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
 
         if not strings:
             arr = np.frombuffer(raw, dtype=np.float64)
-            # Bugfix: host unpack already rejects this. The 1D child path
-            # returned the buffer's own length and materialized a short row
-            # because reshape runs only for 2D. Reject the mismatch here and
-            # keep the 2D reshape as a second check.
-            if arr.size != expected_cells:
-                raise ValueError(
-                    f"split_grid buffer has {arr.size} values but shape {list(shape)} needs {expected_cells}"
-                )
             if not is_1d:
                 arr = arr.reshape((nrows, ncols))
             # Uniform kind only matters on this numeric path. Computing it
@@ -1845,16 +1864,6 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
         # vectorized boolean masks to perform C-level bulk modifications, bypassing
         # slow cell-by-cell loops, modulo operations, and manual type-coercion in Python.
         arr = np.frombuffer(raw, dtype=np.float64)
-        # What was wrong: the numeric path above rejects a buffer whose float
-        # count is not nrows*ncols, but this mixed-string path reshaped only
-        # for 2D. A truncated 1D buffer became a shorter list (the cells the
-        # shape still advertised were dropped). A long buffer kept the extra
-        # floats. Why this works: the same check, before reshape, so a corrupt
-        # envelope raises instead of changing the grid.
-        if arr.size != expected_cells:
-            raise ValueError(
-                f"split_grid buffer has {arr.size} values but shape {list(shape)} needs {expected_cells}"
-            )
         if not is_1d:
             arr = arr.reshape((nrows, ncols))
 
@@ -1983,8 +1992,8 @@ def _deal_child_unpack_wire_ok_crosshair(wire: object) -> bool:
     )
 
 
-_deal_child_unpack_wire_ok = (
-    _deal_child_unpack_wire_ok_crosshair if UNDER_CROSSHAIR else _deal_child_unpack_wire_ok_pytest
+_deal_child_unpack_wire_ok = _profile(
+    _deal_child_unpack_wire_ok_crosshair, _deal_child_unpack_wire_ok_pytest
 )
 
 
