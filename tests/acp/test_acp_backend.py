@@ -20,6 +20,7 @@ from plugin.acp.grok_simple import GrokBackend
 from plugin.acp.hermes_simple import HermesBackend
 from plugin.acp.opencode_simple import OpenCodeBackend
 from plugin.framework.async_stream import StreamQueueKind
+from plugin.version import EXTENSION_VERSION
 
 
 def _config_get(path="", args=""):
@@ -54,6 +55,29 @@ class TestDefaultExtraArgs:
         ):
             backend = HermesBackend()
         assert (backend._extra_args) == (["--keep-going"])
+
+    def test_quoted_settings_arg_stays_one_entry(self):
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/hermes", args='--config "/tmp/my file.json"')),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value=None),
+        ):
+            backend = HermesBackend()
+        assert (len(backend._extra_args)) == (2)
+        assert (backend._extra_args[0]) == ("--config")
+        assert ("my file.json") in (backend._extra_args[1])
+
+    def test_config_error_drops_stale_extra_args(self):
+        backend = HermesBackend.__new__(HermesBackend)
+        backend._extra_args = ["--stale"]
+        backend._binary_path = "/usr/bin/hermes"
+        with (
+            patch("plugin.framework.config.get_config", side_effect=RuntimeError("bad config")),
+            patch("shutil.which", return_value=None),
+            patch("os.path.isfile", return_value=False),
+        ):
+            backend._load_config()
+        assert (backend._extra_args) == ([])
 
     def test_hermes_unrelated_basename_skips_defaults(self):
         with (
@@ -717,6 +741,7 @@ class TestStopAndShutdown:
 def _startup_conn(*, alive: bool = True):
     conn = MagicMock()
     conn.is_alive = alive
+    conn.stderr_text.return_value = ""
     conn.send_request.return_value = {"protocolVersion": 1}
     return conn
 
@@ -782,6 +807,9 @@ class TestStartupWait:
         assert (sleeps) == ([_STARTUP_POLL_S] * _STARTUP_POLLS)
         conn.send_request.assert_called_once()
         assert (conn.send_request.call_args.args[0]) == ("initialize")
+        params = conn.send_request.call_args.args[1]
+        assert (params["clientCapabilities"]["fs"]) == ({"readTextFile": False, "writeTextFile": False})
+        assert (params["clientInfo"]["version"]) == (EXTENSION_VERSION)
 
     def test_dead_process_still_raises_before_initialize(self):
         backend = self._backend()
@@ -790,6 +818,87 @@ class TestStartupWait:
             with pytest.raises(RuntimeError, match="failed to start"):
                 backend._ensure_connection()
         conn.send_request.assert_not_called()
+
+    def test_dead_process_includes_stderr_tail(self):
+        backend = self._backend()
+        conn = _startup_conn(alive=False)
+        conn.stderr_text.return_value = "cli: not found\n"
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn), patch("plugin.acp.acp_backend.time.sleep", side_effect=AssertionError("slept")):
+            with pytest.raises(RuntimeError, match="cli: not found"):
+                backend._ensure_connection()
+        conn.send_request.assert_not_called()
+
+
+class TestUnknownAcpRequest:
+    """Agent requests this client does not implement must still get a JSON-RPC error."""
+
+    def test_unknown_method_with_id_is_rejected(self):
+        backend = _bare_backend()
+        conn = MagicMock()
+        backend._conn = conn
+        q = queue.Queue()
+        backend._dispatch_notification("fs/read_text_file", {"path": "a"}, 7, q)
+        conn.send_response.assert_called_once_with(7, error={"code": -32601, "message": "Method not found: fs/read_text_file"})
+        assert (_drain(q)) == ([])
+
+    def test_notification_is_not_rejected(self):
+        backend = _bare_backend()
+        conn = MagicMock()
+        backend._conn = conn
+        q = queue.Queue()
+        backend._dispatch_notification(
+            "session/update",
+            {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hi"}}},
+            None,
+            q,
+        )
+        conn.send_response.assert_not_called()
+        assert (_drain(q)) == ([(StreamQueueKind.CHUNK, "hi")])
+
+    def test_unknown_method_while_stopped_is_still_rejected(self):
+        backend = _bare_backend()
+        backend._stop_requested = True
+        conn = MagicMock()
+        backend._conn = conn
+        q = queue.Queue()
+        backend._dispatch_notification("fs/read_text_file", {}, 3, q)
+        conn.send_response.assert_called_once_with(3, error={"code": -32601, "message": "Method not found: fs/read_text_file"})
+        assert (_drain(q)) == ([])
+
+
+class TestSessionId:
+    def test_blank_session_id_does_not_prompt(self):
+        backend = _bare_backend()
+        conn = MagicMock()
+        methods: list[str] = []
+
+        def send_request(method, params=None, timeout=120):
+            methods.append(method)
+            if method == "session/new":
+                return {"sessionId": "  "}
+            return {"stopReason": "end_turn"}
+
+        conn.send_request.side_effect = send_request
+        backend._conn = conn
+        backend._ensure_connection = lambda stop_checker=None: None
+        q = queue.Queue()
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        assert ("session/prompt") not in (methods)
+        assert (StreamQueueKind.ERROR) in ([event[0] for event in _drain(q)])
+
+    def test_missing_session_id_raises(self):
+        backend = _bare_backend()
+        backend._conn = MagicMock()
+        backend._conn.send_request.return_value = {}
+        with pytest.raises(RuntimeError, match="sessionId"):
+            backend._ensure_session()
+
+    def test_non_dict_session_result_raises(self):
+        backend = _bare_backend()
+        backend._conn = MagicMock()
+        backend._conn.send_request.return_value = "nope"
+        with pytest.raises(RuntimeError, match="sessionId"):
+            backend._ensure_session()
 
 
 class TestEnsureSessionMcp:

@@ -32,13 +32,12 @@ import threading
 import time
 from typing import Any, cast
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, safe_json_loads
 from plugin.framework.worker_pool import BackgroundHandle, StderrTail, get_subprocess_creationflags, run_in_background, start_stderr_drain
 
 log = logging.getLogger(__name__)
 
 _JSONRPC_VERSION = "2.0"
-_ACP_PROTOCOL_VERSION = 1
 
 
 def _is_jsonrpc_id(value: Any) -> bool:
@@ -79,7 +78,6 @@ class ACPConnection:
         self._reader_thread: BackgroundHandle | None = None
         self._stderr_drain: StderrTail | None = None
         self._running = False
-        self._notifications: list[Any] = []  # queue of notification dicts
         self._notify_callback = None
         self._write_queue = queue.Queue()
         self._writer_started = False
@@ -227,6 +225,13 @@ class ACPConnection:
     def is_alive(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
+    def stderr_text(self) -> str:
+        """Stderr already captured by the live drain. Does not join that thread."""
+        drain = self._stderr_drain
+        if drain is None:
+            return ""
+        return drain.text()
+
     def _next_id(self) -> int:
         with self._lock:
             self._request_id += 1
@@ -356,8 +361,6 @@ class ACPConnection:
                     if idx >= 0:
                         line = line[idx:]
 
-                    from plugin.framework.errors import safe_json_loads
-
                     msg = safe_json_loads(line)
                     if msg is None:
                         log.debug(f"Non-JSON output: {line[:200]}")
@@ -390,15 +393,17 @@ class ACPConnection:
                         continue
 
                     if "id" in msg and msg["id"] is not None and "method" not in msg:
-                        # Response to our request
+                        # Response to our request. Assign under the same lock
+                        # _wake_pending uses, so a stop sweep cannot observe a
+                        # missing response and overwrite this one.
                         req_id = msg["id"]
                         with self._lock:
                             entry = self._pending.get(req_id)
-                        if entry:
-                            entry["response"] = msg
-                            entry["event"].set()
-                        else:
-                            log.warning(f"Response for unknown id={req_id}")
+                            if entry:
+                                entry["response"] = msg
+                                entry["event"].set()
+                            else:
+                                log.warning(f"Response for unknown id={req_id}")
                     else:
                         # Notification or Request from the agent
                         method = msg.get("method", "")

@@ -591,6 +591,16 @@ class TestStdinWriteCapturesProc:
         assert b'"id": 4' in stdin.written[0]
 
 
+def test_stderr_text_reads_live_tail_without_finishing():
+    conn = ACPConnection(["agent"])
+    drain = MagicMock()
+    drain.text.return_value = "err"
+    conn._stderr_drain = drain
+    assert (conn.stderr_text()) == ("err")
+    drain.text.assert_called_once()
+    drain.finish_text.assert_not_called()
+
+
 def test_stop_flushes_before_terminate():
     from unittest.mock import MagicMock
 

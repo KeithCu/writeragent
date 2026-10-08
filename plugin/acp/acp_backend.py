@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 import shutil
 import threading
 import time
@@ -33,6 +34,7 @@ from plugin.acp.base import AgentBackend
 from plugin.acp.acp_connection import ACPConnection
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.errors import format_error_payload
+from plugin.version import EXTENSION_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -241,9 +243,13 @@ class ACPBackend(AgentBackend):
                 self._binary_path = self._find_binary()
 
             args_str = str(get_config("agent_backend.args") or "").strip()
-            self._extra_args = args_str.split() if args_str else []
+            # str.split() breaks a quoted path into several argv entries.
+            # posix=False on Windows so backslashes in paths stay literal.
+            self._extra_args = shlex.split(args_str, posix=(os.name != "nt")) if args_str else []
         except Exception:
+            # A failed reload used to keep the previous argv.
             self._binary_path = self._find_binary()
+            self._extra_args = []
         self._apply_default_extra_args()
 
     def get_default_extra_args(self) -> List[str]:
@@ -337,8 +343,9 @@ class ACPBackend(AgentBackend):
         env = dict(os.environ)
         env.update(self.get_env_vars())
 
-        self._conn = ACPConnection(cmd_line=cmd_line, env=env)
-        self._conn.start()
+        conn = ACPConnection(cmd_line=cmd_line, env=env)
+        self._conn = conn
+        conn.start()
 
         # What was wrong: time.sleep(0.5) after start() never looked at
         # Stop. stop() or a true stop_checker during that half-second was
@@ -346,31 +353,49 @@ class ACPBackend(AgentBackend):
         # into session/prompt). Why: poll the same grace period in short
         # slices and return as soon as the stop latch or stop_checker()
         # says so, before the handshake.
+        # What was wrong: the handshake re-read self._conn. stop() sets that
+        # to None, so send_request then raised AttributeError. Why: keep the
+        # connection created above and use that local for the rest of startup.
         polls_left = _STARTUP_POLLS
         while True:
             if self._startup_stopped(stop_checker):
                 return
-            conn = self._conn
-            if conn is None or not conn.is_alive:
+            if not conn.is_alive:
                 if self._startup_stopped(stop_checker):
                     return
-                raise RuntimeError(f"{self.get_display_name()} ACP process failed to start.")
+                detail = conn.stderr_text().strip()
+                message = f"{self.get_display_name()} ACP process failed to start."
+                if detail:
+                    message = f"{message} {detail[:500]}"
+                raise RuntimeError(message)
             if polls_left <= 0:
                 break
             polls_left -= 1
             time.sleep(_STARTUP_POLL_S)
 
-        # Initialize handshake
+        # Initialize handshake. ACP fs capability names are camelCase;
+        # snake_case keys are ignored and do not turn the features off.
         try:
-            result = self._conn.send_request("initialize", {"protocolVersion": _ACP_PROTOCOL_VERSION, "clientCapabilities": {"fs": {"read_text_file": False, "write_text_file": False}, "terminal": False}, "clientInfo": {"name": "WriterAgent", "version": "1.0"}}, timeout=15)
+            result = conn.send_request(
+                "initialize",
+                {
+                    "protocolVersion": _ACP_PROTOCOL_VERSION,
+                    "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False},
+                    "clientInfo": {"name": "WriterAgent", "version": EXTENSION_VERSION},
+                },
+                timeout=15,
+            )
             log.info(f"ACP initialized: {result}")
         except Exception:
             log.exception("ACP initialize failed")
-            self._conn.stop()
-            self._conn = None
+            try:
+                conn.stop()
+            finally:
+                if self._conn is conn:
+                    self._conn = None
             raise
 
-    def _ensure_session(self, mcp_url: str | None = None, document_url: str | None = None) -> None:
+    def _ensure_session(self, mcp_url: str | None = None) -> None:
         """Create a new ACP session if needed."""
         if self._session_id:
             return
@@ -390,7 +415,11 @@ class ACPBackend(AgentBackend):
         try:
             if self._conn:
                 result = self._conn.send_request("session/new", params, timeout=30)
-                self._session_id = result.get("sessionId", "") if result else ""
+                session_id = result.get("sessionId") if isinstance(result, dict) else None
+                # An empty id used to be stored and sent on session/prompt.
+                if not isinstance(session_id, str) or not session_id.strip():
+                    raise RuntimeError(f"{self.get_display_name()} ACP session/new returned no sessionId.")
+                self._session_id = session_id
                 log.debug(f"ACP session created: {self._session_id}")
         except Exception:
             log.exception("ACP session creation failed")
@@ -497,12 +526,28 @@ class ACPBackend(AgentBackend):
         if method == "session/request_permission":
             self._queue_permission_request(params, msg_id, queue)
             return
-        if self._stop_requested:
+        handled = False
+        if not self._stop_requested:
+            if method in ("notifications/session", "session/update"):
+                self._handle_acp_update(params.get("update", {}), queue)
+                handled = True
+            elif method in ("notifications/agent", "agent/update"):
+                self._handle_acp_update(params.get("update", params), queue)
+                handled = True
+        # A request we do not implement (fs/read_text_file, terminal/*, …)
+        # still has an id. Leaving it unanswered blocks the agent. Notifications
+        # have no id and are not replies.
+        if msg_id is not None and not handled:
+            self._reject_unknown_request(msg_id, method)
+
+    def _reject_unknown_request(self, msg_id: Any, method: str) -> None:
+        conn = self._conn
+        if conn is None:
             return
-        if method in ("notifications/session", "session/update"):
-            self._handle_acp_update(params.get("update", {}), queue)
-        elif method in ("notifications/agent", "agent/update"):
-            self._handle_acp_update(params.get("update", params), queue)
+        try:
+            conn.send_response(msg_id, error={"code": -32601, "message": f"Method not found: {method}"})
+        except Exception:
+            log.exception("Failed to reject ACP method %s", method)
 
     def _queue_permission_request(self, params: dict[str, Any], msg_id: Any, queue: Any) -> None:
         tool_call = params.get("toolCall")
@@ -617,7 +662,7 @@ class ACPBackend(AgentBackend):
                 self._conn.set_notification_callback(on_notification)
 
             try:
-                self._ensure_session(mcp_url=mcp_url, document_url=document_url)
+                self._ensure_session(mcp_url=mcp_url)
             except Exception as e:
                 if self._stop_requested:
                     self._finish_stopped(queue)
