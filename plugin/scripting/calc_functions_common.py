@@ -210,6 +210,7 @@ HELPER_NAMES = frozenset(
         "poisson",
         "prob",
         "pv",
+        "py_str",
         "quartile",
         "rank",
         "regex",

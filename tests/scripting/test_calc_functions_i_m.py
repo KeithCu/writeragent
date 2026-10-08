@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 
 import plugin.scripting.calc_functions as calc
@@ -357,3 +358,88 @@ def test_iferror_ifna_bad_inputs() -> None:
     assert math.isinf(calc.ifna(lambda: _INF, "alt"))
     assert calc.iferror(_raise, "#VALUE!") == "#VALUE!"
     assert calc.ifna(_raise, "#VALUE!") == "#VALUE!"
+
+
+def test_mround_zero_multiple():
+    # Regression R3: mround(n, 0) should return 0.0 (Excel and LibreOffice ScMRound)
+    assert calc.mround(5, 0) == 0.0
+    assert calc.mround(-5, 0) == 0.0
+    assert calc.mround(0, 0) == 0.0
+
+
+def test_n_text_returns_zero():
+    # Bug Z5: n(str) should return 0.0, not convert numeric text
+    assert calc.n("5") == 0.0
+    assert calc.n("hello") == 0.0
+    assert calc.n("") == 0.0
+    assert calc.n(5) == 5.0
+    assert calc.n(True) == 1.0
+    assert calc.n(False) == 0.0
+    assert calc.n(np.int64(42)) == 42.0
+    assert calc.n(np.float64(3.5)) == 3.5
+
+
+def test_error_predicates_i_m():
+    # Bug Z7: iserror, iserr, istext, isnumber, iferror
+    assert calc.iserror(float("nan")) is True
+    assert calc.iserror(np.nan) is True
+    assert calc.iserror("#VALUE!") is True
+    assert calc.iserror("#N/A") is True
+    assert calc.iserror("#hashtag") is False
+    assert calc.iserror("normal") is False
+
+    # iserr excludes #N/A (and NaN which represents NA())
+    assert calc.iserr(float("nan")) is False
+    assert calc.iserr("#VALUE!") is True
+    assert calc.iserr("#N/A") is False
+    assert calc.iserr("#hashtag") is False
+
+    assert calc.istext("#hashtag") is True
+    assert calc.istext("#VALUE!") is False
+    assert calc.istext("hello") is True
+    assert calc.istext(123) is False
+
+    assert calc.isnumber(np.int64(10)) is True
+    assert calc.isnumber(np.float64(3.14)) is True
+    assert calc.isnumber(True) is False
+    assert calc.isnumber(np.bool_(True)) is False
+    assert calc.isnumber(10) is True
+
+    # iferror on token strings and NaN
+    assert calc.iferror(lambda: "#VALUE!", 99) == 99
+    assert calc.iferror(lambda: float("nan"), 99) == 99
+    assert calc.iferror(lambda: "not an error", 99) == "not an error"
+
+
+def test_large_numeric_extraction():
+    # Bug Z15: large ignores text, bools, and NaN
+    assert calc.large([1, float("nan"), 3], 1) == 3.0
+    assert calc.large([1, "5", 3], 1) == 3.0
+    assert calc.large([1, True, 3], 1) == 3.0
+    assert calc.large([1, "text", 3], 2) == 1.0
+
+
+def test_linest_order_and_const():
+    # Bug Z12: linest multi-X reverse order [mk, ..., m1, b] and const=False
+    # y = 2*x1 + 3*x2 + 5
+    x1 = [1, 2, 3, 4]
+    x2 = [2, 1, 4, 3]
+    y = [2 * a + 3 * b + 5 for a, b in zip(x1, x2)]
+    # known_x as columns: [[1, 2], [2, 1], [3, 4], [4, 3]]
+    known_x = list(zip(x1, x2))
+    res = calc.linest(y, known_x)
+    assert isinstance(res, list)
+    # Excel order: [m2, m1, b] -> [3.0, 2.0, 5.0]
+    assert np.allclose(res, [3.0, 2.0, 5.0], atol=1e-6)
+
+    # const=False: y = 2*x1 + 3*x2 (b=0.0)
+    y_noconst = [2 * a + 3 * b for a, b in zip(x1, x2)]
+    res_noconst = calc.linest(y_noconst, known_x, const=False)
+    assert isinstance(res_noconst, list)
+    assert np.allclose(res_noconst, [3.0, 2.0, 0.0], atol=1e-6)
+
+
+def test_mode_mixed_types():
+    # Bug Z2: mode with mixed types does not coerce numbers to strings
+    assert calc.mode([1, 1, 2, "a"]) == 1.0
+

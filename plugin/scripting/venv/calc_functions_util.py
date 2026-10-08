@@ -13,12 +13,14 @@ from typing import Any
 
 import numpy as np
 
-from .coerce import is_missing_value
+from .coerce import _LO_ERROR_TOKENS, is_missing_value
 
 __all__ = [
     "_bessel_iv_jv",
     "_bessel_kn_yn",
     "_build_holiday_set",
+    "_calc_sort_key",
+    "_clean_paired_arrays",
     "_collect_a_values",
     "_criteria_numbers",
     "_dollar_fraction_terms",
@@ -28,8 +30,10 @@ __all__ = [
     "_fractional_dollar_digits",
     "_int_bitwise",
     "_int_shift",
+    "_is_calc_error",
     "_npf_result",
     "_parse_weekend",
+    "_scipy_stats",
     "_serial_to_date",
     "_simple_accrual",
     "_to_float_a",
@@ -94,6 +98,70 @@ def _parse_weekend(weekend: Any = 1) -> set[int] | float:
 
 
 
+def _is_calc_error(val: Any) -> bool:
+    """Return True if val is a Calc error (NaN or a recognized error token string like #VALUE!)."""
+    if isinstance(val, (bool, np.bool_)):
+        return False
+    if isinstance(val, (float, np.floating)):
+        return math.isnan(float(val))
+    if isinstance(val, str):
+        return val.strip() in _LO_ERROR_TOKENS
+    return False
+
+
+def _calc_sort_key(val: Any) -> tuple[int, Any]:
+    """Sort key matching Calc/Excel ordering: numbers < text (case-insensitive) < bools < blanks/errors."""
+    if val is None or val == "" or _is_calc_error(val):
+        return (3, "")
+    if isinstance(val, (bool, np.bool_)):
+        return (2, int(val))
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        try:
+            fval = float(val)
+            if math.isnan(fval):
+                return (3, "")
+            return (0, fval)
+        except (ValueError, TypeError, OverflowError):
+            return (3, "")
+    return (1, str(val).casefold())
+
+
+def _clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray] | None:
+    """Extract 1D float arrays of matching length, keeping only pairs where both cells are finite numbers."""
+    try:
+        d1 = np.asarray(data1, dtype=object).ravel()
+        d2 = np.asarray(data2, dtype=object).ravel()
+        if len(d1) != len(d2) or len(d1) == 0:
+            return None
+        c1: list[float] = []
+        c2: list[float] = []
+        for x, y in zip(d1, d2):
+            if isinstance(x, (bool, np.bool_)) or isinstance(y, (bool, np.bool_)):
+                continue
+            try:
+                xf = float(x)
+                yf = float(y)
+                if math.isfinite(xf) and math.isfinite(yf):
+                    c1.append(xf)
+                    c2.append(yf)
+            except (ValueError, TypeError, OverflowError):
+                continue
+        if not c1:
+            return None
+        return np.asarray(c1, dtype=float), np.asarray(c2, dtype=float)
+    except Exception:
+        return None
+
+
+def _scipy_stats() -> Any | None:
+    """Return scipy.stats module if available, else None."""
+    try:
+        import scipy.stats
+        return scipy.stats
+    except ImportError:
+        return None
+
+
 def _to_float_a(val: Any) -> float:
     """Helper for *A functions (AVERAGEA, STDEVA, etc.)."""
     if is_missing_value(val):
@@ -111,7 +179,15 @@ def _to_float_a(val: Any) -> float:
 
 def _collect_a_values(*args: Any) -> np.ndarray:
     """Collect flat float array for *A functions (AVERAGEA, MAXA, etc.)."""
-    vals = [_to_float_a(v) for arg in args for v in np.asarray(arg).ravel()]
+    # What was wrong: *A functions treated empty cells (None) as 0.0 and coerced mixed ranges to strings.
+    # How it happened: _to_float_a mapped missing values to 0.0 instead of skipping them, and np.asarray had no dtype=object.
+    # Why this change fixes it: Excel and Calc ignore blank cells in ranges for *A functions (only text counts as 0).
+    vals: list[float] = []
+    for arg in args:
+        for v in np.asarray(arg, dtype=object).ravel():
+            if v is None or (isinstance(v, (float, np.floating)) and math.isnan(float(v))):
+                continue
+            vals.append(_to_float_a(v))
     return np.asarray(vals, dtype=float)
 
 
@@ -140,75 +216,153 @@ def _npf_result(kind: str, *args: Any) -> float:
     return result
 
 
+def _wildcard_to_regex(pattern: str) -> str:
+    """Convert Excel wildcard pattern (*, ?, ~*, ~?, ~~) to a regex pattern string."""
+    out: list[str] = []
+    i = 0
+    n = len(pattern)
+    while i < n:
+        c = pattern[i]
+        if c == "~" and i + 1 < n and pattern[i + 1] in ("*", "?", "~"):
+            out.append(re.escape(pattern[i + 1]))
+            i += 2
+        elif c == "*":
+            out.append(".*")
+            i += 1
+        elif c == "?":
+            out.append(".")
+            i += 1
+        else:
+            out.append(re.escape(c))
+            i += 1
+    return "".join(out)
+
+
 def _wildcard_fullmatch(pattern: str, text: str) -> bool:
-    """Excel-style * and ? wildcard match against the whole text."""
-    escaped = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
-    return re.fullmatch(escaped, text) is not None
+    """Excel-style *, ? and ~ wildcard match against the whole text (case-insensitive)."""
+    try:
+        regex_pat = _wildcard_to_regex(pattern)
+        return re.fullmatch(regex_pat, text, flags=re.IGNORECASE) is not None
+    except re.error:
+        return False
 
 
 def match_criteria(val: Any, crit: Any) -> bool:
-    """Evaluate an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*')."""
+    """Evaluate an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*', '=')."""
+    # What was wrong: match_criteria was case-sensitive, lacked wildcard (*, ?, ~) support,
+    # did not match blanks on '=', and accepted invalid operator prefixes like '><'.
+    # How it happened: regex r"^([<>=]+)(.*)$" matched invalid operators without an allowlist
+    # and fell back to exact string equality without invoking wildcard regex or casefold.
+    # Why this change fixes it: validates against an operator allowlist, matches blanks for
+    # '=' and '<>', and performs case-insensitive comparisons with Excel wildcard escapes.
     if is_missing_value(crit):
-        return is_missing_value(val)
+        return is_missing_value(val) or val == "" or val is None
+
     if isinstance(crit, str):
-        m = re.match(r"^([<>=]+)(.*)$", crit)
+        m = re.match(r"^(<=|>=|<>|<|>|==|=)(.*)$", crit)
         if m:
-            op, val_str = m.groups()
-            try:
-                c_num = float(val_str)
-            except (ValueError, TypeError, OverflowError):
-                c_num = None
-            try:
-                v_num = float(val)
-            # float() of an int past the float range is OverflowError, not
-            # ValueError. That used to escape and crash COUNTIF/SUMIF.
-            except (ValueError, TypeError, OverflowError):
+            op = "=" if m.group(1) == "==" else m.group(1)
+            val_str = m.group(2)
+        else:
+            op = "="
+            val_str = crit
+    else:
+        op = "="
+        val_str = None
+
+    val_is_blank = val is None or val == "" or is_missing_value(val)
+    if val_str == "":
+        if op == "=":
+            return val_is_blank
+        if op == "<>":
+            return not val_is_blank
+
+    if val_is_blank:
+        return op == "<>"
+
+    val_is_bool = isinstance(val, (bool, np.bool_))
+    crit_is_bool = False
+    bool_val = False
+    if isinstance(crit, (bool, np.bool_)):
+        crit_is_bool = True
+        bool_val = bool(crit)
+    elif val_str is not None and val_str.upper() in ("TRUE", "FALSE"):
+        crit_is_bool = True
+        bool_val = val_str.upper() == "TRUE"
+
+    if crit_is_bool:
+        if val_is_bool:
+            v_b = bool(val)
+            if op == "=":
+                return v_b == bool_val
+            if op == "<>":
+                return v_b != bool_val
+            return False
+        return op == "<>"
+
+    if val_is_bool:
+        return op == "<>"
+
+    c_num = None
+    if val_str is not None:
+        try:
+            c_num = float(val_str)
+        except (ValueError, TypeError, OverflowError):
+            c_num = None
+    elif isinstance(crit, (int, float, np.integer, np.floating)):
+        try:
+            c_num = float(crit)
+        except (ValueError, TypeError, OverflowError):
+            c_num = None
+
+    v_num = None
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        try:
+            v_num = float(val)
+            if math.isnan(v_num):
                 v_num = None
-            # A numeric criterion used to fall through to lexicographic
-            # compare whenever the cell failed float(). "abc" > "5" is True,
-            # so COUNTIF(["abc"], ">5") counted the text. Excel/Calc compare
-            # numbers only; <> still matches because the text is not the number.
-            if c_num is not None and v_num is None:
-                if op == "<>":
-                    return True
-                if op in ("=", "==", "<", "<=", ">", ">="):
-                    return False
-            elif c_num is not None and v_num is not None:
-                if op in ("=", "=="):
-                    return v_num == c_num
-                if op == "<>":
-                    return v_num != c_num
-                if op == "<":
-                    return v_num < c_num
-                if op == "<=":
-                    return v_num <= c_num
-                if op == ">":
-                    return v_num > c_num
-                if op == ">=":
-                    return v_num >= c_num
-            else:
-                c_str = val_str
-                v_str = str(val)
-                if op in ("=", "=="):
-                    return v_str == c_str
-                if op == "<>":
-                    return v_str != c_str
-                if op == "<":
-                    return v_str < c_str
-                if op == "<=":
-                    return v_str <= c_str
-                if op == ">":
-                    return v_str > c_str
-                if op == ">=":
-                    return v_str >= c_str
-    try:
-        if float(val) == float(crit):
-            return True
-    # Same OverflowError hole as the operator branch above: a huge int is
-    # not a float, so fall through to the string compare.
-    except (ValueError, TypeError, OverflowError):
-        pass
-    return str(val) == str(crit)
+        except (ValueError, TypeError, OverflowError):
+            v_num = None
+
+    if c_num is not None and v_num is not None:
+        if op == "=":
+            return v_num == c_num
+        if op == "<>":
+            return v_num != c_num
+        if op == "<":
+            return v_num < c_num
+        if op == "<=":
+            return v_num <= c_num
+        if op == ">":
+            return v_num > c_num
+        if op == ">=":
+            return v_num >= c_num
+
+    if c_num is not None and v_num is None:
+        return op == "<>"
+    if c_num is None and v_num is not None:
+        return op == "<>"
+
+    v_str = str(val)
+    c_pattern = val_str if val_str is not None else str(crit)
+
+    if op == "=":
+        return _wildcard_fullmatch(c_pattern, v_str)
+    if op == "<>":
+        return not _wildcard_fullmatch(c_pattern, v_str)
+
+    v_fold = v_str.casefold()
+    c_fold = c_pattern.casefold()
+    if op == "<":
+        return v_fold < c_fold
+    if op == "<=":
+        return v_fold <= c_fold
+    if op == ">":
+        return v_fold > c_fold
+    if op == ">=":
+        return v_fold >= c_fold
+
+    return False
 
 
 def _find_match_index(
@@ -218,8 +372,12 @@ def _find_match_index(
     search_mode: int | float = 1,
 ) -> int | None:
     """Find 0-based index matching Excel lookup semantics (exact, smaller, larger, wildcard)."""
+    # What was wrong: mixed lookup_arr was coerced to string array by bare np.asarray,
+    # corrupting numbers and case matching.
+    # How it happened: np.asarray lacked dtype=object, and exact match used identity/case-sensitive equality.
+    # Why this change fixes it: preserves object types with dtype=object and matches text case-insensitively.
     try:
-        l_flat = np.asarray(lookup_arr).ravel()
+        l_flat = np.asarray(lookup_arr, dtype=object).ravel()
         indices = list(range(len(l_flat)))
         if int(float(search_mode)) == -1:
             indices.reverse()
@@ -227,13 +385,23 @@ def _find_match_index(
     except (TypeError, ValueError, OverflowError):
         return None
 
+    def _is_exact(cell: Any, target: Any) -> bool:
+        if isinstance(cell, str) and isinstance(target, str):
+            return cell.casefold() == target.casefold()
+        if isinstance(cell, (bool, np.bool_)) or isinstance(target, (bool, np.bool_)):
+            return bool(cell) is bool(target) if (isinstance(cell, (bool, np.bool_)) and isinstance(target, (bool, np.bool_))) else False
+        try:
+            return float(cell) == float(target)
+        except (ValueError, TypeError, OverflowError):
+            return cell == target
+
     if mm == 0:
         for idx in indices:
-            if l_flat[idx] == lookup_val:
+            if _is_exact(l_flat[idx], lookup_val):
                 return idx
     elif mm in (-1, 1):
         for idx in indices:
-            if l_flat[idx] == lookup_val:
+            if _is_exact(l_flat[idx], lookup_val):
                 return idx
         best_idx = None
         for idx in indices:
@@ -245,7 +413,7 @@ def _find_match_index(
                 elif mm == 1 and diff > 0:
                     if best_idx is None or diff < float(l_flat[best_idx]) - float(lookup_val):
                         best_idx = idx
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 pass
         return best_idx
     elif mm == 2:
@@ -256,7 +424,7 @@ def _find_match_index(
                     return idx
         else:
             for idx in indices:
-                if l_flat[idx] == lookup_val:
+                if _is_exact(l_flat[idx], lookup_val):
                     return idx
     return None
 
@@ -271,6 +439,10 @@ def _extract_numeric_array(
     vals: list[float] = []
     for arg in args:
         for x in np.asarray(arg, dtype=object).ravel():
+            if _is_calc_error(x):
+                if propagate_nan:
+                    vals.append(float("nan"))
+                continue
             if ignore_bool and isinstance(x, (bool, np.bool_)):
                 continue
             if ignore_text and isinstance(x, str):
@@ -400,8 +572,11 @@ def _simple_accrual(
 
 def _criteria_numbers(r: Any, crit: Any, val_range: Any | None = None) -> list[float]:
     """Collect matching numeric values for criteria-based functions (averageif, sumif)."""
-    r_flat = np.asarray(r).ravel()
-    v_flat = np.asarray(val_range).ravel() if val_range is not None else r_flat
+    # What was wrong: criteria ranges were stringified by np.asarray, and OverflowError on huge ints escaped.
+    # How it happened: np.asarray lacked dtype=object, and except block only caught ValueError/TypeError.
+    # Why this change fixes it: dtype=object keeps types intact, and OverflowError is caught.
+    r_flat = np.asarray(r, dtype=object).ravel()
+    v_flat = np.asarray(val_range, dtype=object).ravel() if val_range is not None else r_flat
     vals: list[float] = []
     for i in range(min(len(r_flat), len(v_flat))):
         if match_criteria(r_flat[i], crit):
@@ -409,7 +584,7 @@ def _criteria_numbers(r: Any, crit: Any, val_range: Any | None = None) -> list[f
                 val = float(v_flat[i])
                 if not np.isnan(val):
                     vals.append(val)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 pass
     return vals
 

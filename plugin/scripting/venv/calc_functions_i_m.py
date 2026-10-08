@@ -9,6 +9,7 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 
 from __future__ import annotations
 
+import cmath
 import datetime as dt
 import math
 from collections import Counter
@@ -16,7 +17,14 @@ from typing import Any, Callable
 
 import numpy as np
 
-from .calc_functions_util import _collect_a_values, _extract_numeric_array, _npf_result, match_criteria
+from .calc_functions_a_c import _from_complex, _to_complex
+from .calc_functions_util import (
+    _collect_a_values,
+    _extract_numeric_array,
+    _is_calc_error,
+    _npf_result,
+    match_criteria,
+)
 from .coerce import is_blank_value, is_na_value
 
 
@@ -93,9 +101,12 @@ __all__ = [
 
 
 def iferror(f: Callable[[], Any], alt: Any) -> Any:
+    # What was wrong: iferror only caught float NaN, ignoring string error tokens like #VALUE! or #REF!.
+    # How it happened: line 106 only checked isinstance(val, float) and np.isnan(val).
+    # Why this change fixes it: uses shared _is_calc_error to detect both NaNs and Calc error token strings.
     try:
         val = f()
-        if isinstance(val, float) and np.isnan(val):
+        if _is_calc_error(val):
             return alt
         return val
     except Exception:
@@ -112,326 +123,189 @@ def ifna(f: Callable[[], Any], alt: Any) -> Any:
         return alt
 
 
-def imabs(inumber: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_complex
-
-    try:
-        return float(abs(_to_complex(inumber)))
-    except (ValueError, TypeError):
-        return float("nan")
-
-
-def imaginary(inumber: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_complex
-
-    try:
-        return float(_to_complex(inumber).imag)
-    except (ValueError, TypeError):
-        return float("nan")
-
-
-def imargument(inumber: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_complex
-
-    try:
-        import cmath
-
-        return float(cmath.phase(_to_complex(inumber)))
-    except (ValueError, TypeError):
-        return float("nan")
-
-
-def imconjugate(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        c = _to_complex(inumber)
-        return _from_complex(c.conjugate())
-    except (ValueError, TypeError):
-        return "#VALUE!"
-
-
-def imcos(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(cmath.cos(c))
-    except (ValueError, TypeError, OverflowError):
-        # cmath.cos raises OverflowError (not ValueError) for a large
-        # imaginary part, e.g. IMCOS("1000i"). That used to escape the helper.
-        return "#VALUE!"
-
-
-def imcosh(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(cmath.cosh(c))
-    except (ValueError, TypeError, OverflowError):
-        # cmath.cosh(1000) raises OverflowError, which used to escape the helper.
-        return "#VALUE!"
-
-
-def imcot(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(1.0 / cmath.tan(c))
-    except (ValueError, TypeError, ZeroDivisionError):
-        return "#VALUE!"
-
-
-def imcsc(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(1.0 / cmath.sin(c))
-    except (ValueError, TypeError, ZeroDivisionError, OverflowError):
-        # cmath.sin raises OverflowError for a large imaginary part, e.g. IMCSC("1000i").
-        return "#VALUE!"
-
-
-def imcsch(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(1.0 / cmath.sinh(c))
-    except (ValueError, TypeError, ZeroDivisionError, OverflowError):
-        # cmath.sinh(1000) raises OverflowError (IMCSH("1000")), which used to escape the helper.
-        return "#VALUE!"
-
-
-def imdiv(inumber1: Any, inumber2: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        c1 = _to_complex(inumber1)
-        c2 = _to_complex(inumber2)
-        return _from_complex(c1 / c2)
-    except (ValueError, TypeError, ZeroDivisionError):
-        return "#VALUE!"
-
-
-def imexp(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(cmath.exp(c))
-    except (ValueError, TypeError, OverflowError):
-        # cmath.exp(1000) raises OverflowError (IMEXP("1000")), which used to escape the helper.
-        return "#VALUE!"
-
-
-def imln(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(cmath.log(c))
-    except (ValueError, TypeError):
-        return "#VALUE!"
-
-
-def imlog10(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(cmath.log10(c))
-    except (ValueError, TypeError):
-        return "#VALUE!"
-
-
-def imlog2(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        logged = cmath.log(c, 2)
-        # cmath.log(0) and cmath.log10(0) raise ValueError, so IMLN/IMLOG10
-        # return #VALUE!. cmath.log(0, 2) instead returns (-inf+nanj), and
-        # _from_complex concatenates that into the string '-infnani'.
-        if not (math.isfinite(logged.real) and math.isfinite(logged.imag)):
+def _im_unary(fn: Callable[[complex], complex]) -> Callable[[Any], str]:
+    def wrapper(inumber: Any) -> str:
+        try:
+            c = _to_complex(inumber)
+            res = fn(c)
+            return _from_complex(res)
+        except (ValueError, TypeError, OverflowError, ZeroDivisionError):
             return "#VALUE!"
-        return _from_complex(logged)
-    except (ValueError, TypeError):
-        return "#VALUE!"
+
+    return wrapper
+
+
+def _im_binary(fn: Callable[[complex, complex], complex]) -> Callable[[Any, Any], str]:
+    def wrapper(inumber1: Any, inumber2: Any) -> str:
+        try:
+            c1 = _to_complex(inumber1)
+            c2 = _to_complex(inumber2)
+            return _from_complex(fn(c1, c2))
+        except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+            return "#VALUE!"
+
+    return wrapper
+
+
+def _im_float(fn: Callable[[complex], float]) -> Callable[[Any], float]:
+    def wrapper(inumber: Any) -> float:
+        try:
+            return float(fn(_to_complex(inumber)))
+        except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+            return float("nan")
+
+    return wrapper
+
+
+@_im_float
+def imabs(c: complex) -> float:
+    return abs(c)
+
+
+@_im_float
+def imaginary(c: complex) -> float:
+    return c.imag
+
+
+@_im_float
+def imargument(c: complex) -> float:
+    return cmath.phase(c)
+
+
+@_im_unary
+def imconjugate(c: complex) -> complex:
+    return c.conjugate()
+
+
+@_im_unary
+def imcos(c: complex) -> complex:
+    return cmath.cos(c)
+
+
+@_im_unary
+def imcosh(c: complex) -> complex:
+    return cmath.cosh(c)
+
+
+@_im_unary
+def imcot(c: complex) -> complex:
+    return 1.0 / cmath.tan(c)
+
+
+@_im_unary
+def imcsc(c: complex) -> complex:
+    return 1.0 / cmath.sin(c)
+
+
+@_im_unary
+def imcsch(c: complex) -> complex:
+    return 1.0 / cmath.sinh(c)
+
+
+@_im_binary
+def imdiv(c1: complex, c2: complex) -> complex:
+    return c1 / c2
+
+
+@_im_unary
+def imexp(c: complex) -> complex:
+    return cmath.exp(c)
+
+
+@_im_unary
+def imln(c: complex) -> complex:
+    return cmath.log(c)
+
+
+@_im_unary
+def imlog10(c: complex) -> complex:
+    return cmath.log10(c)
+
+
+@_im_unary
+def imlog2(c: complex) -> complex:
+    if c == 0:
+        raise ValueError("log of zero")
+    logged = cmath.log(c, 2)
+    if not (math.isfinite(logged.real) and math.isfinite(logged.imag)):
+        raise ValueError("non-finite log2")
+    return logged
 
 
 def impower(inumber: Any, number: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
     try:
         c = _to_complex(inumber)
         p = float(number)
         return _from_complex(c**p)
     except (ValueError, TypeError, OverflowError, ZeroDivisionError):
-        # complex ** raises OverflowError on a huge power (IMPOWER("2", 10000))
-        # and ZeroDivisionError for 0 to a negative power, or a finite base
-        # to ±inf. Those used to escape the helper. Excel IMPOWER is #VALUE!.
         return "#VALUE!"
 
 
 def improduct(*args: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
     try:
-        import builtins
-
-        res = builtins.complex(1, 0)
+        res = complex(1, 0)
         for arg in args:
-            for v in np.asarray(arg).ravel():
+            for v in np.asarray(arg, dtype=object).ravel():
                 res *= _to_complex(v)
         return _from_complex(res)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError, ZeroDivisionError):
         return "#VALUE!"
 
 
-def imreal(inumber: Any) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _to_complex
-
-    try:
-        return float(_to_complex(inumber).real)
-    except (ValueError, TypeError):
-        return float("nan")
+@_im_float
+def imreal(c: complex) -> float:
+    return c.real
 
 
-def imsec(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(1.0 / cmath.cos(c))
-    except (ValueError, TypeError, ZeroDivisionError, OverflowError):
-        # cmath.cos raises OverflowError for a large imaginary part, e.g. IMSEC("1000i").
-        return "#VALUE!"
+@_im_unary
+def imsec(c: complex) -> complex:
+    return 1.0 / cmath.cos(c)
 
 
-def imsech(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(1.0 / cmath.cosh(c))
-    except (ValueError, TypeError, ZeroDivisionError, OverflowError):
-        # cmath.cosh(1000) raises OverflowError (IMSECH("1000")), which used to escape the helper.
-        return "#VALUE!"
+@_im_unary
+def imsech(c: complex) -> complex:
+    return 1.0 / cmath.cosh(c)
 
 
-def imsin(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(cmath.sin(c))
-    except (ValueError, TypeError, OverflowError):
-        # cmath.sin raises OverflowError for a large imaginary part, e.g. IMSIN("1000i").
-        return "#VALUE!"
+@_im_unary
+def imsin(c: complex) -> complex:
+    return cmath.sin(c)
 
 
-def imsinh(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(cmath.sinh(c))
-    except (ValueError, TypeError, OverflowError):
-        # cmath.sinh(1000) raises OverflowError, which used to escape the helper.
-        return "#VALUE!"
+@_im_unary
+def imsinh(c: complex) -> complex:
+    return cmath.sinh(c)
 
 
-def imsqrt(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(cmath.sqrt(c))
-    except (ValueError, TypeError):
-        return "#VALUE!"
+@_im_unary
+def imsqrt(c: complex) -> complex:
+    return cmath.sqrt(c)
 
 
-def imsub(inumber1: Any, inumber2: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        c1 = _to_complex(inumber1)
-        c2 = _to_complex(inumber2)
-        return _from_complex(c1 - c2)
-    except (ValueError, TypeError):
-        return "#VALUE!"
+@_im_binary
+def imsub(c1: complex, c2: complex) -> complex:
+    return c1 - c2
 
 
 def imsum(*args: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
     try:
-        import builtins
-
-        res = builtins.complex(0, 0)
+        res = complex(0, 0)
         for arg in args:
-            for v in np.asarray(arg).ravel():
+            for v in np.asarray(arg, dtype=object).ravel():
                 res += _to_complex(v)
         return _from_complex(res)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError, ZeroDivisionError):
         return "#VALUE!"
 
 
-def imtan(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(cmath.tan(c))
-    except (ValueError, TypeError):
-        return "#VALUE!"
+@_im_unary
+def imtan(c: complex) -> complex:
+    return cmath.tan(c)
 
 
-def imtanh(inumber: Any) -> str:
-    from plugin.scripting.venv.calc_functions_a_c import _from_complex, _to_complex
-
-    try:
-        import cmath
-
-        c = _to_complex(inumber)
-        return _from_complex(cmath.tanh(c))
-    except (ValueError, TypeError):
-        return "#VALUE!"
+@_im_unary
+def imtanh(c: complex) -> complex:
+    return cmath.tanh(c)
 
 
 def intercept(data_y: Any, data_x: Any) -> float:
@@ -520,13 +394,17 @@ def isblank(val: Any) -> bool:
 
 
 def iserr(val: Any) -> bool:
-    if isinstance(val, str) and val.startswith("#"):
-        return not val.upper().startswith("#N/A")
-    return False
+    # What was wrong: iserr treated any string starting with '#' as an error (e.g. '#hashtag').
+    # How it happened: line 392 checked val.startswith('#') rather than real Calc error tokens.
+    # Why this change fixes it: uses _is_calc_error to validate real error tokens and excludes #N/A.
+    return _is_calc_error(val) and not is_na_value(val)
 
 
 def iserror(val: Any) -> bool:
-    return isinstance(val, str) and val.startswith("#")
+    # What was wrong: iserror(nan) was False (missing NA()), and strings like '#hashtag' were treated as errors.
+    # How it happened: line 398 checked val.startswith('#') and ignored NaN.
+    # Why this change fixes it: uses _is_calc_error to match real Calc error tokens and NaN.
+    return _is_calc_error(val)
 
 
 def iseven(val: Any) -> bool:
@@ -558,7 +436,10 @@ def isnontext(val: Any) -> bool:
 
 
 def isnumber(val: Any) -> bool:
-    return isinstance(val, (int, float)) and not isinstance(val, bool)
+    # What was wrong: numpy integer/float scalars (e.g. np.int64) returned False.
+    # How it happened: line 429 used isinstance(val, (int, float)) which excludes np.integer/np.floating.
+    # Why this change fixes it: includes np.integer and np.floating while excluding bool and np.bool_.
+    return isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, (bool, np.bool_))
 
 
 def isodd(val: Any) -> bool:
@@ -605,7 +486,10 @@ def isref(val: Any) -> bool:
 
 
 def istext(val: Any) -> bool:
-    return isinstance(val, str) and not (isinstance(val, str) and val.startswith("#"))
+    # What was wrong: strings starting with '#' like '#hashtag' were rejected, and line had redundant isinstance check.
+    # How it happened: line 477 had redundant isinstance and excluded all strings starting with '#'.
+    # Why this change fixes it: checks isinstance(val, str) and excludes only real Calc error tokens via _is_calc_error.
+    return isinstance(val, str) and not _is_calc_error(val)
 
 
 def jis(text: Any) -> str | float:
@@ -633,72 +517,112 @@ def kurt(*args: Any) -> float:
 
 
 def large(r: Any, k: Any) -> float:
-    # Text cells are not numbers. The list comprehension called float() with
-    # no handler, so LARGE(["a","b"], 1) raised ValueError — and spreadsheet
-    # import emits this helper for LARGE. Skip non-numeric cells (as kurt()
-    # does) and return nan when k is not a number or not enough numbers remain.
-    vals: list[float] = []
-    for x in np.asarray(r).ravel():
-        if x is None or x == "":
-            continue
-        try:
-            vals.append(float(x))
-        except (ValueError, TypeError):
-            continue
+    # What was wrong: large accepted numeric text like '5' and corrupted sorting when NaNs were present.
+    # How it happened: lines 519-526 parsed strings with float() and appended NaNs without filtering.
+    # Why this change fixes it: uses _extract_numeric_array(propagate_nan=False) to ignore text, bools, and NaNs.
+    arr = _extract_numeric_array(r, propagate_nan=False)
     try:
         ki = int(float(k))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    if not 0 < ki <= len(vals):
+    if not 0 < ki <= len(arr):
         return float("nan")
-    vals.sort(reverse=True)
-    return float(vals[ki - 1])
+    arr.sort()
+    return float(arr[-ki])
 
 
-def linest(*args: Any) -> Any:
-    # A complete implementation using numpy.polyfit or similar
+def linest(*args: Any, **kwargs: Any) -> Any:
+    # What was wrong: multi-X coefficients were [m1,..,mk,b] instead of [mk,..,m1,b];
+    # const was ignored; row-oriented known_y with 2D known_x failed with #VALUE!.
+    # How it happened: linest didn't check len(args)>2 for const, didn't reverse slopes, and didn't transpose known_x.
+    # Why this change fixes it: reverses slopes per Excel order, supports const=False (b=0), and transposes matching known_x.
     try:
-        import numpy as np
-
-        data_y = np.asarray(args[0]).ravel()
+        raw_y = np.asarray(args[0]).ravel()
+        if any(isinstance(v, str) for v in raw_y):
+            return "#VALUE!"
+        data_y = np.asarray(args[0], dtype=float).ravel()
+        if data_y.size == 0 or np.any(np.isnan(data_y)):
+            return "#VALUE!"
         if len(args) > 1:
-            data_x = np.asarray(args[1])
+            raw_x = np.asarray(args[1]).ravel()
+            if any(isinstance(v, str) for v in raw_x):
+                return "#VALUE!"
+            data_x = np.asarray(args[1], dtype=float)
+            if np.any(np.isnan(data_x)):
+                return "#VALUE!"
             if data_x.ndim == 1:
                 data_x = data_x[:, np.newaxis]
+            elif data_x.ndim == 2:
+                if data_x.shape[0] != len(data_y) and data_x.shape[1] == len(data_y):
+                    data_x = data_x.T
         else:
-            data_x = np.arange(1, len(data_y) + 1)[:, np.newaxis]
+            data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
 
-        # Simple fallback for 1D or 2D:
-        c, _unused, _unused2, _unused3 = np.linalg.lstsq(np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None)
-        return c.tolist()
+        if data_x.shape[0] != len(data_y):
+            return "#VALUE!"
+
+        const = bool(kwargs.get("const", args[2] if len(args) > 2 else True))
+
+        if const:
+            c, _unused, _unused2, _unused3 = np.linalg.lstsq(
+                np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None
+            )
+            slopes = c[:-1].tolist()
+            intercept = float(c[-1])
+            return [*slopes[::-1], intercept]
+        else:
+            c, _unused, _unused2, _unused3 = np.linalg.lstsq(data_x, data_y, rcond=None)
+            slopes = c.tolist()
+            return [*slopes[::-1], 0.0]
     except Exception:
         return "#VALUE!"
 
 
-def logest(*args: Any) -> Any:
+def logest(*args: Any, **kwargs: Any) -> Any:
+    # What was wrong: multi-X coefficients were not reversed; const was ignored; row-oriented known_x failed.
+    # How it happened: logest lacked const argument handling, didn't reverse slopes, and didn't transpose known_x.
+    # Why this change fixes it: reverses slopes per Excel order, handles const=False (b=1), and transposes matching known_x.
     try:
-        import numpy as np
-
-        data_y = np.asarray(args[0]).ravel()
-        # Excel LOGEST is #NUM! when any known_y is <= 0. np.log of those
-        # values is -inf/nan and does not raise, so this except never ran and
-        # lstsq returned garbage coefficients. Invalid inputs here already
-        # return #VALUE! (same token as linest). Numeric dtypes only: object
-        # and text arrays still fail in np.log and hit the except.
-        if data_y.dtype.kind in "iufb" and np.any(data_y <= 0):
+        raw_y = np.asarray(args[0]).ravel()
+        if any(isinstance(v, str) for v in raw_y):
+            return "#VALUE!"
+        data_y = np.asarray(args[0], dtype=float).ravel()
+        if data_y.size == 0 or np.any(np.isnan(data_y)):
+            return "#VALUE!"
+        if np.any(data_y <= 0):
             return "#VALUE!"
         data_y = np.log(data_y)
         if len(args) > 1:
-            data_x = np.asarray(args[1])
+            raw_x = np.asarray(args[1]).ravel()
+            if any(isinstance(v, str) for v in raw_x):
+                return "#VALUE!"
+            data_x = np.asarray(args[1], dtype=float)
+            if np.any(np.isnan(data_x)):
+                return "#VALUE!"
             if data_x.ndim == 1:
                 data_x = data_x[:, np.newaxis]
+            elif data_x.ndim == 2:
+                if data_x.shape[0] != len(data_y) and data_x.shape[1] == len(data_y):
+                    data_x = data_x.T
         else:
-            data_x = np.arange(1, len(data_y) + 1)[:, np.newaxis]
+            data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
 
-        c, _unused, _unused2, _unused3 = np.linalg.lstsq(np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None)
-        c[:-1] = np.exp(c[:-1])
-        c[-1] = np.exp(c[-1])
-        return c.tolist()
+        if data_x.shape[0] != len(data_y):
+            return "#VALUE!"
+
+        const = bool(kwargs.get("const", args[2] if len(args) > 2 else True))
+
+        if const:
+            c, _unused, _unused2, _unused3 = np.linalg.lstsq(
+                np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None
+            )
+            slopes = np.exp(c[:-1]).tolist()
+            intercept = float(np.exp(c[-1]))
+            return [*slopes[::-1], intercept]
+        else:
+            c, _unused, _unused2, _unused3 = np.linalg.lstsq(data_x, data_y, rcond=None)
+            slopes = np.exp(c).tolist()
+            return [*slopes[::-1], 1.0]
     except Exception:
         return "#VALUE!"
 
@@ -706,7 +630,6 @@ def logest(*args: Any) -> Any:
 def loginv(p: Any, mean: Any, stdev: Any) -> float:
     try:
         import scipy.stats as st
-        import math
 
         prob = float(p)
         m = float(mean)
@@ -721,7 +644,6 @@ def loginv(p: Any, mean: Any, stdev: Any) -> float:
 def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     try:
         import scipy.stats as st
-        import math
 
         x_val = float(x)
         m = float(mean)
@@ -737,25 +659,29 @@ def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
 
 
 def lookup(lookup_val: Any, *args: Any) -> Any:
+    # What was wrong: lookup coerced mixed-type ranges into string arrays and case-sensitive compares.
+    # How it happened: np.asarray lacked dtype=object, and fallbacks compared str(v) <= str(lookup_val).
+    # Why this change fixes it: uses dtype=object to preserve cell types and casefold for text comparison.
     if len(args) == 1:
-        vec = np.asarray(args[0]).ravel()
+        vec = np.asarray(args[0], dtype=object).ravel()
         result = vec
     else:
-        lookup_vec = np.asarray(args[0]).ravel()
-        result = np.asarray(args[1]).ravel()
+        lookup_vec = np.asarray(args[0], dtype=object).ravel()
+        result = np.asarray(args[1], dtype=object).ravel()
         vec = lookup_vec
     best_idx = None
     for i, v in enumerate(vec):
         try:
             if float(v) <= float(lookup_val):
                 best_idx = i
-        except (ValueError, TypeError):
-            if str(v) <= str(lookup_val):
+        except (ValueError, TypeError, OverflowError):
+            if isinstance(v, str) and isinstance(lookup_val, str):
+                if v.casefold() <= lookup_val.casefold():
+                    best_idx = i
+            elif str(v) <= str(lookup_val):
                 best_idx = i
     if best_idx is None:
         return None
-    # A result vector shorter than the lookup vector used to raise IndexError
-    # (lookup(3, [1,2,3], [10,20])). Calc returns #N/A for that miss.
     if best_idx >= len(result):
         return "#N/A"
     return result[best_idx]
@@ -851,7 +777,10 @@ def mmult(array1: Any, array2: Any) -> Any:
 
 
 def mode(r: Any) -> Any:
-    vals = [x for x in np.asarray(r).ravel() if x is not None and x != ""]
+    # What was wrong: mixed-type ranges were coerced to strings by bare np.asarray, returning np.str_.
+    # How it happened: np.asarray lacked dtype=object.
+    # Why this change fixes it: uses dtype=object so numbers and cell objects retain their native types.
+    vals = [x for x in np.asarray(r, dtype=object).ravel() if x is not None and x != ""]
     if not vals:
         return float("nan")
     counts = Counter(vals)
@@ -881,10 +810,12 @@ def mround(number: Any, multiple: Any) -> float:
     # is #NUM! for a non-finite argument; this module reports that as NaN.
     if not math.isfinite(n) or not math.isfinite(m):
         return float("nan")
+    # What was wrong: mround(n, 0) returned NaN assuming multiple=0 was #DIV/0!.
+    # How it happened: commit 0b2a3e0e returned NaN when multiple == 0.
+    # Why this change fixes it: LibreOffice analysis.cxx getMround (if fMult == 0.0 return fMult)
+    # and Excel return 0.0 when multiple is 0.
     if m == 0:
-        # Excel/Calc MROUND(n, 0) is #DIV/0!. Returning 0.0 hid that error.
-        # This module reports #DIV/0! as NaN.
-        return float("nan")
+        return 0.0
     if (n > 0 and m < 0) or (n < 0 and m > 0):
         return float("nan")
     # Python round() is banker's rounding (half to even), so MROUND(2.5, 1)
@@ -930,13 +861,13 @@ def munit(dimension: Any) -> Any:
 
 
 def n(val: Any) -> float:
-    if isinstance(val, (int, float)) and not isinstance(val, bool):
+    # What was wrong: n("5") returned 5.0 because it parsed numeric strings via float().
+    # How it happened: line 838 had try float(val) for string inputs.
+    # Why this change fixes it: Excel and Calc N() return 0.0 for any text argument.
+    if isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, (bool, np.bool_)):
         return float(val)
-    if isinstance(val, bool):
+    if isinstance(val, (bool, np.bool_)):
         return 1.0 if val else 0.0
     if isinstance(val, str):
-        try:
-            return float(val)
-        except ValueError:
-            return 0.0
+        return 0.0
     return 0.0
