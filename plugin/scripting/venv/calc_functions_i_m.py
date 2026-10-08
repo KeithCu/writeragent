@@ -17,12 +17,13 @@ from typing import Any, Callable
 
 import numpy as np
 
-from .calc_functions_a_c import _from_complex, _to_complex
 from .calc_functions_util import (
     _collect_a_values,
     _extract_numeric_array,
+    _from_complex,
     _is_calc_error,
     _npf_result,
+    _to_complex,
     match_criteria,
 )
 from .coerce import is_blank_value, is_na_value
@@ -321,7 +322,7 @@ def intercept(data_y: Any, data_x: Any) -> float:
 
 
 def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, basis: Any = 0) -> float:
-    from plugin.scripting.venv.calc_functions_a_c import _year_frac
+    from .calc_functions_t_z import yearfrac
 
     try:
         s = float(settlement)
@@ -335,8 +336,8 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
         return float("nan")
     if s >= m or inv <= 0 or red <= 0 or b < 0 or b > 4:
         return float("nan")
-    yf = _year_frac(s, m, b)
-    if yf == 0:
+    yf = yearfrac(s, m, b)
+    if yf == 0 or math.isnan(yf):
         return float("nan")
     return (red - inv) / inv / yf
 

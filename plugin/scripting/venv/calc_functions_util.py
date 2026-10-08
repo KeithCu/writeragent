@@ -6,40 +6,59 @@
 
 from __future__ import annotations
 
+import builtins
+import calendar
 import datetime as dt
+from decimal import Decimal, ROUND_HALF_UP
+import functools
 import math
 import re
-from typing import Any
+from typing import Any, Callable, Sequence
 
 import numpy as np
 
-from .coerce import _LO_ERROR_TOKENS, is_missing_value
+from .coerce import _LO_ERROR_TOKENS, header_label, is_missing_value
 
 __all__ = [
+    "_SERIAL_OFFSET",
     "_bessel_iv_jv",
     "_bessel_kn_yn",
     "_build_holiday_set",
     "_calc_sort_key",
     "_clean_paired_arrays",
     "_collect_a_values",
+    "_complex_coeff",
+    "_coup_days_in_period",
     "_criteria_numbers",
+    "_date_to_serial",
+    "_days360",
+    "_days_between",
     "_dollar_fraction_terms",
+    "_eval_d_criteria",
     "_extract_numeric_array",
     "_find_match_index",
     "_find_text_cut",
     "_fractional_dollar_digits",
+    "_from_complex",
+    "_get_coupon_dates",
     "_int_bitwise",
     "_int_shift",
     "_is_calc_error",
+    "_multi_criteria_mask",
     "_npf_result",
     "_parse_weekend",
+    "_round_half_up",
     "_scipy_stats",
     "_serial_to_date",
     "_simple_accrual",
+    "_to_complex",
     "_to_float_a",
     "_wildcard_fullmatch",
     "match_criteria",
+    "nan_on_error",
 ]
+
+_SERIAL_OFFSET: int = 693594
 
 _WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
     1: (5, 6),
@@ -60,11 +79,83 @@ _WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
 
 
 def _serial_to_date(serial: Any) -> dt.date | None:
-    """Convert an Excel serial date number to datetime.date (+693594 offset), or None."""
+    """Convert an Excel serial date number or date object to datetime.date (+693594 offset), or None."""
+    if isinstance(serial, dt.datetime):
+        return serial.date()
+    if isinstance(serial, dt.date):
+        return serial
     try:
-        return dt.date.fromordinal(int(float(serial)) + 693594)
+        return dt.date.fromordinal(int(float(serial)) + _SERIAL_OFFSET)
     except (ValueError, TypeError, OverflowError):
         return None
+
+
+def _date_to_serial(d: dt.date) -> float:
+    """Convert a datetime.date object to Excel serial date number (-693594 offset)."""
+    return float(d.toordinal() - _SERIAL_OFFSET)
+
+
+def _days360(sd: dt.date, ed: dt.date, european: bool = False) -> float:
+    """Days between two dates using 30/360 rules (NASD US or European)."""
+    d1, m1, y1 = sd.day, sd.month, sd.year
+    d2, m2, y2 = ed.day, ed.month, ed.year
+    if european:
+        if d1 == 31:
+            d1 = 30
+        if d2 == 31:
+            d2 = 30
+    else:
+        if d1 == 31 or (m1 == 2 and d1 == calendar.monthrange(y1, m1)[1]):
+            d1 = 30
+        if d2 == 31 and d1 == 30:
+            d2 = 30
+    return float((y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1))
+
+
+def _days_between(d1: Any, d2: Any, basis: int) -> float:
+    """Days between two dates under financial basis (0=US 30/360, 1=Act/Act, 2=Act/360, 3=Act/365, 4=Eur 30/360)."""
+    # What was wrong: _days_between used crude 30-day month arithmetic instead of true 30/360 rules.
+    # How it happened: Hand-rolled (dt2.year-dt1.year)*360+(dt2.month-dt1.month)*30 ignored end-of-month and 31st adjustments.
+    # Why this change fixes it: Reuses standard 30/360 date adjustment logic from days360 and exact integer date subtraction.
+    sd = _serial_to_date(d1)
+    ed = _serial_to_date(d2)
+    if sd is None or ed is None:
+        return float("nan")
+    if basis in (0, 4):
+        return _days360(sd, ed, european=(basis == 4))
+    return float((ed - sd).days)
+
+
+def _round_half_up(val: float, decimals: int) -> Decimal:
+    """Round a float half-away-from-zero matching Excel/Calc rounding rules."""
+    # What was wrong: fixed, dollar, and euroconvert used Python's round() which performs round-half-to-even (banker's rounding).
+    # How it happened: standard round(val, decimals) rounds 2.5 to 2 and 2.675 to 2.67.
+    # Why this change fixes it: Decimal with ROUND_HALF_UP rounds half-way values away from zero (2.5 -> 3, 2.675 -> 2.68).
+    if not math.isfinite(val):
+        raise ValueError("Non-finite value cannot be rounded")
+    d = Decimal(str(val))
+    if decimals >= 0:
+        exp = Decimal("1") if decimals == 0 else Decimal("1e" + str(-decimals))
+    else:
+        exp = Decimal("1e" + str(-decimals))
+    return d.quantize(exp, rounding=ROUND_HALF_UP)
+
+
+def nan_on_error(*exceptions: type[BaseException]) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Decorator catching given exceptions (default ValueError, TypeError, OverflowError) and returning NaN."""
+    exc_types = exceptions or (ValueError, TypeError, OverflowError)
+
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return fn(*args, **kwargs)
+            except exc_types:
+                return float("nan")
+
+        return wrapper
+
+    return decorator
 
 
 def _build_holiday_set(holidays: Any | None = None) -> set[dt.date]:
@@ -259,7 +350,7 @@ def match_criteria(val: Any, crit: Any) -> bool:
         return is_missing_value(val) or val == "" or val is None
 
     if isinstance(crit, str):
-        m = re.match(r"^(<=|>=|<>|<|>|==|=)(.*)$", crit)
+        m = re.match(r"^(<=|>=|<>|<|>|==|=)(?![<>=])(.*)$", crit)
         if m:
             op = "=" if m.group(1) == "==" else m.group(1)
             val_str = m.group(2)
@@ -338,13 +429,20 @@ def match_criteria(val: Any, crit: Any) -> bool:
         if op == ">=":
             return v_num >= c_num
 
-    if c_num is not None and v_num is None:
-        return op == "<>"
-    if c_num is None and v_num is not None:
-        return op == "<>"
-
     v_str = str(val)
     c_pattern = val_str if val_str is not None else str(crit)
+
+    if c_num is not None and v_num is None:
+        # What was wrong: match_criteria('5', '5') returned False because c_num was float 5.0 but string val had v_num None.
+        # How it happened: early exit returned op == '<>' when c_num was numeric and v_num was None.
+        # Why this change fixes it: allows string val to match string-represented number criteria under equality/inequality.
+        if isinstance(val, str) and op in ("=", "<>"):
+            matched = _wildcard_fullmatch(c_pattern, v_str)
+            return matched if op == "=" else not matched
+        return op == "<>"
+
+    if c_num is None and v_num is not None:
+        return op == "<>"
 
     if op == "=":
         return _wildcard_fullmatch(c_pattern, v_str)
@@ -509,23 +607,39 @@ def _find_text_cut(
         return s, delim, inst, idx, False
 
 
+_MAX_BIT_VALUE: int = (1 << 48) - 1
+
+
 def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
-    """Apply a binary integer bitwise operator to n1 and n2."""
+    """Apply a binary integer bitwise operator to n1 and n2 within [0, 2^48 - 1]."""
+    # What was wrong: bitand, bitor, and bitxor accepted negative numbers and numbers >= 2^48.
+    # How it happened: inputs were cast to Python ints without non-negative or 48-bit upper limit checks.
+    # Why this change fixes it: Excel and Calc require non-negative integers < 2^48 (returning #NUM! / NaN otherwise).
     try:
-        return float(op(int(float(n1)), int(float(n2))))
+        v1 = int(float(n1))
+        v2 = int(float(n2))
+        if v1 < 0 or v1 > _MAX_BIT_VALUE or v2 < 0 or v2 > _MAX_BIT_VALUE:
+            return float("nan")
+        return float(op(v1, v2))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
-    """Integer bit shift. A negative shift swaps direction (Calc/ODFF semantics)."""
+    """Integer bit shift within [0, 2^48 - 1] and shift magnitude <= 53."""
+    # What was wrong: unbounded shift amounts (e.g. 1e9) allocated giant integers causing uncaught MemoryError / hangs.
+    # How it happened: Python int << shift executed without checking shift magnitude or catching MemoryError.
+    # Why this change fixes it: caps shift magnitude at 53 (Excel limit), validates number in [0, 2^48 - 1],
+    # and catches MemoryError.
     try:
         n = int(float(number))
         s = int(float(shift))
+        if n < 0 or n > _MAX_BIT_VALUE or abs(s) > 53:
+            return float("nan")
         if s < 0:
             return float(n >> abs(s)) if left else float(n << abs(s))
         return float(n << s) if left else float(n >> s)
-    except (ValueError, TypeError, OverflowError):
+    except (ValueError, TypeError, OverflowError, MemoryError):
         return float("nan")
 
 
@@ -593,10 +707,7 @@ def _fractional_dollar_digits(fraction: int) -> int:
     """Digits Excel/Calc use when reading a fractional dollar price."""
     if fraction <= 1:
         return 0
-    digits = math.ceil(math.log10(fraction))
-    if 10 ** (digits - 1) == fraction:
-        digits -= 1
-    return digits
+    return math.ceil(math.log10(fraction))
 
 
 def _dollar_fraction_terms(
@@ -620,4 +731,216 @@ def _dollar_fraction_terms(
     f_part = amt - i_part
     scale = 10 ** _fractional_dollar_digits(f)
     return sign, float(i_part), f_part, f, scale
+
+
+def _complex_coeff(n: float) -> str:
+    """Format complex coefficient without trailing .0 on integers."""
+    if math.isfinite(n) and n.is_integer():
+        return str(int(n))
+    return str(n)
+
+
+def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
+    """Convert Python complex to Calc string."""
+    real = c.real
+    imag = c.imag
+    if imag == 0:
+        return _complex_coeff(real)
+    if real == 0:
+        if imag == 1:
+            return suffix
+        if imag == -1:
+            return "-" + suffix
+        return _complex_coeff(imag) + suffix
+    res = _complex_coeff(real)
+    if imag > 0:
+        res += "+"
+    if imag == 1:
+        res += suffix
+    elif imag == -1:
+        res += "-" + suffix
+    else:
+        res += _complex_coeff(imag) + suffix
+    return res
+
+
+def _to_complex(val: Any) -> builtins.complex:
+    """Convert Calc complex string (e.g. '1+2i') to Python complex."""
+    if isinstance(val, (int, float, builtins.complex)):
+        return builtins.complex(val)
+    s = str(val).replace("i", "j").replace("I", "j").replace(" ", "")
+    try:
+        return builtins.complex(s)
+    except ValueError:
+        raise TypeError("Invalid complex string")
+
+
+def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) -> list[Any] | None:
+    """Shared helper for D* functions (DSUM, DAVERAGE, DMAX, DMIN, etc.)."""
+    db_arr = np.asarray(db, dtype=object)
+    if db_arr.ndim != 2:
+        return None
+    headers = [header_label(h).upper() for h in db_arr[0]]
+
+    f_idx = -1
+    if isinstance(field, str) or isinstance(field, bool):
+        f_name = header_label(field).upper()
+        if f_name in headers:
+            f_idx = headers.index(f_name)
+    elif isinstance(field, (int, float)):
+        try:
+            f_idx = int(field) - 1
+        except (ValueError, TypeError, OverflowError):
+            f_idx = -1
+    elif field is not None and field != "":
+        f_name = header_label(field).upper()
+        if f_name in headers:
+            f_idx = headers.index(f_name)
+        else:
+            try:
+                f_idx = int(float(field)) - 1
+            except (ValueError, TypeError, OverflowError):
+                f_idx = -1
+
+    if f_idx < 0 or f_idx >= db_arr.shape[1]:
+        return None
+
+    crit_arr = np.asarray(criteria, dtype=object)
+    if crit_arr.ndim != 2:
+        return None
+    crit_headers = [header_label(h).upper() for h in crit_arr[0]]
+
+    matching_vals = []
+    for r_idx in range(1, db_arr.shape[0]):
+        row = db_arr[r_idx]
+        match_any_row = False
+        for c_row_idx in range(1, crit_arr.shape[0]):
+            match_all_cols = True
+            for c_col_idx in range(crit_arr.shape[1]):
+                c_header = crit_headers[c_col_idx]
+                c_val = crit_arr[c_row_idx, c_col_idx]
+                if is_missing_value(c_val):
+                    continue
+
+                if c_header in headers:
+                    db_col_idx = headers.index(c_header)
+                    if not match_criteria(row[db_col_idx], c_val):
+                        match_all_cols = False
+                        break
+            if match_all_cols:
+                match_any_row = True
+                break
+
+        if match_any_row:
+            val = row[f_idx]
+            if as_float:
+                try:
+                    matching_vals.append(float(val))
+                except (ValueError, TypeError, OverflowError):
+                    pass
+            else:
+                matching_vals.append(val)
+    return matching_vals
+
+
+def _multi_criteria_mask(pairs: Sequence[tuple[Any, Any]], base_len: int | None = None) -> np.ndarray | None:
+    """Evaluate multiple (criteria_range, criterion) pairs, ensuring all ranges have matching lengths.
+
+    Returns a 1D boolean numpy array mask, or None if lengths mismatch or pairs are empty.
+    """
+    # What was wrong: countifs and averageifs truncated mismatched range lengths to the shortest range.
+    # How it happened: zip() and min(len...) silently truncated ranges instead of validating equal dimensions.
+    # Why this change fixes it: validates that all criteria ranges match base_len (and each other) exactly,
+    # returning None so callers can return #VALUE! per Excel and Calc semantics.
+    if not pairs:
+        return np.ones(base_len, dtype=bool) if base_len is not None else np.array([], dtype=bool)
+
+    cond_ranges: list[np.ndarray] = []
+    criteria: list[Any] = []
+    for r, c in pairs:
+        r_flat = np.asarray(r, dtype=object).ravel()
+        cond_ranges.append(r_flat)
+        criteria.append(c)
+
+    expected_len = base_len if base_len is not None else len(cond_ranges[0])
+    for cr in cond_ranges:
+        if len(cr) != expected_len:
+            return None
+
+    mask = np.ones(expected_len, dtype=bool)
+    for cr, crit in zip(cond_ranges, criteria):
+        for idx in range(expected_len):
+            if mask[idx] and not match_criteria(cr[idx], crit):
+                mask[idx] = False
+
+    return mask
+
+
+def _get_coupon_dates(
+    settlement: Any, maturity: Any, frequency: Any, basis: Any = 0
+) -> tuple[float, float, float, float]:
+    """Calculate previous and next coupon dates stepping backwards from maturity in calendar months.
+
+    Returns (prev_serial, curr_serial, days_in_period, num_coupons).
+    """
+    # What was wrong: Coupon calculations stepped back in fixed day counts (180, 182.5) instead of calendar months,
+    # accepted invalid frequencies (e.g. 1e9 which caused an infinite loop), and accepted settlement >= maturity.
+    # How it happened: _get_coupon_dates used fixed day division and had no check that freq in (1, 2, 4) or settlement < maturity.
+    # Why this change fixes it: Validates freq in (1, 2, 4), basis in (0..4), settlement < maturity, and steps backwards
+    # by calendar months from maturity, matching Excel and LibreOffice ScInterpreter coupon scheduling.
+    freq = int(float(frequency))
+    b = int(float(basis))
+    if freq not in (1, 2, 4) or b not in (0, 1, 2, 3, 4):
+        raise ValueError("Invalid coupon frequency or basis")
+    s_date = _serial_to_date(settlement)
+    m_date = _serial_to_date(maturity)
+    if s_date is None or m_date is None or s_date >= m_date:
+        raise ValueError("Invalid settlement or maturity date")
+
+    m_step = 12 // freq
+    d_mat = m_date.day
+    mat_is_eom = d_mat == calendar.monthrange(m_date.year, m_date.month)[1]
+    mat_month_idx = m_date.year * 12 + m_date.month - 1
+    k = 0
+    curr = m_date
+    prev = m_date
+    while curr > s_date:
+        k += 1
+        m_idx = mat_month_idx - k * m_step
+        y = m_idx // 12
+        m = (m_idx % 12) + 1
+        dim = calendar.monthrange(y, m)[1]
+        d = dim if (mat_is_eom or d_mat > dim) else d_mat
+        prev = dt.date(y, m, d)
+        if prev <= s_date:
+            break
+        curr = prev
+
+    p_ser = _date_to_serial(prev)
+    c_ser = _date_to_serial(curr)
+    if b in (0, 2, 4):
+        days_in_per = 360.0 / freq
+    elif b == 3:
+        days_in_per = 365.0 / freq
+    else:
+        days_in_per = float((curr - prev).days)
+
+    return p_ser, c_ser, days_in_per, float(k)
+
+
+def _coup_days_in_period(frequency: Any, basis: Any = 0) -> float:
+    """Days in coupon period for given frequency and basis."""
+    try:
+        freq = int(float(frequency))
+        b = int(float(basis))
+        if freq not in (1, 2, 4) or b not in (0, 1, 2, 3, 4):
+            return float("nan")
+        if b in (0, 2, 4):
+            return 360.0 / freq
+        if b == 3:
+            return 365.0 / freq
+        return 365.25 / freq
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+
 

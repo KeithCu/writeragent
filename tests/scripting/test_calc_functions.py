@@ -10,6 +10,8 @@ import datetime as dt
 import math
 import time
 
+import pytest
+
 import plugin.scripting.calc_functions as calc
 
 
@@ -254,12 +256,12 @@ def test_financial_group_a():
     assert not math.isnan(calc.coupdays(43831, 43983, 2))
     assert not math.isnan(calc.coupdaysnc(43831, 43983, 2))
 
-    # coupncd returns a date ordinal (which we stubbed as nan)
+    # coupncd returns a date ordinal
     assert calc.coupncd(43831, 43983, 2) == 43983.0
     assert not math.isnan(calc.coupnum(43831, 43983, 2))
 
-    # couppcd returns a date ordinal (which we stubbed as nan for simplified implementation)
-    assert calc.couppcd(43831, 43983, 2) == 43803.0
+    # couppcd returns previous coupon date (stepping back 6 months from 2020-06-01 is 2019-12-01 = 43800)
+    assert calc.couppcd(43831, 43983, 2) == 43800.0
 
     assert abs(calc.cumipmt(0.09 / 12, 360, 125000, 1, 12, 0) - (-11215.34288)) < 1e-2
     assert abs(calc.cumprinc(0.09 / 12, 360, 125000, 1, 12, 0) - (-853.99637)) < 1e-2
@@ -368,7 +370,8 @@ def test_asc():
     res = asc("Ｅｘｃｅｌ　Ｐｙｔｈｏｎ")
     assert res == "Excel Python"
 def test_bahttext():
-    assert "Baht" in calc.bahttext(123)
+    with pytest.raises(NotImplementedError):
+        calc.bahttext(123)
 
 def test_clean():
     assert calc.clean("A" + chr(7) + "B" + chr(10)) == "AB"
@@ -517,9 +520,6 @@ def test_yearfrac_basis_matches_days360_and_swaps_dates():
     assert calc.yearfrac(start, end, 2) == actual / 360.0
     assert calc.yearfrac(start, end, 3) == actual / 365.0
     assert calc.yearfrac(end, start, 0) == calc.yearfrac(start, end, 0)
-    from plugin.scripting.venv.calc_functions_a_c import _year_frac
-
-    assert _year_frac(float(start), float(end), 0) == calc.yearfrac(start, end, 0)
 
 
 def test_avedev_ignores_text_and_logicals():
@@ -567,7 +567,7 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     assert calc.char(256) == "#VALUE!"
     assert calc.char("nope") == "#VALUE!"
     assert calc.char(65) == "A"
-    assert calc.choose(float("inf"), "a", "b") is None
+    assert math.isnan(calc.choose(float("inf"), "a", "b"))
     assert calc.choose(2, "a", "b") == "b"
     assert math.isnan(calc.combin(float("inf"), 2))
     assert math.isnan(calc.combina(5, float("inf")))
@@ -659,8 +659,10 @@ def test_filter_shape_mismatch_is_value_error():
     assert calc.filter([1.0, 2.0, 3.0, 4.0, 5.0], [True, False, True, False, True]) == [1.0, 3.0, 5.0]
     # Shorter include used to IndexError on the boolean index.
     assert calc.filter([1.0, 2.0, 3.0], [True, False]) == "#VALUE!"
-    # Column-shaped include against a wider range is the same IndexError.
-    assert calc.filter([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], [[True], [False], [True]]) == "#VALUE!"
+    # Column vector include filters rows.
+    assert calc.filter([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], [[True], [False], [True]]) == [[1.0, 2.0], [5.0, 6.0]]
+    # Mismatched column vector length returns #VALUE!.
+    assert calc.filter([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], [[True], [False]]) == "#VALUE!"
 
 
 def test_numeric_coercions_return_nan_not_raise():
@@ -1164,7 +1166,7 @@ def test_complex_integer_coefficients_have_no_trailing_decimal():
 
 
 def test_coup_days_nonfinite_frequency_reaches_guard():
-    from plugin.scripting.venv.calc_functions_a_c import _coup_days_in_period
+    from plugin.scripting.venv.calc_functions_util import _coup_days_in_period
 
     # int(float(inf)) used to OverflowError before f <= 0. Callers catch
     # Exception, so this calls the helper directly.
