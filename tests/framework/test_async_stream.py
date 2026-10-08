@@ -1404,6 +1404,103 @@ def test_approval_handler_failure_ends_drain_and_sets_event():
     assert errors
 
 
+def test_approval_without_handler_sets_event_and_keeps_draining():
+    """No dialog handler must still unblock the worker and keep the drain going."""
+    event = threading.Event()
+    q: queue.Queue = queue.Queue()
+    q.put((StreamQueueKind.APPROVAL_REQUIRED, "allow?", "read_file", event))
+    q.put((StreamQueueKind.STREAM_DONE, "after"))
+    done = []
+    job_done = [False]
+
+    def on_stream_done(item):
+        done.append(item)
+        return True
+
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda _t, _th: None,
+        on_stream_done=on_stream_done,
+        on_stopped=lambda: None,
+        on_error=lambda _e: None,
+        on_approval_required=None,
+    )
+    assert event.is_set()
+    assert job_done[0] is True
+    assert done and done[0][1] == "after"
+
+
+def test_stop_sets_approval_event_without_dialog():
+    """Stop sets an approval event already pulled and does not open the dialog."""
+    event = threading.Event()
+    q: queue.Queue = queue.Queue()
+    q.put((StreamQueueKind.CHUNK, "hello"))
+    q.put((StreamQueueKind.APPROVAL_REQUIRED, "allow?", "read_file", event))
+    q.put((StreamQueueKind.STREAM_DONE, "nope"))
+    dialogs: list[object] = []
+    stopped: list[bool] = []
+    checks = [0]
+
+    def stop_checker() -> bool:
+        checks[0] += 1
+        return checks[0] > 1
+
+    job_done = [False]
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda _text, _th: None,
+        on_stream_done=lambda _item: True,
+        on_stopped=lambda: stopped.append(True),
+        on_error=lambda _e: None,
+        on_approval_required=dialogs.append,
+        stop_checker=stop_checker,
+    )
+    assert job_done[0] is True
+    assert stopped == [True]
+    assert event.is_set()
+    assert dialogs == []
+
+
+def test_error_item_on_error_raise_is_not_called_twice():
+    """A raising on_error for an ERROR item is invoked once, with the original payload."""
+    q: queue.Queue = queue.Queue()
+    q.put((StreamQueueKind.ERROR, {"message": "boom"}))
+    q.put((StreamQueueKind.CHUNK, "later"))
+    errors: list[object] = []
+    applied: list[str] = []
+
+    def on_error(payload: object) -> None:
+        errors.append(payload)
+        raise RuntimeError("on_error error")
+
+    job_done = [False]
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda text, _th: applied.append(text),
+        on_stream_done=lambda _item: True,
+        on_stopped=lambda: None,
+        on_error=on_error,
+    )
+    assert job_done[0] is True
+    assert errors == [{"message": "boom"}]
+    assert applied == []
+
+
+def test_idle_rearm_cancel_resets_failures():
+    from plugin.framework.async_stream import _IdleRearmThread
+
+    timer = _IdleRearmThread()
+    timer._failures = 4
+    timer.cancel()
+    assert timer._failures == 0
+
+
 def test_run_stream_drain_loop_idle_unblocks_marshaled_worker():
     """Regression: web_research-style hang when main waits in drain loop for async tool."""
     from plugin.framework import queue_executor as qe

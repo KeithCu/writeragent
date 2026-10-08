@@ -132,6 +132,9 @@ class _DrainState:
     # NEXT_TOOL is not terminal. A true on_stream_done return is applied
     # only after the rest of this already-pulled batch (see _process_batch).
     defer_next_tool_exit: bool = False
+    # Set immediately before on_error for an ERROR item. If that callback
+    # raises, _process_batch must not call it again.
+    error_callback_entered: bool = False
 
     def close_thinking(self) -> None:
         # crosshair: off
@@ -152,21 +155,43 @@ class _DrainState:
             self.apply_chunk_fn("".join(self.current_content), False)
             self.current_content.clear()
 
+    def finish_display(self) -> None:
+        """Flush display text and close an open thinking block.
 
-def _drain_batch(q: queue.Queue[Any], timeout: float) -> list[Any]:
-    """Block up to *timeout* for one item, then drain any immediately available extras."""
+        Terminal handlers use this. ``flush_buffers`` alone leaves thinking
+        open so the next batch can continue the same block.
+        """
+        # crosshair: off
+        self.flush_buffers()
+        self.close_thinking()
+
+
+def _drain_ready(q: queue.Queue[Any], max_items: int | None = 50) -> list[Any]:
+    """Items already queued. Does not block.
+
+    ``max_items`` caps one event-drain slice so a fast producer cannot hold
+    the VCL callback. ``None`` drains every ready item (the blocking loop).
+    A blocking ``get`` here would sit inside the VCL callback and hold
+    SolarMutex for the whole timeout. See :func:`run_stream_drain_loop`.
+    """
     # crosshair: off
     items: list[Any] = []
     try:
-        items.append(q.get(timeout=timeout))
-    except queue.Empty:
-        return items
-    try:
-        while True:
+        while max_items is None or len(items) < max_items:
             items.append(q.get_nowait())
     except queue.Empty:
         pass
     return items
+
+
+def _drain_batch(q: queue.Queue[Any], timeout: float) -> list[Any]:
+    """Block up to *timeout* for one item, then drain any immediately available extras."""
+    # crosshair: off
+    try:
+        first = q.get(timeout=timeout)
+    except queue.Empty:
+        return []
+    return [first, *_drain_ready(q, max_items=None)]
 
 
 def _handle_chunk(state: _DrainState, data: Any, _item: Any) -> None:
@@ -191,8 +216,7 @@ def _handle_status(state: _DrainState, data: Any, _item: Any) -> None:
 
 def _handle_stream_done_like(state: _DrainState, _data: Any, item: Any) -> None:
     # crosshair: off
-    state.flush_buffers()
-    state.close_thinking()
+    state.finish_display()
     if state.on_stream_done(item):
         state.job_done[0] = True
 
@@ -212,8 +236,7 @@ def _handle_next_tool(state: _DrainState, _data: Any, item: Any) -> None:
     the loop keeps pumping.
     """
     # crosshair: off
-    state.flush_buffers()
-    state.close_thinking()
+    state.finish_display()
     state.defer_next_tool_exit = bool(state.on_stream_done(item))
 
 
@@ -227,15 +250,13 @@ def _handle_tool_thinking(state: _DrainState, data: Any, _item: Any) -> None:
 
 def _handle_tool_call_line(state: _DrainState, data: Any, _item: Any) -> None:
     # crosshair: off
-    state.flush_buffers()
-    state.close_thinking()
+    state.finish_display()
     state.apply_chunk_fn(_format_agent_tool_stream_line("[Tool call]", data), False)
 
 
 def _handle_tool_result_line(state: _DrainState, data: Any, _item: Any) -> None:
     # crosshair: off
-    state.flush_buffers()
-    state.close_thinking()
+    state.finish_display()
     state.apply_chunk_fn(_format_agent_tool_stream_line("[Tool result]", data), False)
 
 
@@ -251,9 +272,14 @@ def _set_approval_event(item: Any) -> None:
 
 def _handle_approval_required(state: _DrainState, _data: Any, item: Any) -> None:
     # crosshair: off
-    state.flush_buffers()
-    state.close_thinking()
+    state.finish_display()
     if not state.on_approval_required:
+        # What was wrong: this returned without setting the event. The worker
+        # stayed in wait_for_approval, because only the handler used to set it.
+        # Why: there is no dialog to answer. Set the event so the worker sees
+        # approved still false and denies the request.
+        log.warning("APPROVAL_REQUIRED with no handler; unblocking worker")
+        _set_approval_event(item)
         return
     try:
         state.on_approval_required(item)
@@ -269,16 +295,19 @@ def _handle_approval_required(state: _DrainState, _data: Any, item: Any) -> None
 
 def _handle_stopped(state: _DrainState, _data: Any, _item: Any) -> None:
     # crosshair: off
-    state.flush_buffers()
-    state.close_thinking()
+    state.finish_display()
     state.on_stopped()
     state.job_done[0] = True
 
 
 def _handle_error(state: _DrainState, data: Any, _item: Any) -> None:
     # crosshair: off
-    state.flush_buffers()
-    state.close_thinking()
+    state.finish_display()
+    # What was wrong: a raising on_error fell into _process_batch's except,
+    # which called on_error again with that new exception. Why: mark the
+    # callback as entered first. A flush that raises before this line leaves
+    # the flag clear, so that except still reports the flush once.
+    state.error_callback_entered = True
     recovered = state.on_error(data) is True
     if not recovered:
         state.job_done[0] = True
@@ -312,13 +341,14 @@ def _stream_item_kind_data(item: Any) -> tuple[Any, Any]:
 
 
 def _apply_display_item(state: _DrainState, item: Any) -> None:
-    """Apply one CHUNK or THINKING. Other kinds are left undispatched.
+    """Apply one CHUNK or THINKING. Set an approval event. Leave other kinds.
 
     What was wrong: ``StreamQueueKind`` is a ``str`` enum, so ``==`` treated a
     bare ``"chunk"`` string as CHUNK. ``_process_batch`` rejects that tag.
     Stop showed it. Why: only a real member is display text. A non-member in
     the stop tail is dropped with the other control items. Calling
-    ``on_error`` here would turn Stop into a failure.
+    ``on_error`` here would turn Stop into a failure. An approval event in
+    the tail is set so the worker is not left in ``wait_for_approval``.
     """
     # crosshair: off
     raw_kind, data = _stream_item_kind_data(item)
@@ -328,6 +358,11 @@ def _apply_display_item(state: _DrainState, item: Any) -> None:
         _handle_chunk(state, data, item)
     elif raw_kind == StreamQueueKind.THINKING:
         _handle_thinking(state, data, item)
+    elif raw_kind == StreamQueueKind.APPROVAL_REQUIRED:
+        # What was wrong: Stop dropped this item, so the event stayed unset
+        # and the worker stayed in wait_for_approval until its stop poll.
+        # Why: set the event and do not open the dialog.
+        _set_approval_event(item)
 
 
 def _apply_queued_display(state: _DrainState) -> None:
@@ -335,7 +370,7 @@ def _apply_queued_display(state: _DrainState) -> None:
 
     Stop used to break without reading them, so text flushed from the 250ms
     batcher never reached the sidebar. Control items from the stopped attempt
-    (STREAM_DONE, ERROR) are discarded with the get.
+    (STREAM_DONE, ERROR) are discarded with the get. An approval event is set.
     """
     # crosshair: off
     while True:
@@ -356,7 +391,7 @@ def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None
     including the whole batch when Stop tripped on the first item. Why:
     apply that unconsumed display tail, flush the producer batcher, apply
     what it just queued, then close thinking. Control items in the tail
-    are not dispatched.
+    are not dispatched. An approval event in that tail is set.
     """
     # crosshair: off
     if pending_items:
@@ -368,8 +403,7 @@ def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None
         except Exception:
             log.exception("flush_pending before Stop failed")
     _apply_queued_display(state)
-    state.flush_buffers()
-    state.close_thinking()
+    state.finish_display()
     state.on_stopped()
     state.job_done[0] = True
 
@@ -381,6 +415,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
     # an inner handler failure: those paths already flushed, and a second raise
     # would call on_error again.
     state.defer_next_tool_exit = False
+    state.error_callback_entered = False
     skip_trailing_flush = False
     for index, item in enumerate(items):
         if stop_checker and stop_checker():
@@ -400,14 +435,22 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
             if not isinstance(raw_kind, StreamQueueKind):
                 ek = TypeError("stream queue item kind must be StreamQueueKind, got %s" % (type(raw_kind).__name__,))
                 log.error("Invalid stream queue tag: %s", ek)
-                state.flush_buffers()
-                state.close_thinking()
+                state.finish_display()
                 state.on_error(format_error_payload(ek))
                 state.job_done[0] = True
                 break
 
             _DISPATCH[raw_kind](state, data, item)
         except Exception as loop_e:
+            if state.error_callback_entered:
+                # What was wrong: _handle_error already called on_error. This
+                # except called it again with the exception from that callback,
+                # so the UI saw a second, different error. Why: the callback
+                # already ran. Log, end the drain, and skip the trailing flush.
+                log.exception("on_error failed")
+                state.job_done[0] = True
+                skip_trailing_flush = True
+                break
             # Dispatch handler (chunk/thinking UI) raised. Re-queuing ERROR used
             # to continue the batch: later CHUNKs still applied, STREAM_DONE ran
             # as success, and on_error never ran. Call on_error inline.
@@ -417,8 +460,7 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
             error_payload = format_error_payload(loop_e)
             log.exception("Stream processing failed")
             try:
-                state.flush_buffers()
-                state.close_thinking()
+                state.finish_display()
             except Exception:
                 log.exception("Stream buffer flush after handler failure also failed")
             recovered = False
@@ -511,24 +553,6 @@ def defer_until_drain_done(fn: Callable[[], None]) -> None:
     session.epilogues.append(fn)
 
 
-def _drain_ready(q: queue.Queue[Any], max_items: int = 50) -> list[Any]:
-    """Up to ``max_items`` items already queued. Does not block.
-
-    A blocking ``get`` here would sit inside the VCL callback. That holds
-    SolarMutex for the whole timeout. See :func:`run_stream_drain_loop`.
-    The cap keeps one slice short when a fast producer floods the queue; the
-    slice re-arms immediately while items remain.
-    """
-    # crosshair: off
-    items: list[Any] = []
-    try:
-        while len(items) < max_items:
-            items.append(q.get_nowait())
-    except queue.Empty:
-        pass
-    return items
-
-
 class _IdleRearmThread:
     """One dedicated thread that pokes the main thread after a delay.
 
@@ -561,6 +585,7 @@ class _IdleRearmThread:
             if self._stopped:
                 return
             self._generation += 1
+            self._failures = 0
             self._fire = fire
             self._deadline = time.monotonic() + delay
             if not self._started:
@@ -572,6 +597,7 @@ class _IdleRearmThread:
         # crosshair: off
         with self._cv:
             self._generation += 1
+            self._failures = 0
             self._deadline = None
             self._fire = None
             self._cv.notify()
@@ -601,8 +627,8 @@ class _IdleRearmThread:
                 if remaining > 0:
                     self._cv.wait(timeout=remaining)
                     continue
-                if generation != self._generation:
-                    continue
+                # This thread still holds the lock and did not wait, so a
+                # newer arm or cancel cannot have changed the generation.
                 self._deadline = None
                 self._fire = None
             try:
@@ -921,6 +947,23 @@ class _EventDrain:
                 log.exception("drain epilogue failed")
 
 
+def _notify_drain_failure(on_error: Callable[[Any], Any], job_done: list[bool], exc: BaseException, log_message: str) -> None:
+    """Log *exc*, report it once, and end the drain.
+
+    What was wrong: each crash tail copied this sequence, and the queue-drain
+    tail called ``on_error`` outside a try. A raising handler then hit the
+    outer except and was reported again. Why: set ``job_done`` first, notify
+    once, and log if that notify raises.
+    """
+    # crosshair: off
+    log.exception(log_message)
+    job_done[0] = True
+    try:
+        on_error(format_error_payload(exc))
+    except Exception:
+        log.exception("Failed to notify error handler")
+
+
 def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: Any, on_stream_done: Any, on_stopped: Any, on_error: Any, on_status_fn: Any = None, show_search_thinking: bool = False, on_approval_required: Any = None, stop_checker: Any = None, flush_pending: Any = None, *, rearm: Any = None) -> None:
     """
     Main-thread drain: batches items from the queue, manages thinking/chunk
@@ -953,13 +996,15 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
     - (TOOL_DONE, call_id, func_name, args_str, res): Handled by orchestration (if used).
     - (TOOL_THINKING, text): Thinking tokens from a tool (e.g. web search).
     - (FINAL_DONE, text): Final non-tool response.
-    - (APPROVAL_REQUIRED, ...): HITL; call on_approval_required(item).
+    - (APPROVAL_REQUIRED, ...): HITL; call on_approval_required(item). If no
+      handler is registered, the approval event is set and no dialog is shown.
     - (STOPPED, ignored): Calls on_stopped() (second element unused).
     - (ERROR, payload): Calls on_error(payload). If on_error returns True, the
       drain keeps running (handler recovered, e.g. STT fallback spawned a new
       worker on this queue) but drops the rest of the batch already pulled.
-      Any other return value ends the loop. A dispatch handler that raises is
-      the same contract (inline on_error, no re-queue, no on_stream_done).
+      Any other return value ends the loop. If on_error itself raises, it is
+      not called again. A dispatch handler that raises is the same contract
+      (inline on_error, no re-queue, no on_stream_done).
     - (TOOL_CALL, payload): Agent-backend tool block; shown as text via apply_chunk_fn.
     - (TOOL_RESULT, payload): Agent-backend tool result block; shown as text via apply_chunk_fn.
     """
@@ -978,21 +1023,9 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
         # NestedDrainOwnerError for a different owner (for example MCP).
         _EventDrain(state, scheduler, stop_checker, flush_pending).start()
     except NestedDrainOwnerError as exc:
-        error_payload = format_error_payload(exc)
-        log.exception("Nested stream drain rejected")
-        try:
-            on_error(error_payload)
-        except Exception:
-            log.exception("Failed to notify error handler for nested drain")
-        job_done[0] = True
+        _notify_drain_failure(on_error, job_done, exc, "Nested stream drain rejected")
     except Exception as exc:
-        error_payload = format_error_payload(exc)
-        log.exception("Stream drain loop crashed")
-        try:
-            on_error(error_payload)
-        except Exception:
-            log.exception("Failed to notify error handler")
-        job_done[0] = True
+        _notify_drain_failure(on_error, job_done, exc, "Stream drain loop crashed")
 
 
 # Pytest (and similar) can force the blocking drain without sniffing MagicMock
@@ -1054,10 +1087,7 @@ def _run_stream_drain_blocking(state: _DrainState, toolkit: Any, stop_checker: A
                 try:
                     items = _drain_batch(q, 0.1)
                 except Exception as e:
-                    error_payload = format_error_payload(e)
-                    log.exception("Stream queue drain failed")
-                    on_error(error_payload)
-                    job_done[0] = True
+                    _notify_drain_failure(on_error, job_done, e, "Stream queue drain failed")
                     break
 
                 if not items:
@@ -1077,13 +1107,7 @@ def _run_stream_drain_blocking(state: _DrainState, toolkit: Any, stop_checker: A
                 try:
                     _process_batch(state, items, stop_checker, flush_pending)
                 except Exception as e:
-                    error_payload = format_error_payload(e)
-                    log.exception("run_stream_drain_loop batch processing failed")
-                    job_done[0] = True
-                    try:
-                        on_error(error_payload)
-                    except Exception:
-                        log.exception("Failed to notify error handler for batch processing failure")
+                    _notify_drain_failure(on_error, job_done, e, "run_stream_drain_loop batch processing failed")
 
                 if toolkit:
                     pump_ui_idle(toolkit)
@@ -1092,24 +1116,10 @@ def _run_stream_drain_blocking(state: _DrainState, toolkit: Any, stop_checker: A
                 pump_ui_idle(toolkit)
 
     except NestedDrainOwnerError as e:
-        error_payload = format_error_payload(e)
-        log.exception("Nested stream drain rejected")
-        try:
-            on_error(error_payload)
-        except Exception:
-            log.exception("Failed to notify error handler for nested drain")
-        job_done[0] = True
+        _notify_drain_failure(on_error, job_done, e, "Nested stream drain rejected")
 
     except Exception as e:
-        error_payload = format_error_payload(e)
-        log.exception("Stream drain loop crashed")
-
-        try:
-            on_error(error_payload)
-        except Exception:
-            log.exception("Failed to notify error handler")
-
-        job_done[0] = True
+        _notify_drain_failure(on_error, job_done, e, "Stream drain loop crashed")
 
 
 def _call_item_or_zero_arg(fn: Callable[..., None], item: Any) -> None:
