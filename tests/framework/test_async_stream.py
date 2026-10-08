@@ -832,6 +832,83 @@ def test_run_stream_drain_loop_rejects_string_kind():
     assert len(errors) == 1
 
 
+def test_invalid_tag_on_error_raise_is_not_called_twice():
+    """A raising on_error for a bare string tag is invoked once."""
+    q = queue.Queue()
+    q.put(("chunk", "bad"))
+    errors: list[object] = []
+
+    def on_error(payload: object) -> None:
+        errors.append(payload)
+        raise RuntimeError("on_error error")
+
+    job_done = [False]
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda _text, _th: None,
+        on_stream_done=lambda _item: True,
+        on_stopped=lambda: None,
+        on_error=on_error,
+    )
+    assert job_done[0] is True
+    assert len(errors) == 1
+
+
+def test_stopped_item_on_stopped_raise_is_not_an_error():
+    """A raising on_stopped for a STOPPED item does not call on_error."""
+    q = queue.Queue()
+    q.put((StreamQueueKind.STOPPED, None))
+    stopped: list[bool] = []
+    errors: list[object] = []
+
+    def on_stopped() -> None:
+        stopped.append(True)
+        raise RuntimeError("stop handler failed")
+
+    job_done = [False]
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda _text, _th: None,
+        on_stream_done=lambda _item: True,
+        on_stopped=on_stopped,
+        on_error=errors.append,
+    )
+    assert job_done[0] is True
+    assert stopped == [True]
+    assert errors == []
+
+
+def test_stop_checker_on_stopped_raise_is_not_an_error():
+    """A raising on_stopped from the stop checker does not call on_error."""
+    q = queue.Queue()
+    q.put((StreamQueueKind.CHUNK, "hello"))
+    stopped: list[bool] = []
+    errors: list[object] = []
+
+    def on_stopped() -> None:
+        stopped.append(True)
+        raise RuntimeError("stop handler failed")
+
+    job_done = [False]
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda _text, _th: None,
+        on_stream_done=lambda _item: True,
+        on_stopped=on_stopped,
+        on_error=errors.append,
+        stop_checker=lambda: True,
+    )
+    assert job_done[0] is True
+    assert stopped == [True]
+    assert errors == []
+
+
 def test_run_stream_drain_loop_tool_call_and_tool_result():
     q = queue.Queue()
     payload_call = {"type": "tool_call", "name": "read_file"}

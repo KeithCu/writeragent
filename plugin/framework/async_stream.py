@@ -107,8 +107,8 @@ class _DrainState:
     # NEXT_TOOL is not terminal. A true on_stream_done return is applied
     # only after the rest of this already-pulled batch (see _process_batch).
     defer_next_tool_exit: bool = False
-    # Set immediately before on_error for an ERROR item. If that callback
-    # raises, _process_batch must not call it again.
+    # Set immediately before on_error for an ERROR item or an invalid tag.
+    # If that callback raises, _process_batch must not call it again.
     error_callback_entered: bool = False
 
     def close_thinking(self) -> None:
@@ -271,8 +271,15 @@ def _handle_approval_required(state: _DrainState, _data: Any, item: Any) -> None
 def _handle_stopped(state: _DrainState, _data: Any, _item: Any) -> None:
     # crosshair: off
     state.finish_display()
-    state.on_stopped()
+    # What was wrong: on_stopped ran before job_done. A raise fell into
+    # _process_batch's except, which called on_error, so Stop showed as a
+    # stream failure. Why: mark the drain finished first. A raise is logged
+    # and is not turned into on_error.
     state.job_done[0] = True
+    try:
+        state.on_stopped()
+    except Exception:
+        log.exception("on_stopped failed")
 
 
 def _handle_error(state: _DrainState, data: Any, _item: Any) -> None:
@@ -379,8 +386,15 @@ def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None
             log.exception("flush_pending before Stop failed")
     _apply_queued_display(state)
     state.finish_display()
-    state.on_stopped()
+    # What was wrong: on_stopped ran before job_done, and this helper sits
+    # outside _process_batch's try. A raise became _notify_drain_failure or
+    # _report_slice_error, so a checker Stop showed as a stream error. Why:
+    # mark the drain finished first. A raise is logged and is not on_error.
     state.job_done[0] = True
+    try:
+        state.on_stopped()
+    except Exception:
+        log.exception("on_stopped failed")
 
 
 def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[[], bool] | None, flush_pending: Callable[[], None] | None = None) -> None:
@@ -411,6 +425,12 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
                 ek = TypeError("stream queue item kind must be StreamQueueKind, got %s" % (type(raw_kind).__name__,))
                 log.error("Invalid stream queue tag: %s", ek)
                 state.finish_display()
+                # What was wrong: on_error ran without error_callback_entered.
+                # A raise fell into the except below, which called on_error
+                # again with a different payload. Why: mark the callback
+                # entered first, same as _handle_error. A flush that raises
+                # before this line still reports once.
+                state.error_callback_entered = True
                 state.on_error(format_error_payload(ek))
                 state.job_done[0] = True
                 break
