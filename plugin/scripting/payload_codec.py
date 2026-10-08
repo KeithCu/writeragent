@@ -186,6 +186,49 @@ def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
             log.warning("payload_codec: Cython 1D canary failed")
             return False
 
+        # A plain int past ~1e308. float() raises OverflowError. An unguarded
+        # PyFloat_AsDouble aborts the native call (_try_accel then hides it by
+        # falling back) or, if the error is cleared and the -1.0 is kept,
+        # stores a wrong number. The cell must be the decimal text.
+        huge = 10**400
+        neg = -huge
+        buf_huge, strings_huge, _unused_huge, _none_huge, non_huge = fn1d([huge, neg])
+        if not (
+            len(buf_huge) == 2
+            and math.isnan(buf_huge[0])
+            and math.isnan(buf_huge[1])
+            and strings_huge.get(0) == str(huge)
+            and strings_huge.get(1) == str(neg)
+            and non_huge is True
+        ):
+            log.warning("payload_codec: Cython huge-int canary failed")
+            return False
+
+        # dtype.kind "c" whose float() succeeds with only the real part.
+        # No NumPy import: host load of this canary must stay stdlib-only.
+        # A kind-"c" object that only fails float() would pass the old
+        # PyFloat_AsDouble error path and hide the data-loss bug.
+        class _CanaryComplexKind:
+            dtype: Any = type("_CanaryDtype", (), {"kind": "c"})()
+
+            def __float__(self) -> float:
+                return 1.0
+
+            def __str__(self) -> str:
+                return "(1+2j)"
+
+        cx = _CanaryComplexKind()
+        buf_cx, strings_cx, _unused_cx, _none_cx, non_cx = fn2d([[cx, 1.0]], 2)
+        if not (
+            len(buf_cx) == 2
+            and math.isnan(buf_cx[0])
+            and buf_cx[1] == 1.0
+            and strings_cx.get(0) == "(1+2j)"
+            and non_cx is True
+        ):
+            log.warning("payload_codec: Cython complex-kind canary failed")
+            return False
+
         return True
     except Exception as e:
         log.warning("payload_codec: Cython canary exception: %s", e)
@@ -381,39 +424,15 @@ def _is_grid_sequence(grid: object) -> bool:
     return True
 
 
-def _deal_grid_ok(grid: object) -> bool:
-    """CrossHair domain for list grids. Production ``_is_grid_sequence`` stays uncapped.
+def _bounded_rect_grid_ok(grid: object, max_rows: int, max_cols: int) -> bool:
+    """True for an empty, 1D, or rectangular-enough 2D list/tuple inside the caps.
 
-    Unbounded lists let deep check materialize huge nested grids in
-    ``is_numeric_grid`` / pack. Side length follows ``DEAL_MAX_SHAPE_DIM``
-    (pytest 256 still fits 100×100 pack-speed tests; CrossHair uses 4).
+    1D length uses ``max_rows`` (the outer sequence). A 2D row uses ``max_cols``.
+    ``_deal_grid_ok`` and ``_deal_product_grid_ok`` are the same check with
+    different caps; this is the one copy.
     """
     if not _is_grid_sequence(grid) or not isinstance(grid, (list, tuple)):
         return False
-    if len(grid) > DEAL_MAX_SHAPE_DIM:
-        return False
-    if len(grid) == 0:
-        return True
-    first = grid[0]
-    if isinstance(first, (list, tuple)):
-        for row in grid:
-            if not isinstance(row, (list, tuple)) or len(row) > DEAL_MAX_SHAPE_DIM:
-                return False
-    return True
-
-
-def _deal_product_grid_ok(grid: object) -> bool:
-    """Deal domain for live Calc→worker pack (``host_pack_*`` / flatten).
-
-    ``_deal_grid_ok`` stays ``DEAL_MAX_SHAPE_DIM``-sized for CrossHair/small helpers.
-    Product pack must accept real sheet ranges (Population A1:H1517 tripped the
-    256-row SHAPE_DIM cap: PreContractError surfaced as =PY cell Error text).
-    Caps at Calc sheet bounds (``DEAL_MAX_ROW_INDEX`` / ``DEAL_MAX_COL_INDEX``).
-    """
-    if not _is_grid_sequence(grid) or not isinstance(grid, (list, tuple)):
-        return False
-    max_rows = DEAL_MAX_ROW_INDEX + 1
-    max_cols = DEAL_MAX_COL_INDEX + 1
     if len(grid) > max_rows:
         return False
     if len(grid) == 0:
@@ -424,6 +443,27 @@ def _deal_product_grid_ok(grid: object) -> bool:
             if not isinstance(row, (list, tuple)) or len(row) > max_cols:
                 return False
     return True
+
+
+def _deal_grid_ok(grid: object) -> bool:
+    """CrossHair domain for list grids. Production ``_is_grid_sequence`` stays uncapped.
+
+    Unbounded lists let deep check materialize huge nested grids in
+    ``is_numeric_grid`` / pack. Side length follows ``DEAL_MAX_SHAPE_DIM``
+    (pytest 256 still fits 100×100 pack-speed tests; CrossHair uses 4).
+    """
+    return _bounded_rect_grid_ok(grid, DEAL_MAX_SHAPE_DIM, DEAL_MAX_SHAPE_DIM)
+
+
+def _deal_product_grid_ok(grid: object) -> bool:
+    """Deal domain for live Calc→worker pack (``host_pack_*`` / flatten).
+
+    ``_deal_grid_ok`` stays ``DEAL_MAX_SHAPE_DIM``-sized for CrossHair/small helpers.
+    Product pack must accept real sheet ranges (Population A1:H1517 tripped the
+    256-row SHAPE_DIM cap: PreContractError surfaced as =PY cell Error text).
+    Caps at Calc sheet bounds (``DEAL_MAX_ROW_INDEX`` / ``DEAL_MAX_COL_INDEX``).
+    """
+    return _bounded_rect_grid_ok(grid, DEAL_MAX_ROW_INDEX + 1, DEAL_MAX_COL_INDEX + 1)
 
 
 def _deal_numeric_cell_ok_pytest(value: object) -> bool:
@@ -1178,6 +1218,53 @@ def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> 
         column_states[c] = 3
 
 
+class _AsText:
+    """Marker: this cell is text, not a float64 buffer value."""
+
+
+_AS_TEXT = _AsText()
+
+
+def _numeric_cell_to_float(val: Any) -> float | _AsText:
+    """Convert one cell to float64, or ``_AS_TEXT`` when it must be ``str(val)``.
+
+    What was wrong: the fast path and ``_flatten_append_cell_slow`` each called
+    ``float()`` on a plain ``int`` with no guard, so ``10**400`` raised
+    ``OverflowError`` (``RaisesContractError`` under deal, a worker failure
+    once deal is stripped). ``float(np.complex64/128/clongdouble)`` succeeds
+    and keeps only the real part. Decimal and Fraction already caught
+    ``OverflowError``. Python ``complex`` already failed ``float()`` and was
+    stored as text. Why this works: both Python flatten lanes call this
+    helper. Cython ``_flatten_cell`` mirrors the int-overflow and
+    ``dtype.kind == "c"`` checks; do not merge the loops. Integers that
+    ``float()`` accepts, including those past the 53-bit mantissa, stay
+    numeric.
+    """
+    # crosshair: off  # Any cell; sibling of the already-off flatten loops.
+    tv = type(val)
+    if tv is float:
+        return val
+    if tv is bool:
+        return float(val)
+    if tv is int:
+        try:
+            return float(val)
+        except OverflowError:
+            return _AS_TEXT
+    # isinstance(val, complex) is true for np.complex128 only. complex64 and
+    # clongdouble are not builtin complex, and their float() drops the
+    # imaginary part with a ComplexWarning instead of raising.
+    dtype = getattr(val, "dtype", None)
+    if dtype is not None and getattr(dtype, "kind", None) == "c":
+        return _AS_TEXT
+    if tv is complex:
+        return _AS_TEXT
+    try:
+        return float(val)
+    except (TypeError, ValueError, OverflowError):
+        return _AS_TEXT
+
+
 def _flatten_append_cell_slow(
     val: Any,
     c: int,
@@ -1191,6 +1278,17 @@ def _flatten_append_cell_slow(
 ) -> None:
     """Full per-cell flatten semantics (None, strings, NumPy scalars, column metadata)."""
     # crosshair: off  # Any val sibling of already-off flatten (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a tiny cell domain.
+
+    def _store_numeric(cell: Any) -> bool:
+        """Write a float64 cell. Return False when the cell was stored as text."""
+        fval = _numeric_cell_to_float(cell)
+        if fval is _AS_TEXT:
+            buf_append(nan)
+            strings[idx] = str(cell)
+            return False
+        buf_append(fval)
+        return True
+
     if val is None:
         buf_append(nan)
         column_has_none[c] = True
@@ -1199,8 +1297,8 @@ def _flatten_append_cell_slow(
         if column_states[c] == 0:
             column_states[c] = 1
     elif type(val) is int:
-        buf_append(float(val))
-        if column_states[c] < 2:
+        # Huge ints are text. float(10**400) used to raise out of this branch.
+        if _store_numeric(val) and column_states[c] < 2:
             column_states[c] = 2
     elif type(val) is float:
         buf_append(val)
@@ -1211,15 +1309,13 @@ def _flatten_append_cell_slow(
         if dtype is not None:
             kind = getattr(dtype, "kind", None)
             if kind == "f":
-                buf_append(float(cast("Any", val)))
-                column_states[c] = 3
+                if _store_numeric(val):
+                    column_states[c] = 3
             elif kind in ("i", "u"):
-                buf_append(float(cast("Any", val)))
-                if column_states[c] < 2:
+                if _store_numeric(val) and column_states[c] < 2:
                     column_states[c] = 2
             elif kind == "b":
-                buf_append(float(cast("Any", val)))
-                if column_states[c] == 0:
+                if _store_numeric(val) and column_states[c] == 0:
                     column_states[c] = 1
             else:
                 # np.str_ subclasses str and Cython PyUnicode_Check stores it
@@ -1228,33 +1324,25 @@ def _flatten_append_cell_slow(
                 # What was wrong: every other unknown kind (dtype "O" with
                 # __float__) was also stringified here, so the same value was
                 # 1.5 before a text cell and "W" after one. Cython
-                # PyFloat_AsDouble keeps the float.
+                # PyFloat_AsDouble keeps the float. Kind "c" is the exception:
+                # float() keeps the real part, so _numeric_cell_to_float
+                # stringifies it.
                 if isinstance(val, str):
                     buf_append(nan)
                     strings[idx] = str(val)
-                else:
-                    try:
-                        fval = float(cast("Any", val))
-                    except (TypeError, ValueError, OverflowError):
-                        buf_append(nan)
-                        strings[idx] = str(val)
-                    else:
-                        buf_append(fval)
-                        if column_states[c] != 3:
-                            _flatten_update_column_state(column_states, c, val)
+                elif _store_numeric(val) and column_states[c] != 3:
+                    _flatten_update_column_state(column_states, c, val)
             return
         tname = t.__name__
         if tname.startswith("bool"):
-            buf_append(float(cast("Any", val)))
-            if column_states[c] == 0:
+            if _store_numeric(val) and column_states[c] == 0:
                 column_states[c] = 1
         elif tname.startswith(("int", "uint")):
-            buf_append(float(cast("Any", val)))
-            if column_states[c] < 2:
+            if _store_numeric(val) and column_states[c] < 2:
                 column_states[c] = 2
         elif tname.startswith("float"):
-            buf_append(float(cast("Any", val)))
-            column_states[c] = 3
+            if _store_numeric(val):
+                column_states[c] = 3
         elif not isinstance(val, str):
             # Bugfix: the fast path and Cython ``_flatten_cell`` float() a
             # Decimal or Fraction. This branch runs only after an earlier cell
@@ -1262,20 +1350,11 @@ def _flatten_append_cell_slow(
             # same number became 1.25 or the text "1.25" / "1/4" depending on
             # position. decimal and fractions are on the venv import whitelist,
             # and a pandas object column reaches this flatten without the
-            # pickle-leaf coerce. Strings stay text (zip codes).
-            # OverflowError used to propagate here. The fast path catches it
-            # and retries this helper, and Cython ``_flatten_cell`` clears
-            # PyFloat_AsDouble's OverflowError and stores str(val). Catch it
-            # so a huge Fraction is text with or without the accelerator.
-            try:
-                fval = float(cast("Any", val))
-            except (TypeError, ValueError, OverflowError):
-                buf_append(nan)
-                strings[idx] = str(val)
-            else:
-                buf_append(fval)
-                if column_states[c] != 3:
-                    _flatten_update_column_state(column_states, c, val)
+            # pickle-leaf coerce. Strings stay text (zip codes). A value
+            # ``float()`` rejects (huge Fraction, Python complex) is text via
+            # ``_numeric_cell_to_float``.
+            if _store_numeric(val) and column_states[c] != 3:
+                _flatten_update_column_state(column_states, c, val)
         else:
             buf_append(nan)
             # Same as the dtype branch above: plain str, not np.str_.
@@ -1407,22 +1486,29 @@ def _flatten_grid_to_components(
                     if column_states[c] != 3:
                         column_states[c] = 3
                 elif t is int:
-                    buf_append(float(val))
-                    if column_states[c] < 2:
-                        column_states[c] = 2
+                    # float(10**400) raises. The slow helper stringifies it.
+                    fval = _numeric_cell_to_float(val)
+                    if fval is _AS_TEXT:
+                        has_non_numeric = True
+                        _append_cell_slow(val, c, idx)
+                    else:
+                        # ``is`` does not narrow ``float | _AsText`` for ty/basedpyright.
+                        buf_append(cast(float, fval))
+                        if column_states[c] < 2:
+                            column_states[c] = 2
                 elif val is True or val is False:
                     buf_append(float(val))
                     if column_states[c] == 0:
                         column_states[c] = 1
                 else:
-                    try:
-                        fval = float(val)
-                        buf_append(fval)
-                        if column_states[c] != 3:
-                            _flatten_update_column_state(column_states, c, val)
-                    except (TypeError, ValueError, OverflowError):
+                    fval = _numeric_cell_to_float(val)
+                    if fval is _AS_TEXT:
                         has_non_numeric = True
                         _append_cell_slow(val, c, idx)
+                    else:
+                        buf_append(cast(float, fval))
+                        if column_states[c] != 3:
+                            _flatten_update_column_state(column_states, c, val)
             else:
                 _append_cell_slow(val, c, idx)
 

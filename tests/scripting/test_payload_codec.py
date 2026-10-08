@@ -1981,6 +1981,114 @@ def test_host_unpack_nonuniform_bool_two_is_false() -> None:
     assert unpacked[0][1] == 1.5
 
 
+def test_flatten_overflow_int_is_text_on_both_paths() -> None:
+    """A plain int past ~1e308 is text. float() used to raise OverflowError.
+
+    The fast lane is a numeric cell with no earlier string. An earlier string
+    forces the slow lane. Both ranks, both signs, stdlib and the accelerator.
+    """
+    from plugin.scripting.payload_codec import host_pack_split_grid
+
+    huge = 10**400
+    neg = -huge
+
+    def _check() -> None:
+        alone = host_pack_split_grid([[huge, neg]])
+        assert alone["strings"][0] == str(huge)
+        assert alone["strings"][1] == str(neg)
+        assert host_unpack_split_grid(alone) == [[str(huge), str(neg)]]
+
+        mixed = host_pack_split_grid([["02138", huge], [neg, "x"]])
+        assert mixed["strings"][1] == str(huge)
+        assert mixed["strings"][2] == str(neg)
+        assert host_unpack_split_grid(mixed) == [["02138", str(huge)], [str(neg), "x"]]
+
+        flat = host_pack_split_grid([huge, 1, neg])
+        assert flat["strings"][0] == str(huge)
+        assert flat["strings"][2] == str(neg)
+        assert 1 not in flat["strings"]
+        assert host_unpack_split_grid(flat) == [str(huge), 1, str(neg)]
+
+        after_text = host_pack_split_grid(["zip", neg])
+        assert after_text["strings"][0] == "zip"
+        assert after_text["strings"][1] == str(neg)
+
+    with cython_accelerator_context(enabled=False):
+        _check()
+    if payload_codec.fast_flatten_grid_1d is not None:
+        _check()
+
+
+def test_huge_int_list_serializes_as_text() -> None:
+    """Egress of a >=BINARY_MIN_CELLS list of huge ints must not fail the worker."""
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    huge = 10**400
+    packed = serialize_result([huge, -(huge)] * (BINARY_MIN_CELLS // 2))
+    assert is_split_grid(packed)
+    assert packed["strings"][0] == str(huge)
+    assert packed["strings"][1] == str(-huge)
+    restored = host_unpack_data(packed, as_nested_list=True)
+    assert restored[0] == str(huge)
+    assert restored[1] == str(-huge)
+
+
+def test_numpy_complex_scalar_keeps_imaginary_part() -> None:
+    """NumPy complex scalars are text. float() used to keep only the real part.
+
+    np.complex128 is a builtin complex; complex64 and clongdouble are not, so
+    the check is dtype.kind == "c". np.full(dtype=object) unboxes complex128
+    to builtin complex, which was already text. This builds an object array
+    that still holds the NumPy scalars, the path serialize_result packs.
+    """
+    np = pytest.importorskip("numpy")
+    from plugin.scripting.payload_codec import host_pack_split_grid
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+
+    cells = [
+        np.complex64(1 + 2j),
+        np.complex128(1 + 2j),
+        np.clongdouble(1 + 2j),
+    ]
+
+    def _check() -> None:
+        wire = host_pack_split_grid([cells])
+        assert wire["strings"] == {i: str(cell) for i, cell in enumerate(cells)}
+        assert all("2j" in text for text in wire["strings"].values())
+        assert host_unpack_split_grid(wire) == [[str(cell) for cell in cells]]
+
+        after = host_pack_split_grid([["02138", cells[0]]])
+        assert after["strings"][0] == "02138"
+        assert "2j" in after["strings"][1]
+        assert host_unpack_split_grid(after)[0][1] != 1.0
+
+        flat = host_pack_split_grid(cells)
+        assert flat["strings"][0] == str(cells[0])
+        assert "2j" in flat["strings"][1]
+        assert "2j" in flat["strings"][2]
+
+    with cython_accelerator_context(enabled=False):
+        _check()
+    if payload_codec.fast_flatten_grid_2d is not None:
+        _check()
+
+    obj = np.empty((BINARY_MIN_CELLS, 3), dtype=object)
+    for row in range(BINARY_MIN_CELLS):
+        obj[row, 0] = cells[0]
+        obj[row, 1] = cells[1]
+        obj[row, 2] = cells[2]
+    assert type(obj[0, 0]) is np.complex64
+    assert type(obj[0, 1]) is np.complex128
+    assert type(obj[0, 2]) is np.clongdouble
+    packed = serialize_result(obj)
+    assert is_split_grid(packed)
+    assert "2j" in packed["strings"][0]
+    assert "2j" in packed["strings"][1]
+    assert "2j" in packed["strings"][2]
+    restored = host_unpack_data(packed, as_nested_list=True)
+    assert restored[0] == [str(cell) for cell in cells]
+
+
 def test_flatten_overflow_fraction_is_text_without_accelerator() -> None:
     """A huge Fraction is text on the stdlib path, matching Cython _flatten_cell.
 

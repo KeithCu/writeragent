@@ -252,16 +252,18 @@ This section keeps **codec / wire** invariants only.
 
 The split-grid codec is the project's reference Tier-0 verification target: `deal` contracts on pack/unpack functions, optional CrossHair concolic checking, and pytest round-trip oracles. The A/B suite ([`tests/scripting/test_serialization_ab.py`](../../tests/scripting/test_serialization_ab.py) + Hypothesis + venv worker harness) compares `force="always"` (split_grid) vs `force="never"` (nested list) on small varied grids. See [`serialization-verification.md`](serialization-verification.md); background in [`../framework/formal-verification.md`](../framework/formal-verification.md).
 
-**Wire fidelity:** split_grid + Pickle5 must behave like nested Python lists + standard pickle — no extra type coercion in [`payload_codec.py`](../../plugin/scripting/payload_codec.py), except integers outside ±2^53, which the float64 buffer rounds ([Int fidelity](../calc/py-data-shapes.md)). Optimized `frombuffer` paths are a performance implementation of that contract.
+**Wire fidelity:** split_grid + Pickle5 must behave like nested Python lists + standard pickle — no extra type coercion in [`payload_codec.py`](../../plugin/scripting/payload_codec.py), except integers outside ±2^53, which the float64 buffer rounds ([Int fidelity](../calc/py-data-shapes.md)), integers `float()` rejects (stored as decimal text), and complex values (stored as text so the imaginary part is not dropped). Optimized `frombuffer` paths are a performance implementation of that contract.
 
 #### Split-Grid encoding (host pack)
 
 | Cell value | `buffer` (float64) | `strings` |
 |------------|-------------------|-----------|
 | `None` (empty Calc cell) | `NaN` | — |
-| `int` / `float` | numeric value | — |
+| `int` / `float` that `float()` accepts | numeric value (ints past ±2^53 round) | — |
+| `int` that `float()` rejects (`10**400`) | `NaN` | decimal text |
 | `bool` | `0.0` / `1.0` | — |
 | `str` (including `"02138"`) | `NaN` | text preserved by flat index |
+| Python `complex` or a NumPy complex scalar | `NaN` | `str(val)`, imaginary part kept |
 
 Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank). `child_pack_result` does not itself turn `np.generic`, `Decimal`, or `Fraction` cells into host-unpickleable-safe leaves. `serialize_result` runs `_coerce_host_pickle_tree` on list/dict results and on DataFrame/Series object grids before that pack.
 

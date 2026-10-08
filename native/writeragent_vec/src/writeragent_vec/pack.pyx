@@ -14,7 +14,6 @@ from cpython.list cimport PyList_GET_ITEM, PyList_GET_SIZE
 from cpython.float cimport PyFloat_AsDouble, PyFloat_Check
 from cpython.long cimport PyLong_AsLong, PyLong_Check
 from cpython.bool cimport PyBool_Check
-from cpython.exc cimport PyErr_Occurred, PyErr_Clear
 
 cdef extern from "Python.h":
     object PyObject_Str(object)
@@ -73,6 +72,8 @@ cdef inline bint _flatten_cell(
 ):
     cdef double fval
 
+    cdef object dtype
+
     if val is None:
         buf_view[idx] = c_nan
         column_has_none[c] = True
@@ -80,22 +81,52 @@ cdef inline bint _flatten_cell(
         has_non_numeric = True
         buf_view[idx] = c_nan
         strings[idx] = val
-    elif PyFloat_Check(val) or PyLong_Check(val) or PyBool_Check(val):
-        # Hot fast-path for CPython built-in numeric types
+    elif PyFloat_Check(val) or PyBool_Check(val):
+        # Hot fast-path for CPython built-in float and bool.
         fval = PyFloat_AsDouble(val)
         buf_view[idx] = fval
         _update_column_state(column_states, c, val)
-    else:
-        # NumPy scalars, other custom numeric classes, or non-numeric objects
-        fval = PyFloat_AsDouble(val)
-        if fval == -1.0 and PyErr_Occurred():
-            PyErr_Clear()
+    elif PyLong_Check(val):
+        # What was wrong: PyFloat_AsDouble on a huge int (10**400) raises
+        # OverflowError. cpython.float declares it ``except? -1``, so Cython
+        # raises at the call and a following PyErr_Occurred check never runs.
+        # The error escaped this function, _try_accel fell back to stdlib, and
+        # the matching Python int branch crashed. Why this works: catch
+        # OverflowError and store str(val), matching _numeric_cell_to_float.
+        # Integers float() accepts stay numeric, including past 53 bits.
+        # The integer -1 is -1.0 with no exception, so it is not text.
+        try:
+            fval = PyFloat_AsDouble(val)
+        except OverflowError:
             has_non_numeric = True
             buf_view[idx] = c_nan
-            strings[idx] = val if PyUnicode_Check(val) else PyObject_Str(val)
+            strings[idx] = PyObject_Str(val)
         else:
             buf_view[idx] = fval
             _update_column_state(column_states, c, val)
+    else:
+        # NumPy scalars, other custom numeric classes, or non-numeric objects.
+        # Kind "c" (np.complex64/128/clongdouble): PyFloat_AsDouble keeps the
+        # real part and does not set an error. Python complex fails the
+        # conversion and is already text. Check kind before converting.
+        dtype = getattr(val, "dtype", None)
+        if dtype is not None and getattr(dtype, "kind", None) == "c":
+            has_non_numeric = True
+            buf_view[idx] = c_nan
+            strings[idx] = PyObject_Str(val)
+        else:
+            # Same except? -1 trap as the int arm: the error check after
+            # PyFloat_AsDouble was unreachable, so a failed conversion raised
+            # out of this function instead of storing str(val).
+            try:
+                fval = PyFloat_AsDouble(val)
+            except (OverflowError, TypeError, ValueError):
+                has_non_numeric = True
+                buf_view[idx] = c_nan
+                strings[idx] = val if PyUnicode_Check(val) else PyObject_Str(val)
+            else:
+                buf_view[idx] = fval
+                _update_column_state(column_states, c, val)
 
     return has_non_numeric
 
