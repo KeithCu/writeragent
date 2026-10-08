@@ -112,7 +112,10 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 ### Key invariants encoded
 
 - Envelope detectors return `bool`; if `True`, payload tag and required fields match production rules. Shape extents are non-negative `int`s, not `bool` (`True` is an `int` subclass). `column_kinds_for_grid` raises `ValueError` on a jagged grid, same as flatten
-- `strings` dict keys are integers; values are strings
+- `strings` dict keys are integers; values are strings. Ingress keys that `int()` to the same index (`1` and `"1"`) raise `ValueError`. Egress `wire_str_key` is the same hard error: mixed int/str keys are not renamed
+- `child_unpack_data` walks a plain dict so a nested envelope unpacks. List values inside that dict stay lists
+- `float()` `OverflowError` (a huge `Fraction`) is stored as text, matching Cython `_flatten_cell`
+- The row-count split_grid shortcut in `host_pack_data` requires a non-empty first row. Zero-width rows use `cell_count`
 - `column_kinds` length matches column count
 - Buffer byte length is a multiple of 8 (float64 cells)
 - When `strings == {}`, child unpack returns ndarray (pytest); when strings present, returns list (`@deal.ensure` on `child_unpack_split_grid`)

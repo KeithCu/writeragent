@@ -355,6 +355,7 @@ MAX_BENCH_CELLS = 100_000
 """Upper cap for benchmark grids (scripts/bench_serialization.py; production cap is scripting.python_max_data_cells)."""
 
 ForceBinary = str
+# Envelope ``dtype`` tag only. The buffer codec hardcodes array.array("d") and np.float64.
 SPLIT_GRID_WIRE_DTYPE = "float64"
 ColumnKind = Literal["int", "float", "bool"]
 """Wire column kind tag. Use ``str`` in function annotations (CrossHair cannot proxy ``Literal``)."""
@@ -1180,11 +1181,14 @@ def _flatten_append_cell_slow(
             # same number became 1.25 or the text "1.25" / "1/4" depending on
             # position. decimal and fractions are on the venv import whitelist,
             # and a pandas object column reaches this flatten without the
-            # pickle-leaf coerce. Strings stay text (zip codes). Overflow
-            # still propagates, matching the fast path's except clause.
+            # pickle-leaf coerce. Strings stay text (zip codes).
+            # OverflowError used to propagate here. The fast path catches it
+            # and retries this helper, and Cython ``_flatten_cell`` clears
+            # PyFloat_AsDouble's OverflowError and stores str(val). Catch it
+            # so a huge Fraction is text with or without the accelerator.
             try:
                 fval = float(cast("Any", val))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 buf_append(nan)
                 strings[idx] = str(val)
             else:
@@ -1258,6 +1262,8 @@ def _flatten_grid_to_components(
 
     buf = array.array("d")
     strings: dict[int, str] = {}
+    # Bound to this array before the accelerator may rebind ``buf``. Stdlib
+    # fallback appends here; do not move this capture below that block.
     buf_append = buf.append
     nan = math.nan
 
@@ -1494,9 +1500,10 @@ def host_pack_data(
             nrows = len(grid)
             is_2d = type(grid[0]) in (list, tuple)
 
-            # Optimization: If row count meets threshold, we'll definitely use Split-Grid.
-            # Skip the expensive max(len(r)) pass over the full grid.
-            if is_2d and force == "auto" and nrows >= min_cells:
+            # Row count is a cell lower bound only when the first row is non-empty.
+            # 100 empty rows used to pack a split_grid with shape [100, 0].
+            # Skip the max(len(r)) pass when that lower bound already qualifies.
+            if is_2d and force == "auto" and nrows >= min_cells and len(grid[0]) > 0:
                 return host_pack_split_grid(grid)
 
             # Otherwise calculate full shape for threshold check
@@ -1561,6 +1568,12 @@ def _validate_split_grid_strings(envelope: dict[str, Any], expected_cells: int) 
         if not isinstance(v, str):
             raise ValueError(
                 f"split_grid string value at {ik} must be str, got {type(v).__name__}"
+            )
+        # 1 and "1" both int() to 1. Last-wins used to drop a cell. Egress
+        # wire_str_key refuses the same collision.
+        if ik in strings:
+            raise ValueError(
+                f"split_grid string keys collide at index {ik} ({k!r} and an earlier key)"
             )
         # np.str_ is a str subclass. Host pickle has no NumPy, so store a plain str.
         strings[ik] = v if type(v) is str else str(v)
@@ -1707,6 +1720,9 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
         return {k: host_unpack_data(v, as_nested_list=as_nested_list, _depth=_depth + 1) for k, v in wire.items()}
     if isinstance(wire, (list, tuple)):
         unpacked = [host_unpack_data(v, as_nested_list=as_nested_list, _depth=_depth + 1) for v in wire]
+        # Tuple subclasses (namedtuple) collapse to a plain tuple. type(obj)(items)
+        # TypeErrors when __new__ does not take one iterable, and a script-local
+        # namedtuple is not importable on the host.
         return tuple(unpacked) if isinstance(wire, tuple) else type(wire)(unpacked)
     return wire
 
@@ -1941,7 +1957,7 @@ _deal_child_unpack_wire_ok = (
 @deal.pre(lambda wire, *_unused, **__: _deal_child_unpack_wire_ok(wire))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) is not None)
 @deal.raises(ValueError, TypeError, AttributeError)
-def child_unpack_data(wire: Any) -> Any:
+def child_unpack_data(wire: Any, *, _depth: int = 0) -> Any:
     """Materialize worker ``data`` in venv.
 
     For ``calc_range`` / ``multi_data`` of ranges, returns a :class:`CalcRange` or
@@ -1949,6 +1965,8 @@ def child_unpack_data(wire: Any) -> Any:
     Legacy bare grids still become ndarray/list.
     """
     # crosshair: off
+    if _depth > _MAX_UNPACK_DEPTH:
+        raise ValueError("payload_codec: child_unpack_data maximum recursion depth exceeded")
     try:
         from plugin.scripting.calc_range import is_calc_range_payload, materialize_calc_range
 
@@ -1956,7 +1974,23 @@ def child_unpack_data(wire: Any) -> Any:
             return materialize_calc_range(wire)
         if is_multi_data(wire):
             items = wire.get("items") or []
-            return [child_unpack_data(item) for item in items]
+            return [child_unpack_data(item, _depth=_depth + 1) for item in items]
+        if is_split_grid(wire):
+            return _child_unpack_single_data(wire)
+        if is_image_payload(wire):
+            return wire
+        # Host walks plain dicts. This used to return them unchanged, so a
+        # split_grid nested under a dict reached user code still packed.
+        # Lists stay as-is: the list arm is the grid materializer, and turning
+        # a numeric list stored in a dict into an ndarray would change
+        # test_child_unpack_plain_python_without_numpy. Only dict values can
+        # be envelopes. OrderedDict is not ``type is dict`` (same AttrDict
+        # rule as host_unpack_data).
+        if type(wire) is dict:
+            return {
+                k: child_unpack_data(v, _depth=_depth + 1) if type(v) is dict else v
+                for k, v in wire.items()
+            }
         return _child_unpack_single_data(wire)
     except Exception:
         log.exception(
@@ -2194,6 +2228,9 @@ def child_pack_result(
         if isinstance(result, (list, tuple)):
             if _needs_elementwise_pack(result, _depth=_depth+1):
                 packed = [child_pack_result(x, min_cells=min_cells, force=force, _depth=_depth + 1) for x in result]
+                # Tuple subclasses (namedtuple) collapse to a plain tuple. type(obj)(items)
+                # TypeErrors when __new__ does not take one iterable, and a script-local
+                # namedtuple is not importable on the host.
                 return tuple(packed) if isinstance(result, tuple) else type(result)(packed)
             if result and (type(result[0]) in (list, tuple)) and all(isinstance(r, (list, tuple)) and len(r) == len(result[0]) for r in result):
                 # Strict rectangular 2D grid: all rows are lists/tuples. Otherwise fall through to treat as 1D list-of-mixed (supports fancier result strategy).
@@ -2202,11 +2239,14 @@ def child_pack_result(
             elif result and type(result[0]) in (list, tuple):
                 # Jagged: first item is a row but later items are not (e.g. [[None], None]).
                 packed = [child_pack_result(x, min_cells=min_cells, force=force, _depth=_depth + 1) for x in result]
+                # Same tuple-subclass collapse as the elementwise branch above.
                 return tuple(packed) if isinstance(result, tuple) else type(result)(packed)
             else:
                 grid = list(result)
                 grid_shape = (len(grid),)
             if should_use_binary_envelope(grid_shape, min_cells=min_cells, force=force):
+                # Shared stdlib grid packer (also used by host_pack_data). The
+                # host_ name is historical; this path runs in the venv too.
                 return host_pack_split_grid(grid)
             out = grid_from_nested_list(grid)
             if log.isEnabledFor(logging.DEBUG):

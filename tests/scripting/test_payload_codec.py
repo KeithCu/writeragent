@@ -1607,3 +1607,75 @@ def test_host_unpack_nonuniform_bool_two_is_false() -> None:
     unpacked = host_unpack_split_grid(nan_env)
     assert math.isnan(unpacked[0][0])
     assert unpacked[0][1] == 1.5
+
+
+def test_flatten_overflow_fraction_is_text_without_accelerator() -> None:
+    """A huge Fraction is text on the stdlib path, matching Cython _flatten_cell.
+
+    The fast path catches OverflowError and retries the slow helper. An earlier
+    text cell forces the slow path directly. Both used to raise.
+    """
+    from fractions import Fraction
+
+    huge = Fraction(10**309)
+    orig = payload_codec.fast_flatten_grid_2d
+    payload_codec.fast_flatten_grid_2d = None
+    try:
+        alone = payload_codec.host_pack_split_grid([[huge]])
+        assert alone["strings"][0] == str(huge)
+        mixed = payload_codec.host_pack_split_grid([["02138", huge]])
+        assert mixed["strings"][0] == "02138"
+        assert mixed["strings"][1] == str(huge)
+    finally:
+        payload_codec.fast_flatten_grid_2d = orig
+
+
+def test_split_grid_unpack_rejects_duplicate_stringified_keys() -> None:
+    """Keys that int() to the same index (1 and \"1\") must not last-wins."""
+    pytest.importorskip("numpy")
+    envelope = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "shape": [2],
+        "buffer": array.array("d", [float("nan"), 1.0]).tobytes(),
+        "strings": {0: "a", "0": "b"},
+        "column_kinds": ["float"],
+    }
+    with pytest.raises(ValueError, match="collide"):
+        host_unpack_split_grid(envelope)
+    with pytest.raises(ValueError, match="collide"):
+        child_unpack_split_grid(envelope)
+
+
+def test_child_unpack_plain_dict_unpacks_nested_split_grid() -> None:
+    """A split_grid nested in a plain dict unpacks. A nested list stays a list."""
+    np = pytest.importorskip("numpy")
+    grid = [[float(i)] for i in range(4)]
+    out = child_unpack_data({"label": host_pack_data(grid, force="always")})
+    assert isinstance(out["label"], np.ndarray)
+    assert out["label"].shape == (4, 1)
+    assert child_unpack_data({"changes": [[1.0, 2.0]]}) == {"changes": [[1.0, 2.0]]}
+
+
+def test_host_pack_empty_rows_skip_binary_shortcut() -> None:
+    """Zero-width rows are not a split_grid. A non-empty first row still is."""
+    empty = [[] for _ in range(BINARY_MIN_CELLS)]
+    assert not is_split_grid(host_pack_data(empty, force="auto"))
+    filled = [[1.0] for _ in range(BINARY_MIN_CELLS)]
+    assert is_split_grid(host_pack_data(filled, force="auto"))
+
+
+def test_child_pack_namedtuple_of_ndarrays_is_plain_tuple() -> None:
+    """Tuple subclasses collapse to tuple and do not call type(obj)(items)."""
+    from collections import namedtuple
+
+    np = pytest.importorskip("numpy")
+    Point = namedtuple("Point", "x y")
+    arr = np.zeros((4, 4))
+    out = child_pack_result(Point(arr, arr), force="always")
+    assert type(out) is tuple
+    assert len(out) == 2
+    assert is_split_grid(out[0])
+    assert is_split_grid(out[1])
+    unpacked = host_unpack_data(Point(1, 2))
+    assert type(unpacked) is tuple
+    assert unpacked == (1, 2)
