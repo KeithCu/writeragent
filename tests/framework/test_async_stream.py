@@ -1093,6 +1093,50 @@ def test_idle_stop_closes_open_thinking():
     assert " /thinking\n" in joined
 
 
+def test_async_worker_flushes_queue_with_raw_and_flush():
+    """A queue with raw and flush is flushed before the terminal item.
+
+    The drain must not require a BatchingStreamQueue instance. Text stays
+    off the raw queue until flush, so a missed flush leaves the drain empty.
+    """
+    from plugin.framework.async_stream import run_async_worker_with_drain
+
+    ctx = MagicMock()
+    toolkit = DummyToolkit()
+    raw: queue.Queue = queue.Queue()
+
+    class _HoldingQueue:
+        def __init__(self) -> None:
+            self.raw = raw
+            self._held: list[object] = []
+
+        def put(self, item: object) -> None:
+            self._held.append(item)
+
+        def flush(self) -> None:
+            while self._held:
+                self.raw.put(self._held.pop(0))
+
+    applied: list[str] = []
+    holder = _HoldingQueue()
+
+    def worker(worker_q):
+        worker_q.put((StreamQueueKind.CHUNK, "kept"))
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        run_async_worker_with_drain(
+            ctx,
+            worker,
+            lambda text, _is_thinking: applied.append(text),
+            lambda _item: None,
+            lambda _e: None,
+            q=holder,
+        )
+
+    assert applied == ["kept"]
+    assert holder._held == []
+
+
 def test_async_worker_stop_flushes_batcher_before_worker_returns():
     """Stop must flush a BatchingStreamQueue before the worker's finally."""
     from plugin.framework.async_stream import run_async_worker_with_drain

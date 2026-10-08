@@ -46,11 +46,11 @@ import queue
 import threading
 import time
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, TypeAlias, Callable, cast
 
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.blocking_wait import BlockingPumpKind as BlockingPumpKind, BlockingWaitStopped as BlockingWaitStopped, run_blocking_in_thread as run_blocking_in_thread
+from plugin.framework.stream_batch import BatchingStreamQueue as BatchingStreamQueue, StreamQueueKind as StreamQueueKind
 from plugin.framework.stream_delta import accumulate_delta as accumulate_delta, coalesce_split_tool_calls as coalesce_split_tool_calls
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
@@ -58,24 +58,6 @@ from plugin.framework.async_drain_guard import acquire_drain_owner, release_drai
 from plugin.framework.queue_executor import NestedDrainOwnerError, _marshal_thread_tag, async_callback_for_drain_rearm, default_executor, drain_owner_scope, get_drain_owner, pump_ui_idle
 
 log = logging.getLogger(__name__)
-
-
-class StreamQueueKind(str, Enum):
-    """First element of stream queue tuples (producers must use these enum members)."""
-
-    CHUNK = "chunk"
-    THINKING = "thinking"
-    STATUS = "status"
-    STREAM_DONE = "stream_done"
-    NEXT_TOOL = "next_tool"
-    TOOL_DONE = "tool_done"
-    TOOL_THINKING = "tool_thinking"
-    APPROVAL_REQUIRED = "approval_required"
-    FINAL_DONE = "final_done"
-    STOPPED = "stopped"
-    ERROR = "error"
-    TOOL_CALL = "tool_call"
-    TOOL_RESULT = "tool_result"
 
 
 @deal.pre(lambda prefix, data: ascii_bounded(prefix, DEAL_MAX_TOKEN, min_len=1))
@@ -104,13 +86,6 @@ def put_stream_queue_stopped(q: queue.Queue[Any]) -> None:
     """Enqueue a user-stopped signal. Always uses (kind, payload); do not use a 1-tuple."""
     # crosshair: off
     q.put((StreamQueueKind.STOPPED, None))
-
-
-# Imported after StreamQueueKind exists. stream_batch imports the enum at its
-# bottom, after BatchingStreamQueue is defined, so either import order finishes.
-# run_async_worker_with_drain still does isinstance(q, BatchingStreamQueue):
-# Stop flushes that batcher, and that branch stays in this file.
-from plugin.framework.stream_batch import BatchingStreamQueue
 
 
 @dataclass(slots=True)
@@ -1216,6 +1191,21 @@ def _unwatch_queue_terminal(real_q: Any, saw_terminal: list[bool]) -> None:
             return
 
 
+def _producer_batch(q: Any) -> tuple[queue.Queue[Any], Callable[[], None] | None]:
+    """Return the drain queue and a flush when ``q`` is a producer batcher.
+
+    ``run_async_worker_with_drain`` must not name ``BatchingStreamQueue``.
+    A plain ``queue.Queue`` has neither ``raw`` nor ``flush``, so Stop and
+    the worker finally leave it alone.
+    """
+    # crosshair: off
+    raw = getattr(q, "raw", None)
+    flush = getattr(q, "flush", None)
+    if isinstance(raw, queue.Queue) and callable(flush):
+        return raw, cast("Callable[[], None]", flush)
+    return cast("queue.Queue[Any]", q), None
+
+
 def run_async_worker_with_drain(
     ctx: Any,
     worker_fn: Callable[[queue.Queue[Any]], None],
@@ -1226,10 +1216,14 @@ def run_async_worker_with_drain(
     stop_checker: Callable[[], bool] | None = None,
     on_stopped_fn: Callable[[], None] | None = None,
     name: str = "async-worker",
-    q: queue.Queue[Any] | BatchingStreamQueue | None = None,
+    q: Any = None,
     on_approval_required: Callable[[Any], None] | None = None,
 ) -> None:
     """Run a background worker and drain its queue on the main thread.
+
+    ``q`` is a ``queue.Queue`` or a producer batcher with ``raw`` and
+    ``flush``. The drain reads ``raw`` and calls ``flush`` on Stop and
+    before the terminal item.
 
     ``worker_fn`` is a callable that accepts the queue and produces
     :class:`StreamQueueKind` tuples. It does not need to post a terminal
@@ -1248,9 +1242,7 @@ def run_async_worker_with_drain(
         q = queue.Queue()
     job_done = [False]
 
-    # Support BatchingStreamQueue transparently for producer-side batching
-    _batched: BatchingStreamQueue | None = q if isinstance(q, BatchingStreamQueue) else None
-    _real_q: queue.Queue[Any] = cast("queue.Queue[Any]", _batched.raw if _batched is not None else q)
+    _real_q, _flush = _producer_batch(q)
 
     # What was wrong: _TerminalWatch only saw puts through the wrapper object
     # passed to worker_fn. send_handlers closes over the real queue and puts
@@ -1260,10 +1252,6 @@ def run_async_worker_with_drain(
     # one queue share the wrapper; see _watch_queue_terminal.
     saw_terminal = [False]
     real_any: Any = _real_q
-
-    def _flush_producer_batch() -> None:
-        if _batched is not None:
-            _batched.flush()
 
     def worker_wrapper() -> None:
         # What was wrong: ``finally`` always queued STREAM_DONE after ERROR.
@@ -1291,9 +1279,10 @@ def run_async_worker_with_drain(
             except BaseException as e:
                 error_item = (StreamQueueKind.ERROR, format_error_payload(e))
             try:
-                _flush_producer_batch()
+                if _flush is not None:
+                    _flush()
             except Exception:
-                log.exception("BatchingStreamQueue flush before terminal failed")
+                log.exception("producer batch flush before terminal failed")
             if error_item is not None and not saw_terminal[0]:
                 real_any.put(error_item)
             elif not saw_terminal[0]:
@@ -1375,7 +1364,7 @@ def run_async_worker_with_drain(
     # the 250ms batcher. This helper accepted a batcher and only flushed it
     # in the worker finally, so Stop could return with up to one interval
     # of already-produced text still buffered.
-    run_stream_drain_loop(_real_q, toolkit, job_done, resolved_apply_chunk, on_stream_done=on_stream_done_wrapper, on_stopped=resolved_on_stopped, on_error=resolved_on_error, on_status_fn=on_status_fn, on_approval_required=on_approval_required, stop_checker=stop_checker, flush_pending=_flush_producer_batch if _batched is not None else None)
+    run_stream_drain_loop(_real_q, toolkit, job_done, resolved_apply_chunk, on_stream_done=on_stream_done_wrapper, on_stopped=resolved_on_stopped, on_error=resolved_on_error, on_status_fn=on_status_fn, on_approval_required=on_approval_required, stop_checker=stop_checker, flush_pending=_flush)
 
 
 def _run_client_stream(

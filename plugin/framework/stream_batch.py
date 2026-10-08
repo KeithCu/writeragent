@@ -20,9 +20,8 @@
 ``StreamQueueKind`` flushes first. The drain loop never names this class.
 Stop reaches it through ``flush_pending`` on ``run_async_worker_with_drain``.
 
-``StreamQueueKind`` is imported at the bottom, after ``BatchingStreamQueue``
-exists. ``async_stream`` imports this module only after that enum exists, so
-either import order finishes.
+``StreamQueueKind`` lives here so this module does not import ``async_stream``.
+``async_stream`` re-exports the enum.
 """
 
 from __future__ import annotations
@@ -31,6 +30,7 @@ import logging
 import threading
 import time
 import weakref
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
@@ -39,6 +39,24 @@ if TYPE_CHECKING:
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
+
+
+class StreamQueueKind(str, Enum):
+    """First element of stream queue tuples (producers must use these enum members)."""
+
+    CHUNK = "chunk"
+    THINKING = "thinking"
+    STATUS = "status"
+    STREAM_DONE = "stream_done"
+    NEXT_TOOL = "next_tool"
+    TOOL_DONE = "tool_done"
+    TOOL_THINKING = "tool_thinking"
+    APPROVAL_REQUIRED = "approval_required"
+    FINAL_DONE = "final_done"
+    STOPPED = "stopped"
+    ERROR = "error"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
 
 
 class _ReusableBurstTimer:
@@ -331,8 +349,3 @@ class BatchingStreamQueue:
             pending_content = sum(len(parts) for kind, parts in self._runs if kind == StreamQueueKind.CHUNK)
             pending_thinking = sum(len(parts) for kind, parts in self._runs if kind == StreamQueueKind.THINKING)
             return f"BatchingStreamQueue(interval={self._interval}, pending_content={pending_content}, pending_thinking={pending_thinking})"
-
-
-# Late import: this module is loaded from async_stream, which defines the enum.
-# Importing here, after the class, lets either module be imported first.
-from plugin.framework.async_stream import StreamQueueKind  # noqa: E402

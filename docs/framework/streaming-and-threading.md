@@ -404,7 +404,7 @@ The net visual effect for the user was **micro-stutter** during long assistant a
 
 ### The `BatchingStreamQueue` contract (the single source of truth)
 
-See the full class and docstring in [`plugin/framework/stream_batch.py`](../../plugin/framework/stream_batch.py) (`BatchingStreamQueue`). `run_async_worker_with_drain` in [`async_stream.py`](../../plugin/framework/async_stream.py) still branches on `isinstance(q, BatchingStreamQueue)` so Stop can flush that batcher.
+See the full class and docstring in [`plugin/framework/stream_batch.py`](../../plugin/framework/stream_batch.py) (`BatchingStreamQueue` and `StreamQueueKind`). `run_async_worker_with_drain` in [`async_stream.py`](../../plugin/framework/async_stream.py) flushes any queue that exposes `raw` and `flush`, so Stop emits text still inside the batcher.
 
 Key guarantees the implementation provides:
 
@@ -419,7 +419,7 @@ Key guarantees the implementation provides:
   - `STATUS` (and any other future control kinds)
 - Convenience factories: `.content_cb()` and `.thinking_cb()` so old `lambda t: q.put((CHUNK, t))` sites become one-liners with almost no diff.
 - The wrapper is transparent for code that still wants the raw `Queue`: `batched.raw` gives the underlying queue; the drain loop and most legacy sites continue to work unchanged.
-- `run_async_worker_with_drain` has defensive support: if you pass a `BatchingStreamQueue` as the `q` argument it will automatically flush on error paths and on the terminal sentinel, then post the sentinel on the real queue.
+- `run_async_worker_with_drain` has defensive support: if `q` exposes `raw` and `flush` (as `BatchingStreamQueue` does) it flushes on error paths and on the terminal sentinel, then posts the sentinel on `raw`.
 
 ### Current implemented scope (what *was* wired in the initial change)
 
@@ -497,7 +497,7 @@ Per the implementation plan and the final status after the May 2025-25 change, t
 
 ### Cross references
 
-- Implementation: `plugin/framework/stream_batch.py` (`BatchingStreamQueue`) and `plugin/framework/async_stream.py` (the `isinstance` branch and flush in `run_async_worker_with_drain`)
+- Implementation: `plugin/framework/stream_batch.py` (`BatchingStreamQueue`, `StreamQueueKind`) and `plugin/framework/async_stream.py` (the `raw` / `flush` unwrap in `run_async_worker_with_drain`)
 - Primary wiring: `plugin/chatbot/tool_loop.py` (turn `batcher`, `_spawn_llm_worker`, `_spawn_final_stream`)
 - Tests: `tests/framework/test_stream_batch.py` (producer batcher tests)
 - UX context & scroll work: [../chat/rich-text-control-sidebar.md](../chat/rich-text-control-sidebar.md) (`reveal_rich_control_caret`)
