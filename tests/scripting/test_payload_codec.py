@@ -157,7 +157,8 @@ def test_column_kinds_from_cell_types():
     assert column_kinds_for_grid([[100, 1.5], [101, 2.5]]) == ["int", "float"]
     assert column_kinds_for_grid([[1.5, 2.0]]) == ["float", "float"]
     assert column_kinds_for_grid([[1, None]]) == ["int", "float"]
-    assert column_kinds_for_grid([[1, "x"]]) == ["int", "int"]
+    assert column_kinds_for_grid([[1, "x"]]) == ["int", "float"]
+    assert column_kinds_for_grid([["x"], ["y"]]) == ["float"]
 
 
 def test_uniform_unpack_uses_full_column_kinds_on_wire():
@@ -947,11 +948,13 @@ def test_split_grid_boolean_roundtrip_fidelity():
     
     # 1. Test column kinds computed correctly
     kinds = payload_codec.column_kinds_for_grid(grid)
-    assert kinds == ["bool", "int", "int"]  # column 0 is bool, column 2 has None and ints so remains int
+    # Text-only column is float, not int. The int column keeps int even with a None
+    # because the grid has strings, so the pure-numeric None promotion does not fire.
+    assert kinds == ["bool", "float", "int"]
     
     # 2. Test round-trip unpacking in child
     wire = host_pack_data(grid, force="always")
-    assert wire["column_kinds"] == ["bool", "int", "int"]
+    assert wire["column_kinds"] == ["bool", "float", "int"]
     child_unpacked = child_unpack_data(wire)
     assert isinstance(child_unpacked, list)
     assert child_unpacked[0] == [True, "apple", 10]
@@ -1044,7 +1047,7 @@ def test_split_grid_lattice_promotion_comprehensive():
     """Verify structural type promotions and kinds behavior for all scenarios."""
     # 1. Boolean-only column keeps bool kind in mixed grid
     grid1 = [[True, "apple"], [False, "banana"], [None, "cherry"]]
-    assert payload_codec.column_kinds_for_grid(grid1) == ["bool", "int"]
+    assert payload_codec.column_kinds_for_grid(grid1) == ["bool", "float"]
     
     # 2. Boolean mixed with integers becomes int
     grid2 = [[True], [10], [False]]
@@ -1493,3 +1496,81 @@ def test_flatten_falls_back_when_accelerator_length_mismatches() -> None:
     assert len(buf) == 2
     assert list(buf) == [1.0, 2.0]
     assert kinds == ["int", "int"]
+
+
+def test_flatten_1d_falls_back_when_accelerator_length_mismatches() -> None:
+    """A short 1D native buffer must not replace the stdlib flatten."""
+
+    def fake_flatten(_grid: list):
+        return array.array("d", [9.0]), {}, [3], [False], False
+
+    orig = payload_codec.fast_flatten_grid_1d
+    payload_codec.fast_flatten_grid_1d = fake_flatten
+    try:
+        buf, _strings, kinds, shape = payload_codec._flatten_grid_to_components([1, 2, 3])
+    finally:
+        payload_codec.fast_flatten_grid_1d = orig
+    assert shape == [3]
+    assert list(buf) == [1.0, 2.0, 3.0]
+    assert kinds == ["int"]
+
+
+def test_child_pack_rank3_is_list_of_planes() -> None:
+    """Rank 3+ is not a split_grid envelope. Each plane packs on its own."""
+    np = pytest.importorskip("numpy")
+    arr = np.arange(125).reshape(5, 5, 5)
+    packed = child_pack_result(arr, force="always")
+    assert isinstance(packed, list)
+    assert len(packed) == 5
+    assert is_split_grid(packed) is False
+    assert is_split_grid(packed[0]) is True
+    back = host_unpack_data(packed)
+    assert back[0][0][0] == 0
+    assert back[4][4][4] == 124
+
+    small = child_pack_result(np.arange(8).reshape(2, 2, 2))
+    assert small == [[[0, 1], [2, 3]], [[4, 5], [6, 7]]]
+
+
+def test_child_pack_split_grid_rejects_rank_and_complex() -> None:
+    np = pytest.importorskip("numpy")
+    with pytest.raises(ValueError, match="rank 1 or 2"):
+        payload_codec.child_pack_split_grid(np.zeros((2, 2, 2)))
+    with pytest.raises(ValueError, match="i/u/f/b"):
+        payload_codec.child_pack_split_grid(np.zeros((2, 2), dtype=complex))
+    assert child_pack_result(np.array(3), force="always") == 3
+
+
+def test_child_pack_complex_keeps_imaginary_part() -> None:
+    """astype(float64) used to keep only the real part."""
+    np = pytest.importorskip("numpy")
+    arr = np.array([[1 + 2j, 3 + 4j], [5 + 6j, 7 + 8j]])
+    wire = child_pack_result(arr, force="always")
+    assert is_split_grid(wire)
+    back = host_unpack_data(wire)
+    assert back[0][0] == "(1+2j)"
+    assert back[1][1] == "(7+8j)"
+
+
+def test_host_unpack_nonuniform_bool_two_is_false() -> None:
+    """A bool-tagged 2.0 is False on the mixed path, matching the uniform path. NaN stays NaN."""
+    two = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "dtype": "float64",
+        "shape": [1, 2],
+        "buffer": array.array("d", [2.0, 1.5]).tobytes(),
+        "strings": {},
+        "column_kinds": ["bool", "float"],
+    }
+    assert host_unpack_split_grid(two) == [[False, 1.5]]
+    nan_env = {
+        "__wa_payload__": PAYLOAD_SPLIT_GRID,
+        "dtype": "float64",
+        "shape": [1, 2],
+        "buffer": array.array("d", [float("nan"), 1.5]).tobytes(),
+        "strings": {},
+        "column_kinds": ["bool", "float"],
+    }
+    unpacked = host_unpack_split_grid(nan_env)
+    assert math.isnan(unpacked[0][0])
+    assert unpacked[0][1] == 1.5

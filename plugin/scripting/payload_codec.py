@@ -67,6 +67,10 @@ def _to_py(v: Any) -> Any:
     This is only reached for mixed-type (strings-present) child materialization paths.
     The import is local so the module can be imported on the host (LibreOffice's Python,
     which ships without NumPy).
+
+    ``obj_arr.tolist()`` may already yield builtin scalars, which would make this
+    walk redundant. Do not remove it without the serialization A/B suite
+    (docs/scripting/numpy-serialization.md): dropping it is an unpack change.
     """
     # crosshair: off  # recursive list/tuple Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
     try:
@@ -760,6 +764,9 @@ def _apply_column_kinds_to_ndarray(
         return arr.astype(np.int64)
     if uniform == "bool":
         # Host unpack treats only 1.0 as True. astype(bool) made every non-zero True.
+        # NaN becomes False here: a bool ndarray cannot store NaN. Host unpack
+        # keeps that NaN so a corrupt bool column still surfaces as a Calc error.
+        # Do not np.where the NaN back in — that promotes a clean bool column to float64.
         return arr == 1.0
     if uniform == "float":
         return arr
@@ -767,6 +774,7 @@ def _apply_column_kinds_to_ndarray(
         if column_kinds[0] == "int":
             return arr.astype(np.int64)
         if column_kinds[0] == "bool":
+            # Same NaN rule as the uniform bool path above.
             return arr == 1.0
         return arr
 
@@ -1017,6 +1025,9 @@ def _cell_for_json(value: Any) -> Any:
     Python None (from mixed/text results or explicit) becomes None (later mapped to empty cell in Calc).
     float('nan') / np.nan is preserved so it surfaces as a Calc error (cascades) rather than a silent blank.
     This applies to small grids (< BINARY_MIN_CELLS) and list results that do not use the split_grid envelope.
+
+    Named on purpose. Do not inline it into ``grid_from_nested_list``: this is
+    the list-path hook that must not start rewriting NaN.
     """
     if value is None:
         return None
@@ -1271,6 +1282,9 @@ def _flatten_grid_to_components(
 
     # Mostly-numeric Calc grids: try float(val) until non-numeric forces slow path.
     # None is handled in the fast path to avoid disabling it for empty cells.
+    # 1D and 2D each check the native buffer length, then fall back. A shared
+    # _try_accel helper would keep those checks from drifting; not extracted
+    # here because this is the flatten hot path.
     if is_2d:
         grid_2d = cast("list[list[Any]]", grid)
         # Bugfix: the rectangular check ran only on the stdlib branch. A native
@@ -1308,7 +1322,21 @@ def _flatten_grid_to_components(
         use_stdlib = True
         if fast_flatten_grid_1d is not None:
             try:
-                buf, strings, column_states, column_has_none, has_non_numeric = fast_flatten_grid_1d(grid_1d)
+                accel_buf, accel_strings, accel_states, accel_none, accel_non = fast_flatten_grid_1d(grid_1d)
+                # Same length guard as the 2D branch. Assign only after it passes
+                # so a short native buffer is not what we return (buf_append
+                # still targets the original array on fallback).
+                if len(accel_buf) != len(grid_1d):
+                    raise ValueError(
+                        f"accelerator returned {len(accel_buf)} cells, shape needs {len(grid_1d)}"
+                    )
+                buf, strings, column_states, column_has_none, has_non_numeric = (
+                    accel_buf,
+                    accel_strings,
+                    accel_states,
+                    accel_none,
+                    accel_non,
+                )
                 use_stdlib = False
             except Exception as e:
                 log.debug("payload_codec: Cython 1D accelerator failed, falling back to stdlib: %s", e)
@@ -1324,6 +1352,11 @@ def _flatten_grid_to_components(
             kind = "float"
         elif state == 1:
             kind = "bool"
+        elif state == 0:
+            # No numeric cell was seen (text-only, or blanks beside text).
+            # "int" was a lie for any consumer that trusts the tag. Decode
+            # still prefers the strings map, so cell values do not change.
+            kind = "float"
         else:
             kind = "int"
 
@@ -1510,6 +1543,8 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     Python None is only introduced for string cells (from the strings map) or for genuine None in mixed results.
     """
     # crosshair: off
+    # Host and child each decode buffer/b64 inline. A shared helper would keep
+    # the two sites from drifting; left inline so this hot path stays obvious.
     buf = array.array("d")
     if "buffer" in envelope:
         buf.frombytes(envelope["buffer"])
@@ -1552,10 +1587,11 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
         col_kind = [column_kinds[0 if is_1d else i % ncols] for i in range(len(buf))]
         flat_list = [
-            strings[i] if i in strings else 
+            strings[i] if i in strings else
             (val if math.isnan(val) else (
-                True if col_kind[i] == "bool" and val == 1.0 else
-                False if col_kind[i] == "bool" and val == 0.0 else
+                # Bool matches the uniform path: only 1.0 is True. A raw 2.0
+                # used to fall through and stay a float on this branch.
+                (val == 1.0) if col_kind[i] == "bool" else
                 int(val) if col_kind[i] == "int" else val
             ))
             for i, val in enumerate(buf)
@@ -1668,6 +1704,7 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
 
         import numpy as np
 
+        # Same buffer/b64 choice as host_unpack_split_grid. See the comment there.
         if "buffer" in envelope:
             raw = envelope["buffer"]
         elif "b64" in envelope:
@@ -1882,6 +1919,19 @@ def child_unpack_data(wire: Any) -> Any:
         raise
 
 
+def _is_numeric_wire_kind(kind: str | None) -> bool:
+    """True when ``astype(float64)`` on split_grid keeps the value.
+
+    Integer, unsigned, float, and bool only. Complex (``c``) would drop the
+    imaginary part with a ComplexWarning. Void/structured (``V``) raises inside
+    the cast. datetime64 (``M``) and timedelta64 (``m``) become Unix-epoch
+    units, not Calc serials or ISO text — ``_reject_temporal_ndarray`` still
+    raises for those before ``tolist()``, which is integer nanoseconds.
+    """
+    # crosshair: off
+    return kind in ("i", "u", "f", "b")
+
+
 def _reject_temporal_ndarray(arr: Any) -> None:
     """Refuse datetime64/timedelta64 on the float64 pack path.
 
@@ -1941,6 +1991,17 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
         if not isinstance(arr, np.ndarray):
             arr = np.asarray(arr)
         _reject_temporal_ndarray(arr)
+        # Rank 3+ used to be written as shape=[d0,d1,d2]. The detector only
+        # accepts rank 1 or 2, so host_unpack treated the envelope as a plain
+        # metadata dict (raw bytes included). A 0-d array did the same with
+        # shape=[].
+        if arr.ndim not in (1, 2):
+            raise ValueError(f"split_grid supports rank 1 or 2, got ndim {arr.ndim}")
+        kind = getattr(getattr(arr, "dtype", None), "kind", None)
+        if not _is_numeric_wire_kind(kind if isinstance(kind, str) else None):
+            raise ValueError(
+                f"split_grid float64 lane accepts dtype kinds i/u/f/b, got {kind!r}"
+            )
         ncols = int(arr.shape[1]) if arr.ndim == 2 else 1
         # A bool ndarray is not an integer dtype. Tagging it "float" made host
         # unpack restore 1.0/0.0 instead of True/False.
@@ -2037,13 +2098,28 @@ def child_pack_result(
                 kind = getattr(result.dtype, "kind", None)
                 # Before either the split_grid cast or tolist(). Both rewrite dates.
                 _reject_temporal_ndarray(result)
-                # Bugfix: child_pack_split_grid does ascontiguousarray(..., float64).
-                # A unicode/bytes/object ndarray at or above BINARY_MIN_CELLS raised
-                # ValueError and dropped a successful cell. Lists of those strings
-                # already go through host_pack_split_grid's strings map. Numeric
-                # kinds stay on the float64 path.
-                if kind not in ("U", "S", "O") and should_use_binary_envelope(
-                    shape, min_cells=min_cells, force=force
+                if result.ndim > 2:
+                    # A rank-3 tolist() looks like a rectangular 2D grid whose
+                    # cells are rows. The list packer would then split_grid that
+                    # outer plane and stringify the inner rows. Calc spill is
+                    # 2D, so pack one axis at a time. A first-class ND envelope
+                    # would need the detector and both unpackers together — do
+                    # not write a rank-3 shape into this envelope.
+                    return [
+                        child_pack_result(
+                            result[i], min_cells=min_cells, force=force, _depth=_depth + 1
+                        )
+                        for i in range(int(result.shape[0]))
+                    ]
+                # Bugfix: the old gate was ``kind not in ("U", "S", "O")``.
+                # Complex (``c``) passed it and astype(float64) dropped the
+                # imaginary part. Void/structured raised inside the cast and
+                # dropped the cell. Same whitelist as the DataFrame path.
+                wire_kind = kind if isinstance(kind, str) else None
+                if (
+                    result.ndim in (1, 2)
+                    and _is_numeric_wire_kind(wire_kind)
+                    and should_use_binary_envelope(shape, min_cells=min_cells, force=force)
                 ):
                     return child_pack_split_grid(result)
                 # Bugfix: the log said json_list egress, then the ndarray was returned

@@ -105,6 +105,11 @@ def legacy_b64_host_pack_split_grid(grid: list[Any] | list[list[Any]]) -> dict[s
 
 
 def legacy_b64_host_unpack_split_grid(envelope: dict[str, Any]) -> list[Any] | list[list[Any]]:
+    """Old base64 decoder kept as the A/B baseline.
+
+    Do not call ``host_unpack_split_grid`` from here. This oracle is supposed
+    to drift from production so a wire change shows up as a difference.
+    """
     import array
 
     b64_str = envelope.get("b64", "")

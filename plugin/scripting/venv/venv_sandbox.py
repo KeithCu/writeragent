@@ -40,6 +40,7 @@ from plugin.scripting.payload_codec import (
     child_pack_result,
     describe_wire_value,
     find_image_payloads,
+    _is_numeric_wire_kind,
     is_split_grid,
     wire_str_key,
 )
@@ -524,15 +525,6 @@ def _dtype_kind(obj: Any) -> str | None:
     dtype = getattr(obj, "dtype", None)
     kind = getattr(dtype, "kind", None)
     return kind if isinstance(kind, str) else None
-
-
-def _is_numeric_wire_kind(kind: str | None) -> bool:
-    """True when ``astype(float64)`` on split_grid is correct.
-
-    datetime64 (``M``) and timedelta64 (``m``) must not take that path — the cast
-    is Unix-epoch units, not Calc serials or ISO text.
-    """
-    return kind in ("i", "u", "f", "b")
 
 
 def _strip_datetime_tz(dt: datetime.datetime) -> datetime.datetime:

@@ -280,7 +280,7 @@ After unpack, `=PY()` exposes a `CalcRange` (see [data shapes](../calc/py-data-s
 |----------------|------------------------|
 | `np.ndarray` with `np.nan` | `float('nan')` preserved (Calc error on `=PY()` egress) |
 | `np.inf` / `-np.inf` | Still **inf** (not treated as missing) |
-| Large numeric array (≥ 100 cells) | `split_grid` on wire; host unpack → nested lists (NaN preserved) |
+| Large numeric array (≥ 100 cells, rank 1 or 2) | `split_grid` on wire; host unpack → nested lists (NaN preserved). Rank 3+ is a list of planes, not one envelope. Complex is not cast to float64 (imaginary part would be dropped); it takes the strings map |
 | Large string or object ndarray (≥ 100 cells) | `tolist()` then the same strings map as a Python list (not `astype(float64)`) |
 
 Blank vs NaN policy (locked): [../calc/py-data-shapes.md — Empty cells vs NaN](../calc/py-data-shapes.md#empty-cells-vs-nan). Host unpack preserves buffer NaN as `float('nan')`; `to_calc_compatible` maps `None` → `""` and leaves NaN as a double for Calc. A mixed result's `None` follows that rule only at or above `BINARY_MIN_CELLS` (NaN hole → Calc error). Below the threshold the nested list keeps `None` and spills a blank. Child mixed unpack still restores `None`. Pure-bool grids below the threshold become float64 on child ingest; split_grid keeps bool via `column_kinds`. Egress of bool is `1.0`/`0.0` either way.

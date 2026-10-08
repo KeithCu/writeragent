@@ -156,7 +156,7 @@ def test_column_kinds_for_grid_contract_kinds() -> None:
     assert column_kinds_for_grid([]) == []
     assert column_kinds_for_grid([0]) == ["int"]
     kinds = column_kinds_for_grid([[1, "x", True], [2, "y", False]])
-    assert kinds == ["int", "int", "bool"]
+    assert kinds == ["int", "float", "bool"]
     assert all(k in ("int", "float", "bool") for k in kinds)
 
 
@@ -211,7 +211,9 @@ def test_host_pack_multi_data_structure_and_roundtrip() -> None:
     assert envelope.get("__wa_payload__") == PAYLOAD_MULTI_DATA
     items = envelope["items"]
     assert len(items) == len(grids)
-    assert all(is_split_grid(item) for item in items)
+    # Empty host pack stays a list even with force=always (`if grid` in host_pack_data).
+    assert is_split_grid(items[0]) is False
+    assert all(is_split_grid(item) for item in items[1:])
 
     unpacked = host_unpack_data(envelope)
     assert isinstance(unpacked, list)
