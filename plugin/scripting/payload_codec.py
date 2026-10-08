@@ -172,6 +172,12 @@ def load_cython_accelerator() -> None:
     Desktop host pack also calls it from ``host_pack_data``. Compute workers unpack
     via ``frombuffer`` / pack ndarrays via ``tobytes`` and must not call this
     (importing unpack helpers is not a load).
+
+    ``=PY()`` can reach ``host_pack_data`` off the main thread (yellow bridge).
+    Two first loads both bind the same canary-verified functions; the GIL makes
+    that check-then-act idempotent. A lock would not cover an in-flight flatten
+    during ``invalidate_host_cython_accelerator``. Do not add one unless
+    invalidate must overlap a pack that is already running.
     """
     # crosshair: off  # sys.path/import sniffs (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Engine-hostile; keep off.
     global fast_flatten_grid_2d, fast_flatten_grid_1d
@@ -624,6 +630,19 @@ def is_dataframe_payload(obj: Any) -> bool:
     return _is_dataframe_envelope(obj)
 
 
+def _nonneg_shape_dim(d: object) -> bool:
+    """True when a shape extent is a real non-negative int.
+
+    ``bool`` is a subclass of ``int``, so ``isinstance(True, int)`` accepted
+    ``[True, 1]`` as a calc_range or split_grid shape. Pack writes Python
+    ints; a bare or legacy wire could pass a bool.
+    """
+    # crosshair: off
+    if isinstance(d, bool) or not isinstance(d, int):
+        return False
+    return d >= 0
+
+
 def _is_calc_range_envelope(envelope: object) -> bool:
     # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     if not isinstance(envelope, dict):
@@ -634,7 +653,7 @@ def _is_calc_range_envelope(envelope: object) -> bool:
     shape = env_dict.get("shape")
     if not isinstance(shape, list) or len(shape) != 2:
         return False
-    if not all(isinstance(d, int) and d >= 0 for d in shape):
+    if not all(_nonneg_shape_dim(d) for d in shape):
         return False
     return "data" in env_dict
 
@@ -648,7 +667,7 @@ def _is_calc_range_envelope(envelope: object) -> bool:
         and obj.get("__wa_payload__") == PAYLOAD_CALC_RANGE
         and isinstance(obj.get("shape"), list)
         and len(obj["shape"]) == 2
-        and all(isinstance(d, int) and d >= 0 for d in obj["shape"])
+        and all(_nonneg_shape_dim(d) for d in obj["shape"])
         and "data" in obj
     )
 )
@@ -668,7 +687,7 @@ def _is_split_grid_envelope(envelope: object) -> bool:
     shape = env_dict.get("shape")
     if not isinstance(shape, list) or len(shape) not in (1, 2):
         return False
-    if not all(isinstance(d, int) and d >= 0 for d in shape):
+    if not all(_nonneg_shape_dim(d) for d in shape):
         return False
     return isinstance(env_dict.get("buffer"), bytes) or isinstance(env_dict.get("b64"), str)
 
@@ -692,17 +711,25 @@ def _is_ndarray(obj: object) -> bool:
     return type(obj).__name__ == "ndarray" and type(obj).__module__ == "numpy"
 
 
-@deal.pre(lambda grid, *_unused, **__: _deal_grid_ok(grid))
+# Pytest accepts real sheets. ``_deal_grid_ok``'s 256-row cap raised
+# PreContractError on a sheet pack accepts. CrossHair keeps that small domain.
+_deal_column_kinds_grid_ok = _deal_grid_ok if UNDER_CROSSHAIR else _deal_product_grid_ok
+
+
+@deal.pre(lambda grid, *_unused, **__: _deal_column_kinds_grid_ok(grid))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), list))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: all(x in ("int", "float", "bool") for x in _deal_return(*a, result=result)))
+@deal.raises(ValueError)
 def column_kinds_for_grid(grid: list[Any] | list[list[Any]]) -> list[str]:
     """Policy helper (tests): per-column int/float/bool from source types; mirrors host_pack_split_grid."""
     # crosshair: off
-    try:
-        _unused, _unused2, kinds, _unused3 = _flatten_grid_to_components(grid)
-        return kinds
-    except Exception:
-        return []
+    # What was wrong: ``except Exception: return []`` hid the jagged-grid
+    # ValueError that flatten raises, and the small deal domain rejected a
+    # sheet pack accepts. How: this helper was the only pack mirror with a
+    # swallow and that cap. Why this works: it calls flatten directly, pytest
+    # uses the product-grid pre, and a jagged grid raises.
+    _unused, _unused2, kinds, _unused3 = _flatten_grid_to_components(grid)
+    return kinds
 
 
 def _uniform_column_kind(kinds: list[str]) -> str | None:
@@ -739,6 +766,8 @@ def envelope_uniform_column_kind(envelope: dict[str, Any], *, ncols: int) -> str
 
 
 def _host_cell_from_float(val: float, *, kind: str) -> Any:  # pyright: ignore[reportUnusedFunction]  # test helper for host cell kind coercion
+    # Kept here: the legacy b64 oracle and the cover-all skip list name it.
+    # Moving it into the test tree would drop that production symbol.
     # crosshair: off
     # cover-all 33797534946 (~46.5m payload_codec). Float/kind coercion leftover. Doable later with closed kind Literal.
     if math.isnan(val):
@@ -761,6 +790,10 @@ def _apply_column_kinds_to_ndarray(
     if uniform is None:
         uniform = _uniform_column_kind(column_kinds)
     if uniform == "int":
+        # Host unpack raises OverflowError on inf in an int column. astype(int64)
+        # emits a garbage int and a RuntimeWarning. Pack never writes inf into
+        # an int column; only a corrupt envelope does. Do not replace this
+        # fast path with a Python int() loop to match the host.
         return arr.astype(np.int64)
     if uniform == "bool":
         # Host unpack treats only 1.0 as True. astype(bool) made every non-zero True.
@@ -772,6 +805,7 @@ def _apply_column_kinds_to_ndarray(
         return arr
     if is_1d:
         if column_kinds[0] == "int":
+            # Same corrupt-inf note as the uniform int path above.
             return arr.astype(np.int64)
         if column_kinds[0] == "bool":
             # Same NaN rule as the uniform bool path above.
@@ -1568,7 +1602,10 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
     # Convert keys of strings to integers in case legacy test harnesses sent stringified keys.
     # Production wire is length-prefixed Pickle5 carrying split_grid (or nested lists for < BINARY_MIN_CELLS).
     strings = _validate_split_grid_strings(envelope, expected_cells)
-    uniform = envelope_uniform_column_kind(envelope, ncols=ncols)
+    # Uniform kind is only the empty-strings fast path. Building it for a wide
+    # mixed grid walked every column and threw the list away. Same deferral as
+    # child_unpack_split_grid.
+    uniform = None if strings else envelope_uniform_column_kind(envelope, ncols=ncols)
 
     flat_list: list[Any]
     if not strings and uniform is not None:
@@ -1664,6 +1701,8 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
             "data": unpacked_inner,
         }
     # Plain dict only: CrossHair AttrDict is isinstance(dict) but blows up on __ch_pytype__ when iterating.
+    # OrderedDict and other mappings come back as-is, nested envelopes still packed.
+    # child_pack_result rebuilds plain dicts, so production does not hit this.
     if type(wire) is dict:
         return {k: host_unpack_data(v, as_nested_list=as_nested_list, _depth=_depth + 1) for k, v in wire.items()}
     if isinstance(wire, (list, tuple)):
@@ -1681,7 +1720,7 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
         and obj.get("__wa_payload__") == PAYLOAD_SPLIT_GRID
         and isinstance(obj.get("shape"), list)
         and len(obj["shape"]) in (1, 2)
-        and all(isinstance(d, int) and d >= 0 for d in obj["shape"])
+        and all(_nonneg_shape_dim(d) for d in obj["shape"])
         and (isinstance(obj.get("buffer"), bytes) or isinstance(obj.get("b64"), str))
     )
 )
@@ -1787,7 +1826,9 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
                 col_nan_mask = nan_mask[:, c] if not is_1d else nan_mask
                 valid_mask = ~col_nan_mask
                 if is_int:
-                    # Vectorized astype(int) casts valid float objects to Python ints in C
+                    # Vectorized astype(int) casts valid float objects to Python ints in C.
+                    # Same corrupt-inf note as the uniform int astype: host raises
+                    # OverflowError, this emits a garbage int. Pack never writes it.
                     col_slice[valid_mask] = col_slice[valid_mask].astype(int)
                 elif is_bool:
                     # Host unpack: True only for 1.0. astype(bool) treated 2.0 as True.
@@ -1827,6 +1868,12 @@ def _child_unpack_single_data(wire: Any) -> Any:
         if unpacked.size == 1:
             # Keep 1.0 as float. int(val) made a 1×1 cell an int while a longer
             # float64 column stayed 1.0.
+            # Asymmetry, left as-is: this size==1 ndarray (a length-1 vector, or
+            # force="always" on [[x]]) becomes a scalar. A nested list [[x]] is
+            # not an ndarray yet and stays 2D
+            # (test_child_unpack_single_entry_auto_scalar_and_integer_coercion).
+            # force="auto" never binary-packs one cell, so production single
+            # cells arrive as lists. Do not collapse [[x]] to match this path.
             return unpacked.item()
     elif isinstance(unpacked, (list, tuple)):
         if len(unpacked) == 1 and type(unpacked[0]) not in (list, tuple):
@@ -2060,19 +2107,12 @@ def _needs_elementwise_pack(obj: Any, _depth: int = 0) -> bool:
     # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
     if _depth > _MAX_UNPACK_DEPTH:
         raise ValueError("payload_codec: maximum recursion depth exceeded")
-    np = _optional_numpy()
-    containers = (dict, np.ndarray) if np is not None else (dict,)
-
+    # A top-level ndarray is one grid (the caller packs it). A dict is not.
     if isinstance(obj, dict):
         return True
     if not isinstance(obj, (list, tuple)) or not obj:
         return False
-    for item in obj:
-        if isinstance(item, containers):
-            return True
-        if isinstance(item, (list, tuple)) and _container_has_packable_nested(item, _depth=_depth + 1):
-            return True
-    return False
+    return any(_container_has_packable_nested(item, _depth=_depth + 1) for item in obj)
 
 
 @deal.pre(lambda result, *_unused, **__: True)
@@ -2087,6 +2127,8 @@ def child_pack_result(
 ) -> Any:
     """JSON-safe worker result: scalar/list as-is, ndarray as list or split_grid."""
     # crosshair: off
+    # pre/post are intentionally ``lambda: True``. serialization-verification.md:
+    # dispatch wrappers keep a minimal contract; branch guarantees live in pytest.
     if _depth > _MAX_UNPACK_DEPTH:
         raise ValueError("payload_codec: child_pack_result maximum recursion depth exceeded")
     np = _optional_numpy()

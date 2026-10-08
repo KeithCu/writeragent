@@ -111,7 +111,7 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 
 ### Key invariants encoded
 
-- Envelope detectors return `bool`; if `True`, payload tag and required fields match production rules
+- Envelope detectors return `bool`; if `True`, payload tag and required fields match production rules. Shape extents are non-negative `int`s, not `bool` (`True` is an `int` subclass). `column_kinds_for_grid` raises `ValueError` on a jagged grid, same as flatten
 - `strings` dict keys are integers; values are strings
 - `column_kinds` length matches column count
 - Buffer byte length is a multiple of 8 (float64 cells)

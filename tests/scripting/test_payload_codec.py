@@ -462,6 +462,39 @@ def test_uneven_row_lengths_rejected_on_host_pack() -> None:
         host_pack_data([[1, 2], [3]], force="always")
 
 
+def test_column_kinds_for_grid_jagged_raises() -> None:
+    """The kinds helper used to return [] and hide the flatten ValueError."""
+    with pytest.raises(ValueError, match="Uneven row lengths"):
+        payload_codec.column_kinds_for_grid([[1, 2], [3]])
+
+
+def test_envelope_detectors_reject_bool_shape_dims() -> None:
+    """bool is an int subclass. True used to pass as a shape extent."""
+    from plugin.scripting.payload_codec import is_calc_range_payload
+
+    assert is_split_grid(
+        {
+            "__wa_payload__": PAYLOAD_SPLIT_GRID,
+            "shape": [True, 1],
+            "buffer": b"\x00" * 8,
+        }
+    ) is False
+    assert is_calc_range_payload(
+        {
+            "__wa_payload__": PAYLOAD_CALC_RANGE,
+            "shape": [1, False],
+            "data": [[1.0]],
+        }
+    ) is False
+    assert is_split_grid(
+        {
+            "__wa_payload__": PAYLOAD_SPLIT_GRID,
+            "shape": [0, 0],
+            "buffer": b"",
+        }
+    ) is True
+
+
 # --- NaN, empty cells, and inf (realistic Calc / NumPy paths) ---
 
 
