@@ -473,7 +473,8 @@ def _pil_image_to_payload(img: Any) -> dict[str, Any]:
 # One container level missed {"sheets": [df, df]} and [{"stats": df}]. Those
 # took child_pack_result, which raises ValueError and drops a successful cell.
 # Deeper than this is treated as a plain container (child_pack / pickle reject).
-# Not payload_codec._MAX_UNPACK_DEPTH (1000) or find_image_payloads (12):
+# Not payload_codec._MAX_UNPACK_DEPTH (128; ~1000 is CPython's recursion
+# limit) or find_image_payloads (12):
 # this walk only looks for DataFrame/ndarray/figure wrappers a few levels down.
 _CUSTOM_SERIALIZE_MAX_DEPTH = 8
 

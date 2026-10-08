@@ -8,7 +8,8 @@
 """Tests for payload_codec (host stdlib / child NumPy wire format).
 
 Sections: policy threshold, host pack/unpack, child pack/unpack, round-trips, NaN/missing,
-realistic Calc-shaped grids only (rectangular 2D; uneven row lengths are rejected at pack).
+realistic Calc-shaped grids (rectangular 2D). Uneven row lengths raise on split_grid;
+the small list path returns them unchanged.
 """
 
 from __future__ import annotations
@@ -213,6 +214,54 @@ def test_child_pack_bool_ndarray_sets_column_kinds():
     assert wire["column_kinds"] == ["bool", "bool"]
     back = host_unpack_data(wire, as_nested_list=True)
     assert back == [[True, False], [False, True]]
+
+
+def test_split_grid_mixed_bool_int_column_becomes_int():
+    """One column cannot be both bool and int. split_grid promotes to int.
+
+    force=never keeps True. The A/B oracle uses ==, and True == 1, so this
+    checks type and identity.
+    """
+    np = pytest.importorskip("numpy")
+    grid = [[True], [1]]
+    wire = host_pack_data(grid, force="always")
+    assert wire["column_kinds"] == ["int"]
+    unpacked = host_unpack_split_grid(wire)
+    assert unpacked == [[1], [1]]
+    assert type(unpacked[0][0]) is int
+    assert type(unpacked[1][0]) is int
+
+    listed = host_pack_data(grid, force="never")
+    assert listed[0][0] is True
+    assert type(listed[1][0]) is int
+
+    child = child_unpack_split_grid(wire)
+    assert child.dtype == np.int64
+    assert type(child[0, 0].item()) is int
+
+
+def test_child_unpack_float_frombuffer_is_readonly():
+    """Uniform float and mixed numeric kinds are the read-only frombuffer view.
+
+    Uniform int and bool allocate via astype and ==, so those arrays are
+    writable. CalcRange.to_numpy() is the writable copy for =PY().
+    """
+    np = pytest.importorskip("numpy")
+    float_arr = child_unpack_split_grid(host_pack_data([[1.5, 2.5]], force="always"))
+    assert float_arr.dtype == np.float64
+    assert float_arr.flags.writeable is False
+    with pytest.raises(ValueError, match="read-only"):
+        float_arr[0, 0] = 9.0
+
+    mixed = child_unpack_split_grid(host_pack_data([[1, 1.5]], force="always"))
+    assert mixed.dtype == np.float64
+    assert mixed.flags.writeable is False
+
+    int_arr = child_unpack_split_grid(host_pack_data([[1, 2]], force="always"))
+    assert int_arr.flags.writeable is True
+    bool_arr = child_unpack_split_grid(host_pack_data([[True, False]], force="always"))
+    assert bool_arr.dtype == np.bool_
+    assert bool_arr.flags.writeable is True
 
 
 def test_none_becomes_nan_in_split_grid():
@@ -456,10 +505,33 @@ def test_iter_split_grid_cells_row_major_order() -> None:
     ]
 
 
-def test_uneven_row_lengths_rejected_on_host_pack() -> None:
-    """Uneven nested-list rows are unsupported; Calc ranges are always rectangular."""
+def test_uneven_row_lengths_rejected_on_split_grid_only() -> None:
+    """Split_grid rejects a jagged grid. The small list path returns it unchanged.
+
+    =PY pre-normalizes with ensure_rectangular_2d. child_pack treats a
+    non-rectangular result as a list of rows, not one grid.
+    """
+    jagged = [[1, 2], [3]]
+    assert host_pack_data(jagged, force="never") == jagged
+    assert host_pack_data(jagged) == jagged
     with pytest.raises(ValueError, match="Uneven row lengths"):
-        host_pack_data([[1, 2], [3]], force="always")
+        host_pack_data(jagged, force="always")
+
+
+def test_rectangular_tuple_rows_egress_as_lists() -> None:
+    """A rectangular tuple-of-tuples becomes a list-of-lists on the list path.
+
+    host_unpack_data would restore tuples that are still tuples on the wire.
+    This egress path does not send them. Split_grid cannot keep row types.
+    """
+    packed = child_pack_result(((1, 2), (3, 4)), force="never")
+    assert packed == [[1, 2], [3, 4]]
+    assert type(packed) is list
+    assert all(type(row) is list for row in packed)
+    assert host_unpack_data(packed) == packed
+    restored = host_unpack_data(((1, 2), (3, 4)))
+    assert type(restored) is tuple
+    assert type(restored[0]) is tuple
 
 
 def test_non_sequence_row_raises_valueerror() -> None:
@@ -1497,6 +1569,28 @@ def test_host_unpack_dataframe_keeps_extra_keys():
     assert unpacked["index"] == ["r0", "r1"]
     assert unpacked["columns"] == ["a"]
     assert unpacked["data"] == [[1], [2]]
+
+
+def test_host_unpack_calc_range_keeps_extra_keys():
+    """Unknown calc_range fields survive, same as the dataframe shallow copy.
+
+    Rebuilding only shape/data/address dropped them. Nested split_grid data
+    is still unpacked.
+    """
+    inner = host_pack_data([[1, 2], [3, 4]], force="always")
+    env = {
+        "__wa_payload__": PAYLOAD_CALC_RANGE,
+        "shape": [2, 2],
+        "data": inner,
+        "address": "Sheet1.A1:B2",
+        "sheet": "Sheet1",
+    }
+    unpacked = host_unpack_data(env)
+    assert unpacked["sheet"] == "Sheet1"
+    assert unpacked["address"] == "Sheet1.A1:B2"
+    assert unpacked["shape"] == [2, 2]
+    assert unpacked["__wa_payload__"] == PAYLOAD_CALC_RANGE
+    assert unpacked["data"] == [[1, 2], [3, 4]]
 
 
 def test_dataframe_host_unpack_preserves_split_grid_for_numeric():

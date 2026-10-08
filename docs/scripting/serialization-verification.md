@@ -122,11 +122,13 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 - `column_kinds` length matches column count
 - Buffer byte length is a multiple of `_FLOAT64_BYTES` (8, one float64 cell)
 - A dataframe whose `data` is an ndarray counts as `data.size` cells. The old arm treated every non-list as one cell, so `describe_wire_value` logged `cells~1`
-- `host_unpack_data` keeps unrecognized dataframe keys (shallow copy, then replaces `data`). Rebuilding only `__wa_payload__` / `columns` / `data` used to drop them
-- A numeric `split_grid` with mixed `column_kinds` (int next to float, or bool next to int, empty `strings`) stays float64 in the child. Per-column Python types are restored on the host. The child casts only when every column is the same kind
+- `host_unpack_data` keeps unrecognized dataframe keys (shallow copy, then replaces `data`). Rebuilding only `__wa_payload__` / `columns` / `data` used to drop them. `calc_range` uses the same shallow copy; rebuilding only `__wa_payload__` / `shape` / `data` / `address` used to drop other fields
+- A numeric `split_grid` with mixed `column_kinds` (int next to float, or a bool column next to an int column, empty `strings`) stays float64 in the child. Per-column Python types are restored on the host. The child casts only when every column is the same kind. One column that mixes bool and int packs as kind `"int"`: split_grid host and child turn `True` into `1`. `force="never"` keeps `True`. The A/B oracle compares with `==` (`True == 1`), so this is pinned by an explicit `type` test
+- A pure-float child ndarray, and a mixed-kind numeric grid with no strings, is the read-only `np.frombuffer` view. Uniform int and bool columns are writable because `astype` and `==` allocate. Do not `.copy()` the float path
+- A rectangular tuple-of-tuples egresses as a list-of-lists. `host_unpack_data` restores a tuple only when that container is still a tuple on the wire
 - DataFrame and Series object/extension bodies under `BINARY_MIN_CELLS` go through `_coerce_host_pickle_tree` before `child_pack_result`, same as the container arm. `_cell_for_json` still only rewrites `None`
 - When `strings == {}`, child unpack returns ndarray (pytest); when strings present, returns list (`@deal.ensure` on `child_unpack_split_grid`)
-- Jagged 2D grids raise `ValueError` via `@deal.raises` on `_flatten_grid_to_components`
+- Jagged 2D grids raise `ValueError` via `@deal.raises` on `_flatten_grid_to_components`. `host_pack_data` below the threshold, and `force="never"`, returns that jagged list from `grid_from_nested_list` and does not call flatten
 - `host_pack_multi_data` produces a multi_data envelope with one item per input grid
 
 ### Dispatch wrappers

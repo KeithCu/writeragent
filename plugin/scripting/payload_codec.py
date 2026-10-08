@@ -908,11 +908,26 @@ def cell_count(shape: tuple[int, ...]) -> int:
     return n
 
 
+def _deal_force_min_cells_ok(min_cells: object, force: object) -> bool:
+    """Shared ``force`` / ``min_cells`` domain for policy and pack contracts.
+
+    ``should_use_binary_envelope``, ``binary_envelope_skip_reason``,
+    ``host_pack_data``, and ``host_pack_multi_data`` used to repeat this
+    check. Each ``@deal.pre`` stays a keyword-default lambda so CrossHair's
+    call shape still matches. Do not branch on ``UNDER_CROSSHAIR`` here.
+    """
+    return (
+        force in ("auto", "always", "never")
+        and isinstance(min_cells, int)
+        and 0 <= min_cells <= DEAL_MAX_SHAPE_DIM
+    )
+
+
 @deal.pre(lambda shape, *_unused, **__: _deal_shape_ok(shape))
 @deal.pre(
-    lambda shape, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
-    and isinstance(min_cells, int)
-    and 0 <= min_cells <= DEAL_MAX_SHAPE_DIM
+    lambda shape, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: _deal_force_min_cells_ok(
+        min_cells, force
+    )
 )
 # CrossHair may pass call args + result=; never bind ``result`` as a positional parameter.
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), bool))
@@ -938,9 +953,9 @@ def should_use_binary_envelope(
 
 @deal.pre(lambda shape, *_unused, **__: _deal_shape_ok(shape))
 @deal.pre(
-    lambda shape, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
-    and isinstance(min_cells, int)
-    and 0 <= min_cells <= DEAL_MAX_SHAPE_DIM
+    lambda shape, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: _deal_force_min_cells_ok(
+        min_cells, force
+    )
 )
 def binary_envelope_skip_reason(
     shape: tuple[int, ...],
@@ -1093,6 +1108,12 @@ def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> 
     st = column_states[c]
     if st == 3:
         return
+    # One kind per column. An int promotes bool (state 1 → 2): True and 1 are
+    # both 1.0 in the float64 buffer, so host int() and child astype(int64)
+    # turn True into 1. force="never" keeps the Python bool.
+    # A per-cell bool mask was rejected. It would be a second side channel
+    # beside strings, and the Cython flattener would have to emit the same
+    # mask. Adjacent columns still keep their own kinds.
     if val is True or val is False:
         if st == 0:
             column_states[c] = 1
@@ -1520,9 +1541,9 @@ def host_pack_split_grid(
 @deal.pre(lambda grid, *_unused, **__: _deal_product_grid_ok(grid))
 # Same force/min_cells gate as should_use_binary_envelope so CrossHair cannot call pack with invalid policy kwargs.
 @deal.pre(
-    lambda grid, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
-    and isinstance(min_cells, int)
-    and 0 <= min_cells <= DEAL_MAX_SHAPE_DIM
+    lambda grid, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: _deal_force_min_cells_ok(
+        min_cells, force
+    )
 )
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) is not None)
 @deal.raises(ValueError)
@@ -1570,9 +1591,9 @@ def host_pack_data(
 
 @deal.pre(lambda grids, *_unused, **__: isinstance(grids, list) and len(grids) <= DEAL_MAX_SHAPE_DIM and all(_deal_product_grid_ok(g) for g in grids))
 @deal.pre(
-    lambda grids, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
-    and isinstance(min_cells, int)
-    and 0 <= min_cells <= DEAL_MAX_SHAPE_DIM
+    lambda grids, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: _deal_force_min_cells_ok(
+        min_cells, force
+    )
 )
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: _is_multi_data_envelope(_deal_return(*a, result=result)))
 @deal.ensure(
@@ -1656,11 +1677,9 @@ def _decode_split_grid_buffer(envelope: dict[str, Any], expected_cells: int) -> 
             raise ValueError(f"split_grid b64 is not valid base64: {exc}") from exc
     else:
         raise ValueError("Missing payload binary buffer or b64 representation")
-    if isinstance(raw, memoryview):
-        raw = raw.tobytes()
-    elif isinstance(raw, bytearray):
-        raw = bytes(raw)
-    elif not isinstance(raw, bytes):
+    # is_split_grid accepts buffer bytes or a str b64, and b64decode returns
+    # bytes. memoryview / bytearray never arrive through that detector.
+    if not isinstance(raw, bytes):
         raise TypeError(f"a bytes-like object is required, not '{type(raw).__name__}'")
     if len(raw) % _FLOAT64_BYTES != 0:
         # Same message as array.array('d').frombytes on a truncated byte string.
@@ -1737,14 +1756,15 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
             flat_list = list(buf)
     else:
         column_kinds = envelope_column_kinds(envelope, ncols=ncols)
-        col_kind = [column_kinds[0 if is_1d else i % ncols] for i in range(len(buf))]
+        # Index the kind in the cell loop. A col_kind list of length len(buf)
+        # was one Python object per cell and then thrown away.
         flat_list = [
             strings[i] if i in strings else
             (val if math.isnan(val) else (
                 # Bool matches the uniform path: only 1.0 is True. A raw 2.0
                 # used to fall through and stay a float on this branch.
-                (val == 1.0) if col_kind[i] == "bool" else
-                int(val) if col_kind[i] == "int" else val
+                (val == 1.0) if (kind := column_kinds[0 if is_1d else i % ncols]) == "bool" else
+                int(val) if kind == "int" else val
             ))
             for i, val in enumerate(buf)
         ]
@@ -1793,14 +1813,17 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
     if is_image_payload(wire):
         return wire
     if is_calc_range_payload(wire):
-        # Host egress consumers need the inner grid; preserve envelope metadata when present.
-        inner = host_unpack_data(wire.get("data"), as_nested_list=as_nested_list, _depth=_depth + 1)
-        return {
-            "__wa_payload__": PAYLOAD_CALC_RANGE,
-            "shape": list(wire.get("shape") or [0, 0]),
-            "data": inner,
-            **({"address": wire["address"]} if wire.get("address") else {}),
-        }
+        # What was wrong: rebuilding only __wa_payload__/shape/data/address
+        # dropped any other envelope field. The dataframe branch already
+        # shallow-copies for the same reason.
+        # Why this works: copy the dict, then replace data so a future field
+        # survives. data is still unpacked.
+        unpacked_inner = host_unpack_data(
+            wire.get("data"), as_nested_list=as_nested_list, _depth=_depth + 1
+        )
+        out = dict(wire)
+        out["data"] = unpacked_inner
+        return out
     if is_multi_data(wire):
         items = wire.get("items") or []
         return [host_unpack_data(item, as_nested_list=as_nested_list, _depth=_depth + 1) for item in items]
@@ -2336,6 +2359,10 @@ def child_pack_result(
                 return tuple(packed) if isinstance(result, tuple) else type(result)(packed)
             if result and (type(result[0]) in (list, tuple)) and all(isinstance(r, (list, tuple)) and len(r) == len(result[0]) for r in result):
                 # Strict rectangular 2D grid: all rows are lists/tuples. Otherwise fall through to treat as 1D list-of-mixed (supports fancier result strategy).
+                # Tuple rows become lists. Split_grid is a float64 buffer and
+                # cannot keep row container types, so the list path matches it.
+                # host_unpack_data restores a tuple only when the wire value is
+                # still a tuple; this branch does not send tuples.
                 grid = [list(row) for row in result]
                 grid_shape: tuple[int, ...] = (len(grid), max((len(r) for r in grid), default=0))
             elif result and type(result[0]) in (list, tuple):
