@@ -280,6 +280,7 @@ class BaseProcessWorker:
     on_process_exit: Callable[[int], None] | None
     _drain_state: _DrainState
     _drain_lock: threading.Lock
+    _shutting_down: bool
     default_timeout_sec: float
 
     def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False, on_process_exit: Callable[[int], None] | None = None, default_timeout_sec: float = 30.0) -> None:
@@ -306,6 +307,10 @@ class BaseProcessWorker:
         self._drain_state = _DrainState.IDLE
         self._drain_lock = threading.Lock()
         self._release_cb: Callable[[], None] | None = None
+        # Pool.shutdown sets this before kill(). execute and respawn read it
+        # without self.lock: kill takes _lifecycle_lock, not the execute lock,
+        # so a flag under self.lock would be invisible until the cell finished.
+        self._shutting_down = False
         self.respawn()
 
     def _stderr_snippet(self) -> str:
@@ -357,8 +362,17 @@ class BaseProcessWorker:
             drain.join(timeout=0.2)
 
     def respawn(self, timeout_sec: float = _SPAWN_READY_TIMEOUT_SEC) -> None:
-        """Spawn worker subprocess and await readiness handshake."""
+        """Spawn worker subprocess and await readiness handshake.
+
+        Returns without a child when the pool is stopping. Recycle calls this
+        after kill(); the flag is what stops that spawn. The check after reap
+        covers a shutdown that arrives while the previous child is reaped.
+        """
+        if self._shutting_down:
+            return
         self._reap_previous_process()
+        if self._shutting_down:
+            return
         cmd = [sys.executable, self.script_path]
         try:
             # Scrub matches the venv host: drop PYTHONHOME / credential-like
@@ -471,6 +485,13 @@ class BaseProcessWorker:
                 return res
 
             if proc is None or proc.poll() is not None:
+                # What was wrong: shutdown killed the child, then this branch
+                # saw proc is None and called respawn(). The new interpreter
+                # ran the cell and was killed on the way out.
+                # Why this change: the pool sets _shutting_down before kill().
+                # A dead child during shutdown is SERVICE_SHUTDOWN, not a new process.
+                if self._shutting_down:
+                    return _fail("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.", kill=False)
                 # Respect request deadline: do not allow spawn handshake to exceed
                 # the remaining request budget.
                 spawn_budget = max(0.01, min(_SPAWN_READY_TIMEOUT_SEC, timeout_sec))
@@ -896,6 +917,10 @@ class BaseProcessPool:
             self._is_shutdown = True
             log.info("Shutting down %s pool (%d workers)...", self.worker_name, len(self.workers))
             workers_to_kill = list(self.workers)
+            # Before kill(), and before dropping this lock. An in-flight
+            # execute that finds a dead child must not respawn.
+            for w in workers_to_kill:
+                w._shutting_down = True
             self.workers.clear()
             self._idle.clear()
             self._leased.clear()

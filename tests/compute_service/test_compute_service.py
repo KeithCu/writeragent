@@ -1431,6 +1431,34 @@ class TestSessionResetHttp:
         assert status.startswith("200")
         assert body == {"status": "ok"}
 
+    def test_chunked_transfer_encoding_is_400(self) -> None:
+        """Chunked reset used to succeed as an empty body and drop the payload."""
+        reset_calls: list[str] = []
+
+        def fake_reset(session_id: str, **_kw):
+            reset_calls.append(session_id)
+            return {"status": "ok"}
+
+        app = create_wsgi_app(ComputeSettings(), reset_fn=fake_reset, execute_fn=lambda **_kw: {"status": "ok"})
+        status, _headers, body = _wsgi_post(
+            app,
+            b"{}",
+            query="session_id=chunked-sid",
+            headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"},
+        )
+        assert status.startswith("400")
+        assert "chunked" in body.get("error", "").lower()
+        assert reset_calls == []
+
+        exec_status, _exec_headers, exec_body = _wsgi_post(
+            app,
+            json.dumps({"code": "result = 1"}).encode("utf-8"),
+            path="/v1/execute",
+            headers={"Transfer-Encoding": "chunked", "Content-Type": "application/json"},
+        )
+        assert exec_status.startswith("400")
+        assert "chunked" in exec_body.get("error", "").lower()
+
     def test_lease_failure_is_503(self) -> None:
         def busy_reset(_session_id: str, **_kw):
             return {
@@ -1504,6 +1532,27 @@ class TestSessionResetHttp:
         assert body.get("code") == "VISION_POOL_BUSY"
         assert body.get("id") == "v-busy"
         assert body.get("status") == "error"
+
+    def test_vision_file_errors_use_client_statuses(self) -> None:
+        """Allowlist file failures used to leave the route as HTTP 200."""
+        cases = (
+            ("FILE_NOT_FOUND", "400"),
+            ("FILE_TOO_LARGE", "413"),
+        )
+        for code, expect in cases:
+            fake_pool = MagicMock()
+            fake_pool.execute.return_value = {
+                "id": "v-file",
+                "status": "error",
+                "code": code,
+                "error": code,
+            }
+            app = create_wsgi_app(ComputeSettings())
+            payload = json.dumps({"id": "v-file", "image_b64": "YQ=="}).encode("utf-8")
+            with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+                status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+            assert status.startswith(expect), code
+            assert body.get("code") == code
 
     def test_vision_unavailable_is_503(self) -> None:
         """VISION_UNAVAILABLE happens when the OCR module fails to import, must be 503."""
@@ -2797,6 +2846,25 @@ def test_session_reset_infra_error_returns_503() -> None:
     )
     assert status == "503 Service Unavailable"
     assert parsed.get("code") == "WORKER_POOL_BUSY"
+
+
+def test_mapped_status_json_encode_failure_is_500() -> None:
+    """A dumps failure on a mapped code stays inside the response helper.
+
+    The infrastructure status used to be written outside the encode guard,
+    so a non-JSON payload escaped and the outer boundary replaced the 503.
+    """
+    def bad(**_kwargs: Any) -> dict[str, Any]:
+        return {"status": "error", "code": "WORKER_POOL_BUSY", "error": object()}
+
+    app = create_wsgi_app(ComputeSettings(), execute_fn=bad)
+    status, _headers, body = _wsgi_post(
+        app,
+        json.dumps({"code": "result = 1"}).encode("utf-8"),
+        path="/v1/execute",
+    )
+    assert status.startswith("500")
+    assert "JSON encode failed" in body.get("error", "")
 
 
 def test_result_too_large_maps_to_413() -> None:

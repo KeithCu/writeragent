@@ -21,6 +21,7 @@ import threading
 import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from http.server import HTTPServer
 from typing import Any, Callable, cast
 from wsgiref.simple_server import ServerHandler, WSGIRequestHandler, WSGIServer
@@ -63,6 +64,8 @@ _REQUEST_WRITE_TIMEOUT_SEC = 30.0
 # segfault, missing frame). 503 would invite a retry that kills another worker.
 # FILE_PATH_DENIED from the worker is the same client rejection as the route's
 # pre-check. Leaving it out answered HTTP 200 after the symlink re-check.
+# The other allowlist failures are the same class: the client named the path.
+# FILE_TOO_LARGE matches the execute 413s (RESULT_TOO_LARGE / PAYLOAD_TOO_LARGE).
 _HTTP_STATUS_BY_CODE = {
     "WORKER_POOL_BUSY": "503 Service Unavailable",
     "SERVICE_SHUTDOWN": "503 Service Unavailable",
@@ -77,9 +80,14 @@ _HTTP_STATUS_BY_CODE = {
     "INVALID_IMAGE": "400 Bad Request",
     "MISSING_IMAGE_SOURCE": "400 Bad Request",
     "FILE_PATH_DENIED": "400 Bad Request",
+    "INVALID_FILE_PATH": "400 Bad Request",
+    "FILE_NOT_FOUND": "400 Bad Request",
+    "NOT_A_FILE": "400 Bad Request",
+    "FILE_READ_ERROR": "400 Bad Request",
     "INVALID_REQUEST": "400 Bad Request",
     "RESULT_TOO_LARGE": "413 Payload Too Large",
     "PAYLOAD_TOO_LARGE": "413 Payload Too Large",
+    "FILE_TOO_LARGE": "413 Payload Too Large",
     # OCR is configured off. Not a transient miss, so no Retry-After.
     "VISION_SERVICE_DISABLED": "501 Not Implemented",
 }
@@ -104,6 +112,38 @@ def listener_thread_count(max_threads: int | None) -> int:
     return max(8, (max_threads or 2) + 4)
 
 
+@dataclass(frozen=True)
+class ListenerBudget:
+    """Accept-pool size and the sticky spare taken from that same total.
+
+    ``listeners`` is ``max(listener_thread_count(settings.threads), needed)``
+    where ``needed`` is formula workers, plus ``max(1, ocr_workers)`` vision
+    permits, plus one sticky slot per formula worker, plus two threads for
+    ``GET /health``. ``sticky`` is what remains after the isolated workers,
+    the vision permits, and those two health threads. When the historical
+    floor wins, sticky is larger than the worker count (default: 8 listeners
+    and 3 sticky slots).
+    """
+
+    listeners: int
+    sticky: int
+    vision_permits: int
+
+
+def listener_budget(settings: ComputeSettings) -> ListenerBudget:
+    """The one derivation of listener count and sticky spare.
+
+    ``service_listener_threads`` and ``sticky_listener_slots`` both read this
+    so the accept pool and the sticky cap cannot be edited apart.
+    """
+    vision_permits = max(1, settings.ocr_workers)
+    sticky_floor = max(1, settings.workers)
+    needed = settings.workers + vision_permits + sticky_floor + 2
+    listeners = max(listener_thread_count(settings.threads), needed)
+    spare = listeners - 2 - settings.workers - vision_permits
+    return ListenerBudget(listeners=listeners, sticky=max(1, spare), vision_permits=vision_permits)
+
+
 def service_listener_threads(settings: ComputeSettings) -> int:
     """Accept-pool size for one running compute service.
 
@@ -114,10 +154,7 @@ def service_listener_threads(settings: ComputeSettings) -> int:
     is off), and two threads for ``GET /health``. Small pools stay on the
     historical floor from ``listener_thread_count``.
     """
-    vision_permits = max(1, settings.ocr_workers)
-    sticky = max(1, settings.workers)
-    needed = settings.workers + vision_permits + sticky + 2
-    return max(listener_thread_count(settings.threads), needed)
+    return listener_budget(settings).listeners
 
 
 def sticky_listener_slots(settings: ComputeSettings) -> int:
@@ -126,9 +163,7 @@ def sticky_listener_slots(settings: ComputeSettings) -> int:
     Isolated execute holds at most ``settings.workers`` threads and vision
     holds ``max(1, ocr_workers)``. Two listeners stay free for ``GET /health``.
     """
-    vision_permits = max(1, settings.ocr_workers)
-    spare = service_listener_threads(settings) - 2 - settings.workers - vision_permits
-    return max(1, spare)
+    return listener_budget(settings).sticky
 
 ExecuteFn = Callable[..., dict[str, Any]]
 ResetFn = Callable[..., dict[str, Any]]
@@ -258,6 +293,8 @@ def _send_execution_result(
     Eval errors stay HTTP 200 so the sheet shows them. Pass *error_status*
     when an unmapped ``status: error`` is a server fault (session reset).
     Mapped codes, including 413, come from ``_HTTP_STATUS_BY_CODE``.
+    Every ``_start_json`` path shares one encode guard. Raw ``result_json``
+    bytes are already encoded and stay outside it.
     """
     if isinstance(result_payload, dict):
         raw_out = result_payload.get("result_json")
@@ -266,14 +303,18 @@ def _send_execution_result(
         infra = _infrastructure_status(result_payload)
         _inject_req_id(result_payload, req_id)
         if infra is not None:
-            return _start_json(start_response, infra, result_payload)
-        if result_payload.get("status") == "error" and error_status != "200 OK":
-            return _start_json(start_response, error_status, result_payload)
+            http_status = infra
+        elif result_payload.get("status") == "error" and error_status != "200 OK":
+            http_status = error_status
+        else:
+            http_status = "200 OK"
+    else:
+        http_status = "200 OK"
 
     try:
         if isinstance(result_payload, dict):
             _inject_req_id(result_payload, req_id)
-        return _start_json(start_response, "200 OK", result_payload)
+        return _start_json(start_response, http_status, result_payload)
     except (TypeError, ValueError) as e:
         err_body: dict[str, Any] = {"status": "error", "error": f"JSON encode failed: {e}"}
         try:
@@ -384,12 +425,27 @@ def _validate_source_text(
     raise ExecuteRequestError(f"{label} must be text.")
 
 
+def _transfer_encoding_is_chunked(environ: dict[str, Any]) -> bool:
+    """True when the client asked for a chunked body.
+
+    This server is HTTP/1.0 and reads ``Content-Length``. A chunked body is
+    not decoded. Reset used to treat a missing length as ``{}``, so a chunked
+    ``POST /v1/session/reset`` succeeded and ignored the body.
+    """
+    raw = environ.get("HTTP_TRANSFER_ENCODING")
+    if not isinstance(raw, str):
+        return False
+    return "chunked" in raw.lower()
+
+
 def _read_request_body(
     environ: dict[str, Any],
     settings: ComputeSettings,
     start_response: Any,
 ) -> tuple[bytes | None, list[bytes] | None]:
     """Read a bounded POST body with total read deadline enforcement. Returns ``(body, None)`` or ``(None, error_body)``."""
+    if _transfer_encoding_is_chunked(environ):
+        return None, _error(start_response, "400 Bad Request", "Chunked transfer encoding is not supported")
     raw_len = environ.get("CONTENT_LENGTH")
     if raw_len is None or raw_len == "":
         return None, _error(start_response, "400 Bad Request", "Missing Content-Length")
@@ -490,8 +546,11 @@ def _read_optional_request_json(
     """Parse an optional POST JSON object. Missing or empty body is ``{}``.
 
     ``/v1/session/reset`` allows an empty body (correlation ``id`` only).
-    ``/v1/execute`` still requires Content-Length > 0 via ``_read_request_body``.
+    A missing or zero ``Content-Length`` is that empty body. Chunked
+    transfer encoding is 400 here, same as ``/v1/execute`` and ``/v1/vision``.
     """
+    if _transfer_encoding_is_chunked(environ):
+        return None, _error(start_response, "400 Bad Request", "Chunked transfer encoding is not supported")
     raw_len = environ.get("CONTENT_LENGTH")
     if not raw_len:
         return {}, None

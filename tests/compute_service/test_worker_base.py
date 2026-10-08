@@ -212,6 +212,30 @@ def test_run_worker_stdio_loop_breaks_on_decode_error(monkeypatch: pytest.Monkey
     assert len(calls) == 0
 
 
+def test_execute_does_not_respawn_during_shutdown() -> None:
+    """A dead child during pool shutdown must not start a new interpreter.
+
+    What was wrong: execute held the worker lock, saw a dead process, and
+    called respawn after shutdown had begun. The new child ran the cell
+    and was then killed.
+    """
+    from compute_service.worker_base import BaseProcessWorker
+
+    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=False)
+    worker.kill()
+    assert not worker.is_alive()
+    worker._shutting_down = True
+
+    def mock_respawn(timeout_sec: float = 15.0) -> None:
+        del timeout_sec
+        raise AssertionError("respawn during shutdown")
+
+    worker.respawn = mock_respawn  # type: ignore[assignment]
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1)
+    assert res.get("code") == "SERVICE_SHUTDOWN"
+    assert res.get("status") == "error"
+
+
 def test_execute_respawn_respects_request_deadline() -> None:
     from compute_service.worker_base import BaseProcessWorker
 

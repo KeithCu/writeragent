@@ -121,21 +121,16 @@ class FormulaProcessPool(BaseProcessPool):
                     still_stale = sess is not None and sess.worker is worker and (time.monotonic() - sess.last_active) >= ttl
                 if not still_stale or sess is None:
                     continue
-                stale_sess = sess
-                res = self._reset_session_on_worker(leased, sid, timeout_sec=2.0)
-                # What was wrong: reset popped the id, then a second pop of
-                # the same id ran. A request in between reserved that id again
-                # (often on this same worker), and the second pop marked the
-                # live reservation lost.
-                # Why this change: mark lost only when the map is empty or
-                # still holds the object we reset. A new reservation is a
-                # different object and stays.
+                self._reset_session_on_worker(leased, sid, timeout_sec=2.0)
+                # _reset_session_on_worker already drops this worker's entry
+                # on ok (lost=False). That object is gone, so a follow-up
+                # "current is the session we reset" check cannot succeed.
+                # Mark lost only when the id is absent: the next sticky call
+                # must report session_reset. A replacement that landed after
+                # the drop is a different object and stays. A failed reset
+                # leaves the entry, so it is not marked lost.
                 with self._cond:
-                    current = self._sessions.get(sid)
-                    if res.get("status") == "ok" and (current is None or current is stale_sess):
-                        self._drop_session(sid)
-                        evicted.append(sid)
-                    elif current is None:
+                    if self._sessions.get(sid) is None:
                         self._drop_session(sid)
                         evicted.append(sid)
         if evicted:
