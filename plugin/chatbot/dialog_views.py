@@ -1898,7 +1898,7 @@ class DownloadAudioListener(BaseActionListener):
         self._dlg = dlg
 
     def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.scripting.audio_recorder_service import run_audio_download
+        from plugin.scripting.native_binaries import run_audio_download
 
         def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> tuple[bool, str]:
             ok = run_audio_download(on_display, on_status)

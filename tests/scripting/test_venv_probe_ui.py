@@ -47,7 +47,7 @@ def test_python_test_uses_modal_incremental_probe() -> None:
         patch("plugin.scripting.venv_probe_ui.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.venv_diagnostics.probe_venv_path_with_progress", side_effect=fake_probe),
         patch("plugin.scripting.payload_codec.host_cython_status_line", side_effect=fake_status),
-        patch("plugin.scripting.native_binaries.ensure_downloaded_audio_on_path"),
+        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path"),
     ):
         listener.on_action_performed(MagicMock())
 

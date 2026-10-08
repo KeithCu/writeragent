@@ -203,7 +203,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                 return self._tool_error(unsupported_flat_type_message(bn, ext), code="UNSUPPORTED_FILE_TYPE")
 
             # Enforce the same data size limit used for analysis / =PY()
-            max_cells = configured_python_max_data_cells(ctx.ctx)
+            max_cells = configured_python_max_data_cells()
             for name, entry in list(preloaded.items()):
                 g = entry.get("grid") if isinstance(entry, dict) and "grid" in entry else entry
                 if g:

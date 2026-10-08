@@ -61,16 +61,14 @@ def test_resolve_python_exec_timeout_clamp_and_fallback():
 
 @patch("plugin.framework.config.get_config_int", return_value=10)
 def test_configured_python_exec_timeout(mock_get):
-    ctx = MagicMock()
-    assert configured_python_exec_timeout(ctx) == 10
+    assert configured_python_exec_timeout() == 10
     mock_get.assert_called_once_with("scripting.python_exec_timeout")
 
 
 @patch("plugin.framework.config.get_config_int", return_value=1000)
 def test_configured_python_exec_timeout_clamps_legacy_high(mock_get):
     # Above schema max (600) but within DEAL_MAX_ARGV (4096) so @deal.pre on _clamp_timeout still runs.
-    ctx = MagicMock()
-    assert configured_python_exec_timeout(ctx) == 600
+    assert configured_python_exec_timeout() == 600
 
 
 def test_run_venv_python_script_schema_has_no_timeout_sec():
@@ -114,21 +112,18 @@ def test_get_config_python_max_data_cells_uses_schema_default():
 
 @patch("plugin.framework.config.get_config_int", return_value=250_000)
 def test_configured_python_max_data_cells(mock_get):
-    ctx = MagicMock()
-    assert configured_python_max_data_cells(ctx) == 250_000
+    assert configured_python_max_data_cells() == 250_000
     mock_get.assert_called_once_with("scripting.python_max_data_cells")
 
 
 @patch("plugin.framework.config.get_config_int", return_value=9_999_999)
 def test_configured_python_max_data_cells_clamps_high(mock_get):
-    ctx = MagicMock()
-    assert configured_python_max_data_cells(ctx) == 2_000_000
+    assert configured_python_max_data_cells() == 2_000_000
 
 
 @patch("plugin.framework.config.get_config_int", return_value=0)
 def test_configured_python_max_data_cells_clamps_low(mock_get):
-    ctx = MagicMock()
-    assert configured_python_max_data_cells(ctx) == 1000
+    assert configured_python_max_data_cells() == 1000
 
 
 def test_settings_field_specs_include_python_max_data_cells():

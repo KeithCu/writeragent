@@ -23,7 +23,7 @@ _FTS_SESSION_ID = f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:folder_fts"
 
 
 def _run_fts_action(ctx: Any, helper: str, params: dict[str, Any], *, allow_heartbeat: bool = False) -> dict[str, Any]:
-    timeout_sec = embeddings_worker_timeout_sec(ctx)
+    timeout_sec = embeddings_worker_timeout_sec()
     return run_trusted_worker_action(ctx, domain="folder_fts", helper=helper, params=params, session_id=_FTS_SESSION_ID, timeout_sec=timeout_sec, worker_pool=WORKER_POOL_EMBEDDINGS, allow_heartbeat=allow_heartbeat, error_code="FOLDER_FTS_ERROR", error_label="Folder FTS")
 
 

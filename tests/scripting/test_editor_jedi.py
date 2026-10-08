@@ -113,3 +113,47 @@ def test_monaco_api_get_completions_when_jedi_missing(monkeypatch):
     api = ej.MonacoEditorApi()
     assert api.is_jedi_available() is False
     assert api.get_completions("def ", 1, 5) == {"items": []}
+
+
+def test_jedi_completions_caps_docstrings(monkeypatch):
+    mock_jedi = MagicMock()
+    monkeypatch.setattr(ej, "jedi", mock_jedi)
+
+    comps = []
+    for i in range(25):
+        c = MagicMock()
+        c.name = f"func_{i}"
+        c.type = "function"
+        c.description = f"def func_{i}()"
+        c.docstring.return_value = f"doc_{i}"
+        comps.append(c)
+
+    mock_script = MagicMock()
+    mock_script.complete.return_value = comps
+    mock_jedi.Script.return_value = mock_script
+
+    session = ej.JediSession()
+    res = session.get_completions("x.", 1, 3)
+
+    assert len(res["items"]) == 25
+    # First 20 have docstrings, subsequent items do not
+    assert res["items"][0]["documentation"] == "doc_0"
+    assert res["items"][19]["documentation"] == "doc_19"
+    assert res["items"][20]["documentation"] == ""
+    assert comps[20].docstring.call_count == 0
+
+
+def test_monaco_api_get_completions_drops_stale_request(monkeypatch):
+    api = ej.MonacoEditorApi()
+    mock_jedi_session = MagicMock()
+    # Simulate a slow request that completes after generation advances
+    def slow_completions(*args, **kwargs):
+        api._completion_gen += 1  # newer request arrives
+        return {"items": [{"label": "stale"}]}
+
+    mock_jedi_session.get_completions.side_effect = slow_completions
+    api._jedi = mock_jedi_session
+
+    res = api.get_completions("x.", 1, 3)
+    assert res == {"items": []}
+

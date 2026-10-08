@@ -320,7 +320,7 @@ def test_extract_text_runtime_error_returns_vision_error(mock_get_engine, mock_d
     assert "model failed" in result["message"]
 
 
-@patch("plugin.scripting.client._run_trusted_action")
+@patch("plugin.scripting.client.run_trusted_worker_action")
 def test_vision_client_passes_payload(mock_action):
     from plugin.scripting.client import run_vision as run_trusted_vision
 

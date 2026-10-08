@@ -48,6 +48,28 @@ def parse_worker_dict_result(
     return result
 
 
+_RESERVED_PAYLOAD_KEYS = frozenset({
+    "domain",
+    "helper",
+    "params",
+    "data_range",
+    "context",
+    "headers",
+    "header_row",
+})
+
+
+def extract_sheet_layout(source: dict[str, Any] | None) -> dict[str, Any]:
+    """Extract ``headers`` and ``header_row`` from a spec or packet dictionary."""
+    layout: dict[str, Any] = {}
+    if isinstance(source, dict):
+        if "headers" in source:
+            layout["headers"] = bool(source["headers"])
+        if "header_row" in source:
+            layout["header_row"] = int(source["header_row"])
+    return layout
+
+
 def run_trusted_worker_action(
     ctx: Any,
     *,
@@ -71,6 +93,11 @@ def run_trusted_worker_action(
     cancellation_scope: Any | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted action in the warm venv worker without user code strings."""
+    if stop_checker is None and ctx is not None:
+        stop_checker = getattr(ctx, "stop_checker", None)
+    if cancellation_scope is None and ctx is not None:
+        cancellation_scope = getattr(ctx, "send_cancellation", None)
+
     payload: dict[str, Any] = {
         "domain": domain,
         "helper": helper,
@@ -79,6 +106,12 @@ def run_trusted_worker_action(
         "context": context or {},
     }
     if additional_data:
+        # What was wrong: payload.update(additional_data) ran after core routing keys
+        # were set, allowing additional_data to silently overwrite domain, params, or context.
+        # Why this fixes it: reject reserved keys in additional_data to protect core packet fields.
+        colliding = _RESERVED_PAYLOAD_KEYS.intersection(additional_data)
+        if colliding:
+            raise ValueError(f"additional_data cannot override reserved keys: {sorted(colliding)}")
         payload.update(additional_data)
     # Spec fields, not helper params. Omitting them made the worker default
     # headers=True after the client had already stripped them off the spec.

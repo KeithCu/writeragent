@@ -170,9 +170,9 @@ def load_cython_accelerator() -> None:
 
     # Ensure native binary directories (installed user_config or in-tree repo contrib) are on sys.path
     try:
-        from plugin.scripting.native_binaries import ensure_downloaded_audio_on_path
+        from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
-        ensure_downloaded_audio_on_path()
+        ensure_native_binaries_on_path()
     except Exception as exc:
         log.debug("load_cython_accelerator path ensure exception: %s", exc)
 
@@ -298,7 +298,7 @@ def host_cython_status_line(*, reload: bool = False) -> str:
     """Human-readable host Cython status for Settings -> Python Test probe header.
 
     Default is report-only (no import/reload). Pass ``reload=True`` on the main
-    thread after ``native_binaries.ensure_downloaded_audio_on_path`` when a fresh load is wanted.
+    thread after ``native_binaries.ensure_native_binaries_on_path`` when a fresh load is wanted.
     """
     if reload:
         reload_host_cython_accelerator()

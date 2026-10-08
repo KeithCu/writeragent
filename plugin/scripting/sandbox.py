@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     import subprocess
+    from collections.abc import Sequence
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_ARGV,
@@ -234,7 +235,7 @@ def _matches_allowlist(name: str, exact: frozenset[str], wildcards: tuple[str, .
     return any(name.startswith(p) for p in wildcards)
 
 
-def import_authorized(name: str, authorized_imports: list[str] | tuple[str, ...]) -> bool:
+def import_authorized(name: str, authorized_imports: Sequence[str]) -> bool:
     """Whether *name* is on the sandbox import allowlist.
 
     Bugfix: check_import_authorized allowed any intermediate trie node (e.g.

@@ -13,7 +13,7 @@ import importlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, deal, str_bounded
+from plugin.framework.deal_shim import deal
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -51,7 +51,8 @@ class TrustedActionWiring:
 _TRUSTED_ACTION_WIRING: tuple[TrustedActionWiring, ...] = (
     TrustedActionWiring("units", "plugin.scripting.venv.trusted_dispatch:dispatch_units"),
     TrustedActionWiring("symbolic", "plugin.scripting.venv.trusted_dispatch:dispatch_symbolic"),
-    TrustedActionWiring("math", "plugin.scripting.venv.trusted_dispatch:dispatch_symbolic"),
+    # What was wrong: 'math' domain wiring duplicated 'symbolic' with no client caller or tests.
+    # Why this fixes it: deleted dead 'math' domain entry.
     TrustedActionWiring("viz", "plugin.scripting.venv.trusted_dispatch:dispatch_viz"),
     TrustedActionWiring("analysis", "plugin.scripting.venv.trusted_dispatch:dispatch_analysis"),
     TrustedActionWiring("forecast", "plugin.scripting.venv.trusted_dispatch:dispatch_forecast"),
@@ -76,14 +77,12 @@ _TRUSTED_ACTION_WIRING: tuple[TrustedActionWiring, ...] = (
     ),
 )
 
-_wiring_by_domain: dict[str, TrustedActionWiring] | None = None
+_WIRING_BY_DOMAIN: dict[str, TrustedActionWiring] = {
+    w.domain: w for w in _TRUSTED_ACTION_WIRING
+}
 
 
-@deal.pre(lambda domain: str_bounded(domain, DEAL_MAX_TOKEN))
 @deal.post(lambda result: result is None or isinstance(result, TrustedActionWiring))
 def get_trusted_action_wiring(domain: str) -> TrustedActionWiring | None:
     """Return wiring for *domain*, or None when unregistered."""
-    global _wiring_by_domain
-    if _wiring_by_domain is None:
-        _wiring_by_domain = {w.domain: w for w in _TRUSTED_ACTION_WIRING}
-    return _wiring_by_domain.get(str(domain or ""))
+    return _WIRING_BY_DOMAIN.get(str(domain or ""))

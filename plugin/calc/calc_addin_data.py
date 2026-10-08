@@ -235,8 +235,8 @@ def check_python_multi_data_size(data: list[Any], *, max_cells: int | None = Non
 def check_python_data_size(data: Any, *, max_cells: int | None = None) -> str | None:
     """Return an error message if *data* exceeds *max_cells*, else ``None``.
 
-    *max_cells* defaults to schema default for ``scripting.python_max_data_cells``; callers with
-    UNO context should pass ``configured_python_max_data_cells(ctx)``.
+    *max_cells* defaults to schema default for ``scripting.python_max_data_cells``; callers can pass
+    ``configured_python_max_data_cells()``.
     """
     limit = python_max_data_cells_default() if max_cells is None else max_cells
     n = count_cells(data)
@@ -280,7 +280,7 @@ def _resolve_python_data(ctx: Any, *, data_range: Any = None, data: Any = None) 
     from plugin.scripting.config_limits import configured_python_max_data_cells
 
     addresses = _normalize_data_range_addresses(data_range)
-    max_cells = configured_python_max_data_cells(ctx.ctx)
+    max_cells = configured_python_max_data_cells()
 
     if addresses:
         try:

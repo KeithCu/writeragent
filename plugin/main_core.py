@@ -89,9 +89,9 @@ def bootstrap(ctx: Any | None = None) -> None:
 
         init_config(ctx)
         try:
-            from plugin.scripting.native_binaries import ensure_downloaded_audio_on_path
+            from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
-            ensure_downloaded_audio_on_path()
+            ensure_native_binaries_on_path()
         except Exception:
             log.debug("Native binary path setup failed", exc_info=True)
         from plugin.framework.i18n import init_i18n

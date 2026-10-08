@@ -198,7 +198,7 @@ def test_download_vec_pack_listener_runs_vec_only_download() -> None:
         patch("plugin.librepy.settings.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.native_binaries.run_vec_pack_download", side_effect=fake_download),
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_execute),
-        patch("plugin.scripting.native_binaries.ensure_downloaded_audio_on_path", side_effect=fake_ensure),
+        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=fake_ensure),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=fake_invalidate),
     ):
         listener.on_action_performed(None)
@@ -227,7 +227,7 @@ def test_download_vec_pack_listener_skips_bind_when_download_fails() -> None:
         patch("plugin.librepy.settings.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.native_binaries.run_vec_pack_download", side_effect=fake_download),
         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=AssertionError("hop")),
-        patch("plugin.scripting.native_binaries.ensure_downloaded_audio_on_path", side_effect=AssertionError("ensure")),
+        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=AssertionError("ensure")),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=AssertionError("invalidate")),
     ):
         listener.on_action_performed(None)
@@ -251,7 +251,7 @@ def test_venv_test_listener_ensures_downloaded_vec_on_path() -> None:
     with (
         patch("plugin.scripting.venv_probe_ui.get_optional", return_value=None),
         patch("plugin.scripting.venv_probe_ui.VenvProbeProgressDialog", _FakeProgress),
-        patch("plugin.scripting.native_binaries.ensure_downloaded_audio_on_path") as mock_ensure,
+        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path") as mock_ensure,
         patch("plugin.scripting.venv_diagnostics.probe_venv_path_with_progress", return_value=(True, "ok")),
         patch("plugin.scripting.payload_codec.host_cython_status_line", return_value="Cython Accelerator: Inactive (Pure Python)") as mock_status,
     ):
@@ -405,7 +405,7 @@ def test_librepy_venv_test_listener_skips_embeddings_and_audio() -> None:
     with (
         patch("plugin.scripting.venv_probe_ui.get_optional", return_value=None),
         patch("plugin.scripting.venv_probe_ui.VenvProbeProgressDialog", _FakeProgress),
-        patch("plugin.scripting.native_binaries.ensure_downloaded_audio_on_path"),
+        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path"),
         patch("plugin.scripting.venv_diagnostics.probe_venv_path_with_progress", side_effect=fake_probe),
         patch("plugin.scripting.payload_codec.host_cython_status_line", return_value="ok"),
     ):

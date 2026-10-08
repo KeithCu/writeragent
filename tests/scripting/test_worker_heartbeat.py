@@ -14,14 +14,13 @@ from plugin.scripting.venv.worker_heartbeat import (
     FRAME_RESULT,
     HeartbeatEmitter,
     parse_frame,
-    write_frame,
     write_result_frame,
 )
 
 
 def test_write_and_parse_heartbeat_frame():
     buf = io.BytesIO()
-    write_frame(buf, {"frame_type": FRAME_HEARTBEAT, "payload": {"phase": "extract"}})
+    HeartbeatEmitter(buf).emit({"phase": "extract"})
     buf.seek(0)
     payload = read_frame_payload(buf)
     assert payload is not None

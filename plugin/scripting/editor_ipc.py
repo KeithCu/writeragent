@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Monaco editor IPC protocol (pickle protocol 5) and failure formatting for user-visible dialogs."""
+"""Monaco editor IPC protocol (pickle protocol 5)."""
 
 # =========================================================================================
 # WARNING: PARITY INVARIANT WITH MONACO JAVASCRIPT FRONTEND
@@ -15,18 +15,20 @@
 
 from __future__ import annotations
 
-import traceback
 import uuid
 from typing import Any, IO, Mapping
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
-    UNDER_CROSSHAIR,
     ascii_bounded,
     deal,
-    str_bounded,
+)
+from plugin.scripting.editor_errors import (
+    _profile,
+    exception_traceback,
+    failure_detail,
+    failure_message,
 )
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
@@ -36,9 +38,25 @@ from plugin.scripting.ipc import (
     unpack_pickle_frame,
 )
 
+__all__ = [
+    "EDITOR_DEFAULT_TITLE",
+    "exception_traceback",
+    "failure_detail",
+    "failure_message",
+    "message_type",
+    "new_session_id",
+    "normalize_target",
+    "read_message",
+    "session_id_of",
+    "stamp_session",
+    "target_from_load",
+    "target_identity_key",
+    "write_message",
+]
+
 EDITOR_DEFAULT_TITLE = " "
 
-# JSON-safe identity keys on every session message (omit empties).
+# Identity keys on every session message (omit empties).
 _TARGET_KEYS = ("cell_address", "script_name", "script_origin", "doc_url", "resource")
 
 def read_message(stream: IO[bytes]) -> dict[str, Any] | None:
@@ -99,7 +117,7 @@ def _deal_ipc_dict_ok_crosshair(msg: object, allow_nested: bool = True) -> bool:
     )
 
 
-_deal_ipc_dict_ok = _deal_ipc_dict_ok_crosshair if UNDER_CROSSHAIR else _deal_ipc_dict_ok_pytest
+_deal_ipc_dict_ok = _profile(_deal_ipc_dict_ok_pytest, _deal_ipc_dict_ok_crosshair)
 
 
 @deal.pre(lambda target: target is None or _deal_ipc_dict_ok(target))
@@ -149,14 +167,18 @@ def target_from_load(msg: Mapping[str, Any]) -> dict[str, str]:
     lambda mode, target: ascii_bounded(mode, DEAL_MAX_TOKEN)
     and (target is None or _deal_ipc_dict_ok(target))
 )
-def target_identity_key(mode: str, target: Mapping[str, str] | None) -> tuple[str, str, str, str, str]:
+def target_identity_key(mode: str, target: Mapping[str, str] | None) -> tuple[str, str, str, str, str, str]:
     """Stable key so reopening the same cell/script reuses ``session_id``."""
     # crosshair: off  # nested IPC dict domain (cover-all 33293627157: ~9m, 159k lines). Doable later; thin wrapper over normalize_target.
     t = normalize_target(target)
+    # What was wrong: target_identity_key omitted script_origin, causing user and document scripts
+    # with identical names to share session_id and accidentally overwrite each other's save targets.
+    # Why this change: including script_origin ensures distinct identity keys across script scopes.
     return (
         str(mode or ""),
         t.get("cell_address", ""),
         t.get("script_name", ""),
+        t.get("script_origin", ""),
         t.get("doc_url", ""),
         t.get("resource", ""),
     )
@@ -192,97 +214,3 @@ def stamp_session(
         merged.update(dict(target))
     out["target"] = normalize_target(merged)
     return out
-
-
-def _deal_exc_ok_pytest(exc: object) -> bool:
-    return isinstance(exc, BaseException)
-
-
-def _deal_exc_ok_crosshair(exc: object) -> bool:
-    return exc is None
-
-
-_deal_exc_ok = _deal_exc_ok_crosshair if UNDER_CROSSHAIR else _deal_exc_ok_pytest
-
-
-def _deal_optional_exc_ok_pytest(exc: object) -> bool:
-    # The body formats a real exception and also accepts None.
-    return exc is None or isinstance(exc, BaseException)
-
-
-def _deal_optional_exc_ok_crosshair(exc: object) -> bool:
-    # Symbolic format_exception is not a CrossHair domain.
-    return exc is None
-
-
-# Import-time only. Do not branch inside @deal.pre (CrossHair explores both arms).
-_deal_optional_exc_ok = _deal_optional_exc_ok_crosshair if UNDER_CROSSHAIR else _deal_optional_exc_ok_pytest
-
-
-def _deal_failure_detail_ok_pytest(detail: object = None, exc: object = None) -> bool:
-    # Probe stderr and tracebacks are longer than DEAL_MAX_SOURCE. The length
-    # cap raised PreContractError on the same path as the exc-is-None bug.
-    # The body strips a string and formats a real exception.
-    return (detail is None or isinstance(detail, str)) and _deal_optional_exc_ok(exc)
-
-
-def _deal_failure_detail_ok_crosshair(detail: object = None, exc: object = None) -> bool:
-    return (detail is None or str_bounded(detail, DEAL_MAX_SOURCE)) and exc is None
-
-
-_deal_failure_detail_ok = (
-    _deal_failure_detail_ok_crosshair if UNDER_CROSSHAIR else _deal_failure_detail_ok_pytest
-)
-
-
-def _deal_failure_message_ok_pytest(summary: object, detail: object = None, exc: object = None) -> bool:
-    return isinstance(summary, str) and _deal_failure_detail_ok_pytest(detail, exc)
-
-
-def _deal_failure_message_ok_crosshair(summary: object, detail: object = None, exc: object = None) -> bool:
-    return str_bounded(summary, DEAL_MAX_SOURCE) and _deal_failure_detail_ok_crosshair(detail, exc)
-
-
-_deal_failure_message_ok = (
-    _deal_failure_message_ok_crosshair if UNDER_CROSSHAIR else _deal_failure_message_ok_pytest
-)
-
-
-@deal.pre(lambda exc: _deal_exc_ok(exc))
-def exception_traceback(exc: BaseException) -> str:
-    """Full traceback string for *exc*."""
-    # crosshair: off  # BaseException/traceback formatting; CrossHair pre forces exc is None so covering is circular (cover-all 33293627157: ~11m, 92k lines). Doable later.
-    return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-
-
-# What was wrong: the precondition required ``exc is None`` under deal, while
-# the body appends ``exception_traceback(exc)`` whenever ``exc`` is set.
-# How it happened: that domain is the CrossHair profile (no symbolic
-# ``format_exception``) and was left on the pytest profile too.
-# Why this change: ``probe_webview_import`` calls ``failure_detail(exc=e)`` on
-# timeout or ``OSError``. Under deal that raised ``PreContractError`` instead
-# of returning the diagnostic. CrossHair still sees only ``exc is None``.
-# The no-deal runtime is the same body.
-@deal.pre(lambda detail=None, exc=None: _deal_failure_detail_ok(detail, exc))
-@deal.post(lambda result: isinstance(result, str))
-def failure_detail(*, detail: str | None = None, exc: BaseException | None = None) -> str:
-    """Combine subprocess stderr, probe output, and/or an exception traceback."""
-    # crosshair: off  # detail/traceback join still slow with bounds (cover-all 33293627157: ~4m, 61k lines). Doable later.
-    chunks: list[str] = []
-    detail_text = (detail or "").strip()
-    if detail_text:
-        chunks.append(detail_text)
-    if exc is not None:
-        chunks.append(exception_traceback(exc).rstrip())
-    return "\n\n".join(chunks)
-
-
-@deal.pre(lambda summary, detail=None, exc=None: _deal_failure_message_ok(summary, detail, exc))
-@deal.post(lambda result: isinstance(result, str))
-def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:
-    """Build a msgbox body: *summary* plus optional detail/traceback blocks."""
-    # crosshair: off  # thin wrapper over failure_detail (cover-all 33293627157: ~2m, 40k lines). Doable later.
-    body = failure_detail(detail=detail, exc=exc)
-    if body:
-        return f"{summary}\n\n{body}"
-    return summary

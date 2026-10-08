@@ -8,11 +8,11 @@ from plugin.scripting.native_binaries import (
     _atomic_replace_native,
     _cleanup_stale_native_backups,
     _download_url_to_file,
-    ensure_downloaded_audio_on_path,
+    ensure_native_binaries_on_path,
 )
 
 
-def test_ensure_downloaded_audio_on_path_adds_bin_dir(tmp_path):
+def test_ensure_native_binaries_on_path_adds_bin_dir(tmp_path):
     bin_dir = tmp_path / "audio_binaries"
     bin_dir.mkdir()
     ucd = str(tmp_path)
@@ -20,28 +20,28 @@ def test_ensure_downloaded_audio_on_path_adds_bin_dir(tmp_path):
     try:
         sys.path[:] = [p for p in original_path if p != str(bin_dir)]
         with patch("plugin.framework.config.user_config_dir", return_value=ucd):
-            ensure_downloaded_audio_on_path()
+            ensure_native_binaries_on_path()
         assert str(bin_dir) in sys.path
     finally:
         sys.path[:] = original_path
 
 
-def test_ensure_downloaded_audio_on_path_idempotent(tmp_path):
+def test_ensure_native_binaries_on_path_idempotent(tmp_path):
     bin_dir = tmp_path / "audio_binaries"
     bin_dir.mkdir()
     ucd = str(tmp_path)
     with patch("plugin.framework.config.user_config_dir", return_value=ucd):
-        ensure_downloaded_audio_on_path()
+        ensure_native_binaries_on_path()
         first_index = sys.path.index(str(bin_dir))
-        ensure_downloaded_audio_on_path()
+        ensure_native_binaries_on_path()
         assert sys.path.index(str(bin_dir)) == first_index
         assert sys.path.count(str(bin_dir)) == 1
 
 
-def test_ensure_downloaded_audio_on_path_adds_in_tree_contrib():
+def test_ensure_native_binaries_on_path_adds_in_tree_contrib():
     original_path = list(sys.path)
     try:
-        ensure_downloaded_audio_on_path()
+        ensure_native_binaries_on_path()
         # Verify in-tree contrib or contrib/vec_pack exists on sys.path
         mod_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         contrib_dir = os.path.join(mod_dir, "contrib")
@@ -191,7 +191,7 @@ def test_run_vec_pack_download_invalidates_accelerator(tmp_path):
         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
         patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
         patch("plugin.scripting.native_binaries._download_url_to_file") as mock_dl,
-        patch("plugin.scripting.native_binaries.ensure_downloaded_audio_on_path"),
+        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path"),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator") as mock_inv,
     ):
         ok = run_vec_pack_download(lambda _t: None, lambda _s: None)
@@ -212,7 +212,7 @@ def test_run_vec_pack_download_bind_host_false_skips_path_and_modules(tmp_path):
         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
         patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
         patch("plugin.scripting.native_binaries._download_url_to_file"),
-        patch("plugin.scripting.native_binaries.ensure_downloaded_audio_on_path") as mock_ensure,
+        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path") as mock_ensure,
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator") as mock_inv,
     ):
         ok = run_vec_pack_download(lambda _t: None, lambda _s: None, bind_host=False)
@@ -283,13 +283,18 @@ def test_atomic_replace_native_windows_picks_unique_aside(tmp_path):
     assert (tmp_path / "pack.pyd.old.1").read_bytes() == b"LOADED_OLD"
 
 
-def test_cleanup_stale_native_backups_removes_old_files(tmp_path):
+def test_cleanup_stale_native_backups_removes_old_files(tmp_path, monkeypatch):
+    import plugin.scripting.native_binaries as nb
+    monkeypatch.setattr(nb, "_swept", False)
+
     vec_dir = tmp_path / "writeragent_vec"
     vec_dir.mkdir()
     (vec_dir / "pack.cp314-win_amd64.pyd").write_bytes(b"live")
     (vec_dir / "pack.cp314-win_amd64.pyd.old").write_bytes(b"stale")
     (vec_dir / "pack.cp314-win_amd64.pyd.old.1").write_bytes(b"stale1")
     (tmp_path / "_cffi_backend.pyd.old").write_bytes(b"stale2")
+    (tmp_path / "helper.older.py").write_bytes(b"keep_me")
+    (tmp_path / "archive.oldest").write_bytes(b"keep_me_too")
 
     with patch("os.name", "nt"):
         _cleanup_stale_native_backups(str(tmp_path))
@@ -298,9 +303,14 @@ def test_cleanup_stale_native_backups_removes_old_files(tmp_path):
     assert not (vec_dir / "pack.cp314-win_amd64.pyd.old").exists()
     assert not (vec_dir / "pack.cp314-win_amd64.pyd.old.1").exists()
     assert not (tmp_path / "_cffi_backend.pyd.old").exists()
+    assert (tmp_path / "helper.older.py").exists()
+    assert (tmp_path / "archive.oldest").exists()
 
 
-def test_cleanup_stale_native_backups_tolerates_locked_file(tmp_path):
+def test_cleanup_stale_native_backups_tolerates_locked_file(tmp_path, monkeypatch):
+    import plugin.scripting.native_binaries as nb
+    monkeypatch.setattr(nb, "_swept", False)
+
     (tmp_path / "pack.pyd.old").write_bytes(b"stale")
 
     def boom(_path):
@@ -312,10 +322,27 @@ def test_cleanup_stale_native_backups_tolerates_locked_file(tmp_path):
     assert (tmp_path / "pack.pyd.old").exists()
 
 
-def test_cleanup_stale_native_backups_noop_on_posix(tmp_path):
+def test_cleanup_stale_native_backups_noop_on_posix(tmp_path, monkeypatch):
+    import plugin.scripting.native_binaries as nb
+    monkeypatch.setattr(nb, "_swept", False)
+
     (tmp_path / "pack.so.old").write_bytes(b"stale")
 
     with patch("os.name", "posix"):
         _cleanup_stale_native_backups(str(tmp_path))
 
     assert (tmp_path / "pack.so.old").exists()
+
+
+def test_wave_open_failure_message_does_not_mention_portaudio():
+    import threading
+    from unittest.mock import MagicMock, patch
+    from plugin.scripting.venv.audio_recorder import record_to_wav
+
+    fake_sd = MagicMock()
+    with patch("plugin.scripting.venv.audio_recorder._import_sounddevice", return_value=fake_sd):
+        with pytest.raises(RuntimeError) as exc_info:
+            record_to_wav("/nonexistent_dir_cannot_create/test.wav", threading.Event())
+        msg = str(exc_info.value)
+        assert "Failed to create audio WAV file" in msg
+        assert "PortAudio" not in msg

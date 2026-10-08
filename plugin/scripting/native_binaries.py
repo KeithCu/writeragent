@@ -55,6 +55,36 @@ _VEC_PACK_SHA256 = {
     "pack.cpython-314-x86_64-linux-gnu.so": "5102dd1f5ccc05c0b821e048e580949ad9977e4d507a78e2634c6b2cb8e6196f",
 }
 
+_MAX_AUDIO_BYTES = 1_048_576
+_AUDIO_SHA256: dict[str, str] = {
+    "audio_source.zip": "ab8a80786511afdd68d52e94b439e0484908a05c188ec2686419c3d5ad358110",
+    "libportaudio.dylib": "03190134f5d59c999dd13bc66213444f289af88c29f8a8003d77b018700d8ed9",
+    "libportaudio64bit.dll": "ec080194f01e4095c7fb43dbd7ed05af922c5b34295056a9ff56782741d65481",
+    "libportaudioarm64.dll": "e39e95e95c0cb262c70ca4e676e440cf34be5643fe5a31cdfe23e8ab6f1422cb",
+    "_cffi_backend.cp311-win_amd64.pyd": "87243aab8aa82f05b21565471b08ffbf8ab4a9a8282e55d7579b487d9e6c8daa",
+    "_cffi_backend.cp311-win_arm64.pyd": "ff3705700706a664308843f62bf7c1f1c1581d26487cd354c16ac085d748ae18",
+    "_cffi_backend.cp312-win_amd64.pyd": "c24340a5484db93df7d2654149196ae4fd2d7560c73ef4ae12ccc51ae8a7fb70",
+    "_cffi_backend.cp312-win_arm64.pyd": "12cdd4100dfd0ecdb1cc073a5142a267cb630ac1b76ebacf7350300de04f4067",
+    "_cffi_backend.cp313-win_amd64.pyd": "3215e22f0264be58239bd671cf4bbfca403b3802260cbceb414f6b72ebe45cfe",
+    "_cffi_backend.cp313-win_arm64.pyd": "a4afd30998a4d876ce1bff0890a34225cc8ee316c7e5bbd27a7ddd79795fa028",
+    "_cffi_backend.cp314-win_amd64.pyd": "e5137002ad41c6d9563fd7a72fcc7310e75d93f158f8e4e7139ac47944451010",
+    "_cffi_backend.cp314-win_arm64.pyd": "9169c80f0556a677db53c8ac3d68f877e456bac2a1f3a89d17bca12164215506",
+    "_cffi_backend.cpython-311-aarch64-linux-gnu.so": "7f6d9c0fd109014f5501a4ae207a8aad7a6ea23bbf817431347cc47a71c565b1",
+    "_cffi_backend.cpython-311-darwin.so": "6df24e0e996a136c2b28b861a8b38b9a55872754116c4442e7a8bf676c48b94f",
+    "_cffi_backend.cpython-311-x86_64-linux-gnu.so": "4fd21c28b220ba95596d630f4c23d7361beb0252bee3133693d7f3ddff682fc9",
+    "_cffi_backend.cpython-312-aarch64-linux-gnu.so": "dd1595e11919a2d2f16f2690b3c59d573c5afca7b47d1953381743b7e8923978",
+    "_cffi_backend.cpython-312-darwin.so": "b85e100c08e86b188f99debb3326499742f908b4fac377dde3a5366d800fc16c",
+    "_cffi_backend.cpython-312-x86_64-linux-gnu.so": "5b35d92ce7fd74f288a11e755713d731734951789a2ea09da6c7c76e7080cc7c",
+    "_cffi_backend.cpython-313-aarch64-linux-gnu.so": "9a380b033c3027c86b153d446ecc27c9174516d6d7f970f06ddcfb886adc95b0",
+    "_cffi_backend.cpython-313-darwin.so": "0bc68363fddb89f0e25e5c735f5debf2d7b2e64fa817f2ad4ff1a1f0c15377a9",
+    "_cffi_backend.cpython-313-x86_64-linux-gnu.so": "c0da5c6c9d146b36cc27394e98fac6125f77816d76f8ffb430ad82cdeb39b04e",
+    "_cffi_backend.cpython-314-aarch64-linux-gnu.so": "7115a9e8c0cbe545b40a9ee8153198db30a0d0e2790cc2ed4d3c975515a9caf1",
+    "_cffi_backend.cpython-314-darwin.so": "4ffda54cc470c1cbfdc975f7808553794a34c2ad3408c215f90aac2cf77a4893",
+    "_cffi_backend.cpython-314-x86_64-linux-gnu.so": "db7fc2f6b397158cd867038949ca3524403aa0821e6778e657f41188188d5fd9",
+}
+
+_swept = False
+
 
 def _cleanup_stale_native_backups(bin_dir: str) -> None:
     """Delete leftover ``*.old`` native backups from Windows rename-aside redownloads.
@@ -65,12 +95,18 @@ def _cleanup_stale_native_backups(bin_dir: str) -> None:
     the next startup once nothing maps them. POSIX never creates ``*.old`` backups
     (``os.replace`` keeps the old inode alive), so this is a no-op there.
     """
-    if os.name != "nt":
+    global _swept
+    if os.name != "nt" or _swept:
         return
+    _swept = True
     try:
+        import re
+
         for root, _dirs, files in os.walk(bin_dir):
             for name in files:
-                if ".old" not in name:
+                # What was wrong: '.old' in name matched unrelated files like foo.older.py.
+                # Why this change: exact regex matches only .old and .old.<num> backup suffixes.
+                if not re.search(r"\.old(\.\d+)?$", name):
                     continue
                 stale = os.path.join(root, name)
                 try:
@@ -82,18 +118,24 @@ def _cleanup_stale_native_backups(bin_dir: str) -> None:
         log.debug("Failed to sweep stale native backups in %s: %s", bin_dir, exc)
 
 
-def ensure_downloaded_audio_on_path() -> None:
-    """Ensure host binaries (audio + writeragent_vec) in user config or in-tree contrib are on sys.path."""
+def native_bin_dir() -> str:
+    """Single source of truth for the on-disk native binary directory path."""
     from plugin.framework.config import user_config_dir
 
+    ucd = user_config_dir()
+    if not ucd:
+        raise RuntimeError("User config directory not resolved.")
+    return os.path.join(ucd, "audio_binaries")
+
+
+def ensure_native_binaries_on_path() -> None:
+    """Ensure host binaries (audio + writeragent_vec) in user config or in-tree contrib are on sys.path."""
     try:
-        ucd = user_config_dir()
-        if ucd:
-            bin_dir = os.path.join(ucd, "audio_binaries")
-            if os.path.isdir(bin_dir):
-                _cleanup_stale_native_backups(bin_dir)
-                if bin_dir not in sys.path:
-                    sys.path.insert(0, bin_dir)
+        bin_dir = native_bin_dir()
+        if os.path.isdir(bin_dir):
+            _cleanup_stale_native_backups(bin_dir)
+            if bin_dir not in sys.path:
+                sys.path.insert(0, bin_dir)
     except Exception as exc:
         log.debug("Failed to add user config audio path to sys.path: %s", exc)
 
@@ -163,6 +205,7 @@ def _download_url_to_file(
     leaves the previous file in place. Both default off so audio zip downloads
     keep working without pins.
     """
+    import tempfile
     import urllib.error
     import urllib.request
 
@@ -170,20 +213,27 @@ def _download_url_to_file(
         url,
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
     )
-    partial_path = dest_path + ".partial"
+    dest_dir = os.path.dirname(dest_path) or "."
+    os.makedirs(dest_dir, exist_ok=True)
+    # What was wrong: using fixed partial_path = dest_path + '.partial' meant concurrent
+    # downloads (e.g. settings probe + background worker) clobbered each other.
+    # Why this change: tempfile.mkstemp ensures unique partial files per download.
+    fd, partial_path = tempfile.mkstemp(dir=dest_dir, suffix=".partial")
     try:
         with urllib.request.urlopen(req, timeout=_NATIVE_DOWNLOAD_TIMEOUT_SEC) as response:
             total_size = int(response.headers.get("content-length", 0))
-            block_size = 8192
+            block_size = 65536
             downloaded = 0
-            os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
-            with open(partial_path, "wb") as fh:
+            digest = hashlib.sha256() if expected_sha256 is not None else None
+            with os.fdopen(fd, "wb") as fh:
                 while True:
                     buffer = response.read(block_size)
                     if not buffer:
                         break
                     downloaded += len(buffer)
                     fh.write(buffer)
+                    if digest is not None:
+                        digest.update(buffer)
                     if max_bytes is not None and downloaded > max_bytes:
                         raise RuntimeError(
                             f"Download of {os.path.basename(dest_path)} exceeded {max_bytes} bytes"
@@ -195,14 +245,7 @@ def _download_url_to_file(
                 raise RuntimeError(
                     f"Download of {os.path.basename(dest_path)} stopped at {downloaded} of {total_size} bytes"
                 )
-        if expected_sha256 is not None:
-            digest = hashlib.sha256()
-            with open(partial_path, "rb") as fh:
-                while True:
-                    chunk = fh.read(65536)
-                    if not chunk:
-                        break
-                    digest.update(chunk)
+        if digest is not None and expected_sha256 is not None:
             actual = digest.hexdigest()
             if actual != expected_sha256.lower():
                 raise RuntimeError(
@@ -231,7 +274,7 @@ def run_vec_pack_download(
 ) -> bool:
     """Download the platform-specific Cython pack binary from contrib/vec_pack on GitHub.
 
-    ``bind_host`` (default) calls ``ensure_downloaded_audio_on_path`` and
+    ``bind_host`` (default) calls ``ensure_native_binaries_on_path`` and
     ``invalidate_host_cython_accelerator`` on the caller before returning.
     LibrePy Settings passes False: that probe runs off the VCL thread, and the
     listener binds on the main thread instead.
@@ -239,18 +282,13 @@ def run_vec_pack_download(
     import platform
     import sysconfig
 
-    from plugin.framework.config import user_config_dir
-
-    ucd = user_config_dir()
-    if not ucd:
-        raise RuntimeError("User config directory not resolved.")
+    target_dir = native_bin_dir()
+    os.makedirs(target_dir, exist_ok=True)
 
     ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")
     if not ext_suffix:
         raise RuntimeError("Failed to determine Python EXT_SUFFIX.")
 
-    target_dir = os.path.join(ucd, "audio_binaries")
-    os.makedirs(target_dir, exist_ok=True)
     base_url = _CONTRIB_BASE_URL
 
     if include_header:
@@ -284,11 +322,108 @@ def run_vec_pack_download(
     )
 
     if bind_host:
-        ensure_downloaded_audio_on_path()
+        ensure_native_binaries_on_path()
         # Drop stale in-process module after replace so the next load binds the new inode.
         from plugin.scripting.payload_codec import invalidate_host_cython_accelerator
 
         invalidate_host_cython_accelerator()
     if include_header:
         on_display("\nCython accelerator binary installed successfully.\n")
+    return True
+
+
+def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> bool:
+    """Download the pure-Python audio source zip and platform-specific compiled binaries from GitHub."""
+    import platform
+    import sysconfig
+    import zipfile
+
+    target_dir = native_bin_dir()
+    os.makedirs(target_dir, exist_ok=True)
+
+    ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")
+    if not ext_suffix:
+        raise RuntimeError("Failed to determine Python EXT_SUFFIX.")
+
+    cffi_name = f"_cffi_backend{ext_suffix}"
+    if cffi_name not in _AUDIO_SHA256:
+        raise RuntimeError(f"No pinned sha256 for {cffi_name}")
+
+    portaudio_name = None
+    if platform.system() == "Darwin":
+        portaudio_name = "libportaudio.dylib"
+    elif platform.system() == "Windows":
+        is_arm = platform.machine().lower() in ("arm64", "aarch64")
+        platform_suffix = "arm64" if is_arm else "64bit"
+        portaudio_name = f"libportaudio{platform_suffix}.dll"
+
+    if portaudio_name and portaudio_name not in _AUDIO_SHA256:
+        raise RuntimeError(f"No pinned sha256 for {portaudio_name}")
+
+    base_url = _CONTRIB_BASE_URL
+
+    on_display(f"Target directory: {target_dir}\n")
+    on_display(f"Platform: {platform.system()} ({platform.machine()})\n")
+    on_display(f"Python: {platform.python_version()}\n\n")
+
+    # Download pure Python source zip
+    zip_url = f"{base_url}audio_source.zip"
+    zip_dest = os.path.join(target_dir, "audio_source.zip")
+    on_display("Downloading pure Python audio libraries (audio_source.zip)...\n")
+    _download_url_to_file(
+        zip_url,
+        zip_dest,
+        on_status,
+        max_bytes=_MAX_AUDIO_BYTES,
+        expected_sha256=_AUDIO_SHA256["audio_source.zip"],
+    )
+
+    # Extract audio_source.zip
+    on_status("Extracting audio_source.zip...")
+    on_display("Extracting audio_source.zip...\n")
+    try:
+        with zipfile.ZipFile(zip_dest, "r") as zf:
+            zf.extractall(target_dir)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to extract audio_source.zip: {exc}") from exc
+    finally:
+        if os.path.exists(zip_dest):
+            try:
+                os.remove(zip_dest)
+            except Exception:
+                pass
+
+    # Download CFFI binary
+    cffi_url = f"{base_url}audio/{cffi_name}"
+    cffi_dest = os.path.join(target_dir, cffi_name)
+    on_display(f"Downloading binary {cffi_name}...\n")
+    _download_url_to_file(
+        cffi_url,
+        cffi_dest,
+        on_status,
+        max_bytes=_MAX_AUDIO_BYTES,
+        expected_sha256=_AUDIO_SHA256[cffi_name],
+    )
+
+    # Download PortAudio binary if needed
+    if portaudio_name:
+        pa_url = f"{base_url}audio/_sounddevice_data/portaudio-binaries/{portaudio_name}"
+        pa_dest = os.path.join(target_dir, "_sounddevice_data", "portaudio-binaries", portaudio_name)
+        on_display(f"Downloading binary {portaudio_name}...\n")
+        _download_url_to_file(
+            pa_url,
+            pa_dest,
+            on_status,
+            max_bytes=_MAX_AUDIO_BYTES,
+            expected_sha256=_AUDIO_SHA256[portaudio_name],
+        )
+
+    # Create _sounddevice_data/__init__.py placeholder
+    init_dest = os.path.join(target_dir, "_sounddevice_data", "__init__.py")
+    os.makedirs(os.path.dirname(init_dest), exist_ok=True)
+    with open(init_dest, "w") as f:
+        f.write("# Placeholder\n")
+
+    run_vec_pack_download(on_display, on_status, include_header=False)
+    on_display("\nAll downloaded files installed successfully!\n")
     return True

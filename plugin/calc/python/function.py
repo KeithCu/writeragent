@@ -1471,7 +1471,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             elif is_scalar_index_arg(py_data) and not is_split_grid(py_data):
                 # Single cell may be a matrix index and/or the data value itself.
                 index_arg = _unwrap_single_cell(py_data)
-        max_cells = configured_python_max_data_cells(ctx)
+        max_cells = configured_python_max_data_cells()
         if py_data is not None:
             if is_multi:
                 size_err = check_python_multi_data_size(py_data, max_cells=max_cells)

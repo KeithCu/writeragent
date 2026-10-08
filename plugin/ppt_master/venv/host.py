@@ -46,7 +46,7 @@ def run_ppt_master_venv_turn(
         return err
     assert manager is not None
 
-    configured = configured_python_exec_timeout(uno_ctx)
+    configured = configured_python_exec_timeout()
     timeout_sec = max(resolve_python_exec_timeout(None, configured=configured), _PPT_MASTER_TURN_TIMEOUT_SEC)
 
     payload = {

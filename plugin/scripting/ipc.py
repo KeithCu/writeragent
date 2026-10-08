@@ -23,7 +23,7 @@ import sys
 import threading
 import time
 import uuid
-from typing import Any, Callable, IO
+from typing import Any, BinaryIO, Callable, IO, cast
 from weakref import WeakKeyDictionary
 
 log = logging.getLogger("writeragent.scripting.ipc")
@@ -42,6 +42,54 @@ EXEC_STARTED = "exec_started"
 # and worker on the same inventory — do not pass unbounded read_frame_payload
 # on either path.
 DEFAULT_MAX_PAYLOAD_BYTES = 16 * 1024 * 1024
+
+_child_ipc_stream: BinaryIO | None = None
+
+
+def claim_ipc_channel() -> BinaryIO:
+    """Claim stdout (fd 1) for child IPC and redirect fd 1 to stderr (fd 2).
+
+    Returns a private, unbuffered binary stream connected to the original stdout fd.
+    Any stray print() or library writes to stdout will land on stderr, preventing
+    protocol corruption.
+    """
+    global _child_ipc_stream
+    if _child_ipc_stream is not None:
+        return _child_ipc_stream
+    try:
+        fileno = sys.stdout.fileno()
+    except (AttributeError, io.UnsupportedOperation, OSError):
+        fileno = None
+    if fileno != 1:
+        return cast("BinaryIO", getattr(sys.stdout, "buffer", sys.stdout))
+
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
+    try:
+        sys.stderr.flush()
+    except Exception:
+        pass
+    ipc_fd = os.dup(1)
+    os.dup2(2, 1)
+    _child_ipc_stream = cast("BinaryIO", os.fdopen(ipc_fd, "wb", buffering=0))
+    return _child_ipc_stream
+
+
+def get_child_ipc_stream() -> BinaryIO:
+    """Return the private child IPC stream if claimed, else sys.stdout.buffer."""
+    global _child_ipc_stream
+    try:
+        fileno = sys.stdout.fileno()
+    except (AttributeError, io.UnsupportedOperation, OSError):
+        fileno = None
+    if fileno != 1:
+        return cast("BinaryIO", getattr(sys.stdout, "buffer", sys.stdout))
+    if _child_ipc_stream is not None:
+        return _child_ipc_stream
+    return cast("BinaryIO", getattr(sys.stdout, "buffer", sys.stdout))
+
 
 # Host unpickle of child/editor frames: builtins, plus the NumPy reconstruct
 # entry points a ndarray/dtype pickle actually calls. Protocol 5 bytes
@@ -430,8 +478,11 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     overdue = False
     try:
         with _tool_call_lock:
+            # What was wrong: exchange_tool_call wrote to sys.stdout.buffer, which lands on
+            # stderr when child stdout is dup2'd to protect IPC framing from stray prints.
+            # Why this fixes it: get_child_ipc_stream() writes to the original claimed IPC stream.
             write_pickle_frame(
-                sys.stdout.buffer,
+                get_child_ipc_stream(),
                 request,
                 max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
             )
@@ -540,9 +591,15 @@ def read_pickle_frame_with_timeout(
     return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict, unpacker=unpacker)
 
 
-def write_json_line(stream: IO[str], payload: dict[str, Any]) -> None:
-    """Write one JSON object followed by a newline to a text-mode pipe."""
-    stream.write(json.dumps(payload) + "\n")
+def write_json_line(stream: IO[str] | IO[bytes], payload: dict[str, Any]) -> None:
+    """Write one JSON object followed by a newline to a text or binary pipe."""
+    # What was wrong: write_json_line required IO[str], failing on binary IPC streams returned by claim_ipc_channel().
+    # Why this fixes it: supports both text and binary streams by encoding to utf-8 when writing bytes.
+    line = json.dumps(payload) + "\n"
+    try:
+        cast("Any", stream).write(line)
+    except TypeError:
+        cast("Any", stream).write(line.encode("utf-8"))
     stream.flush()
 
 

@@ -259,6 +259,10 @@ class EditorSessionState:
     pending_on_save: EditorSaveCallback | None = None
     pending_on_closed: Callable[[], None] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    target_key: tuple[str, str, str, str, str, str] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.target_key = target_identity_key(self.mode, self.target)
 
 
 class PersistentEditor:
@@ -308,7 +312,7 @@ class PersistentEditor:
     def find_by_target(self, mode: str, target: dict[str, str]) -> EditorSessionState | None:
         key = target_identity_key(mode, target)
         for state in self.sessions.values():
-            if target_identity_key(state.mode, state.target) == key:
+            if state.target_key == key:
                 return state
         return None
 
@@ -588,7 +592,7 @@ class PersistentEditor:
         """UI wait for a save/close. The script budget can be 600s; 60s used to overlap it."""
         from plugin.scripting.config_limits import configured_python_exec_timeout
 
-        return float(configured_python_exec_timeout(self.ctx)) + 5.0
+        return float(configured_python_exec_timeout()) + 5.0
 
     def set_run_script_document(self, doc: Any | None) -> None:
         from plugin.scripting.document_scripts import document_scripts_identity
