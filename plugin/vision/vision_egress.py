@@ -9,17 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, is_disposed_exception
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.vision.vision_common import HELPER_NAMES, resolve_vision_insert_mode
 
 log = logging.getLogger(__name__)
-
-
-def _reraise_if_disposed(exc: BaseException) -> None:
-    """Disposed UNO is a closed document, not a generic vision failure."""
-    if is_disposed_exception(exc):
-        raise DocumentDisposedError("Document disposed during vision insert", object_type="vision") from exc
 
 
 def is_vision_result(value: Any) -> bool:
@@ -33,7 +27,7 @@ def is_vision_result(value: Any) -> bool:
         return True
     if value.get("status") == "error":
         code = str(value.get("code") or "")
-        return code == "VISION_ERROR" or "VISION" in code
+        return "VISION" in code
     return False
 
 
@@ -48,8 +42,8 @@ def vision_html_from_result(result: dict[str, Any]) -> str:
         raise ToolExecutionError("Vision helper returned an unexpected status.", code="VISION_ERROR", details={"vision_result": result})
 
     html = result.get("html")
-    if html is None:
-        raise ToolExecutionError("Vision helper result is missing html.", code="VISION_ERROR", details={"vision_result": result})
+    if html is None or not str(html).strip():
+        raise ToolExecutionError("Vision helper returned empty HTML.", code="VISION_ERROR", details={"vision_result": result})
     return str(html)
 
 
@@ -66,7 +60,7 @@ def _focus_writer_frame(controller: Any) -> None:
         if window is not None and hasattr(window, "setFocus"):
             window.setFocus()
     except Exception as ex:
-        _reraise_if_disposed(ex)
+        reraise_if_disposed(ex)
         log.debug("prepare_vision_writer_insert: frame focus failed: %s", ex)
 
 
@@ -77,8 +71,21 @@ def _collapse_writer_view_cursor(controller: Any, position: Any) -> None:
         view_cursor.gotoRange(position, False)
         controller.select(view_cursor)
     except Exception as ex:
-        _reraise_if_disposed(ex)
+        reraise_if_disposed(ex)
         log.debug("prepare_vision_writer_insert: view cursor collapse failed: %s", ex)
+
+
+def _dispatch_escape(controller: Any, ctx: Any) -> None:
+    """Clear selection via .uno:Escape dispatch."""
+    try:
+        frame = controller.getFrame()
+        if frame is not None and ctx is not None:
+            smgr = ctx.ServiceManager
+            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+            dispatcher.executeDispatch(frame, ".uno:Escape", "", 0, ())
+    except Exception as ex:
+        reraise_if_disposed(ex)
+        log.debug("prepare_vision_writer_insert: escape dispatch failed: %s", ex)
 
 
 def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None = None, graphic: Any | None = None) -> Any:
@@ -111,7 +118,7 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     try:
         graphic_name = str(resolved.getName() or "")
     except Exception as ex:
-        _reraise_if_disposed(ex)
+        reraise_if_disposed(ex)
     if name and not graphic_name:
         graphic_name = name
     graphics_before = len(list_graphic_objects(doc))
@@ -123,15 +130,7 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     _focus_writer_frame(controller)
     # Clear range/graphic selection before reading anchors or inserting. A live
     # multi-character selection makes HTML import replace that range (deletes text).
-    try:
-        frame = controller.getFrame()
-        if frame is not None and ctx is not None:
-            smgr = ctx.ServiceManager
-            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-            dispatcher.executeDispatch(frame, ".uno:Escape", "", 0, ())
-    except Exception as ex:
-        _reraise_if_disposed(ex)
-        log.debug("prepare_vision_writer_insert: early escape failed: %s", ex)
+    _dispatch_escape(controller, ctx)
 
     try:
         anchor = resolved.getAnchor()
@@ -148,22 +147,14 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     except ToolExecutionError:
         raise
     except Exception as ex:
-        _reraise_if_disposed(ex)
+        reraise_if_disposed(ex)
         raise ToolExecutionError(_("Could not position insert after the image: %s") % ex, code="VISION_ERROR") from ex
 
     _collapse_writer_view_cursor(controller, cursor.getStart())
 
     if selected_graphic_object(doc) is not None:
-        try:
-            frame = controller.getFrame()
-            if frame is not None and ctx is not None:
-                smgr = ctx.ServiceManager
-                dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-                dispatcher.executeDispatch(frame, ".uno:Escape", "", 0, ())
-                _collapse_writer_view_cursor(controller, cursor.getStart())
-        except Exception as ex:
-            _reraise_if_disposed(ex)
-            log.debug("prepare_vision_writer_insert: escape fallback failed: %s", ex)
+        _dispatch_escape(controller, ctx)
+        _collapse_writer_view_cursor(controller, cursor.getStart())
 
     if graphic_name and get_graphic_object_by_name(doc, graphic_name) is None:
         raise ToolExecutionError(_("The image was removed while preparing OCR insert."), code="VISION_ERROR")
@@ -177,9 +168,9 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
     from plugin.writer.html_import import insert_html_at_cursor
 
     html = vision_html_from_result(result)
-    if not html.strip():
-        raise ToolExecutionError("Vision helper returned empty HTML.", code="VISION_ERROR", details={"vision_result": result})
-    log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d snippet=%r", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="), html[:120])
+    # What was wrong: debug log contained document HTML snippet (privacy leak).
+    # Why this change: log only metadata (lengths and tag counts), omitting document content.
+    log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="))
 
     params_dict = dict(params) if isinstance(params, dict) else {}
     image_name = str(params_dict.get("image_name") or "").strip() or None
@@ -200,17 +191,19 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
 
 def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: dict[str, Any] | None = None) -> None:
     """Insert vision output into Writer or Calc."""
-    from plugin.calc.vision_egress import insert_vision_html_into_calc, insert_vision_structure_into_calc
     from plugin.doc.doc_type import is_calc, is_writer
+
+    if is_writer(doc):
+        insert_vision_result_into_writer(ctx, doc, result, params=params)
+        return
+
+    from plugin.calc.vision_egress import insert_vision_html_into_calc, insert_vision_structure_into_calc
 
     insert_mode = resolve_vision_insert_mode(ctx, params)
     helper = str(result.get("helper") or "")
     params_dict = params if isinstance(params, dict) else {}
     image_name = str(params_dict.get("image_name") or "").strip() or None
 
-    if is_writer(doc):
-        insert_vision_result_into_writer(ctx, doc, result, params=params)
-        return
     if is_calc(doc):
         if insert_mode == "structured" and helper == "extract_structure":
             try:
@@ -228,13 +221,9 @@ def insert_vision_result(ctx: Any, doc: Any, result: dict[str, Any], *, params: 
                     fallback_html = preserved
                 else:
                     fallback_html = vision_html_from_result(result)
-                if not str(fallback_html).strip():
-                    raise ToolExecutionError("Vision helper returned empty HTML.", code="VISION_ERROR", details={"vision_result": result})
                 insert_vision_html_into_calc(doc, ctx, fallback_html, image_name=image_name)
                 return
         html = vision_html_from_result(result)
-        if not html.strip():
-            raise ToolExecutionError("Vision helper returned empty HTML.", code="VISION_ERROR", details={"vision_result": result})
         log.debug("insert_vision_result: helper=%s insert_mode=%s calc=html", helper, insert_mode)
         insert_vision_html_into_calc(doc, ctx, html, image_name=image_name)
         return

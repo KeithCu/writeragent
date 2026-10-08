@@ -365,3 +365,19 @@ def test_extract_structure_reraises_document_disposed(tool_ctx):
         tool_ctx.stop_checker = None
         with pytest.raises(DocumentDisposedError):
             ExtractStructureFromImage().execute(tool_ctx)
+
+
+@patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
+def test_extract_structure_preserves_zero_images_processed(mock_run, tool_ctx):
+    mock_run.return_value = {
+        "status": "ok",
+        "helper": "extract_structure",
+        "full_text": "",
+        "images_processed": 0,
+        "inserted": False,
+        "message": "None found",
+    }
+    tool_ctx.stop_checker = None
+    result = ExtractStructureFromImage().execute(tool_ctx)
+    assert result["status"] == "ok"
+    assert result["images_processed"] == 0

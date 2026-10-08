@@ -399,3 +399,52 @@ def test_vision_insert_marshaled_with_unscoped_scope():
     assert result["status"] == "ok"
     assert None in scopes_used
 
+
+def test_stop_break_reports_partial_and_stopped():
+    # What was wrong: stop break returned status: ok, "OCR complete (N images)", and full image_names list.
+    # Why this change: verify stopped=True, partial=True, image_names truncated to processed, and message "Stopped after N of M images."
+    ctx = MagicMock()
+    doc = MagicMock()
+    mock_pairs = [("Img1", MagicMock()), ("Img2", MagicMock()), ("Img3", MagicMock())]
+
+    called = 0
+
+    def stop_checker():
+        nonlocal called
+        # Stop on 2nd image check
+        return called >= 1
+
+    def _run(_ctx, _doc, *, helper, params):
+        nonlocal called
+        called += 1
+        name = params["image_name"]
+        return {"status": "ok", "helper": helper, "full_text": name, "html": f"<p>{name}</p>", "metrics": {}, "warnings": []}
+
+    with (
+        patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
+        patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=_run),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=mock_pairs),
+        patch("plugin.vision.vision_egress.insert_vision_result"),
+    ):
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_text", stop_checker=stop_checker)
+
+    assert result["status"] == "ok"
+    assert result["stopped"] is True
+    assert result["partial"] is True
+    assert result["images_processed"] == 1
+    assert result["image_names"] == ["Img1"]
+    assert "Stopped after 1 of 3 images" in result["message"]
+
+
+def test_send_cancelled_escapes_discovery_as_user_stopped():
+    # What was wrong: SendCancelled during discovery escaped as generic VISION_ERROR.
+    # Why this change: verify SendCancelled raises USER_STOPPED directly.
+    from plugin.framework.queue_executor import SendCancelled
+
+    with patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=SendCancelled("cancel")):
+        result = run_and_insert_vision_for_selection(MagicMock(), MagicMock(), helper="extract_text")
+
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+    assert "Cancelled by user" in result["message"]
+

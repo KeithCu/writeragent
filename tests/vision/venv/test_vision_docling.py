@@ -170,7 +170,16 @@ def test_extract_text_unknown_ocr_backend():
         result = extract_text(b"png", {"ocr_backend": "nope"})
 
     assert result["status"] == "error"
-    assert result["code"] == "OCR_BACKEND_UNAVAILABLE"
+    assert result["code"] == "INVALID_PARAMS"
+
+    with patch(
+        "plugin.vision.venv.vision_docling._convert_image_bytes",
+        side_effect=docling_mod.OcrBackendError("rapidocr is not installed"),
+    ):
+        result2 = extract_text(b"png", {"ocr_backend": "rapidocr"})
+
+    assert result2["status"] == "error"
+    assert result2["code"] == "OCR_BACKEND_UNAVAILABLE"
 
 
 def test_apply_pipeline_params_maps_flat_keys():
@@ -188,19 +197,18 @@ def test_apply_pipeline_params_maps_flat_keys():
         mock_pipeline_mod.TableFormerMode.FAST = fast_mode
         with patch("importlib.import_module", return_value=mock_pipeline_mod):
             docling_mod._apply_pipeline_params(
-            pipeline,
-            {
-                "images_scale": 2.0,
-                "document_timeout": 120,
-                "device": "cpu",
-                "num_threads": 8,
-                "table_mode": "fast",
-                "do_cell_matching": False,
-                "create_orphan_clusters": False,
-                "layout_model": "heron",
-            },
-            for_structure=True,
-        )
+                pipeline,
+                {
+                    "images_scale": 2.0,
+                    "document_timeout": 120,
+                    "device": "cpu",
+                    "num_threads": 8,
+                    "table_mode": "fast",
+                    "do_cell_matching": False,
+                    "create_orphan_clusters": False,
+                    "layout_model": "heron",
+                },
+            )
 
     assert pipeline.images_scale == 2.0
     assert pipeline.document_timeout == 120
@@ -239,7 +247,7 @@ def test_build_pipeline_options_surya():
         return MagicMock()
 
     with patch("importlib.import_module", side_effect=side_effect):
-        pipeline_opts = docling_mod._build_pipeline_options({"ocr_backend": "surya"}, for_structure=True)
+        pipeline_opts = docling_mod._build_pipeline_options({"ocr_backend": "surya"})
 
     assert pipeline_opts == pdf_opts_instance
     pdf_opts_cls.assert_called_once_with(
@@ -386,7 +394,7 @@ def test_apply_pipeline_params_refuses_layout_config_without_get_engine_config()
     pipeline.accelerator_options = MagicMock()
     with patch.object(docling_mod, "_resolve_od_layout_model_spec", return_value=BadSpec()):
         with pytest.raises(docling_mod.LayoutModelError, match="get_engine_config"):
-            docling_mod._apply_pipeline_params(pipeline, {"layout_model": "heron"}, for_structure=True)
+            docling_mod._apply_pipeline_params(pipeline, {"layout_model": "heron"})
 
 
 def test_apply_pipeline_params_does_not_swallow_layout_resolution_error():
@@ -400,7 +408,7 @@ def test_apply_pipeline_params_does_not_swallow_layout_resolution_error():
     pipeline.accelerator_options = MagicMock()
     with patch.object(docling_mod, "_resolve_od_layout_model_spec", side_effect=RuntimeError("spec unavailable")):
         with pytest.raises(RuntimeError, match="spec unavailable"):
-            docling_mod._apply_pipeline_params(pipeline, {}, for_structure=True)
+            docling_mod._apply_pipeline_params(pipeline, {})
 
 
 def test_converter_cache_keeps_only_the_latest():
@@ -411,7 +419,7 @@ def test_converter_cache_keeps_only_the_latest():
 
 
 def _cache_key_for(params: dict) -> tuple:
-    return docling_mod._cache_key(params, for_structure=True, input_format="image")
+    return docling_mod._cache_key(params, input_format="image")
 
 
 def test_text_score_zero_is_its_own_cache_key():
@@ -432,8 +440,8 @@ def test_converter_cache_does_not_reuse_default_for_text_score_zero():
     """A warm 0.5 converter must not be returned when the threshold is 0.0."""
     built: list[float] = []
 
-    def fake_build(params, *, for_structure, input_format="image"):
-        del for_structure, input_format
+    def fake_build(params, *, input_format="image"):
+        del input_format
         score = docling_mod._text_score_for_cache(params)
         built.append(score)
         pipeline = MagicMock()
@@ -464,9 +472,9 @@ def test_converter_cache_does_not_reuse_default_for_text_score_zero():
     with patch.object(docling_mod, "_import_docling"), patch.object(
         docling_mod, "_build_pipeline_options", side_effect=fake_build
     ), patch.object(docling_mod.importlib, "import_module", side_effect=fake_import):
-        first = docling_mod._get_docling_converter({"text_score": 0.5}, for_structure=True)
-        again = docling_mod._get_docling_converter({"text_score": 0.5}, for_structure=True)
-        second = docling_mod._get_docling_converter({"text_score": 0.0}, for_structure=True)
+        first = docling_mod._get_docling_converter({"text_score": 0.5})
+        again = docling_mod._get_docling_converter({"text_score": 0.5})
+        second = docling_mod._get_docling_converter({"text_score": 0.0})
 
     assert first is again
     assert first is not second
@@ -476,16 +484,64 @@ def test_converter_cache_does_not_reuse_default_for_text_score_zero():
 
 
 def test_rowspan_past_max_table_rows_is_clipped(monkeypatch):
-    monkeypatch.setattr(docling_mod, "MAX_TABLE_ROWS", 2)
+    from plugin.vision import vision_common
+
+    monkeypatch.setattr(vision_common, "MAX_TABLE_ROWS", 2)
     cells = [
         {"text": "H", "start_row_offset_idx": 0, "start_col_offset_idx": 0, "row_span": 10, "col_span": 1},
         {"text": "A", "start_row_offset_idx": 1, "start_col_offset_idx": 1, "row_span": 1, "col_span": 1},
         {"text": "B", "start_row_offset_idx": 2, "start_col_offset_idx": 1, "row_span": 1, "col_span": 1},
         {"text": "C", "start_row_offset_idx": 3, "start_col_offset_idx": 1, "row_span": 4, "col_span": 1},
     ]
-    table = docling_mod._table_from_span_cells(cells, num_rows=6, num_cols=2, name="t")
+    table = vision_common.table_from_span_cells(cells, num_rows=6, num_cols=2, name="t")
     assert table is not None
     assert table["truncated"] is True
     assert len(table["rows"]) == 2
     spans = table["spans"]
     assert spans == [{"row": 0, "col": 0, "rowspan": 3, "colspan": 1}]
+
+
+def test_cell_text_empty_returns_empty_string():
+    # What was wrong: getattr(cell, "text", None) or cell fell through to cell when text was "",
+    # evaluating truthy TableCell object and returning its pydantic repr string in tables and full_text.
+    # Why this change: verify str(getattr(cell, "text", "") or "").strip() returns "" cleanly.
+    class FakeTableCell:
+        text = ""
+
+        def __str__(self):
+            return "TableCell(text='', start_row_offset_idx=0)"
+
+    cell = FakeTableCell()
+    assert docling_mod._cell_text(cell) == ""
+
+
+@patch("plugin.vision.venv.vision_html_export.export_docling_to_html", return_value="<p>Doc</p>")
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
+def test_extract_text_includes_table_text_and_omits_mean_confidence(mock_convert, _mock_html):
+    # What was wrong: extract_text took full_text only from paragraphs, omitting table text,
+    # and reported mean_confidence: 0.0 because Docling has no confidence scores.
+    # Why this change: full_text includes table TSV and mean_confidence is omitted from metrics.
+    mock_convert.return_value = _mock_document(
+        texts=[{"text": "Headline", "prov": []}],
+        tables=[
+            {
+                "prov": [],
+                "data": {
+                    "num_rows": 2,
+                    "num_cols": 2,
+                    "table_cells": [
+                        {"text": "ColA", "start_row_offset_idx": 0, "start_col_offset_idx": 0, "row_span": 1, "col_span": 1},
+                        {"text": "ColB", "start_row_offset_idx": 0, "start_col_offset_idx": 1, "row_span": 1, "col_span": 1},
+                        {"text": "ValA", "start_row_offset_idx": 1, "start_col_offset_idx": 0, "row_span": 1, "col_span": 1},
+                        {"text": "ValB", "start_row_offset_idx": 1, "start_col_offset_idx": 1, "row_span": 1, "col_span": 1},
+                    ],
+                },
+            }
+        ],
+    )
+    result = extract_text(b"png-bytes", {})
+    assert result["status"] == "ok"
+    assert "Headline" in result["full_text"]
+    assert "ColA\tColB" in result["full_text"]
+    assert "ValA\tValB" in result["full_text"]
+    assert "mean_confidence" not in result["metrics"]

@@ -13,13 +13,14 @@ from typing import Any
 
 from plugin.vision.vision_common import (
     MAX_TABLE_ROWS,
+    bbox_to_xywh,
     css_inline_unavailable_result,
+    decode_image_bytes,
+    error_result,
     is_css_inline_import_error,
-    _bbox_to_xywh,
-    _box_to_xywh,
-    _decode_image_bytes,
-    _error_result,
-    _ok_result,
+    ok_result,
+    table_from_span_cells,
+    table_to_tsv_lines,
 )
 
 log = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ log = logging.getLogger(__name__)
 _paddle_ocr_engine: Any = None
 _paddle_ocr_lang: str | None = None
 _pp_structure_engine: Any = None
+_pp_structure_lang: str | None = None
 
 
 def _get_paddle_ocr(lang: str) -> Any:
@@ -34,10 +36,13 @@ def _get_paddle_ocr(lang: str) -> Any:
     global _paddle_ocr_engine, _paddle_ocr_lang
     if _paddle_ocr_engine is not None and _paddle_ocr_lang == lang:
         return _paddle_ocr_engine
+    # What was wrong: missing AttributeError guard if paddleocr lacked PaddleOCR, and
+    # constructor errors escaped as unhandled exceptions.
+    # Why this change: guard (ImportError, AttributeError) and catch constructor exceptions in callers.
     try:
         paddleocr_mod = importlib.import_module("paddleocr")
         paddle_ocr_cls = paddleocr_mod.PaddleOCR
-    except ImportError as exc:
+    except (ImportError, AttributeError) as exc:
         raise ImportError("paddleocr is not installed") from exc
     # show_log is a 2.x-only kwarg. 3.x does not list it in
     # _DEPRECATED_PARAM_NAME_MAPPING, so PaddleX raises
@@ -157,7 +162,7 @@ def _parse_ocr_v3(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
         box_raw = _seq_item(boxes, index)
         regions.append(
             {
-                "box": _bbox_to_xywh(box_raw) if box_raw is not None else [0, 0, 0, 0],
+                "box": bbox_to_xywh(box_raw) if box_raw is not None else [0, 0, 0, 0],
                 "text": text,
                 "confidence": confidence,
             }
@@ -185,7 +190,7 @@ def _parse_ocr_v2_lines(raw_lines: list[Any]) -> tuple[list[dict[str, Any]], lis
             continue
         regions.append(
             {
-                "box": _box_to_xywh(box_raw),
+                "box": bbox_to_xywh(box_raw),
                 "text": text,
                 "confidence": confidence,
             }
@@ -219,22 +224,27 @@ def _parse_ocr_lines(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
 def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_text"
     lang = str(params.get("lang") or "en").strip() or "en"
+    # What was wrong: constructor errors in _get_paddle_ocr escaped as unhandled exceptions.
+    # Why this change: catch constructor exceptions and return error_result.
     try:
         engine = _get_paddle_ocr(lang)
     except ImportError:
-        return _error_result(
+        return error_result(
             "PADDLEOCR_UNAVAILABLE",
             "Install paddleocr and paddlepaddle in your venv (Settings → Python): pip install paddleocr paddlepaddle numpy",
             helper=helper,
         )
+    except Exception as exc:
+        log.exception("PaddleOCR constructor failed")
+        return error_result("VISION_ERROR", str(exc), helper=helper)
 
     try:
-        image_array = _decode_image_bytes(image)
+        image_array = decode_image_bytes(image)
         raw_lines = _run_paddle_ocr(engine, image_array)
         regions, texts = _parse_ocr_lines(raw_lines)
     except Exception as exc:
         log.exception("extract_text OCR failed")
-        return _error_result("VISION_ERROR", str(exc), helper=helper)
+        return error_result("VISION_ERROR", str(exc), helper=helper)
 
     from plugin.vision.venv.vision_html_export import html_from_paddle_regions
 
@@ -251,9 +261,9 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
 
     confidences = [float(r["confidence"]) for r in regions if r.get("confidence") is not None]
     mean_confidence = sum(confidences) / len(confidences) if confidences else 0.0
-    line_count = len(texts) if texts else (0 if not full_text else len(full_text.splitlines()))
+    line_count = len(texts)
 
-    return _ok_result(
+    return ok_result(
         helper,
         html=html,
         full_text=full_text,
@@ -360,9 +370,7 @@ def _table_from_html(html: str, *, name: str) -> dict[str, Any] | None:
     for cell in parser.cells:
         num_rows = max(num_rows, int(cell["start_row_offset_idx"]) + int(cell["row_span"]))
         num_cols = max(num_cols, int(cell["start_col_offset_idx"]) + int(cell["col_span"]))
-    from plugin.vision.venv.vision_docling import _table_from_span_cells
-
-    return _table_from_span_cells(parser.cells, num_rows, num_cols, name=name)
+    return table_from_span_cells(parser.cells, num_rows, num_cols, name=name)
 
 
 def _text_from_structure_res(res: Any) -> str:
@@ -428,12 +436,7 @@ def _table_from_structure_res(res: Any, *, name: str) -> dict[str, Any] | None:
 
 
 def _append_table_plaintext(text_parts: list[str], table: dict[str, Any]) -> None:
-    columns = table.get("columns")
-    if columns:
-        text_parts.append("\t".join(str(cell) for cell in columns))
-    for row in table.get("rows") or []:
-        if isinstance(row, list):
-            text_parts.append("\t".join(str(cell) for cell in row))
+    text_parts.extend(table_to_tsv_lines(table))
 
 
 def _parsed_table(html: str, table_index: int) -> tuple[dict[str, Any], int] | None:
@@ -520,7 +523,9 @@ def _parse_v3_structure_page(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str], int]:
     """One PPStructureV3 page: layout blocks plus ``table_res_list`` HTML."""
     htmls = [_v3_table_html(item) for item in _seq(payload.get("table_res_list"))]
-    htmls = [html for html in htmls if html]
+    # What was wrong: filtering out empty strings from htmls shifted indices, causing subsequent tables to be matched to the wrong HTML or exhausted early.
+    # How it happened: list comprehension [html for html in htmls if html] discarded empty slots.
+    # Why this change: keep unfiltered list of htmls so table_res_list indices align 1:1 with table blocks.
     html_at = 0
     blocks: list[dict[str, Any]] = []
     tables: list[dict[str, Any]] = []
@@ -528,7 +533,7 @@ def _parse_v3_structure_page(
 
     for block in _seq(payload.get("parsing_res_list")):
         label, content, bbox = _v3_block_fields(block)
-        box = _bbox_to_xywh(bbox) if bbox is not None else [0, 0, 0, 0]
+        box = bbox_to_xywh(bbox) if bbox is not None else [0, 0, 0, 0]
         if label == "table":
             html = htmls[html_at] if html_at < len(htmls) else ""
             if html_at < len(htmls):
@@ -611,7 +616,7 @@ def _parse_structure_output(raw_pages: list[Any]) -> tuple[list[dict[str, Any]],
         block_type = str(item.get("type") or item.get("label") or "block").strip().lower()
         bbox = item.get("bbox") or item.get("box") or item.get("coordinate")
         res = item.get("res") if "res" in item else item.get("result")
-        box = _bbox_to_xywh(bbox) if bbox is not None else [0, 0, 0, 0]
+        box = bbox_to_xywh(bbox) if bbox is not None else [0, 0, 0, 0]
 
         if block_type == "table" or (isinstance(res, dict) and "html" in res):
             table_index += 1
@@ -633,10 +638,10 @@ def _parse_structure_output(raw_pages: list[Any]) -> tuple[list[dict[str, Any]],
     return blocks, tables, text_parts
 
 
-def _get_pp_structure() -> Any:
+def _get_pp_structure(lang: str = "en") -> Any:
     """Lazy-init one PPStructureV3 instance per worker process."""
-    global _pp_structure_engine
-    if _pp_structure_engine is not None:
+    global _pp_structure_engine, _pp_structure_lang
+    if _pp_structure_engine is not None and _pp_structure_lang == lang:
         return _pp_structure_engine
     try:
         paddleocr_mod = importlib.import_module("paddleocr")
@@ -646,11 +651,15 @@ def _get_pp_structure() -> Any:
     # show_log is not a PPStructureV3 parameter. It lands in **kwargs, and
     # PaddleX raises ValueError: Unknown argument: show_log, so
     # extract_structure never starts on 3.x.
+    # What was wrong: constructor errors in PPStructureV3 escaped as unhandled exceptions, and lang wasn't passed or cached.
+    # Why this change: pass lang, cache per lang, and callers handle constructor exceptions in error_result.
     _pp_structure_engine = structure_cls(
         use_doc_orientation_classify=False,
         use_doc_unwarping=False,
         use_table_recognition=True,
+        lang=lang,
     )
+    _pp_structure_lang = lang
     return _pp_structure_engine
 
 
@@ -664,23 +673,28 @@ def _run_pp_structure(engine: Any, image_array: Any) -> list[Any]:
 
 def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_structure"
-    del params  # lang reserved for future PP-Structure locale tuning
+    lang = str(params.get("lang") or "en").strip() or "en"
+    # What was wrong: constructor errors in _get_pp_structure escaped as unhandled exceptions.
+    # Why this change: catch constructor exceptions and return error_result with VISION_ERROR.
     try:
-        engine = _get_pp_structure()
+        engine = _get_pp_structure(lang)
     except ImportError:
-        return _error_result(
+        return error_result(
             "PADDLEOCR_UNAVAILABLE",
             "Install paddleocr and paddlepaddle in your venv (Settings → Python): pip install paddleocr paddlepaddle numpy",
             helper=helper,
         )
+    except Exception as exc:
+        log.exception("PPStructure constructor failed")
+        return error_result("VISION_ERROR", str(exc), helper=helper)
 
     try:
-        image_array = _decode_image_bytes(image)
+        image_array = decode_image_bytes(image)
         raw_pages = _run_pp_structure(engine, image_array)
         blocks, tables, text_parts = _parse_structure_output(raw_pages)
     except Exception as exc:
         log.exception("extract_structure failed")
-        return _error_result("VISION_ERROR", str(exc), helper=helper)
+        return error_result("VISION_ERROR", str(exc), helper=helper)
 
     from plugin.vision.venv.vision_html_export import html_from_paddle_structure
 
@@ -695,7 +709,7 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     if not full_text and not tables and not blocks:
         warnings.append("No structure detected.")
 
-    return _ok_result(
+    return ok_result(
         helper,
         html=html,
         full_text=full_text,

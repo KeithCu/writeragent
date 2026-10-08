@@ -25,7 +25,7 @@ from plugin.scripting.venv_diagnostics import (
     _format_self_check_success,
     _probe_nlp_packages,
     _probe_vector_search_packages,
-    _probe_vision_packages,
+    probe_vision_packages,
     probe_venv_path,
     run_venv_self_check,
 )
@@ -111,7 +111,7 @@ def test_run_venv_self_check_reports_architecture():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_audio_packages", return_value=({}, None)),
     ):
@@ -480,7 +480,7 @@ def test_run_venv_self_check_includes_vision():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=(vision_probes, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=(vision_probes, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_audio_packages", return_value=({"sounddevice": "present", "input_device": "present"}, None)),
     ):
@@ -520,7 +520,7 @@ def test_run_venv_self_check_includes_vector_search():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
         patch(
             "plugin.scripting.venv_diagnostics._probe_vector_search_packages",
             return_value=(vector_search_probes, None),
@@ -542,7 +542,7 @@ def test_run_venv_self_check_uses_vision_probe_timeout():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)) as mock_vision_probe,
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)) as mock_vision_probe,
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
         run_venv_self_check("/x/python", timeout=1.0)
@@ -558,7 +558,7 @@ def test_run_venv_self_check_uses_vector_search_probe_timeout():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)) as mock_probe,
     ):
         run_venv_self_check("/x/python", timeout=1.0)
@@ -582,7 +582,7 @@ def test_probe_vision_packages_timeout_reports_failure():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, timeout_hint)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, timeout_hint)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
         patch(
             "plugin.scripting.venv_diagnostics._probe_audio_packages",
@@ -637,7 +637,7 @@ def test_probe_vision_packages_subprocess_timeout():
         "plugin.scripting.venv_diagnostics.subprocess.run",
         side_effect=subprocess.TimeoutExpired(cmd=["python"], timeout=30),
     ):
-        probes, hint = _probe_vision_packages("/x/python", timeout=30.0)
+        probes, hint = probe_vision_packages("/x/python", timeout=30.0)
     assert probes == {}
     assert hint is not None
     assert "timed out" in hint.lower()
@@ -730,7 +730,7 @@ def test_run_venv_self_check_default_uses_import_probe_timeout():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
         run_venv_self_check("/x/python")
@@ -763,7 +763,7 @@ def test_run_venv_self_check_batch_path_reports_duckdb():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
         ok, msg = run_venv_self_check("/x/python")
@@ -806,7 +806,7 @@ def test_run_venv_self_check_uses_nlp_probe_timeout():
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)) as mock_nlp_probe,
-        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
         run_venv_self_check("/x/python", timeout=1.0)
@@ -1011,7 +1011,7 @@ def test_attach_external_probes_shares_one_helper(monkeypatch):
     monkeypatch.setattr(vd, "_probe_audio_packages", lambda *args, **kwargs: ({"sounddevice": True}, None))
     monkeypatch.setattr(vd, "_probe_ui_packages", lambda *args, **kwargs: ({}, None))
     monkeypatch.setattr(vd, "_probe_nlp_packages", lambda *args, **kwargs: ({}, None))
-    monkeypatch.setattr(vd, "_probe_vision_packages", lambda *args, **kwargs: ({}, None))
+    monkeypatch.setattr(vd, "probe_vision_packages", lambda *args, **kwargs: ({}, None))
     monkeypatch.setattr(vd, "_probe_vector_search_packages", lambda *args, **kwargs: ({}, None))
     data: dict = {}
     vd._attach_external_probes("/usr/bin/python", data)

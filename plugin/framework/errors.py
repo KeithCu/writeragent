@@ -606,6 +606,17 @@ def is_real_disposal(exc: BaseException) -> bool:
     return isinstance(exc, DocumentDisposedError) or "DisposedException" in type(exc).__name__
 
 
+def reraise_if_disposed(
+    exc: BaseException,
+    message: str = "Document disposed during operation",
+    *,
+    object_type: str = "document",
+) -> None:
+    """Disposed UNO is a closed document or component, not a generic tool failure."""
+    if is_disposed_exception(exc):
+        raise DocumentDisposedError(message, object_type=object_type) from exc
+
+
 
 # safe_uno_call is for probes (any failure returns default, except real disposal).
 # handle_errors / safe_call wrap real operations. Both treat only DisposedException
@@ -728,6 +739,7 @@ __all__ = [
     "is_real_disposal",
     "is_tool_document_disposed",
     "make_tool_error",  # Central factory for all tool error dicts
+    "reraise_if_disposed",
     "resolve_exception_message",
     "safe_call",
     "safe_json_loads",
