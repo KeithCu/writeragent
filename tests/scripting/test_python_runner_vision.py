@@ -267,3 +267,66 @@ def test_execute_and_insert_vision_single_image_in_text_range_uses_host_loop(moc
     assert "2 images" not in outcome["status_ok_text"]
     mock_orchestrator.assert_called_once()
     mock_run_vision.assert_not_called()
+
+
+def test_execute_and_insert_vision_partial_failure_inserts_completed_results():
+    """Bug 1: When image N fails in a multi-image run, images 1..N-1 are inserted before error is returned."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    code = get_vision_script_templates()["extract_text"]
+
+    partial_error = {
+        "status": "error",
+        "message": "Image 2 OCR failed",
+        "failed_image": "Img2",
+        "images_processed": 1,
+        "partial": True,
+        "inserted": False,
+        "individual_results": [
+            {
+                "status": "ok",
+                "helper": "extract_text",
+                "html": "<p>Image 1 text</p>",
+                "image_name": "Img1",
+                "context": {"image_name": "Img1"},
+            }
+        ],
+    }
+
+    with (
+        patch("plugin.scripting.python_runner.is_writer", return_value=True),
+        patch("plugin.scripting.python_runner.is_calc", return_value=False),
+        patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", return_value=partial_error),
+        patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
+    ):
+        outcome = execute_and_insert_result(ctx, doc, code)
+
+    assert outcome["ok"] is False
+    assert "Image 2 OCR failed" in outcome["message"]
+    # Image 1 result must have been inserted before returning the error
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.args[2]["image_name"] == "Img1"
+
+
+def test_prepare_rps_execution_vision_runs_before_calc_data():
+    """Bug 2: Vision branch runs before Calc py_data resolution to avoid erroring on graphic selections."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    code = get_vision_script_templates()["extract_text"]
+
+    with (
+        patch("plugin.scripting.python_runner.is_calc", return_value=True),
+        patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
+        patch("plugin.calc.calc_addin_data._resolve_python_data", side_effect=RuntimeError("selection is not a range")) as mock_calc_data,
+        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", return_value={"status": "ok", "individual_results": []}),
+    ):
+        from plugin.scripting.python_runner import _prepare_rps_execution
+
+        prepared = _prepare_rps_execution(ctx, doc, code)
+
+    assert prepared.get("early_outcome") is None
+    assert prepared.get("is_vision_selection") is True
+    # Calc data resolution must not have run for vision scripts
+    mock_calc_data.assert_not_called()
+

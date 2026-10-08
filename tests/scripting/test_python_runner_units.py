@@ -92,7 +92,7 @@ def test_execute_and_insert_units_uses_body_params_not_header(mock_venv, mock_in
     assert outcome["ok"] is True
     from unittest.mock import ANY
 
-    mock_venv.assert_called_once_with(ctx, code, data=None, bindings=None, session_id=None, script_session_id=ANY)
+    mock_venv.assert_called_once_with(ctx, code, data=None, session_id=None, script_session_id=ANY)
     assert "millimeter" in mock_insert.call_args.args[2].get("formatted", "")
 
 

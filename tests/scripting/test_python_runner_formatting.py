@@ -78,6 +78,30 @@ class TestPythonRunnerFormatting:
         expected = '<table border="1"><thead><tr><th>Name</th><th>Age</th></tr></thead><tbody><tr><td>Alice</td><td>30</td></tr><tr><td>Bob</td><td>25</td></tr></tbody></table>'
         assert (format_result_for_writer(data)) == (expected)
 
+    def test_format_list_of_dicts_union_of_keys(self):
+        # Union of keys in first-seen order across dict rows
+        data = [{"a": 1, "b": 2}, {"b": 3, "c": 4}, {"d": 5}]
+        result = format_result_for_writer(data)
+        assert "<th>a</th><th>b</th><th>c</th><th>d</th>" in result
+        assert "<td>1</td><td>2</td><td></td><td></td>" in result
+        assert "<td></td><td>3</td><td>4</td><td></td>" in result
+        assert "<td></td><td></td><td></td><td>5</td>" in result
+
+    def test_format_list_mixed_dict_and_non_dict_rows(self):
+        # Mixed dict and non-dict rows must not crash or drop columns
+        data = [{"a": 1, "b": 2}, "plain string row", {"b": 3, "c": 4}]
+        result = format_result_for_writer(data)
+        assert "<th>a</th><th>b</th><th>c</th>" in result
+        assert "<td>plain string row</td><td></td><td></td>" in result
+
+    def test_format_list_mixed_iterables_and_scalars(self):
+        # Lists with mixed tuples/lists and scalar values
+        data = [["A", "B"], "single", [1, 2]]
+        result = format_result_for_writer(data)
+        assert "<tr><td>A</td><td>B</td></tr>" in result
+        assert "<tr><td>single</td></tr>" in result
+        assert "<tr><td>1</td><td>2</td></tr>" in result
+
     def test_format_complex_dict_order(self):
         # We now respect insertion order strictly.
         data = {

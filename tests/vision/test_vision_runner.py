@@ -448,3 +448,36 @@ def test_send_cancelled_escapes_discovery_as_user_stopped():
     assert result["code"] == "USER_STOPPED"
     assert "Cancelled by user" in result["message"]
 
+
+def test_run_and_insert_vision_multi_image_partial_failure_attaches_results():
+    """When image N fails in a multi-image run, completed results for 1..N-1 are attached."""
+    ctx = MagicMock()
+    ctx.stop_checker = None
+    doc = MagicMock()
+
+    call_count = [0]
+
+    def fake_run_trusted(ctx, doc, *, helper, params):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return {"status": "ok", "helper": helper, "full_text": "text1", "html": "<p>1</p>"}
+        return {"status": "error", "message": "OCR model crashed"}
+
+    with (
+        patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock()), ("Img2", MagicMock())]),
+        patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=fake_run_trusted),
+    ):
+        result = run_and_insert_vision_for_selection(
+            ctx, doc, helper="extract_text", insert_into_document=False
+        )
+
+    assert result["status"] == "error"
+    assert result["message"] == "OCR model crashed"
+    assert result["failed_image"] == "Img2"
+    assert result["images_processed"] == 1
+    assert result["partial"] is True
+    assert result["inserted"] is False
+    assert len(result["individual_results"]) == 1
+    assert result["individual_results"][0]["full_text"] == "text1"
+

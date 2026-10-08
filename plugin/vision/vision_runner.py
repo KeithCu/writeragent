@@ -51,13 +51,14 @@ def get_selected_image_bytes(ctx: Any, doc: Any) -> bytes:
     return base64.b64decode(b64)
 
 
-def resolve_vision_image_bytes(ctx: Any, doc: Any, *, image_name: str | None = None) -> bytes:
+def resolve_vision_image_bytes(ctx: Any, doc: Any, *, image_name: str | None = None, graphic_obj: Any = None) -> bytes:
     """Export PNG bytes from *image_name* or the current graphic selection."""
     name = str(image_name or "").strip()
     if not name:
         return get_selected_image_bytes(ctx, doc)
 
-    graphic_obj = _get_graphic_object(doc, name)
+    if graphic_obj is None:
+        graphic_obj = _get_graphic_object(doc, name)
     if graphic_obj is None:
         raise ToolExecutionError(_("Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.").format(name=name), code="IMAGE_NOT_FOUND", details={"image_name": name})
     png_bytes = export_graphic_object_to_bytes(ctx, graphic_obj)
@@ -147,7 +148,11 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
         if not local_params.get("lang"):
             local_params["lang"] = _resolve_locale_language(ctx, doc, graphic_obj)
 
-        png_bytes = resolve_vision_image_bytes(ctx, doc, image_name=str(image_name) if image_name is not None else None)
+        png_bytes = resolve_vision_image_bytes(
+            ctx,
+            doc,
+            image_name=str(image_name) if image_name is not None else None,
+        )
         source = "graphic_name" if str(image_name or "").strip() else "selection"
         context: dict[str, Any] = {"source": source}
         if source == "graphic_name":
@@ -199,14 +204,12 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
         return found
 
-    # What was wrong: execute_on_main_thread(_discover_names) could raise SendCancelled which escaped
-    # as a generic VISION_ERROR instead of USER_STOPPED, and checked type(exc).__name__ string.
-    # Why this change: import SendCancelled and wrap discovery and the OCR loop in one typed handler.
+    results: list[dict[str, Any]] = []
+    target_names: list[str] = []
+    stopped_early = False
     try:
         target_names = execute_on_main_thread(_discover_names)
 
-        results: list[dict[str, Any]] = []
-        stopped_early = False
         for image_name in target_names:
             if stop_checker is not None and stop_checker():
                 if results:
@@ -221,15 +224,17 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
 
             if result.get("status") == "error":
-                # Image 1 may already be inserted. Keep status=error and stop the loop
-                # (tests/writer/test_vision_ocr_mock_uno.py). Attach what landed so the
-                # caller is not told that nothing happened.
+                # What was wrong: When multi-image vision failed on image N, completed results
+                # for images 1..N-1 were lost because the error dict carried no results.
+                # How: failed only set images_processed/image_names, not the actual result payloads.
+                # Why this fixes it: attach individual_results so completed images can be inserted.
                 failed = dict(result)
                 failed["images_processed"] = len(results)
                 failed["image_names"] = list(target_names[: len(results)])
                 failed["failed_image"] = image_name
                 failed["inserted"] = bool(insert_into_document and results)
                 failed["partial"] = bool(results)
+                failed["individual_results"] = list(results)
                 return failed
             # A finished OCR is a document mutation and is inserted. Stop is checked
             # at the top of the loop, so the next image is not started.
@@ -251,7 +256,14 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
                 result["context"]["image_name"] = image_name
             results.append(result)
     except SendCancelled:
-        return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
+        err_out: dict[str, Any] = {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
+        if results:
+            err_out["images_processed"] = len(results)
+            err_out["image_names"] = list(target_names[: len(results)])
+            err_out["inserted"] = bool(insert_into_document and results)
+            err_out["partial"] = True
+            err_out["individual_results"] = list(results)
+        return err_out
 
     full_parts = [str(r.get("full_text") or "") for r in results]
     warnings: list[Any] = []

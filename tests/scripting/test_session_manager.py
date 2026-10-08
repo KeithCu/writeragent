@@ -476,3 +476,79 @@ def test_ppt_master_unsaved_decks_unique_session_id() -> None:
     assert id2.startswith("ppt_master:unsaved:")
 
 
+def test_reset_workbook_python_session_returns_early_without_existing_key():
+    """Bug 3: Reset on a doc that never ran Python returns early without dirtying/creating session key."""
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+
+    with (
+        patch("plugin.scripting.session_manager.is_writer", return_value=True),
+        patch("plugin.scripting.session_manager.is_draw", return_value=False),
+        patch("plugin.scripting.session_manager.is_calc", return_value=False),
+        patch("plugin.scripting.session_manager._existing_workbook_session_key", return_value=None) as mock_existing,
+        patch("plugin.scripting.session_manager.set_document_property") as mock_set_prop,
+        patch("plugin.scripting.session_manager.reset_python_session") as mock_reset,
+    ):
+        from plugin.scripting.session_manager import reset_workbook_python_session
+
+        reset_workbook_python_session(ctx, doc)
+
+    mock_existing.assert_called_once_with(doc)
+    mock_set_prop.assert_not_called()
+    mock_reset.assert_not_called()
+
+
+def test_reset_workbook_python_session_rejects_non_writer_calc_draw():
+    """Bug 3: If current component is not Writer/Draw/Calc, show message to user and return."""
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = doc
+
+    with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_writer", return_value=False),
+        patch("plugin.scripting.session_manager.is_draw", return_value=False),
+        patch("plugin.scripting.session_manager.is_calc", return_value=False),
+        patch("plugin.scripting.session_manager._msgbox") as mock_msgbox,
+        patch("plugin.scripting.session_manager._calc_document") as mock_calc_doc,
+        patch("plugin.scripting.session_manager._reset_calc_python_sessions") as mock_reset_calc,
+    ):
+        from plugin.scripting.session_manager import reset_workbook_python_session
+
+        reset_workbook_python_session(ctx)
+
+    mock_msgbox.assert_called_once()
+    assert "Writer, Calc, and Draw" in mock_msgbox.call_args[0][1]
+    mock_calc_doc.assert_not_called()
+    mock_reset_calc.assert_not_called()
+
+
+def test_save_as_url_resets_orphaned_unsaved_session():
+    """Save As: When document transitions from unsaved to URL, old unsaved session is reset."""
+    from unittest.mock import MagicMock, patch
+
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///saved_doc.ods"
+
+    with (
+        patch("plugin.scripting.session_manager.get_document_property", return_value="unsaved:1234-uuid"),
+        patch("plugin.doc.udprops.remove_document_property") as mock_remove,
+        patch("plugin.scripting.session_manager.reset_python_session") as mock_reset,
+        patch("plugin.framework.uno_context.get_ctx"),
+    ):
+        from plugin.scripting.session_manager import _workbook_session_key
+
+        key = _workbook_session_key(doc)
+
+    assert key == "file:///saved_doc.ods"
+    mock_remove.assert_called_once()
+    assert mock_reset.call_count >= 1
+
+
+

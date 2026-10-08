@@ -159,10 +159,12 @@ def start_native_script_run(
             log.exception("native script run failed")
             _deliver({"ok": False, "message": str(exc)})
 
-    # What was wrong: A long script run in background occupied a slot in the shared pool.
-    # How: run_in_background called without dedicated=True, blocking one of the fixed pool workers.
-    # Why: Script runs can take minutes and block IPC; run on a dedicated thread per AGENTS.md.
-    run_in_background(_native_script_run_worker, name="native-run-python-script", dedicated=True)
+    try:
+        run_in_background(_native_script_run_worker, name="native-run-python-script", dedicated=True)
+    except Exception as exc:
+        log.exception("start_native_script_run: failed to schedule background worker")
+        _deliver({"ok": False, "message": str(exc), "traceback": exception_traceback(exc)})
+        raise
 
 
 def native_run_script_modeless_enabled(ctx: Any = None) -> bool:

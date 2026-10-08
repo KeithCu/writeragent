@@ -74,17 +74,31 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
         return "".join(parts)
 
     # Handle list of dicts (e.g. pandas records) -- legacy path
-    if isinstance(data[0], dict):
-        keys = list(data[0].keys())
+    # What was wrong: Dict headers only inspected the first row, dropping keys from subsequent rows,
+    # and mixed dict/non-dict rows could crash or format inconsistently.
+    # How: Headers were set to list(data[0].keys()) and assumed all rows were dicts.
+    # Why this fixes it: Build headers from first-seen union across all dict rows and type-check each row safely.
+    if any(isinstance(row, dict) for row in data):
+        seen_keys: dict[str, None] = {}
+        for row in data:
+            if isinstance(row, dict):
+                for k in row.keys():
+                    seen_keys.setdefault(str(k), None)
+        keys = list(seen_keys.keys())
         parts.append('<table border="1"><thead><tr>')
         for key in keys:
             parts.append(f"<th>{_html_insert_text(key)}</th>")
         parts.append("</tr></thead><tbody>")
         for row in data:
             parts.append("<tr>")
-            for key in keys:
-                val = row.get(key, "")
-                parts.append(f"<td>{_html_insert_text(val)}</td>")
+            if isinstance(row, dict):
+                for key in keys:
+                    val = row.get(key, "")
+                    parts.append(f"<td>{_html_insert_text(val)}</td>")
+            else:
+                parts.append(f"<td>{_html_insert_text(row)}</td>")
+                for _col_idx in range(len(keys) - 1):
+                    parts.append("<td></td>")
             parts.append("</tr>")
         parts.append("</tbody></table>")
         return "".join(parts)
@@ -94,8 +108,11 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
         parts.append('<table border="1">')
         for row in data:
             parts.append("<tr>")
-            for cell in row:
-                parts.append(f"<td>{_html_insert_text(cell)}</td>")
+            if isinstance(row, (list, tuple)):
+                for cell in row:
+                    parts.append(f"<td>{_html_insert_text(cell)}</td>")
+            else:
+                parts.append(f"<td>{_html_insert_text(row)}</td>")
             parts.append("</tr>")
         parts.append("</table>")
         return "".join(parts)
@@ -226,6 +243,40 @@ def resolve_run_script_name_config_key(doc: Any) -> str:
     return "last_python_script_name_writer"
 
 
+def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float) -> dict[str, Any] | None:
+    """Return prepared vision execution dict, early error dict, or None if not a vision script."""
+    from plugin.scripting.helper_domain import parse_run_import_call_spec, script_uses_run_import
+
+    if "run_vision" not in code or not script_uses_run_import(code, run_name="run_vision"):
+        return None
+
+    from plugin.vision.vision_common import merge_vision_params
+    from plugin.vision.vision_runner import supports_vision_manual
+
+    if not supports_vision_manual(doc):
+        return {"early_outcome": {"ok": False, "message": _("Vision helpers require a Writer or Calc document.")}}
+    call_spec = parse_run_import_call_spec(code, run_name="run_vision") or {}
+    raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
+    params = merge_vision_params(ctx, raw_params)
+    image_name = str(params.get("image_name") or "").strip() or None
+    helper_name = str(call_spec.get("helper") or "extract_text").strip() or "extract_text"
+
+    return {
+        "early_outcome": None,
+        "is_vision_selection": True,
+        "ctx": ctx,
+        "doc": doc,
+        "code": code,
+        "t0": t0,
+        "helper_name": helper_name,
+        "params": params,
+        "image_name": image_name,
+        "exec_code": code,
+        "py_data": {},
+        "session_id": "",
+    }
+
+
 def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | None = None) -> dict[str, Any]:
     """Main-thread document reads before the venv wait.
 
@@ -241,6 +292,13 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
 
     def _early(outcome: dict[str, Any]) -> dict[str, Any]:
         return {"early_outcome": outcome}
+
+    # What was wrong: Vision script preparation resolved Calc data before checking if the script was a vision helper.
+    # How: When a graphic was selected in Calc, _resolve_python_data failed on the non-cell selection and returned an early error.
+    # Why this fixes it: The vision branch runs before _resolve_python_data because vision does not use py_data.
+    vis = _prepare_vision(ctx, doc, code, t0)
+    if vis is not None:
+        return vis
 
     def _resolve_data_ranges() -> list[str] | None:
         binding = str(data_range).strip() if data_range else ""
@@ -291,48 +349,15 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
             text = str(text)
         exec_code = prepend_run_import_document_bindings(code, bindings={"text": text, "document_context": document_context if isinstance(document_context, dict) else {}})
 
-    if "run_vision" in code and script_uses_run_import(code, run_name="run_vision"):
-        from plugin.vision.vision_common import merge_vision_params
-        from plugin.vision.vision_runner import supports_vision_manual
+    from plugin.scripting.session_manager import pin_script_document, release_script_document, rps_session_id
+    from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
 
-        if not supports_vision_manual(doc):
-            return _early({"ok": False, "message": _("Vision helpers require a Writer or Calc document.")})
-        call_spec = parse_run_import_call_spec(code, run_name="run_vision") or {}
-        raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
-        params = merge_vision_params(ctx, raw_params)
-        image_name = str(params.get("image_name") or "").strip() or None
-        helper_name = str(call_spec.get("helper") or "extract_text").strip() or "extract_text"
-
-        return {
-            "early_outcome": None,
-            "is_vision_selection": True,
-            "ctx": ctx,
-            "doc": doc,
-            "code": code,
-            "t0": t0,
-            "helper_name": helper_name,
-            "params": params,
-            "image_name": image_name,
-            "exec_code": code,
-            "py_data": {},
-            "session_id": "",
-        }
-
-    pin_token: str | None = None
+    pin_token = pin_script_document(doc)
     try:
-        from plugin.scripting.session_manager import rps_session_id
-        from plugin.scripting.session_manager import pin_script_document
-
-        pin_token = pin_script_document(doc)
-
         rps_sid = rps_session_id(ctx, doc)
-        from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
-
         ensure_python_session_cleared_on_unload(ctx, doc, rps_sid)
     except Exception as e:
         if pin_token:
-            from plugin.scripting.session_manager import release_script_document
-
             release_script_document(pin_token)
         log.exception("execute_and_insert_result failed")
         return _early(rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e)))
@@ -394,114 +419,124 @@ def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
         prepared["ctx"],
         prepared["exec_code"],
         data=prepared["py_data"],
-        bindings=None,
         session_id=prepared["session_id"],
         script_session_id=prepared.get("script_session_id"),
     )
 
 
-def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
-    """Main-thread result insert. *response* is the venv worker payload."""
+def _finish_vision_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+    """Main-thread result insert for vision helpers."""
+    from plugin.vision.vision_egress import insert_vision_result
+
+    t0 = prepared["t0"]
+    result = response.get("vision_selection_result") or {}
+
+    # Perform UNO document mutations on main thread
+    indiv_results = result.get("individual_results", [])
+    for indiv_res in indiv_results:
+        # insert_vision_result requires the image_name to be set in params for correct insertion
+        # The background thread set it in the response context or we pass it
+        img_name = indiv_res.get("image_name") or indiv_res.get("context", {}).get("image_name")
+        insert_params = dict(prepared.get("params") or {})
+        if img_name:
+            insert_params["image_name"] = img_name
+        insert_vision_result(prepared["ctx"], prepared["doc"], indiv_res, params=insert_params)
+
+    # What was wrong: Multi-image vision runs that failed on image N lost results 1..N-1.
+    # How: _finish_rps_execution returned only the error dict without inserting earlier completed results.
+    # Why this fixes it: Insert individual_results before returning the error outcome.
+    if result.get("status") == "error":
+        return rps_error_outcome(str(result.get("message") or _("Vision helper failed.")), t0=t0)
+
+    helper_name = prepared["helper_name"]
+    discovered_count = prepared.get("discovered_count", 0)
+    formatted_time = format_elapsed_time(time.perf_counter() - t0)
+    count = int(result.get("images_processed") or discovered_count)
+    if count > 1:
+        status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(helper=helper_name, count=count, time=formatted_time)
+    else:
+        status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(helper=helper_name, time=formatted_time)
+    return rps_ok_outcome(status_ok, result=result, stdout=None)
+
+
+def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+    """Main-thread result insert for general Python scripts."""
     from plugin.scripting.domain_registry import get_post_venv_domains, try_rps_post_venv
     from plugin.scripting.viz import try_insert_plot_result
-    from plugin.scripting.session_manager import release_script_document
 
-    try:
-        t0 = prepared["t0"]
-        ctx = prepared["ctx"]
-        doc = prepared["doc"]
-        code = prepared["code"]
-        elapsed = time.perf_counter() - t0
-        formatted_time = format_elapsed_time(elapsed)
+    ctx = prepared["ctx"]
+    doc = prepared["doc"]
+    code = prepared["code"]
+    t0 = prepared["t0"]
+    elapsed = time.perf_counter() - t0
+    formatted_time = format_elapsed_time(elapsed)
 
-        if prepared.get("is_vision_selection"):
-            result = response.get("vision_selection_result") or {}
-            if result.get("status") == "error":
-                return rps_error_outcome(str(result.get("message") or _("Vision helper failed.")), t0=t0)
+    if response.get("status") != "ok":
+        error_msg = response.get("message", _("Unknown error"))
+        log.error("Python script failed: %s", error_msg)
+        return rps_error_outcome(str(error_msg), t0=t0)
 
-            # Perform UNO document mutations on main thread
-            from plugin.vision.vision_egress import insert_vision_result
+    result_data = response.get("result")
+    stdout = response.get("stdout")
 
-            indiv_results = result.get("individual_results", [])
-            for indiv_res in indiv_results:
-                # insert_vision_result requires the image_name to be set in params for correct insertion
-                # The background thread set it in the response context or we pass it
-                img_name = indiv_res.get("image_name") or indiv_res.get("context", {}).get("image_name")
-                insert_params = dict(prepared.get("params") or {})
-                if img_name:
-                    insert_params["image_name"] = img_name
-                insert_vision_result(prepared["ctx"], prepared["doc"], indiv_res, params=insert_params)
+    if result_data is None and not stdout:
+        return {
+            "ok": True,
+            "status_ok_text": _("Script executed successfully, but returned no result and produced no output. (took {time})").format(time=formatted_time),
+            "stdout": stdout,
+            "result": result_data,
+            "no_output": True,
+        }
 
-            helper_name = prepared["helper_name"]
-            discovered_count = prepared.get("discovered_count", 0)
-            formatted_time = format_elapsed_time(time.perf_counter() - t0)
-            count = int(result.get("images_processed") or discovered_count)
-            if count > 1:
-                status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(helper=helper_name, count=count, time=formatted_time)
-            else:
-                status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(helper=helper_name, time=formatted_time)
-            return rps_ok_outcome(status_ok, result=result, stdout=None)
-
-        if response.get("status") != "ok":
-            error_msg = response.get("message", _("Unknown error"))
-            log.error("Python script failed: %s", error_msg)
-            return rps_error_outcome(str(error_msg), t0=t0)
-
-        result_data = response.get("result")
-        stdout = response.get("stdout")
-
-        if result_data is None and not stdout:
-            return {
-                "ok": True,
-                "status_ok_text": _("Script executed successfully, but returned no result and produced no output. (took {time})").format(time=formatted_time),
-                "stdout": stdout,
-                "result": result_data,
-                "no_output": True,
-            }
-
-        if doc:
-            try:
-                # Domain-shaped results from generic venv execution (ordered registry).
-                for spec in get_post_venv_domains():
-                    if spec.id == "viz":
-                        # Viz domain result first, then raw matplotlib envelope below.
-                        post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout, code=code)
-                        if post is not None:
-                            return post
-                        if try_insert_plot_result(ctx, doc, result_data):
-                            return plot_insert_ok_outcome(helper="", title="Plot", t0=t0, stdout=stdout, result=result_data)
-                        continue
+    if doc:
+        try:
+            # Domain-shaped results from generic venv execution (ordered registry).
+            for spec in get_post_venv_domains():
+                if spec.id == "viz":
+                    # Viz domain result first, then raw matplotlib envelope below.
                     post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout, code=code)
                     if post is not None:
                         return post
+                    if try_insert_plot_result(ctx, doc, result_data):
+                        return plot_insert_ok_outcome(helper="", title="Plot", t0=t0, stdout=stdout, result=result_data)
+                    continue
+                post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout, code=code)
+                if post is not None:
+                    return post
 
-                if is_calc(doc):
-                    if is_shape_tool_status_result(result_data):
-                        log.debug("Skipping Calc result insert for shape tool status dict (keys=%s)", sorted(result_data.keys()) if isinstance(result_data, dict) else type(result_data).__name__)
-                    else:
-                        insert_result_into_calc(doc, ctx, result_data)
-                elif is_writer(doc):
-                    if is_shape_tool_status_result(result_data):
-                        log.debug("Skipping Writer result insert for shape tool status dict (keys=%s)", sorted(result_data.keys()) if isinstance(result_data, dict) else type(result_data).__name__)
-                    else:
-                        formatted = format_result_for_writer(result_data)
-                        if formatted:
-                            from plugin.writer.format import run_writer_mutation_with_optional_review
+            if is_shape_tool_status_result(result_data):
+                log.debug("Skipping result insert for shape tool status dict (keys=%s)", sorted(result_data.keys()) if isinstance(result_data, dict) else type(result_data).__name__)
+            elif is_calc(doc):
+                insert_result_into_calc(doc, ctx, result_data)
+            elif is_writer(doc):
+                formatted = format_result_for_writer(result_data)
+                if formatted:
+                    from plugin.writer.format import run_writer_mutation_with_optional_review
 
-                            run_writer_mutation_with_optional_review(doc, ctx, lambda: insert_content_at_position(doc, ctx, formatted, "selection"))
-                elif is_draw(doc):
-                    insert_result_into_draw(doc, ctx, result_data)
-                else:
-                    return {"ok": False, "message": _("Unsupported document type for result insertion. (took {time})").format(time=formatted_time)}
-            except Exception as e:
-                # Logging (type/str/repr + traceback) lives in rps_insert_failed_outcome —
-                # previously this catch painted the RPS dialog with no debug-log line.
-                return rps_insert_failed_outcome(e, t0=t0)
+                    run_writer_mutation_with_optional_review(doc, ctx, lambda: insert_content_at_position(doc, ctx, formatted, "selection"))
+            elif is_draw(doc):
+                insert_result_into_draw(doc, ctx, result_data)
+            else:
+                return {"ok": False, "message": _("Unsupported document type for result insertion. (took {time})").format(time=formatted_time)}
+        except Exception as e:
+            # Logging (type/str/repr + traceback) lives in rps_insert_failed_outcome —
+            # previously this catch painted the RPS dialog with no debug-log line.
+            return rps_insert_failed_outcome(e, t0=t0)
 
-        if stdout:
-            log.info("Python script stdout: %s", stdout)
+    if stdout:
+        log.info("Python script stdout: %s", stdout)
 
-        return {"ok": True, "status_ok_text": _("Script executed successfully. (took {time})").format(time=formatted_time), "stdout": stdout, "result": result_data}
+    return {"ok": True, "status_ok_text": _("Script executed successfully. (took {time})").format(time=formatted_time), "stdout": stdout, "result": result_data}
+
+
+def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+    """Main-thread result insert. *response* is the venv worker payload."""
+    from plugin.scripting.session_manager import release_script_document
+
+    try:
+        if prepared.get("is_vision_selection"):
+            return _finish_vision_execution(prepared, response)
+        return _finish_script_execution(prepared, response)
     finally:
         release_script_document(prepared.get("script_session_id"))
 
@@ -654,7 +689,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
 
 def _report_run_python_open_failed(ctx: Any, reason: str, *, detail: str | None = None, exc: BaseException | None = None) -> None:
     from plugin.chatbot.dialogs import msgbox_with_report
-    from plugin.scripting.editor_ipc import exception_traceback, failure_message
+    from plugin.scripting.editor_ipc import failure_message
 
     full_detail = "\n\n".join(filter(None, [(detail or "").strip(), exception_traceback(exc).rstrip() if exc is not None else ""]))
     message = failure_message(reason, detail=full_detail or None)

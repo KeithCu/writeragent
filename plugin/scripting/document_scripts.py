@@ -641,7 +641,7 @@ def get_user_scripts() -> dict[str, str]:
     return dict(scripts)
 
 
-def save_user_script(name: str, code: str) -> None:
+def save_user_script(name: str, code: str) -> str | None:
     from plugin.scripting.domain_registry import is_reserved_script_name
 
     # What was wrong: save_user_script did not reject names starting with reserved prefixes
@@ -653,6 +653,7 @@ def save_user_script(name: str, code: str) -> None:
     scripts = get_user_scripts()
     scripts[name] = code
     config.set_config("saved_python_scripts", scripts)
+    return None
 
 
 def delete_user_script(name: str) -> DocumentScriptError | None:
@@ -692,7 +693,9 @@ def save_selected_script(
         return None
     user_scripts = get_user_scripts()
     if display_name in user_scripts:
-        save_user_script(display_name, code)
+        save_err = save_user_script(display_name, code)
+        if isinstance(save_err, str) and save_err:
+            return save_err
         return None
     doc_scripts = get_document_scripts(doc) if doc is not None else {}
     real_doc_name = parse_document_script_display_name(display_name) or display_name

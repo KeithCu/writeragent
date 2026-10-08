@@ -945,3 +945,29 @@ def test_save_script_on_builtin_template():
 
     assert res["type"] == "error"
     assert res["message"] == "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+
+
+def test_run_python_monaco_on_save_reports_save_user_script_failure():
+    ctx = MagicMock()
+    doc = MagicMock()
+
+    with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"My Script": "old"}):
+        with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}):
+            with patch("plugin.scripting.document_scripts.save_user_script", return_value="Permission denied"):
+                with patch("plugin.scripting.python_runner._picker_template_name", return_value=False):
+                    with patch("plugin.scripting.python_runner.launch_monaco_editor") as mock_launch:
+                        with patch.object(pr, "get_config_str", return_value="My Script"):
+                            pr._run_python_monaco(
+                                ctx=ctx,
+                                doc=doc,
+                                initial_code="print(1)",
+                                selected_script_name="My Script",
+                                exe="/venv/bin/python",
+                            )
+
+                            on_save = mock_launch.call_args.kwargs["on_save"]
+                            res = on_save(code="print(2)", _save_as_plain=False, action="save")
+
+    assert res["type"] == "error"
+    assert "Permission denied" in res["message"]
+
