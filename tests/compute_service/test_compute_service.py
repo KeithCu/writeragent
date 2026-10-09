@@ -3283,7 +3283,7 @@ def test_isolated_mode_with_session_id_rejected() -> None:
 
 
 def test_header_deadline_fires_inside_handle() -> None:
-    """A request line that arrives after the accept deadline must not block for the per-recv timeout."""
+    """A request line that arrives after the accept deadline returns 408 instead of a traceback."""
     from compute_service.server import DeadlineRequestHandler
 
     client, server_sock = socket.socketpair()
@@ -3299,9 +3299,12 @@ def test_header_deadline_fires_inside_handle() -> None:
         handler.close_connection = True
         handler.server = type("Srv", (), {"_accept_times": {server_sock: time.monotonic() - 100.0}})()
         started = time.monotonic()
-        with pytest.raises(socket.timeout):
-            handler.handle()
+        handler.handle()
         assert time.monotonic() - started < 2.0
+        client.settimeout(1.0)
+        raw = client.recv(4096)
+        assert b"408" in raw
+        assert b"Request read timeout" in raw
     finally:
         client.close()
         server_sock.close()
@@ -3396,22 +3399,45 @@ def test_drain_restores_socket_timeout() -> None:
     from compute_service.server import _drain_body_before_error
 
     class _Conn:
-        def __init__(self) -> None:
-            self.timeout = 30.0
+        def __init__(self, timeout: float | None) -> None:
+            self.timeout = timeout
 
-        def gettimeout(self) -> float:
+        def gettimeout(self) -> float | None:
             return self.timeout
 
-        def settimeout(self, value: float) -> None:
+        def settimeout(self, value: float | None) -> None:
+            self.timeout = value
+
+    class _Unread:
+        def __init__(self) -> None:
+            self.timeout = 30.0
+            self.set_calls = 0
+
+        def gettimeout(self) -> float:
+            raise OSError("cannot read timeout")
+
+        def settimeout(self, value: float | None) -> None:
+            self.set_calls += 1
             self.timeout = value
 
     class _Body:
         def read(self, n: int) -> bytes:
             return b"x" * n
 
-    conn = _Conn()
-    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": conn, "wsgi.input": _Body()})
+    body = _Body()
+    conn = _Conn(30.0)
+    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": conn, "wsgi.input": body})
     assert conn.timeout == 30.0
+
+    # None is blocking. It must be restored, not left at the 1s drain budget.
+    blocking = _Conn(None)
+    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": blocking, "wsgi.input": body})
+    assert blocking.timeout is None
+
+    unread = _Unread()
+    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": unread, "wsgi.input": body})
+    assert unread.set_calls == 0
+    assert unread.timeout == 30.0
 
 
 def test_gated_does_not_start_response_twice() -> None:

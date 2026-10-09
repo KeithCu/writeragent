@@ -344,14 +344,29 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
     except (TypeError, ValueError):
         return
     conn = environ.get("compute.connection")
-    previous_timeout: float | None = None
+    # What was wrong: gettimeout() is None for a blocking socket, and the
+    # restore skipped None, so that socket stayed at the 1s drain budget.
+    # A failed gettimeout used the same None and could not be told apart.
+    # Why this change: None is a real timeout and is put back. settimeout
+    # runs only after a timeout was actually read and the 1s budget applied.
+    saved_timeout: float | None = None
+    restore_timeout = False
     if conn is not None:
+        timeout_read = False
+        raw_timeout: Any = None
         try:
             raw_timeout = conn.gettimeout()
-            previous_timeout = float(raw_timeout) if isinstance(raw_timeout, (int, float)) else None
-            conn.settimeout(1.0)
+            timeout_read = True
         except OSError:
-            previous_timeout = None
+            timeout_read = False
+        if timeout_read and (raw_timeout is None or isinstance(raw_timeout, (int, float))):
+            saved_timeout = None if raw_timeout is None else float(raw_timeout)
+            try:
+                conn.settimeout(1.0)
+            except OSError:
+                pass
+            else:
+                restore_timeout = True
     try:
         to_drain = min(content_length, max_bytes)
         wsgi_input = environ.get("wsgi.input")
@@ -361,9 +376,9 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
         pass
     finally:
         # The 1s drain budget must not become the write timeout for the error response.
-        if conn is not None and previous_timeout is not None:
+        if conn is not None and restore_timeout:
             try:
-                conn.settimeout(previous_timeout)
+                conn.settimeout(saved_timeout)
             except OSError:
                 pass
 

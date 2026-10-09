@@ -46,6 +46,7 @@ COPY plugin/framework/deal_shim.py /app/plugin/framework/deal_shim.py
 # logging are not imported at load time — do not copy them.
 COPY plugin/framework/worker_pool.py /app/plugin/framework/worker_pool.py
 COPY plugin/framework/errors.py /app/plugin/framework/errors.py
+COPY plugin/framework/http_server.py /app/plugin/framework/http_server.py
 COPY plugin/framework/i18n.py /app/plugin/framework/i18n.py
 COPY plugin/framework/json_utils.py /app/plugin/framework/json_utils.py
 COPY plugin/framework/thread_guard.py /app/plugin/framework/thread_guard.py
