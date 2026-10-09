@@ -839,12 +839,23 @@ class BaseProcessPool:
             self._recycle_queue.put(worker)
 
     def _recycle_loop(self) -> None:
-        """Persistent worker thread for recycling child processes without thread-exit PDEATHSIG races."""
+        """Persistent worker thread for recycling child processes without thread-exit PDEATHSIG races.
+
+        What was wrong: one exception from ``_recycle_worker_async`` killed
+        this daemon. Later recycles stayed in ``_leased``, and ``lease_any``
+        eventually waited forever. ``kill`` / ``respawn`` failures still
+        release that one slot in ``_recycle_worker_async``'s ``finally``.
+        Why this change: log the item and keep reading the queue, same as
+        the reaper.
+        """
         while True:
             worker = self._recycle_queue.get()
             if worker is None:
                 break
-            self._recycle_worker_async(worker)
+            try:
+                self._recycle_worker_async(worker)
+            except Exception:
+                log.exception("Recycle of %s #%s failed", self.worker_name, worker.worker_id)
 
     def _recycle_worker_async(self, worker: BaseProcessWorker) -> None:
         """Kill and respawn recycled worker off the request path."""

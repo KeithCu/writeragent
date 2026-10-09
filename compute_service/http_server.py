@@ -16,7 +16,6 @@ import selectors
 import socket
 import threading
 import time
-import weakref
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from http.server import HTTPServer
@@ -116,7 +115,9 @@ def sticky_listener_slots(settings: ComputeSettings) -> int:
     """How many sticky execute / session-reset requests may hold a listener.
 
     Isolated execute holds at most ``settings.workers`` threads and vision
-    holds ``max(1, ocr_workers)``. Two listeners stay free for ``GET /health``.
+    holds ``max(1, ocr_workers)``. Two listeners are not given a permit, so
+    ``GET /health`` is not stuck behind admitted work. A header or body read
+    still occupies its listener before that permit.
     """
     return listener_budget(settings).sticky
 
@@ -154,10 +155,13 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     The thread pool capacity is ``service_listener_threads`` when the process
     starts, or ``listener_thread_count`` for an explicit ``max_threads``.
     Isolated ``/v1/execute`` and ``/v1/vision`` each have a semaphore. Sticky
-    execute and ``/v1/session/reset`` share a smaller one. All three gates run
-    before the request body is read and wait until the request deadline. 503
-    is that timeout. A few milliseconds of queueing is normal at 200-400 rps.
-    At least two listener threads stay available for ``GET /health``.
+    execute and ``/v1/session/reset`` share a smaller one. Execute and vision
+    read the body before taking a permit so the clamped timeout is known;
+    the permit then waits until the request deadline. 503 is that timeout.
+    A few milliseconds of queueing is normal at 200-400 rps. Two listeners
+    are not given a permit, so ``GET /health`` is not stuck behind admitted
+    work. Header and body reads still occupy a listener first. The only
+    client is loopback coolwsd.
     """
 
     request_queue_size: int = 128
@@ -180,9 +184,11 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._dual_shutdown_request = False
         self._serving = False
         # Keyed by the connection object, not id(conn). CPython reuses ids
-        # after the socket is freed; a weak key disappears with the object,
-        # so a recycled id cannot read another request's accept time.
-        self._accept_times: weakref.WeakKeyDictionary[socket.socket, float] = weakref.WeakKeyDictionary()
+        # after the socket is freed, so an id key could read a later accept's
+        # timestamp. shutdown_request pops the entry on every path that
+        # inserted one. A weak key would also drop a freed socket, but its
+        # GC callback can run while a handler thread is in .get().
+        self._accept_times: dict[socket.socket, float] = {}
         # The executor queue is unbounded. Semaphores bound how many requests
         # run at once; extras wait until the request deadline. A connection
         # flood can still grow this queue and _accept_times. That stays

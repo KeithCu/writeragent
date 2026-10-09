@@ -2594,6 +2594,12 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr("compute_service.server.check_dependencies", lambda pool: None)
     monkeypatch.setattr("compute_service.formula_pool.get_formula_pool", lambda settings: MagicMock())
+    # Real shutdown(permanent=True) sets _closed even when no pool exists and
+    # would poison later tests in this process. Assert the calls instead.
+    formula_shutdown = MagicMock()
+    vision_shutdown = MagicMock()
+    monkeypatch.setattr("compute_service.formula_pool.shutdown_formula_pool", formula_shutdown)
+    monkeypatch.setattr("compute_service.vision_pool.shutdown_vision_pool", vision_shutdown)
     import plugin.scripting.payload_codec as payload_codec
 
     monkeypatch.setattr(payload_codec, "load_cython_accelerator", lambda: None)
@@ -2610,12 +2616,16 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
     assert "Failed to bind 127.0.0.1:1" in err
     assert "Address already in use" in err
     assert "Traceback" not in err
+    formula_shutdown.assert_called_once_with(permanent=True)
+    vision_shutdown.assert_called_once_with(permanent=True)
 
     monkeypatch.setattr("compute_service.server.load_settings", lambda **_kwargs: settings)
     assert main([]) == 1
     err = capsys.readouterr().err
     assert "Traceback" not in err
     assert "Failed to bind 127.0.0.1:1" in err
+    assert formula_shutdown.call_count == 2
+    assert vision_shutdown.call_count == 2
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
@@ -3129,6 +3139,17 @@ def test_vision_missing_image_is_400_with_code() -> None:
     assert status.startswith("400")
     assert body.get("code") == "MISSING_IMAGE_SOURCE"
     assert body.get("id") == "no-image"
+
+
+def test_vision_blank_file_path_is_missing_image_source() -> None:
+    """A blank file_path is no path. The worker's INVALID_FILE_PATH is not this response."""
+    app = create_wsgi_app(ComputeSettings())
+    for raw_path in ("", "   "):
+        payload = json.dumps({"id": "blank-path", "helper": "extract_text", "file_path": raw_path}).encode("utf-8")
+        status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+        assert status.startswith("400")
+        assert body.get("code") == "MISSING_IMAGE_SOURCE"
+        assert body.get("id") == "blank-path"
 
 
 def test_vision_rejects_image_and_file_path_together() -> None:

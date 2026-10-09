@@ -156,6 +156,39 @@ def test_recycle_cannot_be_leased_until_respawn_finishes() -> None:
         releaser.join(timeout=2.0)
 
 
+def test_recycle_loop_keeps_running_after_a_failed_recycle() -> None:
+    """One recycle fault used to kill the daemon. Later slots stayed leased."""
+    pool = BaseProcessPool(script_path="unused.py", num_workers=0, max_tasks=1, idle_worker_ttl_sec=None)
+    first = _RecyclingSlot(pool)
+    second = _RecyclingSlot(pool)
+    second.worker_id = 8
+    pool.workers.extend([first, second])  # type: ignore[arg-type]
+    pool._leased.add(first)  # type: ignore[arg-type]
+    pool._leased.add(second)  # type: ignore[arg-type]
+
+    real = pool._recycle_worker_async
+
+    def flaky(worker: _RecyclingSlot) -> None:
+        if worker is first:
+            raise RuntimeError("recycle blew up")
+        real(worker)
+
+    pool._recycle_worker_async = flaky  # type: ignore[method-assign]
+    # Open the pauses before enqueue so the second recycle finishes.
+    for gate in (*first.gates, *second.gates):
+        gate.set()
+    try:
+        pool._recycle_queue.put(first)  # type: ignore[arg-type]
+        pool._recycle_queue.put(second)  # type: ignore[arg-type]
+        claimed = pool.lease_any(timeout_sec=2.0)
+        assert claimed is second
+        assert pool._recycle_thread.is_alive()
+    finally:
+        for gate in (*first.gates, *second.gates):
+            gate.set()
+        pool.shutdown()
+
+
 def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
     import pickle
     import pytest

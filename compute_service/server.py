@@ -1126,9 +1126,10 @@ def create_wsgi_app(
     (``?session_id=``) and ``/v1/session/reset`` take a separate permit sized
     by ``sticky_listener_slots``. Execute and vision wait until the clamped
     ``timeout_ms`` (the pool default when it is omitted). Session reset waits
-    until ``default_timeout_sec``. At least two listener threads stay free
-    for ``GET /health``. ``worker_semaphore`` and ``vision_semaphore`` override
-    those gates in tests.
+    until ``default_timeout_sec``. Two listeners are not given a permit, so
+    ``GET /health`` is not stuck behind admitted work. Header and body reads
+    still occupy a listener before the permit. ``worker_semaphore`` and
+    ``vision_semaphore`` override those gates in tests.
     """
     run_execute = execute_fn
     run_reset = reset_fn
@@ -1238,53 +1239,61 @@ def run_server(settings: ComputeSettings) -> None:
     from compute_service.formula_pool import get_formula_pool
 
     formula_pool = get_formula_pool(settings)
-    check_dependencies(formula_pool)
-
-    if settings.ocr_workers > 0:
-        from compute_service.vision_pool import get_vision_pool
-
-        get_vision_pool(settings)
-
+    # What was wrong: pool shutdown lived only in the serve_forever finally.
+    # OSError from bind returned 1 with the children still running; pdeathsig
+    # was the only reaper.
+    # Why this change: the same permanent shutdown covers bind failure and
+    # the normal exit. The HTTP drain stays on serve_forever, which is the
+    # only path that has a server.
     try:
-        server = WSGIDualStackServer(settings.host, settings.port, listener_threads=service_listener_threads(settings))
-    except OSError as exc:
-        print(f"Failed to bind {settings.host}:{settings.port}: {exc}", file=sys.stderr)
-        raise
-    server.set_app(create_wsgi_app(settings))
+        check_dependencies(formula_pool)
 
-    shutdown_signals_received = 0
+        if settings.ocr_workers > 0:
+            from compute_service.vision_pool import get_vision_pool
 
-    def _handle_shutdown(signum: int, _frame: Any) -> None:
-        nonlocal shutdown_signals_received
-        shutdown_signals_received += 1
+            get_vision_pool(settings)
+
         try:
-            sig_name = signal.Signals(signum).name
-        except Exception:
-            sig_name = str(signum)
-        if shutdown_signals_received > 1:
-            log.warning("Received repeated signal %s, aborting immediately...", sig_name)
-            os._exit(1)
-        log.info("Received signal %s, initiating graceful shutdown...", sig_name)
-        threading.Thread(target=server.shutdown, daemon=True).start()
+            server = WSGIDualStackServer(settings.host, settings.port, listener_threads=service_listener_threads(settings))
+        except OSError as exc:
+            print(f"Failed to bind {settings.host}:{settings.port}: {exc}", file=sys.stderr)
+            raise
+        server.set_app(create_wsgi_app(settings))
 
-    try:
-        signal.signal(signal.SIGTERM, _handle_shutdown)
-        signal.signal(signal.SIGINT, _handle_shutdown)
-    except (ValueError, AttributeError):
-        pass
+        shutdown_signals_received = 0
 
-    try:
-        server.serve_forever()
+        def _handle_shutdown(signum: int, _frame: Any) -> None:
+            nonlocal shutdown_signals_received
+            shutdown_signals_received += 1
+            try:
+                sig_name = signal.Signals(signum).name
+            except Exception:
+                sig_name = str(signum)
+            if shutdown_signals_received > 1:
+                log.warning("Received repeated signal %s, aborting immediately...", sig_name)
+                os._exit(1)
+            log.info("Received signal %s, initiating graceful shutdown...", sig_name)
+            threading.Thread(target=server.shutdown, daemon=True).start()
+
+        try:
+            signal.signal(signal.SIGTERM, _handle_shutdown)
+            signal.signal(signal.SIGINT, _handle_shutdown)
+        except (ValueError, AttributeError):
+            pass
+
+        try:
+            server.serve_forever()
+        finally:
+            log.info("Stopping Python Compute Service...")
+            server.close_sockets()
+            server.drain_executor(_HTTP_DRAIN_SEC)
+            server.server_close()
     finally:
-        log.info("Stopping Python Compute Service...")
-        server.close_sockets()
-        server.drain_executor(_HTTP_DRAIN_SEC)
         from compute_service.formula_pool import shutdown_formula_pool
         from compute_service.vision_pool import shutdown_vision_pool
 
         shutdown_formula_pool(permanent=True)
         shutdown_vision_pool(permanent=True)
-        server.server_close()
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
