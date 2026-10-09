@@ -65,12 +65,12 @@ def test_shared_mode_without_session_id_does_not_run(monkeypatch: pytest.MonkeyP
 class TestFormulaPoolSupervisor:
     def test_session_locks_removed_and_reset_succeeds(self) -> None:
         """Verify dead session locks are removed and reset_session succeeds cleanly."""
-        import compute_service.executor as ex
+        import compute_service.formula_worker as fw
         from compute_service.formula_worker import _handle_request
 
-        assert not hasattr(ex, "_SESSION_RUN_LOCKS")
-        assert not hasattr(ex, "_session_lock")
-        assert not hasattr(ex, "release_session_lock")
+        assert not hasattr(fw, "_SESSION_RUN_LOCKS")
+        assert not hasattr(fw, "_session_lock")
+        assert not hasattr(fw, "release_session_lock")
 
         sid = "clean-reset-session"
         res = _handle_request({"action": "reset_session", "session_id": sid})
@@ -459,7 +459,6 @@ class TestFormulaPoolSupervisor:
             [
                 "import sys",
                 "import compute_service.formula_worker",
-                "assert 'compute_service.executor' not in sys.modules",
                 "assert 'plugin.scripting.venv.venv_sandbox' not in sys.modules",
             ]
         )

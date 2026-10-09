@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from compute_service.config import ComputeSettings, ConfigError, clamp_timeout_sec, load_settings
-from compute_service.executor import execute_code
+from compute_service.formula_worker import execute_code
 from compute_service.formula_pool import shutdown_formula_pool
 from compute_service.json_egress import normalize_execute_response, sanitize_for_strict_json, to_dumb_json_value
 from compute_service.server import create_wsgi_app
@@ -2819,7 +2819,7 @@ def test_ocr_path_is_allowed_nonexistent_file(tmp_path) -> None:
 
 def test_clamp_timeout_sec_infinite_and_nan() -> None:
     """clamp_timeout_sec must handle OverflowError and non-finite floats gracefully."""
-    from compute_service.executor import clamp_timeout_sec
+    from compute_service.config import clamp_timeout_sec
 
     assert clamp_timeout_sec(float("inf"), default_timeout_sec=30) == 30
     assert clamp_timeout_sec(float("-inf"), default_timeout_sec=30) == 30
@@ -2853,7 +2853,7 @@ def test_address_string_avoids_reverse_dns() -> None:
 
 def test_clamp_timeout_sec_boolean() -> None:
     """clamp_timeout_sec must treat booleans as invalid and return default_timeout_sec."""
-    from compute_service.executor import clamp_timeout_sec
+    from compute_service.config import clamp_timeout_sec
 
     assert clamp_timeout_sec(True, default_timeout_sec=30) == 30
     assert clamp_timeout_sec(False, default_timeout_sec=30) == 30
