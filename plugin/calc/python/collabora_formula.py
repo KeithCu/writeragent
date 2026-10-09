@@ -214,9 +214,9 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     from plugin.framework.thread_guard import guard_uno
 
     doc = guard_uno(doc)
-    # Bugfix: setModified(False) after a rewrite cleared the dirty flag even
-    # when the user had already edited the book. setFormula flips the flag
-    # itself, so restore the value from before the scan.
+    # setFormula flips the dirty flag itself. Restore the value from before
+    # the scan so a user edit stays dirty. setModified(False) after the
+    # rewrite clears that flag.
     was_modified: bool | None = None
     try:
         if hasattr(doc, "isModified"):

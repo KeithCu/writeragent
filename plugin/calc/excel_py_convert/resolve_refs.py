@@ -49,10 +49,9 @@ class ResolvedDep:
 @deal.pre(lambda model, anchor, sheet_hint="": str_bounded(anchor, DEAL_MAX_SOURCE) and str_bounded(sheet_hint, DEAL_MAX_SOURCE))
 def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "") -> str | None:
     """Find an array/spill snapshot for *anchor* (bare or Sheet!A1)."""
-    # Bugfix: what was wrong: bare keys (e.g. "A1") were matched before sheet-qualified keys
-    # (e.g. "Sheet2!A1"), causing references on one sheet to pick up another sheet's anchor snapshot.
-    # How it happened: loop checked bare keys before sheet-qualified keys and checked lower bare keys first.
-    # Why this change fixes it: check sheet-qualified candidates first whenever sheet_hint is provided.
+    # With a sheet hint, try the sheet-qualified key ("Sheet2!A1") before
+    # the bare key ("A1"). Bare-first, and lower-bare-first, lets one sheet
+    # pick up another sheet's anchor snapshot.
     cleaned = anchor.replace("$", "").strip()
     snaps = model.anchor_snapshots
     if sheet_hint and "!" not in cleaned:

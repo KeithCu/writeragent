@@ -188,11 +188,9 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
             warnings.append(f"{cell.sheet}!{cell.cell}: {exc}")
             continue
         code_sheet = code_sheet_name_for(cell.sheet)
-        # Bugfix: what was wrong: two source sheets sanitizing/truncating to the same py_code_* bank
-        # name only logged a warning and kept the first script, silently corrupting or losing code.
-        # How it happened: collisions were only checked per cell coordinate and handled via warning.
-        # Why this change fixes it: track source sheet mappings per bank sheet and raise ValueError /
-        # record issue on collision so conversion fails closed.
+        # Two source sheets that sanitize to the same py_code_* bank name
+        # fail the conversion. A per-cell warning that keeps the first
+        # script drops the second.
         existing_sheet = code_sheet_sources.setdefault(code_sheet, cell.sheet)
         if existing_sheet != cell.sheet:
             err = f"script-bank sheet name collision: {existing_sheet!r} and {cell.sheet!r} both map to {code_sheet!r}"

@@ -90,10 +90,10 @@ def _unwrap_single_cell(py_data: Any) -> Any:
 def _host_ndarray_as_list(value: Any) -> list[Any] | None:
     """Turn a NumPy array into a nested list without importing NumPy on the host.
 
-    Bugfix: a small numeric result used to stay an ndarray across the pipe.
-    ``float()`` on a multi-cell array fails, and ``to_calc_compatible`` then
-    returned the array's text. ``tolist`` is the array method. Pandas objects
-    are left alone (their module is not ``numpy``).
+    ``tolist`` is the array method. A small numeric result that stays an
+    ndarray across the pipe fails ``float()`` when the array has more than
+    one cell, and ``to_calc_compatible`` then returns the array's text.
+    Pandas objects are left alone (their module is not ``numpy``).
     """
     if isinstance(value, (str, bytes, bytearray, list, tuple, dict)) or value is None:
         return None
@@ -293,11 +293,12 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
     # callers must not share WorkerResultSession.
     from plugin.framework.thread_guard import on_main_thread
 
-    # Bugfix: off-main finalize hands scalar_for_list_result the cached spill
-    # model (the object a deferred write posts to the UI thread). The guard
-    # below only ran when doc was None, so getURL and locate_formula_cell_in_doc
-    # ran on that model from a Yellow thread. Skip UNO off-main; the key stays
-    # ambiguous and WorkerResultSession is not shared until the UI thread locates.
+    # Skip UNO off the main thread. Off-main finalize hands
+    # scalar_for_list_result the cached spill model (the object a deferred
+    # write posts to the UI thread). Running the guard only when doc is
+    # None lets getURL and locate_formula_cell_in_doc touch that model from
+    # a Yellow thread. The key stays ambiguous, and WorkerResultSession is
+    # not shared, until the UI thread locates the cell.
     if not on_main_thread():
         return ("", "", "", code, "")
     doc_url = ""
@@ -475,32 +476,31 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
             if sheet is None:
                 return
 
-            # Bugfix: orphan cleanup locked undo and saved WriterAgentSpillRegistry
-            # on the focused workbook. The cells it cleared belong to the sheet
-            # that fired, which may be a background file.
-            # How: ``_get_calc_doc`` is ``desktop.getCurrentComponent()``.
-            # Why: walk to the spreadsheet that owns the sheet. A parent-less
-            # MagicMock still falls back to the active model so direct tests
-            # keep their stub.
+            # Walk to the spreadsheet that owns the sheet. Orphan cleanup
+            # locks undo and saves WriterAgentSpillRegistry on whichever
+            # workbook is focused. The cells it clears belong to the sheet
+            # that fired, which may be a background file. _get_calc_doc is
+            # desktop.getCurrentComponent(). A parent-less MagicMock still
+            # falls back to the active model so direct tests keep their stub.
             from plugin.calc.python.sheet_modify import _owning_calc_doc
 
             doc = _owning_calc_doc(sheet)
             if doc is None:
                 doc = _get_calc_doc(self.ctx)
-            # Bugfix: ``"PY" in formula`` is true for =PYMT and any text that
-            # merely contains those letters, so replacing =PY() with an
-            # unrelated formula left the spilled block. is_py_formula_text is
-            # the =PY( / =PYTHON( (and qualified add-in) check.
+            # is_py_formula_text is the =PY( / =PYTHON( check, including a
+            # qualified add-in name. "PY" in formula is true for =PYMT and
+            # for any text that merely contains those letters, so replacing
+            # =PY() with an unrelated formula left the spilled block.
             from plugin.calc.python.cell_discovery import is_py_formula_text
 
             with _undo_lock(doc):
                 to_remove = []
                 for key, value in list(SPILL_REGISTRY.items()):
                     doc_url, sheet_name, frow, fcol = key
-                    # Bugfix: "" matched every unsaved workbook, so a modify on
-                    # one untitled book cleared the other's spill cells when
-                    # the sheet names matched. Callers pass the file URL or the
-                    # lifecycle id. "" is not an identity.
+                    # Callers pass the file URL or the lifecycle id. An empty
+                    # string is not an identity: it matches every unsaved
+                    # workbook, so a modify on one untitled book cleared the
+                    # other's spill cells when the sheet names matched.
                     if self.doc_url and doc_url == self.doc_url and sheet_name == self.sheet_name:
                         try:
                             cell = sheet.getCellByPosition(fcol, frow)
@@ -734,11 +734,11 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
             return
 
         with _undo_lock(doc):
-            # Bugfix: ``current_url != doc_url`` is false when both are "".
-            # Two unsaved books then shared one spill write. The scheduled
-            # token is the file URL, or the lifecycle id captured when the
-            # URL was empty. A blank token is the legacy getURL() of an
-            # untitled book (UNO callers); the registry still uses this
+            # The scheduled token is the file URL, or the lifecycle id
+            # captured when the URL was empty. current_url != doc_url is
+            # false when both are empty, so two unsaved books shared one
+            # spill write. A blank token is the legacy getURL() of an
+            # untitled book (UNO callers). The registry still uses this
             # document's lifecycle id, and a saved book rejects the blank.
             live_key = _spill_registry_doc_key(doc)
             scheduled = doc_url or ""
@@ -1086,10 +1086,11 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     def _deferred() -> None:
         post_to_main_thread(_on_main)
 
-    # Bugfix: registering under "" meant unload's cancel (keyed by RuntimeUID
-    # or the workbook session id) never saw this timer, so the closure kept
-    # ctx, code, the grid, and the cached document after the book closed.
     # The key was cached on the UI thread; do not call _lifecycle_key here.
+    # Registering under an empty string means unload's cancel (keyed by
+    # RuntimeUID or the workbook session id) never sees this timer, so the
+    # closure keeps ctx, the code, the grid, and the cached document after
+    # the book closes.
     lkey = _off_main_spill_lifecycle_key(doc)
     t = _new_spill_timer(0.1, _deferred)
     if lkey:
@@ -1105,14 +1106,14 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
     result = result_to_calc_grid(result)
 
     # Auto-spill: list/tuple, no index_arg, and not a matrix selection.
-    # Bugfix: off-main =PY() (Calc multithreaded recalc / Yellow dispatch) cannot
-    # inspect the UI selection or resolve a UNO document. The old path treated
-    # ``target_doc is None and not on_main`` as a matrix formula and returned
-    # only grid[0][0], so DataFrames and 2D lists painted a single corner with
-    # no Spill: logs. Matrix is only when we actually see a multi-cell selection.
-    # Off-main, locate + collision + write are posted to the UI thread with the
-    # calling document (*doc* is only passed through there). No *doc* means
-    # no spill: the corner value is returned.
+    # A matrix is only a selection we actually see covering more than one
+    # cell. Off-main =PY() (Calc's multithreaded recalc, or a Yellow
+    # dispatch) cannot inspect the UI selection or resolve a UNO document.
+    # Treating "no document and not on main" as a matrix returns only
+    # grid[0][0], so a DataFrame or a 2D list paints a single corner and
+    # never logs Spill:. Off-main, locate, collision, and write are posted
+    # to the UI thread with the calling document (doc is only passed
+    # through there). No doc means no spill: the corner value is returned.
     is_matrix = False
     if isinstance(result, (list, tuple)) and index_arg is None and len(result) > 0:
         from plugin.framework.config import get_config_bool
@@ -1308,9 +1309,9 @@ def _forget_spill_timer(timer: threading.Timer) -> None:
 def _new_spill_timer(delay_sec: float, callback: Any) -> threading.Timer:
     """Timer that leaves ``_PENDING_SPILL_TIMERS`` as soon as it fires.
 
-    Bugfix: the registry was append-only. After ``run()`` the Timer, its
-    callback, and everything that callback closed over (ctx, code, grid,
-    UNO document) stayed reachable until process exit.
+    After ``run()`` the Timer, its callback, and everything that callback
+    closed over (ctx, code, grid, UNO document) must drop out of the
+    registry. An append-only list keeps them until process exit.
     """
     pending: list[threading.Timer] = []
 
@@ -1392,10 +1393,10 @@ def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -
         # unload that only matched doc_url left the dispatcher registered.
         for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == lifecycle_key]:
             SHEET_MODIFY_LISTENERS.pop(skey, None)
-        # Bugfix: unsaved spill rows are keyed by lifecycle id because
-        # getURL() is "". ``doc_url=""`` used to skip the registry sweep, and
-        # sweeping on "" would drop every other untitled book. Exact match
-        # on this lifecycle id only.
+        # Unsaved spill rows are keyed by lifecycle id because getURL() is
+        # empty. Sweep this lifecycle id only. Skipping the sweep when
+        # doc_url is empty leaves the row behind, and sweeping on an empty
+        # URL would drop every other untitled book.
         LOADED_DOCUMENTS.discard(lifecycle_key)
         for key in [k for k in SPILL_REGISTRY if k[0] == lifecycle_key]:
             SPILL_REGISTRY.pop(key, None)

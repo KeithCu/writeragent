@@ -124,10 +124,9 @@ def _rel_type_is_table(rel_type: str) -> bool:
 def _parse_python_scripts(zf: zipfile.ZipFile) -> list[str]:
     """Parse ``xl/pythonScripts.xml``.
 
-    Bugfix:
-    - What was wrong: if any sequential script was encountered, all indexed scripts were dropped.
-    - How it happened: 'if indexed and not sequential' dropped indexed scripts whenever sequential had items.
-    - Why this change fixes it: maps each script to its index (explicit attribute or document order) without discarding.
+    Map each script to its index (the explicit attribute, or document
+    order). Dropping indexed scripts whenever any sequential script is
+    present throws away the indexed bank.
     """
     try:
         raw = zf.read("xl/pythonScripts.xml")
@@ -192,11 +191,9 @@ def _parse_table_ref(zf: zipfile.ZipFile, table_part: str, sheet_title: str) -> 
 def _collect_array_refs(ws_root: ET.Element, sheet_title: str) -> dict[str, str]:
     """Map Sheet!Anchor → full array ref range from worksheet formula/@ref.
 
-    Bugfix:
-    - What was wrong: took array_ref from any <f ref=...>, including shared-formula masters (<f t="shared" ref=... si=...>),
-      which caused shared formulas to be treated as spill ranges and cleared on export.
-    - How it happened: did not check f.attrib.get("t") == "array".
-    - Why this change fixes it: only formulas with t="array" are collected as array refs.
+    Only a formula with ``t="array"`` is an array ref. A shared-formula
+    master (``<f t="shared" ref=... si=...>``) also has ``ref``, and
+    treating it as a spill range clears those cells on export.
     """
     out: dict[str, str] = {}
     for c in find_all(ws_root, "c"):
@@ -230,9 +227,8 @@ def _shared_formula_map(ws_root: ET.Element) -> dict[str, str]:
         si = f.attrib.get("si")
         body = "".join(f.itertext()).strip()
         if si is not None and body:
-            # Bugfix: what was wrong: double unescape corrupted literals like &lt; or &amp; in formulas.
-            # How it happened: redundant _unescape_xml call on ET text which is already decoded.
-            # Why this change fixes it: use body directly as decoded by ET.
+            # ElementTree already decodes entities. A second _unescape_xml
+            # corrupts literals like &lt; or &amp;. Use body as decoded.
             masters[si] = body
     return masters
 
@@ -251,9 +247,8 @@ def _iter_py_cells(ws_root: ET.Element, sheet_title: str) -> list[ExcelPyCell]:
             body = masters.get(si or "", "")
         if not body:
             continue
-        # Bugfix: what was wrong: double unescape corrupted literals like &lt; or &amp; in formulas.
-        # How it happened: redundant _unescape_xml call on ET text which is already decoded.
-        # Why this change fixes it: use body directly as decoded by ET.
+        # ElementTree already decodes entities. A second _unescape_xml
+        # corrupts literals like &lt; or &amp;. Use body as decoded.
         formula = body
         if "_xlws.py" not in formula.lower():
             continue
@@ -262,10 +257,9 @@ def _iter_py_cells(ws_root: ET.Element, sheet_title: str) -> list[ExcelPyCell]:
             continue
         script_index, return_type, deps = parsed
         row, col = _col_row(a1)
-        # Bugfix: what was wrong: array_ref was assigned from any formula with a 'ref' attribute,
-        # including shared-formula masters (<f t="shared" ref="A1:A10">), causing them to be treated as spill ranges.
-        # How it happened: read ref without checking if t == "array".
-        # Why this change fixes it: only formulas with t="array" receive an array_ref.
+        # Only ``t="array"`` gets an array_ref. A shared-formula master
+        # (``<f t="shared" ref="A1:A10">``) also has ref, and treating it
+        # as a spill range clears those cells on export.
         array_ref = (f.attrib.get("ref") or "").replace("$", "") if (f.attrib.get("t") or "") == "array" else ""
         cells.append(ExcelPyCell(sheet=sheet_title, cell=a1, script_index=script_index, return_type=return_type, deps=deps, formula_raw=formula if formula.startswith("=") else f"={formula}", array_ref=array_ref, row=row, col=col))
     return cells
@@ -288,11 +282,9 @@ def parse_excel_xlsx(path: str | Path) -> ExcelWorkbookModel:
             except KeyError:
                 continue
             cells.extend(_iter_py_cells(ws_root, sh.title))
-            # Bugfix: what was wrong: anchors.update() allowed later sheets to overwrite bare keys
-            # (e.g. "A1") established by earlier sheets, violating first-wins for bare keys.
-            # How it happened: dict.update unconditionally overwrote all existing keys.
-            # Why this change fixes it: update sheet-qualified keys ("!") directly, but keep
-            # first-wins for bare keys by using setdefault (only adding if absent).
+            # Sheet-qualified keys (they contain "!") update in place. Bare
+            # keys such as "A1" are first-wins via setdefault. dict.update
+            # lets a later sheet overwrite an earlier sheet's bare key.
             for k, v in _collect_array_refs(ws_root, sh.title).items():
                 if "!" in k:
                     anchors[k] = v

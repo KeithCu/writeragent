@@ -73,12 +73,10 @@ def _clear_spill_range(ws: Any, anchor: str, array_ref: str) -> None:
 
 def _strip_content_types_python(data: bytes) -> bytes:
     """Remove Python-in-Excel Override elements from [Content_Types].xml."""
-    # Bugfix: what was wrong: dropping lines containing python parts corrupted single-line
-    # [Content_Types].xml files from Excel/LibreOffice, deleting the entire file body.
-    # How it happened: string line splitting assumed one tag per line, whereas Excel/LO write
-    # minified single-line package XML.
-    # Why this change fixes it: parse with ET, remove only matching Override elements,
-    # and serialize with registered package namespaces and XML declaration.
+    # Parse with ElementTree, remove only the matching Override elements,
+    # and write the package namespaces plus the XML declaration. Excel and
+    # LibreOffice emit [Content_Types].xml as one line, so dropping every
+    # line that mentions a python part deletes the file.
     try:
         root, ns_map = parse_and_extract_namespaces(data)
     except ET.ParseError:
@@ -98,11 +96,10 @@ def _strip_content_types_python(data: bytes) -> bytes:
 
 def _strip_rels_python(data: bytes) -> bytes:
     """Remove Python-in-Excel Relationship elements from .rels files."""
-    # Bugfix: what was wrong: dropping lines referencing pythonScripts deleted the entire body of
-    # single-line .rels files from Excel/LibreOffice.
-    # How it happened: text.splitlines() deleted all content when relationships were on a single line.
-    # Why this change fixes it: parse with ET, remove only matching Relationship elements,
-    # and serialize with registered package namespaces and XML declaration.
+    # Parse with ElementTree, remove only the matching Relationship
+    # elements, and write the package namespaces plus the XML declaration.
+    # A single-line .rels file loses its whole body when every line that
+    # mentions pythonScripts is dropped.
     try:
         root, ns_map = parse_and_extract_namespaces(data)
     except ET.ParseError:
@@ -226,15 +223,11 @@ def _ensure_sheet_data(ws_root: ET.Element) -> ET.Element:
 def _ensure_cell(ws_root: ET.Element, a1: str) -> ET.Element:
     """Return ``<c r="A1">``, creating row/cell under sheetData in ascending order when missing.
 
-    Bugfix:
-    - What was wrong: missing rows and cells were appended at the end of sheetData/row, violating
-      OOXML ascending sort order requirements. Rows/cells without 'r' attributes did not match,
-      causing duplicate elements. Also removed dead search loop.
-    - How it happened: ET.SubElement unconditionally appended new elements to the parent without
-      checking row/col index order, and lookup matched only explicit 'r' attributes.
-    - Why this change fixes it: iterates over rows and cells tracking implicit 1-based indices when
-      'r' is omitted, finds existing rows/cells by index, and inserts missing elements at their
-      sorted ascending position using list.insert.
+    Walk rows and cells, tracking the implicit 1-based index when ``r`` is
+    omitted. Insert a missing row or cell at that sorted position.
+    ElementTree's SubElement always appends, which breaks OOXML's ascending
+    order, and a lookup that only sees an explicit ``r`` misses those cells
+    and inserts a duplicate.
     """
     parsed = _a1_row_col(a1)
     if parsed is None:
@@ -310,11 +303,9 @@ def _ensure_cell(ws_root: ET.Element, a1: str) -> ET.Element:
 def _set_cell_xlws_formula(ws_root: ET.Element, a1: str, formula: str, array_ref: str = "") -> None:
     """Set formula on cell, clearing stale si, ca, v, is, and t attributes.
 
-    Bugfix:
-    - What was wrong: former shared-formula cells retained stale 'si' and 'ca' attributes on <f>,
-      which is invalid for array formulas and non-shared formulas.
-    - How it happened: _set_cell_xlws_formula updated f.text and attributes but did not delete 'si'/'ca'.
-    - Why this change fixes it: explicitly deletes 'si' and 'ca' attributes from <f>.
+    Delete ``si`` and ``ca`` from ``<f>``. A former shared-formula cell
+    keeps them, and they are invalid on an array formula or any formula
+    that is no longer shared.
     """
     cell = _ensure_cell(ws_root, a1)
     # Drop cached value / type so Excel recalculates from the formula.
@@ -346,10 +337,8 @@ def _set_cell_xlws_formula(ws_root: ET.Element, a1: str, formula: str, array_ref
 def _clear_spill_xml(ws_root: ET.Element, anchor: str, array_ref: str, cell_map: dict[str, ET.Element] | None = None) -> None:
     """Clear cached/array result cells in *array_ref* from XML, keeping the anchor.
 
-    Bugfix:
-    - What was wrong: rescanned every <c> on the entire sheet for each spill coordinate (O(N*M) quadratic cost).
-    - How it happened: nested loop over _findall(ws_root, 'c') inside iter_a1_span loop.
-    - Why this change fixes it: builds a dict from coordinate to cell element once (O(N+M) linear cost).
+    Build one coordinate-to-cell dict. Scanning every ``<c>`` again for
+    each spill coordinate is quadratic in the sheet size.
     """
     if not array_ref:
         return

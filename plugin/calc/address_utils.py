@@ -109,10 +109,9 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
     match = _SHEET_PREFIX.match(ref)
     if not match:
         return None, ref.strip()
-    # What was wrong: a quoted sheet name stopped at the first apostrophe, so
-    # 'O''Brien'.C5:D6 did not match and the sheet was dropped.
-    # How: the quoted group was [^']+, which cannot hold a doubled quote.
-    # Why: '' is one apostrophe in Calc/Excel; unescape after the match.
+    # A quoted sheet name can hold a doubled apostrophe. '' is one
+    # apostrophe in Calc/Excel, so unescape after the match. Otherwise
+    # 'O''Brien'.C5:D6 does not match and the sheet is dropped.
     quoted = match.group("quoted")
     if quoted is not None:
         name = quoted.replace("''", "'")
@@ -232,15 +231,12 @@ def format_address(col: int, row: int) -> str:
 def parse_output_anchor(output_range: str) -> tuple[str | None, int, int]:
     """Sheet name (if any), column, and row where a generated report should start.
 
-    What was wrong: ``output_range.rsplit(".", 1)[-1]`` treated the last dot
-    as the sheet separator. A quoted or dotted name (``'Q1.Sales'!B2``) was
-    handed to ``parse_address`` still prefixed, and a range address
-    (``Sheet1.A1:Sheet1.C10`` or ``$A$1:$C$5``) resolved to the end cell or
-    to a token ``parse_address`` rejects.
-
     ``split_sheet_prefix`` keeps quoted names, dots inside quotes, and both
-    ``.`` and ``!``. The write starts at the first cell, with ``$`` locks
-    removed, then ``parse_address``.
+    ``.`` and ``!``. A last-dot split would hand ``'Q1.Sales'!B2`` to
+    ``parse_address`` still prefixed, and a range (``Sheet1.A1:Sheet1.C10``
+    or ``$A$1:$C$5``) would resolve to the end cell or a token
+    ``parse_address`` rejects. The write starts at the first cell, with
+    ``$`` locks removed.
     """
     sheet_name, cell_part = split_sheet_prefix(output_range)
     anchor = cell_part.replace("$", "").split(":", 1)[0].strip()

@@ -457,12 +457,12 @@ def _repair_one_sheet(
     actual_cells = cells
     if apply_patches and result.patches:
         applied_addrs = _apply_patches_to_sheet(sheet, result.patches)
-        # Bugfix: _apply_patches_to_sheet may fail to apply some patches (e.g. protected
-        # sheet throws in setFormula, or the cell formula changed concurrently).
-        # What: saving result.records directly recorded unapplied appends/removes, causing
-        # stale records that falsely mark groups strip-safe and strip real user data.
-        # Why: unapplied patches must revert their keys back to their pre-patch state
-        # (retaining the incoming record if present, or leaving it absent).
+        # An unapplied patch reverts its key to the pre-patch state: keep
+        # the incoming record when there was one, otherwise leave the key
+        # absent. _apply_patches_to_sheet can fail (a protected sheet throws
+        # in setFormula, or the cell formula changed concurrently). Saving
+        # result.records directly records those failed appends and removes,
+        # so a stale record marks a group strip-safe and strips real data.
         unapplied_patches = [p for p in result.patches if local_a1(p.address) not in applied_addrs]
         if unapplied_patches:
             for patch in unapplied_patches:

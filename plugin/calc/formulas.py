@@ -63,13 +63,12 @@ log = logging.getLogger("writeragent.calc")
 def _context_position(cell_address: str) -> tuple[int, int]:
     """Bare column and row for the formula context on the temporary sheet.
 
-    What was wrong: ``getCellRangeByName(cell)`` resolved ``Sheet1.C5`` and a
-    defined name against the whole document, so ``setFormula`` edited the
-    live sheet. The ``finally`` block only deleted the temporary copy.
-    How: that call is not limited to the sheet object it is invoked on.
-    Why: ``split_sheet_prefix`` drops the sheet (the copy is already the
-    active sheet), ``parse_address`` rejects a name that is not one cell,
-    and the caller writes with ``getCellByPosition``.
+    ``split_sheet_prefix`` drops the sheet (the copy is already the active
+    sheet), ``parse_address`` rejects a name that is not one cell, and the
+    caller writes with ``getCellByPosition``. ``getCellRangeByName`` is not
+    limited to the sheet it is called on, so ``Sheet1.C5`` and a defined
+    name hit the live document. The ``finally`` block only deletes the
+    temporary copy.
     """
     _prefix, local = split_sheet_prefix((cell_address or "").strip())
     return parse_address(local.replace("$", ""))

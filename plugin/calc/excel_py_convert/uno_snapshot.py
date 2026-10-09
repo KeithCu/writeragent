@@ -60,9 +60,8 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
         try:
             return str(bank_sheet.getCellRangeByName(a1).getString() or "")
         except Exception as exc:
-            # Bugfix: what was wrong: broad exception swallows masked document disposal.
-            # How it happened: bare 'except Exception' caught DisposedException.
-            # Why this change fixes it: re-raises disposal exceptions per project exception policy.
+            # Re-raise disposal. A bare except Exception catches
+            # DisposedException and hides a dead document.
             if is_disposed_exception(exc):
                 raise
             return None
@@ -94,9 +93,9 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
 
         for i in range(count):
             if total_scanned >= max_scan:
-                # Bugfix: what was wrong: break only exited the inner loop, continuing the scan on later sheets.
-                # How it happened: max_scan checked local counter per-sheet rather than breaking outer sheet loop.
-                # Why this change fixes it: sets stop_scanning flag to break both inner and outer loops.
+                # stop_scanning breaks both loops. break alone leaves the
+                # inner loop, and a per-sheet counter lets later sheets
+                # keep scanning past max_scan.
                 stop_scanning = True
                 break
             try:

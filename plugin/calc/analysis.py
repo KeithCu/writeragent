@@ -149,10 +149,10 @@ class GoalSeekTool(ToolBaseDummy):
 
             return {"status": "ok", "message": message, "result": {"value": result_val, "divergence": divergence}}
         except Exception as e:
-            # What was wrong: this catch turned DisposedException into
-            # ToolExecutionError, so execute_safe reported TOOL_EXECUTION_ERROR
-            # and the native runner kept going on a dead document.
-            # Re-raise disposal before wrapping so provenance stays intact.
+            # Re-raise disposal before wrapping. Catching DisposedException
+            # as ToolExecutionError makes execute_safe report
+            # TOOL_EXECUTION_ERROR, and the native runner keeps going on a
+            # dead document.
             if is_disposed_exception(e):
                 raise
             log.exception("Goal Seek failed")

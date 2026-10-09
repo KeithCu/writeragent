@@ -129,9 +129,9 @@ def _numeric_formula_value(numeric: Any) -> float | None:
 def _runtime_formula_result_value() -> int:
     """``FormulaResult.VALUE`` on this LibreOffice, else 1.
 
-    What was wrong: a hardcoded ``1`` missed builds where ``VALUE`` is ``0``.
-    The enum module is not in the type stubs, so a ``from com.sun.star...``
-    import fails ``ty``. ``uno.getConstantByName`` is the string lookup other
+    A hardcoded ``1`` misses builds where ``VALUE`` is ``0``. The enum
+    module is not in the type stubs, so a ``from com.sun.star...`` import
+    fails ``ty``. ``uno.getConstantByName`` is the string lookup other
     Calc code uses for the same constants.
     """
     global _formula_result_value_code
@@ -172,15 +172,12 @@ def _formula_result_is_value(kind: Any) -> bool:
 def formula_cell_result(cell: Any) -> Any:
     """Return a formula cell's result, keeping numbers as floats.
 
-    What was wrong: ``=2+3`` came back as the text ``"5"`` (and ``=1-1`` as
-    ``"0"``). The previous contract for a numeric formula is ``getValue()``,
-    which is a float (``5.0``).
-    How: ``FormulaResultType`` was compared to a hardcoded ``1``. Where
-    ``FormulaResult.VALUE`` is ``0``, that check failed and ``getString()``
-    won. Zero also used to take ``getString()`` because ``getValue() != 0``
-    is false.
-    Why: any non-zero ``getValue()`` is a number. Numeric zero is
-    ``FormulaResult.VALUE`` from this runtime; text stays ``getString()``.
+    Any non-zero ``getValue()`` is a number, and numeric zero is
+    ``FormulaResult.VALUE`` from this runtime. Text stays ``getString()``.
+    Comparing ``FormulaResultType`` to a hardcoded ``1`` fails where
+    ``VALUE`` is ``0``, and ``getValue() != 0`` is false for zero, so
+    ``=2+3`` came back as the text ``"5"`` and ``=1-1`` as ``"0"``. The
+    contract for a numeric formula is ``getValue()``, a float.
     """
     numeric = cell.getValue()
     as_float = _numeric_formula_value(numeric)

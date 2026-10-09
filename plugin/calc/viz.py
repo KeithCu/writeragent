@@ -91,10 +91,9 @@ class PlotDataTool(ToolBaseDummy):
             try:
                 execute_on_main_thread(_insert)
             except Exception as exc:
-                # What was wrong: a missing sheet or draw page still produced
-                # image_inserted and "Plot inserted". How: image egress swallowed
-                # the failure, so this except never ran. Why: egress now raises;
-                # keep that as an error instead of a successful insert.
+                # Keep an egress failure as an error. image_egress raises
+                # when the sheet or draw page is missing. Swallowing that
+                # still produced image_inserted and "Plot inserted".
                 out["status"] = "error"
                 out["image_inserted"] = False
                 out["plot_error"] = str(exc)

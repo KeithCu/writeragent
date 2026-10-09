@@ -27,14 +27,12 @@ def _cell_label(col: int, row: int) -> str:
 def _annotation_date(dt: Any) -> str:
     """Return a cell-comment date as text.
 
-    What was wrong: ``list_cell_comments`` formatted ``getDate()`` as a
-    ``util.DateTime`` (``Year`` / ``Month`` / ``Day`` / ``Hours`` / ``Minutes``).
-    Every comment date came back empty.
-    How: ``XSheetAnnotation.getDate()`` returns a formatted string
-    (``offapi/com/sun/star/sheet/XSheetAnnotation.idl``). Reading ``.Year`` on
-    that string raised, and both format attempts failed closed to ``""``.
-    Why: a string is the date LibreOffice already formatted. A struct is still
-    formatted when an older bridge or a test double provides one.
+    A string is the date LibreOffice already formatted.
+    ``XSheetAnnotation.getDate()`` returns that string
+    (``offapi/com/sun/star/sheet/XSheetAnnotation.idl``). Reading ``.Year``
+    on it raised, and both format attempts failed closed to empty text. A
+    struct is still formatted when an older bridge or a test double
+    provides one.
     """
     if isinstance(dt, str):
         return dt
