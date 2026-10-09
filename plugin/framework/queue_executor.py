@@ -215,6 +215,23 @@ def _resolve_bound_scope(bound_scope: SendCancellation | None | _ScopeUnset) -> 
     return cast("SendCancellation | None", bound_scope)
 
 
+def _fail_closed(predicate: Callable[[], bool]) -> Callable[[], bool]:
+    """Stop checker that treats a raising predicate as stopped.
+
+    A checker that raises used to look like "not stopped" when the caller
+    ignored the exception. Fail closed so a broken latch still aborts the send.
+    """
+
+    def _cancelled() -> bool:
+        try:
+            return predicate()
+        except Exception:
+            log.exception("stop_checker raised exception; failing closed (treating as stopped)")
+            return True
+
+    return _cancelled
+
+
 def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[], bool] | None = None) -> Callable[[], bool]:
     """Return a stop predicate tied to *scope*, not the panel field.
 
@@ -225,35 +242,11 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
     fire after SEND_CLICKED but before the deferred drain enters ``agent_session``.
     """
     if scope is not None and fallback is not None:
-
-        def _cancelled() -> bool:
-            try:
-                return scope.is_cancelled() or fallback()
-            except Exception:
-                # Fall open to stop (treat as stopped) on exception
-                import logging
-                logging.getLogger(__name__).exception("stop_checker raised exception; failing closed (treating as stopped)")
-                return True
-
-        return _cancelled
+        return _fail_closed(lambda: scope.is_cancelled() or fallback())
     if scope is not None:
-        def _cancelled_scope() -> bool:
-            try:
-                return scope.is_cancelled()
-            except Exception:
-                import logging
-                logging.getLogger(__name__).exception("stop_checker raised exception; failing closed (treating as stopped)")
-                return True
-        return _cancelled_scope
+        return _fail_closed(scope.is_cancelled)
     if fallback is not None:
-        def _cancelled_fallback() -> bool:
-            try:
-                return fallback()
-            except Exception:
-                import logging
-                logging.getLogger(__name__).exception("stop_checker raised exception; failing closed (treating as stopped)")
-                return True
-        return _cancelled_fallback
+        return _fail_closed(fallback)
     return lambda: False
 
 
@@ -362,6 +355,29 @@ def _marshal_thread_tag(executor: "QueueExecutor | None" = None) -> str:
     except Exception:
         qdepth = -1
     return "thread=%r ident=%s py_main=%s logical_main=%s bg_task=%r agent_active=%s queue_depth=%s" % (cur_name, cur_ident, py_main, on_main_thread(), get_background_task_name(), is_agent_active(), qdepth)
+
+
+def _log_marshal(level: int, msg: str, *args: Any, executor: "QueueExecutor | None" = None) -> None:
+    """Log *msg* plus a marshal thread tag, only when *level* is enabled.
+
+    ``log.debug(..., _marshal_thread_tag())`` still builds the tag when debug
+    is off: the argument is evaluated before the logger checks the level.
+    The tag takes ``is_agent_active``'s lock and reads queue depth, so the
+    hot path (execute, post, process_queue) must not call it unless this
+    record will be emitted. *msg* must end with a ``%s`` for the tag.
+    """
+    if not log.isEnabledFor(level):
+        return
+    # Named methods, not Logger.log: tests patch log.warning / log.debug.
+    tag = _marshal_thread_tag(executor)
+    if level == logging.DEBUG:
+        log.debug(msg, *args, tag)
+    elif level == logging.WARNING:
+        log.warning(msg, *args, tag)
+    elif level == logging.ERROR:
+        log.error(msg, *args, tag)
+    else:
+        log.log(level, msg, *args, tag)
 
 
 def _fn_label(fn: Callable[..., Any]) -> str:
@@ -578,7 +594,17 @@ class QueueExecutor:
         ``_order_lock`` covers the swap and the puts. A direct ``_enqueue_work``
         from another thread used to land between them, ahead of older posts.
         The poke happens after the lock is released.
+
+        What was wrong: the list was swapped to ``[]`` before the loop. If
+        ``_enqueue_work`` raised partway, the not-yet-enqueued posts were
+        neither queued nor pending, so ``post`` had dropped them.
+        Why they go back: the failed item and the tail are put in front of
+        anything appended after the notify, which keeps FIFO order. The
+        exception still propagates so the caller does not treat the flush
+        as done. Items that did enqueue are poked after the lock drops.
         """
+        enqueued = 0
+        flush_error: Exception | None = None
         with self._order_lock:
             if not self._initialized or self._async_callback_service is None:
                 return
@@ -587,10 +613,19 @@ class QueueExecutor:
                 self._pending_posts = []
                 # Slots just opened. Waiters in post() are on this condition.
                 self._pending_lock.notify_all()
-            for fn, args, kwargs, scope in pending:
-                self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=scope, poke=False)
-        if pending:
+            try:
+                for fn, args, kwargs, scope in pending:
+                    self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=scope, poke=False)
+                    enqueued += 1
+            except Exception as exc:
+                with self._pending_lock:
+                    self._pending_posts = list(pending[enqueued:]) + self._pending_posts
+                log.exception("QueueExecutor: flush failed after %d pending post(s); %d put back", enqueued, len(pending) - enqueued)
+                flush_error = exc
+        if enqueued:
             self._poke_main_thread()
+        if flush_error is not None:
+            raise flush_error
 
     # Unwrap Layer A proxies before any UNO getattr. Creating AsyncCallback
     # from a worker is the marshal bootstrap: if the guard fires here it calls
@@ -720,12 +755,13 @@ class QueueExecutor:
                 skipped = False
 
         if not skipped:
-            # What was wrong: ``scope.cancel()`` sets an Event and does not
-            # need ``_claim_lock``. It can land after the claim above and
-            # before ``fn()``. The item is already off the queue, so
-            # ``cancel_pending_work`` never marks it, and the call still ran.
-            # Recheck before the call. A function that has already started is
-            # waited out by the caller; this window has not started it.
+            # ``scope.cancel()`` sets an Event and does not take ``_claim_lock``.
+            # The claim above can miss a cancel that lands after it. Recheck
+            # here so that cancel is dropped before ``fn()``. This does not
+            # close the window: a cancel after this lock is released and
+            # before ``fn()`` still runs the item. ``cancel_pending_work``
+            # cannot see it (already off the queue). Stop tolerates that.
+            # A function that has already started is waited out by the caller.
             with self._claim_lock:
                 if item.cancelled or (scope is not None and scope.is_cancelled()):
                     item._claimed = False
@@ -746,7 +782,7 @@ class QueueExecutor:
         fn_label = "<fn>"
         try:
             fn_label = _fn_label(item.fn)
-            log.debug("process_queue start fn=%s %s", fn_label, _marshal_thread_tag(self))
+            _log_marshal(logging.DEBUG, "process_queue start fn=%s %s", fn_label, executor=self)
             item.result = item.fn(*item.args, **item.kwargs)
         except BaseException as exc:
             # Store KeyboardInterrupt/SystemExit too so the waiter re-raises
@@ -758,7 +794,7 @@ class QueueExecutor:
         finally:
             if item.blocking and item.event:
                 item.event.set()
-            log.debug("process_queue done fn=%s %s", fn_label, _marshal_thread_tag(self))
+            _log_marshal(logging.DEBUG, "process_queue done fn=%s %s", fn_label, executor=self)
 
         # Re-poke if more items waiting
         if not self._work_queue.empty():
@@ -770,13 +806,13 @@ class QueueExecutor:
             _test_poke_handler(self)
             return
         if self._async_callback_service is None or self._callback_instance is None:
-            log.debug("poke skipped (no AsyncCallback) %s", _marshal_thread_tag(self))
+            _log_marshal(logging.DEBUG, "poke skipped (no AsyncCallback) %s", executor=self)
             return
         try:
             # PyUNO rejects uno.Any for addCallback userData on Linux; None is accepted on supported LO builds.
             self._async_callback_service.addCallback(self._callback_instance, None)
         except Exception as e:
-            log.warning("_poke_main_thread addCallback failed: %s %s", e, _marshal_thread_tag(self))
+            _log_marshal(logging.WARNING, "_poke_main_thread addCallback failed: %s %s", e, executor=self)
 
     def cancel_pending_work(self, scope: SendCancellation | None = None) -> None:
         """Mark queued main-thread work as cancelled and wake blocking waiters.
@@ -947,22 +983,21 @@ class QueueExecutor:
         from plugin.framework.thread_guard import get_background_task_name, in_sync_host_dispatch
 
         fn_label = _fn_label(fn)
-        tag = _marshal_thread_tag(self)
         bg_task = get_background_task_name()
 
         if self._may_run_marshal_inline():
-            log.debug("marshal route=inline_logical_main fn=%s %s", fn_label, tag)
+            _log_marshal(logging.DEBUG, "marshal route=inline_logical_main fn=%s %s", fn_label, executor=self)
             return fn(*args, **kwargs)
 
         if in_sync_host_dispatch():
             msg = "marshal refused: execute_on_main_thread called from synchronous host dispatch context (deadlock hazard #402, fn=%s)" % fn_label
-            log.error("%s %s", msg, tag)
+            _log_marshal(logging.ERROR, "%s %s", msg, executor=self)
             raise RuntimeError(msg)
 
         if bg_task:
-            log.debug("marshal route=force_enqueue (background task %r) fn=%s %s", bg_task, fn_label, tag)
+            _log_marshal(logging.DEBUG, "marshal route=force_enqueue (background task %r) fn=%s %s", bg_task, fn_label, executor=self)
         elif self._is_logical_main_thread():
-            log.debug("marshal route=force_enqueue (logical main but not Python MainThread) fn=%s %s", fn_label, tag)
+            _log_marshal(logging.DEBUG, "marshal route=force_enqueue (logical main but not Python MainThread) fn=%s %s", fn_label, executor=self)
 
         # WRITERAGENT_TESTING inlines execute on any non-background thread,
         # including Dummy-N. post() enqueues when AsyncCallback exists and the
@@ -970,7 +1005,7 @@ class QueueExecutor:
         # a Dummy-N UNO test waiting on VCL deadlocks (testing_runner sets the
         # flag so that hop stays inline). post is fire-and-forget, so it can enqueue.
         if self._should_run_inline() and not bg_task:
-            log.debug("marshal route=inline_testing fn=%s %s", fn_label, tag)
+            _log_marshal(logging.DEBUG, "marshal route=inline_testing fn=%s %s", fn_label, executor=self)
             return fn(*args, **kwargs)
 
         svc = None if _force_marshal_mode else self._get_async_callback()
@@ -983,11 +1018,11 @@ class QueueExecutor:
             # an exception this function had just constructed. Why: log the
             # refusal and raise it directly.
             msg = "marshal refused: AsyncCallback unavailable from background thread (fn=%s)" % fn_label
-            log.error("%s %s", msg, tag)
+            _log_marshal(logging.ERROR, "%s %s", msg, executor=self)
             raise RuntimeError(msg)
 
         self._flush_pending_posts()
-        log.debug("marshal route=enqueue fn=%s %s", fn_label, tag)
+        _log_marshal(logging.DEBUG, "marshal route=enqueue fn=%s %s", fn_label, executor=self)
         item = self._enqueue_work(fn, args, kwargs, blocking=True, bound_scope=bound_scope)
         return self._wait_for_result(item, timeout)
 
@@ -1001,7 +1036,6 @@ class QueueExecutor:
         from plugin.framework.thread_guard import get_background_task_name
 
         fn_label = _fn_label(fn)
-        tag = _marshal_thread_tag(self)
         bg_task = get_background_task_name()
 
         # What was wrong: post() inlined whenever WRITERAGENT_TESTING=1, so a
@@ -1017,14 +1051,14 @@ class QueueExecutor:
         # AsyncCallback it still inlines. _should_run_inline() is already False
         # under force-marshal, so that mode needs no extra check here.
         if self._should_run_inline() and not bg_task and (self._may_run_marshal_inline() or self._get_async_callback() is None):
-            log.debug("marshal route=post_inline_testing fn=%s %s", fn_label, tag)
+            _log_marshal(logging.DEBUG, "marshal route=post_inline_testing fn=%s %s", fn_label, executor=self)
             fn(*args, **kwargs)
             return
 
         svc = None if _force_marshal_mode else self._get_async_callback()
         if svc is None and not _force_marshal_mode:
             if self._may_run_marshal_inline():
-                log.debug("marshal route=post_inline_logical_main fn=%s %s", fn_label, tag)
+                _log_marshal(logging.DEBUG, "marshal route=post_inline_logical_main fn=%s %s", fn_label, executor=self)
                 fn(*args, **kwargs)
                 return
             # What was wrong: post() returned after a warning, so icon and
@@ -1036,15 +1070,15 @@ class QueueExecutor:
             # already known missing, waiting cannot help — fail immediately.
             with self._pending_lock:
                 if not self._await_pending_slot_locked():
-                    log.warning("marshal route=post_timeout (AsyncCallback unavailable, pending full, background task %r) fn=%s %s", bg_task, fn_label, tag)
+                    _log_marshal(logging.WARNING, "marshal route=post_timeout (AsyncCallback unavailable, pending full, background task %r) fn=%s %s", bg_task, fn_label, executor=self)
                     raise TimeoutError("marshal post timed out: AsyncCallback unavailable and pending list is full (fn=%s)" % fn_label)
                 scope = _resolve_bound_scope(bound_scope)
                 self._pending_posts.append((fn, args, kwargs, scope))
-                log.debug("marshal route=post_pending fn=%s %s", fn_label, tag)
+                _log_marshal(logging.DEBUG, "marshal route=post_pending fn=%s %s", fn_label, executor=self)
                 return
 
         self._flush_pending_posts()
-        log.debug("marshal route=post_enqueue fn=%s %s", fn_label, tag)
+        _log_marshal(logging.DEBUG, "marshal route=post_enqueue fn=%s %s", fn_label, executor=self)
         self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=bound_scope)
 
 
@@ -1105,7 +1139,7 @@ def pump_main_thread_work_queue(*, max_items: int = 1, executor: QueueExecutor |
         ex.process_queue()
         processed += 1
     if processed:
-        log.debug("pump_main_thread_work_queue processed=%d %s", processed, _marshal_thread_tag(ex))
+        _log_marshal(logging.DEBUG, "pump_main_thread_work_queue processed=%d %s", processed, executor=ex)
 
 
 def _pump_vcl_events(toolkit: Any) -> bool:

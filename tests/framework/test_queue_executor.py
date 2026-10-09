@@ -1261,6 +1261,51 @@ def test_flush_pending_posts_keeps_original_scope():
     qe._flush_pending_posts()
     assert seen == [scope]
 
+
+def test_flush_pending_posts_keeps_unenqueued_tail():
+    """A mid-flush enqueue failure puts the failed item and the tail back, in order."""
+    from plugin.framework.queue_executor import QueueExecutor
+
+    qe = QueueExecutor()
+    qe._initialized = True
+    qe._async_callback_service = object()
+
+    def first() -> str:
+        return "first"
+
+    def second() -> str:
+        return "second"
+
+    def third() -> str:
+        return "third"
+
+    def newcomer() -> str:
+        return "newcomer"
+
+    qe._pending_posts.append((first, (), {}, None))
+    qe._pending_posts.append((second, (), {}, None))
+    qe._pending_posts.append((third, (), {}, None))
+    real_enqueue = qe._enqueue_work
+    calls = {"n": 0}
+
+    def flaky(fn, args, kwargs, blocking=True, *, bound_scope=None, poke=True):  # type: ignore[no-untyped-def]
+        calls["n"] += 1
+        if calls["n"] > 1:
+            # A waiter notified by the swap can append before this raise.
+            with qe._pending_lock:
+                qe._pending_posts.append((newcomer, (), {}, None))
+            raise RuntimeError("enqueue failed")
+        return real_enqueue(fn, args, kwargs, blocking=blocking, bound_scope=bound_scope, poke=poke)
+
+    qe._enqueue_work = flaky  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="enqueue failed"):
+        qe._flush_pending_posts()
+    assert calls["n"] == 2
+    assert qe._work_queue.qsize() == 1
+    queued = qe._work_queue.get_nowait()
+    assert queued.fn is first
+    assert [row[0] for row in qe._pending_posts] == [second, third, newcomer]
+
 def test_execute_accepts_and_passes_bound_scope() -> None:
     executor = mt.QueueExecutor()
     scope = mt.SendCancellation()
