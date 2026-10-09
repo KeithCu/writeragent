@@ -130,7 +130,11 @@ class ACPConnection:
             proc = self._proc
             # Claim it so a concurrent shutdown does not terminate twice.
             self._proc = None
-            self._stderr_drain = None
+            # What was wrong: this also set ``_stderr_drain`` to None.
+            # The reader finally logs that drain after stop() returns, so
+            # a normal Stop dropped the tail and never logged it.
+            # Why: this connection is not respawned. Leave the drain for
+            # the reader finally and stderr_text().
         if proc is None:
             return
 
@@ -187,7 +191,9 @@ class ACPConnection:
                         stdin.write(data)
                         stdin.flush()
                 except Exception:
-                    pass
+                    # A closed pipe during stop is expected. Debug keeps a
+                    # failed session/cancel visible without an error traceback.
+                    log.debug("ACP stdin write failed", exc_info=True)
             elif action == "stop":
                 try:
                     if proc and proc.stdin:
@@ -223,7 +229,12 @@ class ACPConnection:
 
     @property
     def is_alive(self) -> bool:
-        return self._proc is not None and self._proc.poll() is None
+        # What was wrong: ``self._proc is not None and self._proc.poll()``
+        # loaded ``_proc`` twice. stop() sets it to None between those
+        # loads, so the second was None.poll() and raised AttributeError.
+        # Why: keep the process from the first load.
+        proc = self._proc
+        return proc is not None and proc.poll() is None
 
     def stderr_text(self) -> str:
         """Stderr already captured by the live drain. Does not join that thread."""
@@ -409,9 +420,15 @@ class ACPConnection:
                         method = msg.get("method", "")
                         params = msg.get("params", {})
                         msg_id = msg.get("id")
-                        if self._notify_callback:
+                        # What was wrong: ``if self._notify_callback:`` then
+                        # called ``self._notify_callback(...)``. shutdown()
+                        # sets it to None between those reads, so the call
+                        # was None(...) and logged "Notification callback
+                        # error". Why: copy the callback once.
+                        callback = self._notify_callback
+                        if callback:
                             try:
-                                self._notify_callback(method, params, msg_id)
+                                callback(method, params, msg_id)
                             except Exception:
                                 log.exception("Notification callback error")
 

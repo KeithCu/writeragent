@@ -591,6 +591,101 @@ class TestStdinWriteCapturesProc:
         assert b'"id": 4' in stdin.written[0]
 
 
+def test_is_alive_does_not_reread_proc():
+    """stop() may null _proc between the None check and poll().
+
+    What was wrong: is_alive loaded _proc twice, so the second was
+    None.poll(). One load must be enough.
+    """
+    proc = _live_proc()
+
+    class _SecondProcReadIsNone(ACPConnection):
+        def __getattribute__(self, name: str):
+            if name == "_proc":
+                count = object.__getattribute__(self, "_proc_reads")
+                object.__setattr__(self, "_proc_reads", count + 1)
+                if count == 0:
+                    return object.__getattribute__(self, "_live_proc")
+                return None
+            return object.__getattribute__(self, name)
+
+    conn = _SecondProcReadIsNone(cmd_line=["agent"])
+    conn._live_proc = proc
+    conn._proc_reads = 0
+    assert conn.is_alive is True
+    assert conn._proc_reads == 1
+
+
+def test_notify_callback_cleared_mid_dispatch_still_runs(caplog):
+    """shutdown() may null the callback between the check and the call."""
+    caplog.set_level("ERROR", logger="plugin.acp.acp_connection")
+    called: list[str] = []
+
+    def on_notify(method: str, params: object, msg_id: object) -> None:
+        called.append(method)
+
+    class _SecondCallbackReadIsNone(ACPConnection):
+        def __getattribute__(self, name: str):
+            if name == "_notify_callback":
+                count = object.__getattribute__(self, "_cb_reads")
+                object.__setattr__(self, "_cb_reads", count + 1)
+                if count == 0:
+                    return object.__getattribute__(self, "_live_cb")
+                return None
+            return object.__getattribute__(self, name)
+
+    conn = _SecondCallbackReadIsNone(cmd_line=["agent"])
+    conn._live_cb = on_notify
+    conn._cb_reads = 0
+    proc = _live_proc()
+    proc.stdout.readline.side_effect = [
+        b'{"jsonrpc":"2.0","method":"session/update","params":{}}\n',
+        b"",
+    ]
+    conn._proc = proc
+    conn._running = True
+    conn._reader_loop()
+    assert called == ["session/update"]
+    assert conn._cb_reads == 1
+    assert "Notification callback error" not in caplog.text
+
+
+def test_stop_keeps_stderr_drain_for_reader(caplog):
+    """A normal Stop must not drop the drain the reader finally logs."""
+    caplog.set_level("WARNING", logger="plugin.acp.acp_connection")
+    conn = ACPConnection(["agent"])
+    drain = MagicMock()
+    drain.text.return_value = "child said no"
+    drain.finish_text.return_value = "child said no\n"
+    conn._stderr_drain = drain
+    proc = _live_proc()
+    proc.stdout.readline.return_value = b""
+    proc.wait.return_value = 0
+    conn._proc = proc
+    conn._running = True
+    conn.stop()
+    assert conn._stderr_drain is drain
+    assert conn.stderr_text() == "child said no"
+    conn._reader_loop()
+    drain.finish_text.assert_called()
+    assert "child said no" in caplog.text
+
+
+def test_failed_stdin_write_is_logged(caplog):
+    caplog.set_level("DEBUG", logger="plugin.acp.acp_connection")
+    conn = ACPConnection(cmd_line=["agent"])
+    proc = _live_proc()
+    proc.stdin.write.side_effect = BrokenPipeError("closed")
+    conn._proc = proc
+    conn._running = True
+    conn.send_notification("session/cancel", {"sessionId": "s"})
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline and "ACP stdin write failed" not in caplog.text:
+        time.sleep(0.01)
+    assert "ACP stdin write failed" in caplog.text
+    conn.stop()
+
+
 def test_stderr_text_reads_live_tail_without_finishing():
     conn = ACPConnection(["agent"])
     drain = MagicMock()

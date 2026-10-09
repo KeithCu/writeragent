@@ -247,7 +247,10 @@ class ACPBackend(AgentBackend):
             # posix=False on Windows so backslashes in paths stay literal.
             self._extra_args = shlex.split(args_str, posix=(os.name != "nt")) if args_str else []
         except Exception:
-            # A failed reload used to keep the previous argv.
+            # A failed reload used to keep the previous argv, and the
+            # exception was swallowed so a broken config looked like a
+            # missing binary.
+            log.exception("ACP agent config load failed")
             self._binary_path = self._find_binary()
             self._extra_args = []
         self._apply_default_extra_args()
@@ -511,7 +514,12 @@ class ACPBackend(AgentBackend):
                 continue
             item_type = item.get("type")
             if item_type == "text":
-                queue.put((StreamQueueKind.CHUNK, item.get("text", "")))
+                text = item.get("text", "")
+                # What was wrong: a non-str text (object, number) was queued
+                # as CHUNK. The session/update path already requires str.
+                # Why: match _queue_text_blocks and skip a bad block.
+                if isinstance(text, str):
+                    queue.put((StreamQueueKind.CHUNK, text))
             elif item_type == "tool_call":
                 queue.put((StreamQueueKind.TOOL_CALL, item))
             elif item_type == "tool_result":
