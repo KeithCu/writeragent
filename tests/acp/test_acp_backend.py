@@ -67,7 +67,8 @@ class TestDefaultExtraArgs:
         assert (backend._extra_args[0]) == ("--config")
         assert ("my file.json") in (backend._extra_args[1])
 
-    def test_config_error_drops_stale_extra_args(self):
+    def test_config_error_drops_stale_extra_args(self, caplog):
+        caplog.set_level("ERROR", logger="plugin.acp.acp_backend")
         backend = HermesBackend.__new__(HermesBackend)
         backend._extra_args = ["--stale"]
         backend._binary_path = "/usr/bin/hermes"
@@ -78,6 +79,7 @@ class TestDefaultExtraArgs:
         ):
             backend._load_config()
         assert (backend._extra_args) == ([])
+        assert ("ACP agent config load failed") in (caplog.text)
 
     @pytest.mark.parametrize(
         "path, expected",
@@ -441,6 +443,10 @@ class TestSessionUpdateDiscriminator:
         assert (events[0][0]) == (StreamQueueKind.TOOL_RESULT)
         assert (events[0][1]["id"]) == ("call_001")
         assert (events[0][1]["content"][0]["content"]["text"]) == ("done")
+
+    def test_legacy_non_str_text_is_not_queued(self):
+        update = {"content": [{"type": "text", "text": {"not": "a string"}}, {"type": "text", "text": "kept"}]}
+        assert (self._events(update)) == ([(StreamQueueKind.CHUNK, "kept")])
 
     def test_unrelated_session_update_is_not_merged_into_answer(self):
         update = {"sessionUpdate": "usage_update", "used": 10, "size": 100, "content": {"type": "text", "text": "nope"}}
