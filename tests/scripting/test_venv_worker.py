@@ -19,7 +19,7 @@ import subprocess
 import sys
 import threading
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -626,6 +626,7 @@ def test_stdout_close_before_start_retries_once():
     assert "without a response" in result["message"]
     assert mgr._write_frame_with_timeout.call_count == 2
     assert mgr._terminate_worker.call_count == 2
+    assert mgr._terminate_worker.call_args_list == [call(wait=False), call(wait=False)]
 
 
 def test_runtime_error_before_exec_started_retries_once():
@@ -647,6 +648,7 @@ def test_runtime_error_before_exec_started_retries_once():
     assert "pipe died" in result["message"]
     assert mgr._write_frame_with_timeout.call_count == 2
     assert mgr._terminate_worker.call_count == 2
+    assert mgr._terminate_worker.call_args_list == [call(wait=False), call(wait=False)]
 
 
 def test_runtime_error_after_exec_started_does_not_replay():
@@ -768,6 +770,104 @@ def test_host_read_timeout_does_not_retry():
     assert mgr._write_frame_with_timeout.call_count == 1
     assert mgr._read_response_bytes.call_count == 1
     assert mgr._terminate_worker.call_count == 1
+
+
+def test_partial_frame_timeout_does_not_replay():
+    """Windows mid-frame stall must not resend the script.
+
+    IpcPartialFrameTimeout is an OSError. Before it was mapped with the
+    read timeout, a partial exec_started left may_have_run false and the
+    outer handler ran the request again.
+    """
+    from plugin.scripting.ipc import IpcPartialFrameTimeout
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
+    mgr._read_response_bytes = MagicMock(  # type: ignore[method-assign]
+        side_effect=IpcPartialFrameTimeout("python stream desynchronized: timeout mid-frame")
+    )
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert result["code"] == "VENV_TIMEOUT"
+    assert "mid-frame" in result["message"]
+    assert mgr._write_frame_with_timeout.call_count == 1
+    assert mgr._read_response_bytes.call_count == 1
+    mgr._terminate_worker.assert_called_once_with(wait=False)
+
+
+def test_win32_partial_frame_timeout_with_stop_is_cancelled(monkeypatch: pytest.MonkeyPatch):
+    """Stop during a Windows mid-frame stall is CANCELLED, not a replayed timeout."""
+    import plugin.scripting.venv_worker as vw
+    from plugin.scripting.ipc import IpcPartialFrameTimeout
+
+    monkeypatch.setattr(vw.sys, "platform", "win32")
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = "python"
+
+    class _Stdout:
+        def fileno(self) -> int:
+            return 3
+
+    def _boom(*args: object, **kwargs: object) -> bytes:
+        del args, kwargs
+        raise IpcPartialFrameTimeout("timeout mid-frame")
+
+    monkeypatch.setattr("plugin.scripting.ipc._read_bytes_with_timeout_win32", _boom)
+    with pytest.raises(vw._StopRequested):
+        mgr._read_exact_win32(_Stdout(), 4, 1.0, 1, stop_checker=lambda: True)  # type: ignore[arg-type]
+
+    with pytest.raises(IpcPartialFrameTimeout):
+        mgr._read_exact_win32(_Stdout(), 4, 1.0, 1, stop_checker=lambda: False)  # type: ignore[arg-type]
+
+
+def test_ensure_running_joins_dead_child_before_spawn(monkeypatch: pytest.MonkeyPatch):
+    """A dead child is detached without waiting, then that reap is joined before Popen."""
+    import plugin.scripting.venv_worker as vw
+
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = sys.executable
+    mgr.env = {}
+    mgr._retired = False
+    mgr._proc_lock = threading.Lock()
+    mgr._reap_handles = []
+    mgr._primed = False
+    mgr._stderr_drain = None
+
+    class _Dead:
+        def poll(self) -> int:
+            return 1
+
+    mgr._proc = _Dead()  # type: ignore[assignment]
+    order: list[object] = []
+
+    def _terminate(*, wait: bool = True) -> None:
+        order.append(("terminate", wait))
+        mgr._proc = None
+        mgr._stderr_drain = None
+
+    def _join() -> None:
+        order.append("join")
+
+    def _popen(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        order.append("popen")
+        raise RuntimeError("stop before spawn")
+
+    mgr._terminate_worker = _terminate  # type: ignore[method-assign]
+    mgr._join_reaps = _join  # type: ignore[method-assign]
+    monkeypatch.setattr(vw.subprocess, "Popen", _popen)
+    with pytest.raises(RuntimeError, match="stop before spawn"):
+        mgr._ensure_running()
+    assert order == ["join", ("terminate", False), "join", "popen"]
 
 
 def test_kill_process_tree_win32_uses_taskkill(monkeypatch):
@@ -1628,18 +1728,23 @@ class TestExecuteOSErrorRetry:
         mgr.env = {}
 
         call_count = [0]
+        terminated: list[bool] = []
 
         def fake_ensure():
             call_count[0] += 1
             raise OSError("[WinError 10038] not a socket")
 
+        def _terminate(*, wait: bool = True) -> None:
+            terminated.append(wait)
+
         mgr._ensure_warmed_unlocked = lambda: None
         mgr._ensure_running = fake_ensure
-        mgr._terminate_worker = lambda: None
+        mgr._terminate_worker = _terminate  # type: ignore[method-assign]
         result = mgr.execute("result = 1", timeout_sec=1)
         assert result["status"] == "error"
         assert "10038" in result["message"]
         assert call_count[0] == 2  # retried once
+        assert terminated == [False, False]
 
 
 def test_maybe_dispatch_ppt_master_skips_when_module_missing(monkeypatch):
@@ -2348,7 +2453,7 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
     with patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"), \
          patch("plugin.scripting.venv.worker_heartbeat.parse_frame", side_effect=mock_parse_frame):
 
-        # It shouldn't crash, it should return the b"dummy" frame ultimately
+        # The terminal frame is the dict parse_frame already built.
         result = mgr._read_response_with_heartbeats(
             stdout=io.BytesIO(),
             timeout_sec=10.0,
@@ -2356,7 +2461,7 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
             on_heartbeat=on_heartbeat
         )
 
-    assert result == b"dummy"
+    assert result == {"frame_type": FRAME_RESULT, "status": "ok"}
     assert heartbeat_calls == [{"phase": "test"}]
 
 
@@ -2480,6 +2585,39 @@ def test_raising_stop_checker_on_select_read_returns_frame(monkeypatch: pytest.M
     result = DummyManager()._read_response_bytes_select(stdout, timeout_sec=5, stop_checker=stop_checker)
     assert seen
     assert venv_worker.unpack_pickle_frame(result) == payload
+
+
+def test_read_until_terminal_uses_parsed_heartbeat_frame(monkeypatch: pytest.MonkeyPatch):
+    """A heartbeat terminal frame is not unpickled a second time."""
+    import plugin.scripting.venv_worker as vw
+
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = "python"
+    mgr._serving_tool_call = False
+    parsed = {"status": "ok", "id": "abc", "result": 1, "frame_type": "result"}
+    mgr._read_response_with_heartbeats = MagicMock(return_value=parsed)  # type: ignore[method-assign]
+    monkeypatch.setattr(vw, "unpack_pickle_frame", MagicMock(side_effect=AssertionError("second unpack")))
+
+    result = mgr._read_until_terminal(
+        io.BytesIO(),
+        io.BytesIO(),
+        {"id": "abc"},
+        vw._TurnState(),
+        host_read_timeout_sec=1,
+        write_timeout_sec=1,
+        allow_heartbeat=True,
+        heartbeat_grace_sec=1,
+        on_heartbeat=None,
+        on_worker_event=None,
+        stop_checker=None,
+        cancellation_scope=None,
+        allowed_tools=None,
+        caller="script",
+        resolved_script_session_id=None,
+    )
+
+    assert result == parsed
+    mgr._read_response_with_heartbeats.assert_called_once()
 
 
 def test_read_response_with_heartbeats_stop_checker(monkeypatch: pytest.MonkeyPatch) -> None:
