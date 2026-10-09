@@ -366,12 +366,11 @@ class TestComputeHttp:
             thread.join(timeout=5)
 
     def test_health_never_starved_when_worker_semaphore_is_saturated(self) -> None:
-        """When calculation requests saturate the worker semaphore, /health must still respond immediately.
+        """When calculation requests wait on the worker semaphore, /health must still respond immediately.
 
-        The worker semaphore limits concurrent worker-waiting requests to worker count via
-        non-blocking admission before request bodies are read. Requests waiting for a worker
-        do not hold HTTP listener threads, guaranteeing that spare listener threads remain
-        strictly free for health probes even when incoming requests exceed pool thread capacity.
+        Admission waits until the request deadline instead of returning 503. A short
+        queue still leaves a listener thread for /health. The overflow calls return
+        200 once the in-flight calculation releases the permit.
         """
         from compute_service.server import WSGIDualStackServer
 
@@ -385,7 +384,7 @@ class TestComputeHttp:
             return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
 
         # 1 worker, semaphore size 1. Explicit max_threads=1 is listener_thread_count:
-        # max(8, n + 4) = 8. A semaphore miss is a fast 503 and does not hold a thread.
+        # max(8, n + 4) = 8. Overflow waits on the permit instead of a fast 503.
         sem = threading.Semaphore(1)
         app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, worker_semaphore=sem)
         server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
@@ -412,9 +411,8 @@ class TestComputeHttp:
                     out_list.append((599, str(exc)))
 
             # Six posters, one worker permit. Listener threads are max(8, 1 + 4) = 8.
-            # The semaphore is non-blocking: a miss is a fast 503 and does not hold
-            # a listener. Health must still return, and the five executes that miss
-            # the permit must 503.
+            # Overflow waits. Health must still return, and every execute is 200
+            # once the permit is released.
             for idx in range(6):
                 p = threading.Thread(target=_post, args=(results[idx],))
                 p.start()
@@ -429,18 +427,10 @@ class TestComputeHttp:
                 assert json.loads(resp.read().decode())["status"] == "healthy"
                 assert t_elapsed < 0.5, f"/health took too long: {t_elapsed:.3f}s"
 
-            # The permit is taken inside the handler, before the body is read, and only
-            # by routes that wait on a worker. Releasing the in-flight execute first
-            # let accepts still sitting in the backlog or the listener queue take that
-            # permit and return 200 (CI: six 200s, no WORKER_POOL_BUSY). One of the six
-            # calls is inside execute and cannot finish until hold is set, so the other
-            # five responses have to arrive as 503s while the permit is still held.
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline and sum(1 for item in results if item) < 5:
-                time.sleep(0.01)
-            shed = [item[0] for item in results if item]
-            assert len(shed) >= 5, f"overflow was not rejected while the worker was held: {results!r}"
-            assert all(status == 503 and isinstance(body, dict) and body.get("code") == "WORKER_POOL_BUSY" for status, body in shed)
+            # The in-flight calculation still holds the permit. Overflow must be
+            # waiting, not already answered with 503.
+            time.sleep(0.05)
+            assert not any(item for item in results), f"overflow answered while the worker was held: {results!r}"
         finally:
             hold.set()
             for p in posters:
@@ -449,18 +439,15 @@ class TestComputeHttp:
             server.server_close()
             thread.join(timeout=5)
 
-        # 1 active calculation succeeded (200), and 5 excess requests received fast 503 WORKER_POOL_BUSY
         statuses = [r[0][0] for r in results if r]
-        assert statuses.count(200) == 1
-        assert statuses.count(503) == 5
-        busy_codes = [r[0][1].get("code") for r in results if r and r[0][0] == 503]
-        assert all(c == "WORKER_POOL_BUSY" for c in busy_codes)
+        assert statuses.count(200) == 6
+        assert statuses.count(503) == 0
 
-    def test_slow_upload_rejected_fast_when_workers_busy(self) -> None:
-        """When workers are busy, incoming requests are rejected before reading the body.
+    def test_slow_upload_waits_when_workers_busy(self) -> None:
+        """When workers are busy, a new request waits instead of returning 503.
 
-        A slow client streaming a large request body does not occupy an HTTP listener
-        thread or block /health when all workers are leased.
+        The body stays unread until a permit is held. /health still answers
+        during that short wait.
         """
         from compute_service.server import WSGIDualStackServer
 
@@ -500,9 +487,10 @@ class TestComputeHttp:
             assert started.wait(timeout=5)
 
             # Send headers with Content-Length: 1000000 but send no body data.
-            # Because semaphore is checked before body read, server responds 503 immediately.
+            # Admission waits for a permit before the body is read, so this
+            # does not get an immediate 503.
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
+            sock.settimeout(0.4)
             sock.connect(("127.0.0.1", port))
             req_headers = (
                 b"POST /v1/execute HTTP/1.1\r\n"
@@ -511,25 +499,17 @@ class TestComputeHttp:
                 b"Content-Length: 1000000\r\n\r\n"
             )
             sock.sendall(req_headers)
-            chunks: list[bytes] = []
-            while True:
-                try:
-                    c = sock.recv(4096)
-                    if not c:
-                        break
-                    chunks.append(c)
-                except OSError:
-                    break
-            sock.close()
-            full_resp = b"".join(chunks)
-
-            assert b"503 Service Unavailable" in full_resp
-            assert b"WORKER_POOL_BUSY" in full_resp
+            try:
+                early = sock.recv(4096)
+            except OSError:
+                early = b""
+            assert b"503 Service Unavailable" not in early
 
             # /health remains immediately responsive
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as resp:
                 assert resp.status == 200
                 assert json.loads(resp.read().decode())["status"] == "healthy"
+            sock.close()
         finally:
             hold.set()
             if poster is not None:
@@ -537,6 +517,90 @@ class TestComputeHttp:
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
+
+    def test_brief_pool_wait_returns_200_not_503(self) -> None:
+        """A permit held for a few milliseconds queues the next call. It does not 503.
+
+        This service runs at 200-400 rps, so that wait is the steady state.
+        """
+        hold = threading.Event()
+        started = threading.Event()
+        release_seen = threading.Event()
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            if not started.is_set():
+                started.set()
+                assert hold.wait(timeout=5)
+                release_seen.set()
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
+
+        sem = threading.Semaphore(1)
+        entered_wait = threading.Event()
+        real_acquire = sem.acquire
+
+        def watching_acquire(*args: Any, **kwargs: Any) -> bool:
+            if started.is_set() and not release_seen.is_set():
+                entered_wait.set()
+            acquired = real_acquire(*args, **kwargs)
+            return bool(acquired)
+
+        sem.acquire = watching_acquire  # type: ignore[method-assign]
+        app = create_wsgi_app(ComputeSettings(workers=1), execute_fn=execute_fn, worker_semaphore=sem)
+        body = json.dumps({"code": "result = 1"}).encode("utf-8")
+        first = threading.Thread(target=lambda: _wsgi_post(app, body, path="/v1/execute"))
+        first.start()
+        assert started.wait(timeout=5)
+        answered = threading.Event()
+        outcome: dict[str, tuple[str, dict[str, Any]]] = {}
+
+        def second() -> None:
+            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+            outcome["out"] = (status, parsed)
+            answered.set()
+
+        waiter = threading.Thread(target=second)
+        waiter.start()
+        assert entered_wait.wait(timeout=5)
+        assert not answered.is_set()
+        hold.set()
+        assert answered.wait(timeout=5)
+        first.join(timeout=5)
+        waiter.join(timeout=5)
+        status, parsed = outcome["out"]
+        assert status.startswith("200")
+        assert parsed.get("code") != "WORKER_POOL_BUSY"
+
+    def test_pool_busy_until_deadline_returns_503(self) -> None:
+        """503 only after the admission deadline, not on a brief busy.
+
+        Production default_timeout_sec is 30s. This case is that timeout,
+        shortened so the suite does not sleep 30s. It is not the brief queue
+        at 200-400 rps.
+        """
+        hold = threading.Event()
+        started = threading.Event()
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            started.set()
+            assert hold.wait(timeout=5)
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
+
+        app = create_wsgi_app(
+            ComputeSettings(workers=1, default_timeout_sec=1),
+            execute_fn=execute_fn,
+        )
+        body = json.dumps({"code": "result = 1"}).encode("utf-8")
+        first = threading.Thread(target=lambda: _wsgi_post(app, body, path="/v1/execute"))
+        first.start()
+        assert started.wait(timeout=5)
+        t0 = time.perf_counter()
+        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+        elapsed = time.perf_counter() - t0
+        hold.set()
+        first.join(timeout=5)
+        assert elapsed >= 0.7
+        assert status.startswith("503")
+        assert parsed.get("code") == "WORKER_POOL_BUSY"
 
     def test_simple_execution(self, compute_url: str) -> None:
         body = _post_execute(compute_url, {"code": "result = 3 ** 4"})
@@ -1605,15 +1669,9 @@ class TestSessionResetHttp:
             for thread in threads:
                 thread.start()
             assert both_in.wait(timeout=5)
-            deadline = time.monotonic() + 2.0
-            busy: list[tuple[str, str | None]] = []
-            while time.monotonic() < deadline:
-                with results_lock:
-                    busy = [item for item in results if item[0].startswith("503")]
-                if len(busy) >= 4:
-                    break
-                time.sleep(0.01)
-            assert busy == [("503 Service Unavailable", "WORKER_POOL_BUSY")] * 4
+            time.sleep(0.05)
+            with results_lock:
+                assert not any(item[0].startswith("503") for item in results)
             assert entered_count == 2
             with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
                 vstatus, _vheaders, vbody = _wsgi_post(app, payload, path="/v1/vision")
@@ -1624,6 +1682,8 @@ class TestSessionResetHttp:
             hold.set()
             for thread in threads:
                 thread.join(timeout=5)
+        assert len(results) == 6
+        assert all(status.startswith("200") for status, _code in results)
 
     def test_vision_permits_do_not_starve_formula_admission(self) -> None:
         """The reverse of the shared-permit bug: a full vision pool must not 503 execute."""
@@ -1665,15 +1725,9 @@ class TestSessionResetHttp:
                 for thread in threads:
                     thread.start()
                 assert all_in.wait(timeout=5)
-                deadline = time.monotonic() + 2.0
-                busy: list[tuple[str, str | None]] = []
-                while time.monotonic() < deadline:
-                    with results_lock:
-                        busy = [item for item in results if item[0].startswith("503")]
-                    if len(busy) >= 1:
-                        break
-                    time.sleep(0.01)
-                assert busy == [("503 Service Unavailable", "VISION_POOL_BUSY")]
+                time.sleep(0.05)
+                with results_lock:
+                    assert not any(item[0].startswith("503") for item in results)
                 assert entered_count == 4
                 estatus, _eheaders, ebody = _wsgi_post(
                     app,
@@ -1686,6 +1740,8 @@ class TestSessionResetHttp:
             hold.set()
             for thread in threads:
                 thread.join(timeout=5)
+        assert len(results) == 5
+        assert all(status.startswith("200") for status, _code in results)
 
     def test_non_ascii_bearer_and_key_file(self, tmp_path) -> None:
         """hmac.compare_digest on str raises TypeError for non-ASCII. That escaped the WSGI app."""
@@ -2129,8 +2185,7 @@ class TestListenerQueue:
         """A busy accept pool queues the connection. It does not 503 and close it.
 
         The executor queue is unbounded, so an extra accept waits for a thread.
-        A worker or vision semaphore miss is a different gate: non-blocking,
-        HTTP 503, and it does not hold a listener.
+        A worker or vision permit waits until the request deadline, then 503.
         """
         from compute_service.server import DualStackThreadPoolHTTPServer
 
@@ -3163,7 +3218,7 @@ def test_sticky_cap_leaves_isolated_execute_free() -> None:
     """Sticky permits do not consume the isolated-execute gate.
 
     workers=4 gets one sticky slot per formula worker. Filling those slots
-    returns 503 for another sticky call. An isolated call still runs.
+    queues another sticky call until a slot frees. An isolated call still runs.
     """
     from compute_service.server import sticky_listener_slots
 
@@ -3190,14 +3245,22 @@ def test_sticky_cap_leaves_isolated_execute_free() -> None:
             results.append((status, parsed.get("code") if isinstance(parsed, dict) else None))
 
     threads = [threading.Thread(target=post_sticky, args=(f"sticky-{i}",)) for i in range(slots)]
+    overflow_thread: threading.Thread | None = None
     for thread in threads:
         thread.start()
     try:
         for _unused in range(slots):
             assert entered.acquire(timeout=5)
-        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query="session_id=sticky-overflow")
-        assert status.startswith("503")
-        assert parsed.get("code") == "WORKER_POOL_BUSY"
+        overflow: dict[str, tuple[str, dict[str, Any]]] = {}
+
+        def post_overflow() -> None:
+            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query="session_id=sticky-overflow")
+            overflow["out"] = (status, parsed)
+
+        overflow_thread = threading.Thread(target=post_overflow)
+        overflow_thread.start()
+        time.sleep(0.05)
+        assert "out" not in overflow
         isolated, _iheaders, ibody = _wsgi_post(
             app,
             json.dumps({"code": "result = 1"}).encode("utf-8"),
@@ -3209,6 +3272,11 @@ def test_sticky_cap_leaves_isolated_execute_free() -> None:
         hold.set()
         for thread in threads:
             thread.join(timeout=5)
+        if overflow_thread is not None:
+            overflow_thread.join(timeout=5)
+    overflow_status, overflow_body = overflow["out"]
+    assert overflow_status.startswith("200")
+    assert overflow_body.get("code") != "WORKER_POOL_BUSY"
     assert len(results) == slots
     assert all(status.startswith("200") for status, _code in results)
 

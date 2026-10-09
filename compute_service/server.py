@@ -669,6 +669,7 @@ def _gated(
     settings: ComputeSettings,
     semaphore: threading.Semaphore | None,
     *,
+    admission_timeout_sec: float,
     busy_code: str,
     busy_message: str,
     route_fn: Callable[[Any], list[bytes]],
@@ -694,15 +695,32 @@ def _gated(
     if auth_resp is not None:
         return auth_resp
 
-    if semaphore is not None and not semaphore.acquire(blocking=False):
-        _drain_body_before_error(environ)
-        return _error(
-            _start,
-            "503 Service Unavailable",
-            busy_message,
-            code=busy_code,
-            extra_headers=[("Retry-After", "1")],
-        )
+    if semaphore is not None:
+        # One clock with the handler and the worker lease. Time spent queued
+        # counts against the request; the lease does not start another timeout.
+        deadline = _request_deadline(environ.get("compute.accept_time"), admission_timeout_sec)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _drain_body_before_error(environ)
+            return _error(
+                _start,
+                "503 Service Unavailable",
+                "Request deadline expired before execution.",
+                code="QUEUE_TIMEOUT",
+                extra_headers=[("Retry-After", "1")],
+            )
+        # This service runs at 200-400 rps. A worker busy for a few
+        # milliseconds is the steady state and must queue. 503 means the
+        # pool stayed busy until this request's deadline.
+        if not semaphore.acquire(timeout=remaining):
+            _drain_body_before_error(environ)
+            return _error(
+                _start,
+                "503 Service Unavailable",
+                busy_message,
+                code=busy_code,
+                extra_headers=[("Retry-After", "1")],
+            )
 
     try:
         try:
@@ -973,7 +991,7 @@ def create_wsgi_app(
     Isolated ``/v1/execute`` takes a permit sized to ``settings.workers``.
     ``/v1/vision`` takes one sized to the vision pool. Sticky execute
     (``?session_id=``) and ``/v1/session/reset`` take a separate permit sized
-    by ``sticky_listener_slots`` so those waits cannot fill the accept pool.
+    by ``sticky_listener_slots``. Each permit waits until the request deadline.
     At least two listener threads stay free for ``GET /health``.
     ``worker_semaphore`` and ``vision_semaphore`` override those gates in tests.
     """
@@ -1023,6 +1041,7 @@ def create_wsgi_app(
                 start_response,
                 settings,
                 route_sem,
+                admission_timeout_sec=float(settings.default_timeout_sec),
                 busy_code="WORKER_POOL_BUSY",
                 busy_message="All compute workers are currently busy.",
                 route_fn=lambda start: _handle_execute(environ, start, settings, _get_execute()),
@@ -1036,6 +1055,7 @@ def create_wsgi_app(
                 start_response,
                 settings,
                 sticky_semaphore,
+                admission_timeout_sec=float(settings.default_timeout_sec),
                 busy_code="WORKER_POOL_BUSY",
                 busy_message="All compute workers are currently busy.",
                 route_fn=lambda start: _handle_session_reset(environ, start, settings, _get_reset()),
@@ -1047,6 +1067,7 @@ def create_wsgi_app(
                 start_response,
                 settings,
                 vision_semaphore,
+                admission_timeout_sec=float(settings.ocr_timeout_sec),
                 busy_code="VISION_POOL_BUSY",
                 busy_message="All vision workers are currently busy.",
                 route_fn=lambda start: _handle_vision(environ, start, settings),
@@ -1078,11 +1099,11 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
     The thread pool capacity is ``service_listener_threads`` when the process
     starts, or ``listener_thread_count`` for an explicit ``max_threads``.
-    Isolated ``/v1/execute`` and ``/v1/vision`` each have a non-blocking semaphore.
-    Sticky execute and ``/v1/session/reset`` share a smaller one. All three gates
-    run before the request body is read. A miss is 503 Service Unavailable, so a
-    full pool does not hold a listener thread and does not consume the other
-    pool's permits. At least two listener threads stay available for ``GET /health``.
+    Isolated ``/v1/execute`` and ``/v1/vision`` each have a semaphore. Sticky
+    execute and ``/v1/session/reset`` share a smaller one. All three gates run
+    before the request body is read and wait until the request deadline. 503
+    is that timeout. A few milliseconds of queueing is normal at 200-400 rps.
+    At least two listener threads stay available for ``GET /health``.
     """
 
     request_queue_size: int = 128
@@ -1105,10 +1126,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._dual_shutdown_request = False
         self._serving = False
         self._accept_times: dict[int, float] = {}
-        # The executor queue is unbounded. Semaphores bound execution (a miss
-        # is a fast 503 and does not hold a listener). A connection flood can
-        # still grow this queue and _accept_times. That stays acceptable while
-        # the only client is loopback coolwsd.
+        # The executor queue is unbounded. Semaphores bound how many requests
+        # run at once; extras wait until the request deadline. A connection
+        # flood can still grow this queue and _accept_times. That stays
+        # acceptable while the only client is loopback coolwsd.
         self.executor = ThreadPoolExecutor(max_workers=max_threads, thread_name_prefix="compute-worker")
 
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
@@ -1496,8 +1517,8 @@ def run_server(settings: ComputeSettings) -> None:
         from compute_service.formula_pool import shutdown_formula_pool
         from compute_service.vision_pool import shutdown_vision_pool
 
-        shutdown_formula_pool()
-        shutdown_vision_pool()
+        shutdown_formula_pool(permanent=True)
+        shutdown_vision_pool(permanent=True)
         server.server_close()
 
 

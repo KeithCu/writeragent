@@ -131,6 +131,10 @@ def get_vision_pool(settings: ComputeSettings | None = None) -> VisionProcessPoo
     return _POOL_SINGLETON.get(lambda: VisionProcessPool(settings=settings))
 
 
-def shutdown_vision_pool() -> None:
-    """Shut down the global vision process pool."""
-    _POOL_SINGLETON.shutdown()
+def shutdown_vision_pool(*, permanent: bool = False) -> None:
+    """Shut down the global vision process pool.
+
+    *permanent* is the server-exit path. A later ``get_vision_pool`` raises
+    instead of spawning a new pool.
+    """
+    _POOL_SINGLETON.shutdown(permanent=permanent)

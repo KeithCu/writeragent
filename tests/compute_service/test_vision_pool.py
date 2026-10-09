@@ -155,6 +155,20 @@ class TestVisionPoolSupervisor:
         assert p3 is not p1
         shutdown_vision_pool()
 
+    def test_permanent_shutdown_refuses_new_pool(self) -> None:
+        """Server exit must not let a late get() spawn another pool.
+
+        A normal shutdown still returns a new pool. That is what tests use.
+        """
+        p1 = get_vision_pool()
+        shutdown_vision_pool(permanent=True)
+        with pytest.raises(RuntimeError, match="shut down"):
+            get_vision_pool()
+        shutdown_vision_pool()
+        p2 = get_vision_pool()
+        assert p2 is not p1
+        shutdown_vision_pool()
+
     def test_pool_rejects_malformed_base64(self) -> None:
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
         try:

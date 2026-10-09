@@ -1271,8 +1271,8 @@ class TestFormulaPoolSupervisor:
             other = next(w for w in pool.workers if w is not original)
             real_reset = pool._reset_session_on_worker
 
-            def reset_then_rereserve(worker, session_id, timeout_sec=5.0):
-                res = real_reset(worker, session_id, timeout_sec=timeout_sec)
+            def reset_then_rereserve(worker, session_id, timeout_sec=5.0, lost=False):
+                res = real_reset(worker, session_id, timeout_sec=timeout_sec, lost=lost)
                 proc = other.process
                 with pool._cond:
                     pool._sessions[session_id] = _Session(
@@ -1701,6 +1701,61 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
+    def test_ttl_evict_waiter_reports_session_reset(self) -> None:
+        """A cell that selected the worker before the TTL reset still gets session_reset.
+
+        The reaper holds the lease across the reset. The cell snapshots
+        session_was_lost=False and blocks in lease_specific. The generation
+        bump is what the cell compares after the lease.
+        """
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "ttl-waiter"
+            primed = pool.execute(code="x = 77\nresult = x", session_id=sid, mode="shared")
+            assert primed.get("status") == "ok"
+            assert primed.get("session_reset") is not True
+
+            entered_lease = threading.Event()
+            orig_reset = pool._reset_session_on_worker
+            orig_lease = pool.lease_specific
+            holder: dict[str, threading.Thread] = {}
+
+            def blocking_reset(worker: Any, session_id: str, timeout_sec: float = 5.0, lost: bool = False) -> dict[str, Any]:
+                assert entered_lease.wait(timeout=10)
+                return orig_reset(worker, session_id, timeout_sec=timeout_sec, lost=lost)
+
+            def watch_lease(worker: Any, timeout_sec: float) -> Any:
+                if threading.current_thread() is holder.get("waiter"):
+                    entered_lease.set()
+                return orig_lease(worker, timeout_sec)
+
+            result: dict[str, Any] = {}
+
+            def run_waiter() -> None:
+                result["value"] = pool.execute(code="result = x", session_id=sid, mode="shared", timeout_sec=15)
+
+            waiter = threading.Thread(target=run_waiter)
+            holder["waiter"] = waiter
+            with (
+                patch.object(pool, "_reset_session_on_worker", side_effect=blocking_reset),
+                patch.object(pool, "lease_specific", side_effect=watch_lease),
+            ):
+                evictor = threading.Thread(target=lambda: pool._evict_stale_sessions(ttl_sec=-1))
+                evictor.start()
+                waiter.start()
+                evictor.join(timeout=20)
+                waiter.join(timeout=20)
+            assert not evictor.is_alive()
+            assert not waiter.is_alive()
+            waiting = result["value"]
+            assert waiting.get("session_reset") is True
+
+            nxt = pool.execute(code="result = 1", session_id=sid, mode="shared")
+            assert nxt.get("status") == "ok"
+            assert nxt.get("session_reset") is not True
+        finally:
+            pool.shutdown()
+
     def test_explicit_reset_does_not_mark_session_lost(self) -> None:
         """Explicit reset_session clears session without marking it lost (no session_reset on next call)."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
@@ -1884,7 +1939,7 @@ class TestFormulaHttpEndpoint:
             setattr(worker, "execute", spy)
             orig = pool._select_shared_worker
 
-            def slow(sid: str) -> tuple[Any, bool, bool]:
+            def slow(sid: str) -> tuple[Any, bool, bool, int]:
                 time.sleep(0.2)
                 return orig(sid)
 

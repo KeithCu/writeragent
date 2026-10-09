@@ -57,6 +57,10 @@ class _Session:
     worker: BaseProcessWorker
     pid: int | None
     last_active: float
+    # Bumped when the kernel is marked lost. Not consumed by the sticky call
+    # that reports session_reset, so a cell already waiting on the lease still
+    # sees the reset.
+    gen: int = 0
 
 
 class FormulaProcessPool(BaseProcessPool):
@@ -76,6 +80,8 @@ class FormulaProcessPool(BaseProcessPool):
         # stay in sync across set, delete, pop, and clear.
         self._sessions: dict[str, _Session] = {}
         self._lost_sessions: OrderedDict[str, float] = OrderedDict()
+        # Survives after _lost_sessions pops the id. Capped with that map.
+        self._lost_gen: dict[str, int] = {}
         self._max_lost_sessions: int = 1000
         self.shared_kernel_ttl_sec = eff_shared_ttl
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES, on_process_exit=self._on_process_exit)
@@ -123,25 +129,44 @@ class FormulaProcessPool(BaseProcessPool):
                     still_stale = sess is not None and sess.worker is worker and (time.monotonic() - sess.last_active) >= ttl
                 if not still_stale or sess is None:
                     continue
-                self._reset_session_on_worker(leased, sid, timeout_sec=2.0)
-                # _reset_session_on_worker already drops this worker's entry
-                # on ok (lost=False). That object is gone, so a follow-up
-                # "current is the session we reset" check cannot succeed.
-                # Mark lost only when the id is absent: the next sticky call
-                # must report session_reset. A replacement that landed after
-                # the drop is a different object and stays. A failed reset
-                # leaves the entry, so it is not marked lost.
-                with self._cond:
-                    if self._sessions.get(sid) is None:
-                        self._drop_session(sid)
-                        evicted.append(sid)
+                # lost=True marks the id in the same lock hold as the drop,
+                # before this lease is released. A sticky call that already
+                # chose this worker is waiting on the lease; it compares
+                # generations after acquire and reports session_reset.
+                # A failed reset leaves the entry and does not bump.
+                res = self._reset_session_on_worker(leased, sid, timeout_sec=2.0, lost=True)
+                if res.get("status") == "ok":
+                    evicted.append(sid)
         if evicted:
             log.info("Session TTL reaper evicted %d idle session(s): %s", len(evicted), evicted)
 
+    def _current_gen_unlocked(self, session_id: str) -> int:
+        """Generation of *session_id*. Caller holds ``self._cond``.
+
+        A live session carries the value. After a drop, it lives in
+        ``_lost_gen`` until the cap evicts that id.
+        """
+        sess = self._sessions.get(session_id)
+        if sess is not None:
+            return sess.gen
+        return self._lost_gen.get(session_id, 0)
+
     def _mark_session_lost_unlocked(self, session_id: str) -> None:
+        # Membership in _lost_sessions is consumed by the first sticky call
+        # that sees it. A cell that snapshotted session_was_lost=False and is
+        # blocked on the lease would then run on the empty kernel and pop the
+        # marker. The generation is not consumed.
+        prev = self._current_gen_unlocked(session_id)
+        new_gen = prev + 1
+        self._lost_gen[session_id] = new_gen
+        sess = self._sessions.get(session_id)
+        if sess is not None:
+            sess.gen = new_gen
         self._lost_sessions[session_id] = time.monotonic()
         while len(self._lost_sessions) > self._max_lost_sessions:
-            self._lost_sessions.popitem(last=False)
+            evicted_id, _unused = self._lost_sessions.popitem(last=False)
+            if evicted_id not in self._sessions:
+                self._lost_gen.pop(evicted_id, None)
 
     def _drop_session(
         self,
@@ -234,7 +259,7 @@ class FormulaProcessPool(BaseProcessPool):
         """
         return self._worker_has_sessions(worker)
 
-    def _drop_session_after_reset(self, session_id: str, worker: BaseProcessWorker, res: dict[str, Any]) -> bool:
+    def _drop_session_after_reset(self, session_id: str, worker: BaseProcessWorker, res: dict[str, Any], *, lost: bool = False) -> bool:
         """Forget *session_id* only when the worker reset reports ``ok``.
 
         What was wrong: ``_evict_stale_sessions`` and ``reset_session`` dropped
@@ -243,24 +268,24 @@ class FormulaProcessPool(BaseProcessPool):
         hold the namespace while the supervisor forgets the id, so the next
         sticky cell looks new on a kernel that is not empty. Why: drop the
         map only when ``res["status"] == "ok"``; a failed reset is logged
-        and the map stays.
+        and the map stays. *lost* is true for TTL eviction so the mark and
+        the drop share this lock hold. Explicit reset passes false.
         """
         if res.get("status") == "ok":
-            # Explicit reset must not set session_reset on the next cell.
-            self._drop_session(session_id, only_if_worker=worker, lost=False)
+            self._drop_session(session_id, only_if_worker=worker, lost=lost)
             return True
         log.error("reset_session failed for %s; keeping session map because the worker may still hold the namespace: %s", session_id, res)
         return False
 
-    def _reset_session_on_worker(self, worker: BaseProcessWorker, session_id: str, timeout_sec: float = 5.0) -> dict[str, Any]:
+    def _reset_session_on_worker(self, worker: BaseProcessWorker, session_id: str, timeout_sec: float = 5.0, *, lost: bool = False) -> dict[str, Any]:
         """Send reset_session action to leased worker and update session map on ok.
 
         ``execute`` returns an error dict. It does not raise, so a handler
         here used to be unreachable and, if it ran, forgot sessions without
-        marking them lost.
+        marking them lost. *lost* marks the id when the reset succeeds.
         """
         res = worker.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
-        self._drop_session_after_reset(session_id, worker, res)
+        self._drop_session_after_reset(session_id, worker, res, lost=lost)
         return res
 
     def should_recycle_worker(self, worker: BaseProcessWorker) -> bool:
@@ -371,13 +396,16 @@ class FormulaProcessPool(BaseProcessPool):
             err = res.get("error") or "Unknown error during worker dependency check."
             return False, str(err)
 
-    def _select_shared_worker(self, session_id: str) -> tuple[BaseProcessWorker | None, bool, bool]:
+    def _select_shared_worker(self, session_id: str) -> tuple[BaseProcessWorker | None, bool, bool, int]:
         """Select or reserve target worker for a shared session under self._cond.
 
-        Returns (target_worker, session_was_lost, is_new_session).
+        Returns (target_worker, session_was_lost, is_new_session, observed_gen).
+        *observed_gen* is the generation at pick time. A TTL reset that lands
+        while the caller waits on the lease bumps it.
         """
         with self._cond:
             self._reap_dead_sessions_unlocked()
+            observed_gen = self._current_gen_unlocked(session_id)
             session_was_lost = session_id in self._lost_sessions
             if session_was_lost:
                 self._lost_sessions.pop(session_id, None)
@@ -414,11 +442,12 @@ class FormulaProcessPool(BaseProcessPool):
                     worker=target_worker,
                     pid=pid,
                     last_active=time.monotonic(),
+                    gen=observed_gen,
                 )
             else:
                 target_worker = None
 
-            return target_worker, session_was_lost, is_new_session
+            return target_worker, session_was_lost, is_new_session, observed_gen
 
     def _run_execution(
         self,
@@ -463,12 +492,21 @@ class FormulaProcessPool(BaseProcessPool):
                     if sess is not None and sess.worker is leased:
                         sess.pid = proc.pid
                         sess.last_active = time.monotonic()
+                        bumped = self._lost_gen.get(session_id, sess.gen)
+                        if bumped > sess.gen:
+                            sess.gen = bumped
                     else:
                         # Bugfix: pop _lost_sessions[session_id] when the session is re-added (Bug 4).
                         # What was wrong: a concurrent dead-session reap could mark a newly starting
                         # session lost while running; re-adding it left the lost marker intact.
                         # Why this change: ensures subsequent requests are not falsely sent session_reset=True.
-                        self._sessions[session_id] = _Session(worker=leased, pid=proc.pid, last_active=time.monotonic())
+                        # Copy the generation so the next cell does not see a false bump.
+                        self._sessions[session_id] = _Session(
+                            worker=leased,
+                            pid=proc.pid,
+                            last_active=time.monotonic(),
+                            gen=self._lost_gen.get(session_id, 0),
+                        )
                     self._lost_sessions.pop(session_id, None)
                 self._reap_dead_sessions_unlocked()
                 # A reservation whose pid is still None (spawn failed before a
@@ -524,7 +562,7 @@ class FormulaProcessPool(BaseProcessPool):
         # remaining_sec floors at 0.01s, so a deadline that already passed
         # still leased a worker and then gave the child a 1s alarm.
         if mode == "shared" and session_id:
-            target_worker, session_was_lost, is_new_session = self._select_shared_worker(session_id)
+            target_worker, session_was_lost, is_new_session, observed_gen = self._select_shared_worker(session_id)
             if target_worker is None:
                 if session_was_lost:
                     with self._cond:
@@ -534,6 +572,13 @@ class FormulaProcessPool(BaseProcessPool):
             deadline_missed = lease_budget <= 0
             if not deadline_missed:
                 leased = self.lease_specific(target_worker, timeout_sec=lease_budget)
+            # TTL eviction can reset this kernel while lease_specific waits.
+            # The lost-set bit may already have been consumed by another call.
+            # The generation is not consumed.
+            if leased is not None:
+                with self._cond:
+                    if self._current_gen_unlocked(session_id) != observed_gen:
+                        session_was_lost = True
             busy_err = "Sticky session worker is busy and request timed out waiting for worker lease."
         else:
             lease_budget = deadline - time.monotonic()
@@ -624,6 +669,10 @@ def get_formula_pool(settings: ComputeSettings | None = None) -> FormulaProcessP
     return _POOL_SINGLETON.get(lambda: FormulaProcessPool(settings=settings))
 
 
-def shutdown_formula_pool() -> None:
-    """Shut down the global formula process pool."""
-    _POOL_SINGLETON.shutdown()
+def shutdown_formula_pool(*, permanent: bool = False) -> None:
+    """Shut down the global formula process pool.
+
+    *permanent* is the server-exit path. A later ``get_formula_pool`` raises
+    instead of spawning a new pool.
+    """
+    _POOL_SINGLETON.shutdown(permanent=permanent)

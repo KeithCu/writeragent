@@ -116,22 +116,34 @@ class PoolSingleton(Generic[_PoolT]):
 
     _lock: threading.Lock
     _pool: _PoolT | None
+    _closed: bool
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._pool = None
+        self._closed = False
 
     def get(self, factory: Callable[[], _PoolT]) -> _PoolT:
         with self._lock:
+            if self._closed:
+                raise RuntimeError("Compute pool is shut down.")
             if self._pool is None:
                 self._pool = factory()
             return self._pool
 
-    def shutdown(self) -> None:
+    def shutdown(self, *, permanent: bool = False) -> None:
+        """Drop the pool. *permanent* makes a later ``get`` raise.
+
+        Tests and a restarted process call shutdown without *permanent* so
+        the next ``get`` builds a new pool. The server process passes
+        *permanent* on the way out so an abandoned handler cannot spawn
+        children after shutdown.
+        """
         with self._lock:
             if self._pool is not None:
                 self._pool.shutdown()
                 self._pool = None
+            self._closed = permanent
 
 
 def set_pdeathsig(sig: int | None = None) -> bool:
