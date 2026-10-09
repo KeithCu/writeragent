@@ -75,6 +75,47 @@ def test_get_page_objects_with_table_at_page_end_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_get_page_objects_from_table_cell_resolves_page_two_uno(ctx, doc):
+    """Repro #1422: get_page_objects with locator from a table-cell cursor.
+
+    When the view cursor sits in a table cell, saving the cursor via doc.getText()
+    raised RuntimeException, falling back to page 1 instead of page 2.
+    """
+    import time
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+
+    # Page 1: table
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    text.insertTextContent(cursor, tbl, False)
+
+    # Move cursor past table and insert Page 2 heading
+    cursor.gotoEnd(False)
+    cursor.setPropertyValue("BreakType", PAGE_BEFORE)
+    cursor.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertString(cursor, "Target Heading on Page Two", False)
+
+    time.sleep(0.5)
+
+    # Place view cursor inside table cell on Page 1
+    cell = tbl.getCellByName("A1")
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoRange(cell, False)
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = GetPageObjects().execute(tool_ctx, locator="heading_text:Target Heading on Page Two")
+    assert res.get("status") == "ok", res
+    assert res.get("page") == 2, res
+    restored = vc.getPropertyValue("TextTable")
+    assert restored is not None
+    assert restored.getName() == tbl.getName()
+
+
+@native_test
+@with_native_doc("writer")
 def test_clone_heading_block_without_tracked_deletions_uno(ctx, doc):
     text = doc.getText()
     cursor = text.createTextCursor()

@@ -411,3 +411,108 @@ def test_get_page_for_paragraph_handles_zero_page(mock_find):
     # Lock -> Unlock (temp) -> Lock (temp) -> Unlock (restore)
     assert mock_doc.lockControllers.call_count == 2
     assert mock_doc.unlockControllers.call_count == 2
+
+
+@patch.object(DocumentService, 'find_paragraph_element')
+def test_get_page_for_paragraph_missing_element_raises(mock_find):
+    """Verify get_page_for_paragraph raises ToolExecutionError when paragraph not found."""
+    import pytest
+    from plugin.doc.document_helpers import DocumentService
+    from plugin.framework.errors import ToolExecutionError
+
+    mock_doc = MagicMock()
+    mock_find.return_value = (None, None)
+
+    ds = DocumentService()
+    with pytest.raises(ToolExecutionError, match="Paragraph index 999 not found"):
+        ds.get_page_for_paragraph(mock_doc, 999)
+
+
+@patch.object(DocumentService, 'find_paragraph_element')
+def test_get_page_for_paragraph_handles_nested_xtext_cursor(mock_find):
+    """Verify get_page_for_paragraph succeeds when body createTextCursorByRange would fail."""
+    from plugin.doc.document_helpers import DocumentService
+
+    mock_doc = MagicMock()
+    mock_body = MagicMock()
+    # Body XText raises RuntimeException on nested cell range (#1422)
+    mock_body.createTextCursorByRange.side_effect = RuntimeError(
+        "End of content node doesn't have the proper start node"
+    )
+    mock_doc.getText.return_value = mock_body
+
+    mock_controller = MagicMock()
+    mock_doc.getCurrentController.return_value = mock_controller
+
+    mock_cell_text = MagicMock()
+    mock_cell_cursor = MagicMock()
+    mock_cell_text.createTextCursorByRange.return_value = mock_cell_cursor
+
+    mock_vc = MagicMock()
+    mock_vc.getText.return_value = mock_cell_text
+    mock_vc.getPage.return_value = 247
+    mock_controller.getViewCursor.return_value = mock_vc
+
+    mock_element = MagicMock()
+    mock_anchor = MagicMock()
+    mock_element.getAnchor.return_value = mock_anchor
+    mock_find.return_value = (mock_element, None)
+
+    ds = DocumentService()
+    page = ds.get_page_for_paragraph(mock_doc, 45)
+
+    assert page == 247
+    # Body text was never asked to clone the nested range
+    mock_body.createTextCursorByRange.assert_not_called()
+    # vc.getText() cloned the range
+    mock_cell_text.createTextCursorByRange.assert_called_once_with(mock_vc)
+
+
+@patch.object(DocumentService, 'find_paragraph_element')
+def test_get_page_for_paragraph_persistent_zero_raises(mock_find):
+    """Verify get_page_for_paragraph raises ToolExecutionError if getPage remains 0 after retry."""
+    import pytest
+    from plugin.doc.document_helpers import DocumentService
+    from plugin.framework.errors import ToolExecutionError
+
+    mock_doc = MagicMock()
+    mock_controller = MagicMock()
+    mock_doc.getCurrentController.return_value = mock_controller
+    mock_vc = MagicMock()
+    mock_vc.getPage.return_value = 0
+    mock_controller.getViewCursor.return_value = mock_vc
+
+    mock_element = MagicMock()
+    mock_element.getAnchor.return_value = MagicMock()
+    mock_find.return_value = (mock_element, None)
+
+    ds = DocumentService()
+    with pytest.raises(ToolExecutionError, match="getPage returned 0"):
+        ds.get_page_for_paragraph(mock_doc, 5)
+
+
+def test_get_page_count_handles_nested_xtext_cursor():
+    """Verify get_page_count succeeds even if body createTextCursorByRange would raise."""
+    from plugin.doc.document_helpers import DocumentService
+
+    mock_doc = MagicMock()
+    mock_body = MagicMock()
+    mock_body.createTextCursorByRange.side_effect = RuntimeError(
+        "End of content node doesn't have the proper start node"
+    )
+    mock_doc.getText.return_value = mock_body
+
+    mock_controller = MagicMock()
+    mock_doc.getCurrentController.return_value = mock_controller
+
+    mock_cell_text = MagicMock()
+    mock_vc = MagicMock()
+    mock_vc.getText.return_value = mock_cell_text
+    mock_vc.getPage.return_value = 274
+    mock_controller.getViewCursor.return_value = mock_vc
+
+    ds = DocumentService()
+    count = ds.get_page_count(mock_doc)
+
+    assert count == 274
+    mock_body.createTextCursorByRange.assert_not_called()

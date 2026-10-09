@@ -703,6 +703,46 @@ def clone_text_range(text_range: Any) -> Any:
     return text_range.getText().createTextCursorByRange(text_range)
 
 
+def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
+    """Leave nested XText, lock for the action, unlock before restore.
+
+    What was wrong: Hand-rolled cursor save/lock in get_page_for_paragraph and
+    get_page_count used doc.getText().createTextCursorByRange(vc.getStart())
+    which raised RuntimeException ("End of content node doesn't have the proper
+    start node") when vc sat inside a table cell or text frame, aborting page
+    resolution and falling back to page 1 (#1422). It also called gotoRange
+    before unlockControllers(), which fails for nested cell targets.
+    How it happened: structural.py previously implemented _with_left_body_locked
+    for page scans, but document_helpers.py retained an outdated duplicate.
+    Why this change: Centralizes the leave-body, lock, unlock, restore sequence
+    into one shared, LibrePy-safe helper for all view-cursor walking operations.
+    """
+    saved = None
+    try:
+        # Nested XText (table cell / frame): body getText() cannot clone this range.
+        saved = clone_text_range(vc)
+    except Exception:
+        pass
+    in_body = False
+    try:
+        vc.gotoRange(doc.getText().getStart(), False)
+        in_body = True
+    except Exception:
+        pass
+    if in_body:
+        doc.lockControllers()
+    try:
+        return action_fn()
+    finally:
+        if in_body:
+            doc.unlockControllers()
+        if saved is not None:
+            try:
+                vc.gotoRange(saved, False)
+            except Exception:
+                pass
+
+
 @main_thread_only
 def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> Any:
     """Return a text cursor that selects the character range [start_offset, end_offset).
