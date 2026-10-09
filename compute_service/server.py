@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from http.server import HTTPServer
@@ -48,6 +49,7 @@ from compute_service.json_forward import (
     parse_execute_request,
     validate_session_id,
 )
+from plugin.vision.vision_common import IMPLEMENTED_HELPERS
 
 log = logging.getLogger("compute_service")
 
@@ -285,6 +287,13 @@ def _error(
     )
 
 
+def _payload_status(payload: Any) -> Any:
+    """Status field when the worker returned a dict."""
+    if isinstance(payload, dict):
+        return payload.get("status")
+    return None
+
+
 def _infrastructure_status(payload: dict[str, Any]) -> str | None:
     """Map a worker payload to an HTTP status, or None to keep 200.
 
@@ -315,16 +324,29 @@ def _send_execution_result(
     when an unmapped ``status: error`` is a server fault (session reset).
     Mapped codes, including 413, come from ``_HTTP_STATUS_BY_CODE``.
     Every ``_start_json`` path shares one encode guard. Raw ``result_json``
-    bytes are already encoded and stay outside it. Those bytes are always
-    200: *error_status* applies only to a dict with no ``result_json``.
+    bytes are already encoded and stay outside it. Non-empty bytes are
+    always 200. Empty bytes are ``EMPTY_RESPONSE`` at 500: they used to
+    fall through into ``json.dumps`` of a dict that still held the bytes.
+    *error_status* applies only to a dict with no ``result_json``.
     ``reset_session`` does not return ``result_json``, so its 500 override
     is not skipped. A formula ``WORKER_EXECUTION_ERROR`` is inside those
     bytes on purpose; re-statusing them would hide the cell text behind #N/A.
     """
     if isinstance(result_payload, dict):
         raw_out = result_payload.get("result_json")
-        if isinstance(raw_out, (bytes, bytearray)) and raw_out:
-            return _start_raw_json(start_response, "200 OK", bytes(raw_out))
+        if isinstance(raw_out, (bytes, bytearray)):
+            if raw_out:
+                return _start_raw_json(start_response, "200 OK", bytes(raw_out))
+            # What was wrong: empty bytes are falsy, so this fell through and
+            # json.dumps tried to encode a dict that still held those bytes.
+            # Why this change: an empty frame is EMPTY_RESPONSE, not a second encode.
+            return _error(
+                start_response,
+                "500 Internal Server Error",
+                "Worker returned an empty result.",
+                code="EMPTY_RESPONSE",
+                req_id=req_id,
+            )
         infra = _infrastructure_status(result_payload)
         _inject_req_id(result_payload, req_id)
         if infra is not None:
@@ -965,7 +987,7 @@ def _handle_execute(
             deadline=deadline,
         )
         duration_ms = (time.perf_counter() - start_t) * 1000.0
-        status = result_payload.get("status") if isinstance(result_payload, dict) else None
+        status = _payload_status(result_payload)
         log.info("done /v1/execute id=%r status=%r duration=%.2fms", req_id, status, duration_ms)
         return _send_execution_result(start_response, result_payload, req_id)
 
@@ -1012,7 +1034,7 @@ def _handle_session_reset(
         timeout_sec = min(5.0, max(0.01, remaining))
         result_payload = run_reset(session_id, timeout_sec=timeout_sec)
         duration_ms = (time.perf_counter() - start_t) * 1000.0
-        status = result_payload.get("status") if isinstance(result_payload, dict) else None
+        status = _payload_status(result_payload)
         log.info("done /v1/session/reset id=%r session=%r status=%r duration=%.2fms", req_id, session_id, status, duration_ms)
 
         if isinstance(result_payload, dict) and result_payload.get("status") == "error":
@@ -1049,7 +1071,18 @@ def _handle_vision(
     assert req_data is not None
 
     req_id = req_data.get("id")
-    helper = str(req_data.get("helper") or "extract_text").strip()
+    raw_helper = req_data.get("helper")
+    helper = str(raw_helper).strip() if raw_helper else ""
+    if not helper:
+        helper = "extract_text"
+    elif helper not in IMPLEMENTED_HELPERS:
+        return _error(
+            start_response,
+            "400 Bad Request",
+            f"Unknown vision helper: {helper!r}.",
+            code="INVALID_REQUEST",
+            req_id=req_id,
+        )
     image_input = req_data.get("image_b64") or req_data.get("image")
     file_path = req_data.get("file_path")
 
@@ -1091,7 +1124,7 @@ def _handle_vision(
             deadline=vision_deadline,
         )
         duration_ms = (time.perf_counter() - start_t) * 1000.0
-        status = result_payload.get("status") if isinstance(result_payload, dict) else None
+        status = _payload_status(result_payload)
         log.info("done /v1/vision id=%r status=%r duration=%.2fms", req_id, status, duration_ms)
         return _send_execution_result(start_response, result_payload, req_id)
 
@@ -1260,7 +1293,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._dual_is_shut_down = threading.Event()
         self._dual_shutdown_request = False
         self._serving = False
-        self._accept_times: dict[int, float] = {}
+        # Keyed by the connection object, not id(conn). CPython reuses ids
+        # after the socket is freed; a weak key disappears with the object,
+        # so a recycled id cannot read another request's accept time.
+        self._accept_times: weakref.WeakKeyDictionary[socket.socket, float] = weakref.WeakKeyDictionary()
         # The executor queue is unbounded. Semaphores bound how many requests
         # run at once; extras wait until the request deadline. A connection
         # flood can still grow this queue and _accept_times. That stays
@@ -1362,8 +1398,8 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     def server_close(self) -> None:
         self.close_sockets()
         # Accept times are popped per connection in shutdown_request. A handler
-        # abandoned after drain_executor can leave an id(conn) key. The signal
-        # path drains before this, so clearing does not shorten a live deadline.
+        # abandoned after drain_executor can leave a key. The signal path
+        # drains before this, so clearing does not shorten a live deadline.
         self._accept_times.clear()
         self.executor.shutdown(wait=False, cancel_futures=False)
 
@@ -1409,7 +1445,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                             if not self.verify_request(conn, client_address):
                                 self.shutdown_request(conn)
                                 continue
-                            self._accept_times[id(conn)] = time.monotonic()
+                            self._accept_times[conn] = time.monotonic()
                             self.process_request(conn, client_address)
                     self.service_actions()
         finally:
@@ -1444,7 +1480,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                 log.exception("Failed to close accepted connection")
 
     def shutdown_request(self, request: Any) -> None:
-        self._accept_times.pop(id(request), None)
+        self._accept_times.pop(request, None)
         super().shutdown_request(request)
 
     def process_request_thread(self, request: Any, client_address: Any) -> None:
@@ -1525,7 +1561,7 @@ class DeadlineRequestHandler(WSGIRequestHandler):
             log.debug("100-continue write failed", exc_info=True)
 
     def _install_header_deadline(self) -> None:
-        accept_time = getattr(self.server, "_accept_times", {}).get(id(self.connection))
+        accept_time = self._connection_accept_time()
         header_deadline = _accept_clock(accept_time) + _REQUEST_READ_TIMEOUT_SEC
         rfile_raw: Any = getattr(self.rfile, "raw", None)
         orig_readinto = getattr(rfile_raw, "readinto", None) if rfile_raw is not None else None
@@ -1566,9 +1602,22 @@ class DeadlineRequestHandler(WSGIRequestHandler):
     def get_environ(self) -> dict[str, Any]:
         environ = super().get_environ()
         environ["compute.connection"] = self.connection
-        server: Any = self.server
-        environ["compute.accept_time"] = server._accept_times.get(id(self.connection), None)
+        environ["compute.accept_time"] = self._connection_accept_time()
         return environ
+
+    def _connection_accept_time(self) -> float | None:
+        """Accept stamp for this connection.
+
+        The map is keyed by the socket object. ``id(connection)`` was wrong
+        once that id was reused for a later accept.
+        """
+        times = getattr(self.server, "_accept_times", None)
+        if times is None:
+            return None
+        found = times.get(self.connection)
+        if isinstance(found, (int, float)) and not isinstance(found, bool):
+            return float(found)
+        return None
 
 
 class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):

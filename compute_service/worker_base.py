@@ -390,6 +390,8 @@ class BaseProcessWorker:
         Returns without a child when the pool is stopping. Recycle calls this
         after kill(); the flag is what stops that spawn. The check after reap
         covers a shutdown that arrives while the previous child is reaped.
+        The new ``Popen`` is published under ``_lifecycle_lock``, which
+        ``kill()`` also holds, so a shutdown during spawn still reaps it.
         """
         if self._shutting_down:
             return
@@ -414,7 +416,11 @@ class BaseProcessWorker:
                     **get_subprocess_creationflags(),
                 ),
             )
-            self.process = proc
+            # Do not hold _lifecycle_lock across the handshake read: kill()
+            # takes that lock, and the read can block for the spawn budget.
+            if not self._adopt_spawned_process(proc):
+                self._discard_unadopted_process(proc)
+                return
             optimize_popen_pipes(proc)
             self._stderr_drain = start_stderr_drain(proc.stderr, name=f"{self.worker_name}-stderr-{self.worker_id}")
             ready_data: Any = None
@@ -454,6 +460,35 @@ class BaseProcessWorker:
             log.error("Failed to spawn %s #%d: %s%s", self.worker_name, self.worker_id, exc, extra)
             self.kill()
 
+
+    def _adopt_spawned_process(self, proc: subprocess.Popen[bytes]) -> bool:
+        """Publish *proc*, or refuse when shutdown already won.
+
+        What was wrong: ``self.process = proc`` ran after the unlocked
+        ``_shutting_down`` check. ``kill()`` in that window saw ``None``,
+        reaped nothing, and the new child lived until the parent exited.
+        Why this change: assignment and the flag share ``_lifecycle_lock``,
+        which ``kill()`` holds. Shutdown either sees this child, or this
+        method refuses and the caller kills the unpublished ``Popen``.
+        """
+        with self._lifecycle_lock:
+            if self._shutting_down:
+                return False
+            self.process = proc
+            return True
+
+    def _discard_unadopted_process(self, proc: subprocess.Popen[bytes]) -> None:
+        """Kill a child that was never assigned to ``self.process``."""
+        pid = proc.pid
+        try:
+            if proc.poll() is None:
+                proc.kill()
+        except Exception:
+            log.debug("%s #%d kill of unadopted pid=%s failed", self.worker_name, self.worker_id, pid, exc_info=True)
+        try:
+            proc.wait(timeout=1.0)
+        except Exception:
+            log.debug("%s #%d wait for unadopted pid=%s failed", self.worker_name, self.worker_id, pid, exc_info=True)
 
     def is_alive(self) -> bool:
         return self.process is not None and self.process.poll() is None

@@ -127,8 +127,10 @@ class FormulaProcessPool(BaseProcessPool):
                 with self._cond:
                     sess = self._sessions.get(sid)
                     still_stale = sess is not None and sess.worker is worker and (time.monotonic() - sess.last_active) >= ttl
-                if not still_stale or sess is None:
+                if not still_stale:
                     continue
+                # still_stale already requires sess. The assert is for the type checker.
+                assert sess is not None
                 # lost=True marks the id in the same lock hold as the drop,
                 # before this lease is released. A sticky call that already
                 # chose this worker is waiting on the lease; it compares
@@ -411,8 +413,11 @@ class FormulaProcessPool(BaseProcessPool):
                 self._lost_sessions.pop(session_id, None)
             sess = self._sessions.get(session_id)
             if sess is not None and sess.worker not in self.workers:
+                # execute() checks self.workers outside _cond. shutdown()
+                # clears that list under _cond, so this can still fire.
                 # The wrapper is gone. Do not mark lost: the caller treats
-                # this as a new reservation on a live worker.
+                # this as a new reservation on a live worker. An empty
+                # workers list then returns no target.
                 self._drop_session(session_id, lost=False)
                 sess = None
 
@@ -536,6 +541,10 @@ class FormulaProcessPool(BaseProcessPool):
         try:
             mode = canonical_execute_mode(mode)
             wire = require_execute_wire(wire)
+            # HTTP rejects shared with no session id. The pool used to lease
+            # a worker anyway, and the child treated a missing id as isolated.
+            if mode == "shared" and (not isinstance(session_id, str) or not session_id.strip()):
+                raise ExecuteRequestError("mode='shared' requires a non-empty session_id.")
             if session_id:
                 validate_session_id(session_id)
         except ExecuteRequestError as exc:

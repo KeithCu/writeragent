@@ -236,6 +236,59 @@ def test_execute_does_not_respawn_during_shutdown() -> None:
     assert res.get("status") == "error"
 
 
+def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Shutdown during Popen must not leave an unpublished child running.
+
+    What was wrong: kill() landed after the second _shutting_down check and
+    before self.process = proc. Reap saw None, and the new interpreter
+    survived until the parent exited.
+    """
+    from compute_service.worker_base import BaseProcessWorker
+
+    original_respawn = BaseProcessWorker.respawn
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    monkeypatch.setattr(BaseProcessWorker, "respawn", original_respawn)
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 4242
+            self.stdin = None
+            self.stdout = None
+            self.stderr = None
+            self.killed = False
+
+        def kill(self) -> None:
+            self.killed = True
+
+        def poll(self) -> int | None:
+            return 0 if self.killed else None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            return 0
+
+    proc = _Proc()
+
+    def _popen(*_args: object, **_kwargs: object) -> _Proc:
+        # The window after the unlocked check: shutdown sets the flag and
+        # kill() reaps whatever is published. Nothing is, yet.
+        worker._shutting_down = True
+        worker.kill()
+        return proc
+
+    drains: list[object] = []
+    monkeypatch.setattr("compute_service.worker_base.subprocess.Popen", _popen)
+    monkeypatch.setattr(
+        "compute_service.worker_base.start_stderr_drain",
+        lambda *_args, **_kwargs: drains.append(True),
+    )
+    worker.respawn()
+    assert worker.process is None
+    assert proc.killed
+    assert drains == []
+
+
 def test_execute_respawn_respects_request_deadline() -> None:
     from compute_service.worker_base import BaseProcessWorker
 

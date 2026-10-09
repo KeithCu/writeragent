@@ -1994,7 +1994,8 @@ class TestSessionResetHttp:
         What was wrong: the permit wait used default_timeout_sec before the
         body was parsed, so a 600s cell got 503 after 30s of queueing.
         """
-        settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, workers=1)
+        # ocr_timeout_sec defaults to 60 and must stay <= max_timeout_sec.
+        settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
         app = create_wsgi_app(
             settings,
             execute_fn=lambda **_kwargs: {"status": "ok"},
@@ -2024,7 +2025,7 @@ class TestSessionResetHttp:
         assert parsed.get("id") == "slow"
 
     def test_execute_admission_uses_default_when_timeout_omitted(self) -> None:
-        settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, workers=1)
+        settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
         app = create_wsgi_app(
             settings,
             execute_fn=lambda **_kwargs: {"status": "ok"},
@@ -2366,6 +2367,28 @@ def test_dict_worker_fault_is_http_500(code: str) -> None:
     assert status_holder[0].startswith("500")
     assert parsed.get("code") == code
     assert parsed.get("id") == "fault-1"
+
+
+def test_empty_result_json_is_500() -> None:
+    """Empty result_json used to fall through and json.dumps a dict of bytes."""
+    from compute_service.server import _send_execution_result
+
+    status_holder: list[str] = []
+
+    def start_response(status: str, resp_headers: list) -> None:
+        status_holder.append(status)
+        del resp_headers
+
+    out = _send_execution_result(
+        start_response,
+        {"status": "ok", "result_json": b""},
+        "empty-1",
+    )
+    parsed = json.loads(b"".join(out))
+    assert status_holder[0].startswith("500")
+    assert parsed.get("code") == "EMPTY_RESPONSE"
+    assert parsed.get("id") == "empty-1"
+    assert "result_json" not in parsed
 
 
 def test_result_json_worker_fault_bytes_are_forwarded_at_200() -> None:
@@ -2858,8 +2881,8 @@ def test_log_level_cli_arg() -> None:
         assert settings.log_level == "WARNING"
 
 
-def test_accept_time_tracked_on_server() -> None:
-    """_DeadlineRequestHandler must read accept time from the server's tracking dictionary."""
+def test_accept_time_tracked_on_connection() -> None:
+    """The accept map is keyed by the connection object, not id(conn)."""
     from compute_service.server import WSGIDualStackServer
 
     server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
@@ -2869,7 +2892,7 @@ def test_accept_time_tracked_on_server() -> None:
         mock_conn = MagicMock()
         handler.connection = mock_conn
         handler.server = server.srv
-        handler.server._accept_times[id(mock_conn)] = 12345.678
+        handler.server._accept_times[mock_conn] = 12345.678
         handler.client_address = ("127.0.0.1", 54321)
         handler.request_version = "HTTP/1.1"
         handler.command = "GET"
@@ -2883,7 +2906,7 @@ def test_accept_time_tracked_on_server() -> None:
             assert environ.get("compute.accept_time") == 12345.678
     finally:
         server.server_close()
-        assert server.srv._accept_times == {}
+        assert len(server.srv._accept_times) == 0
 
 
 def test_run_with_logging_deadline_skips_second_status_after_headers() -> None:
@@ -3061,6 +3084,42 @@ def test_session_reset_passes_bounded_timeout() -> None:
     assert 0 < seen[0] <= 5.0
 
 
+def test_vision_unknown_helper_is_400() -> None:
+    """An unknown helper used to reach the worker and come back as 500."""
+
+    class _Pool:
+        def execute(self, **_kwargs: Any) -> dict[str, Any]:
+            raise AssertionError("unknown helper must not reach the pool")
+
+    app = create_wsgi_app(ComputeSettings())
+    payload = json.dumps({"id": "bad-h", "helper": "detect_objects", "image_b64": "YQ=="}).encode("utf-8")
+    with patch("compute_service.vision_pool.get_vision_pool", return_value=_Pool()):
+        status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+    assert status.startswith("400")
+    assert body.get("code") == "INVALID_REQUEST"
+    assert body.get("id") == "bad-h"
+    assert "detect_objects" in str(body.get("error"))
+
+
+def test_vision_blank_helper_defaults_to_extract_text() -> None:
+    seen: list[str] = []
+
+    class _Pool:
+        def execute(self, **kwargs: Any) -> dict[str, Any]:
+            seen.append(str(kwargs.get("helper")))
+            return {"status": "ok", "id": kwargs.get("req_id")}
+
+    app = create_wsgi_app(ComputeSettings())
+    with patch("compute_service.vision_pool.get_vision_pool", return_value=_Pool()):
+        absent = json.dumps({"id": "def-h", "image_b64": "YQ=="}).encode("utf-8")
+        blank = json.dumps({"id": "def-h", "helper": "  ", "image_b64": "YQ=="}).encode("utf-8")
+        for payload in (absent, blank):
+            status, _headers, parsed = _wsgi_post(app, payload, path="/v1/vision")
+            assert status.startswith("200")
+            assert parsed.get("status") == "ok"
+    assert seen == ["extract_text", "extract_text"]
+
+
 def test_vision_missing_image_is_400_with_code() -> None:
     """A vision request with no image used to be a generic 400 with no code."""
     app = create_wsgi_app(ComputeSettings())
@@ -3216,7 +3275,7 @@ def test_header_deadline_fires_inside_handle() -> None:
         handler.wfile = wfile
         handler.client_address = ("127.0.0.1", 0)
         handler.close_connection = True
-        handler.server = type("Srv", (), {"_accept_times": {id(server_sock): time.monotonic() - 100.0}})()
+        handler.server = type("Srv", (), {"_accept_times": {server_sock: time.monotonic() - 100.0}})()
         started = time.monotonic()
         with pytest.raises(socket.timeout):
             handler.handle()

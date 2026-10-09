@@ -35,6 +35,33 @@ def cleanup_formula_pool():
     os.environ.pop("WRITERAGENT_COMPUTE_WORKER", None)
 
 
+def test_shared_mode_without_session_id_does_not_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """mode=shared with no session id must not run as an isolated cell.
+
+    HTTP already rejects this. The pool used to lease a worker, and the
+    child treated a missing id as isolated.
+    """
+    spawns = {"n": 0}
+
+    def _no_spawn(self: object, timeout_sec: float = 0.0) -> None:
+        del self, timeout_sec
+        spawns["n"] += 1
+
+    monkeypatch.setattr("compute_service.worker_base.BaseProcessWorker.respawn", _no_spawn)
+    pool = FormulaProcessPool(num_workers=1, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
+    try:
+        spawned_at_init = spawns["n"]
+        for sid in (None, "", "   "):
+            res = pool.execute(code="result = 1", session_id=sid, mode="shared", req_id="nosid")
+            assert res.get("status") == "error"
+            assert res.get("code") == "INVALID_REQUEST"
+            assert res.get("id") == "nosid"
+            assert "session_id" in str(res.get("error"))
+        assert spawns["n"] == spawned_at_init
+    finally:
+        pool.shutdown()
+
+
 class TestFormulaPoolSupervisor:
     def test_session_locks_removed_and_reset_succeeds(self) -> None:
         """Verify dead session locks are removed and reset_session succeeds cleanly."""
