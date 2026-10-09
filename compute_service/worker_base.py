@@ -41,7 +41,7 @@ from compute_service.worker_stdio import (
     set_pdeathsig,
     unpack_restricted_pickle_frame,
 )
-from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
+from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, run_in_background, start_stderr_drain
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, IpcPartialFrameTimeout, read_pickle_frame_with_timeout, write_pickle_frame_with_timeout
 from plugin.scripting.sandbox import optimize_popen_pipes, scrub_subprocess_env
 
@@ -380,6 +380,8 @@ class BaseProcessWorker:
         # One deadline covers spawn, the stdin write, and the stdout read.
         # The error text keeps this original value so a handshake that used
         # the whole budget does not report "exceeded 0 seconds".
+        # What was wrong: int(budget_sec) still printed 0 for any budget under
+        # one second (int(0.25) == 0). Two decimals keep that original value.
         budget_sec = max(0.01, float(timeout_sec))
         with self.lock:
             deadline = time.monotonic() + budget_sec
@@ -436,7 +438,7 @@ class BaseProcessWorker:
                 self.tasks_executed += 1
                 return self._fail_request(
                     "EXECUTION_TIMEOUT",
-                    f"Execution exceeded maximum timeout of {int(budget_sec)} seconds.",
+                    f"Execution exceeded maximum timeout of {budget_sec:.2f} seconds.",
                     budget_sec=budget_sec,
                     pid=_pid(),
                     kill=True,
@@ -458,7 +460,7 @@ class BaseProcessWorker:
                 self.tasks_executed += 1
                 return self._fail_request(
                     "EXECUTION_TIMEOUT",
-                    f"Execution exceeded maximum timeout of {int(budget_sec)} seconds.",
+                    f"Execution exceeded maximum timeout of {budget_sec:.2f} seconds.",
                     budget_sec=budget_sec,
                     pid=_pid(),
                     timeout=True,
@@ -475,7 +477,7 @@ class BaseProcessWorker:
                 self.tasks_executed += 1
                 return self._fail_request(
                     "EXECUTION_TIMEOUT",
-                    f"Execution exceeded maximum timeout of {int(budget_sec)} seconds.",
+                    f"Execution exceeded maximum timeout of {budget_sec:.2f} seconds.",
                     budget_sec=budget_sec,
                     pid=_pid(),
                     timeout=False,
@@ -502,12 +504,16 @@ class BaseProcessWorker:
         with self._drain_lock:
             self._drain_state = _DrainState.DRAINING
             self._release_cb = None
-        threading.Thread(
-            target=self._drain_late_response,
-            args=(proc, stdout, timeout_sec),
+        # A long stdout read that release_worker waits on. dedicated=True so
+        # it does not occupy a slot in the shared background pool.
+        run_in_background(
+            self._drain_late_response,
+            proc,
+            stdout,
+            timeout_sec,
             name=f"{self.worker_name}-drain-{self.worker_id}",
-            daemon=True,
-        ).start()
+            dedicated=True,
+        )
 
     def _drain_late_response(self, proc: subprocess.Popen[bytes] | None, stdout: Any, timeout_sec: float) -> None:
         try:
