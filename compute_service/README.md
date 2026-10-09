@@ -318,7 +318,7 @@ The host is a proxy: auth, sticky routing, timeouts, worker lease. One deseriali
 - Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`. Plots `find_image_payloads` returns move to `images` and become null in `result`. An image that scan did not return stays inline; it is not replaced with null.
 - HTTP: `_start_raw_json` writes `result_json` as the response body.
 
-**Pickle framing** (control envelope only — [`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py), [`worker_base.py`](worker_base.py)):
+**Pickle framing** (control envelope only — [`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py) `AllowlistUnpickler`, [`worker_stdio.py`](worker_stdio.py); re-exported from [`worker_base.py`](worker_base.py)):
 
 - Write: `pickle.dumps(dict, protocol=5)` prefixed with a 4-byte big-endian length.
 - Read: 4-byte size, then exactly *N* bytes, `pickle.loads`.

@@ -2760,7 +2760,8 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
 
 def test_run_worker_stdio_loop_handles_non_dict_return(monkeypatch) -> None:
     """When a worker handler returns non-dict, run_worker_stdio_loop formats an error dict."""
-    from compute_service.worker_base import read_pickle_frame, run_worker_stdio_loop, write_pickle_frame
+    from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+    from compute_service.worker_base import run_worker_stdio_loop
 
     stdin_buf = io.BytesIO()
     stdout_buf = io.BytesIO()

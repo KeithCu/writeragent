@@ -115,16 +115,39 @@ _NUMPY_RECONSTRUCT_PAIRS = frozenset({
 })
 
 
-class _SafeUnpickler(pickle.Unpickler):
+class AllowlistUnpickler(pickle.Unpickler):
+    """Host unpickler: REDUCE may only call names listed on the subclass.
+
+    Two policies share this check. ``_SafeUnpickler`` (scripting / editor
+    frames) allows ``complex`` and the NumPy reconstruct entry points, and
+    may import a reconstruct module that is not loaded yet. Compute's
+    ``RestrictedUnpickler`` allows builtin containers and scalars only, and
+    never imports. A name off the list never becomes ``getattr`` on an
+    arbitrary module, so a child cannot REDUCE into ``os.system``.
+    """
+
+    _builtins_allow: frozenset[str] = frozenset()
+    _module_allow: frozenset[tuple[str, str]] = frozenset()
+    _deny_tail: str = "is not allowed"
+    _import_missing_modules: bool = False
+
     def find_class(self, module: str, name: str) -> Any:
-        if module in ("builtins", "__builtin__") and name in _SAFE_PICKLE_BUILTINS:
+        if module in ("builtins", "__builtin__") and name in self._builtins_allow:
             return getattr(builtins, name)
-        if (module, name) in _NUMPY_RECONSTRUCT_PAIRS:
+        if (module, name) in self._module_allow:
             mod = sys.modules.get(module)
             if mod is not None:
                 return getattr(mod, name)
-            return super().find_class(module, name)
-        raise pickle.UnpicklingError(f"global {module}.{name} is not allowed")
+            if self._import_missing_modules:
+                return super().find_class(module, name)
+        raise pickle.UnpicklingError(f"global {module}.{name} {self._deny_tail}")
+
+
+class _SafeUnpickler(AllowlistUnpickler):
+    _builtins_allow: frozenset[str] = _SAFE_PICKLE_BUILTINS
+    _module_allow: frozenset[tuple[str, str]] = _NUMPY_RECONSTRUCT_PAIRS
+    _deny_tail: str = "is not allowed"
+    _import_missing_modules: bool = True
 
 
 class IpcFrameError(ValueError):

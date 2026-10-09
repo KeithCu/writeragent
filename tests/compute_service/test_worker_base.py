@@ -188,6 +188,29 @@ def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
         unpack_restricted_pickle_frame(np_dangerous)
 
 
+def test_host_unpicklers_share_allowlist_and_keep_policies() -> None:
+    """Compute and scripting frames share one unpickler; the allowlists stay different."""
+    import pickle
+
+    from compute_service.worker_base import RestrictedUnpickler, unpack_restricted_pickle_frame
+    from plugin.scripting.ipc import AllowlistUnpickler, _SafeUnpickler, unpack_pickle_frame
+
+    assert issubclass(RestrictedUnpickler, AllowlistUnpickler)
+    assert issubclass(_SafeUnpickler, AllowlistUnpickler)
+
+    class Exploit:
+        def __reduce__(self) -> tuple[object, tuple[str]]:
+            import os
+
+            return (os.system, ("echo pwned",))
+
+    payload = pickle.dumps(Exploit(), protocol=5)
+    with pytest.raises(ValueError, match="forbidden in compute child frames"):
+        unpack_restricted_pickle_frame(payload)
+    with pytest.raises(ValueError, match="is not allowed"):
+        unpack_pickle_frame(payload)
+
+
 def test_run_worker_stdio_loop_breaks_on_decode_error(monkeypatch: pytest.MonkeyPatch) -> None:
     import io
     import struct
@@ -329,8 +352,8 @@ def test_run_worker_stdio_loop_oversized_result_recovers(monkeypatch: pytest.Mon
     import io
     import sys
     import types
-    from compute_service.worker_base import read_pickle_frame, run_worker_stdio_loop
-    from plugin.scripting.ipc import pack_pickle_frame
+    from compute_service.worker_base import run_worker_stdio_loop
+    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
 
     # Request 1 returns oversized bytes; Request 2 returns normal result
     req1 = {"id": "req-1", "action": "oversized"}
@@ -376,8 +399,8 @@ def test_run_worker_stdio_loop_catches_base_exception(monkeypatch: pytest.Monkey
     import io
     import sys
     import types
-    from compute_service.worker_base import read_pickle_frame, run_worker_stdio_loop
-    from plugin.scripting.ipc import pack_pickle_frame
+    from compute_service.worker_base import run_worker_stdio_loop
+    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
 
     req1 = {"id": "req-base-exc"}
     req2 = {"id": "req-normal"}
