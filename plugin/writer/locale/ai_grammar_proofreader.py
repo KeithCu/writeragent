@@ -828,7 +828,11 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             if model is not None:
                 from plugin.framework.uno_context import get_runtime_uid
                 try:
-                    uid = get_runtime_uid(model)
+                    # Linguistic Dummy-* called @main_thread_only get_runtime_uid
+                    # directly. The guard posted a violation dialog, then this
+                    # except swallowed the RuntimeError, so the ignore map stayed
+                    # empty. Same UI-thread hop as the persistence bind above.
+                    uid = _run_on_main_thread(get_runtime_uid, model)
                     if uid:
                         if not hasattr(self, "_doc_id_for_ignore"):
                             self._doc_id_for_ignore = {}

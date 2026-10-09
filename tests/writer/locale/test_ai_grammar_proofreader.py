@@ -861,6 +861,36 @@ class TestTypingIntegration:
         assert mock_exec.call_args[0][1:] == (pr.ctx, "test-doc")
         mock_bind.assert_called_once_with(pr.ctx, "test-doc")
 
+    def test_do_proofreading_marshals_runtime_uid_off_main_thread(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        """Linguistic workers must hop get_runtime_uid; the ignore map still fills."""
+        pr = _make_proofreader()
+        model = object()
+        seen: list[tuple[Any, tuple[Any, ...]]] = []
+
+        def fake_exec(fn: Any, *args: Any, **kwargs: Any) -> Any:
+            seen.append((fn, args))
+            return fn(*args, **kwargs)
+
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_exec),
+            patch(
+                "plugin.writer.locale.grammar_persistence.get_document_model_for_id",
+                return_value=model,
+            ),
+            patch("plugin.framework.uno_context.get_runtime_uid", return_value="rt-1") as mock_uid,
+            patch(
+                "plugin.writer.locale.ai_grammar_proofreader.candidate_sentence_spans_for_proofreading",
+                return_value=[],
+            ),
+        ):
+            pr.doProofreading("test-doc", "Hello.", mock_locale_fixture, 0, 6, ())
+
+        assert (mock_uid, (model,)) in seen
+        assert pr._doc_id_for_ignore["rt-1"] == "test-doc"
+
 
 def _writer_model() -> MagicMock:
     model = MagicMock()
