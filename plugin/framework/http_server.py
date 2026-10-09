@@ -82,7 +82,8 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     """HTTPServer that listens on both IPv4 and IPv6 loopback (or a single host) using a ThreadPoolExecutor.
 
     The socket accept loop uses selectors.DefaultSelector to monitor all bound sockets concurrently.
-    Incoming connections are submitted to a ThreadPoolExecutor with bounded capacity.
+    Incoming connections are submitted to a ThreadPoolExecutor. The worker count is bounded.
+    The accept queue is not: a burst waits for a thread instead of being rejected.
     Supports optional TLS socket wrapping and socket read/write timeouts.
     """
 

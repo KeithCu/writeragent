@@ -32,12 +32,7 @@ from compute_service.http_server import (
     _REQUEST_WRITE_TIMEOUT_SEC,
     _accept_clock,
     _request_deadline,
-    DeadlineRequestHandler,
-    DualStackThreadPoolHTTPServer,
-    ListenerBudget,
     WSGIDualStackServer,
-    listener_budget,
-    listener_thread_count,
     service_listener_threads,
     sticky_listener_slots,
 )
@@ -53,58 +48,6 @@ from plugin.vision.vision_common import IMPLEMENTED_HELPERS
 
 log = logging.getLogger("compute_service")
 
-__all__ = [
-    "DeadlineRequestHandler",
-    "DualStackThreadPoolHTTPServer",
-    "ExecuteFn",
-    "ListenerBudget",
-    "ResetFn",
-    "WSGIDualStackServer",
-    "_HTTP_DRAIN_SEC",
-    "_HTTP_STATUS_BY_CODE",
-    "_REQUEST_READ_TIMEOUT_SEC",
-    "_REQUEST_WRITE_TIMEOUT_SEC",
-    "_ROUTE_ALLOW",
-    "_accept_clock",
-    "_authenticate_or_401",
-    "_build_arg_parser",
-    "_check_keyless_cors",
-    "_drain_body_before_error",
-    "_error",
-    "_execute_admission_timeout",
-    "_gated",
-    "_handle_execute",
-    "_handle_session_reset",
-    "_handle_vision",
-    "_infrastructure_status",
-    "_inject_req_id",
-    "_load_execute_request",
-    "_parse_session_id",
-    "_payload_status",
-    "_read_optional_request_json",
-    "_read_request_body",
-    "_read_request_json",
-    "_reject_chunked",
-    "_request_deadline",
-    "_run_with_logging_and_deadline",
-    "_send_execution_result",
-    "_set_write_deadline",
-    "_start_json",
-    "_start_raw_json",
-    "_transfer_encoding_is_chunked",
-    "_validate_source_text",
-    "_vision_admission_timeout",
-    "authenticate_request",
-    "check_dependencies",
-    "create_wsgi_app",
-    "listener_budget",
-    "listener_thread_count",
-    "main",
-    "run_server",
-    "service_listener_threads",
-    "setup_logging",
-    "sticky_listener_slots",
-]
 
 def setup_logging(level_name: str = "INFO") -> None:
     """Configure standard logging format and level for the compute service."""
@@ -757,7 +700,13 @@ def _gated(
             log.exception("fail %s prepare: %s", path, e)
             if started:
                 return []
-            return _error(_start, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR")
+            return _error(
+                _start,
+                "500 Internal Server Error",
+                "Internal server execution failure",
+                code="INTERNAL_ERROR",
+                req_id=environ.get("compute.req_id"),
+            )
         if prep_err is not None:
             return prep_err
 
@@ -801,7 +750,13 @@ def _gated(
             log.exception("fail %s: %s", path, e)
             if started:
                 return []
-            return _error(_start, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR")
+            return _error(
+                _start,
+                "500 Internal Server Error",
+                "Internal server execution failure",
+                code="INTERNAL_ERROR",
+                req_id=environ.get("compute.req_id"),
+            )
     finally:
         if semaphore is not None:
             semaphore.release()
@@ -815,7 +770,11 @@ def _run_with_logging_and_deadline(
     start_msg: str,
     action: Callable[[float], list[bytes]],
 ) -> list[bytes]:
-    """Execute request action with deadline check, duration logging, and 500 error boundary."""
+    """Run *action* after the deadline check. Failures propagate to ``_gated``.
+
+    ``_gated`` sends the JSON 500, or an empty body when headers are already
+    out. This helper does not call ``start_response`` on the failure path.
+    """
     if time.monotonic() >= deadline:
         return _error(
             start_response,
@@ -829,19 +788,17 @@ def _run_with_logging_and_deadline(
     start_t = time.perf_counter()
     try:
         return action(start_t)
-    except Exception as e:
+    except Exception as exc:
         duration_ms = (time.perf_counter() - start_t) * 1000.0
-        log.exception("fail %s id=%r duration=%.2fms: %s", label, req_id, duration_ms, e)
-        try:
-            return _error(start_response, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR", req_id=req_id)
-        except AssertionError:
-            # What was wrong: action can call start_response and then raise.
-            # This helper caught that before _gated's started flag, so a second
-            # start_response hit wsgiref ("Headers already set!").
-            # Why this change: the status line is already committed. Log it
-            # and return an empty body.
-            log.exception("error response after headers already started for %s id=%r", label, req_id)
-            return []
+        # What was wrong: _error() here is a second start_response. The catch
+        # only handled wsgiref's AssertionError ("Headers already set!"), so
+        # any other second-call failure escaped this helper.
+        # How: action sends headers, then raises. _gated already has a started
+        # flag for that case and never saw the exception.
+        # Why this change: log the duration and re-raise. _gated writes the
+        # status, once.
+        log.info("fail %s id=%r duration=%.2fms: %s", label, req_id, duration_ms, exc)
+        raise
 
 
 def _load_execute_request(
@@ -995,6 +952,10 @@ def _handle_session_reset(
     assert req_data is not None
 
     req_id = req_data.get("id")
+    # Execute and vision store this during admission. Reset has no admission
+    # peel, and _gated's 500 reads the same key.
+    if req_id is not None:
+        environ["compute.req_id"] = req_id
 
     if "session_id" in req_data:
         return _error(start_response, "400 Bad Request", "session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.", req_id=req_id)
@@ -1132,9 +1093,9 @@ def create_wsgi_app(
 ) -> Callable[[dict[str, Any], Any], list[bytes]]:
     """Build a WSGI app bound to *settings* (and optional test hooks).
 
-    Executor / pool imports are deferred until the first ``/v1/execute`` or
-    ``/v1/session/reset`` so config/auth startup does not pull WriterAgent
-    ``plugin.framework.config``.
+    The formula pool is imported on the request path so config/auth startup
+    does not pull WriterAgent ``plugin.framework.config``. Each execute and
+    reset resolves the current pool.
 
     Isolated ``/v1/execute`` takes a permit sized to ``settings.workers``.
     ``/v1/vision`` takes one sized to the vision pool. Sticky execute
@@ -1146,29 +1107,31 @@ def create_wsgi_app(
     still occupy a listener before the permit. ``worker_semaphore`` and
     ``vision_semaphore`` override those gates in tests.
     """
-    run_execute = execute_fn
-    run_reset = reset_fn
     if worker_semaphore is None:
         worker_semaphore = threading.Semaphore(settings.workers)
     if vision_semaphore is None:
         vision_semaphore = threading.Semaphore(max(1, settings.ocr_workers))
     sticky_semaphore = threading.Semaphore(sticky_listener_slots(settings))
 
-    def _get_execute() -> ExecuteFn:
-        nonlocal run_execute
-        if run_execute is None:
-            from compute_service.formula_pool import get_formula_pool
+    def _current_formula_pool() -> Any:
+        # What was wrong: the first call cached pool.execute / reset_session.
+        # shutdown_formula_pool() without permanent=True builds a new pool on
+        # the next get, and this app kept calling the dead one's bound methods.
+        # Why this change: get() is a lock and a singleton read. Take the
+        # method from whatever pool is current.
+        from compute_service.formula_pool import get_formula_pool
 
-            run_execute = get_formula_pool(settings).execute
-        return run_execute
+        return get_formula_pool(settings)
+
+    def _get_execute() -> ExecuteFn:
+        if execute_fn is not None:
+            return execute_fn
+        return _current_formula_pool().execute
 
     def _get_reset() -> ResetFn:
-        nonlocal run_reset
-        if run_reset is None:
-            from compute_service.formula_pool import get_formula_pool
-
-            run_reset = get_formula_pool(settings).reset_session
-        return run_reset
+        if reset_fn is not None:
+            return reset_fn
+        return _current_formula_pool().reset_session
 
     def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         path = environ.get("PATH_INFO", "")

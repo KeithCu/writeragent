@@ -2290,7 +2290,7 @@ class TestListenerQueue:
         The executor queue is unbounded, so an extra accept waits for a thread.
         A worker or vision permit waits until the request deadline, then 503.
         """
-        from compute_service.server import DualStackThreadPoolHTTPServer
+        from compute_service.http_server import DualStackThreadPoolHTTPServer
 
         server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _AcceptedConnectionHandler, max_threads=1)
         hold = threading.Event()
@@ -2334,7 +2334,8 @@ def test_flatten_config_json_rejects_api_key() -> None:
 
 def test_sticky_slots_scale_with_formula_workers() -> None:
     """Four formula workers used to share one sticky listener slot."""
-    from compute_service.server import listener_thread_count, service_listener_threads, sticky_listener_slots
+    from compute_service.http_server import listener_thread_count
+    from compute_service.server import service_listener_threads, sticky_listener_slots
 
     wide = ComputeSettings(workers=4, ocr_workers=0)
     assert sticky_listener_slots(wide) == 4
@@ -2491,7 +2492,7 @@ def test_partial_bind_address_in_use_raises() -> None:
     """
     import errno
 
-    from compute_service.server import DualStackThreadPoolHTTPServer
+    from compute_service.http_server import DualStackThreadPoolHTTPServer
 
     holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     holder.bind(("127.0.0.1", 0))
@@ -2567,7 +2568,7 @@ def test_expect_100_continue_before_body() -> None:
 
 def test_dual_stack_closes_tcpserver_throwaway_socket(monkeypatch) -> None:
     """TCPServer.__init__ opens a socket even when bind_and_activate is False."""
-    from compute_service.server import DualStackThreadPoolHTTPServer
+    from compute_service.http_server import DualStackThreadPoolHTTPServer
 
     created: list[socket.socket] = []
     real_socket = socket.socket
@@ -2920,12 +2921,67 @@ def test_accept_time_tracked_on_connection() -> None:
         assert len(server.srv._accept_times) == 0
 
 
+def test_wsgi_app_uses_the_current_formula_pool() -> None:
+    """A replaced formula pool is used on the next execute and session reset.
+
+    What was wrong: create_wsgi_app cached pool.execute and reset_session on
+    first use. shutdown_formula_pool() plus a new pool left those bound methods
+    pointing at the dead pool.
+    """
+    first = MagicMock()
+    second = MagicMock()
+    first.execute.return_value = {"status": "ok", "result": 1}
+    second.execute.return_value = {"status": "ok", "result": 2}
+    first.reset_session.return_value = {"status": "ok"}
+    second.reset_session.return_value = {"status": "ok"}
+    current = {"pool": first}
+
+    def get_pool(_settings: object = None) -> MagicMock:
+        return current["pool"]
+
+    payload = json.dumps({"code": "result = 1"}).encode("utf-8")
+    with patch("compute_service.formula_pool.get_formula_pool", side_effect=get_pool) as get_mock:
+        app = create_wsgi_app(ComputeSettings())
+        status, _headers, body = _wsgi_post(
+            app,
+            payload,
+            path="/v1/execute",
+            headers={"Content-Type": "application/json"},
+        )
+        assert status.startswith("200")
+        assert body["result"] == 1
+        reset_status, _reset_headers, reset_body = _wsgi_post(app, b"{}", query="session_id=wb1")
+        assert reset_status.startswith("200")
+        assert reset_body["status"] == "ok"
+        first.execute.assert_called_once()
+        first.reset_session.assert_called_once()
+        assert first.reset_session.call_args.args[0] == "wb1"
+
+        current["pool"] = second
+        status, _headers, body = _wsgi_post(
+            app,
+            payload,
+            path="/v1/execute",
+            headers={"Content-Type": "application/json"},
+        )
+        assert status.startswith("200")
+        assert body["result"] == 2
+        reset_status, _reset_headers, reset_body = _wsgi_post(app, b"{}", query="session_id=wb1")
+        assert reset_status.startswith("200")
+        assert reset_body["status"] == "ok"
+        second.execute.assert_called_once()
+        second.reset_session.assert_called_once()
+        assert first.execute.call_count == 1
+        assert first.reset_session.call_count == 1
+        assert get_mock.call_count == 4
+
+
 def test_run_with_logging_deadline_skips_second_status_after_headers() -> None:
     """A raise after start_response must not call start_response again.
 
     What was wrong: _run_with_logging_and_deadline called _error after action
-    had already sent headers. wsgiref raises AssertionError on the second call,
-    and _gated never saw the exception.
+    had already sent headers, and only swallowed wsgiref's AssertionError.
+    The exception now propagates so _gated can see that headers started.
     """
     from compute_service.server import _run_with_logging_and_deadline
 
@@ -2942,19 +2998,20 @@ def test_run_with_logging_deadline_skips_second_status_after_headers() -> None:
         start_response("200 OK", [("Content-Type", "application/json")])
         raise RuntimeError("late")
 
-    body = _run_with_logging_and_deadline(
-        start_response,
-        label="/v1/execute",
-        req_id="late",
-        deadline=time.monotonic() + 5,
-        start_msg="exec",
-        action=action,
-    )
-    assert body == []
+    with pytest.raises(RuntimeError, match="late"):
+        _run_with_logging_and_deadline(
+            start_response,
+            label="/v1/execute",
+            req_id="late",
+            deadline=time.monotonic() + 5,
+            start_msg="exec",
+            action=action,
+        )
     assert calls == ["200 OK"]
 
 
 def test_run_with_logging_deadline_errors_before_headers() -> None:
+    """A raise before headers propagates. _gated sends the JSON 500."""
     from compute_service.server import _run_with_logging_and_deadline
 
     calls: list[str] = []
@@ -2967,16 +3024,16 @@ def test_run_with_logging_deadline_errors_before_headers() -> None:
         del start_t
         raise RuntimeError("early")
 
-    body = _run_with_logging_and_deadline(
-        start_response,
-        label="/v1/execute",
-        req_id="early",
-        deadline=time.monotonic() + 5,
-        start_msg="exec",
-        action=action,
-    )
-    assert calls == ["500 Internal Server Error"]
-    assert body and b"INTERNAL_ERROR" in body[0]
+    with pytest.raises(RuntimeError, match="early"):
+        _run_with_logging_and_deadline(
+            start_response,
+            label="/v1/execute",
+            req_id="early",
+            deadline=time.monotonic() + 5,
+            start_msg="exec",
+            action=action,
+        )
+    assert calls == []
 
 
 def test_real_socket_queue_timeout() -> None:
@@ -3284,7 +3341,7 @@ def test_isolated_mode_with_session_id_rejected() -> None:
 
 def test_header_deadline_fires_inside_handle() -> None:
     """A request line that arrives after the accept deadline returns 408 instead of a traceback."""
-    from compute_service.server import DeadlineRequestHandler
+    from compute_service.http_server import DeadlineRequestHandler
 
     client, server_sock = socket.socketpair()
     try:

@@ -67,11 +67,13 @@ class ListenerBudget:
 
     ``listeners`` is ``max(listener_thread_count(settings.threads), needed)``
     where ``needed`` is formula workers, plus ``max(1, ocr_workers)`` vision
-    permits, plus one sticky slot per formula worker, plus two threads for
-    ``GET /health``. ``sticky`` is what remains after the isolated workers,
-    the vision permits, and those two health threads. When the historical
-    floor wins, sticky is larger than the worker count (default: 8 listeners
-    and 3 sticky slots).
+    permits, plus one sticky slot per formula worker, plus two threads that
+    are not given a permit. ``sticky`` is what remains after the isolated
+    workers, the vision permits, and those two. Admitted work cannot fill
+    every listener, so ``GET /health`` is not stuck behind a permit. A header
+    or body read still occupies its listener before that permit. When the
+    historical floor wins, sticky is larger than the worker count (default:
+    8 listeners and 3 sticky slots).
     """
 
     listeners: int
@@ -97,11 +99,12 @@ def service_listener_threads(settings: ComputeSettings) -> int:
     """Accept-pool size for one running compute service.
 
     ``settings.threads`` is formula workers plus OCR workers. That count plus
-    four left one spare once vision and the two health threads were reserved,
-    so a second sticky workbook got 503 while other workers were idle. One
-    sticky slot per formula worker, the vision permit (present even when OCR
-    is off), and two threads for ``GET /health``. Small pools stay on the
-    historical floor from ``listener_thread_count``.
+    four left one spare once vision and the two unpermitted threads were
+    counted, so a second sticky workbook got 503 while other workers were
+    idle. One sticky slot per formula worker, the vision permit (present even
+    when OCR is off), and two threads with no permit. Those two are not held
+    back during a header or body read. Small pools stay on the historical
+    floor from ``listener_thread_count``.
     """
     return listener_budget(settings).listeners
 
