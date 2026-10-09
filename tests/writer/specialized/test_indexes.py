@@ -468,6 +468,9 @@ def test_insert_toc_entry_param_errors_and_dry_run():
     bad_url = tool.execute(ctx, content="Gamma", hyperlink_url="#__RefHeading___Toc1")
     assert bad_url["code"] == "INVALID_PARAM"
     assert "outline" in bad_url["message"]
+    locator = tool.execute(ctx, content="Annex", hyperlink_url="table:Taula69")
+    assert locator["code"] == "INVALID_PARAM"
+    assert "table" in locator["message"]
     bad_level = tool.execute(ctx, content="Gamma", level=0)
     assert bad_level["code"] == "INVALID_PARAM"
     idx.update.assert_not_called()
@@ -486,11 +489,18 @@ def test_insert_toc_entry_param_errors_and_dry_run():
         leveled = tool.execute(
             ctx, content="Gamma title", page=4, level=2, dry_run=True,
             hyperlink_url="#1.Gamma title|outline")
+        table_link = tool.execute(
+            ctx, content="Annex cover", page="9", dry_run=True,
+            hyperlink_url="#Taula69|table")
     assert leveled["status"] == "ok", leveled
     assert leveled["text_after"] == "Gamma title\t4"
     assert leveled["page_from_sibling"] is False
     assert leveled["para_style"] == "Contents 2"
     assert leveled["hyperlink_url"] == "#1.Gamma title|outline"
+    assert table_link["status"] == "ok", table_link
+    assert table_link["hyperlink_url"] == "#Taula69|table"
+    assert table_link["text_after"] == "Annex cover\t9"
+    assert table_link["page_from_sibling"] is False
     idx.update.assert_not_called()
 
 

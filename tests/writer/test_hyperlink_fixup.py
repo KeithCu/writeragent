@@ -367,6 +367,22 @@ def test_restore_leaves_the_url_when_the_matched_text_is_not_in_it():
     assert reports[0]["hyperlink_updated"] is False
 
 
+def test_restore_puts_a_table_url_back_when_the_replace_clears_it():
+    """A table target is a stable name. A title change must not turn it into an outline URL."""
+    table_url = "#Taula69|table"
+    title = _Slice("Annex", table_url)
+    doc = _Doc([title])
+    snapshot = capture_outline_hyperlinks(_match(doc, 0, 5))
+    assert snapshot.links == []
+    assert snapshot.preserve_url == table_url
+    _replace_equal(title, "Cover")
+    title.url = ""
+    reports = restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "Cover", None)
+    assert title.url == table_url
+    assert "|outline" not in title.url
+    assert reports == []
+
+
 def test_restore_puts_a_bookmark_url_back_when_the_replace_clears_it():
     """setString drops HyperLinkURL on the characters it rewrites. A bookmark target stays."""
     title = _Slice("Old title", _BOOKMARK)

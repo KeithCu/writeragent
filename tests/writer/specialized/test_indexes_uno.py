@@ -669,3 +669,71 @@ def test_list_toc_entries_reads_linked_rows_without_export_uno(ctx, doc):
     assert alpha_row["hyperlink_url"] == outline, alpha_row
     assert beta_row["hyperlink_url"] == bookmark, beta_row
     assert all(row["text"].strip() != "Contents" for row in rows), rows
+
+
+@native_test
+@with_native_doc("writer")
+def test_insert_toc_entry_links_a_text_table_uno(ctx, doc):
+    """One TOC row can target a text table (#Name|table) without update().
+
+    Discussion #1426: the annex cover is a TextTable, not an outline heading.
+    LibreOffice stores that jump as #Name|table. A direct color that survives
+    means update() did not rebuild the index.
+    """
+    text = doc.getText()
+    text.setString("")
+    _add_heading(text, "Alpha title", True)
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), table, False)
+    table.setName("Taula69")
+    table.getCellByName("A1").setString("Annex")
+    tctx = _tool_ctx(ctx, doc)
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    assert created.get("status") == "ok", created
+    toc = doc.getDocumentIndexes().getByIndex(0)
+    entries = _tab_paragraphs(doc)
+    assert len(entries) >= 1, _entry_strings(doc)
+    protected = bool(toc.getPropertyValue("IsProtected"))
+    if protected:
+        toc.IsProtected = False
+    alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
+    _paint_entry(text, alpha, "#1.Alpha title|outline", color=0x0000FF)
+    cur = text.createTextCursorByRange(alpha.getStart())
+    cur.gotoRange(alpha.getEnd(), True)
+    cur.setPropertyValue("CharUnderline", 0)
+    if protected:
+        toc.IsProtected = True
+    alpha_before = alpha.getString()
+
+    table_url = "#Taula69|table"
+    inserted = IndexesInsertTocEntry().execute(
+        tctx,
+        content="Annex cover",
+        page="9",
+        position="after",
+        old_content="Alpha title",
+        hyperlink_url=table_url,
+    )
+    assert inserted.get("status") == "ok", inserted
+    assert inserted.get("hyperlink_url") == table_url, inserted
+    assert inserted.get("text_after", "").startswith("Annex cover\t9"), inserted
+    assert inserted.get("page_from_sibling") is False, inserted
+    assert doc.getTextTables().hasByName("Taula69")
+
+    listed = IndexesListTocEntries().execute(tctx)
+    assert listed.get("status") == "ok", listed
+    annex = next(row for row in listed["entries"] if "Annex cover" in row["text"])
+    assert annex["hyperlink_url"] == table_url, annex
+    assert annex["text"].startswith("Annex cover\t9"), annex
+    alpha_row = next(row for row in listed["entries"] if row["text"] == alpha_before or "Alpha title" in row["text"])
+    assert alpha_row["hyperlink_url"] == "#1.Alpha title|outline", alpha_row
+
+    gamma = next(para for para in _tab_paragraphs(doc) if "Annex cover" in (para.getString() or ""))
+    looks = _paragraph_looks(gamma)
+    assert looks, looks
+    assert any(url == table_url for _chunk, url, _color, _underline in looks), looks
+    for chunk, _url, color, underline in looks:
+        assert color == 0x0000FF, (chunk, color, looks)
+        assert underline == 0, (chunk, underline, looks)
+    assert bool(toc.getPropertyValue("IsProtected")) is protected

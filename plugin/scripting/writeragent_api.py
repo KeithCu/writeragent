@@ -1350,12 +1350,12 @@ class _IndexProxy:
         return _rpc_call("indexes_delete_toc_entry", old_content=old_content, index=index, occurrence=occurrence, dry_run=dry_run)
 
     def insert_toc_entry(self, content: str, *, page: str | None = None, hyperlink_url: str | None = None, position: str | None = None, old_content: str | None = None, level: int | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None) -> dict[str, Any]:
-        """Insert one new row into an existing table of contents. Does not call index update(), and does not modify neighboring entries. Clones the sibling row's Contents N paragraph style, direct character formatting, and tab stops. Set hyperlink_url to an outline target (#…|outline). Page numbers follow the sibling row: plain text after a tab (generated TOC rows store digits in the entry, not a page field). Pass page to set that text; omit it to copy the sibling's page text. position is before, after (both need old_content), or end (after the last TOC entry). indexes_update_all is the full rebuild and drops customized TOC formatting. The agent decides what is missing; this tool does not sync the outline.
+        """Insert one new row into an existing table of contents. Does not call index update(), and does not modify neighboring entries. Clones the sibling row's Contents N paragraph style, direct character formatting, and tab stops. Set hyperlink_url to an outline target (#…|outline) or a text-table target (#Name|table). Page numbers follow the sibling row: plain text after a tab (generated TOC rows store digits in the entry, not a page field). Pass page to set that text when the new row is not on the sibling's page; omit it to copy the sibling's page text. position is before, after (both need old_content), or end (after the last TOC entry). indexes_update_all is the full rebuild and drops customized TOC formatting. The agent decides what is missing; this tool does not sync the outline.
 
         Args:
             content (required): Plain text of the new entry title. May be the full line (Title followed by a tab and the page) when page is omitted.
             page (optional): Plain page text written after a tab. Omit to copy the sibling row's page text. Not a page-number field.
-            hyperlink_url (optional): Outline target (#…|outline) for the new row only. Omit to leave the new row unlinked.
+            hyperlink_url (optional): Outline target (#…|outline) or text-table target (#Name|table) for the new row only. Omit to leave the new row unlinked.
             position (optional): Where to insert the one row. before/after need old_content. end appends after the last TOC entry. Default end. One of: before, after, end.
             old_content (optional): Plain text of the existing TOC entry to insert before or after. Not used when position is end.
             level (optional): Contents N paragraph style (1-10). Omit to clone the sibling entry's style.

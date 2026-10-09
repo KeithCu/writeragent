@@ -20,7 +20,9 @@ paragraphs (visible text, Contents N level, HyperLinkURL) and also does not
 call ``update()`` or export the document. ``indexes_update_all`` still rebuilds
 a TOC and drops customized formatting. Outline ``HyperLinkURL`` on refresh goes through
 ``hyperlink_fixup``, which skips a title-only URL rewrite when the whole-span
-write already set it. Insert sets ``#…|outline`` on the new row only.
+write already set it. Insert sets ``#…|outline`` or ``#Name|table`` on the new
+row only. A table URL is the text table's name, not the visible title, so
+refresh does not rewrite it.
 """
 
 import logging
@@ -1155,10 +1157,11 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         "Insert one new row into an existing table of contents. "
         "Does not call index update(), and does not modify neighboring entries. "
         "Clones the sibling row's Contents N paragraph style, direct character formatting, "
-        "and tab stops. Set hyperlink_url to an outline target (#…|outline). "
+        "and tab stops. Set hyperlink_url to an outline target (#…|outline) or a text-table "
+        "target (#Name|table). "
         "Page numbers follow the sibling row: plain text after a tab (generated TOC rows "
-        "store digits in the entry, not a page field). Pass page to set that text; omit it "
-        "to copy the sibling's page text. "
+        "store digits in the entry, not a page field). Pass page to set that text when the "
+        "new row is not on the sibling's page; omit it to copy the sibling's page text. "
         "position is before, after (both need old_content), or end (after the last TOC entry). "
         "indexes_update_all is the full rebuild and drops customized TOC formatting. "
         "The agent decides what is missing; this tool does not sync the outline."
@@ -1168,7 +1171,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         "properties": {
             "content": {"type": "string", "description": "Plain text of the new entry title. May be the full line (Title followed by a tab and the page) when page is omitted."},
             "page": {"type": "string", "description": "Plain page text written after a tab. Omit to copy the sibling row's page text. Not a page-number field."},
-            "hyperlink_url": {"type": "string", "description": "Outline target (#…|outline) for the new row only. Omit to leave the new row unlinked."},
+            "hyperlink_url": {"type": "string", "description": "Outline target (#…|outline) or text-table target (#Name|table) for the new row only. Omit to leave the new row unlinked."},
             "position": {"type": "string", "enum": ["before", "after", "end"], "description": "Where to insert the one row. before/after need old_content. end appends after the last TOC entry. Default end."},
             "old_content": {"type": "string", "description": "Plain text of the existing TOC entry to insert before or after. Not used when position is end."},
             "level": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Contents N paragraph style (1-10). Omit to clone the sibling entry's style."},
@@ -1325,8 +1328,14 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if not isinstance(raw, str) or not raw.strip():
             return None, "hyperlink_url must be a non-empty string."
         url = raw.strip()
-        if not url.startswith("#") or "|outline" not in url:
-            return None, "hyperlink_url must be an outline target (#…|outline)."
+        # Discussion #1426: a TOC row may jump to a text table. LibreOffice stores
+        # that as #Name|table. The table:Name locator is a different address, and
+        # this string is not an outline title, so it is stored as given.
+        if not url.startswith("#") or ("|outline" not in url and "|table" not in url):
+            return None, (
+                "hyperlink_url must be an outline target (#…|outline) "
+                "or a text-table target (#Name|table)."
+            )
         return url, None
 
     def _level(self, raw: Any) -> tuple[int | None, str | None]:
