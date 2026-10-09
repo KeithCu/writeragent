@@ -151,11 +151,11 @@ def desktop_create_is_unsafe() -> bool:
     Do not trust ``sys.argv`` alone: pythonloader inside
     ``uno.bin --singleaccept`` often leaves argv as ``['']`` or a .py path.
 
-    What was wrong: ``get_desktop`` called this on every lookup, and each
-    call re-read ``/proc/self/exe``, ``comm``, and ``cmdline``. How: nothing
-    remembered the first answer. Why: the process image does not change, so
-    the first result is cached. Tests that patch argv or
-    ``_linux_process_tokens`` call ``reset_desktop_create_is_unsafe_for_tests``.
+    The process image does not change, so the first result is cached.
+    ``get_desktop`` calls this on every lookup; re-reading ``/proc/self/exe``,
+    ``comm``, and ``cmdline`` each time is the same answer. Tests that patch
+    argv or ``_linux_process_tokens`` call
+    ``reset_desktop_create_is_unsafe_for_tests``.
     """
     global _desktop_create_unsafe
     if _desktop_create_unsafe is not None:
@@ -240,15 +240,13 @@ def product_display_name(ctx: Any | None = None) -> str:
 def _guard_returned_uno(obj: Any) -> Any:
     """Wrap a UNO boundary return. Imports ``guard_uno`` at the call.
 
-    What was wrong: ``get_ctx``, ``get_desktop``, ``get_active_document``,
-    ``get_package_info``, ``get_toolkit``, and ``resolve_document_by_url``
-    called a module-level ``_wrap_uno`` copied in at import. Patching
-    ``plugin.framework.thread_guard.guard_uno`` never saw those returns.
-    How it happened: ``from thread_guard import _wrap_uno`` binds the
-    function object; a later patch of ``guard_uno`` does not replace it.
-    Why this change: import ``guard_uno`` here, the same pattern as
-    ``get_document_from_frame``. PropertyValue media descriptors are not
-    passed through this helper.
+    Import ``guard_uno`` here, the same pattern as
+    ``get_document_from_frame``. A module-level ``_wrap_uno`` copied in at
+    import is a bound function object; patching
+    ``plugin.framework.thread_guard.guard_uno`` never sees those returns
+    from ``get_ctx``, ``get_desktop``, ``get_active_document``,
+    ``get_package_info``, ``get_toolkit``, and ``resolve_document_by_url``.
+    PropertyValue media descriptors are not passed through this helper.
     """
     from plugin.framework.thread_guard import guard_uno
 
@@ -258,15 +256,14 @@ def _guard_returned_uno(obj: Any) -> Any:
 def _stable_component_context(ctx: Any) -> Any:
     """Return one object for this component context.
 
-    What was wrong: every ``get_ctx()`` call ran ``_wrap_uno``, which builds
-    a new ``_UnoThreadGuardProxy``. Under GUARD_ON, ``get_ctx() is get_ctx()``
-    was False. The release stub returns the raw object, so identity holds.
-    How: the bootstrap context is one long-lived PyUNO object and the proxy
-    was not remembered.
-    Why: a context that is already a guard proxy is returned as that object.
-    Otherwise one proxy is cached per target. Mocks and guard-off returns
-    stay the raw object, which is already stable. QueueExecutor still
-    unwraps before it stores a context; that compare is on the raw target.
+    A context that is already a guard proxy is returned as that object.
+    Otherwise one proxy is cached per target. ``_wrap_uno`` builds a new
+    ``_UnoThreadGuardProxy`` on every call, so under GUARD_ON
+    ``get_ctx() is get_ctx()`` would be False. The release stub returns the
+    raw object, so identity holds. The bootstrap context is one long-lived
+    PyUNO object. Mocks and guard-off returns stay the raw object, which
+    is already stable. QueueExecutor still unwraps before it stores a
+    context; that compare is on the raw target.
     """
     from plugin.framework.thread_guard import _UnoThreadGuardProxy
 
@@ -289,11 +286,10 @@ def get_ctx() -> Any:
     is only used when that fallback is unset (and must not be preferred in test
     runners — see module docstring).
     """
-    # BUGFIX: In standalone runner processes (like test runners), uno.getComponentContext()
-    # returns a local standalone pyuno context that lacks a VCL instance. Attempting to
-    # instantiate com.sun.star.frame.Desktop on this local context causes a segmentation fault.
-    # We prefer the explicitly set _fallback_ctx (which holds the remote connection context)
-    # to prevent standalone runs from trying to use the local PyUNO context.
+    # In standalone runner processes (test runners), uno.getComponentContext()
+    # returns a local pyuno context with no VCL. Creating
+    # com.sun.star.frame.Desktop on that context segfaults. Prefer
+    # _fallback_ctx, the remote connection stored at extension init.
     if _fallback_ctx is not None:
         return _stable_component_context(_fallback_ctx)
     try:
@@ -354,10 +350,9 @@ def get_desktop(ctx: Any | None = None) -> Any:
 def _reraise_document_disposed(exc: BaseException, object_type: str) -> None:
     """Re-raise real UNO disposal. Other exceptions stay with the caller.
 
-    What was wrong: scratch cleanup and document lookup caught Exception and
-    treated a disposed document as empty or not open. How: DisposedException
-    is an Exception, so those handlers swallowed it. Why: only real disposal
-    (not a bare RuntimeException) becomes DocumentDisposedError.
+    Only real disposal (not a bare RuntimeException) becomes
+    DocumentDisposedError. Catching Exception and treating a disposed
+    document as empty or not open swallows DisposedException.
     """
     if not is_real_disposal(exc):
         return
@@ -377,21 +372,20 @@ def get_active_document(ctx: Any | None = None) -> Any:
         doc = safe_call(desktop.getCurrentComponent, "Desktop component resolution")
         return _guard_returned_uno(doc)
     except DocumentDisposedError:
-        # What was wrong: a document that died mid-call looked like nothing
-        # was open. How it happened: DocumentDisposedError subclasses
-        # UnoObjectError, and this handler returned None for every
-        # UnoObjectError (safe_call wraps DisposedException that way).
-        # Why this change: re-raise disposal so callers cannot treat a dying
-        # document as "no document". None stays the answer when get_desktop()
-        # is None or the component itself is missing.
+        # Re-raise disposal so callers cannot treat a dying document as
+        # "no document". DocumentDisposedError subclasses UnoObjectError;
+        # returning None for every UnoObjectError (safe_call wraps
+        # DisposedException that way) makes a document that died mid-call
+        # look like nothing is open. None stays the answer when
+        # get_desktop() is None or the component itself is missing.
         raise
     except UnoObjectError:
         log.warning("get_active_document UnoObjectError", exc_info=True)
         return None
     except Exception as e:
-        # What was wrong: DisposedException from get_desktop() is a plain
-        # Exception, so a dying desktop looked like nothing open. safe_call
-        # already re-raises disposal from getCurrentComponent.
+        # DisposedException from get_desktop() is a plain Exception, so a
+        # dying desktop looks like nothing open. safe_call already re-raises
+        # disposal from getCurrentComponent.
         _reraise_document_disposed(e, "Desktop")
         log.exception("get_active_document unexpected exception")
         return None
@@ -416,11 +410,9 @@ def get_package_info(ctx: Any | None = None) -> Any:
 def get_extension_url(ctx: Any | None = None, extension_id: str | None = None) -> str:
     """Return the base URL of the extension package, or "" on failure.
 
-    What was wrong: get_extension_url returned "" when get_package_info
-    was None, but "vnd.sun.star.extension://<id>" on exception or empty
-    location.
-    Why this change: return "" consistently on all failure paths and log
-    the failure.
+    Return "" on every failure path and log it. An exception or an empty
+    location is the same outcome as get_package_info being None, not a
+    synthetic ``vnd.sun.star.extension://<id>`` URL.
     """
     if extension_id is None:
         extension_id = resolve_package_extension_id(ctx)
@@ -450,15 +442,14 @@ def menu_icon_filesystem_paths(icon_filename: str) -> tuple[str, ...]:
     bundle root. ``make release`` pytest/UNO runs against that tree, so looking
     only under ``extension/assets/`` misses ``python_32.png`` and friends.
 
-    What was wrong: icon_filename.replace("assets/", "") stripped the
-    substring anywhere in the path (e.g. "my_assets/x.png" -> "my_x.png").
-    Why this change: use removeprefix("assets/") after lstrip("/") to only
-    remove the leading assets/ prefix.
-    What was wrong on Windows: os.path.join does not rewrite a "/" already
-    inside the next component, so "my_assets/icon.png" became
-    assets\\my_assets/icon.png and failed the endswith check
-    (GHA 37719557033).
-    Why: normpath the relative remainder so separators match the platform.
+    ``removeprefix("assets/")`` after ``lstrip("/")`` removes only a leading
+    assets/ prefix. ``replace("assets/", "")`` strips that substring
+    anywhere ("my_assets/x.png" becomes "my_x.png").
+    On Windows, ``os.path.join`` does not rewrite a "/" already inside the
+    next component, so "my_assets/icon.png" becomes
+    assets\\my_assets/icon.png and fails the endswith check
+    (GHA 37719557033). ``normpath`` the relative remainder so separators
+    match the platform.
     """
     clean = icon_filename.replace("\\", "/").lstrip("/").removeprefix("assets/")
     # normpath("") is "."; an empty remainder must stay empty so the join
@@ -586,24 +577,24 @@ def get_runtime_uid(model: Any) -> str:
     ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
     cannot masquerade as a real uid.
 
-    What was wrong: every accessor sat in ``except Exception``, so an
-    off-thread call swallowed ``assert_main_thread``'s ``RuntimeError`` and
-    returned ``""`` (an untitled document with no id). How: the same ladder
-    ``uno_same`` used before it was decorated. Why: ``@main_thread_only``
-    raises before the loop when the guard is on. On-thread disposal still
-    returns ``""``. Callers that LibreOffice invokes on Dummy-N (notebook
-    File Open) use ``_read_runtime_uid`` instead of this guard.
+    ``@main_thread_only`` raises before the loop when the guard is on.
+    Every accessor sitting in ``except Exception`` swallows
+    ``assert_main_thread``'s ``RuntimeError`` and returns ``""`` (an
+    untitled document with no id) — the same ladder ``uno_same`` used
+    before it was decorated. On-thread disposal still returns ``""``.
+    Callers that LibreOffice invokes on Dummy-N (notebook File Open) use
+    ``_read_runtime_uid`` instead of this guard.
     """
     return _read_runtime_uid(model)
 
 
-# What was wrong: off-thread, proxy __eq__ raises RuntimeError from
-# assert_main_thread, the bare except Exception swallowed it, then uno.isSame
-# ran on unwrapped PyUNO. How it happened: the identity ladder treats any
-# comparison error as "try the next step", and the guard's RuntimeError is an
-# Exception. Why this change: @main_thread_only (same decorator as
-# resolve_document_by_url) never enters the ladder off the main thread. The
-# on-thread ladder, including unwrap before uno.isSame, stays.
+# @main_thread_only (same decorator as resolve_document_by_url) never
+# enters the ladder off the main thread. Off-thread, proxy __eq__ raises
+# RuntimeError from assert_main_thread. A bare except Exception swallows
+# that and then uno.isSame runs on unwrapped PyUNO: the identity ladder
+# treats any comparison error as "try the next step", and the guard's
+# RuntimeError is an Exception. The on-thread ladder, including unwrap
+# before uno.isSame, stays.
 @main_thread_only
 def uno_same(a: Any, b: Any) -> bool:
     """True when *a* and *b* are the same underlying UNO object.

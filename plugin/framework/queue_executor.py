@@ -253,17 +253,16 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
 def capture_send_stop(host: Any) -> tuple[Any, Callable[[], bool]]:
     """Scope and stop checker frozen on the send thread at worker spawn.
 
-    What was wrong: sub-agent and tool workers called ``resolve_stop_checker()``
-    and read ``host._send_cancellation`` inside the thread body. Stop's drain
-    clears that field, and the next send stores a new scope there. A worker
-    that had been spawned but had not entered its body yet bound the next
-    send, so the old Stop was missed and the old worker could cancel the new one.
-
-    Why: call this before ``run_in_background``. The checker is whatever
+    Call this before ``run_in_background``. The checker is whatever
     ``resolve_stop_checker`` returns now, which on the panel is
     ``bind_send_stop_checker`` closed over this scope object. The worker
     closes over both results and must not read the panel field again.
-    ``run_in_background`` already copies contextvars at submit;
+    Sub-agent and tool workers that call ``resolve_stop_checker()`` and
+    read ``host._send_cancellation`` inside the thread body miss Stop:
+    Stop's drain clears that field, and the next send stores a new scope
+    there. A worker spawned but not yet in its body then binds the next
+    send, so the old Stop is missed and the old worker can cancel the new
+    one. ``run_in_background`` already copies contextvars at submit;
     ``get_current_send_cancellation`` stays that submit-time scope.
     """
     scope = getattr(host, "_send_cancellation", None)
@@ -312,16 +311,16 @@ def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancel
 def _restore_send_cancellation(scope: SendCancellation, token: Any, previous_open: bool) -> None:
     """Undo agent_session's ``set`` without resurrecting a finished scope.
 
-    What was wrong: the event-driven drain keeps a session open across VCL
-    callbacks, so two documents' sessions can exit in either order on the
-    main thread. ``ContextVar.reset`` restores the value from when *this*
-    session started. Exiting A first reset B's live scope to None; exiting B
-    then restored A's finished (maybe cancelled) scope, and later main-thread
-    work outside any session was bound to it (posts dropped by its Stop,
-    LLM lane and indexer waits seeing "cancelled").
-    How: leave the variable alone if another session is now current; when
-    this scope is current, restore the earlier value only while that
-    session is still open, otherwise None. Strict nesting behaves as before.
+    The event-driven drain keeps a session open across VCL callbacks, so
+    two documents' sessions can exit in either order on the main thread.
+    ``ContextVar.reset`` restores the value from when *this* session
+    started. Exiting A first would reset B's live scope to None; exiting B
+    would then restore A's finished (maybe cancelled) scope, and later
+    main-thread work outside any session would be bound to it (posts
+    dropped by its Stop, LLM lane and indexer waits seeing "cancelled").
+    Leave the variable alone if another session is now current; when this
+    scope is current, restore the earlier value only while that session is
+    still open, otherwise None. Strict nesting behaves as before.
     """
     if _current_send_cancellation.get() is not scope:
         return
@@ -526,10 +525,10 @@ class QueueExecutor:
             if self._ctx is not raw:
                 self._ctx = raw
                 # Reset initialization so AsyncCallback is re-created with the updated context if needed.
-                # What was wrong: a failed marshal latched the two log flags, and this
-                # reset cleared the service but not the flags. A later context's
-                # missing-ctx or toolkit failure stayed silent. Why: one warning
-                # per context object; the same object keeps the latch.
+                # One warning per context object; the same object keeps the
+                # latch. A failed marshal latches the two log flags. Clearing
+                # the service without the flags leaves a later context's
+                # missing-ctx or toolkit failure silent.
                 self._initialized = False
                 self._async_callback_service = None
                 self._callback_instance = None
@@ -595,13 +594,12 @@ class QueueExecutor:
         from another thread used to land between them, ahead of older posts.
         The poke happens after the lock is released.
 
-        What was wrong: the list was swapped to ``[]`` before the loop. If
-        ``_enqueue_work`` raised partway, the not-yet-enqueued posts were
-        neither queued nor pending, so ``post`` had dropped them.
-        Why they go back: the failed item and the tail are put in front of
-        anything appended after the notify, which keeps FIFO order. The
-        exception still propagates so the caller does not treat the flush
-        as done. Items that did enqueue are poked after the lock drops.
+        The failed item and the tail go back in front of anything appended
+        after the notify, which keeps FIFO order. Swapping the list to
+        ``[]`` before the loop drops posts if ``_enqueue_work`` raises
+        partway: they are neither queued nor pending. The exception still
+        propagates so the caller does not treat the flush as done. Items
+        that did enqueue are poked after the lock drops.
         """
         enqueued = 0
         flush_error: Exception | None = None
@@ -735,11 +733,11 @@ class QueueExecutor:
 
     def process_queue(self) -> None:
         """Process one item from queue (called from main thread via AsyncCallback)."""
-        # Dequeue and the cancel check share ``_claim_lock``. What was wrong:
-        # ``get_nowait`` ran first, so Stop's drain only saw items still queued
-        # and the one already removed still ran. ``scope.cancel()`` sets the
-        # flag before that drain; checking ``is_cancelled()`` here covers an
-        # item the drain never marked. The callable stays outside the lock
+        # Dequeue and the cancel check share ``_claim_lock``. ``scope.cancel()``
+        # sets the flag before Stop's drain; checking ``is_cancelled()`` here
+        # covers an item the drain never marked. ``get_nowait`` first lets
+        # Stop's drain see only items still queued, and the one already
+        # removed still runs. The callable stays outside the lock
         # (``threading.Lock`` is not reentrant, and a test poke can re-enter).
         with self._claim_lock:
             try:
@@ -818,14 +816,15 @@ class QueueExecutor:
         """Mark queued main-thread work as cancelled and wake blocking waiters.
 
         Drain, mark, and put survivors back under ``_order_lock`` then
-        ``_claim_lock`` — the same order as ``_enqueue_work``. What was wrong:
-        the drain released ``_claim_lock`` and re-queued survivors afterwards,
-        so a put in that gap landed ahead of older work from another send.
-        A put that only took ``_claim_lock`` after the drain had already seen
-        an empty queue used to stay runnable too. The poke runs after both
-        locks drop: a test handler re-enters ``process_queue``, and holding a
-        lock across that poke deadlocks. ``_put_work_items`` is not used here
-        because it acquires ``_claim_lock`` again (``Lock`` is not re-entrant).
+        ``_claim_lock`` — the same order as ``_enqueue_work``. Releasing
+        ``_claim_lock`` and re-queuing survivors afterwards lets a put in
+        that gap land ahead of older work from another send. A put that
+        only took ``_claim_lock`` after the drain had already seen an empty
+        queue used to stay runnable too. The poke runs after both locks
+        drop: a test handler re-enters ``process_queue``, and holding a
+        lock across that poke deadlocks. ``_put_work_items`` is not used
+        here because it acquires ``_claim_lock`` again (``Lock`` is not
+        re-entrant).
 
         A *scope* cancels only items enqueued under that send. Other items go
         back in order. Stop used to wipe MCP, grammar, and peer marshals that
@@ -893,12 +892,12 @@ class QueueExecutor:
             # stored and the event is set. Raising TimeoutError then drops a
             # finished result.
             #
-            # What was wrong: a claimed item still raised TimeoutError. The UI
-            # thread was already inside fn(), the caller treated that as "did
-            # not happen", and a retry applied the document change twice.
-            # Why this waits: TimeoutError only when the item had not started
-            # and is now cancelled. An in-flight call is waited out with no
-            # second timeout so the caller sees the real result or exception.
+            # TimeoutError only when the item had not started and is now
+            # cancelled. An in-flight call is waited out with no second
+            # timeout so the caller sees the real result or exception. A
+            # claimed item that still raises TimeoutError is already inside
+            # fn() on the UI thread; the caller treats that as "did not
+            # happen", and a retry applies the document change twice.
             keep_waiting = False
             finished = False
             with self._claim_lock:
@@ -1013,10 +1012,9 @@ class QueueExecutor:
         if svc is None and not _force_marshal_mode:
             # Off the main thread with no AsyncCallback. Running fn here touches
             # UNO on the caller. The logical-main path already returned above.
-            # What was wrong: this raised RuntimeError inside try/except only
-            # to log.exception and re-raise. The log showed a traceback for
-            # an exception this function had just constructed. Why: log the
-            # refusal and raise it directly.
+            # Log the refusal and raise it directly. Raising RuntimeError
+            # inside try/except only to log.exception and re-raise shows a
+            # traceback for an exception this function just constructed.
             msg = "marshal refused: AsyncCallback unavailable from background thread (fn=%s)" % fn_label
             _log_marshal(logging.ERROR, "%s %s", msg, executor=self)
             raise RuntimeError(msg)
@@ -1038,18 +1036,17 @@ class QueueExecutor:
         fn_label = _fn_label(fn)
         bg_task = get_background_task_name()
 
-        # What was wrong: post() inlined whenever WRITERAGENT_TESTING=1, so a
-        # tagged worker touched UNO on itself during native tests.
-        # How it happened: execute() already required ``not bg_task`` for that
-        # inline path; post() did not.
-        # Why this change: inline only when _should_run_inline() and the caller
-        # is not a background task. A tagged worker falls through to enqueue,
-        # or to the pending list when AsyncCallback is missing. Untagged
-        # threads still inline.
-        # An untagged worker (e.g. a spill timer) also queues when AsyncCallback
-        # exists; inlining there touched UNO off the main thread. With no
-        # AsyncCallback it still inlines. _should_run_inline() is already False
-        # under force-marshal, so that mode needs no extra check here.
+        # Inline only when _should_run_inline() and the caller is not a
+        # background task. execute() already required ``not bg_task`` for
+        # that path; post() inlining whenever WRITERAGENT_TESTING=1 lets a
+        # tagged worker touch UNO on itself during native tests. A tagged
+        # worker falls through to enqueue, or to the pending list when
+        # AsyncCallback is missing. Untagged threads still inline.
+        # An untagged worker (e.g. a spill timer) also queues when
+        # AsyncCallback exists; inlining there touches UNO off the main
+        # thread. With no AsyncCallback it still inlines.
+        # _should_run_inline() is already False under force-marshal, so
+        # that mode needs no extra check here.
         if self._should_run_inline() and not bg_task and (self._may_run_marshal_inline() or self._get_async_callback() is None):
             _log_marshal(logging.DEBUG, "marshal route=post_inline_testing fn=%s %s", fn_label, executor=self)
             fn(*args, **kwargs)
@@ -1061,13 +1058,12 @@ class QueueExecutor:
                 _log_marshal(logging.DEBUG, "marshal route=post_inline_logical_main fn=%s %s", fn_label, executor=self)
                 fn(*args, **kwargs)
                 return
-            # What was wrong: post() returned after a warning, so icon and
-            # status updates from before set_context never ran.
-            # What was wrong: at _PENDING_POST_CAP the callable was logged and
-            # dropped. The caller saw a normal return. How: the cap was a
-            # silent discard. Why: wait for a flush to free a slot (grammar
-            # gate / llm lane wait, then TimeoutError). If AsyncCallback is
-            # already known missing, waiting cannot help — fail immediately.
+            # Wait for a flush to free a slot (grammar gate / llm lane wait,
+            # then TimeoutError). Returning after a warning drops icon and
+            # status updates from before set_context. At _PENDING_POST_CAP
+            # a logged-and-dropped callable looks like a normal return to
+            # the caller. If AsyncCallback is already known missing, waiting
+            # cannot help — fail immediately.
             with self._pending_lock:
                 if not self._await_pending_slot_locked():
                     _log_marshal(logging.WARNING, "marshal route=post_timeout (AsyncCallback unavailable, pending full, background task %r) fn=%s %s", bg_task, fn_label, executor=self)
@@ -1163,11 +1159,10 @@ def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecu
     a :func:`drain_owner_scope` is active.
     """
     pump_main_thread_work_queue(max_items=max_queue_items, executor=executor)
-    # What was wrong: every idle tick called processEventsToIdle, including when
-    # a nested stream drain (depth > 1) was already inside the outer pump.
-    # How it happened: pump_ui_idle treated any toolkit as "always pump VCL".
-    # Why this change: depth > 1 notes the suppression and skips VCL. The marshal
-    # queue above still runs so execute_on_main_thread is not stuck behind it.
+    # Depth > 1 notes the suppression and skips VCL. The marshal queue
+    # above still runs so execute_on_main_thread is not stuck behind it.
+    # Pumping VCL on every idle tick, including when a nested stream drain
+    # (depth > 1) is already inside the outer pump, re-enters the owner.
     if get_drain_depth() > 1:
         note_suppressed_vcl_pump(get_drain_owner())
         return

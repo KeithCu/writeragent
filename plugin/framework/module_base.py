@@ -243,12 +243,9 @@ class ModuleLoader:
                     try:
                         mod.initialize(services_registry)
                     except Exception:
-                        # What was wrong: initialize can register services or
-                        # subscriptions and then raise. The except logged the
-                        # error and left the module out of the returned list,
-                        # so main never called shutdown on that work.
-                        # Why: shut the module down (its hook releases what it
-                        # registered) before omitting it, and keep this log.
+                        # initialize can register services or subscriptions and then
+                        # raise. Shut the module down (its hook releases that
+                        # work) before omitting it, or main never sees it.
                         log.exception("Failed to load module %s", name)
                         try:
                             mod.shutdown()

@@ -147,15 +147,15 @@ _LATEX_CLASH_WORDS = [
 
 # JSON strings allow \" \\ \/ \b \f \n \r \t \uXXXX. A single backslash before
 # a clash word is LaTeX the model forgot to escape (`\nabla`, `\times`,
-# `\frac`, `\beta`). What was wrong after #1046: dropping every word that
-# starts with b/f/n/r/t left those commands as a valid escape plus leftover
-# letters. json.loads then turned `\n` into a newline and returned, so step 2
-# never saw a control character (the source still had backslash + letter).
+# `\frac`, `\beta`). Dropping every word that starts with b/f/n/r/t leaves
+# those commands as a valid escape plus leftover letters. json.loads then
+# turns `\n` into a newline and returns, so step 2 never sees a control
+# character (the source still has backslash + letter).
 # A two-letter escape word followed by "." + a letter is not the command:
 # `\ne.g.` / `\ni.e.` / `\nu.s.` are a newline plus an abbreviation.
-# What was wrong with `\b`: `_` and digits are word characters, so
-# `\alpha_1` and `\times2` never matched. json.loads (or literal_eval for
-# `\a`) then kept the control character and dropped the backslash.
+# `_` and digits are word characters, so a `\b` word boundary misses
+# `\alpha_1` and `\times2`. json.loads (or literal_eval for `\a`) then
+# keeps the control character and drops the backslash.
 # A letter lookahead still rejects `\alphax`.
 _JSON_ESCAPE_STARTS = frozenset("bfnrt")
 _LATEX_CLASH_RE = re.compile(r"(?<!\\)\\(" + "|".join(_LATEX_CLASH_WORDS) + r")(?![A-Za-z])")
@@ -192,9 +192,9 @@ def _repair_latex_clashes(text: str) -> str:
     # 2. Handle cases where the LLM sent a single backslash in the network JSON,
     # which the outer json.loads already silently evaluated as a control character
     # (e.g. \nabla -> \n + abla).
-    # What was wrong: step 2 replaced the control-character prefix anywhere,
-    # so a real newline followed by "e" (pretty-printed "example", or a
-    # string that continues "end") became the LaTeX command \ne.
+    # Step 2 must not replace a control-character prefix anywhere. A real
+    # newline followed by "e" (pretty-printed "example", or a string that
+    # continues "end") would become the LaTeX command \ne.
     for corrupted, repaired in _SILENT_CORRUPTIONS.items():
         text = _replace_control_token(text, corrupted, repaired)
 
@@ -251,9 +251,9 @@ _deal_json_text_ok = _deal_json_text_ok_crosshair if UNDER_CROSSHAIR else _deal_
 def _debug_json_stage(stage: str) -> None:
     """Log which fallback accepted the text.
 
-    What was wrong: step 1 can fail and a later step still return a value
-    with no trace. Logging the source would dump secrets and document text.
-    The stage name is enough to see which step won.
+    Step 1 can fail and a later step still return a value. The stage name
+    is enough to see which step won. Logging the source would dump secrets
+    and document text.
     """
     log.debug("safe_json_loads stage=%s", stage)
 
@@ -362,9 +362,9 @@ def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any
         return default
 
     # In strict mode, only RFC 8259 standard JSON parsing is allowed.
-    # What was wrong: raw_text.strip() strips Unicode whitespace characters (e.g. \x1f)
-    # that are not valid JSON whitespace, allowing unescaped control characters ('0\x1f' -> 0)
-    # to parse instead of returning default. Passing raw_text directly to json.loads preserves strict JSON rules.
+    # Pass raw_text to json.loads. strip() drops Unicode whitespace such as
+    # \x1f, which is not valid JSON whitespace, so '0\x1f' would parse as 0
+    # instead of returning default.
     if strict:
         try:
             parsed = json.loads(raw_text)

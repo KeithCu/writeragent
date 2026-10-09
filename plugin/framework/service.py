@@ -172,13 +172,9 @@ class ServiceRegistry:
         getattr+callable is required (ServiceBase already defines no-op methods).
 
         The walk is a snapshot. ``initialize`` may ``register`` another
-        service; mutating ``_services`` during ``.items()`` used to raise
-        ``RuntimeError`` outside the per-service try and skip the rest.
+        service; iterating ``_services`` live raises ``RuntimeError`` outside
+        the per-service try and skips the rest.
         """
-        # What was wrong: the for-loop iterated ``_services`` live. A service
-        # that registers another service changes the dict size, Python raises
-        # RuntimeError outside the try, and later services never initialize.
-        # Why: snapshot the items first so that registration cannot abort the walk.
         for name, svc in list(self._services.items()):
             init = getattr(svc, "initialize", None)
             if callable(init):

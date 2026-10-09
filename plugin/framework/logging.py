@@ -113,9 +113,9 @@ def _redact_sensitive_inplace(o: Any) -> None:
     if isinstance(o, dict):
         for key, val in list(o.items()):
             if isinstance(key, str) and key.casefold() == _API_KEYS_BY_ENDPOINT and isinstance(val, dict):
-                # What was wrong: api_keys_by_endpoint is a URL→raw key map, so the
-                # exact-name string check left every key in the debug log.
-                # Replace each string value; non-strings stay for the walk below.
+                # api_keys_by_endpoint is a URL→raw key map. An exact-name
+                # string check leaves every key in the debug log. Replace
+                # each string value; non-strings stay for the walk below.
                 for inner_key, inner_val in list(val.items()):
                     if isinstance(inner_val, str):
                         val[inner_key] = LOG_REDACT_SECRET_PLACEHOLDER
@@ -164,12 +164,10 @@ class OptionalFlushFileHandler(logging.FileHandler):
 
     def emit(self, record: logging.LogRecord) -> None:
         super().emit(record)
-        # What was wrong: OptionalFlushFileHandler rate-limited flush() to at most once
-        # per second, and nothing flushed unwritten records after a burst ended. If a
-        # crash or unhandled exception occurred, recent logs and warnings were lost.
-        # How it happened: emit relied purely on subsequent flush() calls which were throttled.
-        # Why this change fixes it: always force-flushing WARNING+ records ensures critical
-        # warnings and errors immediately reach disk without waiting for the 1s interval.
+        # Flush is rate-limited to at most once per second, and nothing else
+        # flushed the tail after a burst. A crash then lost recent warnings.
+        # WARNING+ always force-flushes so those records reach disk without
+        # waiting for the 1s interval.
         if record.levelno >= logging.WARNING:
             self.flush(force=True)
 
@@ -236,8 +234,9 @@ def _debug_file_handler_from_sys() -> OptionalFlushFileHandler | None:
 def _shared_debug_file_handler() -> OptionalFlushFileHandler:
     """Return the process's debug-log handler, creating it when the path changes.
 
-    What was wrong: the handler was a module global. A second import opened
-    another FileHandler on the same path and the two fds fought over rotation.
+    One handler, stored on sys. A module global opened a second FileHandler
+    on the same path when LibreOffice imported this package twice, and the
+    two fds fought over rotation.
     """
     path = _debug_log_path
     if not isinstance(path, str) or not path:
@@ -245,9 +244,8 @@ def _shared_debug_file_handler() -> OptionalFlushFileHandler:
     current = _debug_file_handler_from_sys()
     if current is not None and getattr(current, "baseFilename", "") == path:
         return current
-    # What was wrong: a path change replaced sys._writeragent_debug_file_handler
-    # and left the previous FileHandler open, so its fd stayed alive. Close
-    # that handler before the replace. A close error must not block the new file.
+    # A path change must close the previous FileHandler before the replace,
+    # or its fd stays alive. A close error must not block the new file.
     if current is not None:
         try:
             current.close()
@@ -376,10 +374,9 @@ def init_logging(ctx: Any | None = None) -> None:
 def _install_global_exception_hooks() -> None:
     """Install sys.excepthook and threading.excepthook to log unhandled exceptions.
 
-    What was wrong: the installed flag was a module global. LibreOffice can
-    import this package twice, and the second copy wrapped sys.excepthook
-    again. The flag lives on sys, and we also return when the current hook
-    is already ours.
+    The installed flag lives on sys, and we also return when the current hook
+    is already ours. A module global let LibreOffice import this package
+    twice and wrap sys.excepthook again.
     """
     current_hook = sys.excepthook
     if getattr(current_hook, "_writeragent_hook", False):
@@ -413,9 +410,9 @@ def _install_global_exception_hooks() -> None:
 
     if getattr(threading, "excepthook", None) is None:
         return
-    # What was wrong: resetting only sys.excepthook (tests, or a second
-    # import that already wrapped sys) still wrapped threading.excepthook
-    # again. Same marker as the sys hook.
+    # Same marker as the sys hook. Resetting only sys.excepthook (tests, or
+    # a second import that already wrapped sys) must not wrap
+    # threading.excepthook again.
     if getattr(threading.excepthook, "_writeragent_hook", False):
         return
     _original_threading_excepthook = threading.excepthook
@@ -613,10 +610,10 @@ def agent_log(location: str, message: str, data: Any = None, hypothesis_id: Any 
     """Write one structured agent trace line to writeragent_debug.log when enable_agent_log is True."""
     if not _enable_agent_log:
         return
-    # What was wrong: redact_sensitive_payload_for_log deepcopy's the payload
-    # outside the try that only wrapped json.dumps. A Lock (or anything
-    # deepcopy rejects) raised TypeError out of best-effort logging. Redaction
-    # and dumps share this try so a bad payload is dropped instead of raised.
+    # redact_sensitive_payload_for_log deepcopy's the payload. A Lock (or
+    # anything deepcopy rejects) raises TypeError. Redaction and dumps share
+    # this try so a bad payload is dropped instead of raised out of
+    # best-effort logging.
     try:
         payload = {"location": location, "message": message, "timestamp": int(time.time() * 1000)}
         if data is not None:
@@ -706,11 +703,8 @@ def _dump_thread_stacks() -> None:
 def _watchdog_check(status_control: Any) -> None:
     """One watchdog pass. Posts Hung: after the idle threshold, and clears it when activity resumes."""
     global _watchdog_hung_shown, _watchdog_stacks_dumped
-    # What was wrong: watchdog did not flush the debug log despite module docstring,
-    # leaving buffered records in memory after a burst of logs stopped.
-    # How it happened: _watchdog_check monitored activity timestamps but never invoked flush().
-    # Why this change fixes it: flushing the debug file handler on watchdog checks ensures
-    # the unwritten tail of logs is periodically flushed to disk.
+    # Flush the debug file on each watchdog check. The activity timestamps
+    # alone leave the unwritten tail in memory after a burst stops.
     _flush_debug_log()
     with _activity_lock:
         phase = _activity_state["phase"]
@@ -766,11 +760,10 @@ def _watchdog_loop(status_control: Any) -> None:
 def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
     """Start the hang-detection watchdog (idempotent). Pass status_control to set Hung: ... in UI.
 
-    What was wrong: ``_watchdog_started`` was a module global, so a second
-    import started another job, and the pool imports ran at module import
-    (LibrePy imports logging and never starts the watchdog). The flag is on
-    sys. The job is a dedicated pool task, not a raw thread. ctx is unused;
-    callers still pass the component context.
+    The flag is on sys. A module global let a second import start another
+    job, and the pool imports ran at module import (LibrePy imports logging
+    and never starts the watchdog). The job is a dedicated pool task, not a
+    raw thread. ctx is unused; callers still pass the component context.
     """
     del ctx
     with _activity_lock:
@@ -791,9 +784,8 @@ def _install_safe_log_record_factory() -> None:
     """Install a custom LogRecord factory to prevent TypeError in Python 3.12+
     when logging a single PyUNO proxy object.
 
-    What was wrong: the installed flag was a module global, so a second
-    import wrapped the factory again. A marker on the factory and a sys flag
-    make the second import a no-op.
+    A marker on the factory and a sys flag make a second import a no-op.
+    A module global wrapped the factory again.
     """
     current = logging.getLogRecordFactory()
     if getattr(current, "_writeragent_safe_factory", False):

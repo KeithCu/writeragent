@@ -90,12 +90,9 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     toolkit = None
     if pump_idle:
         try:
-            # What was wrong: the toolkit came from createInstanceWithContext on
-            # ctx, with no main-thread check and no guard wrap.
-            # How it happened: this helper built the toolkit inline instead of
-            # going through get_toolkit().
-            # Why this change: get_toolkit asserts the caller is the UI thread
-            # and returns a guard_uno wrapper, same as the other UNO boundaries.
+            # get_toolkit asserts the caller is the UI thread and returns a
+            # guard_uno wrapper, same as the other UNO boundaries. Building
+            # the toolkit inline skipped both.
             from plugin.framework.uno_context import get_toolkit
 
             toolkit = get_toolkit(ctx)
@@ -109,11 +106,9 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     # drain. pump_ui_idle remains the owner-safe VCL pump path.
     poll = (pump_idle and toolkit is not None) or stop_checker is not None
     while True:
-        # What was wrong: ``raise data`` sat in this try. A worker that
-        # raised queue.Empty was caught here. With poll=False the next
-        # ``q.get(timeout=None)`` then blocked forever, because the worker
-        # had already exited. Why: only the get waits on the queue. A
-        # worker Empty is the function's exception and must propagate.
+        # Only the get waits on the queue. A worker that raised queue.Empty
+        # must propagate: catching it here and calling get again with
+        # timeout=None blocks forever, because that worker has already exited.
         try:
             item = q.get(timeout=0.1 if (poll or not pump_idle) else None)
         except queue.Empty:

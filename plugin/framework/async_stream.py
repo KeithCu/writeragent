@@ -202,16 +202,14 @@ def _handle_stream_done_like(state: _DrainState, _data: Any, item: Any) -> None:
 def _handle_next_tool(state: _DrainState, _data: Any, item: Any) -> None:
     """Advance a tool round. Do not end the drain in the middle of this batch.
 
-    What was wrong: NEXT_TOOL used ``_handle_stream_done_like``. A true
-    ``on_stream_done`` return set ``job_done`` and ``_process_batch`` broke,
-    so items already pulled (the next chunk, ``STREAM_DONE``) were discarded
-    and the pump stopped. The generic worker wrapper always returned true,
-    so any ``NEXT_TOOL`` looked like a finished stream.
-    How: the dispatch table mapped ``NEXT_TOOL`` to the terminal handler.
-    Why: notify once and keep this batch going. A true return is applied
-    only after that batch, so the tail runs in this drain instead of being
-    dropped for a later one. A false return leaves ``job_done`` clear and
-    the loop keeps pumping.
+    Notify once and keep this batch going. NEXT_TOOL is not the terminal
+    handler: a true ``on_stream_done`` return must not set ``job_done`` and
+    break ``_process_batch``, or items already pulled (the next chunk,
+    ``STREAM_DONE``) are discarded and the pump stops. The generic worker
+    wrapper always returns true, so that would make any ``NEXT_TOOL`` look
+    like a finished stream. A true return is applied only after this batch,
+    so the tail runs in this drain instead of being dropped for a later one.
+    A false return leaves ``job_done`` clear and the loop keeps pumping.
     """
     # crosshair: off
     state.finish_display()
@@ -253,21 +251,21 @@ def _handle_approval_required(state: _DrainState, _data: Any, item: Any) -> None
     # crosshair: off
     state.finish_display()
     if not state.on_approval_required:
-        # What was wrong: this returned without setting the event. The worker
-        # stayed in wait_for_approval, because only the handler used to set it.
-        # Why: there is no dialog to answer. Set the event so the worker sees
-        # approved still false and denies the request.
+        # There is no dialog to answer. Set the event so the worker sees
+        # approved still false and denies the request. Returning without
+        # the event leaves the worker in wait_for_approval; only the
+        # handler used to set it.
         log.warning("APPROVAL_REQUIRED with no handler; unblocking worker")
         _set_approval_event(item)
         return
     try:
         state.on_approval_required(item)
     except Exception:
-        # What was wrong: this logged the exception and returned. job_done
-        # stayed false, and the worker stayed in wait_for_approval because
-        # only the handler sets that event. Why: re-raise so the batch
-        # on_error path ends the drain, and set the event so the worker
-        # is not parked after the UI has already unblocked.
+        # Re-raise so the batch on_error path ends the drain, and set the
+        # event so the worker is not parked after the UI has already
+        # unblocked. Logging and returning leaves job_done false, and the
+        # worker stays in wait_for_approval because only the handler sets
+        # that event.
         _set_approval_event(item)
         raise
 
@@ -275,10 +273,10 @@ def _handle_approval_required(state: _DrainState, _data: Any, item: Any) -> None
 def _handle_stopped(state: _DrainState, _data: Any, _item: Any) -> None:
     # crosshair: off
     state.finish_display()
-    # What was wrong: on_stopped ran before job_done. A raise fell into
-    # _process_batch's except, which called on_error, so Stop showed as a
-    # stream failure. Why: mark the drain finished first. A raise is logged
-    # and is not turned into on_error.
+    # Mark the drain finished first. A raise is logged and is not turned
+    # into on_error. Running on_stopped before job_done lets that raise
+    # fall into _process_batch's except, which calls on_error, so Stop
+    # shows as a stream failure.
     state.job_done[0] = True
     try:
         state.on_stopped()
@@ -289,15 +287,15 @@ def _handle_stopped(state: _DrainState, _data: Any, _item: Any) -> None:
 def _handle_error(state: _DrainState, data: Any, _item: Any) -> None:
     # crosshair: off
     state.finish_display()
-    # What was wrong: a raising on_error fell into _process_batch's except,
-    # which called on_error again with that new exception. Why: mark the
-    # callback as entered first. A flush that raises before this line leaves
-    # the flag clear, so that except still reports the flush once.
+    # Mark the callback as entered first. A raising on_error falls into
+    # _process_batch's except, which would call on_error again with that
+    # new exception. A flush that raises before this line leaves the flag
+    # clear, so that except still reports the flush once.
     state.error_callback_entered = True
-    # What was wrong: NEXT_TOOL in this batch set defer_next_tool_exit, and a
-    # recovered ERROR left it set. The trailing check then set job_done, so
-    # the replacement worker never ran. Why: this item already decided. A
-    # fatal error sets job_done below; a true on_error keeps the drain.
+    # This item already decided. A fatal error sets job_done below; a true
+    # on_error keeps the drain. Leaving defer_next_tool_exit set from a
+    # NEXT_TOOL in this batch lets the trailing check set job_done, so the
+    # replacement worker never runs.
     state.defer_next_tool_exit = False
     recovered = state.on_error(data) is True
     if not recovered:
@@ -325,10 +323,10 @@ def _stream_item_kind_data(item: Any) -> tuple[Any, Any]:
     """Kind and payload. A bare kind or a length-1 tuple has no payload."""
     # crosshair: off
     if isinstance(item, (tuple, list)):
-        # What was wrong: item[0] on () or [] raised IndexError before the
-        # invalid-tag check, including in the Stop tail and the put wrapper.
-        # Why: an empty sequence has no kind. None fails the StreamQueueKind
-        # check the same way a bad tag does.
+        # An empty sequence has no kind. item[0] on () or [] raises
+        # IndexError before the invalid-tag check, including in the Stop
+        # tail and the put wrapper. None fails the StreamQueueKind check
+        # the same way a bad tag does.
         kind = item[0] if item else None
         data = item[1] if len(item) > 1 else None
         return kind, data
@@ -338,12 +336,12 @@ def _stream_item_kind_data(item: Any) -> tuple[Any, Any]:
 def _apply_display_item(state: _DrainState, item: Any) -> None:
     """Apply one CHUNK or THINKING. Set an approval event. Leave other kinds.
 
-    What was wrong: ``StreamQueueKind`` is a ``str`` enum, so ``==`` treated a
-    bare ``"chunk"`` string as CHUNK. ``_process_batch`` rejects that tag.
-    Stop showed it. Why: only a real member is display text. A non-member in
-    the stop tail is dropped with the other control items. Calling
-    ``on_error`` here would turn Stop into a failure. An approval event in
-    the tail is set so the worker is not left in ``wait_for_approval``.
+    Only a real ``StreamQueueKind`` member is display text. The enum is a
+    ``str`` enum, so ``==`` treats a bare ``"chunk"`` string as CHUNK, and
+    ``_process_batch`` rejects that tag. Stop shows it. A non-member in the
+    stop tail is dropped with the other control items. Calling ``on_error``
+    here would turn Stop into a failure. An approval event in the tail is
+    set so the worker is not left in ``wait_for_approval``.
     """
     # crosshair: off
     raw_kind, data = _stream_item_kind_data(item)
@@ -354,9 +352,9 @@ def _apply_display_item(state: _DrainState, item: Any) -> None:
     elif raw_kind == StreamQueueKind.THINKING:
         _handle_thinking(state, data, item)
     elif raw_kind == StreamQueueKind.APPROVAL_REQUIRED:
-        # What was wrong: Stop dropped this item, so the event stayed unset
-        # and the worker stayed in wait_for_approval until its stop poll.
-        # Why: set the event and do not open the dialog.
+        # Set the event and do not open the dialog. Dropping this item on
+        # Stop leaves the event unset and the worker in wait_for_approval
+        # until its stop poll.
         _set_approval_event(item)
 
 
@@ -379,14 +377,14 @@ def _apply_queued_display(state: _DrainState) -> None:
 def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None, pending_items: list[Any] | None = None) -> None:
     """Show text Stop would otherwise drop, then close thinking.
 
-    What was wrong: the idle path called on_stopped without flushing
-    buffers or closing thinking, and text still inside the 250ms batcher
-    was dropped. A stop after ``_drain_batch`` only read ``state.q``.
-    CHUNK and THINKING already pulled into the local batch were gone,
-    including the whole batch when Stop tripped on the first item. Why:
-    apply that unconsumed display tail, flush the producer batcher, apply
-    what it just queued, then close thinking. Control items in the tail
-    are not dispatched. An approval event in that tail is set.
+    Apply the unconsumed display tail, flush the producer batcher, apply
+    what it just queued, then close thinking. The idle path used to call
+    on_stopped without flushing buffers or closing thinking, and text still
+    inside the 250ms batcher was dropped. A stop after ``_drain_batch`` only
+    read ``state.q``. CHUNK and THINKING already pulled into the local batch
+    were gone, including the whole batch when Stop tripped on the first
+    item. Control items in the tail are not dispatched. An approval event
+    in that tail is set.
     """
     # crosshair: off
     if pending_items:
@@ -399,10 +397,10 @@ def _finish_on_stop(state: _DrainState, flush_pending: Callable[[], None] | None
             log.exception("flush_pending before Stop failed")
     _apply_queued_display(state)
     state.finish_display()
-    # What was wrong: on_stopped ran before job_done, and this helper sits
-    # outside _process_batch's try. A raise became _notify_drain_failure or
-    # _report_slice_error, so a checker Stop showed as a stream error. Why:
-    # mark the drain finished first. A raise is logged and is not on_error.
+    # Mark the drain finished first. A raise is logged and is not on_error.
+    # This helper sits outside _process_batch's try. Running on_stopped
+    # before job_done turns that raise into _notify_drain_failure or
+    # _report_slice_error, so a checker Stop shows as a stream error.
     state.job_done[0] = True
     try:
         state.on_stopped()
@@ -425,9 +423,9 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
             # This tail is already off state.q, so the queue read inside
             # _finish_on_stop cannot see it.
             _finish_on_stop(state, flush_pending, items[index:])
-            # What was wrong: this break left skip_trailing_flush False, so
-            # the trailing flush ran after _finish_on_stop had already flushed.
-            # Why: that second flush is not the success-path flush.
+            # That second flush is not the success-path flush. Leaving
+            # skip_trailing_flush False runs it after _finish_on_stop has
+            # already flushed.
             skip_trailing_flush = True
             break
 
@@ -438,11 +436,10 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
                 ek = TypeError("stream queue item kind must be StreamQueueKind, got %s" % (type(raw_kind).__name__,))
                 log.error("Invalid stream queue tag: %s", ek)
                 state.finish_display()
-                # What was wrong: on_error ran without error_callback_entered.
-                # A raise fell into the except below, which called on_error
-                # again with a different payload. Why: mark the callback
-                # entered first, same as _handle_error. A flush that raises
-                # before this line still reports once.
+                # Mark the callback entered first, same as _handle_error. A
+                # raise otherwise falls into the except below, which calls
+                # on_error again with a different payload. A flush that
+                # raises before this line still reports once.
                 state.error_callback_entered = True
                 state.on_error(format_error_payload(ek))
                 state.job_done[0] = True
@@ -451,10 +448,10 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
             _DISPATCH[raw_kind](state, data, item)
         except Exception as loop_e:
             if state.error_callback_entered:
-                # What was wrong: _handle_error already called on_error. This
-                # except called it again with the exception from that callback,
-                # so the UI saw a second, different error. Why: the callback
-                # already ran. Log, end the drain, and skip the trailing flush.
+                # The callback already ran. Log, end the drain, and skip the
+                # trailing flush. Calling on_error again reports the
+                # exception from that callback, so the UI sees a second,
+                # different error.
                 log.exception("on_error failed")
                 state.job_done[0] = True
                 skip_trailing_flush = True
@@ -481,11 +478,11 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
                 # Continuing used to run STREAM_DONE and set job_done, so the
                 # replacement worker's chunks were ignored. Leave job_done
                 # clear so the drain waits for that worker.
-                # What was wrong: this break left skip_trailing_flush False.
-                # The trailing flush_buffers() could raise, and
-                # run_stream_drain_loop then called on_error a second time
-                # for the same failure. The fatal path already skipped it.
-                # Why: on_error already ran; do not flush again.
+                # on_error already ran; do not flush again. Leaving
+                # skip_trailing_flush False lets the trailing flush_buffers()
+                # raise, and run_stream_drain_loop then calls on_error a
+                # second time for the same failure. The fatal path already
+                # skips it.
                 skip_trailing_flush = True
                 break
             state.job_done[0] = True
@@ -497,20 +494,19 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
             # rest of this batch (same reason as the handler-raise path).
             # NEXT_TOOL does not set job_done here, so a tail already pulled
             # (chunk, STREAM_DONE) still runs in this pass.
-            # What was wrong: this break left skip_trailing_flush False.
-            # finish_display already flushed. The trailing flush could raise
-            # and call on_error again, and a deferred NEXT_TOOL exit still
-            # set job_done after a recovered ERROR. Why: same as the
-            # handler-raise path. Do not flush again, and do not honor that
-            # deferred exit.
+            # Same as the handler-raise path. Do not flush again, and do not
+            # honor a deferred NEXT_TOOL exit. Leaving skip_trailing_flush
+            # False lets the trailing flush raise and call on_error again
+            # after finish_display already flushed, and that deferred exit
+            # still sets job_done after a recovered ERROR.
             skip_trailing_flush = True
             break
 
     if not skip_trailing_flush:
         state.flush_buffers()
-    # What was wrong: a true NEXT_TOOL return used to break above and drop
-    # the tail. Why: honor that return only after the pulled batch is done,
+    # Honor a true NEXT_TOOL return only after the pulled batch is done,
     # and not after stop or a recovered error (those already decided).
+    # Breaking above on that return drops the tail.
     if state.defer_next_tool_exit and not state.job_done[0] and not skip_trailing_flush:
         state.job_done[0] = True
 
@@ -537,14 +533,14 @@ _event_drain: Any = None
 def clear_drain_capture() -> None:
     """Forget the drain that :func:`defer_until_drain_done` would attach to.
 
-    What was wrong: ``_event_drain`` stays set while a drain is open, across
-    VCL callbacks. With two documents streaming, document B's send could
-    return before starting a drain of its own (Stop before the drain, an
-    error, a nested-owner refusal) and then defer its completion onto
-    document A's drain, so B's buttons and status waited for A to finish.
-    Why here: a send callback calls this first, and ``run_stream_drain_loop``
-    calls it on entry, so a deferral can only attach to a drain started in
-    the same synchronous call. An open drain keeps its own epilogue list.
+    A send callback calls this first, and ``run_stream_drain_loop`` calls
+    it on entry, so a deferral can only attach to a drain started in the
+    same synchronous call. An open drain keeps its own epilogue list.
+    ``_event_drain`` stays set while a drain is open, across VCL callbacks.
+    With two documents streaming, document B's send can return before
+    starting a drain of its own (Stop before the drain, an error, a
+    nested-owner refusal) and then defer its completion onto document A's
+    drain, so B's buttons and status wait for A to finish.
     """
     # crosshair: off
     global _event_drain
@@ -651,8 +647,8 @@ class _IdleRearmThread:
                 with self._cv:
                     self._failures = 0
             except Exception:
-                # Why: a lost idle re-arm means the drain never runs another
-                # slice (owner held, Send stuck on Stop, Stop cannot recover).
+                # A lost idle re-arm means the drain never runs another slice
+                # (owner held, Send stuck on Stop, Stop cannot recover).
                 # Re-queue the same fire with capped backoff unless the drain
                 # stopped or re-armed meanwhile.
                 delay = None
@@ -721,15 +717,14 @@ class _AsyncCallbackRearm:
     def _enqueue(self, fn: Callable[[], None]) -> None:
         """Queue one slice. A second writer cannot replace it.
 
-        What was wrong: ``post`` and the idle timer both wrote ``_target``,
-        then both called ``addCallback``. The idle fire could already be past
-        its generation check, so it overwrote the new slice. Both ``notify``
-        calls then ran that stale closure, which returned on the generation
-        mismatch, and nothing re-armed. The drain kept the pump owner.
-        How: one slot, two writers.
-        Why: append this closure. ``notify`` runs one and pokes again if more
+        Append this closure. ``notify`` runs one and pokes again if more
         are waiting, so a late idle callback cannot replace a slice already
-        queued.
+        queued. ``post`` and the idle timer both used to write ``_target``,
+        then both called ``addCallback``. The idle fire could already be
+        past its generation check, so it overwrote the new slice. Both
+        ``notify`` calls then ran that stale closure, which returned on the
+        generation mismatch, and nothing re-armed. The drain kept the pump
+        owner. One slot, two writers.
         """
         # crosshair: off
         with self._lock:
@@ -965,10 +960,10 @@ class _EventDrain:
 def _notify_drain_failure(on_error: Callable[[Any], Any], job_done: list[bool], exc: BaseException, log_message: str) -> None:
     """Log *exc*, report it once, and end the drain.
 
-    What was wrong: each crash tail copied this sequence, and the queue-drain
-    tail called ``on_error`` outside a try. A raising handler then hit the
-    outer except and was reported again. Why: set ``job_done`` first, notify
-    once, and log if that notify raises.
+    Set ``job_done`` first, notify once, and log if that notify raises.
+    Each crash tail used to copy this sequence, and the queue-drain tail
+    called ``on_error`` outside a try. A raising handler then hit the outer
+    except and was reported again.
     """
     # crosshair: off
     log.exception(log_message)
@@ -1039,11 +1034,11 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
         # NestedDrainOwnerError for a different owner (for example MCP).
         _EventDrain(state, scheduler, stop_checker, flush_pending).start()
     except Exception as exc:
-        # What was wrong: acquire raises before _held, so _finish never
-        # closes the re-arm. The XCallback then waited on cyclic GC. arm()
-        # has not run, so there is no idle thread. Why: drop the callback
-        # the same way a finished drain does. A start() that returns already
-        # closed from _finish; do not close again.
+        # Drop the callback the same way a finished drain does. acquire
+        # raises before _held, so _finish never closes the re-arm and the
+        # XCallback waits on cyclic GC. arm() has not run, so there is no
+        # idle thread. A start() that returns already closed from _finish;
+        # do not close again.
         closer = getattr(scheduler, "close", None)
         if closer is not None:
             try:
@@ -1101,10 +1096,10 @@ def _run_stream_drain_blocking(state: _DrainState, toolkit: Any, stop_checker: A
     job_done = state.job_done
     on_error = state.on_error
     try:
-        # What was wrong: commit 8ea060d0d rejected any existing owner, including
-        # "stream", and dual-deck peer sends raised NestedDrainOwnerError.
-        # Why: drain_owner_scope("stream") allows that same name and raises for
-        # a different one. The depth counter makes pump_ui_idle skip nested VCL.
+        # drain_owner_scope("stream") allows that same name and raises for a
+        # different one. The depth counter makes pump_ui_idle skip nested
+        # VCL. Rejecting any existing owner, including "stream", makes
+        # dual-deck peer sends raise NestedDrainOwnerError.
         with drain_owner_scope("stream"):
             while not job_done[0]:
                 if stop_checker and stop_checker():
@@ -1153,11 +1148,11 @@ def _run_stream_drain_blocking(state: _DrainState, toolkit: Any, stop_checker: A
 def _call_item_or_zero_arg(fn: Callable[..., None], item: Any) -> None:
     """Call ``fn(item)`` or ``fn()`` once, from the signature.
 
-    What was wrong: a ``TypeError`` whose text contained "positional argument"
-    was treated as an arity mismatch and the callback was called again with
-    no arguments. A ``TypeError`` raised inside the body can contain that
-    text, so ``on_done`` ran twice. Why: choose the call before invoking
-    the callback. An exception from the body is not a retry.
+    Choose the call before invoking the callback. An exception from the
+    body is not a retry. A ``TypeError`` whose text contains "positional
+    argument" is not an arity mismatch: a ``TypeError`` raised inside the
+    body can contain that text, and calling ``on_done`` again with no
+    arguments runs it twice.
     """
     try:
         signature = inspect.signature(fn)
@@ -1187,13 +1182,13 @@ _terminal_watch_lock = threading.Lock()
 def _watch_queue_terminal(real_q: Any, saw_terminal: list[bool]) -> None:
     """Count this caller on the queue's put wrapper.
 
-    What was wrong: each drain saved ``Queue.put`` and assigned that saved
-    method back in ``finally``. A second drain on the same queue captured the
-    first wrapper as the original. Whichever call restored first either
-    dropped the live wrapper or left the finished call's wrapper installed.
-    Why: one wrapper, a list of per-call flags, restore only when the last
+    One wrapper, a list of per-call flags, restore only when the last
     watcher leaves. Flags are removed by identity (``list.remove`` treats
-    equal ``[False]`` cells as the same).
+    equal ``[False]`` cells as the same). Each drain used to save
+    ``Queue.put`` and assign that saved method back in ``finally``. A
+    second drain on the same queue captured the first wrapper as the
+    original. Whichever call restored first either dropped the live
+    wrapper or left the finished call's wrapper installed.
     """
     # crosshair: off
     with _terminal_watch_lock:
@@ -1207,10 +1202,10 @@ def _watch_queue_terminal(real_q: Any, saw_terminal: list[bool]) -> None:
         flags: list[list[bool]] = [saw_terminal]
 
         def _watched_put(item: Any, *args: Any, **kwargs: Any) -> None:
-            # What was wrong: only a tuple counted as terminal. The drain also
-            # accepts a list and a bare StreamQueueKind, so those still got a
-            # second STREAM_DONE from the worker wrapper. Why: use the same
-            # kind extraction as the drain.
+            # Use the same kind extraction as the drain. Only a tuple is not
+            # enough: the drain also accepts a list and a bare
+            # StreamQueueKind, and those still got a second STREAM_DONE
+            # from the worker wrapper.
             kind, _data = _stream_item_kind_data(item)
             if kind in _TERMINAL_WATCH_KINDS:
                 with _terminal_watch_lock:
@@ -1302,32 +1297,30 @@ def run_async_worker_with_drain(
 
     _real_q, _flush = _producer_batch(q)
 
-    # What was wrong: _TerminalWatch only saw puts through the wrapper object
-    # passed to worker_fn. send_handlers closes over the real queue and puts
-    # ERROR/STREAM_DONE there, so finally always posted a second STREAM_DONE.
+    # Watch the real queue's put for this worker. Overlapping drains on one
+    # queue share the wrapper; see _watch_queue_terminal. A watch that only
+    # sees puts through the wrapper object passed to worker_fn misses
+    # send_handlers, which closes over the real queue and puts
+    # ERROR/STREAM_DONE there, so finally always posts a second STREAM_DONE.
     # That can end a recovered drain (on_error True) on a later iteration.
-    # Why: watch the real queue's put for this worker. Overlapping drains on
-    # one queue share the wrapper; see _watch_queue_terminal.
     saw_terminal = [False]
     real_any: Any = _real_q
 
     def worker_wrapper() -> None:
-        # What was wrong: ``finally`` always queued STREAM_DONE after ERROR.
-        # A handler that returns True (keep draining, e.g. STT fallback) then
-        # saw that sentinel and ended the job before the replacement worker's
-        # chunks. Skip the sentinel when this wrapper or the worker already
-        # queued a terminal item.
+        # Skip the STREAM_DONE sentinel when this wrapper or the worker
+        # already queued a terminal item. Always queuing it after ERROR
+        # makes a handler that returns True (keep draining, e.g. STT
+        # fallback) end the job before the replacement worker's chunks.
         #
-        # What was wrong: the error path flushed the batcher before putting
-        # ERROR, and flushed again before unwatch, with no try. A raising
-        # flush skipped that put, left the failure flag set so the
-        # STREAM_DONE fallback was suppressed, and left the put wrapper
-        # installed. Why: log the flush error, still queue ERROR, and
-        # unwatch from finally.
-        # What was wrong: if the worker already queued a terminal item (such
-        # as ERROR) and then raised, a second ERROR was queued unconditionally.
-        # A recovery on_error (returning True) would then execute a second time
-        # against the replacement worker. Skip ERROR if saw_terminal[0] is set.
+        # Log a flush error, still queue ERROR, and unwatch from finally.
+        # Flushing the batcher before ERROR and again before unwatch, with
+        # no try, skips that put when flush raises, leaves the failure flag
+        # set so the STREAM_DONE fallback is suppressed, and leaves the put
+        # wrapper installed.
+        # Skip ERROR if saw_terminal[0] is set. A worker that already queued
+        # a terminal item (such as ERROR) and then raised must not queue a
+        # second ERROR, or a recovery on_error (returning True) runs a
+        # second time against the replacement worker.
         error_item: tuple[Any, Any] | None = None
         _watch_queue_terminal(real_any, saw_terminal)
         try:
@@ -1362,10 +1355,10 @@ def run_async_worker_with_drain(
                 log.exception("Failed to notify error handler for toolkit creation failure")
         return
 
-    # What was wrong: the nested-owner check lived inside the drain loop,
-    # after this worker was already started. A second Send from
-    # processEventsToIdle raised NestedDrainOwnerError and left the worker
-    # writing to a queue nobody reads. Refuse before spawn.
+    # Refuse before spawn. A nested-owner check inside the drain loop runs
+    # after this worker is already started. A second Send from
+    # processEventsToIdle then raises NestedDrainOwnerError and leaves the
+    # worker writing to a queue nobody reads.
     existing_owner = get_drain_owner()
     if existing_owner is not None:
         nested = NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")
