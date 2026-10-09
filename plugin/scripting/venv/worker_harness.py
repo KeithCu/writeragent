@@ -327,6 +327,16 @@ def main() -> None:
         except Exception as e:
             log.exception("Exception handling request id=%s", req_id)
             response = _error_response(e)
+        except BaseException as e:
+            # What was wrong: user ``raise SystemExit`` / ``KeyboardInterrupt``
+            # is BaseException. After EXEC_STARTED the process died with no
+            # terminal frame, and the host refused to replay, dropping every
+            # shared session on this worker. The sandbox returns these as an
+            # error dict; this is the backstop when they escape _handle_request.
+            # Why this works: write the same error frame as Exception and
+            # keep reading the next request.
+            log.exception("BaseException handling request id=%s", req_id)
+            response = _error_response(e)
 
         if response is None:
             continue

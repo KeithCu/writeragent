@@ -100,6 +100,11 @@ def _install_timeout_context_pool() -> None:
     its module when the fallback runs. Submit through ``copy_context().run``
     so the worker sees the session ``run_sandboxed_code`` just set. The
     vendored file stays unchanged; it must keep using that module global.
+
+    That fallback thread cannot be killed. After a timeout,
+    ``_run_on_executor`` restores ``result`` and returns while the orphan
+    may still mutate the shared executor. Copying context does not close
+    that race; Python will not let us stop the thread.
     """
     import contextvars
     from concurrent.futures import ThreadPoolExecutor
@@ -225,7 +230,10 @@ def is_module_imported(code_str: str, module_name: str) -> bool:
     return False
 
 
-_OPTIONAL_MODULE_LOCK = threading.Lock()
+# RLock: a module that calls optional_module during its own import on this
+# thread must re-enter. A plain Lock deadlocks there. The nested call then
+# takes the "still initializing → None" path inside the lock.
+_OPTIONAL_MODULE_LOCK = threading.RLock()
 
 
 def optional_module(name: str) -> Any | None:
@@ -664,7 +672,12 @@ def _temporal_cell_to_stdlib(value: Any, pd_mod: Any) -> Any:
 def _temporal_ndarray_to_python(arr: Any, pd_mod: Any) -> Any:
     """datetime64/timedelta64 ndarray → nested Python lists of stdlib values."""
     if arr.ndim == 0:
-        return _temporal_cell_to_stdlib(arr.item() if hasattr(arr, "item") else arr, pd_mod)
+        # What was wrong: arr.item() on datetime64[ns] / timedelta64[ns]
+        # returns a Python int, so the dtype was gone before
+        # _temporal_cell_to_stdlib and the cell became a raw count.
+        # Why this works: arr[()] is a numpy scalar and keeps the dtype.
+        # Rank 1+ already iterates those scalars.
+        return _temporal_cell_to_stdlib(arr[()], pd_mod)
     if arr.ndim > 2:
         # What was wrong: rank 3+ used shape[0] x shape[1] and dropped the
         # remaining axes. Why this works: one plane at a time, same as
@@ -1192,6 +1205,55 @@ def _close_open_figures() -> None:
         log.debug("failed to close pyplot figures", exc_info=True)
 
 
+def _error_result(
+    message: str,
+    *,
+    code: str | None = None,
+    stdout: str = "",
+    include_traceback: bool = False,
+) -> dict[str, Any]:
+    """Error dict shared by the ``_run_on_executor`` failure arms."""
+    out: dict[str, Any] = {"status": "error", "message": message, "stdout": stdout}
+    if code is not None:
+        out["code"] = code
+    if include_traceback:
+        import traceback
+
+        out["traceback"] = traceback.format_exc()
+    return out
+
+
+def _serialize_cell_result(result: Any) -> tuple[Any, str]:
+    """Serialize *result*, swapping in open matplotlib figures when that is the output.
+
+    What was wrong: a helper-only init script evaluates to the function,
+    and plt.plot() evaluates to Line2D artists. The pickle check rejected
+    both before open figures were captured, and those figures stayed open
+    so the next script returned that SVG instead of its own value.
+    """
+    if _is_defined_function(result):
+        result = None
+
+    extra_stdout = ""
+    if _is_mpl_artist_result(result):
+        captured, note = _capture_open_figures_payload()
+        if captured is None:
+            serialized = serialize_result(result)
+        else:
+            serialized = captured
+            extra_stdout = note
+    else:
+        serialized = serialize_result(result)
+        if not find_image_payloads(serialized):
+            captured, note = _capture_open_figures_payload()
+            if captured is not None:
+                serialized = captured
+                extra_stdout = note
+        else:
+            _close_open_figures()
+    return serialized, extra_stdout
+
+
 def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]:
     # Bugfix (#388): shared-kernel leftover ``result`` was used as egress for later
     # last-expression cells. Popping ``result`` after every cell (or before the next)
@@ -1223,30 +1285,7 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         else:
             result = code_output.output
 
-        # What was wrong: a helper-only init script evaluates to the function,
-        # and plt.plot() evaluates to Line2D artists. The pickle check rejected
-        # both before open figures were captured, and those figures stayed open
-        # so the next script returned that SVG instead of its own value.
-        if _is_defined_function(result):
-            result = None
-
-        extra_stdout = ""
-        if _is_mpl_artist_result(result):
-            captured, note = _capture_open_figures_payload()
-            if captured is None:
-                serialized = serialize_result(result)
-            else:
-                serialized = captured
-                extra_stdout = note
-        else:
-            serialized = serialize_result(result)
-            if not find_image_payloads(serialized):
-                captured, note = _capture_open_figures_payload()
-                if captured is not None:
-                    serialized = captured
-                    extra_stdout = note
-            else:
-                _close_open_figures()
+        serialized, extra_stdout = _serialize_cell_result(result)
 
         if is_split_grid(serialized):
             log.debug("venv_sandbox worker result %s", describe_wire_value(serialized))
@@ -1264,31 +1303,31 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         # not run. End the turn with the code the host already sent.
         _restore_prior_result(executor, prior_result)
         _close_open_figures()
-        return {
-            "status": "error",
-            "code": "USER_STOPPED",
-            "message": str(e) or "Stopped by user.",
-            "stdout": "",
-        }
+        return _error_result(str(e) or "Stopped by user.", code="USER_STOPPED")
     except InterpreterError as e:
         _restore_prior_result(executor, prior_result)
         _close_open_figures()
-        return {
-            "status": "error",
-            "message": str(e),
-            "stdout": str(executor.state.get("_print_outputs", "")),
-        }
+        return _error_result(str(e), stdout=str(executor.state.get("_print_outputs", "")))
     except Exception as e:
-        import traceback
-
         _restore_prior_result(executor, prior_result)
         _close_open_figures()
-        return {
-            "status": "error",
-            "message": str(e),
-            "traceback": traceback.format_exc(),
-            "stdout": "",
-        }
+        return _error_result(str(e), include_traceback=True)
+    except BaseException as e:
+        # What was wrong: ``raise SystemExit`` / ``raise KeyboardInterrupt``
+        # is BaseException. The vendored executor only catches Exception, so
+        # those left run_sandboxed_code. worker_harness.main had the same
+        # gap after EXEC_STARTED, the process died, and the host refused to
+        # replay, dropping every shared session on that worker.
+        # compute_service calls run_sandboxed_code directly, so this catch
+        # is required even with the harness backstop.
+        # Why this works: return an error dict and keep the executor.
+        # GeneratorExit is re-raised after the restore so generator cleanup
+        # is unchanged.
+        _restore_prior_result(executor, prior_result)
+        _close_open_figures()
+        if isinstance(e, GeneratorExit):
+            raise
+        return _error_result(str(e), include_traceback=True)
 
 
 def _restore_prior_result(executor: LocalPythonExecutor, prior_result: Any) -> None:

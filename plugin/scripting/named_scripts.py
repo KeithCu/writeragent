@@ -486,12 +486,17 @@ def bind_named_scripts_executor(executor: Any) -> Any:
     """New execute: re-check hashes; keep module cache on the shared executor.
 
     Returns the ContextVar token so callers can reset it on completion.
+
+    What was wrong: the ContextVar was set, then attach ran. If attach
+    raised, the token never reached ``_run_on_executor``'s finally, so the
+    var stayed bound to this executor on the thread.
+    Why this works: attach stamps the executor onto the library and does
+    not read the var. Set the var only after attach succeeds.
     """
     executor._named_script_checked = set()
     executor._named_script_listing = None
-    token = _current_executor.set(executor)
     attach_named_script_libraries(executor)
-    return token
+    return _current_executor.set(executor)
 
 
 def reset_named_scripts_executor(token: Any) -> None:

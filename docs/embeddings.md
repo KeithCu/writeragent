@@ -266,7 +266,7 @@ NumPy, **sqlite-vec**, and **sentence-transformers** run **only in the user venv
 | **Host** | Folder keys, cache paths, enqueue maintain, heartbeat RPC, `corpus_meta.json` orchestration |
 | **Venv (trusted modules)** | Batch embed, sqlite-vec DML, LangGraph ingest/search, hybrid RRF — **outside** the LLM AST sandbox |
 
-Trusted stubs bypass the sandbox via [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) (`_is_trusted_embeddings_stub`).
+Trusted helpers, including embeddings, run through [`run_trusted_worker_action`](../plugin/scripting/trusted_rpc.py) (`action: "run_trusted_action"`) and [`trusted_action_registry.py`](../plugin/scripting/trusted_action_registry.py). User-script strings run in the AST sandbox, [`venv_sandbox.py`](../plugin/scripting/venv/venv_sandbox.py). See [Trusted extension code in the venv](enabling_numpy_in_libreoffice.md#trusted-extension-code-in-the-venv).
 
 ### Dedicated embeddings subprocess {#dedicated-embeddings-subprocess}
 

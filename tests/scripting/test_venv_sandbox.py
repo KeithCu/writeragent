@@ -18,6 +18,58 @@ from plugin.scripting.payload_codec import host_unpack_data
 from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code, serialize_result
 
 
+@pytest.mark.parametrize(
+    ("code", "label"),
+    [
+        ("raise SystemExit(3)", "SystemExit"),
+        ("raise KeyboardInterrupt", "KeyboardInterrupt"),
+    ],
+)
+def test_user_base_exception_does_not_drop_the_shared_session(code: str, label: str):
+    """SystemExit and KeyboardInterrupt must stay in the cell.
+
+    What was wrong: both are BaseException. The vendored executor only
+    catches Exception, so they left run_sandboxed_code, the warm worker
+    died after EXEC_STARTED, and the host dropped every shared session.
+    """
+    sid = f"calc:base-exception-{label}"
+    try:
+        first = run_sandboxed_code("result = 7", session_id=sid, timeout_sec=8)
+        assert first["status"] == "ok", first
+        assert first["result"] == 7
+        blown = run_sandboxed_code(code, session_id=sid, timeout_sec=8)
+        assert blown["status"] == "error", blown
+        assert label in blown.get("traceback", "")
+        assert blown.get("code") != "USER_STOPPED"
+        again = run_sandboxed_code("result = result + 1", session_id=sid, timeout_sec=8)
+        assert again["status"] == "ok", again
+        assert again["result"] == 8
+    finally:
+        reset_sandbox_session(sid)
+
+
+def test_zero_dim_temporal_ndarray_matches_scalar():
+    """0-d datetime64/timedelta64 must keep the dtype, not arr.item()'s raw int."""
+    np = pytest.importorskip("numpy")
+
+    raw_dt = np.array("2020-01-02T03:04:05", dtype="datetime64[ns]")
+    scalar_dt = np.datetime64("2020-01-02T03:04:05", "ns")
+    wire_dt = serialize_result(raw_dt)
+    assert wire_dt == serialize_result(scalar_dt)
+    assert isinstance(wire_dt, str)
+    assert "2020-01-02" in wire_dt
+    assert wire_dt != 1577934245000000000
+
+    raw_ns = np.array(90, dtype="timedelta64[ns]")
+    wire_ns = serialize_result(raw_ns)
+    assert wire_ns == serialize_result(np.timedelta64(90, "ns"))
+    assert wire_ns != 90
+
+    raw_day = np.array(1, dtype="timedelta64[D]")
+    assert serialize_result(raw_day) == serialize_result(np.timedelta64(1, "D"))
+    assert serialize_result(raw_day) == 1.0
+
+
 def test_user_stopped_ends_the_cell_even_if_the_script_catches_exception():
     """Stop during a wa.* call must not be a RuntimeError the script can swallow."""
     from plugin.scripting.ipc import UserStopped
