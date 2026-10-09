@@ -884,6 +884,59 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_lost_gen_orphan_pruned_when_over_cap(self) -> None:
+        """A reset workbook leaves _lost_gen until the cap, then the oldest orphan goes.
+
+        What was wrong: reset_session popped _lost_sessions and left _lost_gen
+        for the life of the process, one entry per workbook ever seen.
+        """
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
+        try:
+            pool._max_lost_sessions = 1
+            ok = pool.execute(code="x = 1\nresult = x", session_id="workbook-1", mode="shared")
+            assert ok.get("status") == "ok"
+            with pool._cond:
+                pool._drop_session("workbook-1")
+            sticky = pool.execute(code="result = 1", session_id="workbook-1", mode="shared")
+            assert sticky.get("status") == "ok"
+            assert sticky.get("session_reset") is True
+            reset = pool.reset_session("workbook-1")
+            assert reset.get("status") == "ok"
+            with pool._cond:
+                assert "workbook-1" not in pool._sessions
+                assert "workbook-1" not in pool._lost_sessions
+                assert pool._lost_gen.get("workbook-1") == 1
+                pool._mark_session_lost_unlocked("workbook-2")
+                assert "workbook-1" not in pool._lost_gen
+                assert pool._lost_gen.get("workbook-2") == 1
+        finally:
+            pool.shutdown()
+
+    def test_lost_gen_keeps_live_session_over_cap(self) -> None:
+        """A generation still named by a live session survives the orphan sweep."""
+        from compute_service.formula_pool import _Session
+        from compute_service.worker_base import BaseProcessWorker
+
+        pool = FormulaProcessPool(num_workers=0, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
+        try:
+            pool._max_lost_sessions = 1
+            with pool._cond:
+                pool._sessions["live"] = _Session(
+                    worker=BaseProcessWorker(1, "unused.py"),
+                    pid=1,
+                    last_active=time.monotonic(),
+                    gen=4,
+                )
+                pool._lost_gen["live"] = 4
+                pool._lost_gen["orphan"] = 1
+                pool._mark_session_lost_unlocked("fresh")
+                assert pool._lost_gen.get("live") == 4
+                assert "orphan" not in pool._lost_gen
+                assert "fresh" in pool._lost_gen
+                assert "fresh" in pool._lost_sessions
+        finally:
+            pool.shutdown()
+
     def test_reset_keeps_map_when_worker_reset_fails(self, caplog: pytest.LogCaptureFixture) -> None:
         """A non-ok reset must not forget a namespace the worker still holds."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)

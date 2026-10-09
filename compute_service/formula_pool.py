@@ -80,7 +80,8 @@ class FormulaProcessPool(BaseProcessPool):
         # stay in sync across set, delete, pop, and clear.
         self._sessions: dict[str, _Session] = {}
         self._lost_sessions: OrderedDict[str, float] = OrderedDict()
-        # Survives after _lost_sessions pops the id. Capped with that map.
+        # Survives after _lost_sessions pops the id. Orphans (not live and
+        # not in _lost_sessions) are dropped once this exceeds the cap.
         self._lost_gen: dict[str, int] = {}
         self._max_lost_sessions: int = 1000
         self.shared_kernel_ttl_sec = eff_shared_ttl
@@ -160,6 +161,9 @@ class FormulaProcessPool(BaseProcessPool):
         # marker. The generation is not consumed.
         prev = self._current_gen_unlocked(session_id)
         new_gen = prev + 1
+        # Reinsert so dict order is recency. The cap drops the oldest orphan,
+        # which is not a caller still waiting on a lease.
+        self._lost_gen.pop(session_id, None)
         self._lost_gen[session_id] = new_gen
         sess = self._sessions.get(session_id)
         if sess is not None:
@@ -169,6 +173,28 @@ class FormulaProcessPool(BaseProcessPool):
             evicted_id, _unused = self._lost_sessions.popitem(last=False)
             if evicted_id not in self._sessions:
                 self._lost_gen.pop(evicted_id, None)
+        self._prune_lost_gen_unlocked()
+
+    def _prune_lost_gen_unlocked(self) -> None:
+        """Forget generations for workbooks that are gone, once the map is over cap.
+
+        What was wrong: ``reset_session`` and a non-lost drop clear
+        ``_lost_sessions`` and ``_sessions`` but left ``_lost_gen``. One
+        entry remained per workbook for the life of the process.
+        Why this change: drop oldest ids that are in neither map, and only
+        while over the same cap. A sticky caller still waiting on a lease
+        compares ``observed_gen`` to ``_current_gen_unlocked``. Deleting a
+        live or still-lost id makes that lookup return 0 and reports a
+        false ``session_reset``.
+        """
+        if len(self._lost_gen) <= self._max_lost_sessions:
+            return
+        for session_id in list(self._lost_gen):
+            if len(self._lost_gen) <= self._max_lost_sessions:
+                return
+            if session_id in self._sessions or session_id in self._lost_sessions:
+                continue
+            self._lost_gen.pop(session_id, None)
 
     def _drop_session(
         self,

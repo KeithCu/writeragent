@@ -794,10 +794,18 @@ class BaseProcessPool:
 
     def _start_reaper(self, name: str, interval: float, fn: Callable[[], None]) -> threading.Thread:
         def _loop() -> None:
-            # Wait on stop event instead of time.sleep so pool shutdown terminates immediately
+            # Wait on stop event instead of time.sleep so pool shutdown terminates immediately.
+            # What was wrong: fn() had no handler. One OSError from is_alive()
+            # or join killed this daemon, and idle workers and shared sessions
+            # were never evicted again for the process lifetime.
+            # Why this change: log the tick and keep waiting on the stop event.
             while not self._reaper_stop_event.wait(interval):
-                if not self._is_shutdown:
+                if self._is_shutdown:
+                    continue
+                try:
                     fn()
+                except Exception:
+                    log.exception("Reaper %s tick failed", name)
 
         t = threading.Thread(target=_loop, name=name, daemon=True)
         t.start()

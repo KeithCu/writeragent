@@ -567,4 +567,29 @@ def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch
     assert worker.tasks_executed == 0
 
 
+def test_reaper_survives_tick_exception() -> None:
+    """One bad eviction tick must not kill the reaper.
+
+    What was wrong: _start_reaper called fn() with no handler. An OSError
+    from is_alive() or join ended the daemon, and idle workers and shared
+    sessions were never evicted again.
+    """
+    pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
+    calls = {"n": 0}
+    second = threading.Event()
+
+    def tick() -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("tick failed")
+        second.set()
+
+    try:
+        pool._start_reaper("test-reaper", 0.02, tick)
+        assert second.wait(timeout=2.0)
+        assert calls["n"] >= 2
+    finally:
+        pool.shutdown()
+
+
 

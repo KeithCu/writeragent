@@ -775,7 +775,18 @@ def _gated(
         return auth_resp
 
     if prepare is not None:
-        admission_timeout_sec, prep_err = prepare(_start)
+        # What was wrong: prepare ran before the try that maps route_fn
+        # failures to JSON INTERNAL_ERROR. A body-read bug escaped as an HTML 500.
+        # Why this change: same JSON fallback, still before the permit. The
+        # semaphore release below must not run for an error that never acquired.
+        try:
+            admission_timeout_sec, prep_err = prepare(_start)
+        except Exception as e:
+            path = environ.get("PATH_INFO", "")
+            log.exception("fail %s prepare: %s", path, e)
+            if started:
+                return []
+            return _error(_start, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR")
         if prep_err is not None:
             return prep_err
 
@@ -1072,6 +1083,7 @@ def _handle_vision(
 
     req_id = req_data.get("id")
     raw_helper = req_data.get("helper")
+    # Missing or empty, including numeric 0, selects the default helper.
     helper = str(raw_helper).strip() if raw_helper else ""
     if not helper:
         helper = "extract_text"
@@ -1083,6 +1095,7 @@ def _handle_vision(
             code="INVALID_REQUEST",
             req_id=req_id,
         )
+    # Missing or empty image_b64, including numeric 0, falls through to image.
     image_input = req_data.get("image_b64") or req_data.get("image")
     file_path = req_data.get("file_path")
 

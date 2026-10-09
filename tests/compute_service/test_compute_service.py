@@ -3429,6 +3429,41 @@ def test_gated_does_not_start_response_twice() -> None:
     assert out == b""
 
 
+def test_gated_prepare_exception_is_json_internal_error() -> None:
+    """An unexpected prepare failure stays on the JSON error path and takes no permit.
+
+    What was wrong: prepare ran before the try that maps route failures to
+    INTERNAL_ERROR, so a body-read bug escaped as an HTML 500.
+    """
+    from compute_service.server import _gated
+
+    statuses: list[str] = []
+
+    def start_response(status: str, headers: list[tuple[str, str]], exc_info: object = None) -> None:
+        del headers, exc_info
+        statuses.append(status)
+
+    def prepare(_start: Any) -> tuple[float, list[bytes] | None]:
+        raise RuntimeError("prepare blew up")
+
+    sem = threading.Semaphore(1)
+    body = _gated(
+        {"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"},
+        start_response,
+        ComputeSettings(),
+        sem,
+        admission_timeout_sec=1.0,
+        busy_code="WORKER_POOL_BUSY",
+        busy_message="busy",
+        route_fn=lambda _start: [],
+        prepare=prepare,
+    )
+    assert statuses == ["500 Internal Server Error"]
+    assert b"INTERNAL_ERROR" in b"".join(body)
+    assert sem.acquire(timeout=0)
+    assert not sem.acquire(timeout=0)
+
+
 def test_sticky_cap_leaves_isolated_execute_free() -> None:
     """Sticky permits do not consume the isolated-execute gate.
 
