@@ -22,7 +22,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.text_helpers import clone_text_range, get_string_without_tracked_deletions
+from plugin.doc.text_helpers import (
+    get_string_without_tracked_deletions,
+    with_view_cursor_left_body_locked as _with_left_body_locked,
+)
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
@@ -49,48 +52,6 @@ def _at_page_anchor_page(obj: Any) -> Any | None:
         return obj.getPropertyValue("AnchorPageNo")
     except Exception:
         return None
-
-
-def _with_left_body_locked(doc: Any, vc: Any, scan_fn: Any) -> Any:
-    """Leave nested XText, lock for the scan, unlock before restore.
-
-    Why leave first: lockControllers while the view cursor sits in a table
-    cell makes gotoRange/getPage fail silently (Cneg: tables=[]). jumpToPage
-    is a no-op on the same page (the cell). Unlocked hop to
-    doc.getText().getStart() first.
-
-    Why lock after leave: headed visarea — never-lock C hits Y=37017 on
-    page-2 hops; leave+lock A does not. Flicker needs lock during the
-    multi-object scan.
-
-    Why unlock before restore: gotoRange into a nested cell fails while
-    locked. Save/restore uses clone_text_range (vc.getText()), not body
-    XText. If the leave hop fails, scan unlocked — empty page is valid.
-    """
-    saved = None
-    try:
-        # Nested XText (table cell / frame): body getText() cannot clone this range.
-        saved = clone_text_range(vc)
-    except Exception:
-        pass
-    in_body = False
-    try:
-        vc.gotoRange(doc.getText().getStart(), False)
-        in_body = True
-    except Exception:
-        pass
-    if in_body:
-        doc.lockControllers()
-    try:
-        return scan_fn()
-    finally:
-        if in_body:
-            doc.unlockControllers()
-        if saved is not None:
-            try:
-                vc.gotoRange(saved, False)
-            except Exception:
-                pass
 
 
 class SectionList(ToolWriterStructuralBase):
@@ -166,12 +127,22 @@ class GetPageObjects(ToolBase):
                 if para_idx is None:
                     return self._tool_error("Cannot resolve locator: %s" % locator)
             if para_idx is not None:
-                page = doc_svc.get_page_for_paragraph(doc, para_idx)
+                # What was wrong: get_page_for_paragraph swallowed exceptions and returned
+                # fallback 1, so failures were reported as status: ok, page: 1 (#1422).
+                # Why: page resolution failures must be surfaced as tool errors so callers
+                # and automated controllers do not act on false success.
+                try:
+                    page = doc_svc.get_page_for_paragraph(doc, para_idx)
+                except (ValueError, ToolExecutionError) as e:
+                    return self._tool_error(str(e))
             else:
                 try:
                     page = doc.getCurrentController().getViewCursor().getPage()
                 except Exception:
                     page = 1
+
+        if page is None or page <= 0:
+            return self._tool_error("Cannot resolve page: invalid page %s" % page)
 
         controller = doc.getCurrentController()
         vc = controller.getViewCursor()

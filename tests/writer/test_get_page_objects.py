@@ -433,3 +433,22 @@ def test_execute_skips_lock_when_page_hop_fails():
     assert result.get("status") == "ok"
     doc.lockControllers.assert_not_called()
     doc.unlockControllers.assert_not_called()
+
+
+def test_get_page_objects_paragraph_page_resolution_failure_returns_tool_error():
+    """Verify that if get_page_for_paragraph raises ToolExecutionError, execute returns tool error."""
+    from plugin.framework.errors import ToolExecutionError
+
+    tool = GetPageObjects()
+    doc = MagicMock()
+    svc = MagicMock()
+    svc.resolve_locator.return_value = {"para_index": 42}
+    svc.get_page_for_paragraph.side_effect = ToolExecutionError("Paragraph index 42 not found")
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document = svc
+
+    res = tool.execute(ctx, locator="paragraph:42")
+    assert res.get("status") == "error"
+    assert "Paragraph index 42 not found" in res.get("message", "")
