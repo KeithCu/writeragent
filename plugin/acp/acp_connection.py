@@ -116,14 +116,14 @@ class ACPConnection:
     def stop(self) -> None:
         """Terminate the subprocess and unblock in-flight ``send_request`` calls.
 
-        What was wrong: ``stop()`` closed the child but left every
-        ``send_request`` waiting on its ``Event`` until the caller's timeout
-        (the prompt uses 600s). The chat worker stayed parked after the UI
-        had already shown Stopped, and the reader stayed in ``readline``
-        until that timeout too. Why: publish a cancellation error and set
-        every pending event, then terminate. A second ``stop()`` sees no
-        process and only wakes waiters. The reader loop uses the same sweep
-        when it exits for any other reason.
+        ``stop()`` used to close the child and leave every ``send_request``
+        waiting on its ``Event`` until the caller's timeout (the prompt uses
+        600s). The chat worker stayed parked after the UI had already shown
+        Stopped, and the reader stayed in ``readline`` until that timeout
+        too. Publish a cancellation error and set every pending event, then
+        terminate. A second ``stop()`` sees no process and only wakes
+        waiters. The reader loop uses the same sweep when it exits for any
+        other reason.
         """
         self._wake_pending("ACP process stopped")
         with self._lock:
@@ -134,15 +134,14 @@ class ACPConnection:
         if proc is None:
             return
 
-        # What was wrong: commit 5f90e5b89 put stdin writes and stdin.close() back
-        # on the calling thread, so a full or blocked pipe buffer froze the UI.
-        # Prior to 5f90e5b89, writes were sent to run_in_background while stop()
-        # called proc.terminate() immediately, racing and killing the child before
-        # session/cancel was sent.
-        # Why this change: sequence writes and stop through a background FIFO queue.
-        # session/cancel and permission responses flush before proc.stdin.close()
-        # and proc.terminate() run off-thread. A fallback watchdog forces terminate()
-        # if a wedged pipe blocks writes, preventing UI freezes while eliminating the race.
+        # Stdin writes and stdin.close() on the calling thread freeze the UI
+        # when the pipe buffer is full. Sending writes to the background
+        # while stop() calls terminate() immediately races and kills the
+        # child before session/cancel is sent. Sequence writes and stop
+        # through a background FIFO: session/cancel and permission responses
+        # flush before proc.stdin.close() and proc.terminate() run
+        # off-thread. A fallback watchdog forces terminate() if a wedged
+        # pipe blocks writes.
         self._enqueue_write("stop", proc, None)
 
         def _watchdog_terminate() -> None:
@@ -207,11 +206,9 @@ class ACPConnection:
                             proc.kill()
                         except Exception:
                             pass
-                # What was wrong: if a child process exited while stdout was still held open,
-                # or during stop(), the reader thread readline() could block indefinitely.
-                # How it happened: stop() terminated/killed the process but did not close stdout.
-                # Why this change: closing proc.stdout in stop unblocks any blocking readline()
-                # on the reader thread without requiring complex OS-level pipe polling.
+                # A child that exits while stdout is still held open, or during
+                # stop(), leaves readline() blocked. Closing proc.stdout here
+                # unblocks the reader without polling the pipe.
                 try:
                     if proc and proc.stdout:
                         proc.stdout.close()
@@ -252,14 +249,12 @@ class ACPConnection:
             # that sweep would wait until timeout: the event is never set.
             if not self._running or self._proc is None:
                 raise ToolExecutionError("ACP process is not running")
-            # What was wrong: the write below re-read self._proc
-            # (`if self._proc and self._proc.stdin`). stop() sets
-            # self._proc to None between those two loads, so the second
-            # was None and None.stdin raised AttributeError. That is not
-            # BrokenPipeError or OSError, so it escaped this handler.
-            # Why: keep the process from this locked check and write
-            # through that local. A pipe stop() already closed raises
-            # ValueError ("I/O operation on closed file"), which is the
+            # stop() sets self._proc to None between two loads of it. The write
+            # below must use the process from this locked check. Re-reading
+            # self._proc (`if self._proc and self._proc.stdin`) hits None.stdin
+            # and raises AttributeError, which is not BrokenPipeError or
+            # OSError, so it escapes the handler. A pipe stop() already closed
+            # raises ValueError ("I/O operation on closed file"), which is the
             # same failed write.
             proc = self._proc
             self._pending[req_id] = {"event": event, "response": None}
@@ -325,23 +320,20 @@ class ACPConnection:
         """Read JSON-RPC messages from stdout and dispatch them."""
         log.info("Reader loop started")
         try:
-            # What was wrong: this guard also required poll() is None.
             # Popen.poll() is waitpid(WNOHANG) and becomes set the moment the
-            # child exits, independent of unread stdout. If the child wrote
-            # the session/prompt response and exited while this thread was
-            # inside a session/update callback, the loop never called
-            # readline() again. The finally sweep then failed the turn with
-            # "ACP process terminated" and the answer was discarded.
-            # Why: readline() returns b"" at EOF, so the poll() check only
-            # dropped buffered bytes. Waiters that still have no response
-            # are failed by the sweep below.
+            # child exits, independent of unread stdout. Requiring poll() is
+            # None dropped a session/prompt response the child wrote and then
+            # exited while this thread was inside a session/update callback.
+            # The finally sweep then failed the turn with "ACP process
+            # terminated" and the answer was discarded. readline() returns
+            # b"" at EOF, so the poll() check only dropped buffered bytes.
+            # Waiters that still have no response are failed by the sweep.
             while self._running:
-                # What was wrong: the while test read self._proc, then the
-                # body read self._proc.stdout. stop() sets self._proc to None
-                # between those two reads, so readline raised AttributeError
-                # and the except logged "Reader error". Why: copy the process
-                # once per iteration. None means stop() already claimed it;
-                # leave without touching stdout.
+                # stop() sets self._proc to None between the while test and
+                # self._proc.stdout. Copy the process once per iteration.
+                # None means stop() already claimed it; leave without touching
+                # stdout. Re-reading raises AttributeError and the except
+                # logs "Reader error".
                 proc = self._proc
                 if proc is None:
                     break
@@ -365,29 +357,25 @@ class ACPConnection:
                     if msg is None:
                         log.debug(f"Non-JSON output: {line[:200]}")
                         continue
-                    # What was wrong: only None was skipped. A stdout line that
-                    # is valid JSON but not an object (bare number, true/false,
-                    # quoted string, or a JSON array) reached `"id" in msg` or
-                    # msg.get and raised TypeError or AttributeError. The inner
-                    # except broke the reader, and the finally sweep failed the
-                    # in-flight session/prompt with "ACP process terminated"
-                    # while the child was still alive, discarding any later
-                    # answer still on the pipe. Why: JSON-RPC messages are
-                    # objects. Anything else is stray stdout; log it and keep
-                    # reading. Do not gate this loop on Popen.poll() — that
-                    # drops a response already buffered when the child exits.
+                    # JSON-RPC messages are objects. A stdout line that is valid
+                    # JSON but not an object (bare number, true/false, quoted
+                    # string, or a JSON array) reaches `"id" in msg` or
+                    # msg.get and raises TypeError or AttributeError. The
+                    # inner except then breaks the reader, and the finally
+                    # sweep fails the in-flight session/prompt with "ACP
+                    # process terminated" while the child is still alive.
+                    # Log stray stdout and keep reading. Do not gate this
+                    # loop on Popen.poll() — that drops a response already
+                    # buffered when the child exits.
                     if not isinstance(msg, dict):
                         log.debug(f"Non-object JSON output: {line[:200]}")
                         continue
-                    # What was wrong: an object whose "id" is an array or object
-                    # passed the dict guard, then pending.get(req_id) raised
-                    # TypeError (unhashable type). The inner except broke the
-                    # reader, and the finally sweep failed the in-flight
-                    # session/prompt with "ACP process terminated" while the
-                    # child was still alive, discarding later pipe responses.
-                    # Why: JSON-RPC ids are string, number, or null. Anything
-                    # else (array, object, JSON boolean) is stray stdout; log
-                    # it and keep reading.
+                    # JSON-RPC ids are string, number, or null. An array or object
+                    # id passes the dict guard, then pending.get(req_id) raises
+                    # TypeError (unhashable type). The inner except breaks the
+                    # reader, and the finally sweep fails the in-flight
+                    # session/prompt while the child is still alive. Log it
+                    # and keep reading.
                     if "id" in msg and not _is_jsonrpc_id(msg["id"]):
                         log.debug(f"Non-JSON-RPC id output: {line[:200]}")
                         continue
@@ -420,14 +408,13 @@ class ACPConnection:
                         log.exception("Reader error")
                     break
         finally:
-            # What was wrong: this sweep lived only in stop(). A child exit,
-            # stdout EOF, or an unexpected exception here ended the loop and
-            # left in-flight Events unset, so session/prompt sat on
-            # event.wait(600) and the sidebar stayed on Sending. Why: every
-            # reader exit wakes waiters the same way stop() does. A response
-            # stop() already stored is not replaced. Non-object JSON and
-            # objects with a non-JSON-RPC id are skipped above and do not
-            # take this path.
+            # A child exit, stdout EOF, or an unexpected exception ends this
+            # loop. The sweep used to live only in stop(), so in-flight Events
+            # stayed unset, session/prompt sat on event.wait(600), and the
+            # sidebar stayed on Sending. Every reader exit wakes waiters the
+            # same way stop() does. A response stop() already stored is not
+            # replaced. Non-object JSON and objects with a non-JSON-RPC id
+            # are skipped above and do not take this path.
             self._wake_pending("ACP process terminated")
             # Live drain already collected stderr; log a bounded tail for debugging.
             drain = self._stderr_drain

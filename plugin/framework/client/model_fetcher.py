@@ -415,14 +415,13 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
             models, image_models, vision_declared = parsed
             entries = _v1_models_entries_from_body(data) or []
             provider = get_provider_from_endpoint(base)
-            # What was wrong: this memo stored only architecture/type image ids.
-            # Ollama, LM Studio, and other non-Together hosts usually omit those
-            # fields, so the slice was [] while fetch_available_image_models
-            # keyword-matched flux/sdxl/…. Settings reads the memo, and the
-            # startup worker does not do a second image GET for those hosts, so
-            # local image models never appeared. Store the keyword list the
-            # image fetch returns. Together keeps type=image. OpenRouter
-            # Settings uses /v1/images/models, not this slice.
+            # Ollama, LM Studio, and other non-Together hosts usually omit
+            # architecture/type image ids, so a memo of only those ids is []
+            # while keyword matching finds flux/sdxl/…. Settings reads the
+            # memo, and the startup worker does not do a second image GET for
+            # those hosts. Store the keyword list the image fetch returns.
+            # Together keeps type=image. OpenRouter Settings uses
+            # /v1/images/models, not this slice.
             if provider not in ("together", "openrouter"):
                 image_models = _filter_fetched_models(models, "image")
             _store_model_fetch_caches(cache_key, models, image_models, vision_declared, _context_tokens_from_v1_entries(entries))
@@ -1055,10 +1054,10 @@ def has_native_audio(model_id: Any, endpoint: Any) -> bool | None:
         if has_audio and has_chat:
             return True
         if has_audio and not has_chat:
-            # What was wrong: AUDIO-without-CHAT (Whisper, Voxtral) fell through
-            # to None. transcribe_audio treats None as "try chat", so those ids
-            # were posted as input_audio and could sit until request_timeout.
-            # Why: False selects POST /audio/transcriptions. None stays unknown.
+            # AUDIO-without-CHAT (Whisper, Voxtral) is not "unknown".
+            # transcribe_audio treats None as "try chat", so those ids were
+            # posted as input_audio and could sit until request_timeout.
+            # False selects POST /audio/transcriptions. None stays unknown.
             return False
 
     # 3. Heuristics (Regex/Keywords) for known audio-native families
@@ -1323,12 +1322,11 @@ def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True,
         if vision_memo is None and allow_fetch:
             fetch_available_models(endpoint_str)
             vision_memo = _model_fetch_vision_cache.get(cache_key)
-        # What was wrong: a successful catalog with no image modality (often
-        # because the provider omitted input_modalities) was stored as False.
-        # The config map is checked first, so that False skipped later lookups
-        # for the rest of the process and the next one. Persist only when the
-        # row listed input_modalities. An explicit list without image is still
-        # a no. A missing field falls through and is not written.
+        # Persist vision only when the row listed input_modalities. A
+        # successful catalog that omitted the field is not a "no": the config
+        # map is checked first, so storing False would skip later lookups for
+        # the rest of the process and the next one. An explicit list without
+        # image is still a no. A missing field falls through and is not written.
         if vision_memo is not None:
             supported = _vision_memo_answer(provider, vision_memo, model_id_str)
             if supported is not None:
@@ -1509,11 +1507,10 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
 def is_image_only_model(endpoint: Any, model_id: Any) -> bool:
     """Check if the model outputs image but not text (dedicated image generator).
 
-    What was wrong: this fetched the image catalog only to consult a side map
-    the catalog never filled, so a real image id fell through to the name
-    heuristic (a ``gemini`` image model looked like chat). Use the id list the
-    fetch already returns. ``None`` means the catalog did not answer; then the
-    name heuristic still applies.
+    The image-id list the fetch already returns is the catalog. A side map
+    the catalog never filled made a real image id fall through to the name
+    heuristic (a ``gemini`` image model looked like chat). ``None`` means the
+    catalog did not answer; then the name heuristic still applies.
     """
     if not endpoint or not model_id:
         return False

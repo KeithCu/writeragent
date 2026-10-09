@@ -61,8 +61,8 @@ class MCPACPProxy(AgentBackend):
         from plugin.framework.config import get_config, get_config_int_safe
         from plugin.framework.config_schema import as_bool
 
-        # What was wrong: self._mcp_url was populated even when mcp.mcp_enabled was False.
-        # Why this change: clear self._mcp_url when MCP is disabled in configuration.
+        # Leave the URL empty when MCP is disabled. A populated URL would
+        # still be offered to the agent.
         if not as_bool(get_config("mcp.mcp_enabled")):
             self._mcp_url = ""
             return

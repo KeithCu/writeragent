@@ -46,11 +46,9 @@ log = logging.getLogger(__name__)
 CONNECTION_ERRORS = (http.client.HTTPException, socket.error, OSError)
 RetryAction = Literal["retry", "stop"]
 # Header names whose values are credentials. Matched case-insensitively.
-# What was wrong: "cookie" and "proxy-authorization" headers were retained across
-# cross-origin redirects, potentially leaking sensitive credentials.
-# How it happened: _SECRET_HEADER_NAMES only included authorization and API key variants.
-# Why this change fixes it: adding "cookie" and "proxy-authorization" ensures they are
-# stripped on cross-origin redirect hops and redacted from logs.
+# Cookie and proxy-authorization are credentials too. They are stripped on
+# cross-origin redirect hops and redacted from logs, along with authorization
+# and API-key variants.
 _SECRET_HEADER_NAMES = frozenset({"authorization", "x-api-key", "api-key", "x-goog-api-key", "cookie", "proxy-authorization"})
 # Query keys that carry credentials. ``output_modalities`` is not one of these.
 _SECRET_QUERY_KEYS = frozenset({"api_key", "apikey", "api-key", "key", "token", "access_token"})
@@ -136,12 +134,10 @@ def collect_secrets(*groups: list[str] | None) -> list[str]:
 def _bracket_ipv6_host(host: str) -> str:
     """Put brackets back around an IPv6 literal so the origin can be parsed again.
 
-    What was wrong: ``ParseResult.hostname`` strips the brackets RFC 3986
-    requires. Rebuilding ``http://[::1]:11434`` as ``http://::1:11434`` makes
-    the next parse read ``:1:11434`` as the port, and ``_explicit_port``
-    raises ``INVALID_URL``. ``sync_request`` feeds that origin into
-    ``_endpoint_parts``. Chat still worked when the configured URL kept its
-    brackets. How: a colon in the host is an IPv6 literal; wrap it once.
+    ``ParseResult.hostname`` strips the brackets RFC 3986 requires. Rebuilding
+    ``http://[::1]:11434`` as ``http://::1:11434`` makes the next parse read
+    ``:1:11434`` as the port, and ``_explicit_port`` raises ``INVALID_URL``.
+    A colon in the host is an IPv6 literal; wrap it once.
     """
     if ":" not in host or host.startswith("["):
         return host
@@ -160,13 +156,10 @@ def _invalid_url_error(url: str) -> NetworkError:
 def _parse_url(url: str) -> urllib.parse.ParseResult:
     """``urlparse``, with an invalid bracket URL as ``NetworkError``.
 
-    What was wrong: ``urlparse`` raises ``ValueError`` ("Invalid IPv6 URL",
-    or an empty/illegal address inside ``[]``) for ``http://[::1``,
-    ``http://[::1]extra``, and ``http://[]/v1`` before ``_explicit_port`` or
-    ``_bracket_ipv6_host`` run. #1046 only wrapped ``ParseResult.port``, so
-    ``sync_request``, ``public_target``, and ``_endpoint_parts`` still leaked
-    the raw ``ValueError``.
-    Why: a bad bracket URL is an invalid URL, the same contract as a bad port.
+    ``urlparse`` raises ``ValueError`` ("Invalid IPv6 URL", or an empty or
+    illegal address inside ``[]``) for ``http://[::1``, ``http://[::1]extra``,
+    and ``http://[]/v1`` before ``_explicit_port`` or ``_bracket_ipv6_host``
+    run. A bad bracket URL is ``INVALID_URL``, the same contract as a bad port.
     """
     try:
         return urllib.parse.urlparse(url)
@@ -177,12 +170,10 @@ def _parse_url(url: str) -> urllib.parse.ParseResult:
 def _explicit_port(parsed: urllib.parse.ParseResult) -> int | None:
     """Explicit URL port, or None when the URL omits one.
 
-    What was wrong: ``ParseResult.port`` raises ``ValueError`` for
-    ``localhost:1a34`` and for ports outside 0–65535. ``sync_request``
-    calls ``origin_and_path`` before its try, and ``public_target`` /
-    ``_endpoint_parts`` did not catch it, so the raw ``ValueError`` escaped.
-    How: urllib validates the port only when ``.port`` is read.
-    Why: a bad port is an invalid URL. Callers already handle ``NetworkError``.
+    ``ParseResult.port`` raises ``ValueError`` for ``localhost:1a34`` and for
+    ports outside 0–65535. urllib checks the port only when ``.port`` is read,
+    and ``sync_request`` calls ``origin_and_path`` before its try. A bad port
+    is ``INVALID_URL``; callers already handle ``NetworkError``.
     """
     try:
         return parsed.port
@@ -236,10 +227,10 @@ def _apply_redirect(
     loc = (location or "").strip()
     if not loc or any(ch in loc for ch in "\r\n\x00"):
         return None
-    # What was wrong: ``urljoin`` splits the URL the same way ``urlparse``
-    # does and raises ``ValueError`` for ``Location: http://[::1`` before
-    # ``_explicit_port`` runs. That skipped ``exchange``'s NetworkError catch.
-    # Why: the same invalid-URL contract as a bad port.
+    # ``urljoin`` splits the URL the same way ``urlparse`` does and raises
+    # ``ValueError`` for ``Location: http://[::1`` before ``_explicit_port``
+    # runs. That would skip ``exchange``'s NetworkError catch. Same
+    # invalid-URL contract as a bad port.
     try:
         joined = urllib.parse.urljoin(current_url, loc.replace(" ", "%20"))
     except ValueError as exc:
@@ -288,11 +279,11 @@ def public_target(url_or_path: str) -> str:
 def parse_strict_json(raw: Any) -> Any:
     """Parse provider bytes with ``json.loads`` only.
 
-    What was wrong: ``safe_json_loads`` repairs truncated model text, so a
-    cut-off envelope such as ``{"choices":[{"message":{"content":"hel`` or a
-    cut-off catalog ``{"data":[{"id":"gpt`` became a dict and looked finished.
-    Why: provider envelopes and catalogs are not model text. Do not call the
-    JSON peel walker here. A decode failure is ``BAD_RESPONSE``, not a reply.
+    ``safe_json_loads`` repairs truncated model text, so a cut-off envelope
+    such as ``{"choices":[{"message":{"content":"hel`` or a cut-off catalog
+    ``{"data":[{"id":"gpt`` became a dict and looked finished. Provider
+    envelopes and catalogs are not model text. A decode failure is
+    ``BAD_RESPONSE``, not a reply.
     """
     if isinstance(raw, (bytes, bytearray)):
         try:
@@ -417,10 +408,10 @@ class LlmHttpTransport:
 
         log.debug("Opening new connection to %s://%s:%s" % (scheme, host, port))
         self._conn_key = new_key
-        # What was wrong: constructor timeout was request_timeout (default 120),
-        # so a dead host blocked DNS/TCP for the full stream stall budget.
-        # Connect uses LLM_CONNECT_TIMEOUT_SEC; send() raises the socket to the
-        # Settings read timeout after connect returns.
+        # The constructor timeout is the connect budget, not request_timeout
+        # (default 120). A dead host must not block DNS/TCP for the full stream
+        # stall. send() raises the socket to the Settings read timeout after
+        # connect returns.
         from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
 
         connect_timeout = LLM_CONNECT_TIMEOUT_SEC
@@ -431,12 +422,9 @@ class LlmHttpTransport:
         else:
             self._persistent_conn = http.client.HTTPConnection(host, port, timeout=connect_timeout)
 
-        # What was wrong: http.client connections default auto_open=1, so if Stop called
-        # conn.close() after the last stop check but before conn.request(), http.client
-        # would silently reconnect and send the request anyway.
-        # How it happened: auto_open is 1 by default on HTTPConnection.
-        # Why this change fixes it: setting auto_open = 0 causes a closed connection
-        # to raise http.client.NotConnected instead of reconnecting.
+        # http.client defaults auto_open=1, so Stop's conn.close() between the
+        # last stop check and conn.request() would silently reconnect and send.
+        # auto_open = 0 makes a closed connection raise NotConnected instead.
         self._persistent_conn.auto_open = 0
 
         return self._persistent_conn
@@ -487,7 +475,7 @@ class LlmHttpTransport:
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
         conn = connection_getter() if connection_getter is not None else self.get_connection()
         conn.auto_open = 0
-        # What was wrong: timeout was stored only when the socket was opened.
+        # The timeout used to be stored only when the socket was opened.
         # ``LlmClient._timeout`` reads ``request_timeout`` on every call, so a
         # later change never reached a keep-alive connection. Connect still
         # uses the short connect budget; read uses Settings request_timeout.
@@ -529,16 +517,14 @@ class LlmHttpTransport:
             mark_host_sent(key)
             return conn.getresponse()
         except (http.client.RemoteDisconnected, BrokenPipeError, ConnectionResetError):
-            # What was wrong: a keep-alive socket the peer had already closed
-            # raised RemoteDisconnected, BrokenPipeError, or ConnectionResetError
+            # A keep-alive socket the peer already closed raises
+            # RemoteDisconnected, BrokenPipeError, or ConnectionResetError
             # inside request() or getresponse(), before any response bytes.
-            # That spent a retry, called remember_host_gap, and showed
-            # "Provider busy".
-            # How: only when this socket was already open. A failure while
-            # connecting a new socket is a real error and still uses the budget.
-            # Why: close and send this same request once. The retry budget,
-            # the host gap, and the status line stay unused. Do not reconnect if
-            # stop was requested.
+            # That would spend a retry, call remember_host_gap, and show
+            # "Provider busy". Only when this socket was already open: a
+            # failure while connecting a new socket still uses the budget.
+            # Close and send this same request once. Do not reconnect if Stop
+            # was requested.
             if (stop_checker is not None and stop_checker()) or not reused_socket or not _stale_resend:
                 raise
             log.debug("Keep-alive socket failed before a response; reconnecting once")
@@ -554,13 +540,11 @@ class LlmHttpTransport:
     def _connect_abortable(self, conn: http.client.HTTPConnection | http.client.HTTPSConnection, stop_checker: Callable[[], bool] | None, *, connect_timeout: float) -> None:
         """Connect without waiting out the read budget, and without ignoring Stop.
 
-        What was wrong: ``http.client.connect`` blocks inside ``getaddrinfo``
-        before it assigns ``sock``. ``close()`` saw ``sock is None`` and
-        returned, so Stop during DNS was a no-op and the caller stayed in
-        ``connect()`` until the resolver finished. A single urllib timeout
-        was the read budget, so that wait was the whole stall (often 120s).
-        How: the socket timeout does not bound ``getaddrinfo``. Why: run
-        connect on a dedicated worker (the caller joins it; a pool slot would
+        ``http.client.connect`` blocks inside ``getaddrinfo`` before it assigns
+        ``sock``. The socket timeout does not bound ``getaddrinfo``, so
+        ``close()`` sees ``sock is None`` and Stop during DNS is a no-op until
+        the resolver finishes — often the whole 120s read budget. Run connect
+        on a dedicated worker (the caller joins it; a pool slot would
         deadlock). Poll Stop and the connect deadline, then close whatever
         socket has appeared. Do not wait for DNS to finish.
         """
@@ -704,13 +688,10 @@ class LlmHttpTransport:
                     response = _send(method, path, body, wire_headers, stop_checker=stop_checker, status_callback=status_callback)
                     status = int(getattr(response, "status", 0) or 0)
                     if status in _REDIRECT_STATUSES and redirects_followed < _MAX_REDIRECTS:
-                        # What was wrong: only status 200 was accepted, so a
-                        # CDN 301/302/307 became NetworkError. Image URLs, TTS
-                        # audio, catalogs, and update checks used to follow
-                        # Location via urllib.
-                        # How: one hop rewrites method/body, then loops.
-                        # Why: the retry budget is for 429/503, not for a
-                        # redirect the server asked us to take.
+                        # A CDN 301/302/307 is not a failure. Image URLs, TTS audio,
+                        # catalogs, and update checks follow Location. One hop
+                        # rewrites method/body, then loops. The retry budget is
+                        # for 429/503, not for a redirect the server asked for.
                         current_url = self._absolute_url(path)
                         hop = _apply_redirect(method, body, wire_headers, current_url, status, _response_header(response, "Location"))
                         if hop is not None:
@@ -761,13 +742,11 @@ class LlmHttpTransport:
                 except CONNECTION_ERRORS as exc:
                     if body_in_hand:
                         raise NetworkError(redact_secrets(format_error_message(exc), wire_secrets), code="CONNECTION_LOST", details={"url": public_target(path)}) from exc
-                    # What was wrong: handle_http_status reads the error body, and
-                    # that read can raise IncompleteRead, a reset, or a timeout.
-                    # How: the non-200 branch above had already decremented
-                    # sends_left, then this handler decremented it again, so one
-                    # failed read consumed two of the three attempts and the last
-                    # try never ran. Why: a status that already charged this
-                    # attempt must not be charged a second time here.
+                    # handle_http_status reads the error body, and that read can
+                    # raise IncompleteRead, a reset, or a timeout. The non-200
+                    # branch above already decremented sends_left. Charging
+                    # again would consume two of the three attempts for one
+                    # failed read, and the last try would never run.
                     if not attempt_charged:
                         sends_left -= 1
                         attempt += 1
@@ -792,10 +771,8 @@ class LlmHttpTransport:
 
     def handle_connection_error(self, err: Exception, *, path: str, retries_left: int, retry_log_message: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, attempt: int = 1, model: str | None = None, secrets: list[str] | None = None) -> RetryAction:
         """Close failed connections and decide whether a request should retry."""
-        # What was wrong: user Stop during streaming/request closed the socket and logged
-        # ERROR lines ("Broken pipe", "Connection error, closing", etc.).
-        # How it happened: handle_connection_error unconditionally logged log.error before checking stop_checker.
-        # Why this change fixes it: checking stop_checker first downgrades the log to debug level on user cancel.
+        # Stop closes the socket, which looks like a broken pipe. Check
+        # stop_checker before log.error so a user cancel is debug, not ERROR.
         if stop_checker and stop_checker():
             log.debug("Connection closed by user stop; exiting streaming loop")
             self.close()
@@ -810,9 +787,9 @@ class LlmHttpTransport:
         if retries_left > 0:
             log.warning(retry_log_message)
             delay = backoff_delay_sec(attempt=attempt)
-            # What was wrong: the backoff was stored under current_host() only.
-            # An OpenRouter ``:free`` failure then slowed paid traffic on that
-            # host and did not pace ``:free``. Chat already uses pacing_key.
+            # Store the backoff under pacing_key, not current_host() alone.
+            # An OpenRouter ``:free`` failure would otherwise slow paid traffic
+            # on that host and leave ``:free`` unpaced. Chat already uses pacing_key.
             remember_host_gap(pacing_key(self.current_host(), model), delay)
             emit_retry_status(status_callback, delay)
             if not wait_abortable(delay, stop_checker):

@@ -47,24 +47,21 @@ _CLOUDFLARE_QUICK_URL_RE = re.compile(r"(https://[\w.-]+\.trycloudflare\.com)")
 # Token / named tunnels may log a custom hostname (not trycloudflare.com).
 _CLOUDFLARE_ANY_URL_RE = re.compile(r"(https://[\w.-]+)")
 _BORE_URL_RE = re.compile(r"listening at ([\w.\-]+:\d+)")
-# What was wrong: this required the literal "Available at " on the same line
-# as the URL. Real `tailscale funnel` (cmd/tailscale/cli/serve_v2.go
-# messageForPort, msgFunnelAvailable) prints the header and the URL apart:
+# Real `tailscale funnel` (cmd/tailscale/cli/serve_v2.go messageForPort,
+# msgFunnelAvailable) prints the header and the URL on different lines:
 #   Available on the internet:
 #
 #   https://<host>.<tailnet>.ts.net/
 #   |-- proxy http://127.0.0.1:<port>
-# AsyncProcess._read_stream delivers one line at a time, so neither line
-# matched, parse_tailscale_url stayed None, and URL_ACQUIRED never fired.
-# Why: match the Funnel hostname wherever it appears (optional :port for
-# 8443/10000; 443 omits the port).
+# AsyncProcess._read_stream delivers one line at a time, so a regex that
+# requires "Available at " on the same line as the URL never matches,
+# parse_tailscale_url stays None, and URL_ACQUIRED never fires. Match the
+# Funnel hostname wherever it appears (optional :port for 8443/10000; 443
+# omits the port).
 _TAILSCALE_URL_RE = re.compile(r"(https://[\w.-]+\.ts\.net(?::\d+)?)")
 
-# What was wrong: running `tailscale serve --https=443 off` wiped any
-# user-configured serve on port 443 (e.g. background services mapped before MCP).
-# How it happened: _tailscale_off_commands attempted to clean up both funnel and
-# port 443 serve, conflicting with the intent to avoid destroying user config.
-# Why: only turn off the specific Funnel port (`tailscale funnel <port> off`).
+# `tailscale serve --https=443 off` wipes any user-configured serve on port
+# 443. Only turn off the Funnel port this session armed.
 def _tailscale_off_commands(port: int) -> tuple[list[str]]:
     return (["tailscale", "funnel", str(int(port)), "off"],)
 
@@ -528,10 +525,10 @@ class TunnelManager:
     def _retire_snippet_url_if_not_live(self, previous_provider: str, previous_url: Optional[str], previous_status: TunnelStatus) -> None:
         """Retire the snippet URL when this provider is no longer serving it.
 
-        What was wrong: URL acquire copied the public URL into the settings
-        cache, and that cache outlived stop, failure, and reconnect (those
-        clear ``TunnelState.public_url``). The snippet kept copying the dead URL.
-        Why: retire the provider that lost the URL. A later acquire or Test
+        URL acquire copies the public URL into the settings cache, and that
+        cache outlives stop, failure, and reconnect (those clear
+        ``TunnelState.public_url``). The snippet would keep copying the dead
+        URL. Retire the provider that lost the URL. A later acquire or Test
         stores a new one. An idle ``stop()`` that was already stopped does not
         retire, so a Settings Test URL survives until the tunnel actually runs.
         """
@@ -571,10 +568,10 @@ class TunnelManager:
             self._tailscale_reset_issued = True
         generation = self._tunnel_generation
         cfg_lock = self._provider_cfg_lock
-        # What was wrong: reading self._state.port here used the new port when
-        # called on a port change, running `tailscale funnel <newport> off`.
-        # How it happened: START_REQUESTED updated self._state before effects ran.
-        # Why: prefer port passed from TerminateProcessEffect (the old session's port).
+        # START_REQUESTED updates self._state before effects run, so reading
+        # self._state.port here is the new port and `tailscale funnel <newport>
+        # off` hits the wrong one. Prefer the port from TerminateProcessEffect
+        # (the old session's port).
         target_port = port
 
         def _safe_post_stop(expected: int = generation, fn: Callable[[int], None] = post_stop, prov: str = provider, p: int = target_port) -> None:
@@ -668,13 +665,12 @@ class TunnelManager:
         def _on_exit(rc: int) -> None:
             log.info("MCP tunnel process (%s) exited with code %s", provider, rc)
             with self._lock:
-                # What was wrong: provider/token restart does Terminate
-                # then Start. The old wait thread's _on_exit then ran
-                # unconditionally, set _process = None, and dispatched
-                # PROCESS_EXITED. That forced RECONNECTING and orphaned
-                # the replacement subprocess (and a retry could spawn a
-                # third binary). Why: ignore the exit unless this
-                # callback still owns the process TunnelManager tracks.
+                # A provider/token restart does Terminate then Start. The old wait
+                # thread's _on_exit must not run unconditionally: that sets
+                # _process = None and dispatches PROCESS_EXITED, which forces
+                # RECONNECTING and orphans the replacement (a retry can then
+                # spawn a third binary). Ignore the exit unless this callback
+                # still owns the process TunnelManager tracks.
                 if not _is_current_process():
                     log.info("Ignoring stale MCP tunnel exit (%s, code %s)", provider, rc)
                     return
@@ -726,30 +722,23 @@ class TunnelManager:
                         proc.terminate()
                     except Exception:
                         log.exception("Error terminating tunnel process")
-                # What was wrong: next_state stores the new provider and port on
-                # TunnelState before effects run, and post_stop read those fields.
-                # Tailscale → another provider or a port change looked up the new
-                # provider/port and ran post_stop on the wrong port (or skipped it).
-                # How it happened: START_REQUESTED updated state before effects ran.
-                # Why: TerminateProcessEffect carries provider and port from pre-transition state.
+                # next_state stores the new provider and port on TunnelState before
+                # effects run. post_stop must use TerminateProcessEffect's
+                # provider and port (the session that owned this process), or
+                # Tailscale off hits the new port or the wrong provider.
                 provider = effect.provider or self._state.provider
-                # What was wrong: next_state stores the new provider/port on
-                # TunnelState before effects run, and post_stop read those
-                # fields, so Tailscale off hit the new port or the wrong
-                # provider. Why: the effect carries the provider and port that
-                # owned this process.
+                # The effect carries the provider and port that owned this process.
+                # Reading TunnelState here is the post-transition value.
                 port = effect.port
-                # What was wrong: post_stop also required a live process.
-                # RECONNECTING and FAILED already cleared _process in
-                # _on_exit, so switching provider or disabling the tunnel
-                # skipped Tailscale funnel/serve reset. That config lives
-                # on tailscaled and kept the public URL pointed at the
-                # local MCP port. Retry exhaustion now emits this effect
-                # too, with the process already cleared.
-                # Why: reset whenever we leave that provider, including
-                # when the subprocess is already gone. An idle stop that
-                # was already STOPPED must not reset — settings sync calls
-                # stop() again and would wipe Funnel on every save.
+                # RECONNECTING and FAILED already cleared _process in _on_exit.
+                # Requiring a live process skipped Tailscale funnel/serve reset
+                # when switching provider or disabling the tunnel. That config
+                # lives on tailscaled and kept the public URL pointed at the
+                # local MCP port. Retry exhaustion emits this effect too, with
+                # the process already cleared. Reset whenever we leave that
+                # provider, including when the subprocess is already gone. An
+                # idle stop that was already STOPPED must not reset — settings
+                # sync calls stop() again and would wipe Funnel on every save.
                 # A crash marker is the exception, handled in stop().
                 leaving_live_session = proc is not None or previous_status != TunnelStatus.STOPPED
                 if leaving_live_session:
@@ -764,15 +753,15 @@ class TunnelManager:
 
                 pre_start: Optional[Callable[[int], None]] = info.get("pre_start")
                 if pre_start:
-                    # What was wrong: _tailscale_reset ran on this thread while
-                    # _lock was held (two CLIs, 5s each). stop() and the UI
-                    # sync path blocked for that whole wait. post_stop was
-                    # already moved off the lock for the same reason.
-                    # Why it is not fired and forgotten: the reset must finish
-                    # before `tailscale funnel <port>` or it tears down the
-                    # Funnel this start just configured. The caller releases
-                    # _lock, runs pre_start, then spawns only if this epoch
-                    # and generation are still current.
+                    # _tailscale_reset is two CLIs, 5s each. Running it on this thread
+                    # while _lock is held blocks stop() and the UI sync path
+                    # for that whole wait. post_stop was already moved off the
+                    # lock for the same reason. The reset must finish before
+                    # `tailscale funnel <port>` or it tears down the Funnel
+                    # this start just configured, so it is not fired and
+                    # forgotten. The caller releases _lock, runs pre_start,
+                    # then spawns only if this epoch and generation are still
+                    # current.
                     # Bump only when this provider's own post_stop would wipe
                     # the config it is about to create. A cloudflare start
                     # must still let a pending Tailscale reset run.
@@ -823,15 +812,14 @@ class TunnelManager:
 
     def _on_retry_timer_expired(self, timer: Optional[threading.Timer]) -> None:
         with self._lock:
-            # What was wrong: Timer.cancel() does not stop a callback that
-            # has already started. It used to block on this lock while
-            # start() ran binary_available() (up to ~10s), survive
-            # CancelRetryTimerEffect, then dispatch RETRY_TIMER_EXPIRED
-            # after StartProcessEffect and leave a second tunnel running.
-            # Why: ignore the callback unless this timer is still the one
-            # TunnelManager tracks. Also skip it while start() is outside
-            # the lock probing the provider binary — that start() owns the
-            # next process, or marks the tunnel FAILED.
+            # Timer.cancel() does not stop a callback that has already started.
+            # That callback used to block on this lock while start() ran
+            # binary_available() (up to ~10s), survive CancelRetryTimerEffect,
+            # then dispatch RETRY_TIMER_EXPIRED after StartProcessEffect and
+            # leave a second tunnel running. Ignore the callback unless this
+            # timer is still the one TunnelManager tracks. Also skip it while
+            # start() is outside the lock probing the provider binary — that
+            # start() owns the next process, or marks the tunnel FAILED.
             if timer is None or self._reconnect_timer is not timer:
                 log.info("Ignoring stale MCP tunnel retry timer")
                 return
@@ -888,11 +876,10 @@ class TunnelManager:
                 return True
             self._binary_probe_epoch = epoch
 
-        # What was wrong: binary_available() (subprocess, timeout 10s) ran
-        # while _lock was held. _sync_tunnel() is invoked from the UI
-        # thread on config:changed, so a hung `provider --version` froze
-        # LibreOffice and stop()/retry could not take the lock either.
-        # Why: probe with the lock released. _start_epoch drops the result
+        # binary_available() is a subprocess with a 10s timeout. Holding
+        # _lock across it freezes LibreOffice: _sync_tunnel() runs on the UI
+        # thread on config:changed, and stop()/retry cannot take the lock
+        # either. Probe with the lock released. _start_epoch drops the result
         # when stop() or a newer start() landed during the probe.
         try:
             available = binary_available(provider)
@@ -930,11 +917,9 @@ class TunnelManager:
             if epoch != self._start_epoch:
                 log.info("Ignoring stale MCP tunnel start (%s)", provider)
                 return False
-            # What was wrong: start() return value depended on matching specific
-            # substrings in last_error ("not found on PATH", "failed to start", etc.).
-            # How it happened: checking error strings instead of the state machine status.
-            # Why: checking status != FAILED directly avoids silent True returns if
-            # an error message is reworded or a new failure reason is introduced.
+            # Match the state machine, not substrings in last_error ("not found
+            # on PATH", "failed to start"). A reworded message would otherwise
+            # return True for a failed start.
             return self._state.status != TunnelStatus.FAILED
 
     def stop(self) -> None:
@@ -947,17 +932,16 @@ class TunnelManager:
             # Captured before STOP_REQUESTED moves every state to STOPPED.
             idle = self._state.status == TunnelStatus.STOPPED and self._process is None
             self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))
-            # What was wrong: LibreOffice killed while Funnel was armed
-            # leaves tailscaled forwarding the MCP port. The new process is
-            # STOPPED and its provider defaults to cloudflare, so the
-            # terminate effect does not look up Tailscale post_stop. The
-            # idle-stop guard skips reset on purpose: settings sync calls
-            # stop() on every save and must not wipe a Funnel this process
-            # did not arm.
-            # Why: spawn writes a marker next to writeragent.json. The first
-            # stop() in a later process resets Tailscale and clears it.
-            # _tailscale_reset_issued blocks a second stop in this process
-            # from resetting again before the background clear finishes.
+            # LibreOffice killed while Funnel was armed leaves tailscaled
+            # forwarding the MCP port. The new process is STOPPED and its
+            # provider defaults to cloudflare, so the terminate effect does
+            # not look up Tailscale post_stop. The idle-stop guard skips
+            # reset on purpose: settings sync calls stop() on every save and
+            # must not wipe a Funnel this process did not arm. Spawn writes a
+            # marker next to writeragent.json. The first stop() in a later
+            # process resets Tailscale and clears it. _tailscale_reset_issued
+            # blocks a second stop in this process from resetting again before
+            # the background clear finishes.
             if idle and not self._tailscale_reset_issued and _tailscale_arm_file_exists():
                 self._schedule_post_stop_unlocked("tailscale", self._state.port)
 

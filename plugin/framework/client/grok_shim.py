@@ -27,9 +27,9 @@ class GrokShim(OpenAIShim):
         url = endpoint + api_path + ("/images/edits" if ref else "/images/generations")
 
         data: dict[str, Any] = {"prompt": prompt, "n": 1, "response_format": "b64_json", "model": model or "aurora"}
-        # What was wrong: width/height were accepted and never written. xAI
-        # documents aspect_ratio (default auto) and resolution (1k/2k), not
-        # OpenAI size, so Square / 2048 in the sidebar never reached the model.
+        # xAI documents aspect_ratio (default auto) and resolution (1k/2k), not
+        # OpenAI size. Write width and height as those fields, or Square / 2048
+        # in the sidebar never reach the model.
         # https://docs.x.ai/developers/model-capabilities/images/generation
         ratio = canonical_aspect_ratio(width, height)
         if ratio:

@@ -69,15 +69,12 @@ def get_provider_from_endpoint(endpoint: str) -> Optional[str]:
 
     url = normalize_endpoint_url(endpoint).lower()
     host = get_url_hostname(url).lower()
-    # What was wrong: ``ParseResult.port`` raises ValueError for ``:1a34``
-    # and for ports outside 0–65535. Settings and catalog code call this
-    # on the configured endpoint, so the raw ValueError escaped.
-    # How: urllib validates the port only when ``.port`` is read.
+    # ``ParseResult.port`` raises ValueError for ``:1a34`` and for ports
+    # outside 0–65535; urllib checks the port only when ``.port`` is read.
     # ``urlparse`` itself also raises ValueError for an unmatched bracket
-    # (``http://[::1``, ``http://[]/v1``) before ``.port``; this same
-    # expression maps that to ConfigError.
-    # Why: a bad port or bracket URL is a config error, the same contract
-    # as other invalid settings, not an uncaught ValueError.
+    # (``http://[::1``, ``http://[]/v1``) before ``.port``. Settings and
+    # catalog code call this on the configured endpoint, so a bad port or
+    # bracket URL is ConfigError, the same contract as other invalid settings.
     try:
         port = urllib.parse.urlparse(url).port
     except ValueError as exc:

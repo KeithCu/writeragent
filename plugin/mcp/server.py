@@ -120,22 +120,19 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
         err = AgentParsingError("Invalid Content-Length in HTTP request", details={"length": raw_length})
         return None, (400, err)
     if content_length < 0:
-        # What was wrong: BaseHTTPRequestHandler / rfile.read treats a
-        # negative size as "read until EOF". A client sent Content-Length: -1
-        # and the worker blocked until the socket closed.
-        # Why: reject before any read. Same check as before this cap existed.
+        # BaseHTTPRequestHandler / rfile.read treats a negative size as "read
+        # until EOF". Content-Length: -1 would block the worker until the
+        # socket closed. Reject before any read.
         log.warning("Invalid negative Content-Length: %s", content_length)
         err = AgentParsingError("Invalid negative Content-Length in HTTP request", details={"length": content_length})
         return None, (400, err)
     if content_length == 0:
         return {}, None
     if content_length > MCP_HTTP_MAX_BODY_BYTES:
-        # What was wrong: the handler trusted Content-Length and called
-        # rfile.read(content_length) with no ceiling and no socket timeout.
-        # A huge length pinned the worker on the allocation, and a stalled
-        # body pinned it forever.
-        # Why: refuse the length before the read. The handler/server timeout
-        # covers a stall whose declared length is still under the cap.
+        # A trusted Content-Length with no ceiling pins the worker on the
+        # allocation, and a stalled body with no socket timeout pins it
+        # forever. Refuse the length before the read. The handler/server
+        # timeout covers a stall whose declared length is still under the cap.
         log.warning("Rejecting oversized Content-Length: %s", content_length)
         err = AgentParsingError("HTTP body exceeds %s bytes" % MCP_HTTP_MAX_BODY_BYTES, details={"length": content_length, "max": MCP_HTTP_MAX_BODY_BYTES})
         return None, (413, err)
@@ -241,11 +238,11 @@ def _shutdown_sse_socket(sock: Any) -> None:
 def stop_sse_keepalives(tcp_server: Any) -> None:
     """End SSE loops still running on *tcp_server* after the accept loop exits.
 
-    What was wrong: HttpServer.stop() only makes serve_forever() return.
-    Each GET /mcp and GET /sse keepalive stays on its request thread until
-    the client drops or the 15s select timeout, and a restart adds more.
-    Why: set this listener's flag and shut down its registered sockets so
-    those loops exit. The next HttpServer has its own flag.
+    HttpServer.stop() only makes serve_forever() return. Each GET /mcp and
+    GET /sse keepalive stays on its request thread until the client drops or
+    the 15s select timeout, and a restart adds more. Set this listener's flag
+    and shut down its registered sockets so those loops exit. The next
+    HttpServer has its own flag.
     """
     if tcp_server is None:
         return
@@ -494,13 +491,13 @@ class HttpServer:
                 log.exception("HTTP server error")
         finally:
             # stop() sets _running False before shutdown() and server_close().
-            # What was wrong: when serve_forever returned on its own, this
-            # finally cleared _running and stopped SSE keepalives but left
-            # the listen socket open. stop() then returned immediately, so
-            # server_close() never ran and the port stayed bound.
-            # Call server_close() only on that unexpected exit. The normal
-            # stop() path has already closed the listener, so this branch
-            # does not run and does not close it a second time.
+            # When serve_forever returns on its own, this finally clears
+            # _running and stops SSE keepalives but would leave the listen
+            # socket open. stop() then returns immediately, so server_close()
+            # never runs and the port stays bound. Call server_close() only on
+            # that unexpected exit. The normal stop() path has already closed
+            # the listener, so this branch does not run and does not close it
+            # a second time.
             unexpected = self._running and self._server is server
             self._running = False
             if unexpected:

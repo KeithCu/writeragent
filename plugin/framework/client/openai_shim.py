@@ -50,11 +50,11 @@ class OpenAIShim(BaseProviderShim):
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> tuple[str, str, bytes, dict[str, str]]:
         method, path, body, headers = super().build_chat_request(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
-        # What was wrong: api.openai.com o1/o3/o4 and gpt-5 reject max_tokens
-        # and any temperature other than the default (1), so chat returned
-        # HTTP 400. How: only provider openai and those families. Groq,
-        # OpenRouter, and every other host keep max_tokens. Why: the
-        # documented replacement is max_completion_tokens.
+        # api.openai.com o1/o3/o4 and gpt-5 reject max_tokens and any
+        # temperature other than the default (1), which is HTTP 400. Only
+        # provider openai and those families; Groq, OpenRouter, and every
+        # other host keep max_tokens. The documented replacement is
+        # max_completion_tokens.
         if self.client._get_provider() != "openai" or not _openai_reasoning_model(model_name):
             return method, path, body, headers
         data = json.loads(body.decode("utf-8"))
@@ -155,24 +155,21 @@ class OpenRouterShim(BaseProviderShim):
         endpoint = self.client._endpoint()
         api_path = self.client._api_path()
         url = endpoint + api_path + "/images"
-        # What was wrong: output_format was hardcoded to webp. Models such as
-        # black-forest-labs/flux.2-klein-4b only accept png/jpeg and return HTTP 400.
-        # png is the Images API default and is accepted by webp-capable models too.
-        # What was wrong: "model": None was included when model was None, which
-        # OpenRouter's /images endpoint rejected with HTTP 400.
-        # Why this change fixes it: only include "model" when truthy.
+        # png is the Images API default and is accepted by models that reject
+        # webp (black-forest-labs/flux.2-klein-4b returns HTTP 400 for webp).
+        # Include "model" only when set; OpenRouter's /images endpoint rejects
+        # "model": null with HTTP 400.
         data: dict[str, Any] = {"prompt": prompt, "n": 1, "output_format": "png"}
         if model:
             data["model"] = model
         if width and height:
-            # What was wrong: we sent explicit pixel size (512x512) and omitted
-            # aspect_ratio. OpenRouter treats size as authoritative and 400s a
-            # paired aspect_ratio it considers mismatched, so Flux kept working
-            # with size-only. Gemini image models (and the Image API catalog for
-            # gemini-*-flash-lite-image) ignore pixel size and honor aspect_ratio
-            # / resolution instead, so Square still came back 4:3.
-            # Hint with aspect_ratio when WxH maps to a standard ratio; do not
-            # also send size (HTTP 400). Fall back to size for odd dimensions.
+            # OpenRouter treats size as authoritative and 400s a paired
+            # aspect_ratio it considers mismatched, so Flux works with size
+            # alone. Gemini image models ignore pixel size and honor
+            # aspect_ratio / resolution, so Square still comes back 4:3 when
+            # only 512x512 is sent. Hint with aspect_ratio when WxH maps to a
+            # standard ratio; do not also send size (HTTP 400). Fall back to
+            # size for odd dimensions.
             ratio = canonical_aspect_ratio(width, height)
             if ratio:
                 data["aspect_ratio"] = ratio
@@ -185,10 +182,10 @@ class OpenRouterShim(BaseProviderShim):
             else:
                 data["size"] = f"{width}x{height}"
 
-        # What was wrong: img2img sent a top-level image_url. OpenRouter's
-        # /api/v1/images API ignores that field (HTTP 200, prompt_tokens stay
-        # text-only), so a selected graphic was never used and Flux generated
-        # a new image from the prompt. The documented field is input_references
+        # OpenRouter's /api/v1/images ignores a top-level image_url (HTTP 200,
+        # prompt_tokens stay text-only), so a selected graphic is never used
+        # and Flux generates a new image from the prompt. The documented field
+        # is input_references
         # (https://openrouter.ai/docs/guides/overview/multimodal/image-generation);
         # flux.2-klein-4b advertises 0–4 references in supported_parameters.
         ref = coerce_image_data_url(image_url, source_image)
@@ -205,10 +202,10 @@ class TogetherShim(OpenAIShim):
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         method, path, body, headers = super().build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
         data = json.loads(body.decode("utf-8"))
-        # What was wrong: BaseProviderShim sends OpenAI size="WxH". Together
-        # documents width/height integers (Flash Image, FLUX.2) or aspect_ratio
-        # (Kontext). Unknown size is ignored, so Square/16:9 never reached the
-        # model. https://docs.together.ai/docs/inference/images/parameters
+        # Together documents width/height integers (Flash Image, FLUX.2) or
+        # aspect_ratio (Kontext), not OpenAI size="WxH". Unknown size is
+        # ignored, so Square/16:9 never reach the model.
+        # https://docs.together.ai/docs/inference/images/parameters
         data.pop("size", None)
         is_kontext = bool(model and "kontext" in model.lower())
         if is_kontext:
@@ -222,11 +219,10 @@ class TogetherShim(OpenAIShim):
                 data["width"] = width
             if height:
                 data["height"] = height
-        # What was wrong: the OpenAI-compat default sent top-level image_url.
         # Together's default image model (black-forest-labs/FLUX.2-dev) and
-        # other non-Kontext models (e.g. google/flash-image-2.5) only accept
-        # reference_images[]; image_url is ignored or rejected — same silent
-        # create-instead-of-edit as OpenRouter's old image_url field.
+        # other non-Kontext models only accept reference_images[]. A top-level
+        # image_url is ignored or rejected — the same silent create-instead-of-edit
+        # as OpenRouter's old image_url field. Kontext uses image_url.
         # https://docs.together.ai/docs/inference/images/reference-images
         ref = coerce_image_data_url(image_url, source_image)
         if ref:

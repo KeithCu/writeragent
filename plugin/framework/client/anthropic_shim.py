@@ -61,9 +61,9 @@ def _anthropic_tool_def(tool: Any) -> dict[str, Any] | None:
 def _dict_parts(content: Any) -> list[dict[str, Any]]:
     """Content blocks that are dicts. Null, a string, or a non-dict part is skipped.
 
-    What was wrong: sync ``content: null`` and a non-dict part called ``.get``
-    and raised TypeError / AttributeError. The Google image path already
-    treats null content as no blocks.
+    Calling ``.get`` on sync ``content: null`` or a non-dict part raises
+    TypeError / AttributeError. The Google image path already treats null
+    content as no blocks.
     """
     if not isinstance(content, list):
         return []
@@ -145,9 +145,9 @@ class AnthropicShim(BaseProviderShim):
             content = m.get("content")
 
             if role == "system":
-                # What was wrong: each system message replaced the previous, so
-                # date/dev/instructions earlier in the list were dropped.
-                # OpenAI-compat keeps every system block; join in order.
+                # Join every system message in order. Replacing the previous one
+                # dropped date/dev/instructions earlier in the list.
+                # OpenAI-compat keeps every system block.
                 if isinstance(content, list):
                     text = "\n\n".join([p.get("text", "") for p in _dict_parts(content) if p.get("type") == "text"])
                 else:
@@ -218,12 +218,10 @@ class AnthropicShim(BaseProviderShim):
                     raw_fn = tc.get("function")
                     fn = raw_fn if isinstance(raw_fn, dict) else {}
                     name = fn.get("name")
-                    # What was wrong: skipped tool_calls (non-dict, missing/empty name or id,
-                    # missing arguments, bad JSON) did not add their id to dropped_tool_ids
-                    # (PR #1384 regression), leaving matching role=="tool" results as orphans
-                    # that caused Anthropic HTTP 400 errors.
-                    # Why this change fixes it: validate that name and id are non-empty strings,
-                    # and ensure every skipped tool call records its id in dropped_tool_ids.
+                    # A skipped tool call (non-dict, empty name or id, missing
+                    # arguments, bad JSON) must record its id in dropped_tool_ids.
+                    # Otherwise the matching role=="tool" result is an orphan and
+                    # Anthropic returns HTTP 400.
                     if not isinstance(name, str) or not name:
                         dropped_tool_ids.add(tc_id)
                         continue
@@ -266,9 +264,8 @@ class AnthropicShim(BaseProviderShim):
         if temperature is not None:
             data["temperature"] = max(0.0, min(1.0, temperature))
         system_msg = "\n\n".join(system_parts)
-        # What was wrong: response_format was accepted and ignored, so a
-        # json_object grammar call went out as free text. Anthropic has no
-        # OpenAI response_format field on this shim; one system line is the hint.
+        # Anthropic has no OpenAI response_format field. A json_object grammar
+        # call would go out as free text, so one system line is the hint.
         if isinstance(response_format, dict) and response_format.get("type") == "json_object":
             hint = "Respond with a single JSON object and no other text."
             system_msg = f"{system_msg}\n\n{hint}" if system_msg else hint
@@ -356,12 +353,11 @@ class AnthropicShim(BaseProviderShim):
             if isinstance(raw_delta, dict):
                 finish_reason = _map_anthropic_finish_reason(raw_delta.get("stop_reason"))
         elif msg_type == "message_stop":
-            # What was wrong: this event always returned finish_reason "stop".
-            # How: the stream loop keeps the last non-empty reason, and Anthropic
-            # sends stop_reason on message_delta then a bare message_stop, so
-            # max_tokens / tool_use were overwritten and a truncated reply looked
-            # like a normal stop. Why: leave the reason unset so the mapped
-            # message_delta value survives.
+            # message_stop carries no stop_reason. The stream loop keeps the
+            # last non-empty reason, and Anthropic sends stop_reason on
+            # message_delta then this bare event. Returning "stop" here would
+            # overwrite max_tokens / tool_use, so a truncated reply looks
+            # finished. Leave the reason unset.
             finish_reason = None
         return content, finish_reason, thinking, delta
 

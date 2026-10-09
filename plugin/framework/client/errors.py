@@ -24,9 +24,9 @@ _LLAMA_SERVER_CRASH_MARKERS = ("llama-server process has terminated", "0xc000000
 
 def format_context_window_label(num_ctx: Any) -> str | None:
     """Human window size for the crash sentence (4096 → 4K). None if unknown."""
-    # What was wrong: float("inf") raised OverflowError: cannot convert float infinity
-    # to integer, which was not caught by (TypeError, ValueError).
-    # Why this change fixes it: catch OverflowError so infinite/overflowing values return None.
+    # float("inf") raises OverflowError ("cannot convert float infinity to
+    # integer"), which (TypeError, ValueError) does not catch. Infinite or
+    # overflowing values return None.
     try:
         window = int(float(num_ctx))
     except (TypeError, ValueError, OverflowError):
@@ -78,10 +78,9 @@ def _format_http_error_response(status: int, reason: str, err_body: str, context
     """
     if status == 500 and err_body and is_local_model_server_crash(err_body):
         return local_model_overflow_message(context_window)
-    # What was wrong: chat uses http.client, so format_error_message's
-    # urllib HTTPError 401/403/404 sentences never ran. Empty bodies showed
-    # only "HTTP Error N from AI Provider". Why: reuse those sentences here
-    # when the body is empty; keep appending provider detail when present.
+    # Chat uses http.client, so format_error_message's urllib HTTPError
+    # 401/403/404 sentences never run. An empty body uses those sentences;
+    # a present body still appends the provider detail.
     if not err_body or not err_body.strip():
         if status == 401:
             return _("Invalid API Key. Please check your settings.")
@@ -140,10 +139,10 @@ def format_error_for_display(e: Any) -> str:
         msg = e.get("message") or e.get("code") or str(e)
         return _("Error: {0}").format(msg)
     payload = format_error_payload(e)
-    # What was wrong: payload.get("message", format_error_message(e)) evaluates
-    # the default before .get runs. format_error_message's deal.pre requires
-    # an Exception, so a string raised PreContractError even when the payload
-    # already had a message. Why: call the mapper only when the key is absent.
+    # dict.get evaluates its default before the lookup. format_error_message's
+    # deal.pre requires an Exception, so a string raised PreContractError even
+    # when the payload already had a message. Call the mapper only when the
+    # key is absent.
     if "message" in payload:
         message = payload["message"]
     else:

@@ -149,10 +149,10 @@ class McpModule(ModuleBase):
         cors_private_key = f"{prefix}cors_allow_private_origins"
         port_key = f"{prefix}mcp_port"
         # MCP lifecycle: toggle, port, tunnel, CORS policy keys, or bulk apply (Settings OK).
-        # What was wrong: this allow-list omitted mcp.mcp_port. A port-only Settings
-        # save emits key="mcp.mcp_port" (ConfigStore uses "" only when more than one
-        # key changes), so the handler returned and left HttpServer on the old port.
-        # Why: treat the port as a lifecycle key and rebind when it differs.
+        # mcp.mcp_port is a lifecycle key. A port-only Settings save emits
+        # key="mcp.mcp_port" (ConfigStore uses "" only when more than one key
+        # changes). Omitting it left HttpServer on the old port. Rebind when
+        # the port differs.
         if key and key not in (toggle_key, port_key, tunnel_key, tunnel_provider_key, tunnel_provider_token_key, cors_list_key, cors_private_key):
             return
 
@@ -348,12 +348,12 @@ class McpModule(ModuleBase):
             if not ok and tunnel.last_error and tunnel.last_error != before:
                 log.error("Failed to start MCP public tunnel via %s (is the provider binary installed?)", provider)
 
-        # What was wrong: config:changed runs this on the UI thread, and
-        # start() calls binary_available() (subprocess, timeout 10s). A hung
-        # provider --version froze Settings for that whole wait.
-        # Why: leave the UI thread first. The probe also runs outside
-        # TunnelManager._lock so stop() is not stuck behind it. dedicated
-        # so the wait does not occupy the shared background pool.
+        # config:changed runs this on the UI thread, and start() calls
+        # binary_available() (subprocess, timeout 10s). A hung provider
+        # --version would freeze Settings for that whole wait. Leave the UI
+        # thread first. The probe also runs outside TunnelManager._lock so
+        # stop() is not stuck behind it. dedicated so the wait does not
+        # occupy the shared background pool.
         from plugin.framework.thread_guard import on_main_thread
 
         if on_main_thread():
