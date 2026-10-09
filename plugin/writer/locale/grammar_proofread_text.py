@@ -329,10 +329,11 @@ def anchor_wrong_in_window(window: str, wrong: str, search_pos: int, *, wrong_id
 def _provider_error_span(window: str, item: dict[str, Any], wrong: str) -> tuple[int, int] | None:
     """Return a validated provider-native span relative to *window*, when present.
 
-    What was wrong: ``length <= 0`` rejected Harper inserts (``start == end``).
-    ``normalize_errors_for_text`` then failed ``anchor_wrong_in_window`` on the
-    empty ``wrong`` and dropped the issue, so the sentence looked clean.
-    A point with ``0 <= start <= len(window)`` is kept. Negative starts,
+    ``length <= 0`` must not reject Harper inserts
+    (``start == end``). ``normalize_errors_for_text`` then fails
+    ``anchor_wrong_in_window`` on the empty ``wrong`` and drops the
+    issue, so the sentence looks clean. A point with
+    ``0 <= start <= len(window)`` is kept. Negative starts,
     non-ints, bools, and spans past the end still return None.
     """
     start = item.get("n_error_start")

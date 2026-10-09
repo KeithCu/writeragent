@@ -776,12 +776,14 @@ def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool,
 def _resolve_overlapping_agent_changes(model: Any, ctx: Any, token: str, accept: bool) -> int:
     """Accept/reject *token* together with the agent changes that overlap it; how many, or 0.
 
-    What was wrong (relato #36): an agent edit inside text an earlier agent edit inserted (delete
-    a word from a sentence it had just added) leaves two changes that overlap. The exact-bounds
-    resolve refuses a change another agent change overlaps, so neither could be accepted or
-    rejected from the text and the user was sent to Edit > Track Changes > Manage. Why this
-    fixes it: those overlapping agent changes are one piece of work to the user, so the click
-    resolves the whole group -- still refusing when one of the user's own redlines is in it, and
+    An agent edit inside text an earlier agent edit inserted (delete
+    a word from a sentence it had just added; relato #36) leaves two
+    changes that overlap. The exact-bounds resolve refuses a change
+    another agent change overlaps, so neither can be accepted or
+    rejected from the text and the user is sent to Edit > Track
+    Changes > Manage. Those overlapping agent changes are one piece
+    of work to the user, so the click resolves the whole group --
+    still refusing when one of the user's own redlines is in it, and
     claiming success only when exactly the group was resolved.
     """
     before = _agent_and_foreign_redline_snapshot(model)

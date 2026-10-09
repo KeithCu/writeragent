@@ -109,13 +109,12 @@ class DocumentHealthCheck(ToolBaseDummy):
                         if anchor is None:
                             issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
                             continue
-                        # What was wrong: `not anchor.getString()` flagged every
-                        # point bookmark. Heading `_mcp_` marks are inserted as
-                        # a collapsed cursor, so their anchor string is empty
-                        # and document_health_check reported each one as broken.
-                        # Why: an empty string with a start position is a point
-                        # bookmark. Broken means no anchor, or an anchor whose
-                        # text and start both cannot be read.
+                        # `not anchor.getString()` flags every point bookmark. Heading
+                        # `_mcp_` marks are inserted as a collapsed cursor, so their
+                        # anchor string is empty and document_health_check would report
+                        # each one as broken. An empty string with a start position is a
+                        # point bookmark. Broken means no anchor, or an anchor whose text
+                        # and start both cannot be read.
                         try:
                             anchor_text = anchor.getString()
                         except Exception:

@@ -152,12 +152,11 @@ class GetPageObjects(ToolBase):
             locator = kwargs.get("locator")
             para_idx = kwargs.get("paragraph")
             if locator:
-                # What was wrong: resolve_locator turned heading_text/section/page
-                # and a missing bookmark into paragraph 0, and this .get defaulted
-                # a missing index to 0 as well. The scan then ran on that page and
-                # returned status ok.
-                # Why: an unresolved locator is a tool error. Paragraph 0 is still
-                # valid when the resolver actually returns it.
+                # resolve_locator turns heading_text/section/page and a missing
+                # bookmark into paragraph 0, and this .get defaults a missing
+                # index to 0 as well. The scan would then run on that page and
+                # return status ok. An unresolved locator is a tool error.
+                # Paragraph 0 is still valid when the resolver actually returns it.
                 try:
                     resolved = doc_svc.resolve_locator(doc, locator)
                     para_idx = resolved.get("para_index")
@@ -344,13 +343,14 @@ def _resolve_para_index(ctx: ToolContext, kwargs: dict[str, Any]) -> int | None:
 def _ensure_writer_tree(ctx: ToolContext) -> Any:
     """Return ``writer_tree``, attaching it to this context when it was never loaded.
 
-    What was wrong: clone heading only did ``ctx.services.get("writer_tree")``.
-    Native tool contexts from ``TestingFactory.create_context`` register
-    document and events and nothing else, so the lookup missed and the tool
-    returned "writer_nav module not loaded" even though those two services
-    are enough to construct the writer tree. TreeService reads
-    ``writer_bookmarks`` in ``__init__``, so that service has to land first.
-    An already-registered tree is left alone (bootstrap path).
+    Looking up only ``ctx.services.get("writer_tree")`` misses on
+    native tool contexts from ``TestingFactory.create_context``.
+    Those register document and events and nothing else, so the tool
+    returns "writer_nav module not loaded" even though those two
+    services are enough to construct the writer tree. TreeService
+    reads ``writer_bookmarks`` in ``__init__``, so that service has
+    to land first. An already-registered tree is left alone
+    (bootstrap path).
     """
     services = ctx.services
     existing = services.get("writer_tree")

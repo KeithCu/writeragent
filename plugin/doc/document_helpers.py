@@ -188,13 +188,15 @@ def get_document_context_for_chat(
                     return f"[Document text reading failed. Active selection: {sel_text}]"
                 return "[Document content unavailable]"
 
-            # What was wrong: the split threshold was max_context // 2. A document
-            # that still fit (half < doc_len <= max_context) took a head window and
-            # a tail window that overlapped, so the middle was repeated, and the
-            # "middle omitted" note stayed off because doc_len was not past the budget.
-            # One slice when the document fits. Head and tail only when it does not.
-            # Those windows cannot overlap: together they are max_context characters
-            # and the body is longer than that, so the tail starts after the head.
+            # Split only when the document does not fit. A threshold of
+            # max_context // 2 sends a document that still fits
+            # (half < doc_len <= max_context) through a head window and a
+            # tail window that overlap, so the middle is repeated, and the
+            # "middle omitted" note stays off because doc_len is not past
+            # the budget. One slice when the document fits. Head and tail
+            # only when it does not. Those windows cannot overlap: together
+            # they are max_context characters and the body is longer than
+            # that, so the tail starts after the head.
             use_head_tail = include_end and doc_len > max_context
             if use_head_tail:
                 start_chars = max_context // 2
@@ -349,20 +351,21 @@ def _writer_tree_service() -> Any:
 def _dispatch_writer_locator(model: Any, loc_type: str, loc_value: str) -> dict[str, Any]:
     """Resolve a locator ``TreeService.resolve_writer_locator`` owns.
 
-    What was wrong: ``heading_text:``, ``section:``, ``page:``, and a bookmark
-    name that was missing or already deleted fell out of ``resolve_locator``
-    as paragraph 0. A bookmark that still had a name but whose anchor could
-    not be placed did the same, because the live ``bookmark:`` branch called
-    ``find_paragraph_for_range`` and returned its fallback 0. Navigation,
-    ``get_page_objects``, and ``clone_heading_block`` then changed the first
-    paragraph and returned success. ``TreeService.resolve_writer_locator``
-    already rejected a missing name, but the live branch never called it.
-    Why: every ``bookmark:`` goes through that resolver, which rejects an
-    anchor that does not land on a paragraph. ``ValueError`` (``page:abc``
-    fails ``int()`` before the resolver's own error) becomes
-    ``ToolExecutionError`` because the tool registry re-raises ``ValueError``
-    as a programmer error. A result with no paragraph index is an error, not
-    paragraph 0.
+    ``heading_text:``, ``section:``, ``page:``, and a bookmark name
+    that is missing or already deleted fall out of
+    ``resolve_locator`` as paragraph 0. A bookmark that still has a
+    name but whose anchor cannot be placed does the same when the
+    live ``bookmark:`` branch returns ``find_paragraph_for_range``'s
+    fallback 0. Navigation, ``get_page_objects``, and
+    ``clone_heading_block`` then change the first paragraph and
+    return success. ``TreeService.resolve_writer_locator`` already
+    rejects a missing name. Every ``bookmark:`` goes through that
+    resolver, which rejects an anchor that does not land on a
+    paragraph. ``ValueError`` (``page:abc`` fails ``int()`` before
+    the resolver's own error) becomes ``ToolExecutionError``
+    because the tool registry re-raises ``ValueError`` as a
+    programmer error. A result with no paragraph index is an
+    error, not paragraph 0.
     """
     tree = _writer_tree_service()
     try:

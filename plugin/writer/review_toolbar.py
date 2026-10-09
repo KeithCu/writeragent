@@ -53,19 +53,20 @@ class _ReviewModifyListener(unohelper.Base, XModifyListener):
         self._uid = uid  # so disposing() can drop the registry entry without re-reading the model
 
     def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        # What was wrong: this recounted the pending changes right here, inside the modify
-        # notification. The recount reads each change's text with XTextCursor.getString(), and
-        # Writer serves that through SwWriter::Write -> EndAllAction -> PaintImmediately -- a
-        # synchronous repaint. How it happened: typing a comment while a review is open fires
-        # modified() from INSIDE the comment editor's EditEngine::InsertText (AutoCorrect replacing
-        # a word, or macOS committing a dead-key character like "ç" / "ã"). The forced repaint
-        # re-entered that half-updated comment box, ImpEditEngine::CreateLines crashed, and
-        # LibreOffice's emergency-save dialog then hung the app: eleven .hang reports on one
-        # machine in one night, every one of them in the comment sidebar. Why this change fixes
-        # it: modified() now only schedules; the recount runs on a later main-loop turn, after the
-        # edit that triggered it has finished. The visibility check stays synchronous because the
-        # layout manager is a frame query, not a document read -- it keeps normal typing (no
-        # review open) from queueing anything.
+        # Recounting pending changes inside the modify notification reads
+        # each change's text with XTextCursor.getString(), and Writer
+        # serves that through SwWriter::Write -> EndAllAction ->
+        # PaintImmediately -- a synchronous repaint. Typing a comment
+        # while a review is open fires modified() from INSIDE the comment
+        # editor's EditEngine::InsertText (AutoCorrect replacing a word,
+        # or macOS committing a dead-key character like "ç" / "ã"). The
+        # forced repaint re-enters that half-updated comment box and
+        # ImpEditEngine::CreateLines crashes. modified() only schedules;
+        # the recount runs on a later main-loop turn, after the edit that
+        # triggered it has finished. The visibility check stays
+        # synchronous because the layout manager is a frame query, not a
+        # document read -- it keeps normal typing (no review open) from
+        # queueing anything.
         try:
             model = aEvent.Source
             lm = _layout_manager(model)

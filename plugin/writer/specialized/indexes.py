@@ -1415,16 +1415,16 @@ class IndexesListTocEntries(ToolWriterIndexBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        # What was wrong: there was no TOC row listing, so the indexes helper
-        # called get_document_content. That exports the whole document through
-        # the XHTML Writer filter on the LibXSLT thread. A linked TOC comes
-        # back with empty entry text, and a long outline can sit there for
-        # minutes, while the UI stays on "Running delegate (indexes)". The
-        # one-row update, insert, and delete tools already read these
-        # paragraphs and do not hang. This listing uses that same read.
-        # Why this fixes it: the helper can see text, level, and hyperlink
-        # without a full-document export and without ContentIndex.update()
-        # (update rebuilds every row and drops customized formatting).
+        # Listing TOC rows must not call get_document_content. That
+        # exports the whole document through the XHTML Writer filter on
+        # the LibXSLT thread. A linked TOC comes back with empty entry
+        # text, and a long outline can sit there for minutes, while the
+        # UI stays on "Running delegate (indexes)". The one-row update,
+        # insert, and delete tools already read these paragraphs and do
+        # not hang. This listing uses that same read: text, level, and
+        # hyperlink, without a full-document export and without
+        # ContentIndex.update() (update rebuilds every row and drops
+        # customized formatting).
         doc = ctx.doc
         index = kwargs.get("index")
         idx, index_error = resolve_toc(doc, index)

@@ -53,15 +53,17 @@ def _is_escaped(s: str, idx: int) -> bool:
     return _preceding_backslashes(s, idx) % 2 == 1
 
 
-# What was wrong: a single ``$`` opened a TeX region unless the very next
-# character was a digit. How it happened: that guard only covers ``$100``; in
-# ``R$ 12.798,82`` a space follows the sign, so the first ``R$`` opened math and
-# the *second* ``R$`` in the same sentence closed it — the prose between them was
-# handed to ``convert_latex_to_starmath`` and inserted as a Math OLE object, one
-# ``<mi>`` per letter (italic, spaces eaten), and it vanished from the text layer.
-# Why this fixes it: money and inline TeX differ in shape, so the guards below
-# test both sides of the delimiter (Pandoc's rules plus currency prefixes)
-# instead of the single character after it. See docs/writer/math-tex.md.
+# A single ``$`` must not open a TeX region just because the next
+# character is not a digit. That guard only covers ``$100``; in
+# ``R$ 12.798,82`` a space follows the sign, so the first ``R$``
+# opens math and the *second* ``R$`` in the same sentence closes
+# it — the prose between them is handed to
+# ``convert_latex_to_starmath`` and inserted as a Math OLE object,
+# one ``<mi>`` per letter (italic, spaces eaten), and it vanishes
+# from the text layer. Money and inline TeX differ in shape, so
+# the guards below test both sides of the delimiter (Pandoc's
+# rules plus currency prefixes) instead of the single character
+# after it. See docs/writer/math-tex.md.
 def _is_currency_dollar(s: str, idx: int) -> bool:
     """True when ``$`` at *idx* reads as currency and must not open TeX math.
 

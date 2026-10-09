@@ -98,12 +98,13 @@ def _visible_area_hmm(shape: Any) -> tuple[int, int] | None:
 def _embedded_object_visual_hmm(shape: Any) -> tuple[int, int] | None:
     """``XVisualObject`` size from the ``EmbeddedObject`` property.
 
-    What was wrong: ``getEmbeddedObject()`` is Writer ``TextEmbeddedObject``.
-    Draw ``OLE2Shape`` does not implement it, so the call returned None and
-    ``insert_math`` always used the length heuristic (clipped or oversized).
-    How it happened: the embed is the readonly ``EmbeddedObject`` property
-    (``svx/source/unodraw/unoprov.cxx``, ``OWN_ATTR_OLE_EMBEDDED_OBJECT``).
-    Setting ``Formula`` stores ``SmDocShell::GetSize()`` as the vis-area
+    ``getEmbeddedObject()`` is Writer ``TextEmbeddedObject``. Draw
+    ``OLE2Shape`` does not implement it, so the call returns None
+    and ``insert_math`` falls back to the length heuristic (clipped
+    or oversized). The embed is the readonly ``EmbeddedObject``
+    property (``svx/source/unodraw/unoprov.cxx``,
+    ``OWN_ATTR_OLE_EMBEDDED_OBJECT``). Setting ``Formula`` stores
+    ``SmDocShell::GetSize()`` as the vis-area
     (``SmModel::_setPropertyValues``).
     """
     try:

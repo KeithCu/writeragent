@@ -182,10 +182,10 @@ class BookmarkService(ServiceBase):
                 bm = bookmarks.getByName(name)
                 anchor = bm.getAnchor()
                 para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj)
-                # What was wrong: a failed placement returns 0, so a stale
-                # _mcp_ mark was stored as the bookmark for the first paragraph.
-                # Why: confirm_paragraph_index keeps 0 only when the anchor is
-                # actually there. An unplaced mark is omitted and later removed.
+                # A failed placement returns 0, so a stale _mcp_ mark must not be
+                # stored as the bookmark for the first paragraph.
+                # confirm_paragraph_index keeps 0 only when the anchor is actually
+                # there. An unplaced mark is omitted and later removed.
                 placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
                 if placed is not None:
                     result[placed] = name
@@ -236,12 +236,11 @@ class BookmarkService(ServiceBase):
                     bm_name = "_mcp_%s" % uuid.uuid4().hex[:8]
                     if self._insert_named_bookmark(doc, text, bm_name, start_range):
                         bookmark_map[para_idx] = bm_name
-                # What was wrong: ensure only added marks. A heading demoted
-                # back to body kept its _mcp_ bookmark, so later navigation
-                # still treated that paragraph as the section.
-                # Why: delete _mcp_ names that are not on a heading now.
-                # Skipped during the save hook, which strips and restores the
-                # whole set itself. User bookmarks are not _mcp_.
+                # Adding marks without removing them leaves a demoted heading's
+                # _mcp_ bookmark in place, so later navigation still treats that
+                # paragraph as the section. Delete _mcp_ names that are not on a
+                # heading now. Skipped during the save hook, which strips and
+                # restores the whole set itself. User bookmarks are not _mcp_.
                 if stale:
                     self._remove_named_bookmarks(doc, stale)
 

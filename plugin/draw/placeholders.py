@@ -53,11 +53,13 @@ def _shape_class_name(shape: Any) -> str:
             return str(cn)
     except Exception:
         pass
-    # What was wrong: a text layout's title is com.sun.star.presentation.TitleTextShape
-    # and the body is OutlinerShape, but ClassName and PresObj raise
-    # UnknownPropertyException and Name is empty. Role lookup then missed
-    # both, and set_placeholder_text reported index 0 and 1 with no role.
-    # ShapeType / getShapeType() is the service name on this build.
+    # A text layout's title is
+    # com.sun.star.presentation.TitleTextShape and the body is
+    # OutlinerShape. ClassName and PresObj raise
+    # UnknownPropertyException and Name is empty, so role lookup
+    # misses both and set_placeholder_text reports index 0 and 1
+    # with no role. ShapeType / getShapeType() is the service name
+    # on this build.
     try:
         if hasattr(shape, "getShapeType"):
             shape_type = shape.getShapeType()

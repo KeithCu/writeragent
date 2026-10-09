@@ -716,12 +716,13 @@ def _run_language_validation(
         _obs_language_validation_decision(chunk, target_bcp47, detected, decision)
         for rq in decision.requeues:
             log.info("[grammar] Language mismatch detected: %s vs %s. Triggering locale change.", rq.new_bcp47, rq.original_bcp47)
-            # What was wrong: the default placeholder stored a clean row for the
-            # CharLocale just rejected. The next doProofreading cache-hit that
-            # empty result and never requeued, so the sentence was never retagged.
-            # How: cache_put_sentence(original_bcp47, text, []) ran before the
-            # detected-locale check. Why: still requeue under the detected locale,
-            # and do not record the rejected locale as a good sentence.
+            # The default placeholder must not store a clean row for the
+            # CharLocale just rejected. The next doProofreading cache-hits
+            # that empty result and never requeues, so the sentence is never
+            # retagged. cache_put_sentence(original_bcp47, text, []) before
+            # the detected-locale check records the rejected locale as a good
+            # sentence. Requeue under the detected locale instead, and do not
+            # record the rejected one.
             requeue_individual_item(
                 rq.item, rq.text, rq.new_bcp47, rq.original_bcp47, ec, cache_placeholder=False
             )
@@ -872,13 +873,12 @@ def _worker_process_chunk(
             updated_chunk = []
             for item, text in current_chunk:
                 new_key = grammar_proofread_locale.grammar_inflight_key(item.doc_id, current_bcp47, text, not item.partial_sentence)
-                # What was wrong: the in-place locale change kept enqueue_seq and
-                # never published the new inflight key. A newer enqueue of that
-                # sentence under the detected locale could not supersede this item.
-                # How: replace() updated grammar_bcp47 and inflight_key only.
-                # Why: mint a seq the way requeue_individual_item does, and record
-                # the new key. An older generation is dropped; a newer one still
-                # wins via inflight_superseded. Do not clobber a newer seq.
+                # The in-place locale change mints a new enqueue_seq and publishes
+                # the new inflight key. Keeping the old seq lets a newer enqueue
+                # of that sentence under the detected locale fail to supersede
+                # this item. Mint a seq the way requeue_individual_item does, and
+                # record the new key. An older generation is dropped; a newer one
+                # still wins via inflight_superseded. Do not clobber a newer seq.
                 new_seq = next_enqueue_seq()
                 if ec.gq is not None and ec.gq.note_inflight_generation(new_key, new_seq) is True:
                     grammar_obs(

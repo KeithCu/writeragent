@@ -47,12 +47,13 @@ _FADE_EFFECTS = {
 }
 
 # Friendly name → AutoLayout constant in AUTOLAYOUT_ID.
-# What was wrong: this table used PowerPoint PpSlideLayout minus one
-# (title_only=10, blank=11, four_objects=23, …). Impress ``page.Layout`` is
-# the LibreOffice AutoLayout enum (include/xmloff/autolayout.hxx), so those
-# numbers selected a different layout — title-only became TEXTOBJ, blank
-# became an OLE object, four objects became a handout page. Ids are looked
-# up from the shared table so set/get cannot drift from transform_engine.
+# Impress ``page.Layout`` is the LibreOffice AutoLayout enum
+# (include/xmloff/autolayout.hxx), not PowerPoint PpSlideLayout
+# minus one (title_only=10, blank=11, four_objects=23, …). Those
+# numbers select a different layout — title-only becomes TEXTOBJ,
+# blank becomes an OLE object, four objects becomes a handout
+# page. Ids are looked up from the shared table so set/get cannot
+# drift from transform_engine.
 _LAYOUT_AUTOLAYOUT = {
     "title": "AUTOLAYOUT_TITLE",
     "text": "AUTOLAYOUT_TITLE_CONTENT",

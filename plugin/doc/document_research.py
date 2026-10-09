@@ -579,13 +579,13 @@ def resolve_path_or_name(
     if not raw:
         return None, "path_or_name is required"
 
-    # What was wrong: the tool schema accepts a file URL, and
-    # list_nearby_files / list_open_documents return ``file:///…`` urls.
-    # How: ``os.path.isabs("file:///…")`` is false, so the URL was used as
-    # a listing filter and matched nothing. ``open_document_for_read``
-    # already accepts ``file:`` URLs but was never reached.
-    # Why: convert with the same helper the opener uses, then treat the
-    # result as an absolute path (not a basename filter).
+    # The tool schema accepts a file URL, and list_nearby_files /
+    # list_open_documents return ``file:///…`` urls.
+    # ``os.path.isabs("file:///…")`` is false, so the URL used as a
+    # listing filter matches nothing. ``open_document_for_read``
+    # already accepts ``file:`` URLs. Convert with the same helper
+    # the opener uses, then treat the result as an absolute path
+    # (not a basename filter).
     if raw.startswith("file:"):
         resolved = _system_path_from_url(raw)
         if resolved and os.path.isfile(resolved):
@@ -635,19 +635,18 @@ _WINDOWS_HIDDEN_READONLY_TARGET = "_wa_doc_research"
 def _hidden_readonly_load_args() -> tuple[str, int]:
     """Target + FrameSearchFlag for Hidden+ReadOnly sibling open.
 
-    What was wrong: GHA 34636251918 stored Budget via the pooled Calc
-    (``store budget via active`` OK; ``test_list_nearby_excludes_active``
-    OK). ``open_document_for_read`` then ``loadComponentFromURL`` of that
-    file with ``_default`` flags=0 raised ``Could not create system
-    bitmap!`` The next sibling open hung 30s at the same call.
-
-    How: leftover Hidden ``_wa_calc_html`` paste Writers (uids 26/27)
-    poison ``_default`` / ``_blank`` — same family as leftover Hidden
-    factory (34597506651 / 34599838644) and leftover notebook detect
-    (34619751330). ``rich_html.py`` already avoids those names.
-
-    Why this: one CREATE|GLOBAL name. Hidden+ReadOnly and the reuse /
-    close-flag contract stay the same. POSIX keeps ``_default``.
+    GHA 34636251918 stored Budget via the pooled Calc (``store
+    budget via active`` OK; ``test_list_nearby_excludes_active``
+    OK). ``open_document_for_read`` then ``loadComponentFromURL``
+    of that file with ``_default`` flags=0 raises ``Could not
+    create system bitmap!`` The next sibling open hangs 30s at the
+    same call. Leftover Hidden ``_wa_calc_html`` paste Writers
+    (uids 26/27) poison ``_default`` / ``_blank`` — same family as
+    leftover Hidden factory (34597506651 / 34599838644) and leftover
+    notebook detect (34619751330). ``rich_html.py`` already avoids
+    those names. Use one CREATE|GLOBAL name. Hidden+ReadOnly and
+    the reuse / close-flag contract stay the same. POSIX keeps
+    ``_default``.
     """
     if sys.platform == "win32":
         return _WINDOWS_HIDDEN_READONLY_TARGET, _HIDDEN_READONLY_SEARCH_FLAGS
@@ -683,12 +682,13 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     if existing is not None:
         return existing, existing_type or doc_type_label_for_enum(get_document_type(existing), impress_as_draw=True), None, False
 
-    # What was wrong: a successful load that was not returned left a hidden
-    # component open. How: unknown doc_type returned the error without
-    # close, and the except path after loadComponentFromURL only logged.
-    # Repeated reads of unsupported files accumulated hidden LibreOffice
-    # components. Why: every load that is not handed back is closed here;
-    # callers still close only the model this function returns.
+    # A successful load that is not returned must not leave a hidden
+    # component open. An unknown doc_type that returns the error
+    # without close, and an except path after loadComponentFromURL
+    # that only logs, accumulate hidden LibreOffice components on
+    # repeated reads of unsupported files. Every load that is not
+    # handed back is closed here; callers still close only the model
+    # this function returns.
     model: Any = None
     try:
         from plugin.writer.format import create_property_value
@@ -718,8 +718,10 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
 def close_document_research_document(model: Any, *, opened_for_document_research: bool) -> None:
     """Close a sibling document opened by :func:`open_document_for_read` for document_research read.
 
-    Bugfix: without this, repeated delegate_read_document calls leave hidden LO components open.
-    Only closes when *opened_for_document_research* is True (not when reusing a user-visible open doc).
+    Repeated delegate_read_document calls leave hidden LO components
+    open unless this closes them. Only closes when
+    *opened_for_document_research* is True (not when reusing a
+    user-visible open doc).
     """
     if not opened_for_document_research or model is None:
         return
@@ -783,12 +785,12 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
         desktop = get_desktop(uno_ctx)
         comps = desktop.getComponents()
     except Exception as exc:
-        # What was wrong: a disposed desktop (and the main-thread guard, if
-        # it fired under a later except Exception) looked like no documents.
-        # How: DisposedException is an Exception, and the enumeration loop
-        # broke into ``return docs``. Why: the listener boundary is the one
-        # classifier. ``[]`` stays the answer only when the desktop has
-        # nothing to enumerate.
+        # A disposed desktop (and the main-thread guard, if it fires
+        # under a later except Exception) is not "no documents".
+        # DisposedException is an Exception, and breaking the enumeration
+        # loop into ``return docs`` hides it. The listener boundary is
+        # the classifier. ``[]`` stays the answer only when the desktop
+        # has nothing to enumerate.
         reraise_listener_boundary(exc)
     if not comps:
         return []

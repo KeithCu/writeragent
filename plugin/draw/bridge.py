@@ -189,20 +189,21 @@ class DrawBridge:
         Impress ``DrawPage.getNumber()`` is missing, so callers must use this
         index instead of ``get_active_page_index`` after the controller switches.
 
-        What was wrong: ``add_slide(page=N)`` passed ``N`` to
-        ``insertNewByIndex`` and reported ``active_page_index=N``. The new
-        slide was created one slot later, and the next tool edited the
-        previous slide. ``page=0`` never landed at 0, so master inheritance
-        treated the new page as its own neighbor.
-        How it happened: ``InsertSdPage`` (``sd/source/ui/unoidl/unomodel.cxx``)
-        inserts *after* ``min(count-1, nIndex)``. The new page lands at
-        ``min(count-1, n)+1``. Append (``n >= count-1``) happens to land at
-        the end, which hid the bug for the default "add at end" path.
-        Why this fixes it: choose ``n`` so the landing index is the request.
-        A request of 0 on a non-empty deck inserts after page 0 (lands at 1)
-        and exchanges with page 0 — the same reorder ``move_slide`` uses,
-        because ``InsertSdPage`` cannot create a page at index 0. The returned
-        page is the object that occupies the requested index.
+        ``add_slide(page=N)`` must not pass ``N`` straight to
+        ``insertNewByIndex`` and report ``active_page_index=N``. The new
+        slide is created one slot later, and the next tool edits the
+        previous slide. ``page=0`` never lands at 0, so master
+        inheritance treats the new page as its own neighbor.
+        ``InsertSdPage`` (``sd/source/ui/unoidl/unomodel.cxx``) inserts
+        *after* ``min(count-1, nIndex)``. The new page lands at
+        ``min(count-1, n)+1``. Append (``n >= count-1``) happens to land
+        at the end, which hides the off-by-one on the default "add at
+        end" path. Choose ``n`` so the landing index is the request. A
+        request of 0 on a non-empty deck inserts after page 0 (lands at
+        1) and exchanges with page 0 — the same reorder ``move_slide``
+        uses, because ``InsertSdPage`` cannot create a page at index 0.
+        The returned page is the object that occupies the requested
+        index.
         """
         pages = self.get_pages()
         count = int(pages.getCount())
@@ -375,25 +376,24 @@ class DrawBridge:
     def move_slide(self, from_index: int, to_index: int) -> bool:
         """Move the page at from_index so it occupies to_index.
 
-        What was wrong: after ``XDrawPages.remove`` disposed the source
-        (``XDrawPages.idl`` has no way to put that page back), the replacement
-        blank page only received a shallow shape clone — position, size, a
-        few properties, and text. ``GroupShape``, graphics, connectors, and
-        charts were empty or skipped (no ``ShapeType`` returned without
-        copying). A move to index 0 then called ``_exchange_page_contents``
-        after the source was already gone, so a failed exchange returned
-        False with the deck already reordered.
-        How it happened: ``insertNewByIndex`` only creates a blank page, and
-        ``InsertSdPage`` (``sd/source/ui/unoidl/unomodel.cxx``) inserts after
-        ``min(count-1, nIndex)``, so it cannot create a page at index 0.
-        Why this fixes it: ``XDrawPageDuplicator.duplicate``
-        (``SdXImpressDocument::duplicate``) clones the whole page, including
-        shapes and notes, and inserts that clone after the source. Removing
-        the source leaves the clone in the source slot. Neighboring slots
-        then swap by moving those cloned shapes (not by constructing new
-        ones) plus page name, layout, master, notes, and transition. A failed
-        swap puts the shapes back, so the clone is still in the original
-        slot and the other slides are unchanged.
+        ``XDrawPages.remove`` disposes the source (``XDrawPages.idl``
+        has no way to put that page back). A replacement blank page
+        that only receives a shallow shape clone keeps position, size,
+        a few properties, and text, and drops ``GroupShape``, graphics,
+        connectors, and charts. A move to index 0 that then calls
+        ``_exchange_page_contents`` returns False with the deck already
+        reordered. ``insertNewByIndex`` only creates a blank page, and
+        ``InsertSdPage`` (``sd/source/ui/unoidl/unomodel.cxx``) inserts
+        after ``min(count-1, nIndex)``, so it cannot create a page at
+        index 0. ``XDrawPageDuplicator.duplicate``
+        (``SdXImpressDocument::duplicate``) clones the whole page,
+        including shapes and notes, and inserts that clone after the
+        source. Removing the source leaves the clone in the source
+        slot. Neighboring slots then swap by moving those cloned shapes
+        (not by constructing new ones) plus page name, layout, master,
+        notes, and transition. A failed swap puts the shapes back, so
+        the clone is still in the original slot and the other slides
+        are unchanged.
         """
         pages = self.get_pages()
         count = pages.getCount()
@@ -905,13 +905,12 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         ctx_str = "%s: %s\n" % (doc_type, safe_call(model.getURL, "Get document URL") or "Untitled")
         ctx_str += "Total %s: %d\n" % ("Slides" if is_impress else "Pages", safe_call(pages.getCount, "Get page count"))
 
-        # What was wrong: Active Slide Index was -1 when getCurrentPage() and
-        # getByIndex() returned different Python wrappers for one page.
-        # How it happened: this loop used ``==``. PyUNO wrappers often fail
-        # ``==`` / ``is`` for one UNO object. get_active_page_index already
-        # walks with uno_same (is, then ==, then uno.isSame).
-        # Why this fixes it: the same identity ladder, so the chat index
-        # matches the controller's current page.
+        # Active Slide Index is -1 when getCurrentPage() and getByIndex()
+        # return different Python wrappers for one page and the loop uses
+        # ``==``. PyUNO wrappers often fail ``==`` / ``is`` for one UNO
+        # object. get_active_page_index already walks with uno_same (is,
+        # then ==, then uno.isSame). Use that same identity ladder so the
+        # chat index matches the controller's current page.
         from plugin.framework.uno_context import uno_same
 
         active_page_idx = -1
@@ -924,13 +923,12 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         ctx_str += "Active %s Index: %d\n" % ("Slide" if is_impress else "Page", active_page_idx)
 
         # Summarize shapes on the active page.
-        # What was wrong: a blank slide omitted its speaker notes (and the
-        # shapes section) from chat context.
-        # How it happened: an empty XDrawPage is falsy when it has zero
-        # shapes, so `if active_page` skipped the whole block. Same trap as
-        # get_active_page_index, which already uses `is not None`.
-        # Why this fixes it: None means there is no page; a blank page is
-        # still a page, so notes on add_slide blank/none are included.
+        # A blank slide still has speaker notes. An empty XDrawPage is
+        # falsy when it has zero shapes, so `if active_page` skips the
+        # whole block and drops the notes (and the shapes section) from
+        # chat context. Same trap as get_active_page_index, which already
+        # uses `is not None`. None means there is no page; a blank page
+        # is still a page, so notes on add_slide blank/none are included.
         if active_page is not None:
             shapes = bridge.get_shapes(active_page)
             ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress else "Page", active_page_idx)
