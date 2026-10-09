@@ -69,11 +69,8 @@ def _handle_trusted_action(
 
     domain = str(data.get("domain") or "")
     use_heartbeat = False
-    # What was wrong: get_trusted_action_wiring and wiring inspection ran outside
-    # the try block, so invalid/long domain arguments or contract errors escaped to
-    # main() and crashed the worker.
-    # Why this fixes it: resolving wiring inside try ensures errors return a clean
-    # error response frame.
+    # Resolve wiring inside the try. A bad domain or a contract error must be
+    # an error frame, not a dead worker.
     try:
         wiring = get_trusted_action_wiring(domain)
         if wiring is None:
@@ -93,15 +90,10 @@ def _handle_trusted_action(
     if use_heartbeat and stdout is not None:
         req_id = str(request.get("id", ""))
         payload = {"id": req_id, **resp}
-        # What was wrong: write_result_frame calls pack_pickle_frame with
-        # DEFAULT_MAX_PAYLOAD_BYTES. If a trusted action result exceeded 16MB,
-        # pack_pickle_frame raised IpcFrameError before writing any bytes to stdout.
-        # When unhandled here, it escaped to main()'s `except IpcFrameError: break`,
-        # causing the worker to exit cleanly after EXEC_STARTED without a terminal frame,
-        # triggering host worker restart.
-        # Why this change fixes it: packing fails before any bytes are written to stdout,
-        # so the pipe remains in sync. Catching IpcPayloadSizeError allows sending a small
-        # capped error result frame so the host receives a valid terminal frame.
+        # Packing fails before any byte hits stdout, so the pipe is still in
+        # sync. An oversized result is a small error frame. Letting
+        # IpcFrameError escape after EXEC_STARTED ends the worker with no
+        # terminal frame, and the host restarts it.
         try:
             write_result_frame(stdout, payload)
         except IpcPayloadSizeError as exc:
@@ -171,10 +163,8 @@ _ACTION_HANDLERS = {
 
 def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> dict[str, Any] | None:
     action = request.get("action")
-    # What was wrong: an unknown action fell through to _action_execute, so a
-    # typo that also carried ``code`` ran as user code.
-    # Why this works: omitted, blank, and the historical ``"execute"`` action
-    # still run user code. Any other action must be in _ACTION_HANDLERS.
+    # Omitted, blank, and ``"execute"`` run user code. Any other action must
+    # be in _ACTION_HANDLERS. A typo that also carries ``code`` must not run.
     if action is None or action == "" or action == "execute":
         return _action_execute(request, stdout=stdout)
     if not isinstance(action, str) or action not in _ACTION_HANDLERS:
@@ -210,12 +200,8 @@ def _die_with_parent() -> None:
     try:
         import ctypes
 
-        # What was wrong: checking os.getppid() == 1 assumed init was the parent upon death,
-        # which fails under subreapers (such as systemd --user where ppid is not 1).
-        # How it happened: if the parent process died before prctl was registered,
-        # getppid() changed to the subreaper's pid rather than 1.
-        # Why this change fixes it: capturing initial ppid before prctl and checking
-        # os.getppid() != ppid correctly detects that the original parent exited.
+        # Compare against the ppid captured before prctl. After the parent
+        # dies, getppid() is the subreaper (systemd --user), which is not 1.
         ppid = os.getppid()
         libc = ctypes.CDLL("libc.so.6", use_errno=True)
         # PR_SET_PDEATHSIG = 1, SIGKILL = 9. Arguments after the signal are unused.
@@ -233,25 +219,16 @@ def main() -> None:
     log.info("Worker process %d starting up with python %s", os.getpid(), sys.version)
 
     stdin = sys.stdin.buffer
-    # What was wrong: sys.stdout.buffer was used directly as the IPC channel, so any
-    # library print() corrupted IPC framing.
-    # Why this fixes it: claim_ipc_channel() dups fd 1 into a private binary stream
-    # and redirects fd 1 to stderr (fd 2), isolating protocol frames from stray stdout prints.
+    # claim_ipc_channel() dups fd 1 into a private binary stream and points
+    # fd 1 at stderr. A library print() must not land in a protocol frame.
     stdout = claim_ipc_channel()
 
     while True:
         req_id = ""
-        # What was wrong: wrapping both read_pickle_frame and _handle_request in one
-        # try block conflated stream-level errors with request execution errors. If
-        # execution raised ValueError, it was mislabeled as "Invalid pickle request"
-        # without a traceback. If execution raised IpcFrameError (e.g. oversized result
-        # in trusted actions), the worker broke out of the loop after EXEC_STARTED with
-        # no terminal frame, causing the host to restart the shared kernel.
-        # How it happened: IpcFrameError subclasses ValueError, so both were caught by
-        # the same outer handlers around the combined read+handle block.
-        # Why this change fixes it: read_pickle_frame is isolated to this read stage.
-        # Genuine read errors (IpcFrameError) break because the input stream is desynced.
-        # Invalid unpickling (ValueError) writes a bad-request error frame without breaking.
+        # Read and handle are separate. IpcFrameError subclasses ValueError,
+        # so one handler cannot tell them apart. A bad frame on the way in
+        # desyncs the stream and ends the loop. A ValueError from unpickling
+        # is a bad-request frame, and the next request is still readable.
         try:
             request = read_pickle_frame(
                 stdin, require_dict=True, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES
@@ -275,13 +252,11 @@ def main() -> None:
 
         req_id = str(request.get("id", ""))
         log.debug("Received request id=%s action=%s", req_id, request.get("action") or "execute")
-        # What was wrong: the host retried any death before a terminal
-        # frame. A crash after DuckDB (or any other in-process side effect
-        # that never sent tool_call) ran that work twice. A crash while
-        # reading the request had not run it, and that retry is how a
-        # one-shot child death recovers.
-        # Why this works: the marker is flushed before _handle_request.
-        # The host retries only when it never sees this frame.
+        # Flushed before _handle_request. The host retries a death only when
+        # it never sees this frame. A crash after DuckDB, or any other
+        # in-process side effect that never sent tool_call, must not run twice.
+        # A crash while reading the request has not run it, and that retry is
+        # how a one-shot child death recovers.
         try:
             write_pickle_frame(
                 stdout,
@@ -293,13 +268,10 @@ def main() -> None:
             break
 
         response: dict[str, Any] | None = None
-        # What was wrong: _handle_request was in the same try block as read_pickle_frame,
-        # so any ValueError or IpcFrameError raised during execution hit the read-error
-        # handlers instead of producing a terminal error frame with traceback.
-        # Why this change fixes it: _handle_request runs in its own try block. UserStopped
-        # produces a USER_STOPPED terminal frame, pack-size errors or unhandled exceptions
-        # produce a terminal error response with traceback, and only genuine read desyncs
-        # (e.g. from exchange_tool_call reading host replies) break the loop.
+        # UserStopped is a USER_STOPPED frame. A pack-size error or any other
+        # exception is a terminal error frame with a traceback. Only a read
+        # that desyncs the stream (exchange_tool_call reading a host reply)
+        # ends the loop.
         try:
             response = _handle_request(request, stdout=stdout)
             log.debug(
@@ -328,13 +300,11 @@ def main() -> None:
             log.exception("Exception handling request id=%s", req_id)
             response = _error_response(e)
         except BaseException as e:
-            # What was wrong: user ``raise SystemExit`` / ``KeyboardInterrupt``
-            # is BaseException. After EXEC_STARTED the process died with no
-            # terminal frame, and the host refused to replay, dropping every
-            # shared session on this worker. The sandbox returns these as an
-            # error dict; this is the backstop when they escape _handle_request.
-            # Why this works: write the same error frame as Exception and
-            # keep reading the next request.
+            # SystemExit and KeyboardInterrupt are BaseException. After
+            # EXEC_STARTED a process death with no terminal frame is not
+            # replayed, so every shared session on this worker is dropped.
+            # The sandbox returns these as an error dict; this writes that
+            # frame when they escape _handle_request, then reads the next request.
             log.exception("BaseException handling request id=%s", req_id)
             response = _error_response(e)
 

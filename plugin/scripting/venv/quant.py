@@ -81,9 +81,8 @@ def fetch_historical_data(params: dict[str, Any], context: dict[str, Any]) -> di
     interval = params.get("interval", "1d")
 
     try:
-        # What was wrong: yf.download printed progress to stdout (corrupting IPC framing) and empty results returned status ok.
-        # How: progress=False and multi_level_index=False were missing, and empty DataFrame was not checked.
-        # Why: Set progress=False, multi_level_index=False, and return NO_DATA when DataFrame is empty.
+        # progress=False: yfinance writes a progress bar to stdout and that
+        # breaks IPC framing. An empty frame is NO_DATA, not ok.
         data = yf.download(
             tickers,
             start=start_date,
@@ -134,9 +133,8 @@ def technical_analysis(
         return _missing_package_error("technical_analysis", "pandas-ta")
 
     raw_indicators = params.get("indicators", ["macd", "rsi", "bbands"])
-    # What was wrong: String indicators (e.g. 'rsi') were iterated character-by-character, and unknown indicators were silently ignored.
-    # How: No string-to-list normalization was done, and the loop lacked validation for unknown indicators.
-    # Why: Wrap string in a list and return INVALID_PARAMS if any unknown indicators are requested.
+    # A string is one indicator name, not a sequence of characters.
+    # An unknown name is INVALID_PARAMS.
     if isinstance(raw_indicators, str):
         indicators = [raw_indicators]
     elif isinstance(raw_indicators, (list, tuple)):
@@ -153,16 +151,12 @@ def technical_analysis(
             helper="technical_analysis",
         )
 
-    # What was wrong: _resolve_df sat outside try block, letting data coercion errors escape as generic worker crashes.
-    # How: Coercion was called before the try: statement.
-    # Why: Move _resolve_df inside try: so errors are caught and surfaced cleanly.
+    # Coerce inside the try so a bad grid is a result error, not a worker crash.
     try:
         res = _resolve_df(data, headers=headers, header_row=header_row)
         df = res.df
 
-        # What was wrong: With headers=False, column names are ints so c.lower() raised AttributeError.
-        # How: Directly called c.lower() without coercing c to str.
-        # Why: Use str(c).strip().lower() to safely match the Close column.
+        # headers=False leaves integer column labels. str() before lower().
         close_col = next((c for c in df.columns if str(c).strip().lower() == "close"), None)
         if close_col:
             import pandas as pd
@@ -213,9 +207,7 @@ def portfolio_tearsheet(
     except ImportError:
         return _missing_package_error("portfolio_tearsheet", "quantstats")
 
-    # What was wrong: _resolve_df sat outside try block, letting data coercion errors escape as generic worker crashes.
-    # How: Coercion was called before the try: statement.
-    # Why: Move _resolve_df inside try: so errors are caught and surfaced cleanly.
+    # Coerce inside the try so a bad grid is a result error, not a worker crash.
     try:
         res = _resolve_df(data, headers=headers, header_row=header_row)
         df = res.df
@@ -229,9 +221,8 @@ def portfolio_tearsheet(
 
         col_param = params.get("column")
         if col_param is not None and str(col_param).strip() != "":
-            # What was wrong: An unknown 'column' param silently fell back to averaging all columns.
-            # How: Checked 'col_param in numeric_df.columns' and fell into else: which averaged columns.
-            # Why: Return INVALID_PARAMS when the specified column is not found in numeric columns.
+            # An unknown column is INVALID_PARAMS. Averaging every column would
+            # hide the typo.
             if col_param not in numeric_df.columns:
                 return _error_result("INVALID_PARAMS", f"Specified column {col_param!r} not found in numeric columns.", helper="portfolio_tearsheet")
             returns = numeric_df[col_param].dropna()
@@ -251,9 +242,7 @@ def portfolio_tearsheet(
         if returns.empty:
             return _error_result("INVALID_DATA", "No valid numeric returns found.", helper="portfolio_tearsheet")
 
-        # What was wrong: NaT dates could land in the index, and synthetic dates were generated without any warning.
-        # How: dates.dropna().empty check did not drop NaT rows from returns, and synthetic daily index had no indication.
-        # Why: Filter out NaT date rows and add a warning message when dates are synthetic.
+        # Drop NaT rows. A synthetic daily index is reported in the warning.
         synthetic_dates = False
         if dates is not None:
             valid_mask = dates.notna()
@@ -305,16 +294,13 @@ def efficient_frontier(
     except ImportError:
         return _missing_package_error("efficient_frontier", "PyPortfolioOpt")
 
-    # What was wrong: _resolve_df sat outside try block, letting data coercion errors escape as generic worker crashes.
-    # How: Coercion was called before the try: statement.
-    # Why: Move _resolve_df inside try: so errors are caught and surfaced cleanly.
+    # Coerce inside the try so a bad grid is a result error, not a worker crash.
     try:
         res = _resolve_df(data, headers=headers, header_row=header_row)
         df = res.df
 
-        # What was wrong: Only exact 'Date' or 'date' was checked, missing 'datetime', 'timestamp', etc.
-        # How: Checked 'Date' in df.columns or 'date' in df.columns without case-insensitivity.
-        # Why: Use case-insensitive date column lookup shared with portfolio_tearsheet.
+        # Case-insensitive date column, shared with portfolio_tearsheet
+        # (Date, datetime, timestamp, and the same names in other cases).
         numeric_df, _dates = _returns_frame_from_df(df)
         if numeric_df.empty or numeric_df.shape[1] < 2:
             return _error_result("INVALID_DATA", "Need at least two numeric assets for efficient frontier.", helper="efficient_frontier")
@@ -322,9 +308,7 @@ def efficient_frontier(
         mu = mean_historical_return(numeric_df, returns_data=True)
         S = CovarianceShrinkage(numeric_df, returns_data=True).ledoit_wolf()
 
-        # What was wrong: efficient_frontier ignored risk_free_rate and weight_bounds parameters.
-        # How: Instantiated EfficientFrontier(mu, S) with defaults and called max_sharpe() without arguments.
-        # Why: Pass weight_bounds to EfficientFrontier and risk_free_rate to max_sharpe().
+        # weight_bounds and risk_free_rate are part of the requested frontier.
         rfr = float(params.get("risk_free_rate", 0.02))
         raw_bounds = params.get("weight_bounds")
         if isinstance(raw_bounds, (list, tuple)) and len(raw_bounds) == 2:
@@ -359,9 +343,8 @@ def run_quant(
         return parsed
     helper, params, headers, header_row, ctx, _spec = parsed
 
-    # What was wrong: headers and header_row were only passed to technical_analysis, eating data in tearsheet and frontier when headers=False.
-    # How: run_quant called portfolio_tearsheet and efficient_frontier without headers and header_row kwargs.
-    # Why: Pass headers and header_row to every data helper.
+    # Every data helper needs headers and header_row. Dropping them makes
+    # tearsheet and frontier treat a header row as a price.
     if helper == "fetch_historical_data":
         result = fetch_historical_data(params, ctx)
     elif helper == "technical_analysis":

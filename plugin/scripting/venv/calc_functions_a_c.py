@@ -105,10 +105,8 @@ def accrint(
     basis: Any = 0,
     calc_method: Any = True,
 ) -> float:
-    # What was wrong: accrint was a silent stub delegating to _simple_accrual, ignoring frequency and arguments.
-    # How it happened: stub ignored first_interest, frequency, and calc_method, and had no input validation.
-    # Why this change fixes it: validates frequency in (1, 2, 4), basis in (0..4), rate > 0, par > 0, issue < settlement
-    # and computes accrued interest matching LibreOffice ScInterpreter AnalysisAddIn::getAccrint.
+    # LibreOffice ScInterpreter AnalysisAddIn::getAccrint: frequency in
+    # (1, 2, 4), basis in (0..4), rate > 0, par > 0, issue < settlement.
     from .calc_functions_t_z import yearfrac
 
     try:
@@ -131,9 +129,7 @@ def accrint(
 
 
 def accrintm(issue: Any, settlement: Any, rate: Any, par: Any = 1000.0, basis: Any = 0) -> float:
-    # What was wrong: accrintm lacked date, rate, par, and basis validation.
-    # How it happened: stub delegated directly to _simple_accrual without parameter checks.
-    # Why this change fixes it: validates rate > 0, par > 0, basis in (0..4), issue < settlement.
+    # rate > 0, par > 0, basis in (0..4), issue < settlement. Otherwise #NUM!.
     from .calc_functions_t_z import yearfrac
 
     try:
@@ -173,9 +169,7 @@ def acoth(x: Any) -> float:
 
 
 def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = None) -> str:
-    # What was wrong: address(1, 1, 9) returned 'A1', and sheet names with single quotes were not escaped.
-    # How it happened: abs_num was not validated against (1, 2, 3, 4), and sheet string lacked quote escaping.
-    # Why this change fixes it: validates 1 <= abs_num <= 4 (returns #VALUE! otherwise) and escapes ' as '' in sheet name.
+    # abs_num is 1..4 (#VALUE! otherwise). A sheet name quotes ' as ''.
     try:
         r = int(float(row))
         c = int(float(col))
@@ -210,10 +204,8 @@ def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = N
 
 
 def aggregate(function_num: Any, options: Any, *args: Any) -> float:
-    # What was wrong: aggregate function numbers 14-19 were silent stubs returning NaN instead of raising unsupported,
-    # and boolean values were incorrectly converted to 1.0 in numeric arrays.
-    # How it happened: no check for fn 14..19, and isinstance(x, bool) was not skipped before float(x).
-    # Why this change fixes it: skips boolean values, handles 1..12, raises NotImplementedError for 14..19.
+    # Functions 1..12. 14..19 are not implemented. Bool is not a number
+    # (float(True) would be 1.0).
     try:
         fn = int(float(function_num))
         opt = int(float(options))
@@ -290,9 +282,8 @@ def amordegrc(
     rate: Any,
     basis: Any = 0,
 ) -> float:
-    # What was wrong: amordegrc was a silent stub returning an approximate calculation.
-    # How it happened: stub did not implement the French accounting depreciation schedule or coefficient bands.
-    # Why this change fixes it: implements exact algorithm from LibreOffice ScInterpreter AnalysisAddIn::getAmordegrc.
+    # French declining-balance schedule from LibreOffice
+    # ScInterpreter AnalysisAddIn::getAmordegrc.
     from .calc_functions_t_z import yearfrac
 
     try:
@@ -358,9 +349,8 @@ def amorlinc(
     rate: Any,
     basis: Any = 0,
 ) -> float:
-    # What was wrong: amorlinc was a silent stub returning cost * rate without period or salvage calculations.
-    # How it happened: stub did not implement the French linear depreciation schedule.
-    # Why this change fixes it: implements exact algorithm from LibreOffice ScInterpreter AnalysisAddIn::getAmorlinc.
+    # French linear schedule from LibreOffice
+    # ScInterpreter AnalysisAddIn::getAmorlinc.
     from .calc_functions_t_z import yearfrac
 
     try:
@@ -424,10 +414,8 @@ def arabic(text: Any) -> float:
 def areas(r: Any) -> float:
     """Return the number of areas in a reference.
 
-    What was wrong: areas was an undocumented stub unconditionally returning 1.0.
-    How it happened: multiple range union references were not distinguished from single ranges.
-    Why this change fixes it: returns the count of disjoint ranges if a sequence of ranges
-    is provided, or 1.0 for a single contiguous range/cell reference per Excel/Calc semantics.
+    A sequence of ranges counts each disjoint area. One contiguous range
+    or cell is 1.0, matching Excel and Calc.
     """
     if isinstance(r, (list, tuple)) and r and isinstance(r[0], (list, tuple)) and len(r[0]) > 0 and isinstance(r[0][0], (list, tuple)):
         return float(len(r))
@@ -483,9 +471,8 @@ def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
 
 
 def averageifs(ar: Any, *args: Any) -> float | str:
-    # What was wrong: averageifs with mismatched range lengths truncated to shortest range instead of returning #VALUE!.
-    # How it happened: checked idx >= len(cr) instead of verifying all criteria ranges match len(ar_flat).
-    # Why this change fixes it: uses _multi_criteria_mask which validates all criteria ranges match len(ar_flat).
+    # Criteria ranges must match the average range. A shorter range is #VALUE!,
+    # not a silent truncate.
     if len(args) % 2 != 0:
         return "#VALUE!"
     ar_flat = np.asarray(ar, dtype=object).ravel()
@@ -508,9 +495,7 @@ def averageifs(ar: Any, *args: Any) -> float | str:
 
 
 def bahttext(number: Any) -> str:
-    # What was wrong: bahttext was a silent stub returning "{number} Baht".
-    # How it happened: Thai currency numeral spelling is not implemented in Python lightweight runtime.
-    # Why this change fixes it: raises NotImplementedError per requirements.
+    # Thai currency spelling is not implemented in this runtime.
     raise NotImplementedError("BAHTTEXT is unsupported in lightweight runtime")
 
 
@@ -572,9 +557,8 @@ def bessely(x: Any, n: Any) -> float:
 
 
 def betadist(*args: Any) -> float:
-    # What was wrong: legacy BETADIST treated args[3] as cumulative flag instead of lower bound A.
-    # How it happened: legacy Excel/Calc BETADIST(x, alpha, beta, [A], [B]) has no cumulative argument (always cumulative).
-    # Why this change fixes it: reads args[3] as A (default 0.0) and args[4] as B (default 1.0) and validates inputs.
+    # Legacy BETADIST(x, alpha, beta, [A], [B]) is always cumulative.
+    # args[3] is the lower bound A (default 0), not a cumulative flag.
     if len(args) < 3 or len(args) > 5:
         return float("nan")
     try:
@@ -595,9 +579,7 @@ def betadist(*args: Any) -> float:
 
 
 def betainv(*args: Any) -> float:
-    # What was wrong: betainv lacked input validation (probability in [0, 1], alpha > 0, beta > 0, A < B).
-    # How it happened: unvalidated arguments passed directly to scipy.stats.beta.ppf.
-    # Why this change fixes it: validates p in [0, 1], alpha > 0, beta > 0, and A < B.
+    # p in [0, 1], alpha > 0, beta > 0, A < B. scipy's ppf does not enforce that.
     if len(args) < 3 or len(args) > 5:
         return float("nan")
     try:
@@ -617,9 +599,7 @@ def betainv(*args: Any) -> float:
 
 
 def binomdist(*args: Any) -> float:
-    # What was wrong: binomdist returned 0.0 for k > n or accepted p < 0 / p > 1 without validation.
-    # How it happened: scipy.stats.binom silently returned 0 for out-of-range counts instead of spreadsheet #NUM!.
-    # Why this change fixes it: validates 0 <= k <= n, n >= 0, and 0 <= p <= 1, returning NaN if violated.
+    # 0 <= k <= n, n >= 0, 0 <= p <= 1. scipy returns 0 for k > n; Calc wants #NUM!.
     if len(args) < 4:
         return float("nan")
     try:
@@ -690,9 +670,7 @@ def chiinv(p: Any, df: Any) -> float:
 
 
 def choose(index: Any, *args: Any) -> Any:
-    # What was wrong: choose returned None when index was out of bounds or invalid.
-    # How it happened: fallthrough at the end of choose returned None instead of float("nan") (#VALUE!).
-    # Why this change fixes it: returns float("nan") for out-of-range or invalid index.
+    # An out-of-range index is #VALUE! (NaN), not None.
     try:
         idx = int(float(index))
         if 1 <= idx <= len(args):
@@ -745,10 +723,7 @@ def combina(n: Any, k: Any) -> float:
 
 
 def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
-    # What was wrong: complex accepted invalid suffixes such as "z", and had redundant imports.
-    # How it happened: suffix was not validated against ("i", "j") per LibreOffice/Excel rules.
-    # Why this change fixes it: validates suffix in ("i", "j", "I", "J") returning #VALUE! otherwise,
-    # and uses shared _from_complex.
+    # Suffix is i or j (either case). Anything else is #VALUE!.
     try:
         r = float(real_num)
         i = float(imag_num)
@@ -761,9 +736,7 @@ def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
 
 
 def confidence(alpha: Any, stddev: Any, size: Any) -> float:
-    # What was wrong: confidence(1, 2, 10) returned 0.0 instead of #NUM! (NaN).
-    # How it happened: alpha was not validated to be strictly between 0 and 1, stddev > 0, and size >= 1.
-    # Why this change fixes it: returns float("nan") if alpha <= 0 or alpha >= 1, stddev <= 0, or size < 1.
+    # alpha strictly inside (0, 1), stddev > 0, size >= 1. Otherwise #NUM!.
     try:
         from scipy import stats
 
@@ -801,9 +774,8 @@ def countif(r: Any, crit: Any) -> float:
 
 
 def countifs(*args: Any) -> float | str:
-    # What was wrong: countifs with mismatched range lengths truncated to shortest range instead of returning #VALUE!.
-    # How it happened: zip() silently ignored trailing elements of longer ranges.
-    # Why this change fixes it: uses _multi_criteria_mask which validates all criteria ranges have identical length.
+    # Every criteria range must be the same length. zip() would drop the tail
+    # and return a count instead of #VALUE!.
     if len(args) % 2 != 0:
         return "#VALUE!"
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
@@ -814,10 +786,8 @@ def countifs(*args: Any) -> float | str:
 
 
 def coupdaybs(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> float:
-    # What was wrong: coupon functions stepped back in fixed day counts, accepted invalid frequency and settlement >= maturity.
-    # How it happened: _get_coupon_dates used fixed day steps instead of calendar months and lacked range validation.
-    # Why this change fixes it: uses _get_coupon_dates from calc_functions_util which validates frequency in (1, 2, 4),
-    # basis in (0..4), settlement < maturity, and steps backwards in calendar months.
+    # Coupon dates step by calendar months. frequency in (1, 2, 4), basis in
+    # (0..4), settlement < maturity. A fixed day step (180, 182.5) drifts.
     try:
         b = int(float(basis))
         p_ser, _c_ser, _days_in_per, _k = _get_coupon_dates(settlement, maturity, frequency, b)
@@ -893,9 +863,7 @@ def csc(x: Any) -> float:
 
 
 def csch(x: Any) -> float:
-    # What was wrong: csch(1000) raised OverflowError because math.sinh(1000) overflowed.
-    # How it happened: except block only caught ValueError, TypeError, ZeroDivisionError.
-    # Why this change fixes it: 1 / sinh(huge) approaches 0.0, so OverflowError maps to 0.0.
+    # 1/sinh(x) goes to 0 as |x| grows. OverflowError is that limit, not #NUM!.
     try:
         return float(1.0 / math.sinh(float(x)))
     except OverflowError:
@@ -905,9 +873,7 @@ def csch(x: Any) -> float:
 
 
 def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
-    # What was wrong: cumipmt accepted rate == 0 and returned 0.0 instead of #NUM! (NaN).
-    # How it happened: checked r < 0 instead of r <= 0 per LibreOffice and Excel financial rules.
-    # Why this change fixes it: validates r > 0, returning NaN if r <= 0.
+    # rate must be > 0. Zero is #NUM!, same as a negative rate.
     try:
         r = float(rate)
         n = float(nper)
@@ -926,9 +892,7 @@ def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, t
 
 
 def cumprinc(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
-    # What was wrong: cumprinc accepted rate == 0 instead of #NUM! (NaN).
-    # How it happened: checked r < 0 instead of r <= 0 per LibreOffice and Excel financial rules.
-    # Why this change fixes it: validates r > 0, returning NaN if r <= 0.
+    # rate must be > 0. Zero is #NUM!, same as a negative rate.
     try:
         r = float(rate)
         n = float(nper)

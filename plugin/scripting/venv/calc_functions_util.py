@@ -114,9 +114,7 @@ def _days360(sd: dt.date, ed: dt.date, european: bool = False) -> float:
 
 def _days_between(d1: Any, d2: Any, basis: int) -> float:
     """Days between two dates under financial basis (0=US 30/360, 1=Act/Act, 2=Act/360, 3=Act/365, 4=Eur 30/360)."""
-    # What was wrong: _days_between used crude 30-day month arithmetic instead of true 30/360 rules.
-    # How it happened: Hand-rolled (dt2.year-dt1.year)*360+(dt2.month-dt1.month)*30 ignored end-of-month and 31st adjustments.
-    # Why this change fixes it: Reuses standard 30/360 date adjustment logic from days360 and exact integer date subtraction.
+    # 30/360 day count, including the 31st and end-of-month adjustments from DAYS360.
     sd = _serial_to_date(d1)
     ed = _serial_to_date(d2)
     if sd is None or ed is None:
@@ -128,9 +126,7 @@ def _days_between(d1: Any, d2: Any, basis: int) -> float:
 
 def _round_half_up(val: float, decimals: int) -> Decimal:
     """Round a float half-away-from-zero matching Excel/Calc rounding rules."""
-    # What was wrong: fixed, dollar, and euroconvert used Python's round() which performs round-half-to-even (banker's rounding).
-    # How it happened: standard round(val, decimals) rounds 2.5 to 2 and 2.675 to 2.67.
-    # Why this change fixes it: Decimal with ROUND_HALF_UP rounds half-way values away from zero (2.5 -> 3, 2.675 -> 2.68).
+    # Half away from zero (2.5 -> 3, 2.675 -> 2.68). Python round() is half-to-even.
     if not math.isfinite(val):
         raise ValueError("Non-finite value cannot be rounded")
     d = Decimal(str(val))
@@ -270,9 +266,8 @@ def _to_float_a(val: Any) -> float:
 
 def _collect_a_values(*args: Any) -> np.ndarray:
     """Collect flat float array for *A functions (AVERAGEA, MAXA, etc.)."""
-    # What was wrong: *A functions treated empty cells (None) as 0.0 and coerced mixed ranges to strings.
-    # How it happened: _to_float_a mapped missing values to 0.0 instead of skipping them, and np.asarray had no dtype=object.
-    # Why this change fixes it: Excel and Calc ignore blank cells in ranges for *A functions (only text counts as 0).
+    # *A functions skip blanks. Only text counts as 0. A blank is not a zero
+    # and must not change the count.
     vals: list[float] = []
     for arg in args:
         for v in np.asarray(arg, dtype=object).ravel():
@@ -340,12 +335,8 @@ def _wildcard_fullmatch(pattern: str, text: str) -> bool:
 
 def match_criteria(val: Any, crit: Any) -> bool:
     """Evaluate an Excel/Calc condition (e.g. '>5', '<=10', '<>apple', '*item*', '=')."""
-    # What was wrong: match_criteria was case-sensitive, lacked wildcard (*, ?, ~) support,
-    # did not match blanks on '=', and accepted invalid operator prefixes like '><'.
-    # How it happened: regex r"^([<>=]+)(.*)$" matched invalid operators without an allowlist
-    # and fell back to exact string equality without invoking wildcard regex or casefold.
-    # Why this change fixes it: validates against an operator allowlist, matches blanks for
-    # '=' and '<>', and performs case-insensitive comparisons with Excel wildcard escapes.
+    # Operators come from an allowlist ('><' is not one). Text is
+    # case-insensitive, '*' '?' '~' are Excel wildcards, and a blank matches '=' and '<>'.
     if is_missing_value(crit):
         return is_missing_value(val) or val == "" or val is None
 
@@ -433,9 +424,8 @@ def match_criteria(val: Any, crit: Any) -> bool:
     c_pattern = val_str if val_str is not None else str(crit)
 
     if c_num is not None and v_num is None:
-        # What was wrong: match_criteria('5', '5') returned False because c_num was float 5.0 but string val had v_num None.
-        # How it happened: early exit returned op == '<>' when c_num was numeric and v_num was None.
-        # Why this change fixes it: allows string val to match string-represented number criteria under equality/inequality.
+        # The criterion "5" is numeric, but the cell "5" is text. Equality
+        # and inequality still compare them; other operators do not.
         if isinstance(val, str) and op in ("=", "<>"):
             matched = _wildcard_fullmatch(c_pattern, v_str)
             return matched if op == "=" else not matched
@@ -470,10 +460,7 @@ def _find_match_index(
     search_mode: int | float = 1,
 ) -> int | None:
     """Find 0-based index matching Excel lookup semantics (exact, smaller, larger, wildcard)."""
-    # What was wrong: mixed lookup_arr was coerced to string array by bare np.asarray,
-    # corrupting numbers and case matching.
-    # How it happened: np.asarray lacked dtype=object, and exact match used identity/case-sensitive equality.
-    # Why this change fixes it: preserves object types with dtype=object and matches text case-insensitively.
+    # dtype=object keeps numbers as numbers. Text matches case-insensitively.
     try:
         l_flat = np.asarray(lookup_arr, dtype=object).ravel()
         indices = list(range(len(l_flat)))
@@ -612,9 +599,7 @@ _MAX_BIT_VALUE: int = (1 << 48) - 1
 
 def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
     """Apply a binary integer bitwise operator to n1 and n2 within [0, 2^48 - 1]."""
-    # What was wrong: bitand, bitor, and bitxor accepted negative numbers and numbers >= 2^48.
-    # How it happened: inputs were cast to Python ints without non-negative or 48-bit upper limit checks.
-    # Why this change fixes it: Excel and Calc require non-negative integers < 2^48 (returning #NUM! / NaN otherwise).
+    # Non-negative integers below 2^48. Excel and Calc return #NUM! otherwise.
     try:
         v1 = int(float(n1))
         v2 = int(float(n2))
@@ -627,10 +612,8 @@ def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
 
 def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
     """Integer bit shift within [0, 2^48 - 1] and shift magnitude <= 53."""
-    # What was wrong: unbounded shift amounts (e.g. 1e9) allocated giant integers causing uncaught MemoryError / hangs.
-    # How it happened: Python int << shift executed without checking shift magnitude or catching MemoryError.
-    # Why this change fixes it: caps shift magnitude at 53 (Excel limit), validates number in [0, 2^48 - 1],
-    # and catches MemoryError.
+    # Shift at most 53 bits (Excel) and the number stays in [0, 2^48 - 1].
+    # A shift of 1e9 builds an integer large enough to hang or raise MemoryError.
     try:
         n = int(float(number))
         s = int(float(shift))
@@ -686,9 +669,8 @@ def _simple_accrual(
 
 def _criteria_numbers(r: Any, crit: Any, val_range: Any | None = None) -> list[float]:
     """Collect matching numeric values for criteria-based functions (averageif, sumif)."""
-    # What was wrong: criteria ranges were stringified by np.asarray, and OverflowError on huge ints escaped.
-    # How it happened: np.asarray lacked dtype=object, and except block only caught ValueError/TypeError.
-    # Why this change fixes it: dtype=object keeps types intact, and OverflowError is caught.
+    # dtype=object keeps cell types. A huge int raises OverflowError, which is
+    # the same failure as a bad number.
     r_flat = np.asarray(r, dtype=object).ravel()
     v_flat = np.asarray(val_range, dtype=object).ravel() if val_range is not None else r_flat
     vals: list[float] = []
@@ -848,10 +830,8 @@ def _multi_criteria_mask(pairs: Sequence[tuple[Any, Any]], base_len: int | None 
 
     Returns a 1D boolean numpy array mask, or None if lengths mismatch or pairs are empty.
     """
-    # What was wrong: countifs and averageifs truncated mismatched range lengths to the shortest range.
-    # How it happened: zip() and min(len...) silently truncated ranges instead of validating equal dimensions.
-    # Why this change fixes it: validates that all criteria ranges match base_len (and each other) exactly,
-    # returning None so callers can return #VALUE! per Excel and Calc semantics.
+    # Every criteria range must match the base length. None tells the caller
+    # to return #VALUE! instead of truncating.
     if not pairs:
         return np.ones(base_len, dtype=bool) if base_len is not None else np.array([], dtype=bool)
 
@@ -883,11 +863,9 @@ def _get_coupon_dates(
 
     Returns (prev_serial, curr_serial, days_in_period, num_coupons).
     """
-    # What was wrong: Coupon calculations stepped back in fixed day counts (180, 182.5) instead of calendar months,
-    # accepted invalid frequencies (e.g. 1e9 which caused an infinite loop), and accepted settlement >= maturity.
-    # How it happened: _get_coupon_dates used fixed day division and had no check that freq in (1, 2, 4) or settlement < maturity.
-    # Why this change fixes it: Validates freq in (1, 2, 4), basis in (0..4), settlement < maturity, and steps backwards
-    # by calendar months from maturity, matching Excel and LibreOffice ScInterpreter coupon scheduling.
+    # Step back by calendar months from maturity. freq in (1, 2, 4), basis in
+    # (0..4), settlement < maturity. A bad frequency (1e9) never terminates,
+    # and a fixed day step (180, 182.5) drifts off the coupon date.
     freq = int(float(frequency))
     b = int(float(basis))
     if freq not in (1, 2, 4) or b not in (0, 1, 2, 3, 4):

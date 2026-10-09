@@ -45,9 +45,9 @@ def _require_sympy() -> Any | None:
 
 @functools.cache
 def _parse_transformations() -> tuple[Any, ...]:
-    # What was wrong: x^2 caused XOR evaluation error, and multi-letter variables were split into letters.
-    # How: convert_xor was missing from transformations, and implicit_multiplication_application included split_symbols.
-    # Why: Add convert_xor and drop split_symbols (using implicit_multiplication + implicit_application) so x^2 is power and multi-letter names remain intact.
+    # x^2 is power, not XOR, and a multi-letter name stays one symbol.
+    # convert_xor plus implicit_multiplication and implicit_application;
+    # split_symbols would break names such as price.
     from sympy.parsing.sympy_parser import (
         convert_xor,
         implicit_application,
@@ -61,9 +61,8 @@ def _parse_transformations() -> tuple[Any, ...]:
 def _sympy_name_dict(sp: Any) -> dict[str, Any]:
     """Names a formula may use. Not the process globals, so parse_expr cannot import."""
     names: dict[str, Any] = {}
-    # What was wrong: 44939dd0 restricted _sympy_name_dict to a short whitelist lacking common functions (atan, ln, sinh, etc.).
-    # How: Any function not on the whitelist was split into single letters or failed to parse.
-    # Why: Widen the whitelist with standard math functions and map ln to sp.log.
+    # Names a formula may call. ln is sp.log. A name missing here is split
+    # into letters or fails to parse.
     for name in (
         "Abs",
         "Add",
@@ -152,9 +151,8 @@ def _parse_expression(sp: Any, expr: str, *, variable: Any | None = None) -> Any
     except Exception as exc:
         raise ValueError(f"Could not parse expression: {exc}") from exc
 
-    # What was wrong: Unknown functions parsed into unevaluated AppliedUndef expressions returning ok.
-    # How: parse_expr allows unknown function calls when auto_symbol creates Function instances.
-    # Why: Check parsed.atoms(AppliedUndef) and raise ValueError to surface as PARSE_ERROR.
+    # parse_expr turns an unknown call into AppliedUndef and would return ok.
+    # Reject those atoms so the caller sees PARSE_ERROR.
     if parsed.atoms(AppliedUndef):
         undef = ", ".join(str(a.func) for a in parsed.atoms(AppliedUndef))
         raise ValueError(f"Undefined function in expression: {undef}")
@@ -210,9 +208,7 @@ def differentiate(*, expression: str, variable: str = "x") -> dict[str, Any]:
     expr = _parse_expression(sp, expression, variable=sym)
     result = sp.diff(expr, sym)
     latex = _to_latex(sp, result)
-    # What was wrong: variable was returned unstripped (e.g. " x "), inconsistent with sym.
-    # How: Raw variable string parameter was echoed back directly.
-    # Why: Echo str(sym) so the canonical stripped variable name is returned.
+    # Echo str(sym), the stripped name. The raw parameter can still contain spaces.
     return _ok_result("differentiate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
 
 
@@ -231,9 +227,8 @@ def integrate(
     has_lower = lower is not None and str(lower).strip() != ""
     has_upper = upper is not None and str(upper).strip() != ""
     if has_lower != has_upper:
-        # What was wrong: Providing only one integral bound silently computed an indefinite integral.
-        # How: Code checked 'if lower is not None and upper is not None' and fell through to indefinite.
-        # Why: Raise MISSING_PARAM when exactly one bound is given.
+        # Exactly one bound is MISSING_PARAM. Both absent is indefinite;
+        # both present is definite.
         raise _SymbolicError("MISSING_PARAM", "Both lower and upper bounds must be provided for definite integration.")
 
     if has_lower and has_upper:
@@ -258,9 +253,8 @@ def solve_equation(*, equation: str, variable: str = "x") -> dict[str, Any]:
     text = str(equation or "").strip()
     if not text:
         raise _SymbolicError("MISSING_PARAM", "equation is required")
-    # What was wrong: Inequalities (<=, >=, !=) or '==' caused loud parse or split errors.
-    # How: text.split("=", 1) split on the first '=' in '<=' or '==', passing invalid pieces to parse_expr.
-    # Why: Explicitly reject inequalities and '==' with INVALID_PARAMS, and split on a single '='.
+    # Inequalities and '==' are INVALID_PARAMS. split("=", 1) would cut
+    # '<=' and '==' into pieces parse_expr cannot accept.
     if re.search(r"<=|>=|!=|==|<|>", text):
         raise _SymbolicError("INVALID_PARAMS", "Inequalities and '==' are not supported in solve_equation; use '=' or expression equal to zero.")
     if "=" in text:
@@ -295,9 +289,8 @@ def latex_to_math_object(*, latex: str) -> dict[str, Any]:
     trimmed = str(latex or "").strip()
     if not trimmed:
         raise _SymbolicError("MISSING_PARAM", "latex is required")
-    # What was wrong: Valid LaTeX containing braces, powers, or subscripts (e.g. x^{2}, x_1) was parsed as SymPy syntax and mangled.
-    # How: Only '=' and '\\' were checked before routing to SymPy parse_expr.
-    # Why: Treat '{', '}', '^', '_' as LaTeX cues as well to preserve valid LaTeX syntax.
+    # '{', '}', '^', and '_' are LaTeX, same as '=' and '\\'. x^{2} or x_1
+    # sent through parse_expr is mangled.
     if not any(cue in trimmed for cue in ("=", "\\", "{", "}", "^", "_")):
         sp = _require_sympy()
         assert sp is not None

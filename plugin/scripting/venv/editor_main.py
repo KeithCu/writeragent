@@ -380,9 +380,8 @@ def _hide_and_clear(win: Any) -> None:
 
 def _handle_window_closing() -> bool:
     """Hides the window instead of closing/destroying it, notifying the parent."""
-    # What was wrong: _handle_window_closing always returned False, cancelling destruction
-    # even when _shutting_down was set after stdin EOF, causing orphan editor processes.
-    # Why this change: return True during shutdown allows the window and process to exit cleanly.
+    # Return True while shutting down so the window can be destroyed. False
+    # cancels close and leaves the editor process running after stdin EOF.
     if _shutting_down:
         return True
     log.info("editor_main: intercepting window close. Hiding window instead.")

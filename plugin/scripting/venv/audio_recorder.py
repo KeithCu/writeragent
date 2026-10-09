@@ -65,10 +65,8 @@ def record_to_wav(
     )
     auto_stopped = False
 
-    # What was wrong: wave.open was inside the PortAudio try block, so file system
-    # errors (disk full, bad permissions) erroneously reported PORTAUDIO_LINUX_HINT.
-    # How it happened: broad try block wrapped both wave creation and PortAudio init.
-    # Why this change fixes it: open wave file first so file errors raise accurately.
+    # Open the WAV before PortAudio. A disk or permission error must not be
+    # reported as PORTAUDIO_LINUX_HINT.
     try:
         wav_file = wave.open(output_path, "wb")
         wav_file.setnchannels(CHANNELS)
@@ -129,11 +127,8 @@ def record_to_wav(
             except (OSError, ValueError):
                 pass
 
-    # What was wrong: auto_stopped was emitted from the PortAudio callback thread
-    # before the stream and WAV file were closed, yielding a WAV header with 0 length.
-    # How it happened: early emit inside result.should_stop in the audio callback.
-    # Why this change fixes it: emit auto_stopped from the main thread only after the
-    # WAV file is completely finalized and flushed to disk.
+    # Emit auto_stopped on the main thread after the WAV is closed. Emitting
+    # from the PortAudio callback publishes a header whose length is still 0.
     if auto_stopped and on_ipc_emit is not None:
         on_ipc_emit({"status": "auto_stopped", "path": output_path})
     return auto_stopped

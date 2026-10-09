@@ -44,9 +44,8 @@ _OFFICE_HINT_EXTS = (".xlsx", ".xls", ".ods")
 _READONLY_VIOLATION_MESSAGE = "SQL contains write, attach, or path escape"
 
 
-# Bugfix (SqlError): unify FlatFileError and ReadonlyViolation into a single
-# exception type that preserves error codes and inherits from RuntimeError so
-# callers and tests get consistent exception types and codes.
+# One exception type for a flat-file failure and a read-only violation.
+# The code stays on the instance, and callers catch RuntimeError.
 class SqlError(RuntimeError):
     """Typed SQL failure so query_folder_sql / run_sql can return a stable code."""
 
@@ -212,9 +211,8 @@ def resolve_duckdb_session_id(session_id: str | None = None) -> str | None:
     if session_id is None:
         return current
     requested = persistable_duckdb_session_id(session_id)
-    # Bugfix: the injected helper forwarded any session id. Inside
-    # run_sandboxed_code, a foreign id (or a non-persistable id that would
-    # skip the workbook catalog) is ignored and the cell session is used.
+    # A foreign session id, or one that would skip the workbook catalog, is
+    # ignored inside run_sandboxed_code. The cell session is used.
     if _cell_sandbox_active() and requested != current:
         return current
     return requested
@@ -339,10 +337,9 @@ def _register_relation(con: Any, name: str, rel: Any) -> None:
 
 # Disk/network side effects only. In-memory CREATE VIEW / TABLE / INSERT stay
 # allowed so shared-kernel ``session_duckdb()`` register workflows work.
-# Bugfix (_BLOCKED_STMT_RE): previously matched bare identifiers anywhere
-# in SQL like 'SELECT load, copy FROM t' because it lacked statement-start
-# anchoring, and missed keywords like SET, PRAGMA, CALL, CREATE SECRET, DETACH.
-# Anchoring to statement boundaries ((?:^|;)\s*) matches statements only.
+# Match only at a statement boundary ((?:^|;)\s*). A bare identifier
+# anywhere would flag 'SELECT load, copy FROM t'. SET, PRAGMA, CALL,
+# CREATE SECRET, and DETACH are statements too.
 _BLOCKED_STMT_RE = re.compile(
     r"""(?isx)
     (?:^|;)\s*(?:\(\s*)*
@@ -364,9 +361,8 @@ _BLOCKED_STMT_RE = re.compile(
 _DRIVE_RE = re.compile(r"^[A-Za-z]:[/\\]")
 _URI_RE = re.compile(r"(?i)^(?:https?|s3|file|ftp)://")
 
-# Bugfix (_REMAINDER_PATH_RE): previously matched (?:^|[\s=,(])[/\\](?!\s),
-# which incorrectly flagged division like 'price /100' or 'a /2' as path escapes.
-# Division slashes are not path escapes, so unquoted absolute slashes are removed.
+# Division is not a path. 'price /100' must not match. Unquoted '/' is
+# left out; '..', '~/', a drive letter, and a URI are escapes.
 _REMAINDER_PATH_RE = re.compile(
     r"""(?ix)
     (?:
@@ -378,10 +374,9 @@ _REMAINDER_PATH_RE = re.compile(
     """
 )
 
-# Bugfix (_TOKEN_RE): comments stripped before string literals allowed embedded
-# '--' or '/*' in strings to swallow later SQL statements (e.g. "SELECT '--'; COPY t TO 'x'").
-# A single-pass tokenizer parses strings, dollar-quoted strings ($tag$...$tag$),
-# and line/block comments left-to-right.
+# One left-to-right pass for strings, dollar quotes ($tag$...$tag$), and
+# comments. Stripping comments first lets '--' or '/*' inside a string
+# swallow the rest ("SELECT '--'; COPY t TO 'x'").
 _TOKEN_RE = re.compile(
     r"""(?isx)
     (?P<line_comment> --[^\n]* )
@@ -467,9 +462,8 @@ def _strip_sql_comments_and_strings(sql: str) -> tuple[str, list[str]]:
     return remainder, strings
 
 
-# Bugfix (_string_looks_like_escape): text.startswith("/") treated '/' alone
-# as an escape, breaking legitimate SQL like split_part(x, '/', 1) and replace(p, '/', '_').
-# A standalone '/' or '\' delimiter is not an escape path.
+# A lone '/' or '\' is a delimiter, not an escape. startswith("/") would
+# reject split_part(x, '/', 1) and replace(p, '/', '_').
 def _string_looks_like_escape(literal: str) -> bool:
     text = literal.strip()
     if not text or text in ("/", "\\"):
@@ -598,9 +592,9 @@ def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
             _register_relation(con, orig_name, coerced.df)
             stem = os.path.splitext(orig_name)[0]
             if stem and stem != orig_name:
-                # Bugfix: stem alias collisions (e.g. a.csv vs a.xlsx) previously
-                # silently overwrote earlier registrations or failed with pass.
-                # Skip colliding stems, log alias errors, and avoid silent overwrites.
+                # Skip a stem that is already registered (a.csv vs a.xlsx) and
+                # log the alias error. Overwriting the earlier table would
+                # query the wrong file.
                 if stem in preloaded or stem in registered_stems:
                     log.warning(
                         "Skipping stem alias %r for %r: name collision",
@@ -630,8 +624,7 @@ def _register_flat_files(
 ) -> None:
     if not flat_files:
         return
-    # Bugfix: remove dead scoped_dir=None branches; query_folder_sql requires
-    # scoped_dir whenever files are present. All paths resolve through resolve_flat_file_path.
+    # Files require scoped_dir. Every path goes through resolve_flat_file_path.
     if not scoped_dir:
         raise SqlError("MISSING_SCOPED_DIR", "scoped_dir is required for flat files")
     raw = _raw_duckdb(con)
@@ -649,8 +642,8 @@ def _register_flat_files(
                 f"Could not read {os.path.basename(p)!r} as table {name!r}: {flat_err}",
             ) from flat_err
 
-        # Bugfix: materialize flat file relations into in-memory tables so that
-        # SET enable_external_access=false does not block subsequent queries on them.
+        # Copy flat-file relations into memory before external access is
+        # turned off, or a later query on them fails.
         escaped_name = name.replace('"', '""')
         raw.register("_wa_tmp_import", rel)
         try:
@@ -673,9 +666,8 @@ def _register_flat_files(
                 log.warning("Failed to create view for stem %r: %s", stem, alias_err)
 
 
-# Bugfix (_execute): split execution out of query_folder_sql so run_sql can
-# retrieve the full DataFrame without truncation to MAX_TABLE_ROWS and preserve
-# SqlError error codes instead of losing them in a generic RuntimeError.
+# Shared by query_folder_sql and run_sql. run_sql needs the full frame,
+# not a MAX_TABLE_ROWS slice, and the original SqlError code.
 def _execute(
     scoped_dir: str | None,
     sql: str,
@@ -693,9 +685,8 @@ def _execute(
 
     _raise_if_write_or_escape(str(sql))
 
-    # Bugfix: normalize files once up front (str -> [str], tuple -> list)
-    # so single strings are not iterated character by character and tuples
-    # are not skipped by the escape pre-check.
+    # Normalize once: str -> [str], tuple -> list. A bare string would be
+    # walked character by character, and a tuple would skip the escape check.
     normalized_files: list[str] | dict[str, str] | None = None
     if isinstance(files, str):
         normalized_files = [files]
@@ -749,8 +740,8 @@ def _execute(
         if resolved_flat and base:
             _register_flat_files(con, resolved_flat, scoped_dir=base)
 
-        # Bugfix: lock configuration and disable external access on non-persistent
-        # connections for defense-in-depth after materializing tables into memory.
+        # Lock configuration and turn off external access on a connection
+        # that is not kept. The tables are already in memory.
         if not persist:
             raw.execute("SET enable_external_access=false")
             raw.execute("SET lock_configuration=true")
@@ -766,7 +757,7 @@ def _execute(
     except SqlError:
         raise
     except Exception as exc:
-        # Bugfix: log duckdb.Error with warning instead of full exception traceback
+        # A DuckDB error is a failed query. Anything else keeps the traceback.
         if _is_duckdb_error(exc):
             log.warning("SQL execution failed: %s", exc)
         else:
@@ -813,8 +804,8 @@ def run_sql(
         con = None
 
     if folder_preloaded is not None or files is not None or scoped_dir is not None:
-        # Bugfix: call _execute directly so folder joins return the full DataFrame
-        # without being truncated to MAX_TABLE_ROWS, and raise SqlError with code preserved.
+        # _execute returns the full frame. The row cap would truncate a folder
+        # join, and wrapping SqlError would drop its code.
         df, _used = _execute(
             scoped_dir,
             sql,
@@ -842,9 +833,8 @@ def run_sql(
         else:
             target_con = con
 
-        # Bugfix: remove duplicate scan (_looks_like_write_or_escape was called both
-        # up front and inside GuardedDuckDBConnection.execute) and remove redundant
-        # Guarded vs else branches.
+        # GuardedDuckDBConnection.execute already scans for writes. Scan here
+        # only when the connection is not guarded.
         if not isinstance(target_con, GuardedDuckDBConnection):
             _raise_if_write_or_escape(sql)
         df = target_con.execute(sql).df()
@@ -852,7 +842,7 @@ def run_sql(
     except SqlError as exc:
         return _error_result(exc.code, str(exc), helper=helper)
     except Exception as exc:
-        # Bugfix: log duckdb.Error with warning instead of full exception traceback
+        # A DuckDB error is a failed query. Anything else keeps the traceback.
         if _is_duckdb_error(exc):
             log.warning("run_sql failed: %s", exc)
         else:
@@ -899,7 +889,7 @@ def query_folder_sql(
     except SqlError as exc:
         return _error_result(exc.code, str(exc), helper=helper)
     except Exception as exc:
-        # Bugfix: log duckdb.Error with warning instead of full exception traceback
+        # A DuckDB error is a failed query. Anything else keeps the traceback.
         if _is_duckdb_error(exc):
             log.warning("query_folder_sql failed: %s", exc)
         else:
