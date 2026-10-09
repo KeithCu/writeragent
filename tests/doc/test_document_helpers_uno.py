@@ -1,11 +1,15 @@
 
-def test_get_page_for_paragraph_with_table(writer_doc):
+from plugin.testing_runner import native_test
+from plugin.tests.testing_utils import with_native_doc
+
+
+@native_test
+@with_native_doc("writer")
+def test_get_page_for_paragraph_with_table(ctx, doc):
     """Test get_page_for_paragraph resolves correctly when tables exist."""
     import time
     import uno
     from plugin.doc.document_helpers import DocumentService
-
-    doc = writer_doc
     text = doc.getText()
     cursor = text.createTextCursor()
 
@@ -18,13 +22,12 @@ def test_get_page_for_paragraph_with_table(writer_doc):
     text.insertTextContent(cursor, table, False)
 
     # 2: Page 1, paragraph after table
-    text.insertString(cursor, "Paragraph after table\n", False)
-
-    # Page break to Page 2
-    cursor.setPropertyValue("BreakType", uno.Enum("com.sun.star.style.BreakType", "PAGE_BEFORE"))
+    text.insertString(cursor, "Paragraph after table", False)
+    text.insertControlCharacter(cursor, 0, False)
 
     # 3: Page 2, paragraph
-    text.insertString(cursor, "Page 2 paragraph\n", False)
+    cursor.setPropertyValue("BreakType", uno.Enum("com.sun.star.style.BreakType", "PAGE_BEFORE"))
+    text.insertString(cursor, "Page 2 paragraph", False)
 
     # Let layout settle
     # Give it a moment to layout pages, as getPage relies on view layout

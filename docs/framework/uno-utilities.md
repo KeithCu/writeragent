@@ -119,7 +119,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 | `get_document_context_for_chat` | module function + `get_ctx()` |
 | `get_paragraph_ranges` / `find_paragraph_for_range` / `resolve_locator` | `paragraph_search` / module `resolve_locator` |
 
-`get_page_for_paragraph` / `get_page_count` are Writer view-cursor walks (lockControllers + restore). `doc_key` is `uid:<RuntimeUID>` then `url:<normalized>` (same shape as MCP `_resolve_mcp_doc_key`); empty both → `"unknown"` and do not cache.
+`get_page_for_paragraph` / `get_page_count` are Writer view-cursor walks via `with_view_cursor_left_body_locked` (lockControllers + clone_text_range restore; safe for nested table cells/frames). `get_page_for_paragraph` raises `ToolExecutionError` on failure rather than returning fallback 1; `get_page_count` soft-fails to 0 for tree/outline callers. `doc_key` is `uid:<RuntimeUID>` then `url:<normalized>` (same shape as MCP `_resolve_mcp_doc_key`); empty both → `"unknown"` and do not cache.
 
 ### 1.5 Type guards
 

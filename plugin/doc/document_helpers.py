@@ -691,62 +691,70 @@ class DocumentService(ServiceBase):
     ) -> str:
         return get_document_context_for_chat(doc, max_context, include_end, include_selection, get_ctx())
 
-    def get_page_for_paragraph(self, model: Any, para_index: int) -> Any:
+    def get_page_for_paragraph(self, model: Any, para_index: int) -> int:
         """Return page number for a paragraph by index.
 
-        Uses lockControllers + cursor save/restore to prevent visible viewport jumping.
+        Uses with_view_cursor_left_body_locked to leave nested XText and prevent visible viewport jumping.
         """
-        try:
-            check_disposed(model, "Document Model")
-            text = safe_call(model.getText, "Get document text")
-            controller = safe_call(model.getCurrentController, "Get current controller")
-            vc = safe_call(controller.getViewCursor, "Get view cursor")
-            saved = safe_call(text.createTextCursorByRange, "Create text cursor by range", safe_call(vc.getStart, "Get view cursor start"))
+        # What was wrong: Hand-rolled cursor save used doc.getText().createTextCursorByRange(vc.getStart()),
+        # which raised RuntimeException ("End of content node doesn't have the proper start node")
+        # when the view cursor was located inside a table cell or frame (#1422). The exception was caught
+        # and returned fallback 1. It also restored the cursor before unlocking controllers.
+        # How it happened: An outdated cursor-save pattern remained in document_helpers.py while structural.py
+        # had already solved nested XText handling.
+        # Why this change: Uses _text_helpers.with_view_cursor_left_body_locked to cleanly save/restore
+        # the cursor across nested XText, and raises ToolExecutionError when paragraph or page resolution fails.
+        check_disposed(model, "Document Model")
+        element, _ = self.find_paragraph_element(model, para_index)
+        if element is None:
+            raise ToolExecutionError("Paragraph index %d not found in document" % para_index)
 
-            element, _ = self.find_paragraph_element(model, para_index)
-            if element is None:
-                return 1
+        get_anchor = getattr(element, "getAnchor", None)
+        anchor = get_anchor() if callable(get_anchor) else element
 
-            get_anchor = getattr(element, "getAnchor", None)
-            anchor = get_anchor() if callable(get_anchor) else element
+        controller = safe_call(model.getCurrentController, "Get current controller")
+        vc = safe_call(controller.getViewCursor, "Get view cursor")
 
-            safe_call(model.lockControllers, "Lock controllers")
-            try:
-                safe_call(vc.gotoRange, "View cursor gotoRange", anchor, False)
-                page = safe_call(vc.getPage, "Get page")
-                if page == 0:
-                    # Layout stall for tables/frames under lockControllers.
+        def _resolve_page() -> int:
+            safe_call(vc.gotoRange, "View cursor gotoRange", anchor, False)
+            page = safe_call(vc.getPage, "Get page")
+            if page == 0:
+                # Layout stall for tables/frames under lockControllers.
+                has_locked = getattr(model, "hasControllersLocked", None)
+                was_locked = has_locked() if callable(has_locked) else True
+                if was_locked:
                     safe_call(model.unlockControllers, "Unlock controllers")
-                    try:
-                        safe_call(vc.gotoRange, "View cursor gotoRange", anchor, False)
-                        page = safe_call(vc.getPage, "Get page")
-                    finally:
+                try:
+                    safe_call(vc.gotoRange, "View cursor gotoRange", anchor, False)
+                    page = safe_call(vc.getPage, "Get page")
+                finally:
+                    if was_locked:
                         safe_call(model.lockControllers, "Lock controllers")
-            finally:
-                safe_call(vc.gotoRange, "Restore view cursor", saved, False)
-                safe_call(model.unlockControllers, "Unlock controllers")
+            if page == 0:
+                raise ToolExecutionError(
+                    "Cannot resolve page for paragraph %d: getPage returned 0" % para_index
+                )
             return page
-        except UnoObjectError:
-            logging.getLogger(__name__).exception("get_page_for_paragraph error")
-            return 1
 
-    def get_page_count(self, model: Any) -> Any:
+        return _text_helpers.with_view_cursor_left_body_locked(model, vc, _resolve_page)
+
+    def get_page_count(self, model: Any) -> int:
         """Return page count of a Writer document."""
+        # What was wrong: Hand-rolled cursor save used doc.getText().createTextCursorByRange(vc.getStart()),
+        # which threw RuntimeException when vc sat in a table cell or frame, causing get_page_count to return 0.
+        # How it happened: Same outdated cursor save pattern as get_page_for_paragraph.
+        # Why this change: Uses with_view_cursor_left_body_locked while maintaining soft-fail 0 for tree/outline callers.
         try:
             check_disposed(model, "Document Model")
-            text = safe_call(model.getText, "Get document text")
             controller = safe_call(model.getCurrentController, "Get current controller")
             vc = safe_call(controller.getViewCursor, "Get view cursor")
-            saved = safe_call(text.createTextCursorByRange, "Create text cursor by range", safe_call(vc.getStart, "Get view cursor start"))
-            safe_call(model.lockControllers, "Lock controllers")
-            try:
+
+            def _get_count() -> int:
                 safe_call(vc.jumpToLastPage, "Jump to last page")
-                count = safe_call(vc.getPage, "Get page")
-            finally:
-                safe_call(vc.gotoRange, "Restore view cursor", saved, False)
-                safe_call(model.unlockControllers, "Unlock controllers")
-            return count
-        except UnoObjectError:
+                return safe_call(vc.getPage, "Get page")
+
+            return _text_helpers.with_view_cursor_left_body_locked(model, vc, _get_count)
+        except (UnoObjectError, ToolExecutionError):
             logging.getLogger(__name__).exception("get_page_count error")
             return 0
 
