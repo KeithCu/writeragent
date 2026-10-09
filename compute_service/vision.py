@@ -1,12 +1,14 @@
-# WriterAgent - Python Compute Service Vision Process Pool
+#!/usr/bin/env python3
+# WriterAgent - Python Compute Service Vision Pool & Worker
 # Copyright (c) 2026 KeithCu
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
-Process pool supervisor for heavy, isolated OCR and Vision workloads.
+Process pool supervisor and worker subprocess for heavy OCR and Vision tasks.
 
 Maintains a bounded pool of warm subprocesses. Fast spreadsheet calculations
 in the compute service remain unblocked in their thread pool, while heavy
-Docling / PaddleOCR tasks run safely in isolated worker processes.
+Docling / PaddleOCR tasks run safely in isolated worker processes to isolate
+ML dependencies (PyTorch, ONNX) and large memory buffers.
 """
 
 from __future__ import annotations
@@ -14,14 +16,26 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import sys
 import time
-from typing import Any
+from typing import Any, cast
 
-from compute_service.config import ComputeSettings
+# Ensure repo root is on sys.path
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, PoolSingleton, remaining_sec, resolve_override
+from compute_service.worker_base import BaseProcessPool, PoolSingleton, remaining_sec, resolve_override, run_worker_stdio_loop
 
 log = logging.getLogger("compute_service.vision")
+
+# Same cap as ComputeSettings.max_body_bytes. file_path does not pass through
+# the HTTP check, and an unbounded read was pickled into the parent afterward.
+_FILE_READ_MAX_BYTES = MAX_BODY_BYTES
+
+_WORKER_SCRIPT = os.path.abspath(__file__)
 
 
 def _decode_image_b64(image_input: str) -> bytes:
@@ -41,14 +55,18 @@ def _decode_image_b64(image_input: str) -> bytes:
         text += "=" * pad
     return base64.b64decode(text, altchars=b"-_", validate=True)
 
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "vision_worker.py")
-
 
 class VisionProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for Vision/OCR."""
 
-    def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, idle_worker_ttl_sec: float | None = None) -> None:
+    def __init__(
+        self,
+        settings: ComputeSettings | None = None,
+        num_workers: int | None = None,
+        default_timeout_sec: int | None = None,
+        max_tasks: int | None = None,
+        idle_worker_ttl_sec: float | None = None,
+    ) -> None:
         cfg = settings or ComputeSettings()
         eff_num_workers = resolve_override(num_workers, cfg.ocr_workers)
         eff_timeout = resolve_override(default_timeout_sec, cfg.ocr_timeout_sec)
@@ -59,7 +77,16 @@ class VisionProcessPool(BaseProcessPool):
         # body the HTTP layer had accepted (32 MiB) as an uncaught ValueError.
         # A slow OCR call still writes one frame. recover_on_timeout drains
         # that frame and reuses the process instead of SIGKILL.
-        super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Vision worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES, recover_on_timeout=True)
+        super().__init__(
+            script_path=_WORKER_SCRIPT,
+            num_workers=eff_num_workers,
+            default_timeout_sec=eff_timeout,
+            max_tasks=eff_max_tasks,
+            worker_name="Vision worker",
+            idle_worker_ttl_sec=eff_idle_ttl,
+            max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES,
+            recover_on_timeout=True,
+        )
 
     def execute(
         self,
@@ -138,3 +165,88 @@ def shutdown_vision_pool(*, permanent: bool = False) -> None:
     instead of spawning a new pool.
     """
     _POOL_SINGLETON.shutdown(permanent=permanent)
+
+
+# ---------------------------------------------------------------------------
+# Worker subprocess request handling
+# ---------------------------------------------------------------------------
+
+
+def _read_allowed_image(file_path: str, allow_paths: Any, req_id: Any) -> tuple[bytes | None, dict[str, Any] | None]:
+    """Return ``(bytes, None)`` or ``(None, error)``.
+
+    The HTTP handler returns 400 for a path that is outside the allowlist
+    before the pool is touched. The read itself is ``read_allowlisted_file``:
+    the same prefix rule, applied to the opened path. Linux uses
+    ``/proc/self/fd`` for that descriptor. Other platforms realpath the path
+    that was opened, so a symlink swapped in before ``open`` returns cannot
+    leave the prefix.
+    """
+    prefixes = allow_paths if isinstance(allow_paths, (list, tuple)) else ()
+    data, err = read_allowlisted_file(file_path, prefixes, max_bytes=_FILE_READ_MAX_BYTES)
+    if err is not None:
+        body = dict(err)
+        body["id"] = req_id
+        return None, body
+    return data, None
+
+
+def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
+    req_id = req.get("id")
+    helper = str(req.get("helper") or "extract_text").strip()
+    params = req.get("params") or {}
+    file_path = req.get("file_path")
+    image_bytes_raw = req.get("image_bytes")
+
+    image_bytes: bytes
+    has_bytes = isinstance(image_bytes_raw, (bytes, bytearray)) and len(image_bytes_raw) > 0
+    if file_path and has_bytes:
+        return {
+            "id": req_id,
+            "status": "error",
+            "code": "INVALID_REQUEST",
+            "error": "Provide image bytes or file_path, not both.",
+        }
+    if file_path:
+        image_bytes_opt, err_body = _read_allowed_image(file_path, req.get("allow_paths"), req_id)
+        if err_body is not None:
+            return err_body
+        image_bytes = cast("bytes", image_bytes_opt)
+    elif isinstance(image_bytes_raw, (bytes, bytearray)):
+        image_bytes = bytes(image_bytes_raw)
+    else:
+        return {"id": req_id, "status": "error", "code": "MISSING_IMAGE_SOURCE", "error": "Either image buffer or 'file_path' (server filesystem path) must be provided."}
+
+    try:
+        from plugin.vision.venv.vision import run_vision
+    except (ModuleNotFoundError, ImportError):
+        return {"id": req_id, "status": "error", "code": "VISION_UNAVAILABLE", "error": "OCR is not installed in this server"}
+
+    try:
+        spec = {"helper": helper, "params": params}
+        res = run_vision(spec=spec, image=image_bytes)
+        if req_id is not None and isinstance(res, dict):
+            res["id"] = req_id
+        return res
+    except Exception as exc:
+        # Omit traceback — server paths on the kit wire; see formula_worker.py.
+        return {"id": req_id, "status": "error", "code": "VISION_WORKER_ERROR", "error": str(exc)}
+
+
+def main() -> int:
+    # Before any plugin import. writeragent_api treats a missing
+    # WRITERAGENT_IS_WORKER as the LibreOffice host and calls execute_tool
+    # → get_ctx(). This process has no office and no tool-call pipe.
+    # WRITERAGENT_COMPUTE_WORKER makes that call fail before either path.
+    os.environ["WRITERAGENT_IS_WORKER"] = "1"
+    os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
+
+    # The parent pool reads and writes COMPUTE_MAX_PAYLOAD_BYTES (33 MiB).
+    # The stdio default is 16 MiB, so a request the parent had accepted
+    # failed in the child, and a result over 16 MiB broke this loop
+    # (host saw EMPTY_RESPONSE). formula_worker already passes the cap.
+    return run_worker_stdio_loop(_handle_request, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

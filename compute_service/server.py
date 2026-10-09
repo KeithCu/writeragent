@@ -1039,7 +1039,7 @@ def _handle_vision(
     vision_budget = float(clamp_timeout_sec(req_data.get("timeout_ms"), is_ms=True, default_timeout_sec=settings.ocr_timeout_sec, max_timeout_sec=settings.max_timeout_sec))
     vision_deadline = _request_deadline(environ.get("compute.accept_time"), vision_budget)
 
-    from compute_service.vision_pool import get_vision_pool
+    from compute_service.vision import get_vision_pool
 
     vision_pool = get_vision_pool(settings)
 
@@ -1206,7 +1206,7 @@ def run_server(settings: ComputeSettings) -> None:
         check_dependencies(formula_pool)
 
         if settings.ocr_workers > 0:
-            from compute_service.vision_pool import get_vision_pool
+            from compute_service.vision import get_vision_pool
 
             get_vision_pool(settings)
 
@@ -1247,7 +1247,7 @@ def run_server(settings: ComputeSettings) -> None:
             server.server_close()
     finally:
         from compute_service.formula_pool import shutdown_formula_pool
-        from compute_service.vision_pool import shutdown_vision_pool
+        from compute_service.vision import shutdown_vision_pool
 
         shutdown_formula_pool(permanent=True)
         shutdown_vision_pool(permanent=True)

@@ -5,7 +5,7 @@
 """One warm Kokoro worker process, with a Vision-style idle reaper.
 
 Mirrors ``compute_service.worker_base.BaseProcessWorker`` / ``BaseProcessPool``
-and ``vision_pool.VisionProcessPool`` (num_workers=1, idle TTL, Pickle 5
+and ``compute_service.vision.VisionProcessPool`` (num_workers=1, idle TTL, Pickle 5
 handshake). The classes live here, not in ``compute_service``, because that
 package is not part of the WriterAgent OXT. The child is the configured venv
 Python: Kokoro and soundfile are installed there, not in LibreOffice's runtime.

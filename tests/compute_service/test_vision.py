@@ -19,13 +19,15 @@ import pytest
 
 from compute_service.config import ComputeSettings, read_allowlisted_file
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
-from compute_service.vision_pool import (
+from compute_service.vision import (
     VisionProcessPool,
+    _FILE_READ_MAX_BYTES,
+    _handle_request,
+    _read_allowed_image,
     get_vision_pool,
     shutdown_vision_pool,
 )
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.vision_worker import _FILE_READ_MAX_BYTES, _handle_request, _read_allowed_image
 
 
 from tests.compute_service.conftest import get_free_port
@@ -59,7 +61,7 @@ def test_vision_child_stdio_accepts_compute_frame_cap(monkeypatch) -> None:
     import io
 
     from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, write_pickle_frame
-    from compute_service.vision_worker import main
+    from compute_service.vision import main
 
     blob = b"v" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)
     assert DEFAULT_MAX_PAYLOAD_BYTES < len(blob) < COMPUTE_MAX_PAYLOAD_BYTES
@@ -82,7 +84,7 @@ def test_vision_child_stdio_accepts_compute_frame_cap(monkeypatch) -> None:
         seen["n"] = len(req.get("blob") or b"")
         return {"status": "ok", "blob": req["blob"]}
 
-    monkeypatch.setattr("compute_service.vision_worker._handle_request", handle)
+    monkeypatch.setattr("compute_service.vision._handle_request", handle)
     assert main() == 0
     assert seen["n"] == len(blob)
 
@@ -650,7 +652,7 @@ def test_vision_timeout_kills_when_late_frame_never_arrives(tmp_path) -> None:
 
 def test_vision_worker_rejects_both_sources() -> None:
     """file_path and a non-empty image buffer together is a client error."""
-    from compute_service.vision_worker import _handle_request
+    from compute_service.vision import _handle_request
 
     both = _handle_request({"id": "both", "file_path": "/tmp/x.png", "image_bytes": b"png"})
     assert both.get("code") == "INVALID_REQUEST"
@@ -662,7 +664,7 @@ def test_vision_worker_rejects_both_sources() -> None:
 
 def test_vision_worker_empty_bytes_not_missing_source() -> None:
     """An empty byte string must not be misclassified as a missing image source."""
-    from compute_service.vision_worker import _handle_request
+    from compute_service.vision import _handle_request
 
     res = _handle_request({"id": "empty-bytes", "image_bytes": b""})
     assert res.get("code") != "MISSING_IMAGE_SOURCE"
@@ -699,7 +701,7 @@ def test_vision_pool_execute_accepts_bytearray() -> None:
 
 
 def test_decode_image_b64_strips_whitespace_and_data_url() -> None:
-    from compute_service.vision_pool import _decode_image_b64
+    from compute_service.vision import _decode_image_b64
 
     raw = base64.b64encode(b"hi").decode("ascii")
     wrapped = "data:image/png;base64," + raw[:4] + "\n" + raw[4:]
@@ -712,7 +714,7 @@ def test_decode_image_b64_accepts_urlsafe_and_missing_padding() -> None:
     validate=True used to reject both and return INVALID_BASE64 for a valid image.
     """
     import binascii
-    from compute_service.vision_pool import _decode_image_b64
+    from compute_service.vision import _decode_image_b64
 
     raw = bytes(range(256))
     standard = base64.b64encode(raw).decode("ascii")

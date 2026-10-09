@@ -24,7 +24,7 @@ from compute_service.formula_worker import execute_code
 from compute_service.formula_pool import shutdown_formula_pool
 from compute_service.json_egress import normalize_execute_response, sanitize_for_strict_json, to_dumb_json_value
 from compute_service.server import create_wsgi_app
-from compute_service.vision_pool import shutdown_vision_pool
+from compute_service.vision import shutdown_vision_pool
 
 
 def _wsgi_post(
@@ -1395,7 +1395,7 @@ class TestRequestBodyLimits:
             "HTTP_HOST": "127.0.0.1",
             "wsgi.input": io.BytesIO(payload),
         }
-        with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+        with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
             body = b"".join(app(environ, start_response))
         assert status_holder[0].startswith("500")
         parsed = json.loads(body)
@@ -1601,7 +1601,7 @@ class TestSessionResetHttp:
         }
         app = create_wsgi_app(ComputeSettings())
         payload = json.dumps({"id": "v-busy", "image_b64": "YQ=="}).encode("utf-8")
-        with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+        with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
             status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
         assert status.startswith("503")
         assert body.get("code") == "VISION_POOL_BUSY"
@@ -1624,7 +1624,7 @@ class TestSessionResetHttp:
             }
             app = create_wsgi_app(ComputeSettings())
             payload = json.dumps({"id": "v-file", "image_b64": "YQ=="}).encode("utf-8")
-            with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+            with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
                 status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
             assert status.startswith(expect), code
             assert body.get("code") == code
@@ -1640,7 +1640,7 @@ class TestSessionResetHttp:
         }
         app = create_wsgi_app(ComputeSettings())
         payload = json.dumps({"id": "v-missing", "image_b64": "YQ=="}).encode("utf-8")
-        with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+        with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
             status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
         assert status.startswith("503")
         assert body.get("code") == "VISION_UNAVAILABLE"
@@ -1690,7 +1690,7 @@ class TestSessionResetHttp:
             with results_lock:
                 assert not any(item[0].startswith("503") for item in results)
             assert entered_count == 2
-            with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+            with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
                 vstatus, _vheaders, vbody = _wsgi_post(app, payload, path="/v1/vision")
             assert vstatus.startswith("200")
             assert vbody.get("code") != "VISION_POOL_BUSY"
@@ -1738,7 +1738,7 @@ class TestSessionResetHttp:
 
         threads = [threading.Thread(target=post) for _ in range(5)]
         try:
-            with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+            with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
                 for thread in threads:
                     thread.start()
                 assert all_in.wait(timeout=5)
@@ -1891,7 +1891,7 @@ class TestSessionResetHttp:
     @pytest.mark.parametrize("raw_id", [b"1e9999", b"NaN", b"Infinity"])
     def test_vision_nonfinite_id_is_400(self, raw_id: bytes) -> None:
         """A non-finite vision id used to crash the response, then the 500 fallback."""
-        from compute_service.vision_pool import shutdown_vision_pool
+        from compute_service.vision import shutdown_vision_pool
 
         app = create_wsgi_app(ComputeSettings())
         try:
@@ -1907,7 +1907,7 @@ class TestSessionResetHttp:
             shutdown_vision_pool()
 
     def test_vision_overflow_timeout_is_json(self) -> None:
-        from compute_service.vision_pool import shutdown_vision_pool
+        from compute_service.vision import shutdown_vision_pool
 
         app = create_wsgi_app(ComputeSettings())
         try:
@@ -2600,7 +2600,7 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
     formula_shutdown = MagicMock()
     vision_shutdown = MagicMock()
     monkeypatch.setattr("compute_service.formula_pool.shutdown_formula_pool", formula_shutdown)
-    monkeypatch.setattr("compute_service.vision_pool.shutdown_vision_pool", vision_shutdown)
+    monkeypatch.setattr("compute_service.vision.shutdown_vision_pool", vision_shutdown)
     import plugin.scripting.payload_codec as payload_codec
 
     monkeypatch.setattr(payload_codec, "load_cython_accelerator", lambda: None)
@@ -3161,7 +3161,7 @@ def test_vision_unknown_helper_is_400() -> None:
 
     app = create_wsgi_app(ComputeSettings())
     payload = json.dumps({"id": "bad-h", "helper": "detect_objects", "image_b64": "YQ=="}).encode("utf-8")
-    with patch("compute_service.vision_pool.get_vision_pool", return_value=_Pool()):
+    with patch("compute_service.vision.get_vision_pool", return_value=_Pool()):
         status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
     assert status.startswith("400")
     assert body.get("code") == "INVALID_REQUEST"
@@ -3178,7 +3178,7 @@ def test_vision_blank_helper_defaults_to_extract_text() -> None:
             return {"status": "ok", "id": kwargs.get("req_id")}
 
     app = create_wsgi_app(ComputeSettings())
-    with patch("compute_service.vision_pool.get_vision_pool", return_value=_Pool()):
+    with patch("compute_service.vision.get_vision_pool", return_value=_Pool()):
         absent = json.dumps({"id": "def-h", "image_b64": "YQ=="}).encode("utf-8")
         blank = json.dumps({"id": "def-h", "helper": "  ", "image_b64": "YQ=="}).encode("utf-8")
         for payload in (absent, blank):
@@ -3641,7 +3641,7 @@ def test_invalid_base64_and_params_are_400() -> None:
     fake_pool.execute.return_value = {"id": "b64", "status": "error", "code": "INVALID_BASE64", "error": "bad"}
     app = create_wsgi_app(ComputeSettings(ocr_workers=1))
     payload = json.dumps({"id": "b64", "image_b64": "!!!!"}).encode("utf-8")
-    with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+    with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
         status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
     assert status.startswith("400")
     assert body.get("code") == "INVALID_BASE64"

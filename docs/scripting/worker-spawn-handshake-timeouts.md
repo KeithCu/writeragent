@@ -21,7 +21,7 @@ A full `make pytest` (xdist, `PYTEST_WORKERS=auto` or `6`) can fail with **dozen
 | Area | Typical tests | Log / assertion |
 |------|----------------|-----------------|
 | Compute formula pool | `tests/compute_service/test_formula_pool.py`, `test_compute_service.py` HTTP execute | `Formula worker #1 spawn handshake timed out` then execute status ≠ `ok` |
-| Vision pool | `tests/compute_service/test_vision_pool.py` | same handshake path (`worker_base.py`) |
+| Vision pool | `tests/compute_service/test_vision.py` | same handshake path (`worker_base.py`) |
 | Venv worker | `test_venv_worker.py::test_harness_main_loop_integration`, `test_warm_venv_worker_resolves_and_warms`, `test_serialization_ab.py::test_venv_transform_parity[…_subprocess]`, `test_writeragent_alias.py::test_venv_worker_bidirectional_tool_call` | first IPC read times out / `None` / error status |
 | Compute HTTP bench | `tests/scripts/test_benchmark_compute_service.py` | `failed_requests != 0`; stderr shows handshake timeouts ~15s apart |
 
@@ -248,7 +248,7 @@ Revert the `Makefile` `test-run` `PYTEST_WORKERS=6` cap if it was only a workaro
 |------|-----|
 | [`compute_service/worker_base.py`](../../compute_service/worker_base.py) | `_spawn`, handshake, fail-open, missing stderr on timeout |
 | [`compute_service/formula_worker.py`](../../compute_service/formula_worker.py) | Import + Cython before ready |
-| [`compute_service/vision_worker.py`](../../compute_service/vision_worker.py) | Same loop, lighter imports |
+| [`compute_service/vision.py`](../../compute_service/vision.py) | Same loop, lighter imports |
 | [`plugin/scripting/ipc.py`](../../plugin/scripting/ipc.py) | `read_pickle_frame_with_timeout`, empty-read → EOF, `max_payload_bytes` |
 | [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) | No ready frame; import-before-read |
 | [`plugin/scripting/venv_worker.py`](../../plugin/scripting/venv_worker.py) | Host spawn, `scrub_subprocess_env`, warm timeout |
