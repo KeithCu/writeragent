@@ -442,6 +442,12 @@ python scripts/benchmark_compute_service.py --workers 1,2,4 --concurrency 4
 
 # Multi-concurrency client load benchmark (1 to 32 concurrent clients)
 python scripts/benchmark_compute_service.py --concurrency 1,2,4,8,16,32 --requests 50 --threads 32
+
+# 32 threads hammering 2 workers scenario (asserts math accuracy, session monotonicity, health probe liveness, error resilience)
+python scripts/benchmark_compute_service.py --stress
+
+# Stress runner with fault/chaos injection (hangs, timeouts, crashes, auto-respawns)
+python scripts/benchmark_compute_service.py --stress --chaos hangs,crashes
 ```
 
 #### Benchmark Archetypes & Scaling Characteristics
