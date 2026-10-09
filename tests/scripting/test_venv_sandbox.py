@@ -300,6 +300,18 @@ def test_serialize_result_allows_shared_sublist():
     assert _coerce_host_pickle_tree([shared, shared], None) == [[1], [1]]
 
 
+def test_serialize_result_set_of_range_falls_back_to_list():
+    """range coerces to a list, which cannot live inside a set.
+
+    What was wrong: the set comprehension raised TypeError and a successful
+    value became an error frame.
+    """
+    assert serialize_result({1}) == {1}
+    assert serialize_result(frozenset({1})) == frozenset({1})
+    assert serialize_result({range(3)}) == [[0, 1, 2]]
+    assert serialize_result(frozenset({range(2)})) == [[0, 1]]
+
+
 def test_clongdouble_scalar_names_the_type():
     np = pytest.importorskip("numpy")
     with pytest.raises(ValueError, match=r"clongdouble.*builtin complex"):

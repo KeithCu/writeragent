@@ -56,15 +56,20 @@ _SESSION_EXECUTORS: dict[str, LocalPythonExecutor] = {}
 _SESSION_LOCK = threading.Lock()
 _MAX_ISOLATED_INIT_SNAPSHOTS = 32
 _ISOLATED_INIT_LRU: OrderedDict[str, None] = OrderedDict()
+# Init scripts run once in calc:{workbook}:init; isolated cells seed from that snapshot.
+_INIT_SCRIPT_HASH: dict[str, str] = {}
+_CELL_SESSION_INIT_DIGEST: dict[str, str] = {}
 
 
 def _record_isolated_init_access_unlocked(init_session_id: str) -> None:
     _ISOLATED_INIT_LRU[init_session_id] = None
     _ISOLATED_INIT_LRU.move_to_end(init_session_id)
     while len(_ISOLATED_INIT_LRU) > _MAX_ISOLATED_INIT_SNAPSHOTS:
-        oldest, _ = _ISOLATED_INIT_LRU.popitem(last=False)
-        _SESSION_EXECUTORS.pop(oldest, None)
-        _INIT_SCRIPT_HASH.pop(oldest, None)
+        oldest = next(iter(_ISOLATED_INIT_LRU))
+        # Same path as an explicit reset: executor, hash, DuckDB, and the LRU slot.
+        # The pop after clear is what stops the loop if the id is not isolated:.
+        _clear_init_session_unlocked(oldest)
+        _ISOLATED_INIT_LRU.pop(oldest, None)
 
 # Cell / RPS session for the current execute. Isolated runs leave this None so
 # DuckDB and similar caches stay per-request. Init-only ids are not stored here
@@ -187,12 +192,11 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     executor.custom_tools.update(helpers)
 
 
-# Init scripts run once in calc:{workbook}:init; isolated cells seed from that snapshot.
-_INIT_SCRIPT_HASH: dict[str, str] = {}
-_CELL_SESSION_INIT_DIGEST: dict[str, str] = {}
 _INIT_STATE_SKIP_KEYS = frozenset(
     {
         "__name__",
+        # _snapshot_init_bindings already drops key.startswith("_"). These two
+        # stay so a future filter change does not seed the framework counters.
         "_print_outputs",
         "_operations_count",
         "result",
@@ -274,8 +278,8 @@ def apply_auto_imports(code: str) -> tuple[str, int]:
     return "\n".join(prepended_lines) + "\n" + code, len(prepended_lines)
 
 
-def _parse_bound_names(code_str: str) -> set[str]:
-    """Return names bound (assigned, defined, or imported) in *code_str*.
+def _scan_user_code(code_str: str) -> tuple[set[str], set[str]] | None:
+    """Bound names and imported module strings from one parse.
 
     Known edge case: ast.walk also sees names bound inside function bodies,
     lambdas and comprehensions, so ``def f(): dt = 1`` skips the ``dt``
@@ -285,9 +289,10 @@ def _parse_bound_names(code_str: str) -> set[str]:
     try:
         tree = ast.parse(code_str)
     except SyntaxError:
-        return set()
+        return None
 
     bound: set[str] = set()
+    imported: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
             bound.add(node.id)
@@ -296,21 +301,92 @@ def _parse_bound_names(code_str: str) -> set[str]:
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 bound.add(alias.asname or alias.name.split(".")[0])
+                imported.add(alias.name)
         elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                imported.add(node.module)
             for alias in node.names:
                 bound.add(alias.asname or alias.name)
-    return bound
+    return bound, imported
+
+
+def _code_imports_module(imported: set[str], module_name: str) -> bool:
+    prefix = module_name + "."
+    return any(name == module_name or name.startswith(prefix) for name in imported)
+
+
+def _module_binds_name(code: str, name: str) -> bool:
+    """True when *code* stores *name* in the module state the executor keeps.
+
+    Smolagents runs function, class, and lambda bodies on a copied dict and
+    does not write those assignments back. Comprehension targets, filters,
+    and elements also use a copy; the iter expression does not.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+    return _node_binds_module_name(tree, name)
+
+
+def _node_binds_module_name(node: ast.AST, name: str) -> bool:
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if child.name == name:
+                return True
+            continue
+        if isinstance(child, ast.Lambda):
+            continue
+        if isinstance(child, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            for comp in child.generators:
+                if _node_binds_module_name(comp.iter, name):
+                    return True
+            continue
+        # ``result: int`` has a Store target but evaluate_annassign does not
+        # write the name unless there is a value.
+        if isinstance(child, ast.AnnAssign) and child.value is None:
+            if _node_binds_module_name(child.annotation, name):
+                return True
+            continue
+        if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store) and child.id == name:
+            return True
+        if isinstance(child, ast.Import):
+            for alias in child.names:
+                bound = alias.asname or alias.name.split(".")[0]
+                if bound == name:
+                    return True
+            continue
+        if isinstance(child, ast.ImportFrom):
+            for alias in child.names:
+                if (alias.asname or alias.name) == name:
+                    return True
+            continue
+        if _node_binds_module_name(child, name):
+            return True
+    return False
 
 
 def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
     """Inject auto imports into executor state if not already bound or imported in code."""
-    bound_names = _parse_bound_names(code)
+    scanned = _scan_user_code(code)
+    if scanned is None:
+        bound_names: set[str] = set()
+        imported: set[str] | None = None
+    else:
+        bound_names, imported = scanned
     bindings = {}
     for module_name, import_stmt in AUTO_IMPORTS.items():
         alias = import_stmt.split(" as ")[-1].strip() if " as " in import_stmt else module_name
         if alias in bound_names or alias in executor.state:
             continue
-        if not is_module_imported(code, module_name):
+        # SyntaxError keeps is_module_imported's substring fallback. A cell
+        # that fails to parse never runs, but the executor is reused.
+        already = (
+            is_module_imported(code, module_name)
+            if imported is None
+            else _code_imports_module(imported, module_name)
+        )
+        if not already:
             mod = optional_module(module_name)
             if mod is not None:
                 bindings[alias] = mod
@@ -370,6 +446,22 @@ def _coerce_host_pickle_scalar(obj: Any, pd_mod: Any) -> Any:
     return obj
 
 
+def _set_or_list(original: set[Any] | frozenset[Any], elements: list[Any]) -> Any:
+    """Rebuild *original*'s set type, or a list when an element is unhashable.
+
+    What was wrong: ``_coerce_host_pickle_scalar`` turns ``range`` into a
+    list, then the set comprehension raised ``TypeError: unhashable type:
+    'list'``. A matplotlib Figure becomes a dict payload and failed the same
+    way. The cell had already succeeded.
+    Why this works: hashable elements stay a set. Unhashable ones become a
+    list the host unpickler accepts.
+    """
+    try:
+        return type(original)(elements)
+    except TypeError:
+        return elements
+
+
 def _coerce_host_pickle_tree(
     obj: Any,
     pd_mod: Any,
@@ -415,9 +507,11 @@ def _coerce_host_pickle_tree(
             return [_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj]
         if isinstance(obj, tuple):
             return tuple(_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj)
-        if isinstance(obj, set):
-            return {_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj}
-        return frozenset(_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj)
+        if isinstance(obj, (set, frozenset)):
+            # range becomes a list. A set of those lists used to raise
+            # TypeError and turn a successful cell into an error frame.
+            elements = [_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj]
+            return _set_or_list(obj, elements)
     finally:
         path.discard(oid)
 
@@ -828,13 +922,10 @@ def _serialize_result_impl(obj: Any) -> Any:
                 return out_dict
             elif isinstance(obj, list):
                 return [serialize_result(v) for v in obj]
-            elif isinstance(obj, set):
-                # Known edge case: a hashable custom object (e.g. a matplotlib
-                # Figure) serializes to a dict payload, which is unhashable, so
-                # this raises TypeError. Could fall back to a list if it matters.
-                return {serialize_result(v) for v in obj}
-            elif isinstance(obj, frozenset):
-                return frozenset(serialize_result(v) for v in obj)
+            elif isinstance(obj, (set, frozenset)):
+                # A Figure (or range coerced to a list) is unhashable after
+                # serialize. The list fallback keeps the values.
+                return _set_or_list(obj, [serialize_result(v) for v in obj])
             else:
                 return tuple(serialize_result(v) for v in obj)
         # Short lists skip split_grid and are pickled as Python objects. A date
@@ -954,12 +1045,16 @@ def _snapshot_init_custom_tools(init_session_id: str) -> dict[str, Any]:
 
 
 def _copy_isolated_seed_value(value: Any) -> Any:
-    """Duplicate an init binding so isolated cells cannot mutate the workbook seed.
+    """Duplicate an init binding so a cell cannot mutate that copied object.
 
     Cell 1 wrote ``items.append(...)`` without reassigning ``items``; that
-    in one isolated cell changed what every later isolated cell on that worker
-    saw. Functions and modules stay shared; deepcopy rejects them. Shared-kernel
-    seeding does not use this — that workbook is one namespace.
+    changed what every later isolated cell on that worker saw. Deepcopy gives
+    each cell its own containers. Functions and modules stay shared: deepcopy
+    rejects them, and a smolagents function closes over the init executor
+    state. ``def add(x): items.append(x)`` therefore mutates the seed, and
+    the next isolated cell sees that change. Lambdas and methods on
+    init-defined classes do the same. Shared-kernel seeding does not use
+    this — that workbook is one namespace.
 
     A lazy copy-on-demand or size guard would be too complex and prone to edge
     cases, so a simple deepcopy is used here on every cell execution for safety.
@@ -1254,12 +1349,33 @@ def _serialize_cell_result(result: Any) -> tuple[Any, str]:
     return serialized, extra_stdout
 
 
+def _fail_cell(
+    executor: LocalPythonExecutor,
+    prior_result: Any,
+    message: str,
+    *,
+    code: str | None = None,
+    stdout: str = "",
+    include_traceback: bool = False,
+) -> dict[str, Any]:
+    """Restore the pre-cell ``result``, close figures, and return an error dict."""
+    _restore_prior_result(executor, prior_result)
+    _close_open_figures()
+    return _error_result(
+        message, code=code, stdout=stdout, include_traceback=include_traceback
+    )
+
+
 def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]:
     # Bugfix (#388): shared-kernel leftover ``result`` was used as egress for later
     # last-expression cells. Popping ``result`` after every cell (or before the next)
     # stopped the hijack but also made ``result * 2`` in a later cell NameError.
-    # Fix: keep ``result`` in the namespace; use it for egress only when this cell
-    # rebound it (identity change). On failure, restore the pre-cell value.
+    # Keep ``result`` in the namespace. Egress uses it when this cell stored the
+    # name. Identity misses interned singletons (``result = 5`` then ``pass``)
+    # and in-place ``result += [2]`` (the same list is stored again). A
+    # module-scope Store covers those. Identity still covers writes the
+    # visitor does not see, such as ``except Exception as result``.
+    # On failure, restore the pre-cell value.
     prior_result = executor.state.get("result", _RESULT_MISSING)
     token = None
     try:
@@ -1280,7 +1396,8 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         _sync_custom_tools(executor)
 
         current = executor.state.get("result", _RESULT_MISSING)
-        if current is not _RESULT_MISSING and current is not prior_result:
+        rebound = current is not prior_result or _module_binds_name(code, "result")
+        if current is not _RESULT_MISSING and rebound:
             result = current
         else:
             result = code_output.output
@@ -1301,17 +1418,16 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         # running and issued more wa.* calls after Stop.
         # Why this works: UserStopped is BaseException, so that handler does
         # not run. End the turn with the code the host already sent.
-        _restore_prior_result(executor, prior_result)
-        _close_open_figures()
-        return _error_result(str(e) or "Stopped by user.", code="USER_STOPPED")
+        return _fail_cell(executor, prior_result, str(e) or "Stopped by user.", code="USER_STOPPED")
     except InterpreterError as e:
-        _restore_prior_result(executor, prior_result)
-        _close_open_figures()
-        return _error_result(str(e), stdout=str(executor.state.get("_print_outputs", "")))
+        return _fail_cell(
+            executor,
+            prior_result,
+            str(e),
+            stdout=str(executor.state.get("_print_outputs", "")),
+        )
     except Exception as e:
-        _restore_prior_result(executor, prior_result)
-        _close_open_figures()
-        return _error_result(str(e), include_traceback=True)
+        return _fail_cell(executor, prior_result, str(e), include_traceback=True)
     except BaseException as e:
         # What was wrong: ``raise SystemExit`` / ``raise KeyboardInterrupt``
         # is BaseException. The vendored executor only catches Exception, so

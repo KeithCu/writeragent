@@ -167,6 +167,56 @@ def test_shared_session_data_and_ranges_isolation():
     assert r2["result"] is True
 
 
+def test_rebind_result_to_same_singleton_survives_trailing_statement():
+    """A trailing statement must not hide ``result = <singleton>``.
+
+    What was wrong: egress treated ``current is not prior_result`` as a rebind.
+    Small ints, None, True, and interned strings are singletons, and
+    ``result += [2]`` stores the same list. ``pass`` then returned None.
+    """
+    sid = "calc:test-result-singleton"
+    assert run_sandboxed_code("result = 5", None, session_id=sid)["result"] == 5
+    again = run_sandboxed_code("result = 5\npass", None, session_id=sid)
+    assert again["status"] == "ok", again
+    assert again["result"] == 5
+    trailed = run_sandboxed_code("x = 1\nresult = 5\npass", None, session_id=sid)
+    assert trailed["result"] == 5
+    assert run_sandboxed_code("result = None\npass", None, session_id=sid)["result"] is None
+    assert run_sandboxed_code("result = True\npass", None, session_id=sid)["result"] is True
+    assert run_sandboxed_code("result = 'a'\npass", None, session_id=sid)["result"] == "a"
+    assert run_sandboxed_code("result = [1]", None, session_id=sid)["result"] == [1]
+    extended = run_sandboxed_code("result += [2]\npass", None, session_id=sid)
+    assert extended["status"] == "ok", extended
+    assert extended["result"] == [1, 2]
+    # A store inside a function does not write the module ``result``.
+    nested = run_sandboxed_code("def f():\n    result = 9\npass", None, session_id=sid)
+    assert nested["status"] == "ok", nested
+    assert nested["result"] is None
+    comp = run_sandboxed_code("[result for result in [9]]\npass", None, session_id=sid)
+    assert comp["status"] == "ok", comp
+    assert comp["result"] is None
+    # Last-expression cells still must not see the leftover list.
+    later = run_sandboxed_code("1 + 1", None, session_id=sid)
+    assert later["result"] == 2
+
+
+def test_module_binds_name_ignores_nested_scopes():
+    from plugin.scripting.venv.venv_sandbox import _module_binds_name
+
+    assert _module_binds_name("result = 5\npass", "result")
+    assert _module_binds_name("result += [2]", "result")
+    assert _module_binds_name("for result in [5]:\n    pass", "result")
+    assert not _module_binds_name("def f():\n    result = 9\npass", "result")
+    assert not _module_binds_name("class C:\n    result = 5", "result")
+    assert not _module_binds_name("result: int\npass", "result")
+    assert _module_binds_name("result: int = 5", "result")
+    assert not _module_binds_name("[result for result in [9]]", "result")
+    assert not _module_binds_name("[(result := x) for x in [1]]", "result")
+    # The iter runs on the module state. The executor rejects := today;
+    # the visitor still has to see it.
+    assert _module_binds_name("[x for x in (result := 5)]", "result")
+
+
 def test_shared_session_multiple_explicit_result_assignments():
     """Explicit result assignments in sequence each return their own value."""
     sid = "calc:test-multi-result"
