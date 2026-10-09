@@ -96,10 +96,10 @@ def _get_send_label(state: SendButtonState) -> str:
 # Contract: while a send is in flight only Stop is enabled, and while idle only
 # Send is. A take is the one state with both: Stop Rec (the Send button) sends
 # the take, and Stop leaves hands-free or cancels the take.
-# What was wrong: Stop was off during every take, so a hands-free loop had no
-# exit between turns (Stop Rec sends and keeps the lock).
-# Why: Stop enabled while recording is the step-down exit; the contracts below
-# allow exactly that state and nothing else.
+# Stop stays enabled while recording. That is the step-down exit: with
+# Stop off during every take, a hands-free loop has no exit between turns
+# (Stop Rec sends and keeps the lock). The contracts below allow exactly
+# that state and nothing else.
 # Pre rejects the illegal pair so CrossHair cannot start from (busy and recording).
 @deal.pre(lambda state, event: not (state.is_busy and state.is_recording))
 @deal.ensure(lambda state, event, result: not (result.state.is_busy and result.state.is_recording))
@@ -129,11 +129,10 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
 
     if event.kind == SendEventKind.TEXT_UPDATED:
         new_state = SendButtonState(is_busy=state.is_busy, is_recording=state.is_recording, has_text=event_data.get("has_text", False), has_audio=state.has_audio, audio_supported=state.audio_supported)
-        # What was wrong: typing while busy (such as during web-search approval
-        # or in-flight generation) emitted UpdateUIEffect, which relabeled Send
-        # and greys it out, clobbering overlay states like the Accept button.
-        # Why this change: state.has_text is updated for when the turn finishes,
-        # but no UI effect is needed while busy since button states are locked.
+        # Update has_text for when the turn finishes, and emit no UI effect
+        # while busy. Typing during web-search approval or in-flight
+        # generation would otherwise emit UpdateUIEffect, relabel Send, and
+        # grey it out over overlay states such as Accept.
         if state.is_busy:
             return FsmTransition(new_state, effects)
         # If currently recording, do not toggle back to Record
