@@ -1816,6 +1816,183 @@ def test_run_stream_drain_loop_error_clears_defer_next_tool_exit():
     assert "replacement2" in applied
 
 
+def test_recovered_error_item_after_next_tool_keeps_drain_alive():
+    """A queued ERROR after NEXT_TOOL must not apply the deferred exit when on_error recovers.
+
+    The older test raised inside on_status, which took the except path that
+    already skipped the trailing flush. A real ERROR tuple did not.
+    """
+    q = queue.Queue()
+    q.put((StreamQueueKind.NEXT_TOOL,))
+    q.put((StreamQueueKind.ERROR, "tool failed"))
+    q.put((StreamQueueKind.CHUNK, "dropped-tail"))
+    applied: list[tuple[str, bool]] = []
+    errors: list[object] = []
+    job_done = [False]
+
+    def on_error(payload: object) -> bool:
+        errors.append(payload)
+        q.put((StreamQueueKind.CHUNK, "replacement"))
+        q.put((StreamQueueKind.STREAM_DONE, "ok"))
+        return True
+
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda text, is_thinking: applied.append((text, is_thinking)),
+        on_stream_done=lambda _item: True,
+        on_stopped=lambda: None,
+        on_error=on_error,
+    )
+    assert job_done[0] is True
+    assert ("replacement", False) in applied
+    assert ("dropped-tail", False) not in applied
+    assert errors == ["tool failed"]
+
+
+@pytest.mark.parametrize("empty", [(), []])
+def test_empty_queue_item_is_invalid_tag_not_index_error(empty: tuple | list) -> None:
+    """() and [] are a missing kind, not an IndexError in the slice."""
+    q = queue.Queue()
+    q.put(empty)
+    q.put((StreamQueueKind.STREAM_DONE, "later"))
+    errors: list[object] = []
+    done: list[object] = []
+    job_done = [False]
+
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda _text, _is_thinking: None,
+        on_stream_done=lambda item: done.append(item) or True,
+        on_stopped=lambda: None,
+        on_error=lambda payload: errors.append(payload),
+    )
+    assert job_done[0] is True
+    assert done == []
+    assert len(errors) == 1
+    assert "NoneType" in str(errors[0])
+
+
+def test_stop_tail_empty_item_does_not_call_on_error():
+    """Stop applies the already-pulled tail. An empty item there is dropped."""
+    q = queue.Queue()
+    q.put(())
+    calls = [0]
+    stopped: list[bool] = []
+    errors: list[object] = []
+    job_done = [False]
+
+    def stop_checker() -> bool:
+        # The blocking loop checks once before the batch, then again per item.
+        calls[0] += 1
+        return calls[0] > 1
+
+    run_stream_drain_loop(
+        q,
+        None,
+        job_done,
+        lambda _text, _is_thinking: None,
+        on_stream_done=lambda _item: True,
+        on_stopped=lambda: stopped.append(True),
+        on_error=lambda payload: errors.append(payload),
+        stop_checker=stop_checker,
+    )
+    assert job_done[0] is True
+    assert stopped == [True]
+    assert errors == []
+
+
+def test_none_display_payloads_flush_as_strings():
+    """Raw CHUNK, THINKING, and TOOL_THINKING None must not break "".join."""
+    q = queue.Queue()
+    q.put((StreamQueueKind.THINKING, None))
+    q.put((StreamQueueKind.CHUNK, None))
+    q.put((StreamQueueKind.TOOL_THINKING, None))
+    q.put((StreamQueueKind.STREAM_DONE, None))
+    applied: list[tuple[object, bool]] = []
+    errors: list[object] = []
+
+    run_stream_drain_loop(
+        q,
+        None,
+        [False],
+        lambda text, is_thinking: applied.append((text, is_thinking)),
+        on_stream_done=lambda _item: True,
+        on_stopped=lambda: None,
+        on_error=lambda payload: errors.append(payload),
+        show_search_thinking=True,
+    )
+    assert errors == []
+    assert applied
+    assert all(isinstance(text, str) for text, _is_thinking in applied)
+
+
+def test_nested_drain_closes_rearm_scheduler():
+    """A refused start closes a re-arm that _finish will never see."""
+    from plugin.framework.queue_executor import drain_owner_scope
+
+    class _ClosableRearm:
+        def __init__(self) -> None:
+            self.closed = 0
+
+        def post(self, fn: object) -> None:
+            del fn
+
+        def post_after(self, delay: float, fn: object) -> None:
+            del delay, fn
+
+        def close(self) -> None:
+            self.closed += 1
+
+    class _BareRearm:
+        def post(self, fn: object) -> None:
+            del fn
+
+        def post_after(self, delay: float, fn: object) -> None:
+            del delay, fn
+
+    _clear_event_drain()
+    closable = _ClosableRearm()
+    bare = _BareRearm()
+    try:
+        with drain_owner_scope("mcp"):
+            errors: list[object] = []
+            job_done = [False]
+            run_stream_drain_loop(
+                queue.Queue(),
+                None,
+                job_done,
+                lambda _text, _is_thinking: None,
+                on_stream_done=lambda _item: True,
+                on_stopped=lambda: None,
+                on_error=lambda payload: errors.append(payload),
+                rearm=closable,
+            )
+            assert job_done[0] is True
+            assert closable.closed == 1
+            assert len(errors) == 1
+
+            bare_errors: list[object] = []
+            bare_done = [False]
+            run_stream_drain_loop(
+                queue.Queue(),
+                None,
+                bare_done,
+                lambda _text, _is_thinking: None,
+                on_stream_done=lambda _item: True,
+                on_stopped=lambda: None,
+                on_error=lambda payload: bare_errors.append(payload),
+                rearm=bare,
+            )
+            assert bare_done[0] is True
+            assert len(bare_errors) == 1
+    finally:
+        _clear_event_drain()
+
+
 class _RecordingRearm:
     """Scheduler that records slices. ``post`` does not run them inline."""
 

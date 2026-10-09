@@ -173,14 +173,17 @@ def _handle_chunk(state: _DrainState, data: Any, _item: Any) -> None:
     # crosshair: off
     if state.current_thinking:
         state.flush_buffers()
-    state.current_content.append(data)
+    # BatchingStreamQueue stores ``data or ""``. A raw queue can put None,
+    # and ``"".join`` then raises TypeError.
+    state.current_content.append(data or "")
 
 
 def _handle_thinking(state: _DrainState, data: Any, _item: Any) -> None:
     # crosshair: off
     if state.current_content:
         state.flush_buffers()
-    state.current_thinking.append(data)
+    # Same as _handle_chunk: a raw None payload must not reach "".join.
+    state.current_thinking.append(data or "")
 
 
 def _handle_status(state: _DrainState, data: Any, _item: Any) -> None:
@@ -220,7 +223,8 @@ def _handle_tool_thinking(state: _DrainState, data: Any, _item: Any) -> None:
     if state.show_search_thinking:
         if state.current_content:
             state.flush_buffers()
-        state.current_thinking.append(data)
+        # Same as _handle_chunk: a raw None payload must not reach "".join.
+        state.current_thinking.append(data or "")
 
 
 def _handle_tool_call_line(state: _DrainState, data: Any, _item: Any) -> None:
@@ -290,6 +294,11 @@ def _handle_error(state: _DrainState, data: Any, _item: Any) -> None:
     # callback as entered first. A flush that raises before this line leaves
     # the flag clear, so that except still reports the flush once.
     state.error_callback_entered = True
+    # What was wrong: NEXT_TOOL in this batch set defer_next_tool_exit, and a
+    # recovered ERROR left it set. The trailing check then set job_done, so
+    # the replacement worker never ran. Why: this item already decided. A
+    # fatal error sets job_done below; a true on_error keeps the drain.
+    state.defer_next_tool_exit = False
     recovered = state.on_error(data) is True
     if not recovered:
         state.job_done[0] = True
@@ -316,7 +325,11 @@ def _stream_item_kind_data(item: Any) -> tuple[Any, Any]:
     """Kind and payload. A bare kind or a length-1 tuple has no payload."""
     # crosshair: off
     if isinstance(item, (tuple, list)):
-        kind = item[0]
+        # What was wrong: item[0] on () or [] raised IndexError before the
+        # invalid-tag check, including in the Stop tail and the put wrapper.
+        # Why: an empty sequence has no kind. None fails the StreamQueueKind
+        # check the same way a bad tag does.
+        kind = item[0] if item else None
         data = item[1] if len(item) > 1 else None
         return kind, data
     return item, None
@@ -484,6 +497,13 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
             # rest of this batch (same reason as the handler-raise path).
             # NEXT_TOOL does not set job_done here, so a tail already pulled
             # (chunk, STREAM_DONE) still runs in this pass.
+            # What was wrong: this break left skip_trailing_flush False.
+            # finish_display already flushed. The trailing flush could raise
+            # and call on_error again, and a deferred NEXT_TOOL exit still
+            # set job_done after a recovered ERROR. Why: same as the
+            # handler-raise path. Do not flush again, and do not honor that
+            # deferred exit.
+            skip_trailing_flush = True
             break
 
     if not skip_trailing_flush:
@@ -997,6 +1017,7 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
     - (ERROR, payload): Calls on_error(payload). If on_error returns True, the
       drain keeps running (handler recovered, e.g. STT fallback spawned a new
       worker on this queue) but drops the rest of the batch already pulled.
+      A true NEXT_TOOL return earlier in that batch does not end the recovery.
       Any other return value ends the loop. If on_error itself raises, it is
       not called again. A dispatch handler that raises is the same contract
       (inline on_error, no re-queue, no on_stream_done).
@@ -1017,10 +1038,22 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
         # Same-name "stream" re-entry is allowed. acquire_drain_owner raises
         # NestedDrainOwnerError for a different owner (for example MCP).
         _EventDrain(state, scheduler, stop_checker, flush_pending).start()
-    except NestedDrainOwnerError as exc:
-        _notify_drain_failure(on_error, job_done, exc, "Nested stream drain rejected")
     except Exception as exc:
-        _notify_drain_failure(on_error, job_done, exc, "Stream drain loop crashed")
+        # What was wrong: acquire raises before _held, so _finish never
+        # closes the re-arm. The XCallback then waited on cyclic GC. arm()
+        # has not run, so there is no idle thread. Why: drop the callback
+        # the same way a finished drain does. A start() that returns already
+        # closed from _finish; do not close again.
+        closer = getattr(scheduler, "close", None)
+        if closer is not None:
+            try:
+                closer()
+            except Exception:
+                log.exception("drain re-arm close failed")
+        if isinstance(exc, NestedDrainOwnerError):
+            _notify_drain_failure(on_error, job_done, exc, "Nested stream drain rejected")
+        else:
+            _notify_drain_failure(on_error, job_done, exc, "Stream drain loop crashed")
 
 
 # Pytest (and similar) can force the blocking drain without sniffing MagicMock
