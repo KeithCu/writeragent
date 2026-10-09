@@ -416,10 +416,67 @@ def test_execute_late_drain_timeout_budget(monkeypatch: pytest.MonkeyPatch) -> N
     assert len(drain_calls) == 1
     assert drain_calls[0] == 60.0
 
-    # 2. Without drain_timeout_sec: falls back to timeout_sec
+    # 2. Without drain_timeout_sec: falls back to the original request budget.
     worker.execute({"code": "ocr"}, timeout_sec=0.01)
     assert len(drain_calls) == 2
     assert drain_calls[1] == 0.01
+
+
+def test_execute_stdin_write_timeout_kills_without_late_drain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wedged stdin write kills the child and returns, even when vision would drain a late frame.
+
+    What was wrong: write_pickle_frame blocked while the worker lock was held.
+    The request never returned, so the slot stayed leased.
+    """
+    import subprocess
+    from unittest.mock import MagicMock
+    from compute_service.worker_base import BaseProcessWorker
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=True)
+    worker.process = MagicMock()
+    worker.process.poll.return_value = None
+    worker.process.stdin = MagicMock()
+    worker.process.stdout = MagicMock()
+    killed: list[bool] = []
+    drained: list[float] = []
+    worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+    worker._start_late_drain = lambda timeout_sec: drained.append(timeout_sec)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "compute_service.worker_base.write_pickle_frame_with_timeout",
+        MagicMock(side_effect=subprocess.TimeoutExpired(cmd="IPC frame", timeout=1.0)),
+    )
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert killed == [True]
+    assert drained == []
+    assert worker.tasks_executed == 1
+
+
+def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An oversized frame is rejected before any byte is written, so the kernel stays."""
+    from unittest.mock import MagicMock
+    from compute_service.worker_base import BaseProcessWorker
+    from plugin.scripting.ipc import IpcPayloadSizeError
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=False)
+    worker.process = MagicMock()
+    worker.process.poll.return_value = None
+    worker.process.stdin = MagicMock()
+    worker.process.stdout = MagicMock()
+    killed: list[bool] = []
+    worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "compute_service.worker_base.write_pickle_frame_with_timeout",
+        MagicMock(side_effect=IpcPayloadSizeError("too big")),
+    )
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert res.get("code") == "PAYLOAD_TOO_LARGE"
+    assert killed == []
+    assert worker.tasks_executed == 0
 
 
 

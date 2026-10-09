@@ -324,17 +324,28 @@ class FormulaProcessPool(BaseProcessPool):
             self._reap_dead_sessions_unlocked()
             s = self._sessions.get(session_id)
             worker = s.worker if s is not None else None
-            # Explicit reset: discard from lost set so next call gets a clean kernel without session_reset: true
-            self._lost_sessions.pop(session_id, None)
 
         if worker is None:
+            # Already gone. Explicit reset clears the lost marker so the next
+            # cell is not told session_reset.
+            with self._cond:
+                self._lost_sessions.pop(session_id, None)
             return {"status": "ok"}
 
         with self.leased(worker, timeout_sec=timeout_sec) as leased:
             if leased is None:
-                # Same status/code/error shape as execute pool-busy; HTTP maps to 503.
+                # What was wrong: the lost marker was popped before leased().
+                # WORKER_POOL_BUSY left the kernel untouched, and the next
+                # sticky call did not report session_reset.
+                # Why this change: pop only after a successful reset. Lease
+                # failure leaves the marker in place.
                 return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Could not lease worker to reset session."}
-            return self._reset_session_on_worker(leased, session_id, timeout_sec=timeout_sec)
+            result = self._reset_session_on_worker(leased, session_id, timeout_sec=timeout_sec)
+            if result.get("status") == "ok":
+                # Explicit reset: discard from lost set so next call gets a clean kernel without session_reset: true
+                with self._cond:
+                    self._lost_sessions.pop(session_id, None)
+            return result
 
     def check_dependencies(self, packages: list[str] | None = None, timeout_sec: float = 10.0) -> tuple[bool, str | None]:
         """Ask an idle worker to verify required dependencies (e.g. numpy, sympy).

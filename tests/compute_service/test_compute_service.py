@@ -2726,6 +2726,66 @@ def test_accept_time_tracked_on_server() -> None:
             assert environ.get("compute.accept_time") == 12345.678
     finally:
         server.server_close()
+        assert server.srv._accept_times == {}
+
+
+def test_run_with_logging_deadline_skips_second_status_after_headers() -> None:
+    """A raise after start_response must not call start_response again.
+
+    What was wrong: _run_with_logging_and_deadline called _error after action
+    had already sent headers. wsgiref raises AssertionError on the second call,
+    and _gated never saw the exception.
+    """
+    from compute_service.server import _run_with_logging_and_deadline
+
+    calls: list[str] = []
+
+    def start_response(status: str, headers: list[tuple[str, str]], exc_info: object = None) -> None:
+        del headers, exc_info
+        if calls:
+            raise AssertionError("Headers already set!")
+        calls.append(status)
+
+    def action(start_t: float) -> list[bytes]:
+        del start_t
+        start_response("200 OK", [("Content-Type", "application/json")])
+        raise RuntimeError("late")
+
+    body = _run_with_logging_and_deadline(
+        start_response,
+        label="/v1/execute",
+        req_id="late",
+        deadline=time.monotonic() + 5,
+        start_msg="exec",
+        action=action,
+    )
+    assert body == []
+    assert calls == ["200 OK"]
+
+
+def test_run_with_logging_deadline_errors_before_headers() -> None:
+    from compute_service.server import _run_with_logging_and_deadline
+
+    calls: list[str] = []
+
+    def start_response(status: str, headers: list[tuple[str, str]], exc_info: object = None) -> None:
+        del headers, exc_info
+        calls.append(status)
+
+    def action(start_t: float) -> list[bytes]:
+        del start_t
+        raise RuntimeError("early")
+
+    body = _run_with_logging_and_deadline(
+        start_response,
+        label="/v1/execute",
+        req_id="early",
+        deadline=time.monotonic() + 5,
+        start_msg="exec",
+        action=action,
+    )
+    assert calls == ["500 Internal Server Error"]
+    assert body and b"INTERNAL_ERROR" in body[0]
 
 
 def test_real_socket_queue_timeout() -> None:

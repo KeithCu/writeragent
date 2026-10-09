@@ -229,6 +229,104 @@ def write_pickle_frame(
     _write_all(stream, pack_pickle_frame(message, max_payload_bytes=max_payload_bytes))
 
 
+def _write_bytes_until_joined(stream: IO[bytes], payload: bytes, timeout_sec: float) -> None:
+    """Bound a blocking write by joining a daemon thread.
+
+    Windows pipes are not selectable. ``TimeoutExpired`` leaves this thread
+    blocked in ``write`` until the caller kills the child and the pipe breaks.
+    The helper does not kill.
+    """
+    errors: list[Exception] = []
+
+    def _writer() -> None:
+        try:
+            _write_all(stream, payload)
+        except Exception as exc:
+            errors.append(exc)
+
+    writer = threading.Thread(target=_writer, name="ipc-stdin-write", daemon=True)
+    writer.start()
+    writer.join(timeout=max(0.01, timeout_sec))
+    if writer.is_alive():
+        raise subprocess.TimeoutExpired(cmd="IPC frame", timeout=timeout_sec)
+    if errors:
+        raise errors[0]
+
+
+def _write_fd_with_timeout(
+    fd: int,
+    payload: bytes,
+    timeout_sec: float,
+    *,
+    is_alive: Callable[[], bool] | None = None,
+) -> None:
+    """Write *payload* to a POSIX pipe fd, or raise ``TimeoutExpired``.
+
+    A short count already in the pipe desynchronizes the next frame. This
+    raises instead of resuming the rest later. The caller kills the child.
+    """
+    deadline = time.monotonic() + max(0.0, timeout_sec)
+    view = memoryview(payload)
+    offset = 0
+    with _nonblocking(fd):
+        while offset < len(view):
+            if is_alive is not None and not is_alive():
+                raise BrokenPipeError("IPC frame write aborted: child exited")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(cmd="IPC frame", timeout=timeout_sec)
+            try:
+                _ready_read, writable, _ready_err = select.select([], [fd], [], min(1.0, remaining))
+            except InterruptedError:
+                continue
+            if not writable:
+                if is_alive is not None and not is_alive():
+                    raise BrokenPipeError("IPC frame write aborted: child exited")
+                continue
+            try:
+                written = os.write(fd, view[offset:])
+            except BlockingIOError:
+                continue
+            except InterruptedError:
+                continue
+            if written <= 0:
+                raise OSError("zero bytes written to pipe")
+            offset += written
+
+
+def write_pickle_frame_with_timeout(
+    stream: IO[bytes],
+    message: Any,
+    timeout_sec: float,
+    *,
+    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
+    is_alive: Callable[[], bool] | None = None,
+) -> None:
+    """Write one Pickle5 frame, bounding the pipe write with *timeout_sec*.
+
+    The frame is packed first. ``IpcFrameError`` means no byte was written and
+    the child is still aligned. POSIX uses non-blocking ``os.write`` plus
+    ``select`` (``is_alive`` is consulted on that loop only). Windows pipes are
+    not selectable, so a daemon thread is joined for the deadline.
+    ``TimeoutExpired`` can mean a partial frame is already in the pipe; the
+    caller kills that child. A stream with no real fileno (``BytesIO``) is
+    written without a deadline.
+    """
+    frame = pack_pickle_frame(message, max_payload_bytes=max_payload_bytes)
+    timeout_sec = max(0.0, float(timeout_sec))
+    if sys.platform == "win32":
+        _write_bytes_until_joined(stream, frame, timeout_sec)
+        return
+    try:
+        fd = stream.fileno()
+    except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
+        fd = None
+    if not isinstance(fd, int):
+        _write_all(stream, frame)
+        return
+    _write_fd_with_timeout(fd, frame, timeout_sec, is_alive=is_alive)
+
+
 @contextmanager
 def _nonblocking(fd: int) -> Iterator[None]:
     """Make *fd* non-blocking for the block, then restore the previous mode.

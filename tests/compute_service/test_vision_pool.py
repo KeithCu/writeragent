@@ -682,6 +682,26 @@ def test_decode_image_b64_strips_whitespace_and_data_url() -> None:
     assert _decode_image_b64(wrapped) == b"hi"
 
 
+def test_decode_image_b64_accepts_urlsafe_and_missing_padding() -> None:
+    """URL-safe alphabets and omitted padding are real encoder output.
+
+    validate=True used to reject both and return INVALID_BASE64 for a valid image.
+    """
+    import binascii
+    from compute_service.vision_pool import _decode_image_b64
+
+    raw = bytes(range(256))
+    standard = base64.b64encode(raw).decode("ascii")
+    url = base64.urlsafe_b64encode(raw).decode("ascii")
+    assert url != standard
+    assert _decode_image_b64(url) == raw
+    assert _decode_image_b64(url.rstrip("=")) == raw
+    assert _decode_image_b64(standard.rstrip("=")) == raw
+    assert _decode_image_b64("data:image/jpeg;base64," + url) == raw
+    with pytest.raises(binascii.Error):
+        _decode_image_b64(url[:4] + "*" + url[5:])
+
+
 def test_vision_expired_deadline_does_not_execute() -> None:
     from unittest.mock import MagicMock
 

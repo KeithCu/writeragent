@@ -808,6 +808,55 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_reset_lease_failure_keeps_lost_marker(self) -> None:
+        """A busy reset must not drop the lost marker before the kernel is reset.
+
+        What was wrong: reset_session popped _lost_sessions before leased().
+        WORKER_POOL_BUSY left the kernel untouched and the next sticky call
+        did not report session_reset.
+        """
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "busy-lost-reset"
+            ok = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared", req_id="busy-lost-1")
+            assert ok.get("status") == "ok"
+            worker = pool._sessions[sid].worker
+            with pool._cond:
+                pool._lost_sessions[sid] = time.monotonic()
+            held = pool.lease_specific(worker, timeout_sec=1)
+            assert held is worker
+            try:
+                res = pool.reset_session(sid, timeout_sec=0.05)
+                assert res.get("code") == "WORKER_POOL_BUSY"
+                with pool._cond:
+                    assert sid in pool._lost_sessions
+            finally:
+                pool.release_worker(held)
+            again = pool.execute(code="result = 1", session_id=sid, mode="shared")
+            assert again.get("status") == "ok"
+            assert again.get("session_reset") is True
+        finally:
+            pool.shutdown()
+
+    def test_successful_reset_clears_lost_marker(self) -> None:
+        """An explicit reset that reaches the worker drops the lost marker."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "reset-clears-lost"
+            ok = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared")
+            assert ok.get("status") == "ok"
+            with pool._cond:
+                pool._lost_sessions[sid] = time.monotonic()
+            reset_res = pool.reset_session(sid)
+            assert reset_res.get("status") == "ok"
+            with pool._cond:
+                assert sid not in pool._lost_sessions
+            again = pool.execute(code="result = 2", session_id=sid, mode="shared")
+            assert again.get("status") == "ok"
+            assert again.get("session_reset") is not True
+        finally:
+            pool.shutdown()
+
     def test_reset_keeps_map_when_worker_reset_fails(self, caplog: pytest.LogCaptureFixture) -> None:
         """A non-ok reset must not forget a namespace the worker still holds."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)

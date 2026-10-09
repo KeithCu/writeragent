@@ -743,7 +743,16 @@ def _run_with_logging_and_deadline(
     except Exception as e:
         duration_ms = (time.perf_counter() - start_t) * 1000.0
         log.exception("fail %s id=%r duration=%.2fms: %s", label, req_id, duration_ms, e)
-        return _error(start_response, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR", req_id=req_id)
+        try:
+            return _error(start_response, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR", req_id=req_id)
+        except AssertionError:
+            # What was wrong: action can call start_response and then raise.
+            # This helper caught that before _gated's started flag, so a second
+            # start_response hit wsgiref ("Headers already set!").
+            # Why this change: the status line is already committed. Log it
+            # and return an empty body.
+            log.exception("error response after headers already started for %s id=%r", label, req_id)
+            return []
 
 
 def _handle_execute(
@@ -1196,6 +1205,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
     def server_close(self) -> None:
         self.close_sockets()
+        # Accept times are popped per connection in shutdown_request. A handler
+        # abandoned after drain_executor can leave an id(conn) key. The signal
+        # path drains before this, so clearing does not shorten a live deadline.
+        self._accept_times.clear()
         self.executor.shutdown(wait=False, cancel_futures=False)
 
     def drain_executor(self, timeout: float) -> None:

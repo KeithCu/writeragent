@@ -28,12 +28,18 @@ def _decode_image_b64(image_input: str) -> bytes:
     """Decode a base64 image, including whitespace and a ``data:`` URL prefix.
 
     ``validate=True`` rejects whitespace, so it is stripped after the prefix.
+    URL-safe producers use ``-`` and ``_`` and often omit padding. ``altchars``
+    accepts that alphabet; padding is restored before the alphabet check.
+    A character in neither alphabet still fails.
     """
     text = image_input.strip()
     if text.lower().startswith("data:") and "," in text:
         text = text.split(",", 1)[1]
     text = "".join(text.split())
-    return base64.b64decode(text, validate=True)
+    pad = (-len(text)) % 4
+    if pad:
+        text += "=" * pad
+    return base64.b64decode(text, altchars=b"-_", validate=True)
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "vision_worker.py")
