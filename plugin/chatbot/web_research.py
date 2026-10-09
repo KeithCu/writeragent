@@ -253,13 +253,10 @@ class _VisitWebpageDedupTool(Tool):
             elif key in self._visited_urls:
                 return f"(Already visited in this research run: {key})"
         text = self._inner.forward(url)
-        # What was wrong: the URL was inserted before the fetch returned, so a
-        # CDP or HTTP error ("Error visiting...", "Failed to navigate...") stayed
-        # in the set and later sub-queries got "Already visited" instead of a retry.
-        # An empty extract took the same path: it does not start with Error or
-        # Failed, so a blank page burned the URL and the next sub-query skipped it.
-        # Why this change: record the URL only after non-empty, non-error text,
-        # under the same lock as the check.
+        # Record the URL only after non-empty, non-error text, under the
+        # same lock as the check. Inserting it before the fetch returns
+        # keeps a CDP/HTTP error or a blank page in the set, and later
+        # sub-queries get "Already visited" instead of a retry.
         if key and self._visited_urls is not None and _visit_result_has_page_text(text):
             if lock:
                 with lock:
@@ -325,15 +322,13 @@ def _begin_shared_cdp(uno_ctx: Any, browser_type: str) -> str:
 def _finish_cdp_browser() -> None:
     """Release this research run's hold on the shared local browser.
 
-    What was wrong: visit state and the Chrome process are process-global, and
-    every execute() finished by killing that process. A second run (another
-    frame's sidebar, or any other execute still inside visit_webpage) lost the
-    browser. Stop also shut one run's deep pool down without joining, so that
-    run could kill Chrome while its own worker was still inside Page.navigate.
-
-    Why this change: count active runs. Only the last one sets the closing
-    flag, waits until in-flight visits leave forward, and then terminates
-    Chrome. An earlier finish leaves the browser up.
+    Visit state and the Chrome process are process-global. Count active
+    runs. Only the last one sets the closing flag, waits until in-flight
+    visits leave forward, and then terminates Chrome. An earlier finish
+    leaves the browser up. Killing it on every execute() drops a second
+    run (another frame, or any execute still inside visit_webpage), and
+    Stop must not kill Chrome while its own worker is still inside
+    Page.navigate.
     """
     global _cdp_closing, _cdp_runs
     from plugin.contrib.cdp.browser_cdp_tool import cleanup_local_chrome

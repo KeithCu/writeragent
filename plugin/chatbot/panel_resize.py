@@ -32,12 +32,9 @@ _OVERLAY_CONTROLS = frozenset({"slash_popup"})
 
 # ChatPanelDialog.xdl: response top=16 height=110, status top=128 -> gap=2.
 _XDL_GAP_BELOW_RESPONSE = 2
-# What was wrong: at 1x scale, the bottom row of Image-mode controls
-# (base_size_input, aspect_ratio_selector, model_selector) was partly clipped
-# by the deck container bottom border.
-# How it happened: _BOTTOM_MARGIN was set to 10, which was too tight for 1x scale.
-# Why this change fixes it: increasing _BOTTOM_MARGIN to 20 (matching python_sidebar.py)
-# lifts the bottom cluster so all controls fit cleanly without clipping.
+# 20 matches python_sidebar.py. 10 clips the Image-mode bottom row
+# (base_size_input, aspect_ratio_selector, model_selector) under the deck
+# border at 1x.
 _BOTTOM_MARGIN = 20
 _MIN_RESPONSE_HEIGHT = 30
 _RIGHT_MARGIN = 4
@@ -87,13 +84,11 @@ def _cluster_metrics(snapshot: dict[str, tuple[int, int, int, int]]) -> tuple[in
 def column_right_margin(snapshot: dict[str, tuple[int, int, int, int]], right_margin: int = _RIGHT_MARGIN) -> int:
     """Right inset of the column, as wide as the left inset.
 
-    What was wrong: the right margin was a fixed 4px while the left inset is
-    4 AppFont (7px at 1x, 13px at 2x). The panel window asks the deck for the
-    children's extent plus the left inset (measured: max_child_right + 7 at
-    1x, + 14 at 2x), so it was 3px (1x) / 9-10px (2x) wider than the deck and
-    the deck showed a horizontal scrollbar at every width.
-    Why: mirror the left inset (already DPI-mapped) plus a pixel of slack per
-    AppFont unit of rounding, so the request fits the viewport.
+    Mirror the left inset (already DPI-mapped) plus a pixel of slack per
+    AppFont unit of rounding, so the request fits the viewport. A fixed 4px
+    right margin against a 4 AppFont left inset (7px at 1x, 13px at 2x)
+    makes the panel wider than the deck (the window asks for the children's
+    extent plus the left inset) and the deck shows a horizontal scrollbar.
     """
     left = snapshot.get("response", (right_margin, 0, 0, 0))[0]
     return max(right_margin, left + max(1, left // 4))
@@ -169,12 +164,10 @@ def _share_button_row(
 ) -> None:
     """Split the row from Send's left edge to the column edge between the buttons.
 
-    What was wrong: Send/Stop/Clear kept their XDL widths (AppFont). At 2x
-    they need ~500px; in a ~300px column Stop was shrunk and Clear was clamped
-    to a 20px sliver under Stop (Clear missing). At 1x the row did not line up
-    with the boxes above and below it.
-    Why: equal shares with the XDL gap fill the column at any DPI, so every
+    Equal shares with the XDL gap fill the column at any DPI, so every
     button stays visible and its right edge matches the stretch controls.
+    XDL widths (AppFont) need ~500px at 2x; in a ~300px column Stop shrinks
+    and Clear clamps to a sliver under it.
     """
     names = [n for n in _BUTTON_ROW if n in layouts and n in snapshot]
     if len(names) < 2:
@@ -206,10 +199,10 @@ def _fit_base_size_row(
 ) -> None:
     """Image mode: size box at its measured width, aspect box takes the rest.
 
-    What was wrong: the size box kept 40 AppFont (131px at 2x) for "1024",
-    so in a ~300px column at 2x the aspect box got ~60px and read "Squa".
-    Why: the peer's preferred width covers the text and the dropdown button
+    The peer's preferred width covers the text and the dropdown button
     at any DPI; the XDL width stays the upper bound and the XDL gap is kept.
+    A fixed 40 AppFont (131px at 2x) for "1024" leaves the aspect box ~60px,
+    which reads "Squa".
     """
     if not base_pref or base_pref[0] <= 0:
         return
@@ -236,12 +229,11 @@ def _place_voice_checkbox_after_label(
 ) -> None:
     """Put the TTS checkbox right after the Ask label's measured text.
 
-    What was wrong: the checkbox was centered and the label cut to the space
-    before it, so at 2x the label read "Ask / ins" in the default column, and
-    in a wide column the checkbox sat ~120px away from its label.
-    Why: the label keeps its text width (measured from the peer, so DPI and
-    translations are covered) and the checkbox follows it. Only when the column
-    is too narrow for both does the label give up width.
+    The label keeps its text width (measured from the peer, so DPI and
+    translations are covered) and the checkbox follows it. Only when the
+    column is too narrow for both does the label give up width. Centering
+    the checkbox cuts the label ("Ask / ins" at 2x) or parks the box far
+    from its label in a wide column.
     """
     voice = layouts.get("chk_voice")
     label = layouts.get("query_label")
@@ -264,12 +256,11 @@ def fit_snapshot_min_heights(
 ) -> dict[str, tuple[int, int, int, int]]:
     """Grow controls to their measured minimum height; push the band below down.
 
-    What was wrong: the status box is 10 AppFont tall (16px at 1x). An edit
-    field needs the font height plus its frame (21px at 1x, 33px at 2x), so
-    at 1x "Ready" touched the top border. AppFont scales the box with the
-    font, the frame does not, so 2x looked fine.
-    Why: take the peer's minimum height and move the rows under it down by
-    the same amount; the transcript gives up the space.
+    Take the peer's minimum height and move the rows under it down by
+    the same amount; the transcript gives up the space. The status box is
+    10 AppFont (16px at 1x). An edit field needs the font height plus its
+    frame (21px at 1x, 33px at 2x). AppFont scales the box with the font;
+    the frame does not, so at 1x "Ready" touches the top border.
     """
     out = dict(snapshot)
     for name, min_h in min_heights.items():
@@ -478,15 +469,10 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         w, h = int(r.Width), int(r.Height)
         if w <= 0 or h <= 0:
             return
-        # What was wrong: in Calc's sidebar container, _relayout() continually
-        # expanded control coordinates when bottom controls pushed down in Calc's
-        # sidebar container, leading to an unbounded resize loop (test_e12).
-        # How it happened: Calc's container window resized when child controls
-        # moved down, firing windowResized with a larger height and repeatedly
-        # moving controls further down.
-        # Why this change fixes it: caps calculated height h against parent window
-        # height (getPosSize().Height) and a maximum limit (3000px) so the panel
-        # cannot expand indefinitely.
+        # Cap h against the parent window height (getPosSize().Height) and
+        # 3000px. In Calc's sidebar, moving bottom controls down resizes the
+        # container, which fires windowResized with a larger height and
+        # repeats (test_e12).
         if self._parent_window is not None:
             try:
                 pr = self._parent_window.getPosSize()

@@ -310,10 +310,9 @@ def get_chat_history(session_id: str, db_path: str | None = None) -> SQLite3Hist
         log.info(f"Using SQLite for chat history at {db_path}")
         return SQLite3History(session_id, db_path)
     except sqlite3.Error:
-        # What was wrong: any sqlite error, including a lock on an existing
-        # writeragent_history.db, opened a JSON file under *.db.d/ and later
-        # turns never returned to SQLite. connect() already waits on a lock.
-        # Why this change: fall back only when there is no database file yet.
+        # Fall back to JSON only when there is no database file yet.
+        # connect() already waits on a lock. A sqlite error on an existing
+        # writeragent_history.db must not open *.db.d/ and stay there.
         if os.path.isfile(db_path):
             log.exception("SQLite failed for existing history database %s", db_path)
             raise

@@ -203,12 +203,11 @@ def populate_settings_control(ctrl: Any, field: dict[str, Any]) -> None:
 def read_settings_control(ctrl: Any, field: dict[str, Any] | None = None) -> Any:
     """Read one settings control. ``None`` means the control is missing.
 
-    What was wrong: Settings OK stored ``""`` when ``getControl`` missed, and
-    numeric edits were read with ``getText``. UnoControlEdit inherits
-    ``getText``, so a spin button's stale text overwrote the live ``getValue``.
-    Missing controls are skipped (callers must not persist ``""``). Checkboxes
-    are bool (WriterAgent). LibrePy maps that to ``\"true\"`` / ``\"false\"``.
-    int/float specs prefer ``getValue`` when the control has it.
+    Missing controls are skipped (callers must not persist ``""``).
+    Checkboxes are bool (WriterAgent). LibrePy maps that to ``\"true\"`` /
+    ``\"false\"``. int/float specs prefer ``getValue`` when the control has
+    it. ``getText`` on a spin button is the stale UnoControlEdit caption
+    and overwrites the live value.
     """
     if not ctrl:
         return None
@@ -228,11 +227,11 @@ def read_settings_control(ctrl: Any, field: dict[str, Any] | None = None) -> Any
 def stored_select_value(val: Any, options: Any) -> Any:
     """Map a combo's visible text back to the option value.
 
-    What was wrong: OK stored ``getText()``, the translated caption.
-    WriterAgent matched only the English spec label, and LibrePy's
-    ``apply_field_specs_result`` stored the caption unchanged, so
-    "Shared kernel" and Dutch "Uit" never became ``shared`` / ``off``.
-    A plain string option is its own id; the combo shows ``_(that string)``.
+    Map the visible caption back to the option value. ``getText()`` is
+    the translated label; matching only the English spec label leaves
+    "Shared kernel" and Dutch "Uit" as captions instead of ``shared`` /
+    ``off``. A plain string option is its own id; the combo shows
+    ``_(that string)``.
     """
     if not isinstance(options, list):
         return val
@@ -256,12 +255,12 @@ def stored_select_value(val: Any, options: Any) -> Any:
 def changed_config_values(pending: dict[str, Any], read: Any) -> dict[str, Any]:
     """Keys whose value is not already on disk.
 
-    What was wrong: OK passed every dialog field to ``set_configs``. A value
-    equal to the stored value, or to the schema default when the key is
-    omitted, is not a change. The default itself must not become a write.
-    ``read`` is ``get_config`` from the caller so a test patch of that name
-    is the disk this compare sees. This does not touch the config lock or
-    the per-key writer; the caller makes one ``set_configs`` of what remains.
+    A value equal to the stored value, or to the schema default when the
+    key is omitted, is not a change. The default itself must not become a
+    write. ``read`` is ``get_config`` from the caller so a test patch of
+    that name is the disk this compare sees. This does not touch the config
+    lock or the per-key writer; the caller makes one ``set_configs`` of
+    what remains.
     """
     from plugin.framework.config_schema import coerce_config_value
     from plugin.framework.errors import ConfigError, ConfigValidationError
@@ -314,10 +313,10 @@ def _config_assignment_matches(
 def apply_field_specs_result(ctx: Any, result: dict[str, Any], field_specs: list[dict[str, Any]]) -> None:
     """Persist dialog values using each spec's ``config_key`` (or name with ``__`` → ``.``).
 
-    What was wrong: each key called ``set_config`` (its own write and
-    ``config:changed``) and this function emitted ``config:changed`` again,
-    including when every value already matched. ``set_configs`` writes once
-    and emits only when something changed, so this function must not emit.
+    ``set_configs`` writes once and emits only when something changed, so
+    this function must not emit. Per-key ``set_config`` rewrites the file
+    and emits ``config:changed`` again, including when every value already
+    matched.
     """
     del ctx  # set_configs emits with the main-thread ctx; a second emit refreshed the sidebar.
     by_name = {f["name"]: f for f in field_specs}

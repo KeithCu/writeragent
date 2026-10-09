@@ -34,10 +34,9 @@ def _measure_send_button_max_width(send_ctrl: Any, has_recording: bool) -> int |
                 wmax = max(wmax, send_ctrl.getPosSize().Width)
             return wmax if wmax > 0 else None
         finally:
-            # What was wrong: a failed width read left the button showing the
-            # last candidate label. How: Label was restored only after the
-            # loop, and suppress_disposed swallows the error. Why: finally
-            # puts the original label back before that swallow.
+            # Restore the label here. A failed width read otherwise leaves
+            # the last candidate on the button, and suppress_disposed swallows
+            # the error before a restore after the loop.
             m.Label = saved
     return None
 
@@ -70,14 +69,11 @@ def _install_frame_session_listeners(
 ) -> None:
     """Pin Ask and attach this frame's focus and click listeners.
 
-    What was wrong: the only caller of ``FrameSession.install`` wrapped it
-    in ``except Exception`` and logged at debug. How: ``install`` re-raises
-    a ``UNO thread violation`` ``RuntimeError`` from ``getController``,
-    ``addFocusListener``, ``addMouseListener``, and ``addMouseClickHandler``
-    so a missed attach is not a successful return. This wrapper caught that
-    error, so the contract never left the sidebar. Why: re-raise the thread
-    boundary. Any other attach failure stays a debug log. The other
-    ``except Exception`` blocks in this module are unchanged.
+    Re-raise a ``UNO thread violation`` ``RuntimeError``. ``install``
+    raises that from ``getController``, ``addFocusListener``,
+    ``addMouseListener``, and ``addMouseClickHandler`` so a missed attach
+    is not a successful return. Catching it here keeps the contract inside
+    the sidebar. Any other attach failure stays a debug log.
     """
     try:
         session.set_focus_pin(query)
@@ -167,11 +163,10 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
     extra_instructions = ""
     model = self._get_document_model()
     initial_mode = "chat"
-    # What was wrong: mode_flags stayed None when the try below raised.
-    # How: _wire_buttons then read include_brainstorming, and that
-    # AttributeError was inside the Send/Stop try, so the broad except
-    # skipped addActionListener. Why: a real flags object lets Send/Stop
-    # attach even when the mode dropdown fails to wire.
+    # A real flags object lets Send/Stop attach even when the mode
+    # dropdown fails to wire. Leaving mode_flags as None makes
+    # include_brainstorming raise inside the Send/Stop try, and that
+    # except skips addActionListener.
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
     mode_flags: SidebarModeFlags = SidebarModeFlags()
@@ -188,10 +183,8 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
     try:
         self._wire_model_selectors(controls["model_selector"], controls["image_model_selector"])
     except Exception as e:
-        # What was wrong: failure in model selector wiring aborted the entire block,
-        # skipping chat mode UI wiring.
-        # How: _wire_model_selectors and _wire_chat_mode_ui shared a single try block.
-        # Why: isolate model selector wiring in its own try so mode UI is still wired.
+        # Model selector wiring is its own try so a failure here still
+        # wires the chat mode UI.
         _show_init_error("Model selectors: %s" % e)
         log.exception("Model selectors wiring failed")
 

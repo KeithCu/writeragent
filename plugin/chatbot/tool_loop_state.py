@@ -94,12 +94,10 @@ def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any
     """Compact API summary for sidebar when STREAM_DONE has no content and no tools."""
     # Deep check-all run 32840960268: CHECK ERROR (CrossHair engine traceback) after 1:53.
     # crosshair: off
-    # What was wrong: the raw tool_calls value was passed into
-    # _describe_empty_response_tool_calls, whose @deal.pre accepts only None
-    # or a list. A provider dict or string passed this function's pre
-    # (response is a dict) and raised PreContractError under pytest. Release
-    # OXTs stub deal, so the helper's non-list branch printed "present".
-    # Why: call the helper only for None or a list. Any other shape is present.
+    # Call the helper only for None or a list. Any other shape is present.
+    # Its @deal.pre accepts only None or a list; a provider dict or string
+    # raises PreContractError under pytest. Release OXTs stub deal, so the
+    # helper's non-list branch printed "present".
     raw_calls = response.get("tool_calls")
     if raw_calls is None or type(raw_calls) is list:
         calls_note = _describe_empty_response_tool_calls(raw_calls)
@@ -215,10 +213,9 @@ def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
 def _result_note(result_data: Mapping[str, Any]) -> str:
     """Chat label for a tool result.
 
-    What was wrong: ``dict.get("message", fallback)`` returns None when the
-    key is present and null, and four copies of that lookup rendered
-    ``[tool: None]``. Why: one label. A null or empty message falls through
-    to Unknown error, status, or done.
+    One label. ``dict.get("message", fallback)`` returns None when the
+    key is present and null. A null or empty message falls through to
+    Unknown error, status, or done.
     """
     # crosshair: off
     if result_data.get("status") == "error":
@@ -312,10 +309,9 @@ def is_replaced_zero_result(result_data: Mapping[str, Any]) -> bool:
     """True when apply_document_content reported zero replacements (structured or legacy message)."""
     # crosshair: off
     # Plain dict/str only — isinstance(str) is true for CrossHair LazyIntSymbolicStr.
-    # What was wrong: ``replaced_count == 0`` is also true for False, so a
-    # boolean false counted as zero replacements and appended the debug
-    # params line. Why: only a real int zero counts. The legacy prefix is
-    # read from the result message.
+    # Only a real int zero counts. ``replaced_count == 0`` is also true
+    # for False, which would append the debug params line. The legacy
+    # prefix is read from the result message.
     if type(result_data) is not dict:
         return False
     count = result_data.get("replaced_count")
@@ -354,10 +350,10 @@ class EventKind(Enum):
 
 class ToolLoopEvent(NamedTuple):
     kind: EventKind
-    # What was wrong: ``data: Dict[str, Any] = {}`` is one dict shared by
-    # every event that omits data (NEXT_TOOL). NamedTuple evaluates that
-    # default once. typing.NamedTuple rejects a custom ``__new__``, so the
-    # omitted value is None. ``next_state`` treats None as {}.
+    # The omitted value is None. ``data: Dict[str, Any] = {}`` is one dict
+    # shared by every event that omits data (NEXT_TOOL), because NamedTuple
+    # evaluates that default once. typing.NamedTuple rejects a custom
+    # ``__new__``. ``next_state`` treats None as {}.
     data: Optional[Dict[str, Any]] = None
 
 
@@ -454,10 +450,10 @@ def stopped_effects_exclude_tool_spawns(state: object, effects: object) -> bool:
 def _transition_invariants(state: ToolLoopState, event: ToolLoopEvent, result: FsmTransition[ToolLoopState]) -> bool:
     """Stop latch, pending monotonicity, spawn exclusion, and the round bound.
 
-    What was wrong: nine stacked ``@deal.post`` / ``@deal.ensure`` lambdas
-    restated these checks on ``next_state``, so the signature was the spec.
-    How: each decorator was one boolean. Why: one predicate, still enforced
-    by a single ``@deal.ensure``. The Hypothesis oracles call this function.
+    One predicate, still enforced by a single ``@deal.ensure``. The
+    Hypothesis oracles call this function. Stacked ``@deal.post`` /
+    ``@deal.ensure`` lambdas restated these checks on ``next_state``, so
+    the signature was the spec.
     """
     # crosshair: off
     if result.state.round_num < 0:
@@ -514,10 +510,10 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             return FsmTransition(dataclasses.replace(state, status="Error"), effects)
 
         case EventKind.STREAM_DONE:
-            # What was wrong: ``event_data.get("response", {})`` returns None
-            # when the key is present, and ``response.get`` then raised inside
-            # this pure function. The drain reported that as a stream error.
-            # Why: a non-dict payload is an empty response.
+            # A non-dict payload is an empty response. ``dict.get`` returns
+            # None when the key is present and null, and ``response.get``
+            # would then raise inside this pure function. The drain reports
+            # that as a stream error.
             response = object_dict_or_empty(event_data.get("response"))
             has_audio = event_data.get("has_audio", False)
             tool_calls = response.get("tool_calls")
@@ -584,13 +580,11 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
 
         case EventKind.NEXT_TOOL:
             if state.is_stopped:
-                # What was wrong: empty pending and is_stopped shared the
-                # advance-round branch. The status line was skipped, then
-                # the FSM still emitted SpawnLLMWorkerEffect or
-                # SpawnFinalStreamEffect. How: NEXT_TOOL after Stop (the
-                # drain latches is_stopped, or a later NEXT_TOOL sees the
-                # flag) took that branch and started another HTTP round.
-                # Why: leave. Do not bump the round or touch pending tools.
+                # Leave. Do not bump the round or touch pending tools.
+                # NEXT_TOOL after Stop (the drain latches is_stopped, or a
+                # later NEXT_TOOL sees the flag) must not take the
+                # advance-round branch: that skips the status line and still
+                # emits SpawnLLMWorkerEffect or SpawnFinalStreamEffect.
                 effects.append(ExitLoopEffect())
                 return FsmTransition(state, effects)
 

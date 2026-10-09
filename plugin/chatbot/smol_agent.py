@@ -123,13 +123,11 @@ class SmolToolAdapter(SmolTool):
         tool = self._inner_tool
         ctx = self._inner_tctx
 
-        # What was wrong: forward called ToolBase.execute / execute_safe and
-        # skipped ToolRegistry.execute. run_inner_read_agent sets
-        # read_only_target=True, then wraps tools here, so a mutating tool on
-        # that context ran; the name allowlist was the only write block.
-        # Why: refuse before dispatch with the same flag, detects_mutation(),
-        # and READ_ONLY_TARGET payload as ToolRegistry.execute. The field is a
-        # bool, so only an explicit True counts.
+        # Refuse before dispatch with the same flag, detects_mutation(), and
+        # READ_ONLY_TARGET payload as ToolRegistry.execute. forward used to
+        # call ToolBase.execute and skip that check, so a mutating tool ran
+        # on a read_only_target context. The field is a bool, so only an
+        # explicit True counts.
         if getattr(ctx, "read_only_target", False) is True and tool.detects_mutation():
             tool_name = tool.name or self.name
             common_details: dict[str, Any] = {"tool_name": tool_name}
@@ -402,10 +400,8 @@ def run_subagent_tool(
     try:
         return runner(ctx, **kwargs)
     except Exception as e:
-        # What was wrong: the tool-error message included traceback.format_exc(),
-        # so the model and UI received a stack dump. How: this except is the
-        # boundary for subagent runners. Why: log.exception already records the
-        # traceback; the payload keeps the exception text only.
+        # This except is the boundary for subagent runners. log.exception
+        # records the traceback; the payload keeps the exception text only.
         log.exception("%s execution failed", agent_label)
         err = ToolExecutionError(f"{agent_label} failed: {str(e)}", details={"query": query})
         return format_error_payload(err)

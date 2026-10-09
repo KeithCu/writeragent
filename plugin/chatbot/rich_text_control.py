@@ -182,12 +182,10 @@ class RichTextChatWidget:
         self._formatted_len: int | None = None
         # Greeting row painted above the session rows (load, Clear). It is not
         # a session message, so every paint and diff adds it the same way.
-        # What was wrong: the greeting was painted on load and Clear, but the
-        # first stream update diffed against the session without it, saw a
-        # changed prefix and wiped and refilled the control at send time.
-        # Plain text appended right after that clear-and-refill was drawn from
-        # a stale layout: turn 1 after load streamed with lines missing
-        # ("Assistant: Paragraph 1 of 10. This slow", "10. This slow mock").
+        # The greeting is part of every diff. The first stream update
+        # otherwise sees a changed prefix, wipes and refills at send time,
+        # and the plain text appended after that clear draws from a stale
+        # layout (turn 1 after load drops lines).
         self._greeting: str = ""
 
     def get_text_length(self) -> int | None:
@@ -418,15 +416,14 @@ class RichTextChatWidget:
         from the list. Callers that still hold a stripper leftover append it
         when this returns False.
 
-        What was wrong: this truncated the control at ``stream_start_len`` and
-        spliced the last assistant HTML onto that cut. A missing offset skipped
-        the cut and the HTML was appended on top of the stream. A failed insert
-        left a partial copy that was not the message list.
-        Why this change: the list is already updated, so draw from the list.
+        The list is already updated, so draw from the list.
         ``stream_start_len`` is only logged; it is not a splice point. The cut
         is the end of the formatted prefix this widget recorded, so only the
         rows streamed as plain text this turn are replaced. When that prefix is
         unknown or no longer matches the list, the whole list is repainted.
+        Truncating at ``stream_start_len`` and splicing HTML onto that cut
+        skips the cut when the offset is missing and leaves a partial copy
+        on a failed insert.
         """
         from plugin.chatbot.rich_text_paste import (
             _ensure_message_separator,
@@ -778,10 +775,10 @@ def skip_legacy_assistant_stream_chunk(text: str) -> bool:
     if not text:
         return False
     stripped = text.strip()
-    # What was wrong: a bare "AI" and any "AI:..." up to 12 chars were skipped.
-    # panel._append_response runs this on every 250 ms batch before fold_chunk,
-    # so a batch of just " AI" or "AI: yes" was model text lost from the screen
-    # and the session. Only a label with nothing after it is skipped now.
+    # Only a label with nothing after it is skipped. panel._append_response
+    # runs this on every 250 ms batch before fold_chunk, so skipping a bare
+    # "AI" or any "AI:..." up to 12 chars drops model text from the screen
+    # and the session.
     if stripped.startswith("[Using chat model"):
         return True
     return not strip_legacy_ai_label(stripped).strip() and stripped.upper().startswith("AI:")
@@ -1514,9 +1511,9 @@ def get_control_text_length(control: Any) -> int | None:
             return 0
         return len((model.Text or "").encode("utf-16-le")) // 2
     except Exception:
-        # What was wrong: any exception returned 0. Rollback and cell-link
-        # spans treat 0 as the start of the control, so a failed length read
-        # deleted the transcript. None means the length is unknown.
+        # None means the length is unknown. Rollback and cell-link spans
+        # treat 0 as the start of the control, so a failed length read must
+        # not return 0 or it deletes the transcript.
         log.exception("get_control_text_length failed")
         return None
 

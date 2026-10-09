@@ -248,8 +248,8 @@ class ModuleConfigDialog:
             result = self._extract_result()
             apply_module_config_result(self._ctx, self._module_name, result)
         except Exception as exc:
-            # What was wrong: a failed save still called close(), so OK
-            # dismissed the dialog after the values were not stored.
+            # A failed save stays open. Closing here dismisses the dialog
+            # after the values were not stored.
             log.exception("Failed to apply module config for %s", self._module_name)
             msgbox(self._ctx, _("Invalid Setting"), str(exc))
             return

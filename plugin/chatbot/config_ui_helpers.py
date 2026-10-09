@@ -503,14 +503,11 @@ def sync_sidebar_text_model(ctx: Any, ctrl: Any) -> str | None:
     Dropdown picks fire ItemListener; paste/typing only change ComboBox text.
     Send and TextListener call this so get_text_model/get_api_config match the UI.
 
-    What was wrong: a sidebar model change wrote ``text_model`` through
-    ``set_text_model`` and then wrote ``model_lru@endpoint`` through
-    ``update_lru_history``. Each call rewrote ``writeragent.json`` and
-    emitted ``config:changed``.
-    How: the LRU update ran after the model write, as its own ``set_config``.
-    Why: both keys go in one ``set_configs`` when they differ from disk. A
-    model that already matches, or an LRU head that already matches, is left
-    out of that dict, so one real change is still one write and one event.
+    Both ``text_model`` and ``model_lru@endpoint`` go in one ``set_configs``
+    when they differ from disk. Separate writes each rewrite
+    ``writeragent.json`` and emit ``config:changed``. A model that already
+    matches, or an LRU head that already matches, is left out of that dict,
+    so one real change is still one write and one event.
     """
     del ctx  # Listeners pass the panel context; the write uses the config store.
     if not ctrl or not hasattr(ctrl, "getText"):

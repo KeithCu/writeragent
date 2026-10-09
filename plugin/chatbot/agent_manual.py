@@ -156,10 +156,10 @@ _ALIASES = {
 def _app(doc_type: str | None) -> str:
     if doc_type is None:
         return "generic"  # no document open -> only the generic rules apply
-    # What was wrong: only the exact string "impress" mapped to Draw, so
-    # "Impress" or " IMPRESS " fell through to the Writer manual.
-    # How: callers pass display labels. Why: strip and lower before the
-    # lookup. Impress is a Draw model; an unknown label still uses Writer.
+    # Strip and lower the label before the lookup. Callers pass display
+    # labels ("Impress", " IMPRESS "); an exact "impress" match misses
+    # those and opens the Writer manual. Impress is a Draw model; an
+    # unknown label still uses Writer.
     label = str(doc_type).strip().lower()
     if label == "impress":
         return "draw"

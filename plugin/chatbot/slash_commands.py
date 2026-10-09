@@ -200,12 +200,10 @@ def run_slash_command(name: str, host: Any) -> bool:
     if callable(hide):
         hide()
     if cmd.name == "stop":
-        # What was wrong: every slash path cleared Ask, then /stop only
-        # dispatched STOP_CLICKED. That wiped the draft and skipped speech,
-        # the inline approval dialog, and hands-free exit.
-        # How it happened: _clear_ask_box ran before the command branch.
-        # Why this change: the Stop button's listener is the one behavior.
-        # Lazy import: panel pulls UNO; filter tests must not load it at import.
+        # /stop is the Stop button's listener: speech, the inline approval
+        # dialog, and hands-free exit. Clearing Ask and dispatching only
+        # STOP_CLICKED wipes the draft and skips those. Lazy import: panel
+        # pulls UNO; filter tests must not load it at import.
         from plugin.chatbot.panel import StopButtonListener
 
         StopButtonListener(host).on_action_performed(None)

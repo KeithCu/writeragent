@@ -382,13 +382,10 @@ def append_plain_transcript_row(doc: Any, text: str, role: str = "assistant", st
 def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None) -> None:
     """Fill *doc* from *items*. Each message is one edit against the previous body.
 
-    What was wrong: messages were spliced into the hidden Writer one after
-    another. A bad element inserted its tags, and a later edit that failed
-    halfway left that partial text in the document even though it is not in
-    the message list.
-    Why this change: snapshot the body, append, and if the new span is not
-    that message, put the body back and write the stripped message. The
-    document stays a paint of the list.
+    Snapshot the body, append, and if the new span is not that message,
+    put the body back and write the stripped message. The document stays a
+    paint of the list. A failed edit otherwise leaves partial tags that
+    are not in the message list.
     """
     text_obj = doc.getText()
     for role, content in items:
@@ -409,11 +406,9 @@ def render_messages_to_hidden_doc(doc: Any, items: Any, style_window: Any = None
 def _sidebar_import_html(text: str) -> str:
     """Body fragment for the sidebar HTML filter.
 
-    What was wrong: a reply that already contained ``<html>`` and ``<body>``
-    went to ``insert_html_at_cursor``. ``_wrap_html_fragment`` returns that
-    document unchanged, so head and script stayed in the import.
-    Why this change: extract the body here. The Writer import wrapper stays
-    as it is.
+    Extract the body here. ``_wrap_html_fragment`` returns a document that
+    already has ``<html>`` and ``<body>`` unchanged, so head and script
+    would stay in the import. The Writer import wrapper stays as it is.
     """
     lowered = text.lower()
     if (
@@ -461,8 +456,8 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
             text_obj.insertString(cursor, "\n\n", False)
 
         # Bold colored role prefix.
-        # What was wrong: "Assistant:" was a bare literal, so JA/ES catalogs
-        # could not translate the sidebar role prefix (xgettext skips _(CONST)).
+        # _role_prefix goes through _(). A bare "Assistant:" literal is
+        # skipped by xgettext, so JA/ES catalogs cannot translate it.
         start_pos = cursor.getStart()
         prefix = _role_prefix(role)
         text_obj.insertString(cursor, prefix, False)
@@ -496,12 +491,10 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
             if looks_html:
                 try:
                     body_html = _sidebar_import_html(text)
-                    # What was wrong: the import merges its first paragraph into
-                    # the "Assistant: " paragraph, so a leading <ol> drew
-                    # "Assistant: a / 1. b / 2. c". How: a throwaway sentinel
-                    # paragraph takes that merge (see _LIST_SENTINEL). Why only
-                    # for a leading list or typed marker: ordinary prose should
-                    # keep sharing the label line.
+                    # A throwaway sentinel paragraph takes the import's
+                    # first-paragraph merge (see _LIST_SENTINEL). Without it a
+                    # leading <ol> draws "Assistant: a / 1. b / 2. c". Ordinary
+                    # prose keeps sharing the label line.
                     leading_list = _body_starts_with_list(body_html)
                     if leading_list:
                         body_html = "<p>%s</p>%s" % (_LIST_SENTINEL, body_html)
@@ -510,12 +503,10 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
                         _drop_list_sentinel(text_obj, body_anchor)
                     used_html_import = True
                 except Exception:
-                    # What was wrong: the filter could insert the tags and then
-                    # raise. The prefix was already in the doc, return False
-                    # only skipped the copy, and a caller that kept the doc
-                    # still had the partial message.
-                    # Why this change: restore the body from before this call.
-                    # Nothing from the failed edit remains.
+                    # Restore the body from before this call. The filter
+                    # can insert tags and then raise; return False only skips
+                    # the copy, and a caller that keeps the doc still has the
+                    # partial message.
                     log.warning("HTML import failed; restoring hidden doc role=%s", role)
                     restore_writer_text(text_obj, previous)
                     return False
@@ -529,17 +520,11 @@ def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window:
                 restore_writer_text(text_obj, previous)
                 return False
 
-            # What was wrong: the tail of assistant words was drawn in the blue 'You'
-            # color (e.g. in 'done' the 'one' was blue, in 'written.' the 'ten.' was blue).
-            # How: pre_len used doc.CharacterCount, a document statistic that excludes
-            # paragraph breaks (\n\n between messages). When body_range moved via
-            # _go_right(body_range, pre_len, False) from document start, it stopped short
-            # by the count of preceding paragraph breaks, landing inside the last word
-            # of the preceding assistant message. gotoEnd(True) then extended across that
-            # boundary and set CharColor = theme.user_color on the assistant word's tail.
-            # Why this change: start body_range one character after body_anchor (the
-            # end of the prefix) instead of counting characters from the document start,
-            # so each row's color stays inside its own text.
+            # Start body_range one character after body_anchor (the end of
+            # the prefix). Counting from the document start with
+            # doc.CharacterCount stops short by the paragraph breaks that
+            # statistic excludes, lands inside the previous assistant word,
+            # and gotoEnd then paints that tail in the user color.
             body_range = text_obj.createTextCursorByRange(body_anchor.getStart())
             body_range.goRight(1, False)
             body_range.gotoEnd(True)
@@ -574,10 +559,11 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     ``tool_loop_state``) so this path does not paste the previous HTML assistant
     over ``[Response truncated]`` / ``[No text from model]`` (Packet C).
     """
-    # What was wrong: the Error path cleared the stripper without finalize(),
-    # and a leftover unclosed tag was appended only when there was no rich
-    # widget. The default sidebar has the widget, so Stop and error dropped
-    # that tail. A successful rerender already replaced it from the session.
+    # Append a leftover unclosed tag when the rerender did not replace
+    # the control. The Error path clears the stripper without finalize(),
+    # and the default sidebar has the rich widget, so Stop and error would
+    # drop that tail. A successful rerender already replaced it from the
+    # session.
     replaced = False
     if getattr(listener, "_terminal_status", None) != "Error" and allow_rerender:
         rerender = getattr(listener, "rerender_rich_text_session", None)
@@ -594,12 +580,10 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
         if leftover and not replaced:
             listener._append_response(leftover, role="assistant")
 
-    # What was wrong: commit 2b247521 passed allow_rerender=not self.stop_requested
-    # to avoid re-rendering the full ramble over the stopped banner. However,
-    # TurnController.close_stopped only persisted _STOP_LINE to session.messages,
-    # and skipping rerender meant [Stopped by user] was never drawn on the control.
-    # Why this change: append _STOP_LINE to the control for this stopped turn,
-    # ensuring the stopped banner appears on the control suffix without re-rendering HTML.
+    # Append _STOP_LINE to the control for this stopped turn. Skipping
+    # rerender keeps the ramble from painting over the banner, and
+    # close_stopped only persisted the line on session.messages, so the
+    # control never drew [Stopped by user].
     stop_requested = getattr(listener, "stop_requested", False) or not allow_rerender
     if stop_requested and getattr(listener, "_terminal_status", None) != "Error":
         if isinstance(turn, TurnController):

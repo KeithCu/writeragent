@@ -153,12 +153,9 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "", x: Any
         if model_selector:
             current_endpoint = get_current_endpoint()
             current_model = get_text_model()
-            # What was wrong: opening Edit/Extend Selection called
-            # fetch_available_models on the UI thread. A slow or dead endpoint
-            # blocked LibreOffice for the full catalog timeout, and a failure
-            # is not memoized. How: this caller omitted skip_remote_fetch while
-            # Settings and the eval dashboard already pass it. Why: fill from
-            # LRU plus provider defaults and do not HTTP on this thread.
+            # Fill from LRU plus provider defaults. A catalog HTTP on this
+            # thread blocks LibreOffice for the full timeout on a slow or
+            # dead endpoint, and a failure is not memoized.
             populate_combobox_with_lru(
                 ctx, model_selector, current_model, "model_lru", current_endpoint,
                 skip_remote_fetch=True,
@@ -389,14 +386,9 @@ class SettingsDialog:
         api_key_val = self._api_key_from_field_specs(field_specs)
 
         for field in field_specs:
-            # What was wrong: getControl raises when the name is not in the
-            # XDL. One missing control aborted show() before execute(), so
-            # the whole Settings dialog failed to open.
-            # How: the exception left this loop and the show() handler
-            # reported "Failed to open Settings".
-            # Why: get_optional returns None for a missing name (and still
-            # raises if the dialog is disposed). Skip that field and fill
-            # the rest.
+            # get_optional returns None for a name missing from the XDL
+            # (and still raises if the dialog is disposed). getControl
+            # raises on a missing name and aborts show() before execute().
             ctrl = get_optional(self._dlg, field["name"])
             if ctrl is None:
                 log.warning("Settings dialog missing control %r", field["name"])
@@ -406,11 +398,9 @@ class SettingsDialog:
             val = field["value"]
 
             if name == "text_model":
-                # What was wrong: this fill ran before execute() and called
-                # fetch_available_models on the UI thread. A dead Ollama, Groq,
-                # or custom URL froze LibreOffice for the fetch timeout.
-                # Why this change: LRU plus defaults only. _schedule_initial_models_fetch
-                # loads the catalog on the debounced worker.
+                # LRU plus defaults only. This fill runs before execute();
+                # a catalog fetch here freezes LibreOffice for the timeout.
+                # _schedule_initial_models_fetch loads it on the debounced worker.
                 populate_combobox_with_lru(
                     self._ctx, ctrl, val, "model_lru", current_endpoint,
                     api_key_override=api_key_val, skip_remote_fetch=True,
@@ -505,9 +495,9 @@ class SettingsDialog:
     def _schedule_initial_models_fetch(self, endpoint: str) -> None:
         """Every provider: combos are already LRU. Fetch the catalog off the UI thread.
 
-        What was wrong: this returned unless the provider was OpenRouter or
-        Together, so the open-time fill was the only catalog load for Ollama,
-        Groq, and custom URLs, and that load blocked execute().
+        Every provider fetches here, off the UI thread. Returning unless
+        the provider was OpenRouter or Together left Ollama, Groq, and custom
+        URLs with only the open-time fill, and that load blocked execute().
         """
         from plugin.framework.config import get_api_key_for_endpoint
         from plugin.framework.client.auth import provider_requires_api_key
@@ -1093,10 +1083,10 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
 class TtsVoiceListener(BaseListener, XItemListener, XTextListener):
     """Voice combo listener. The selection is stored only when Settings OK runs.
 
-    What was wrong: ``_on_change`` called ``set_scoped_tts_voice`` on every
-    pick, so ``audio.tts_voice*`` was saved before OK. Cancel left the new
-    voice on disk. The combo already shows the selection; ``sync_ui`` updates
-    it when the provider or model changes. ``apply_settings_result`` writes it.
+    The combo shows the selection; ``sync_ui`` updates it when the
+    provider or model changes; ``apply_settings_result`` writes it.
+    Saving ``audio.tts_voice*`` on every pick leaves the new voice on disk
+    after Cancel.
     """
 
     _dlg: Any
@@ -1531,19 +1521,15 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         api_key_ov = self._live_api_key()
         skip_remote = bool(skip_fetch)
         resolved_provider = self.get_provider_from_endpoint(resolved)
-        # What was wrong: this compared against the saved endpoint on every
-        # fill. After switching OpenRouter -> Together (not yet OK'd), each
-        # later fill (catalog landing, API key typing, Test Connection)
-        # discarded the combo text again: a typed Text model went back to
-        # the Together default and the Image model jumped to the catalog's
-        # first id, so a Text model edit looked like it changed Image too.
-        # How: the first fill still compares against the saved endpoint's
-        # provider; every later fill compares against the provider this
-        # listener last filled for (_painted_provider).
-        # Why: the combos only hold ids from the wrong provider right after
-        # the provider changes. Once filled for Together, a repaint for
-        # Together must keep what the user typed or picked; switching back to
-        # the saved provider must still drop the Together ids.
+        # The first fill compares against the saved endpoint's provider.
+        # Later fills compare against the provider this listener last filled
+        # for (_painted_provider). Comparing against the saved endpoint on
+        # every fill discards a typed Text model and jumps Image to the
+        # catalog's first id after a provider switch that is not OK'd yet.
+        # Combos hold ids from the wrong provider only right after the
+        # provider changes. Once filled for Together, a Together repaint
+        # keeps what the user typed or picked; switching back to the saved
+        # provider still drops the Together ids.
         if self._has_painted:
             baseline_provider = self._painted_provider
         else:
@@ -1690,12 +1676,12 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     def _sync_api_key(self, *, force: bool = False) -> None:
         """Load the saved key when the resolved endpoint changes.
 
-        What was wrong: textChanged wrote get_api_key_for_endpoint on every
-        keystroke. A pasted key disappeared when one character of the URL
-        changed, and OK stored the restored value.
-        Why this change: rewrite only when the resolved URL changes, and only
-        if the field is empty or still holds the previous URL's saved key.
-        Preset clicks pass force=True and always load that preset's saved key.
+        Rewrite the field only when the resolved URL changes, and only
+        if it is empty or still holds the previous URL's saved key. Writing
+        get_api_key_for_endpoint on every keystroke wipes a pasted key when
+        one character of the URL changes, and OK then stores the restored
+        value. Preset clicks pass force=True and always load that preset's
+        saved key.
         """
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         self._update_key_link_state()
@@ -1749,12 +1735,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             else:
                 from plugin.framework.client.model_fetcher import fetch_together_tts_voices
 
-                # What was wrong: sync_ui issued GET /v1/voices?model= on the UI
-                # thread. This worker listed every model, and that URL memo does
-                # not fill the ?model= entry the combo asked for. Ask for the
-                # model captured on the UI thread, then list-all so the other
-                # Speech rows and the warm check stay filled. apply_ui only
-                # reads cached_tts_supported_voices.
+                # Ask for the model captured on the UI thread, then list-all
+                # so the other Speech rows and the warm check stay filled.
+                # A list-all memo does not fill the ?model= entry the combo
+                # asked for, and sync_ui must not GET /v1/voices on the UI
+                # thread. apply_ui only reads cached_tts_supported_voices.
                 if tts_model_id:
                     fetch_together_tts_voices(
                         resolved, model_id=tts_model_id, api_key_override=key_ov,

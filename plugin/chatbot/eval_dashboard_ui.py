@@ -97,10 +97,8 @@ class EvalDashboard:
         if not endpoint or not endpoint_url_suitable_for_v1_models_fetch(endpoint):
             return
 
-        # What was wrong: open always called fetch_available_models, including
-        # when this process already held the list. That refetched a catalog
-        # already in memory. Apply the memo on this turn. A miss still fetches
-        # on the worker, then paints once.
+        # Apply a catalog this process already holds on this turn. A miss
+        # still fetches on the worker, then paints once.
         cached = cached_text_models(endpoint)
         if isinstance(cached, list):
             self._apply_model_list(endpoint, current_model, cached)
@@ -189,12 +187,10 @@ class EvalRunListener(BaseActionListener):
             return
 
         def _job() -> None:
-            # What was wrong: Run called the suite on the dialog action thread
-            # and did not return until every model call finished, so the modal
-            # dialog could not paint. The suite now runs here. Each test posts
-            # its line back; document edits stay on the main thread inside the
-            # runner. An exception before the summary dict used to leave the
-            # status on "Running...".
+            # The suite runs here, off the dialog action thread, so the modal
+            # can paint. Each test posts its line back; document edits stay on
+            # the main thread inside the runner. An exception before the
+            # summary dict still has to leave "Running...".
             try:
                 summary = run_benchmark_suite(self.ctx, doc, model_name, categories, on_test_finished=self._after_test)
             except Exception as exc:
@@ -210,10 +206,9 @@ class EvalRunListener(BaseActionListener):
         from plugin.framework.queue_executor import post_to_main_thread
 
         def _paint() -> None:
-            # What was wrong: Close returns from execute(), show() disposes
-            # the dialog, and this post still called getControl on it.
-            # Why: the suite worker outlives the dialog. A closed window
-            # has nothing to paint.
+            # The suite worker outlives the dialog. Close returns from
+            # execute() and show() disposes it, so a late post must not
+            # call getControl. A closed window has nothing to paint.
             if self._dialog_closed():
                 return
             try:
@@ -253,11 +248,10 @@ class EvalRunListener(BaseActionListener):
             self.is_running = False
 
     def _show_failure(self, exc: BaseException) -> None:
-        # What was wrong: a failure before the summary dict skipped the Finished
-        # status. The action listener only cleared is_running, so the dialog
-        # stayed on "Running...". The status line is set here either way.
-        # A close during the suite disposes the dialog before this post runs.
-        # Skip the paint; still clear is_running.
+        # A failure before the summary dict still sets the status line.
+        # The action listener only clears is_running, so skipping this leaves
+        # the dialog on "Running...". A close during the suite disposes the
+        # dialog before this post runs: skip the paint, still clear is_running.
         try:
             if self._dialog_closed():
                 return

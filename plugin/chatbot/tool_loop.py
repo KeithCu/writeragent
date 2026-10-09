@@ -166,11 +166,11 @@ def _live_text(turn: Any, callback: Callable[[str], None]) -> Callable[[str], No
 def note_stop_partial(turn: Any, response: Any) -> None:
     """Remember assistant text from a stopped round that had no tool calls.
 
-    What was wrong: Stop stored ``No response.`` after the sidebar had already
-    shown the tokens. The worker had that text and dropped it on ``STOPPED``.
-    Partial ``tool_calls`` must not be executed, so a response that includes
-    them is not stored as the assistant message. The drain's stop callback
-    takes no queue payload, so the text rides on the turn.
+    The drain's stop callback takes no queue payload, so the text rides
+    on the turn. Partial ``tool_calls`` must not be executed, so a response
+    that includes them is not stored as the assistant message. Dropping the
+    worker text on ``STOPPED`` stores ``No response.`` after the sidebar
+    has already shown the tokens.
     """
     if not isinstance(turn, TurnController):
         return

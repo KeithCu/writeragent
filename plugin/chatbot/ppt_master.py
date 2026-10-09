@@ -50,10 +50,9 @@ def _run_ppt_master_venv_agent(
     from plugin.framework.thread_guard import on_main_thread
     from plugin.framework.queue_executor import execute_on_main_thread
 
-    # Bugfix: The tool runs on a background thread (is_async=True). Accessing ctx.doc,
-    # calling get_active_document(), or calling getURL() off the main thread (including via
-    # _selected_chat_model) causes a UNO thread safety violation. Wrapping these in
-    # execute_on_main_thread ensures they execute safely on the main thread.
+    # The tool runs on a background thread (is_async=True). ctx.doc,
+    # get_active_document(), and getURL() (including via _selected_chat_model)
+    # are main-thread-only; execute_on_main_thread keeps that access on VCL.
     def _resolve_session_and_model() -> tuple[str, str | None]:
         uno_doc = ctx.doc if hasattr(ctx.doc, "getURL") else get_active_document(get_ctx())
         sess_id = ppt_master_session_id(uno_doc)

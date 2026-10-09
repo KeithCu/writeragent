@@ -119,10 +119,9 @@ class EffectInterpreter:
         # crosshair: off
         match effect:
             case SendHandlerUIEffect("append", text, is_thinking, role):
-                # What was wrong: this match discarded is_thinking, so a
-                # web-research THINKING chunk (show_search_thinking on) was
-                # appended as a normal assistant row. StreamChunkEvent already
-                # carries the flag; pass it through.
+                # Pass is_thinking through. StreamChunkEvent already carries
+                # it; dropping the flag appends a web-research THINKING chunk
+                # (show_search_thinking on) as a normal assistant row.
                 self.handler._append_response(text, is_thinking=is_thinking, role=role)
             case SendHandlerUIEffect("status", text, _):
                 self.handler._set_status(text)
