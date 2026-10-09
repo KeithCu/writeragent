@@ -66,11 +66,10 @@ def _image_to_json(payload: dict[str, Any]) -> dict[str, Any]:
 def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> Any:
     """Unpack desktop wire envelopes / ndarrays into plain JSON-friendly trees.
 
-    ``drop_image_ids`` is the ``id()`` set of plots ``find_image_payloads``
-    already copied into the top-level ``images`` array. Only those nodes
-    become null. A bool used to drop every image at any depth once any
-    image was found. The finder stops at depth 12, so a deeper plot was
-    replaced with null and left out of ``images``.
+    ``drop_image_ids`` is the ``id()`` set of plots already copied into the
+    top-level ``images`` array. Null only those nodes. A bool would drop
+    every image, including one past the finder's depth-12 limit that never
+    made it into ``images``.
     """
     if obj is None or isinstance(obj, (str, bool, int)):
         return obj
@@ -97,8 +96,8 @@ def to_dumb_json_value(obj: Any, *, drop_image_ids: set[int] | None = None) -> A
     if isinstance(obj, dict):
         # Desktop may still leave nested envelopes. is_image_payload
         # already returned above, so this dict was not in the finder's
-        # list. Keep it inline. The old bool nulled it whenever any other
-        # plot had been found, and images[] never contained it.
+        # list. Keep it inline. Nulling every image dict would drop one
+        # that never made it into images[].
         if obj.get("__wa_payload__") == "image":
             return _image_to_json(obj)
         return {str(k): to_dumb_json_value(v, drop_image_ids=drop_image_ids) for k, v in obj.items()}

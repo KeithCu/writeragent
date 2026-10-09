@@ -82,23 +82,17 @@ def set_pdeathsig(sig: int | None = None) -> bool:
     """
     if sys.platform != "linux":
         return False
-    # What was wrong: the default was signal.SIGKILL. Defaults are evaluated at
-    # import on every platform, and Windows has no SIGKILL, so ty (and a real
-    # import) failed before this guard. Why this works: the lookup runs only
-    # after the Linux return, same as venv_worker process-group kill.
+    # Looked up here, not as a default argument. Defaults are evaluated at
+    # import on every platform, and Windows has no SIGKILL.
     if sig is None:
         sig = signal.SIGKILL
     try:
         import ctypes
         import ctypes.util
 
-        # What was wrong: CDLL("libc.so.6") is glibc's soname. On musl that
-        # file is absent, prctl never ran, and a hard SIGKILL of the parent
-        # left workers alive. The failure returned False with no log.
-        # Why this works: CDLL(None) uses the libc this interpreter is already
-        # linked to (glibc or musl). find_library and libc.so.6 cover a
-        # process that does not export prctl from the global namespace.
-        # The Debian image has libc.so.6; Alpine does not.
+        # CDLL(None) is the libc this interpreter is already linked to
+        # (glibc or musl). find_library and libc.so.6 cover a process that
+        # does not export prctl. Debian has libc.so.6; Alpine does not.
         names: list[str | None] = [None]
         found = ctypes.util.find_library("c")
         if isinstance(found, str) and found not in names:

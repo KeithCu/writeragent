@@ -77,14 +77,12 @@ class VisionProcessPool(BaseProcessPool):
         """Execute a vision task on an available worker process.
 
         The HTTP handler returns 400 for a denied path. The worker checks
-        again before ``open``. A third check here used to answer 200 +
-        ``FILE_PATH_DENIED`` when it fired.
+        again before ``open``, so this layer does not add a third answer.
         """
         if not self.is_enabled():
             return {"id": req_id, "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "Vision / OCR service is not enabled on this instance (ocr_workers=0)."}
 
-        # What was wrong: ``timeout_sec or default`` treated 0 as missing.
-        # Why this change: only None means "use the default".
+        # Only None means "use the default". Zero is an explicit timeout.
         eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
         image_input = image if image is not None else image_b64
         image_bytes = None
@@ -115,8 +113,8 @@ class VisionProcessPool(BaseProcessPool):
             if worker is None or time.monotonic() >= deadline:
                 return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
 
-            # Late drain gets a full OCR timeout, not the leftover request budget.
-            # A 0.01s drain used to SIGKILL a worker that was about to answer.
+            # Late drain gets a full OCR timeout, not the leftover request
+            # budget. A 0.01s drain would SIGKILL a worker about to answer.
             drain_timeout = float(self.default_timeout_sec)
             res = worker.execute(payload, timeout_sec=remaining_sec(deadline), drain_timeout_sec=drain_timeout)
             if req_id is not None and isinstance(res, dict):

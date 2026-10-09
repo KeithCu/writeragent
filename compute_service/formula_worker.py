@@ -33,8 +33,7 @@ from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteReque
 from compute_service.worker_base import run_worker_stdio_loop
 
 # execute_code pulls in the sandbox. Import it on the first real request so
-# run_worker_stdio_loop can write {"status": "ready"} before that graph loads.
-# A cold import used to consume the 15s handshake with an empty stderr.
+# the ready handshake is not spent on that graph with an empty stderr.
 
 # Do not load the Cython accelerator here. The compute payload is JSON-forward
 # (worker json.loads data_json / dumps result_json once). There is no
@@ -75,8 +74,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         return _json_forward_envelope(err, req_id=req_id, session_reset=session_reset)
 
     session_id = req.get("session_id")
-    # Same mode rule as the HTTP handler. Missing is isolated. false / 0 / a
-    # typo used to be rewritten on one path and rejected on the other.
+    # Same mode rule as the HTTP handler. Missing is isolated; anything else
+    # is rejected, so a typo is not rewritten on one path only.
     raw_mode = req.get("mode", None)
     try:
         mode = canonical_execute_mode(raw_mode)
@@ -107,9 +106,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 def _load_request_data(req: dict[str, Any]) -> Any:
     """One deserialize of the data blob on the worker (never on the HTTP host).
 
-    The stdio dict used to also carry a ``data`` object for the pickle /
-    split_grid wire. Reading it here ran a payload the JSON path had not
-    accepted. Absent ``data_json`` is no data, not a second wire.
+    The stdio dict carries ``data_json`` only. A ``data`` object is not a
+    second wire: absent ``data_json`` means no data.
     """
     raw = req.get("data_json")
     if raw is None:

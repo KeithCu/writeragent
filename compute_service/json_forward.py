@@ -40,8 +40,8 @@ _BOUNDARY_TOKEN_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrs
 
 WIRE_JSON_FORWARD = "json_forward"
 VALID_EXECUTE_MODES = frozenset({"isolated", "shared"})
-# One payload wire. ``pickle`` used to mean host_pack_data / split_grid on
-# the same stdio envelope, and a value the host rejected was rewritten and run.
+# One payload wire. ``pickle`` is not a second envelope, and a value outside
+# this set is rejected rather than rewritten and run.
 VALID_WIRES = frozenset({WIRE_JSON_FORWARD})
 VALID_RESPONSE_STATUSES = frozenset({"ok", "error"})
 
@@ -86,9 +86,9 @@ def _reject_nonfinite_number(value: Any) -> None:
 def require_execute_mode(mode: Any) -> str:
     """Return ``isolated`` or ``shared``.
 
-    Any other value used to be rewritten to isolated and executed, so a
-    typo looked like a successful cell that kept no workbook state. Callers
-    share this check; there is no second, looser interpretation on the worker.
+    Anything else is rejected. A typo must not run as isolated and look
+    like a successful cell that kept no workbook state. Callers share this
+    check; the worker does not interpret mode a second way.
     """
     if isinstance(mode, str) and mode in VALID_EXECUTE_MODES:
         return mode
@@ -98,10 +98,9 @@ def require_execute_mode(mode: Any) -> str:
 def canonical_execute_mode(mode: Any) -> str:
     """Missing mode is isolated. Every other value must be a real mode.
 
-    ``mode or "isolated"`` treated ``false`` and ``0`` as missing, so the
-    HTTP handler ran an isolated cell that the worker would have rejected.
-    Only ``None`` and ``""`` are the omitted mode. Peel and multipart both
-    call this; the pool and the worker call it too.
+    Only ``None`` and ``""`` are omitted. ``false`` and ``0`` are not
+    missing, or the HTTP handler would run an isolated cell the worker
+    rejects. Peel, multipart, the pool, and the worker all call this.
     """
     if mode is None or mode == "":
         return require_execute_mode("isolated")
@@ -228,10 +227,10 @@ def encode_multipart_execute(meta: dict[str, Any], data_json: bytes | None = Non
 def parse_multipart_execute(body: bytes, content_type: str) -> ExecuteRequestParts:
     """Long-term kit ingress. Boundary-scan the body and ``json.loads`` meta only.
 
-    ``code`` and ``init_script`` are returned as raw part bytes. They used to
-    live inside ``meta`` and were JSON-unescaped on the HTTP host, which is
-    payload work: the worker needs a ``str``, not a parsed JSON string. The
-    server UTF-8-decodes the slice once. ``data`` is returned untouched.
+    ``code`` and ``init_script`` are returned as raw part bytes. They stay
+    out of ``meta`` so the HTTP host does not JSON-unescape them: the worker
+    needs a ``str``, not a parsed JSON string. The server UTF-8-decodes the
+    slice once. ``data`` is returned untouched.
     """
     if not is_multipart_content_type(content_type):
         raise ExecuteRequestError("Content-Type is not multipart")

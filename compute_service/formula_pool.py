@@ -40,7 +40,7 @@ from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 log = logging.getLogger("compute_service.formula")
 
 # The child never ran the cell. Dropping the lost-session marker on these
-# codes hid a reset kernel from the next sticky call.
+# codes would hide a reset kernel from the next sticky call.
 _UNRUN_RESULT_CODES = frozenset({
     "QUEUE_TIMEOUT",
     "PAYLOAD_TOO_LARGE",
@@ -107,11 +107,8 @@ class FormulaProcessPool(BaseProcessPool):
         now = time.monotonic()
         stale: list[tuple[str, BaseProcessWorker]] = []
         with self._cond:
-            # What was wrong: a pid that had already exited stayed in the
-            # stale list. Leasing that slot respawned the process just to
-            # reset a namespace that died with it.
-            # Why this change: reap first. The session is marked lost and
-            # the dead child is not started again.
+            # Reap first. A dead pid in the stale list would be leased and
+            # respawned just to reset a namespace that died with it.
             self._reap_dead_sessions_unlocked()
             for sid, s in list(self._sessions.items()):
                 if now - s.last_active >= ttl:
@@ -178,14 +175,11 @@ class FormulaProcessPool(BaseProcessPool):
     def _prune_lost_gen_unlocked(self) -> None:
         """Forget generations for workbooks that are gone, once the map is over cap.
 
-        What was wrong: ``reset_session`` and a non-lost drop clear
-        ``_lost_sessions`` and ``_sessions`` but left ``_lost_gen``. One
-        entry remained per workbook for the life of the process.
-        Why this change: drop oldest ids that are in neither map, and only
-        while over the same cap. A sticky caller still waiting on a lease
-        compares ``observed_gen`` to ``_current_gen_unlocked``. Deleting a
-        live or still-lost id makes that lookup return 0 and reports a
-        false ``session_reset``.
+        Drop oldest ids that are in neither ``_sessions`` nor
+        ``_lost_sessions``, and only while over the same cap. A sticky
+        caller still waiting on a lease compares ``observed_gen`` to
+        ``_current_gen_unlocked``. Deleting a live or still-lost id makes
+        that lookup return 0 and reports a false ``session_reset``.
         """
         if len(self._lost_gen) <= self._max_lost_sessions:
             return
@@ -290,14 +284,10 @@ class FormulaProcessPool(BaseProcessPool):
     def _drop_session_after_reset(self, session_id: str, worker: BaseProcessWorker, res: dict[str, Any], *, lost: bool = False) -> bool:
         """Forget *session_id* only when the worker reset reports ``ok``.
 
-        What was wrong: ``_evict_stale_sessions`` and ``reset_session`` dropped
-        the id after every completed reset, including a response whose
-        ``status`` was not ``ok``. How: the worker can still
-        hold the namespace while the supervisor forgets the id, so the next
-        sticky cell looks new on a kernel that is not empty. Why: drop the
-        map only when ``res["status"] == "ok"``; a failed reset is logged
-        and the map stays. *lost* is true for TTL eviction so the mark and
-        the drop share this lock hold. Explicit reset passes false.
+        A non-ok response can mean the worker still holds the namespace.
+        Dropping the id would make the next sticky cell look new on a
+        kernel that is not empty. *lost* is true for TTL eviction so the
+        mark and the drop share this lock hold. Explicit reset passes false.
         """
         if res.get("status") == "ok":
             self._drop_session(session_id, only_if_worker=worker, lost=lost)
@@ -308,9 +298,8 @@ class FormulaProcessPool(BaseProcessPool):
     def _reset_session_on_worker(self, worker: BaseProcessWorker, session_id: str, timeout_sec: float = 5.0, *, lost: bool = False) -> dict[str, Any]:
         """Send reset_session action to leased worker and update session map on ok.
 
-        ``execute`` returns an error dict. It does not raise, so a handler
-        here used to be unreachable and, if it ran, forgot sessions without
-        marking them lost. *lost* marks the id when the reset succeeds.
+        ``execute`` returns an error dict and does not raise. *lost* marks
+        the id when the reset succeeds.
         """
         res = worker.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
         self._drop_session_after_reset(session_id, worker, res, lost=lost)
@@ -387,11 +376,9 @@ class FormulaProcessPool(BaseProcessPool):
 
         with self.leased(worker, timeout_sec=timeout_sec) as leased:
             if leased is None:
-                # What was wrong: the lost marker was popped before leased().
-                # WORKER_POOL_BUSY left the kernel untouched, and the next
-                # sticky call did not report session_reset.
-                # Why this change: pop only after a successful reset. Lease
-                # failure leaves the marker in place.
+                # Pop the lost marker only after a successful reset. Lease
+                # failure leaves the kernel untouched, so the next sticky
+                # call must still report session_reset.
                 return {"status": "error", "code": "WORKER_POOL_BUSY", "error": "Could not lease worker to reset session."}
             result = self._reset_session_on_worker(leased, session_id, timeout_sec=timeout_sec)
             if result.get("status") == "ok":
@@ -490,12 +477,10 @@ class FormulaProcessPool(BaseProcessPool):
         decode_result: bool,
     ) -> dict[str, Any]:
         """Send execution payload to leased worker and format response."""
-        # The child used to get the original full timeout while this read
-        # used only the time left. signal.alarm never won, so a normal
-        # sleep became SIGKILL and dropped every shared session on that
-        # process. Give the child the remaining budget and wait at least
-        # alarm + grace so a cell finishing between them returns a clean
-        # timeout instead of a SIGKILL.
+        # Give the child the remaining budget, and wait at least alarm +
+        # grace. The original full timeout would let signal.alarm lose to
+        # this read, so a normal sleep became SIGKILL and dropped every
+        # shared session on that process.
         child_budget = remaining_sec(deadline)
         child_alarm = max(1, int(child_budget))
         payload["timeout_sec"] = child_alarm
@@ -527,11 +512,11 @@ class FormulaProcessPool(BaseProcessPool):
                         if bumped > sess.gen:
                             sess.gen = bumped
                     else:
-                        # Bugfix: pop _lost_sessions[session_id] when the session is re-added (Bug 4).
-                        # What was wrong: a concurrent dead-session reap could mark a newly starting
-                        # session lost while running; re-adding it left the lost marker intact.
-                        # Why this change: ensures subsequent requests are not falsely sent session_reset=True.
-                        # Copy the generation so the next cell does not see a false bump.
+                        # Clear the lost marker when the session is re-added. A
+                        # concurrent reap can mark a new session lost while it
+                        # is starting; leaving the marker would send
+                        # session_reset on the next cell. Copy the generation
+                        # so that cell does not see a false bump.
                         self._sessions[session_id] = _Session(
                             worker=leased,
                             pid=proc.pid,
@@ -567,8 +552,8 @@ class FormulaProcessPool(BaseProcessPool):
         try:
             mode = canonical_execute_mode(mode)
             wire = require_execute_wire(wire)
-            # HTTP rejects shared with no session id. The pool used to lease
-            # a worker anyway, and the child treated a missing id as isolated.
+            # HTTP rejects shared with no session id. Reject it here too, or
+            # the pool leases a worker and the child treats a missing id as isolated.
             if mode == "shared" and (not isinstance(session_id, str) or not session_id.strip()):
                 raise ExecuteRequestError("mode='shared' requires a non-empty session_id.")
             if session_id:
@@ -576,13 +561,11 @@ class FormulaProcessPool(BaseProcessPool):
         except ExecuteRequestError as exc:
             return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
 
-        # What was wrong: ``timeout_sec or default`` treated 0 as missing, so an
-        # explicit zero ran for default_timeout_sec. Why this change: only
-        # None means "use the default", same as the other pool overrides.
+        # Only None means "use the default". Zero is an explicit timeout.
         eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
-        # The HTTP handler passes the accept-time deadline. Starting a fresh
-        # clock here used to give the child the original full timeout after
-        # the request had already waited in the queue.
+        # The HTTP handler passes the accept-time deadline. A fresh clock
+        # here would give the child the original full timeout after the
+        # request had already waited in the queue.
         if deadline is None:
             deadline = time.monotonic() + eff_timeout
         if time.monotonic() >= deadline:
@@ -629,10 +612,8 @@ class FormulaProcessPool(BaseProcessPool):
             if session_id:
                 with self._cond:
                     if is_new_session:
-                        # Bugfix: drop newly reserved session when lease_specific fails (Bug 2).
-                        # What was wrong: reservation stayed in _sessions if lease timed out,
-                        # creating a phantom session preventing worker recycling/idle eviction.
-                        # Why this change: clean up unleased reservations immediately.
+                        # Drop a reservation that never got a lease. Leaving it in
+                        # _sessions would block recycle and idle eviction.
                         self._drop_session(session_id, lost=False)
                     if session_was_lost:
                         self._mark_session_lost_unlocked(session_id)
@@ -656,13 +637,11 @@ class FormulaProcessPool(BaseProcessPool):
             return result
         finally:
             self._finalize_session(leased, session_id, mode)
-            # What was wrong: _select_shared_worker popped the lost-session
-            # marker as soon as a worker was chosen. A payload that never
-            # reached the child (too large, deadline already passed, spawn
-            # or pipe failure) consumed session_reset, so the next cell
-            # looked like a live kernel. Why this change: put the marker
-            # back when the result code says the cell did not run.
-            # _finalize_session clears it for a live process, so this runs after.
+            # Put the lost-session marker back when the cell did not run.
+            # It was cleared when a worker was chosen, so a payload that
+            # never reached the child would otherwise look like a live
+            # kernel. _finalize_session clears it for a live process, so
+            # this runs after.
             if (
                 session_was_lost
                 and session_id
@@ -674,11 +653,9 @@ class FormulaProcessPool(BaseProcessPool):
 
     @staticmethod
     def _build_execute_payload(*, code: str, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, mode: str = "isolated", init_script: str | None = None, req_id: str | None = None, wire: str = WIRE_JSON_FORWARD) -> dict[str, Any]:
-        # Unknown wire used to be rewritten to json_forward and the cell ran.
-        # ``pickle`` was a second payload (host_pack_data / split_grid) on the
-        # same stdio envelope. It is rejected, not packed and not rewritten.
-        # timeout_sec is not set here. _run_execution overwrites it with the
-        # remaining budget before the child sees the payload.
+        # Unknown wire is rejected, not rewritten to json_forward. ``pickle``
+        # is not a second payload on this envelope. timeout_sec is not set
+        # here: _run_execution overwrites it with the remaining budget.
         eff_wire = require_execute_wire(wire)
         payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "init_script": init_script, "wire": eff_wire}
         blob = data_json

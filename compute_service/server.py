@@ -214,8 +214,8 @@ def _send_execution_result(
     Mapped codes, including 413, come from ``_HTTP_STATUS_BY_CODE``.
     Every ``_start_json`` path shares one encode guard. Raw ``result_json``
     bytes are already encoded and stay outside it. Non-empty bytes are
-    always 200. Empty bytes are ``EMPTY_RESPONSE`` at 500: they used to
-    fall through into ``json.dumps`` of a dict that still held the bytes.
+    always 200. Empty bytes are ``EMPTY_RESPONSE`` at 500: they are falsy
+    and would fall through into ``json.dumps`` of a dict that still held them.
     *error_status* applies only to a dict with no ``result_json``.
     ``reset_session`` does not return ``result_json``, so its 500 override
     is not skipped. A formula ``WORKER_EXECUTION_ERROR`` is inside those
@@ -226,9 +226,7 @@ def _send_execution_result(
         if isinstance(raw_out, (bytes, bytearray)):
             if raw_out:
                 return _start_raw_json(start_response, "200 OK", bytes(raw_out))
-            # What was wrong: empty bytes are falsy, so this fell through and
-            # json.dumps tried to encode a dict that still held those bytes.
-            # Why this change: an empty frame is EMPTY_RESPONSE, not a second encode.
+            # Empty bytes are falsy. An empty frame is EMPTY_RESPONSE, not a second encode.
             return _error(
                 start_response,
                 "500 Internal Server Error",
@@ -287,11 +285,9 @@ def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 10
     except (TypeError, ValueError):
         return
     conn = environ.get("compute.connection")
-    # What was wrong: gettimeout() is None for a blocking socket, and the
-    # restore skipped None, so that socket stayed at the 1s drain budget.
-    # A failed gettimeout used the same None and could not be told apart.
-    # Why this change: None is a real timeout and is put back. settimeout
-    # runs only after a timeout was actually read and the 1s budget applied.
+    # None from gettimeout() is a blocking socket and must be restored.
+    # settimeout runs only after a timeout was actually read and the 1s
+    # drain budget applied, so a failed read is not mistaken for None.
     saved_timeout: float | None = None
     restore_timeout = False
     if conn is not None:
@@ -392,8 +388,8 @@ def _transfer_encoding_is_chunked(environ: dict[str, Any]) -> bool:
     """True when the client asked for a chunked body.
 
     This server is HTTP/1.0 and reads ``Content-Length``. A chunked body is
-    not decoded. Reset used to treat a missing length as ``{}``, so a chunked
-    ``POST /v1/session/reset`` succeeded and ignored the body.
+    not decoded. A missing length is not ``{}``: a chunked reset would
+    otherwise succeed and ignore the body.
     """
     raw = environ.get("HTTP_TRANSFER_ENCODING")
     if not isinstance(raw, str):
@@ -458,10 +454,8 @@ def _read_request_body(
                 try:
                     conn.settimeout(max(0.1, remaining_time))
                 except Exception:
-                    # What was wrong: a failed settimeout was ignored, so the
-                    # next read kept the previous socket timeout and a slow
-                    # body outlived _REQUEST_READ_TIMEOUT_SEC.
-                    # Why this change: if the deadline cannot be armed, stop.
+                    # If the deadline cannot be armed, stop. The next read would
+                    # keep the previous socket timeout.
                     log.debug("failed to arm body-read deadline", exc_info=True)
                     _set_write_deadline(environ)
                     return None, _error(start_response, "408 Request Timeout", "Request read timeout")
@@ -592,9 +586,8 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
             code="CROSS_ORIGIN_REFUSED",
         )
 
-    # What was wrong: a missing Host skipped this check. HTTP/1.0 may omit
-    # it, which bypassed the keyless DNS-rebinding defense.
-    # Why this change: no Host is not a loopback Host.
+    # HTTP/1.0 may omit Host. No Host is not a loopback Host, so keyless
+    # mode still refuses it.
     raw_host_value = environ.get("HTTP_HOST")
     if not isinstance(raw_host_value, str) or not raw_host_value.strip():
         return _error(
@@ -689,10 +682,8 @@ def _gated(
         return auth_resp
 
     if prepare is not None:
-        # What was wrong: prepare ran before the try that maps route_fn
-        # failures to JSON INTERNAL_ERROR. A body-read bug escaped as an HTML 500.
-        # Why this change: same JSON fallback, still before the permit. The
-        # semaphore release below must not run for an error that never acquired.
+        # prepare shares the JSON fallback for route_fn, and still runs
+        # before the permit so a failure never needs a semaphore release.
         try:
             admission_timeout_sec, prep_err = prepare(_start)
         except Exception as e:
@@ -790,13 +781,9 @@ def _run_with_logging_and_deadline(
         return action(start_t)
     except Exception as exc:
         duration_ms = (time.perf_counter() - start_t) * 1000.0
-        # What was wrong: _error() here is a second start_response. The catch
-        # only handled wsgiref's AssertionError ("Headers already set!"), so
-        # any other second-call failure escaped this helper.
-        # How: action sends headers, then raises. _gated already has a started
-        # flag for that case and never saw the exception.
-        # Why this change: log the duration and re-raise. _gated writes the
-        # status, once.
+        # action may already have called start_response. A second _error()
+        # here would fail; log the duration and re-raise so _gated writes
+        # the status once.
         log.info("fail %s id=%r duration=%.2fms: %s", label, req_id, duration_ms, exc)
         raise
 
@@ -897,10 +884,8 @@ def _handle_execute(
         mode = canonical_execute_mode(parts.mode)
         if mode == "shared" and not session_id:
             raise ExecuteRequestError("mode='shared' requires a 'session_id' URL query parameter (?session_id=...).")
-        # Bugfix: Return HTTP 400 when session_id is given with a non-shared mode (Bug 1).
-        # What was wrong: An isolated request carrying ?session_id= bypassed the concurrency semaphore
-        # at the WSGI router because has_session evaluated to True.
-        # Why this change: Rejecting non-shared requests that specify session_id prevents concurrency bypass.
+        # session_id is only valid for shared mode. An isolated request
+        # with ?session_id= would skip the concurrency semaphore.
         if mode != "shared" and session_id:
             raise ExecuteRequestError("session_id URL query parameter is only permitted with mode='shared'.")
 
@@ -971,8 +956,9 @@ def _handle_session_reset(
     deadline = _request_deadline(environ.get("compute.accept_time"), settings.default_timeout_sec)
 
     def _reset(start_t: float) -> list[bytes]:
-        # reset_session defaults to 5s and used to ignore the accept-time
-        # deadline. Cap at that default; floor so a just-expired clock still returns.
+        # Cap reset at 5s, but honor the accept-time deadline so a request
+        # that already waited does not get a fresh 5s. Floor so a
+        # just-expired clock still returns.
         remaining = deadline - time.monotonic()
         timeout_sec = min(5.0, max(0.01, remaining))
         result_payload = run_reset(session_id, timeout_sec=timeout_sec)
@@ -1114,11 +1100,8 @@ def create_wsgi_app(
     sticky_semaphore = threading.Semaphore(sticky_listener_slots(settings))
 
     def _current_formula_pool() -> Any:
-        # What was wrong: the first call cached pool.execute / reset_session.
-        # shutdown_formula_pool() without permanent=True builds a new pool on
-        # the next get, and this app kept calling the dead one's bound methods.
-        # Why this change: get() is a lock and a singleton read. Take the
-        # method from whatever pool is current.
+        # Resolve the pool on each call. shutdown_formula_pool() can replace
+        # it, and a cached bound method would keep talking to the dead pool.
         from compute_service.formula_pool import get_formula_pool
 
         return get_formula_pool(settings)
@@ -1141,8 +1124,8 @@ def create_wsgi_app(
             return _start_json(start_response, "200 OK", {"status": "healthy", "service": "python-compute", "version": __version__})
 
         if path == "/v1/execute" and method == "POST":
-            # Per Bug 5: Sticky requests (?session_id=...) wait per-worker without holding the
-            # global isolated permit, avoiding head-of-line stalls on idle workers.
+            # Sticky requests (?session_id=...) wait per-worker without holding
+            # the global isolated permit, so they do not stall idle workers.
             try:
                 has_session = bool(_parse_session_id(environ))
             except ExecuteRequestError:
@@ -1191,8 +1174,8 @@ def create_wsgi_app(
 
         allow = _ROUTE_ALLOW.get(path)
         if allow is not None:
-            # A known path with the wrong verb used to be 404, so clients
-            # retried the same method. Allow tells them which verb works.
+            # A known path with the wrong verb is 405, with Allow, so clients
+            # are not told the route does not exist.
             body = b"Method Not Allowed"
             start_response(
                 "405 Method Not Allowed",
@@ -1217,12 +1200,8 @@ def run_server(settings: ComputeSettings) -> None:
     from compute_service.formula_pool import get_formula_pool
 
     formula_pool = get_formula_pool(settings)
-    # What was wrong: pool shutdown lived only in the serve_forever finally.
-    # OSError from bind returned 1 with the children still running; pdeathsig
-    # was the only reaper.
-    # Why this change: the same permanent shutdown covers bind failure and
-    # the normal exit. The HTTP drain stays on serve_forever, which is the
-    # only path that has a server.
+    # Shut the pool down on bind failure and on the normal exit. The HTTP
+    # drain stays on serve_forever, which is the only path that has a server.
     try:
         check_dependencies(formula_pool)
 

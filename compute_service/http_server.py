@@ -123,11 +123,8 @@ def sticky_listener_slots(settings: ComputeSettings) -> int:
 def _accept_clock(accept_time: Any) -> float:
     """Numeric accept timestamp, or now when the value is missing or not a number.
 
-    What was wrong: the body and header deadlines called ``float(accept_time)``
-    whenever the key was set. A WSGI test double passing a string raised
-    TypeError and the request became HTTP 500. Bool is an int subclass and
-    is not a clock.
-    Why this change: the same check ``_request_deadline`` already used.
+    Bool is an int subclass and is not a clock. A non-numeric value must
+    not raise, or the request becomes HTTP 500.
     """
     if isinstance(accept_time, (int, float)) and not isinstance(accept_time, bool):
         return float(accept_time)
@@ -214,13 +211,10 @@ class DeadlineRequestHandler(WSGIRequestHandler):
     def _send_header_timeout(self) -> None:
         """Answer a header-read deadline with the same 408 the body path sends.
 
-        What was wrong: the patched ``readinto`` raises ``socket.timeout``,
-        and ``handle`` let it reach ``process_request_thread``. ``handle_error``
-        printed a traceback and sent no status.
-        Why this change: the body reader already answers 408 with this JSON.
-        The write runs after the deadline patch is removed, so it is not on
-        an already-expired socket timeout. A failed write must not become
-        another traceback.
+        The patched ``readinto`` raises ``socket.timeout``. Answering here
+        sends a status; ``handle_error`` would print a traceback and send
+        none. The write runs after the deadline patch is removed, so it is
+        not on an already-expired socket timeout.
         """
         body = b'{"status": "error", "error": "Request read timeout"}'
         try:
@@ -297,8 +291,8 @@ class DeadlineRequestHandler(WSGIRequestHandler):
     def _connection_accept_time(self) -> float | None:
         """Accept stamp for this connection.
 
-        The map is keyed by the socket object. ``id(connection)`` was wrong
-        once that id was reused for a later accept.
+        The map is keyed by the socket object. An ``id()`` key is reused
+        after the socket is closed, so a later accept would inherit this stamp.
         """
         times = getattr(self.server, "_accept_times", None)
         if times is None:
