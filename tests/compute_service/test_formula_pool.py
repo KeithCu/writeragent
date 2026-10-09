@@ -1956,6 +1956,15 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
+    def test_zero_timeout_is_not_the_default(self) -> None:
+        """timeout_sec=0 expires immediately. It used to become the 30s default."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
+        try:
+            res = pool.execute(code="result = 1", timeout_sec=0)
+            assert res.get("code") == "QUEUE_TIMEOUT"
+        finally:
+            pool.shutdown()
+
 
 
 

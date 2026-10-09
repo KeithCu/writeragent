@@ -83,7 +83,9 @@ class VisionProcessPool(BaseProcessPool):
         if not self.is_enabled():
             return {"id": req_id, "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "Vision / OCR service is not enabled on this instance (ocr_workers=0)."}
 
-        eff_timeout = float(timeout_sec or self.default_timeout_sec)
+        # What was wrong: ``timeout_sec or default`` treated 0 as missing.
+        # Why this change: only None means "use the default".
+        eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
         image_input = image if image is not None else image_b64
         image_bytes = None
         if image_input is not None:

@@ -541,7 +541,10 @@ class FormulaProcessPool(BaseProcessPool):
         except ExecuteRequestError as exc:
             return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
 
-        eff_timeout = float(timeout_sec or self.default_timeout_sec)
+        # What was wrong: ``timeout_sec or default`` treated 0 as missing, so an
+        # explicit zero ran for default_timeout_sec. Why this change: only
+        # None means "use the default", same as the other pool overrides.
+        eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
         # The HTTP handler passes the accept-time deadline. Starting a fresh
         # clock here used to give the child the original full timeout after
         # the request had already waited in the queue.

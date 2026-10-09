@@ -54,6 +54,7 @@ def _wsgi_post(
         "REQUEST_METHOD": "POST",
         "QUERY_STRING": query,
         "CONTENT_LENGTH": str(len(body)),
+        "HTTP_HOST": "127.0.0.1",
         "wsgi.input": io.BytesIO(body),
     }
     if content_type is not None:

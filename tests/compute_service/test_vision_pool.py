@@ -182,6 +182,16 @@ class TestVisionPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_zero_timeout_is_pool_busy(self) -> None:
+        """timeout_sec=0 expires immediately. It used to become the OCR default."""
+        pool = VisionProcessPool(num_workers=1, default_timeout_sec=30)
+        try:
+            res = pool.execute(helper="extract_text", image=b"\x89PNG", timeout_sec=0, req_id="zero")
+            assert res.get("id") == "zero"
+            assert res.get("code") == "VISION_POOL_BUSY"
+        finally:
+            pool.shutdown()
+
     def test_pool_lifecycle(self) -> None:
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
         try:

@@ -197,15 +197,27 @@ def check_dependencies(pool: Any) -> None:
         sys.exit(1)
 
 
+def _accept_clock(accept_time: Any) -> float:
+    """Numeric accept timestamp, or now when the value is missing or not a number.
+
+    What was wrong: the body and header deadlines called ``float(accept_time)``
+    whenever the key was set. A WSGI test double passing a string raised
+    TypeError and the request became HTTP 500. Bool is an int subclass and
+    is not a clock.
+    Why this change: the same check ``_request_deadline`` already used.
+    """
+    if isinstance(accept_time, (int, float)) and not isinstance(accept_time, bool):
+        return float(accept_time)
+    return time.monotonic()
+
+
 def _request_deadline(accept_time: Any, timeout_sec: float) -> float:
     """One clock from TCP accept through the worker lease and the child.
 
     Without an accept timestamp (direct WSGI tests) the clock starts now.
     Queue wait is subtracted from *timeout_sec*; it is not a second 30s timer.
     """
-    if isinstance(accept_time, (int, float)) and not isinstance(accept_time, bool):
-        return float(accept_time) + float(timeout_sec)
-    return time.monotonic() + float(timeout_sec)
+    return _accept_clock(accept_time) + float(timeout_sec)
 
 
 # =============================================================================
@@ -340,6 +352,10 @@ def _send_execution_result(
 
 def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 1024) -> None:
     """Best-effort drain of remaining request body so client does not receive TCP RST."""
+    # The body is already buffered. Reading Content-Length again on a
+    # keep-alive connection would consume the next request.
+    if isinstance(environ.get("compute.raw_body"), (bytes, bytearray)):
+        return
     raw_len = environ.get("CONTENT_LENGTH")
     if not raw_len:
         return
@@ -449,14 +465,25 @@ def _transfer_encoding_is_chunked(environ: dict[str, Any]) -> bool:
     return "chunked" in raw.lower()
 
 
+def _reject_chunked(environ: dict[str, Any], start_response: Any) -> list[bytes] | None:
+    """400 when the body is chunked. ``None`` when the request may continue."""
+    if not _transfer_encoding_is_chunked(environ):
+        return None
+    return _error(start_response, "400 Bad Request", "Chunked transfer encoding is not supported")
+
+
 def _read_request_body(
     environ: dict[str, Any],
     settings: ComputeSettings,
     start_response: Any,
 ) -> tuple[bytes | None, list[bytes] | None]:
     """Read a bounded POST body with total read deadline enforcement. Returns ``(body, None)`` or ``(None, error_body)``."""
-    if _transfer_encoding_is_chunked(environ):
-        return None, _error(start_response, "400 Bad Request", "Chunked transfer encoding is not supported")
+    cached = environ.get("compute.raw_body")
+    if isinstance(cached, (bytes, bytearray)):
+        return bytes(cached), None
+    chunked = _reject_chunked(environ, start_response)
+    if chunked is not None:
+        return None, chunked
     raw_len = environ.get("CONTENT_LENGTH")
     if raw_len is None or raw_len == "":
         return None, _error(start_response, "400 Bad Request", "Missing Content-Length")
@@ -475,8 +502,7 @@ def _read_request_body(
         return None, _error(start_response, "500 Internal Server Error", "Missing wsgi.input stream")
 
     conn = environ.get("compute.connection")
-    accept_time = environ.get("compute.accept_time")
-    read_deadline = float(accept_time) + _REQUEST_READ_TIMEOUT_SEC if accept_time is not None else time.monotonic() + _REQUEST_READ_TIMEOUT_SEC
+    read_deadline = _accept_clock(environ.get("compute.accept_time")) + _REQUEST_READ_TIMEOUT_SEC
 
     chunks: list[bytes] = []
     bytes_read = 0
@@ -496,7 +522,13 @@ def _read_request_body(
                 try:
                     conn.settimeout(max(0.1, remaining_time))
                 except Exception:
-                    pass
+                    # What was wrong: a failed settimeout was ignored, so the
+                    # next read kept the previous socket timeout and a slow
+                    # body outlived _REQUEST_READ_TIMEOUT_SEC.
+                    # Why this change: if the deadline cannot be armed, stop.
+                    log.debug("failed to arm body-read deadline", exc_info=True)
+                    _set_write_deadline(environ)
+                    return None, _error(start_response, "408 Request Timeout", "Request read timeout")
 
             to_read = min(buf_size, content_length - bytes_read)
             raw_chunk: Any = read1(to_read) if callable(read1) else wsgi_input.read(to_read)
@@ -505,7 +537,7 @@ def _read_request_body(
             chunk = bytes(raw_chunk)
             chunks.append(chunk)
             bytes_read += len(chunk)
-    except (TimeoutError, socket.timeout):
+    except TimeoutError:
         _set_write_deadline(environ)
         return None, _error(start_response, "408 Request Timeout", "Request read timeout")
     except OSError as e:
@@ -517,7 +549,12 @@ def _read_request_body(
     if bytes_read != content_length:
         return None, _error(start_response, "400 Bad Request", "Request body truncated")
 
-    return b"".join(chunks), None
+    body = b"".join(chunks)
+    # Admission reads the body before the permit wait. The handler must not
+    # read the socket again: on a keep-alive connection that would consume
+    # the next request.
+    environ["compute.raw_body"] = body
+    return body, None
 
 
 def _read_request_json(
@@ -526,6 +563,9 @@ def _read_request_json(
     start_response: Any,
 ) -> tuple[dict[str, Any] | None, list[bytes] | None]:
     """Read request body and parse as top-level JSON dict."""
+    cached_json = environ.get("compute.json_object")
+    if isinstance(cached_json, dict):
+        return cached_json, None
     body, err_resp = _read_request_body(environ, settings, start_response)
     if err_resp is not None:
         return None, err_resp
@@ -546,6 +586,7 @@ def _read_request_json(
     if isinstance(req_id, float) and not math.isfinite(req_id):
         return None, _error(start_response, "400 Bad Request", "Invalid JSON")
 
+    environ["compute.json_object"] = data
     return data, None
 
 
@@ -560,8 +601,9 @@ def _read_optional_request_json(
     A missing or zero ``Content-Length`` is that empty body. Chunked
     transfer encoding is 400 here, same as ``/v1/execute`` and ``/v1/vision``.
     """
-    if _transfer_encoding_is_chunked(environ):
-        return None, _error(start_response, "400 Bad Request", "Chunked transfer encoding is not supported")
+    chunked = _reject_chunked(environ, start_response)
+    if chunked is not None:
+        return None, chunked
     raw_len = environ.get("CONTENT_LENGTH")
     if not raw_len:
         return {}, None
@@ -614,20 +656,30 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
             code="CROSS_ORIGIN_REFUSED",
         )
 
-    if "HTTP_HOST" in environ:
-        raw_host = environ["HTTP_HOST"].lower()
-        if raw_host.startswith("["):
-            host = raw_host.split("]")[0] + "]"
-        else:
-            host = raw_host.split(":")[0]
+    # What was wrong: a missing Host skipped this check. HTTP/1.0 may omit
+    # it, which bypassed the keyless DNS-rebinding defense.
+    # Why this change: no Host is not a loopback Host.
+    raw_host_value = environ.get("HTTP_HOST")
+    if not isinstance(raw_host_value, str) or not raw_host_value.strip():
+        return _error(
+            start_response,
+            "403 Forbidden",
+            "Only loopback hosts are allowed in keyless mode.",
+            code="CROSS_ORIGIN_REFUSED",
+        )
+    raw_host = raw_host_value.lower()
+    if raw_host.startswith("["):
+        host = raw_host.split("]")[0] + "]"
+    else:
+        host = raw_host.split(":")[0]
 
-        if host not in ("localhost", "127.0.0.1", "[::1]"):
-            return _error(
-                start_response,
-                "403 Forbidden",
-                "Only loopback hosts are allowed in keyless mode.",
-                code="CROSS_ORIGIN_REFUSED",
-            )
+    if host not in ("localhost", "127.0.0.1", "[::1]"):
+        return _error(
+            start_response,
+            "403 Forbidden",
+            "Only loopback hosts are allowed in keyless mode.",
+            code="CROSS_ORIGIN_REFUSED",
+        )
     return None
 
 
@@ -673,12 +725,17 @@ def _gated(
     busy_code: str,
     busy_message: str,
     route_fn: Callable[[Any], list[bytes]],
+    prepare: Callable[[Any], tuple[float, list[bytes] | None]] | None = None,
 ) -> list[bytes]:
     """Execute route_fn guarded by auth, optional concurrency permit, try/finally, and 500 fallback.
 
     ``route_fn`` receives the tracking ``start_response``. A second call is
     illegal in wsgiref, so a failure after headers are sent is logged and
     returns an empty body instead of another status line.
+
+    ``prepare`` runs after auth and before the permit. It reads the body
+    (cached for ``route_fn``) and returns the clamped request timeout.
+    An error response from ``prepare`` does not take a permit.
     """
     started = False
 
@@ -695,11 +752,19 @@ def _gated(
     if auth_resp is not None:
         return auth_resp
 
+    if prepare is not None:
+        admission_timeout_sec, prep_err = prepare(_start)
+        if prep_err is not None:
+            return prep_err
+
     if semaphore is not None:
         # One clock with the handler and the worker lease. Time spent queued
         # counts against the request; the lease does not start another timeout.
+        # Execute and vision pass the clamped timeout_ms from prepare. Reset
+        # has no timeout_ms and keeps default_timeout_sec.
         deadline = _request_deadline(environ.get("compute.accept_time"), admission_timeout_sec)
         remaining = deadline - time.monotonic()
+        req_id = environ.get("compute.req_id")
         if remaining <= 0:
             _drain_body_before_error(environ)
             return _error(
@@ -707,6 +772,7 @@ def _gated(
                 "503 Service Unavailable",
                 "Request deadline expired before execution.",
                 code="QUEUE_TIMEOUT",
+                req_id=req_id,
                 extra_headers=[("Retry-After", "1")],
             )
         # This service runs at 200-400 rps. A worker busy for a few
@@ -719,6 +785,7 @@ def _gated(
                 "503 Service Unavailable",
                 busy_message,
                 code=busy_code,
+                req_id=req_id,
                 extra_headers=[("Retry-After", "1")],
             )
 
@@ -773,23 +840,87 @@ def _run_with_logging_and_deadline(
             return []
 
 
+def _load_execute_request(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+) -> tuple[Any, list[bytes] | None]:
+    """Read and peel an execute body. A second call returns the cached parts.
+
+    Admission peels ``timeout_ms`` before taking a permit. The handler peels
+    again through this cache so a 32 MiB grid is not walked twice and the
+    socket is not read twice.
+    """
+    cached = environ.get("compute.execute_parts")
+    if cached is not None:
+        return cached, None
+    raw_body, err_resp = _read_request_body(environ, settings, start_response)
+    if err_resp is not None:
+        return None, err_resp
+    assert raw_body is not None
+    content_type = environ.get("CONTENT_TYPE") or ""
+    try:
+        parts = parse_execute_request(raw_body, content_type)
+    except ExecuteRequestError:
+        err = "Invalid multipart execute body" if is_multipart_content_type(content_type) else "Invalid JSON"
+        return None, _error(start_response, "400 Bad Request", err)
+    environ["compute.execute_parts"] = parts
+    return parts, None
+
+
+def _execute_admission_timeout(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+) -> tuple[float, list[bytes] | None]:
+    """Clamped execute timeout from the body, or an error response."""
+    parts, err_resp = _load_execute_request(environ, settings, start_response)
+    if err_resp is not None:
+        return 0.0, err_resp
+    assert parts is not None
+    if parts.req_id is not None:
+        environ["compute.req_id"] = parts.req_id
+    timeout_sec = clamp_timeout_sec(
+        parts.timeout_ms,
+        is_ms=True,
+        default_timeout_sec=settings.default_timeout_sec,
+        max_timeout_sec=settings.max_timeout_sec,
+    )
+    return float(timeout_sec), None
+
+
+def _vision_admission_timeout(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+) -> tuple[float, list[bytes] | None]:
+    """Clamped vision timeout from the body, or an error response."""
+    req_data, err_resp = _read_request_json(environ, settings, start_response)
+    if err_resp is not None:
+        return 0.0, err_resp
+    assert req_data is not None
+    req_id = req_data.get("id")
+    if req_id is not None:
+        environ["compute.req_id"] = req_id
+    timeout_sec = clamp_timeout_sec(
+        req_data.get("timeout_ms"),
+        is_ms=True,
+        default_timeout_sec=settings.ocr_timeout_sec,
+        max_timeout_sec=settings.max_timeout_sec,
+    )
+    return float(timeout_sec), None
+
+
 def _handle_execute(
     environ: dict[str, Any],
     start_response: Any,
     settings: ComputeSettings,
     run_execute: ExecuteFn,
 ) -> list[bytes]:
-    raw_body, err_resp = _read_request_body(environ, settings, start_response)
+    parts, err_resp = _load_execute_request(environ, settings, start_response)
     if err_resp is not None:
         return err_resp
-    assert raw_body is not None
-
-    content_type = environ.get("CONTENT_TYPE") or ""
-    try:
-        parts = parse_execute_request(raw_body, content_type)
-    except ExecuteRequestError:
-        err = "Invalid multipart execute body" if is_multipart_content_type(content_type) else "Invalid JSON"
-        return _error(start_response, "400 Bad Request", err)
+    assert parts is not None
 
     req_id = parts.req_id
 
@@ -991,9 +1122,11 @@ def create_wsgi_app(
     Isolated ``/v1/execute`` takes a permit sized to ``settings.workers``.
     ``/v1/vision`` takes one sized to the vision pool. Sticky execute
     (``?session_id=``) and ``/v1/session/reset`` take a separate permit sized
-    by ``sticky_listener_slots``. Each permit waits until the request deadline.
-    At least two listener threads stay free for ``GET /health``.
-    ``worker_semaphore`` and ``vision_semaphore`` override those gates in tests.
+    by ``sticky_listener_slots``. Execute and vision wait until the clamped
+    ``timeout_ms`` (the pool default when it is omitted). Session reset waits
+    until ``default_timeout_sec``. At least two listener threads stay free
+    for ``GET /health``. ``worker_semaphore`` and ``vision_semaphore`` override
+    those gates in tests.
     """
     run_execute = execute_fn
     run_reset = reset_fn
@@ -1045,6 +1178,7 @@ def create_wsgi_app(
                 busy_code="WORKER_POOL_BUSY",
                 busy_message="All compute workers are currently busy.",
                 route_fn=lambda start: _handle_execute(environ, start, settings, _get_execute()),
+                prepare=lambda start: _execute_admission_timeout(environ, settings, start),
             )
 
         if path == "/v1/session/reset" and method == "POST":
@@ -1071,6 +1205,7 @@ def create_wsgi_app(
                 busy_code="VISION_POOL_BUSY",
                 busy_message="All vision workers are currently busy.",
                 route_fn=lambda start: _handle_vision(environ, start, settings),
+                prepare=lambda start: _vision_admission_timeout(environ, settings, start),
             )
 
         allow = _ROUTE_ALLOW.get(path)
@@ -1391,7 +1526,7 @@ class DeadlineRequestHandler(WSGIRequestHandler):
 
     def _install_header_deadline(self) -> None:
         accept_time = getattr(self.server, "_accept_times", {}).get(id(self.connection))
-        header_deadline = (float(accept_time) if accept_time is not None else time.monotonic()) + _REQUEST_READ_TIMEOUT_SEC
+        header_deadline = _accept_clock(accept_time) + _REQUEST_READ_TIMEOUT_SEC
         rfile_raw: Any = getattr(self.rfile, "raw", None)
         orig_readinto = getattr(rfile_raw, "readinto", None) if rfile_raw is not None else None
         self._header_rfile_raw = rfile_raw

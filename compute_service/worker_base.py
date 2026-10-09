@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
 from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, start_stderr_drain
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, claim_ipc_channel, read_pickle_frame, read_pickle_frame_with_timeout, write_pickle_frame, write_pickle_frame_with_timeout
+from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, IpcPartialFrameTimeout, claim_ipc_channel, read_pickle_frame, read_pickle_frame_with_timeout, write_pickle_frame, write_pickle_frame_with_timeout
 from plugin.scripting.sandbox import optimize_popen_pipes, scrub_subprocess_env
 
 log = logging.getLogger("compute_service.worker")
@@ -162,11 +162,30 @@ def set_pdeathsig(sig: int | None = None) -> bool:
         sig = signal.SIGKILL
     try:
         import ctypes
+        import ctypes.util
 
-        libc = ctypes.CDLL("libc.so.6", use_errno=True)
-        PR_SET_PDEATHSIG = 1
-        res = libc.prctl(PR_SET_PDEATHSIG, ctypes.c_ulong(sig), 0, 0, 0)
-        return res == 0
+        # What was wrong: CDLL("libc.so.6") is glibc's soname. On musl that
+        # file is absent, prctl never ran, and a hard SIGKILL of the parent
+        # left workers alive. The failure returned False with no log.
+        # Why this works: CDLL(None) uses the libc this interpreter is already
+        # linked to (glibc or musl). find_library and libc.so.6 cover a
+        # process that does not export prctl from the global namespace.
+        # The Debian image has libc.so.6; Alpine does not.
+        names: list[str | None] = [None]
+        found = ctypes.util.find_library("c")
+        if isinstance(found, str) and found not in names:
+            names.append(found)
+        if "libc.so.6" not in names:
+            names.append("libc.so.6")
+        pr_set_pdeathsig = 1
+        for name in names:
+            try:
+                libc = ctypes.CDLL(name, use_errno=True)
+                res = libc.prctl(pr_set_pdeathsig, ctypes.c_ulong(sig), 0, 0, 0)
+                return res == 0
+            except (OSError, AttributeError):
+                continue
+        return False
     except Exception:
         return False
 
@@ -347,12 +366,12 @@ class BaseProcessWorker:
                 try:
                     previous.kill()
                 except Exception:
-                    pass
+                    log.debug("%s #%d kill of pid=%s failed", self.worker_name, self.worker_id, pid, exc_info=True)
             if previous is not None:
                 try:
                     previous.wait(timeout=1.0)
                 except Exception:
-                    pass
+                    log.debug("%s #%d wait for pid=%s failed", self.worker_name, self.worker_id, pid, exc_info=True)
             # After wait(), the pid is reaped. Tell the pool before the next
             # Popen can reuse it. A callback that runs while poll() still
             # said "running" used to race a lookup that treated the session
@@ -576,6 +595,23 @@ class BaseProcessWorker:
                     pid=_pid(),
                     timeout=True,
                     drain_timeout_sec=drain_timeout_sec,
+                )
+            except IpcPartialFrameTimeout:
+                # What was wrong: a deadline after the first byte raised
+                # ConnectionError, and the generic handler below reported
+                # WORKER_CRASHED (HTTP 500). Vision then skipped this kill
+                # and would have drained a pipe that is no longer aligned.
+                # Why this change: the cell timed out. timeout=False kills
+                # instead of late-draining, because the next read would
+                # consume the rest of this frame as a new response.
+                self.tasks_executed += 1
+                return self._fail_request(
+                    "EXECUTION_TIMEOUT",
+                    f"Execution exceeded maximum timeout of {int(budget_sec)} seconds.",
+                    budget_sec=budget_sec,
+                    pid=_pid(),
+                    timeout=False,
+                    kill=True,
                 )
             except Exception as exc:
                 return self._fail_request("WORKER_CRASHED", f"{self.worker_name} error: {exc}", budget_sec=budget_sec, pid=_pid())

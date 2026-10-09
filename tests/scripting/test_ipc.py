@@ -21,6 +21,7 @@ import pytest
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
+    IpcPartialFrameTimeout,
     pack_pickle_frame,
     read_frame_payload,
     read_json_line,
@@ -334,6 +335,18 @@ def test_pickle_frame_timeout_on_pipe():
     try:
         with os.fdopen(read_fd, "rb", buffering=0) as reader:
             with pytest.raises(subprocess.TimeoutExpired):
+                read_pickle_frame_with_timeout(reader, 0.05)
+    finally:
+        os.close(write_fd)
+
+
+def test_pickle_frame_timeout_mid_frame_is_partial():
+    """Bytes already read are a desynced pipe, not a clean TimeoutExpired."""
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, b"\x00\x00")
+        with os.fdopen(read_fd, "rb", buffering=0) as reader:
+            with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
                 read_pickle_frame_with_timeout(reader, 0.05)
     finally:
         os.close(write_fd)

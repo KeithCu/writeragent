@@ -26,6 +26,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 MIN_MAX_CODE_CHARS = 64
+# HTTP body cap and the vision worker's file_path read cap. One value so a
+# path read cannot accept a file the HTTP layer would have rejected.
+MAX_BODY_BYTES = 32 * 1024 * 1024
 VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "WARN", "ERROR", "CRITICAL"})
 LOOPBACK_HOSTS = frozenset({"", "127.0.0.1", "::1", "localhost"})
 
@@ -167,7 +170,7 @@ class ComputeSettings:
     host: str = "127.0.0.1"
     port: int = 8000
     api_key: str = field(default="", repr=False)
-    max_body_bytes: int = 32 * 1024 * 1024
+    max_body_bytes: int = MAX_BODY_BYTES
     default_timeout_sec: int = 30
     max_timeout_sec: int = 600
     # Listener threads. Not a setting: one per formula worker and vision worker.

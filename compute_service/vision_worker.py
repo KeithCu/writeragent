@@ -27,13 +27,13 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from compute_service.config import read_allowlisted_file
+from compute_service.config import MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
 from compute_service.worker_base import run_worker_stdio_loop
 
-# Default HTTP body cap. file_path does not pass through that check, and an
-# unbounded read was pickled into the parent afterward.
-_FILE_READ_MAX_BYTES = 32 * 1024 * 1024
+# Same cap as ComputeSettings.max_body_bytes. file_path does not pass through
+# the HTTP check, and an unbounded read was pickled into the parent afterward.
+_FILE_READ_MAX_BYTES = MAX_BODY_BYTES
 
 
 def _read_allowed_image(file_path: str, allow_paths: Any, req_id: Any) -> tuple[bytes | None, dict[str, Any] | None]:

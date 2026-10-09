@@ -454,6 +454,41 @@ def test_execute_stdin_write_timeout_kills_without_late_drain(monkeypatch: pytes
     assert worker.tasks_executed == 1
 
 
+@pytest.mark.parametrize("recover", [False, True])
+def test_partial_frame_timeout_kills_without_late_drain(monkeypatch: pytest.MonkeyPatch, recover: bool) -> None:
+    """A mid-frame deadline is EXECUTION_TIMEOUT and kills. Vision must not drain it.
+
+    What was wrong: ConnectionError("timeout mid-frame") fell into the
+    generic handler as WORKER_CRASHED, and recover_on_timeout never ran
+    the kill that a desynced pipe needs.
+    """
+    from unittest.mock import MagicMock
+    from compute_service.worker_base import BaseProcessWorker
+    from plugin.scripting.ipc import IpcPartialFrameTimeout
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=recover)
+    worker.process = MagicMock()
+    worker.process.poll.return_value = None
+    worker.process.stdin = MagicMock()
+    worker.process.stdin.write.side_effect = lambda data: len(data)
+    worker.process.stdout = MagicMock()
+    killed: list[bool] = []
+    drained: list[float] = []
+    worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+    worker._start_late_drain = lambda timeout_sec: drained.append(timeout_sec)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "compute_service.worker_base.read_pickle_frame_with_timeout",
+        MagicMock(side_effect=IpcPartialFrameTimeout("IPC frame stream desynchronized: timeout mid-frame")),
+    )
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0, drain_timeout_sec=60.0)
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert killed == [True]
+    assert drained == []
+    assert worker.tasks_executed == 1
+
+
 def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch) -> None:
     """An oversized frame is rejected before any byte is written, so the kernel stays."""
     from unittest.mock import MagicMock

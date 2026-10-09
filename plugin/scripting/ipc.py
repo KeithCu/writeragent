@@ -139,6 +139,15 @@ class IpcFrameReadError(IpcFrameError):
     """Raised when reading a framed IPC message fails due to invalid size or stream desync."""
 
 
+class IpcPartialFrameTimeout(ConnectionError):
+    """Deadline expired after at least one byte of a frame had arrived.
+
+    The pipe is no longer on a frame boundary. Callers must kill the child.
+    A clean timeout before any byte is ``subprocess.TimeoutExpired``, which
+    a vision worker may still late-drain.
+    """
+
+
 class UserStopped(BaseException):
     """Host refused a tool call because the user pressed Stop.
 
@@ -724,8 +733,11 @@ def read_pickle_frame_with_timeout(
         while len(buf) < n:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                # Any byte already taken desynchronizes the pipe. A clean
+                # timeout (empty buffer) stays TimeoutExpired so a vision
+                # late-drain can still read the one frame the child will write.
                 if len(buf) > 0:
-                    raise ConnectionError(f"{frame_label} stream desynchronized: timeout mid-frame")
+                    raise IpcPartialFrameTimeout(f"{frame_label} stream desynchronized: timeout mid-frame")
                 raise subprocess.TimeoutExpired(cmd=frame_label, timeout=timeout_sec)
             ready, _unused, _unused2 = select.select([stream], [], [], min(1.0, remaining))
             if ready:
@@ -805,7 +817,7 @@ def _read_bytes_with_timeout_win32(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             if len(buf) > 0:
-                raise ConnectionError(f"{cmd} stream desynchronized: timeout mid-frame")
+                raise IpcPartialFrameTimeout(f"{cmd} stream desynchronized: timeout mid-frame")
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
         avail = _peek_pipe_bytes_available(fd)
         if avail is None:
