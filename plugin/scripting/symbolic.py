@@ -123,9 +123,9 @@ def run_trusted_symbolic(
 
 # --- Egress ---
 
-# What was wrong: is_symbolic_result accepted any dict with a truthy 'latex' key, even if not a symbolic helper result.
-# How: The fallback checked bool(value.get("latex")) instead of matching against known helper names or error codes.
-# Why: Use is_status_helper_result with HELPER_NAMES and SYMBOLIC_ERROR for exact schema conformance.
+# A truthy 'latex' key is not enough: ordinary dicts are not symbolic
+# helper results. Match HELPER_NAMES and SYMBOLIC_ERROR through
+# is_status_helper_result.
 def is_symbolic_result(value: Any) -> bool:
     """True when *value* matches the compact symbolic helper result contract."""
     return is_status_helper_result(value, HELPER_NAMES, frozenset({"SYMBOLIC_ERROR"}))

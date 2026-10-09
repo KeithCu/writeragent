@@ -140,11 +140,11 @@ def run_trusted_viz(
             context["range_a1"] = dr
         return py_data, context
 
-    # What was wrong: forecast auto-plot ran this whole helper on the UI thread,
-    # so matplotlib IPC froze Calc.
-    # How: ForecastDataTool wrapped run_auto_plot_after_forecast in
-    # execute_on_main_thread, and this function did the sheet read and client_run_viz together.
-    # Why: hop only the UNO read; client_run_viz stays on the caller (the worker).
+    # Forecast auto-plot used to run this whole helper on the UI thread, so
+    # matplotlib IPC froze Calc. ForecastDataTool wrapped
+    # run_auto_plot_after_forecast in execute_on_main_thread, and this
+    # function did the sheet read and client_run_viz together. Hop only the
+    # UNO read; client_run_viz stays on the caller (the worker).
     from plugin.framework.queue_executor import execute_on_main_thread
     from plugin.framework.thread_guard import on_main_thread
 
@@ -203,10 +203,9 @@ def insert_image_payload_for_doc(
     if is_calc(doc):
         from plugin.calc.python.image_egress import insert_image_result_on_sheet
 
-        # What was wrong: the chart was written to desktop.getCurrentComponent()
-        # while the script had read *doc*. How: this call omitted doc=, so
-        # image egress fell back to the front window (MCP document_url, or a
-        # second open workbook). Why: pass the same document =PY() already passes.
+        # Pass the same document =PY() already read. Omitting doc= wrote the
+        # chart to desktop.getCurrentComponent(), so image egress fell back to
+        # the front window (MCP document_url, or a second open workbook).
         insert_image_result_on_sheet(ctx, payload, doc=doc)
         return
     if is_writer(doc):

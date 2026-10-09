@@ -171,9 +171,8 @@ def target_identity_key(mode: str, target: Mapping[str, str] | None) -> tuple[st
     """Stable key so reopening the same cell/script reuses ``session_id``."""
     # crosshair: off  # nested IPC dict domain (cover-all 33293627157: ~9m, 159k lines). Doable later; thin wrapper over normalize_target.
     t = normalize_target(target)
-    # What was wrong: target_identity_key omitted script_origin, causing user and document scripts
-    # with identical names to share session_id and accidentally overwrite each other's save targets.
-    # Why this change: including script_origin ensures distinct identity keys across script scopes.
+    # Include script_origin. Omitting it gave user and document scripts with
+    # the same name one session_id, so a save overwrote the other target.
     return (
         str(mode or ""),
         t.get("cell_address", ""),

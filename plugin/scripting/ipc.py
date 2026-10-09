@@ -222,13 +222,11 @@ def pack_pickle_frame(
 def _write_all(stream: IO[Any], data: bytes | str) -> None:
     """Write every byte of *data*, then flush.
 
-    What was wrong: ``write_pickle_frame`` and ``write_json_line`` called
-    ``write()`` once and ignored the count. The child IPC stream is unbuffered
-    (``buffering=0``), and ``SIGALRM`` in this process can land mid-transfer.
-    A truncated 4-byte length prefix permanently desyncs the pipe. The host
-    stdin writer already looped.
-    Why this works: keep writing the remainder. A zero-length or ``None``
-    return is a stuck pipe, not a short count to retry forever.
+    ``write()`` once, ignoring the count, is not enough. The child IPC stream
+    is unbuffered (``buffering=0``), and ``SIGALRM`` in this process can land
+    mid-transfer. A truncated 4-byte length prefix permanently desyncs the
+    pipe. Keep writing the remainder. A zero-length or ``None`` return is a
+    stuck pipe, not a short count to retry forever.
     """
     if isinstance(data, str):
         written = 0
@@ -363,10 +361,9 @@ def write_pickle_frame_with_timeout(
 def _nonblocking(fd: int) -> Iterator[None]:
     """Make *fd* non-blocking for the block, then restore the previous mode.
 
-    What was wrong: ``set_blocking(False)`` was left in place after a peek or
-    drain. The next read treated ``EAGAIN`` or ``None`` as EOF and dropped the
-    following frame.
-    Why this works: every exit, including an exception, puts the mode back.
+    Leaving ``set_blocking(False)`` in place makes the next read treat
+    ``EAGAIN`` or ``None`` as EOF and drop the following frame. Every exit,
+    including an exception, puts the mode back.
     """
     was_blocking = True
     try:
@@ -395,12 +392,10 @@ def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
         if sys.platform == "win32" or not hasattr(os, "set_blocking"):
             # Do not stream.read() here — that can block on a live pipe.
             return b""
-        # What was wrong: set_blocking(False) was left in place. A later read
-        # on this fd (compute/kokoro loops catch the frame error and read
-        # again) returned None or raised BlockingIOError, which the frame
-        # reader treats as EOF.
-        # Why this works: the peek is only for the error text. _nonblocking
-        # puts the fd back so the next read blocks for a real frame.
+        # Restore blocking when the peek ends. Leaving set_blocking(False) in
+        # place made a later read (compute/kokoro loops catch the frame error
+        # and read again) return None or raise BlockingIOError, which the
+        # frame reader treats as EOF. The peek is only for the error text.
         try:
             with _nonblocking(fd):
                 return os.read(fd, n)
@@ -425,12 +420,10 @@ def read_frame_payload(
     def reader(n: int) -> bytes:
         if read_exact is not None:
             return read_exact(n)
-        # What was wrong: one stream.read(n) that came back short was treated
-        # as EOF. A raw stream can return part of the 4-byte header; those
-        # bytes were dropped and the next read started mid-frame.
-        # Why this works: loop until n bytes or a real empty read. Empty means
-        # EOF. A short non-empty chunk is not the end of the frame. Callers
-        # that pass read_exact already loop (or time out) themselves.
+        # One short stream.read(n) is not EOF. A raw stream can return part of
+        # the 4-byte header; dropping those bytes starts the next read
+        # mid-frame. Loop until n bytes or a real empty read. Empty means EOF.
+        # Callers that pass read_exact already loop (or time out) themselves.
         buf = bytearray()
         while len(buf) < n:
             chunk = stream.read(n - len(buf))
@@ -463,11 +456,11 @@ def unpack_pickle_frame(payload: bytes) -> Any:
     try:
         return _SafeUnpickler(io.BytesIO(payload)).load()
     except _PICKLE_LOAD_ERRORS as exc:
-        # What was wrong: only UnpicklingError became ValueError. A length-valid
-        # truncated payload (protocol header, no body) raises EOFError, which
-        # escaped PythonWorkerManager.execute and left the child on the pipe.
-        # Why this works: the same ValueError contract the worker already maps
-        # to WORKER_IPC_ERROR, and it kills that child instead of replaying.
+        # A length-valid truncated payload (protocol header, no body) raises
+        # EOFError, not only UnpicklingError. That escaped
+        # PythonWorkerManager.execute and left the child on the pipe. Map it
+        # to the same ValueError the worker already turns into
+        # WORKER_IPC_ERROR, which kills that child instead of replaying.
         raise ValueError(str(exc)) from exc
 
 
@@ -545,29 +538,27 @@ def _drain_queued_pipe_bytes(
 ) -> None:
     """Drop bytes already queued on *stream* after a tool_call id mismatch.
 
-    What was wrong: ``exchange_tool_call`` consumed one pickle frame, then
-    raised ``RuntimeError`` when ``id`` did not match. ``sys.stdin.buffer``
-    is a BufferedReader, so ``read(n)`` often pulls the next frame into that
-    wrapper (the kernel pipe can look empty). The raise discarded the foreign
-    frame and left the tail in place. Every later call under
-    ``_tool_call_lock`` read that tail as its reply, so the worker stayed
-    one frame behind for the rest of the process.
-    Why this works: the caller still holds the lock. This reads through the
-    same stream, with the fd non-blocking and a deadline, so both the
-    wrapper cache and the kernel queue are dropped. ``os.read`` is not used:
-    it skips the cache and the next ``stream.read`` would still return the
-    tail. Blocking mode is restored so the next call waits for a new frame.
+    After a tool_call id mismatch, one pickle frame has already been consumed
+    and the raise discarded it. ``sys.stdin.buffer`` is a BufferedReader, so
+    ``read(n)`` often pulls the next frame into that wrapper (the kernel pipe
+    can look empty). The tail then stayed in place, and every later call under
+    ``_tool_call_lock`` read it as its reply, so the worker stayed one frame
+    behind for the rest of the process. The caller still holds the lock. This
+    reads through the same stream, with the fd non-blocking and a deadline, so
+    both the wrapper cache and the kernel queue are dropped. ``os.read`` is
+    not used: it skips the cache and the next ``stream.read`` would still
+    return the tail. Blocking mode is restored so the next call waits for a
+    new frame.
     Windows pipes that reject non-blocking mode fall back to PeekNamedPipe,
     same as ``_unread_pipe_bytes`` (kernel bytes only).
     """
     deadline = time.monotonic() + max(0.0, float(timeout_sec))
     fd = _stream_fileno(stream)
     if fd is None:
-        # What was wrong: stream.read() with no size waits until EOF. This
-        # branch is only streams with no fileno, and a sized read can still
-        # block, so it is not a best-effort drain.
-        # Why this works: without an fd there is nothing to poll. Leave the
-        # bytes where they are instead of hanging.
+        # stream.read() with no size waits until EOF. This branch is only
+        # streams with no fileno, and a sized read can still block, so it is
+        # not a best-effort drain. Without an fd there is nothing to poll.
+        # Leave the bytes where they are instead of hanging.
         return
     if hasattr(os, "set_blocking") and _drain_nonblocking_stream(stream, fd, deadline):
         return
@@ -658,9 +649,9 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     overdue = False
     try:
         with _tool_call_lock:
-            # What was wrong: exchange_tool_call wrote to sys.stdout.buffer, which lands on
-            # stderr when child stdout is dup2'd to protect IPC framing from stray prints.
-            # Why this fixes it: get_child_ipc_stream() writes to the original claimed IPC stream.
+            # exchange_tool_call must write the claimed IPC stream.
+            # sys.stdout.buffer lands on stderr when child stdout is dup2'd
+            # to protect IPC framing from stray prints.
             write_pickle_frame(
                 get_child_ipc_stream(),
                 request,
@@ -692,17 +683,16 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(
             f"tool_call response id {response.get('id')!r} does not match request {call_id!r}"
         )
-    # What was wrong: host_rpc sends code USER_STOPPED, and this dropped it
-    # into RuntimeError. A script ``except Exception`` kept running after Stop.
-    # Why this works: UserStopped is BaseException, so that handler does not
-    # run and the turn ends with the same code.
+    # host_rpc sends code USER_STOPPED. Raising RuntimeError lets a script
+    # ``except Exception`` keep running after Stop. UserStopped is
+    # BaseException, so that handler does not run and the turn ends with the
+    # same code.
     if response.get("code") == "USER_STOPPED":
         message = response.get("message") or response.get("error") or "Stopped by user."
         raise UserStopped(str(message))
     if response.get("status") == "error":
-        # What was wrong: exchange_tool_call dropped response.get("code") when raising RuntimeError.
-        # How: RuntimeError was instantiated with only the message/error string.
-        # Why this change fixes it: copy the code attribute onto the raised RuntimeError so callers can inspect it.
+        # Copy response code onto the RuntimeError. Dropping it left callers
+        # with only the message string.
         err = RuntimeError(response.get("message", response.get("error", "Unknown error")))
         code = response.get("code")
         if code is not None:
@@ -782,9 +772,11 @@ def read_pickle_frame_with_timeout(
 
 
 def write_json_line(stream: IO[str] | IO[bytes], payload: dict[str, Any]) -> None:
-    """Write one JSON object followed by a newline to a text or binary pipe."""
-    # What was wrong: write_json_line required IO[str], failing on binary IPC streams returned by claim_ipc_channel().
-    # Why this fixes it: supports both text and binary streams by encoding to utf-8 when writing bytes.
+    """Write one JSON object followed by a newline to a text or binary pipe.
+
+    claim_ipc_channel() returns a binary stream. Encode to utf-8 when write()
+    rejects a str.
+    """
     line = json.dumps(payload) + "\n"
     try:
         _write_all(cast("Any", stream), line)
@@ -795,10 +787,9 @@ def write_json_line(stream: IO[str] | IO[bytes], payload: dict[str, Any]) -> Non
 def _stop_requested(stop_checker: Callable[[], bool] | None) -> bool:
     """True when the user pressed Stop.
 
-    What was wrong: the venv read loop called ``stop_checker()`` directly. A
-    ``KeyError`` (or anything outside the IPC except tuples) escaped
-    ``run_code_in_user_venv`` and left the child blocked on an unread request.
-    Why this works: a broken checker is not a stop. Log it and keep reading
+    A checker that raises (KeyError, or anything outside the IPC except
+    tuples) is not a stop. Calling it bare escaped ``run_code_in_user_venv``
+    and left the child blocked on an unread request. Log it and keep reading
     so the pipe stays aligned. A tool_call frame is still answered in
     ``host_rpc``, which has a frame to reply to.
     """
@@ -892,11 +883,10 @@ def _peek_pipe_bytes_available(fd: int) -> int | None:
 def _line_from_pending(stream: IO[str], pending: bytearray, max_bytes: int) -> str | None:
     """Return one complete line from *pending*, or None when it has no newline.
 
-    What was wrong: the pending buffer was popped before the size check. A
-    line over *max_bytes* raised ``ValueError`` and dropped those bytes, so
-    the next read started mid-line.
-    Why this works: put the partial back before raising. The next read of
-    this stream still sees the same bytes.
+    Pop the line only after the size check. Raising on an oversize line after
+    the pop dropped those bytes, so the next read started mid-line. Put the
+    partial back before raising so the next read of this stream still sees
+    the same bytes.
     """
     if len(pending) > max_bytes:
         _save_json_line_pending(stream, pending)
@@ -937,14 +927,13 @@ def _readline_blocking_with_pending(stream: IO[str], max_bytes: int) -> str:
 def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, max_bytes: int, *, cmd: str = "IPC JSON line") -> str:
     """Windows path: poll PeekNamedPipe and read only bytes already queued.
 
-    What was wrong: ``avail > 0`` only means some bytes are queued, not a
-    full line. ``stream.readline()`` then blocked until newline or EOF and
-    ignored ``timeout_sec``. That is the partial-line hang the POSIX reader
-    was written to avoid. Callers include the audio-recorder monitor.
-    Why this works: ``os.read`` the peeked count into the shared pending
-    buffer. A deadline with no newline saves that partial and raises
-    ``TimeoutExpired``. ``readline`` is only the fallback when this stream
-    has no real pipe fd (``BytesIO`` / mocks).
+    ``avail > 0`` only means some bytes are queued, not a full line.
+    ``stream.readline()`` then blocked until newline or EOF and ignored
+    ``timeout_sec``. That is the partial-line hang the POSIX reader avoids.
+    Callers include the audio-recorder monitor. ``os.read`` the peeked count
+    into the shared pending buffer. A deadline with no newline saves that
+    partial and raises ``TimeoutExpired``. ``readline`` is only the fallback
+    when this stream has no real pipe fd (``BytesIO`` / mocks).
     """
     try:
         fd = stream.fileno()

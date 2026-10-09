@@ -53,9 +53,9 @@ def _make_spec_runner(
             layout: dict[str, Any] = {}
         else:
             helper = spec.get("helper", "")
-            # What was wrong: spec.get("params") or {} passed non-dict params (e.g. list from LLM JSON)
-            # straight to trusted_rpc, which raised raw TypeError/ValueError instead of a tool error.
-            # Why this fixes it: coerce non-dict params to empty dict.
+            # spec.get("params") or {} forwards a non-dict (a list from LLM JSON)
+            # into trusted_rpc, which then raises TypeError/ValueError instead of
+            # a tool error. Non-dict params become {}.
             raw_params = spec.get("params")
             params = raw_params if isinstance(raw_params, dict) else {}
             layout = extract_sheet_layout(spec)
@@ -128,10 +128,9 @@ run_quant = _make_spec_runner(
 
 def _resolve_vision_timeout_sec(spec: dict[str, Any] | str) -> int:
     """Vision uses the long budget, with some engine-specific tuning + user override."""
-    # What was wrong: Paddle returned 120s before checking vision.worker_timeout_sec,
-    # ignoring user overrides; also had unnecessary ctx gate and swallowed errors with except: pass.
-    # Why this fixes it: read vision.worker_timeout_sec via get_config_int_safe first for both
-    # engines, with no ctx gate and no except: pass.
+    # Read vision.worker_timeout_sec via get_config_int_safe for both engines.
+    # A hardcoded 120s for Paddle ignored the user override, and swallowing
+    # the lookup hid config errors.
     from plugin.framework.config import get_config_int_safe
 
     custom = get_config_int_safe("vision.worker_timeout_sec")
@@ -167,8 +166,8 @@ def run_vision(
         params: dict[str, Any] = {}
     else:
         helper = spec.get("helper", "")
-        # What was wrong: spec.get("params") or {} passed non-dict params straight to trusted_rpc.
-        # Why this fixes it: coerce non-dict params to empty dict.
+        # Non-dict params (a list from LLM JSON) become {} so trusted_rpc
+        # does not raise TypeError/ValueError instead of a tool error.
         raw_params = spec.get("params")
         params = raw_params if isinstance(raw_params, dict) else {}
     return run_trusted_worker_action(

@@ -151,12 +151,11 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
         _PROBE_FAILURE_CACHE.pop(exe, None)
 
     def _remember_failure(result: tuple[bool, str]) -> tuple[bool, str]:
-        # What was wrong: only successes were cached. monaco_editor_available
-        # calls this on the UI thread, and subprocess.run waits up to 30s.
-        # A slow or hung venv blocked every editor open for that full timeout.
-        # A failed probe used to be uncached so installing pywebview was visible
-        # immediately; caching it forever brought back the stuck native dialog.
-        # Why this works: the failure is reused until the TTL, then probed again.
+        # Only successes used to be cached. monaco_editor_available calls this
+        # on the UI thread, and subprocess.run waits up to 30s. A slow or hung
+        # venv blocked every editor open for that full timeout. Cache the
+        # failure until the TTL, then probe again, so installing pywebview
+        # still becomes visible without freezing the dialog forever.
         _PROBE_FAILURE_CACHE[exe] = (time.monotonic() + _PROBE_FAILURE_TTL_SEC, result)
         return result
 
@@ -200,12 +199,11 @@ def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subproce
     if sys.platform == "win32":
         popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
     else:
-        # What was wrong: preexec_fn=os.setsid runs Python in the child between
-        # fork and exec. Other LibreOffice threads can hold locks the child
-        # inherits, so the editor spawn can deadlock.
-        # Why this works: start_new_session asks the C runtime to call setsid()
-        # in the child. The process group is unchanged, so terminate() still
-        # kills Qt grandchildren via killpg.
+        # preexec_fn=os.setsid runs Python in the child between fork and exec.
+        # Other LibreOffice threads can hold locks the child inherits, so the
+        # editor spawn can deadlock. start_new_session asks the C runtime to
+        # call setsid() in the child. The process group is unchanged, so
+        # terminate() still kills Qt grandchildren via killpg.
         popen_kw["start_new_session"] = True
     return cast("subprocess.Popen[bytes]", subprocess.Popen(wrap_command_for_sandbox([exe, _EDITOR_MAIN]), **popen_kw))
 
@@ -436,10 +434,9 @@ class PersistentEditor:
         with self._stderr_tail_lock:
             self._stderr_tail.append(line)
             # +1 matches the old sum(len(s) + 1) budget (one join newline per line).
-            # What was wrong: every popleft recomputed that sum under the lock,
-            # so a chatty child was O(n²) while the drain thread held it.
-            # Why this works: the same budget is a running total, updated by
-            # the appended line and by each dropped line.
+            # Recomputing that sum on every popleft is O(n²) while the drain
+            # thread holds the lock. Keep a running total, updated by the
+            # appended line and by each dropped line.
             self._stderr_tail_chars += len(line) + 1
             while self._stderr_tail and self._stderr_tail_chars > self._stderr_tail_max_chars:
                 dropped = self._stderr_tail.popleft()
@@ -534,14 +531,13 @@ class PersistentEditor:
                 self._handle_disconnect()
             else:
                 log.info("editor_host: old reader loop ignored disconnect (superseded by new process)")
-            # What was wrong: terminate() ran only when the reader raised.
-            # A clean EOF (child closed stdout) while poll() was still None
-            # dropped sessions via _handle_disconnect but left the process on
-            # self._proc. is_running stayed True, so the next launch reused a
-            # child with no reader.
-            # Why this works: any exit of this loop that still owns a live
-            # process kills it. A child that already exited, or a reader
-            # superseded by a new spawn, is left alone.
+            # terminate() used to run only when the reader raised. A clean EOF
+            # (child closed stdout) while poll() was still None dropped the
+            # session via _handle_disconnect but left the process on self._proc.
+            # is_running stayed True, so the next launch reused a child with no
+            # reader. Any exit of this loop that still owns a live process kills
+            # it. A child that already exited, or a reader superseded by a new
+            # spawn, is left alone.
             if still_ours and proc.poll() is None:
                 self.terminate()
 
@@ -635,9 +631,8 @@ class PersistentEditor:
             try:
                 _picker_send({"type": "error", "message": _("The script list update timed out.")})
             except Exception:
-                # What was wrong: self.send was called bare on timeout. If the pipe
-                # was closed, the exception escaped the handler and reader loop terminated the editor.
-                # Why this change fixes it: wrap in try/except and log.warning with exc_info.
+                # A bare self.send on timeout lets a closed pipe escape the handler
+                # and the reader loop then terminates the editor. Log and continue.
                 log.warning("Editor script picker could not send timeout error frame", exc_info=True)
 
     def _on_dirty(self, msg: dict[str, Any]) -> None:
@@ -679,10 +674,9 @@ class PersistentEditor:
         def _handle_save() -> None:
             with self._save_lock:
                 if self._save_token is not token or captured.save_token is not token:
-                    # What was wrong: executor.execute(..., timeout) raising TimeoutError
-                    # did not cancel the queued _handle_save. The save would run later,
-                    # after the user was already told "Saving timed out".
-                    # Why this change fixes it: check save token before running on_save.
+                    # executor.execute(..., timeout) raising TimeoutError does not
+                    # cancel the queued _handle_save. Check the save token before
+                    # on_save, or the save runs after the user was told it timed out.
                     log.warning("Editor save skipped: timed out or superseded")
                     return
             try:
@@ -745,9 +739,8 @@ class PersistentEditor:
                     session=captured,
                 )
             except Exception:
-                # What was wrong: self.send was called bare on save timeout. A broken pipe
-                # escaped _dispatch_incoming and triggered terminate(), tearing down the editor.
-                # Why this change fixes it: catch exception and log.warning with exc_info.
+                # A bare self.send on save timeout lets a broken pipe escape
+                # _dispatch_incoming and terminate() the editor. Log and continue.
                 log.warning("Editor save handler could not send timeout error frame", exc_info=True)
 
     def _on_close(self, kind: str, msg: dict[str, Any]) -> None:
@@ -866,14 +859,14 @@ class EditorSession:
         if self.session_id:
             live = _PERSISTENT_EDITOR.lookup(self.session_id)
             if live is not None and live.on_save is self._on_save:
-                # What was wrong: every session switch called _finish which called
-                # end_session(call_closed=False). When _register_load_session ran later,
-                # the old session was already gone from the sessions map, so on_closed
-                # never fired for clean buffers during target switch.
-                # Why this change fixes it: when switching to another session (clearing=False),
-                # _finish does not end the session. _register_load_session ends the previous
-                # session with call_closed=True. Only when clearing=True (session is None)
-                # or when the subprocess has died does _finish end the session (with call_closed=True).
+                # Every session switch used to call _finish, which called
+                # end_session(call_closed=False). When _register_load_session ran
+                # later, the old session was already gone, so on_closed never
+                # fired for clean buffers during a target switch. When switching
+                # to another session (clearing=False), _finish does not end the
+                # session; _register_load_session ends the previous one with
+                # call_closed=True. _finish ends the session (call_closed=True)
+                # only when clearing=True (session is None) or the subprocess died.
                 if clearing or not _PERSISTENT_EDITOR.is_running:
                     _PERSISTENT_EDITOR.end_session(self.session_id, call_closed=True)
 
@@ -904,11 +897,11 @@ def set_active_session(session: EditorSession | None) -> None:
 
 def terminate_persistent_editor() -> None:
     """Force terminate the background Monaco editor process."""
-    # What was wrong: terminate_persistent_editor cleared sessions without calling
-    # on_closed, and left _ACTIVE_SESSION stale. The next set_active_session then called
-    # _finish on a dead session.
-    # Why this change fixes it: snapshot sessions and call on_closed on each, reset _ACTIVE_SESSION
-    # to None under _SESSION_LOCK, and terminate the subprocess closing all standard streams.
+    # terminate_persistent_editor must call on_closed and clear _ACTIVE_SESSION.
+    # Leaving the session stale made the next set_active_session call _finish
+    # on a dead session. Snapshot sessions, call on_closed on each, reset
+    # _ACTIVE_SESSION to None under _SESSION_LOCK, and terminate the subprocess
+    # (closing all standard streams).
     global _ACTIVE_SESSION
     with _SESSION_LOCK:
         snapshot = list(_PERSISTENT_EDITOR.sessions.values())
@@ -1099,22 +1092,22 @@ def _register_load_session(
     if blocked is None and existing is None and focused is not None and _dirty_blocks_replace(focused):
         blocked = focused
     if blocked is not None:
-        # What was wrong: switching modes ended the focused session and the
-        # load overwrote the buffer. The only confirm covered calc_cell, and
-        # only when opening another cell. Run Script, init, and LaTeX edits
-        # were dropped, and Run Script dropped a dirty cell.
-        # How: set_active_session → _finish used call_closed=False, so neither
-        # on_save nor on_closed ran before the new code replaced the editor.
-        # Why this works: launch_monaco_editor asks first. Save queues
-        # request_save and does not reach here until that save clears dirty.
-        # Discard sets replace_confirmed. Anything else keeps the buffer.
+        # Switching modes used to end the focused session and let the load
+        # overwrite the buffer. The only confirm covered calc_cell, and only
+        # when opening another cell, so Run Script, init, and LaTeX edits were
+        # dropped (and Run Script dropped a dirty cell). set_active_session →
+        # _finish used call_closed=False, so neither on_save nor on_closed ran
+        # before the new code replaced the editor. launch_monaco_editor asks
+        # first. Save queues request_save and does not reach here until that
+        # save clears dirty. Discard sets replace_confirmed. Anything else
+        # keeps the buffer.
         raise DirtyBufferError(
             f"Refusing to replace dirty Monaco session {blocked.session_id} ({blocked.mode})"
         )
 
-    # What was wrong: opening a cell after Run Script kept the old document UNO
-    # reference in _PERSISTENT_EDITOR.run_script_doc until disconnect or terminate.
-    # Why this change fixes it: reset run_script_doc to None when mode is not run_script.
+    # Opening a cell after Run Script must drop the old document UNO reference.
+    # Leaving it on _PERSISTENT_EDITOR.run_script_doc held the document until
+    # disconnect or terminate. Reset it when mode is not run_script.
     if mode == "run_script":
         if "run_script_doc" in ipc_message:
             # Queued save-then-load still carries the document. The direct launch
@@ -1132,11 +1125,10 @@ def _register_load_session(
         existing.mode = mode
         existing.dirty = False
         existing.extra.pop(_REPLACE_CONFIRMED, None)
-        # What was wrong: reuse reset dirty but left pending_load /
-        # pending_on_save / pending_on_closed. A queue_save_then_load still
+        # Reuse means this target is current, so a queued switch is no longer
+        # the next buffer. Resetting dirty alone left pending_load /
+        # pending_on_save / pending_on_closed, and a queue_save_then_load still
         # in flight then applied that stale load on a later unrelated save.
-        # Why this works: reuse means this target is current; the queued
-        # switch is no longer the next buffer.
         existing.pending_load = None
         existing.pending_on_save = None
         existing.pending_on_closed = None
@@ -1239,10 +1231,9 @@ def launch_monaco_editor(
             log.debug("Failed to compute monaco theme info; falling back to light", exc_info=True)
             ipc_message["theme"] = {"monaco": "vs", "is_dark": False}
 
-    # What was wrong: this function replaced the focused buffer before anyone
-    # asked. The cell editor only asked for mode calc_cell, and Run Python
-    # Script never asked, so each direction dropped the other buffer.
-    # Why this works: one gate covers cell, Run Script, init script, and LaTeX.
+    # One gate covers cell, Run Script, init script, and LaTeX. Replacing the
+    # focused buffer before asking dropped the other buffer: the cell editor
+    # only asked for mode calc_cell, and Run Python Script never asked.
     # Cancel and queued save return before set_active_session. Discard is
     # marked on the session so _register_load_session may replace it.
     decision = prepare_monaco_buffer_replace(ctx, ipc_message, on_save, closed_handler)

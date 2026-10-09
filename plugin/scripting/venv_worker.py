@@ -200,11 +200,10 @@ def _maybe_dispatch_intermediate_response(
         stop_checker=stop_checker,
     ):
         return True
-    # Bugfix: every caller used to fall through into the ppt-master dispatcher,
-    # and that dispatcher runs llm_request with the host's API credentials.
-    # A non-PPT worker (caller "script", including =PY()) could emit
-    # llm_request and make the host perform that call. Only the ppt-master
-    # worker is allowed to ask for it. tool_call above stays open to every caller.
+    # Only the ppt-master worker may emit llm_request. Every other caller
+    # (including "script" and =PY()) used to fall through into that dispatcher,
+    # which runs llm_request with the host's API credentials. tool_call above
+    # stays open to every caller.
     if caller != "ppt_master_venv":
         return False
     return _maybe_dispatch_ppt_master_response(
@@ -228,15 +227,15 @@ def _worker_registry_key(exe: str, pool: str) -> str:
 def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
     """Kill *proc* and its descendants (POSIX process group, Windows ``taskkill /T``)."""
     if sys.platform == "win32":
-        # Bugfix: returning when poll() is not None skipped taskkill /T, so
+        # Returning when poll() is not None skipped taskkill /T, so
         # grandchildren of an already-exited worker were left running.
         _kill_process_tree_win32(proc)
         return
-    # Bugfix: the same early return skipped the process group on POSIX.
-    # The worker is a session leader (start_new_session, so pgid == pid).
-    # If it has already exited, poll() has reaped it and getpgid(pid) raises
-    # ProcessLookupError, but grandchildren can still be in that group.
-    # killpg(pid) reaches them. ProcessLookupError means the group is gone.
+    # The same early return skipped the process group on POSIX. The worker is
+    # a session leader (start_new_session, so pgid == pid). If it has already
+    # exited, poll() has reaped it and getpgid(pid) raises ProcessLookupError,
+    # but grandchildren can still be in that group. killpg(pid) reaches them.
+    # ProcessLookupError means the group is gone.
     pid = proc.pid
     if not pid:
         if proc.poll() is None:
@@ -253,8 +252,8 @@ def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
         if fallback and proc.poll() is None:
             proc.kill()
         elif pgid == os.getpgrp():
-            # Bugfix: killpg on the host's own group (a reused pid, or a child
-            # without its own session) would kill LibreOffice. Kill only proc.
+            # killpg on the host's own group (a reused pid, or a child without
+            # its own session) would kill LibreOffice. Kill only proc.
             if proc.poll() is None:
                 proc.kill()
         else:
@@ -289,13 +288,13 @@ def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
 def _reap_worker_process(proc: subprocess.Popen[Any] | None, stderr_drain: StderrTail | None) -> None:
     """Kill a detached child and join its stderr drain. Runs off the caller thread.
 
-    What was wrong: ``_terminate_worker`` waited on this thread for the kill,
-    a second ``wait``, and the stderr join (about 12s when the tree ignores
-    the first signal). ``PythonWorkerManager.get`` did that on the caller,
-    which is the UI thread when Settings changes the venv path.
-    Why this works: the caller has already dropped ``_proc`` under
-    ``_proc_lock``. This thread only reaps that snapshot. The next spawn
-    joins it first, so the new child does not overlap the old process tree.
+    ``_terminate_worker`` used to wait on this thread for the kill, a second
+    ``wait``, and the stderr join (about 12s when the tree ignores the first
+    signal). ``PythonWorkerManager.get`` did that on the caller, which is the
+    UI thread when Settings changes the venv path. The caller has already
+    dropped ``_proc`` under ``_proc_lock``. This thread only reaps that
+    snapshot. The next spawn joins it first, so the new child does not
+    overlap the old process tree.
     """
     if proc is not None:
         try:
@@ -391,8 +390,8 @@ class PythonWorkerManager:
         prefix = f"{pool}:"
         stale: list[PythonWorkerManager] = []
         with _registry_lock:
-            # Bugfix: the registry key is pool:exe. A new Settings path used to
-            # leave the previous child running until LibreOffice exited.
+            # The registry key is pool:exe. A new Settings path used to leave
+            # the previous child running until LibreOffice exited.
             for other_key in list(_instances):
                 if other_key.startswith(prefix) and other_key != key:
                     old = _instances.pop(other_key, None)
@@ -427,11 +426,11 @@ class PythonWorkerManager:
     @classmethod
     def shutdown_all(cls) -> None:
         """Terminate all workers (tests / extension teardown)."""
-        # Bugfix: shutdown_all used to skip _retired, and the retry spawned an
-        # untracked warm process. get() already sets the flag before terminate
-        # so an in-flight execute cannot Popen a child the registry dropped.
-        # Drop the lock before terminate: an in-flight tool call may need the
-        # UI thread, and terminate must not hold _registry_lock across that.
+        # shutdown_all must not skip _retired: the retry spawned an untracked
+        # warm process. get() already sets the flag before terminate so an
+        # in-flight execute cannot Popen a child the registry dropped. Drop
+        # the lock before terminate: an in-flight tool call may need the UI
+        # thread, and terminate must not hold _registry_lock across that.
         with _registry_lock:
             managers = list(_instances.values())
             for mgr in managers:
@@ -468,12 +467,12 @@ class PythonWorkerManager:
         from plugin.framework.thread_guard import on_main_thread
 
         me = threading.get_ident()
-        # Bugfix: this used to refuse only the owner, or the UI thread while
-        # _serving_tool_call was already set. Every other thread then called
-        # Lock.acquire() with no timeout. The holder can be inside a tool RPC
-        # that is waiting on the thread stuck in acquire (the UI pump, or
-        # whichever worker must run the host callback), so the wait never
-        # ends and the UI stays frozen.
+        # Any other thread used to call Lock.acquire() with no timeout. The
+        # holder can be inside a tool RPC that is waiting on the thread stuck
+        # in acquire (the UI pump, or whichever worker must run the host
+        # callback), so the wait never ends and the UI stays frozen. Refuse
+        # the owner, anyone while a tool call is in progress, and the UI
+        # thread while the pipe lock is held.
         if self._io_owner == me or self._serving_tool_call:
             return _worker_error("WORKER_REENTRY", _WORKER_REENTRY_MESSAGE)
         if on_main_thread() and self._io_lock.locked():
@@ -549,7 +548,7 @@ class PythonWorkerManager:
             request["session_id"] = session_id
         if data is not None:
             request["data"] = data
-        # Bugfix: allow_heartbeat used to be set only on the code branch.
+        # allow_heartbeat belongs on every long job, not only the code branch.
         # run_trusted_action (embeddings, folder index) never received it, so
         # the child sent no heartbeat and the host killed a long job.
         if allow_heartbeat:
@@ -755,9 +754,10 @@ class PythonWorkerManager:
                 try:
                     self._write_frame_with_timeout(stdin, request, timeout_sec=write_timeout_sec, label="request")
                 except IpcFrameError as e:
-                    # Bugfix: an oversize request failed in pack_pickle_frame, before
-                    # any byte reached the pipe, yet hit the retry handler, which
-                    # killed the warm worker twice and wiped every shared session.
+                    # An oversize request fails in pack_pickle_frame before any byte
+                    # reaches the pipe. That must not hit the retry handler,
+                    # which killed the warm worker twice and wiped every shared
+                    # session.
                     log.warning("Python worker request not sent: %s", e)
                     return _worker_error(
                         "WORKER_IPC_ERROR",
@@ -803,13 +803,13 @@ class PythonWorkerManager:
                     )
                 except (subprocess.TimeoutExpired, IpcPartialFrameTimeout) as e:
                     # User code / C-extension hung: killing and replaying would double the wait.
-                    # What was wrong: Windows raises IpcPartialFrameTimeout (an
-                    # OSError) once any byte of a frame is buffered. That missed
-                    # this branch, and with exec_started only partly read
-                    # may_have_run was still false, so the outer handler resent
-                    # the script. The child writes exec_started and then runs
-                    # user code immediately, so file and DuckDB side effects ran
-                    # twice. POSIX already raises TimeoutExpired for that stall.
+                    # Windows raises IpcPartialFrameTimeout (an OSError) once any
+                    # byte of a frame is buffered. That missed this branch, and
+                    # with exec_started only partly read may_have_run was still
+                    # false, so the outer handler resent the script. The child
+                    # writes exec_started and then runs user code immediately, so
+                    # file and DuckDB side effects ran twice. POSIX already
+                    # raises TimeoutExpired for that stall.
                     log.warning("Python worker read timed out: %s", e)
                     return self._fail_no_replay(
                         "VENV_TIMEOUT",
@@ -817,21 +817,21 @@ class PythonWorkerManager:
                         details={"timeout_sec": timeout_sec, "exe": self.exe},
                     )
                 except ValueError as e:
-                    # Bugfix: a bad pickle used to kill the child and resend the
-                    # same request. Side effects that already ran (DuckDB writes,
-                    # a trusted update) ran twice. Id mismatch already refuses
-                    # that replay; unpickle does too.
+                    # A bad pickle must not kill the child and resend the same request.
+                    # Side effects that already ran (DuckDB writes, a trusted
+                    # update) would run twice. Id mismatch already refuses that
+                    # replay; unpickle does too.
                     log.warning("Python worker frame rejected (not replaying): %s", e)
                     return self._fail_no_replay("WORKER_IPC_ERROR", f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}")
                 except (OSError, RuntimeError) as e:
-                    # Bugfix: RuntimeError used to look only at dispatched_intermediate,
-                    # so a later RuntimeError (bad frame, closed pipe) after
+                    # RuntimeError must not look only at dispatched_intermediate. A
+                    # later RuntimeError (bad frame, closed pipe) after
                     # exec_started re-raised into the attempt loop and ran the
-                    # same script on a new child.
-                    # _NonReplayableIpcWriteTimeout is a RuntimeError, so a mid-turn
-                    # host-response write timeout is caught here first. Re-raising
-                    # when the turn has not started lets the dedicated handler below
-                    # refuse the replay; after exec_started this branch already does.
+                    # same script on a new child. _NonReplayableIpcWriteTimeout
+                    # is a RuntimeError, so a mid-turn host-response write
+                    # timeout is caught here first. Re-raising when the turn
+                    # has not started lets the dedicated handler below refuse
+                    # the replay; after exec_started this branch already does.
                     if not state.may_have_run:
                         raise
                     log.warning("Python worker failed after execution started (not replaying): %s", e)
@@ -1124,12 +1124,12 @@ class PythonWorkerManager:
         if sys.platform == "win32":
             popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
         else:
-            # Bugfix: preexec_fn=os.setsid runs in the child between fork and
-            # exec. In a threaded host only the forking thread is cloned, so
-            # a lock held by another thread (malloc, logging) deadlocks the
-            # child before exec. start_new_session asks the C spawn path to
-            # call setsid, which is the same new process group without that
-            # Python callback. pgid stays equal to pid for _kill_process_tree.
+            # preexec_fn=os.setsid runs in the child between fork and exec. In a
+            # threaded host only the forking thread is cloned, so a lock held
+            # by another thread (malloc, logging) deadlocks the child before
+            # exec. start_new_session asks the C spawn path to call setsid,
+            # which is the same new process group without that Python callback.
+            # pgid stays equal to pid for _kill_process_tree.
             popen_kw["start_new_session"] = True
         # The top-of-function check can pass, then shutdown_all (or get())
         # sets _retired, and this call would still Popen. Re-check immediately
@@ -1243,8 +1243,8 @@ class PythonWorkerManager:
 
     def _read_exact_before_deadline(self, stdout: IO[bytes], nbytes: int, deadline: float, stop_checker: Callable[[], bool] | None = None, timeout_label: float | int | None = None) -> bytes:
         remaining = deadline - time.monotonic()
-        # Bugfix: the label was computed from the time left, so an expired wait
-        # reported "timed out after 1 seconds" whatever the real window was.
+        # Report the configured window, not the time left. An expired wait
+        # otherwise says "timed out after 1 seconds" whatever the real window was.
         label = timeout_label if timeout_label is not None else max(1, int(remaining))
 
         if sys.platform == "win32":
@@ -1281,11 +1281,11 @@ class PythonWorkerManager:
         from plugin.framework.constants import HEARTBEAT_ABSOLUTE_CAP_SEC
         from plugin.scripting.venv.worker_heartbeat import FRAME_HEARTBEAT, FRAME_RESULT, parse_frame
 
-        # What was wrong: each heartbeat set the deadline to now+grace with no
-        # end. Trusted actions do not use the sandbox alarm, so a loop that
-        # kept emitting held _io_lock until something else killed the child.
-        # Why this works: heartbeats may move the short deadline forward, but
-        # never past an absolute ceiling from the start of this read.
+        # Each heartbeat used to set the deadline to now+grace with no end.
+        # Trusted actions do not use the sandbox alarm, so a loop that kept
+        # emitting held _io_lock until something else killed the child.
+        # Heartbeats may move the short deadline forward, but never past an
+        # absolute ceiling from the start of this read.
         cap = float(HEARTBEAT_ABSOLUTE_CAP_SEC if absolute_cap_sec is None else absolute_cap_sec)
         start = time.monotonic()
         ceiling = start + cap

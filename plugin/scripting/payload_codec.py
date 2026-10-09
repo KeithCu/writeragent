@@ -116,10 +116,10 @@ def _to_py(v: Any) -> Any:
 def _optional_numpy() -> Any:
     """Return the NumPy module, or None when this interpreter has no NumPy.
 
-    Bugfix: ``child_pack_result``, ``_needs_elementwise_pack``,
+    ``child_pack_result``, ``_needs_elementwise_pack``,
     ``_container_has_packable_nested``, and ``_child_unpack_single_data``
-    imported NumPy before looking at the value. A plain dict or list then
-    raised ``ImportError`` in a venv without NumPy (LibreOffice's Python
+    used to import NumPy before looking at the value. A plain dict or list
+    then raised ``ImportError`` in a venv without NumPy (LibreOffice's Python
     ships without it, and some user venvs omit it). ``ModuleNotFoundError``
     is an ``ImportError``. Callers skip ndarray checks when this returns
     None. Numeric ``split_grid`` envelopes still import NumPy on their own.
@@ -642,10 +642,10 @@ def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
             tmp.write(payload["data"])
             return os.path.abspath(tmp.name)
     except Exception:
-        # What was wrong: delete=False left the file when write raised
-        # (data was not bytes). How: the with-block closed it and the
-        # exception propagated. Why: this function created the file, so a
-        # failed write should not leak it. A successful path stays for the caller.
+        # delete=False leaves the file when write raises (data was not bytes):
+        # the with-block closes it and the exception propagates. This function
+        # created the file, so a failed write must not leak it. A successful
+        # path stays for the caller.
         if path:
             try:
                 os.unlink(path)
@@ -784,11 +784,10 @@ _deal_column_kinds_grid_ok = _profile(_deal_grid_ok, _deal_product_grid_ok)
 def column_kinds_for_grid(grid: list[Any] | list[list[Any]]) -> list[str]:
     """Policy helper (tests): per-column int/float/bool from source types; mirrors host_pack_split_grid."""
     # crosshair: off
-    # What was wrong: ``except Exception: return []`` hid the jagged-grid
-    # ValueError that flatten raises, and the small deal domain rejected a
-    # sheet pack accepts. How: this helper was the only pack mirror with a
-    # swallow and that cap. Why this works: it calls flatten directly, pytest
-    # uses the product-grid pre, and a jagged grid raises.
+    # ``except Exception: return []`` hid the jagged-grid ValueError that
+    # flatten raises, and the small deal domain rejected a sheet pack accepts.
+    # Call flatten directly. pytest uses the product-grid pre, and a jagged
+    # grid raises.
     _unused, _unused2, kinds, _unused3 = _flatten_grid_to_components(grid)
     return kinds
 
@@ -1040,10 +1039,9 @@ def _is_numeric_coercible_impl(value: Any) -> bool:
     if value is None or isinstance(value, (bool, int, float)):
         return True
     # NumPy scalars (int64, float64, bool_, uint64) without a module-level import.
-    # What was wrong: any type whose name started with int/float/bool/uint
-    # (a user class ``internal``) was treated as numeric. How: the prefix
-    # check had no module gate. Why this works: only numpy scalar classes
-    # take that shortcut; builtins already returned above.
+    # A type whose name starts with int/float/bool/uint (a user class
+    # ``internal``) is not numeric. Only numpy scalar classes take that
+    # shortcut; builtins already returned above.
     tname = type(value).__name__
     mod = getattr(type(value), "__module__", "")
     if (mod == "numpy" or (isinstance(mod, str) and mod.startswith("numpy."))) and tname.startswith(
@@ -1089,11 +1087,10 @@ def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
     if len(grid) == 0:
         return True
     if type(grid[0]) in (list, tuple):
-        # What was wrong: ``for cell in row`` raised TypeError when a later
-        # row was an int. Deal's pre rejects that grid; a release build
-        # strips deal, so the body used to TypeError.
-        # Why this works: ``_split_grid_row_width`` raises ValueError unless
-        # the row is a list or tuple, same as host pack.
+        # ``for cell in row`` raises TypeError when a later row is an int.
+        # Deal's pre rejects that grid; a release build strips deal, so the
+        # body used to TypeError. ``_split_grid_row_width`` raises ValueError
+        # unless the row is a list or tuple, same as host pack.
         for row in grid:
             _split_grid_row_width(row)
         return all(_is_numeric_coercible_impl(cell) for row in grid for cell in row)
@@ -1107,10 +1104,10 @@ def wire_cell_count(data: Any, *, _depth: int = 0) -> int:
     """Cell count for size limits; works on lists or split_grid / multi_data / calc_range envelopes."""
     # crosshair: off
     # Envelope detectors + typed payload tags hit CrossHairInternal/Literal proxy errors on garbage dicts.
-    # What was wrong: a self-referential multi_data walked until RecursionError.
-    # describe_wire_value then failed its deal post with TypeError.
-    # Why this works: the same depth cap as host_unpack_data. No identity set:
-    # a shared subtree is still counted; a cycle hits 128 and raises.
+    # A self-referential multi_data walked until RecursionError, and
+    # describe_wire_value then failed its deal post with TypeError. Use the
+    # same depth cap as host_unpack_data. No identity set: a shared subtree
+    # is still counted; a cycle hits 128 and raises.
     if _depth > _MAX_UNPACK_DEPTH:
         raise ValueError("payload_codec: wire_cell_count maximum recursion depth exceeded")
     if is_calc_range_payload(data):
@@ -1128,10 +1125,10 @@ def wire_cell_count(data: Any, *, _depth: int = 0) -> int:
     if data is None:
         return 0
     if type(data) not in (list, tuple):
-        # What was wrong: a dataframe whose data is an ndarray is not a
-        # list, so this returned 1 and describe_wire_value logged cells~1.
-        # Host size guards only see host-packed lists; this is the debug count.
-        # Why this works: _is_ndarray does not import NumPy. .size is rows*cols.
+        # A dataframe whose data is an ndarray is not a list. Returning 1 made
+        # describe_wire_value log cells~1. Host size guards only see
+        # host-packed lists; this is the debug count. _is_ndarray does not
+        # import NumPy. .size is rows*cols.
         if _is_ndarray(data):
             return int(data.size)
         return 1
@@ -1218,11 +1215,11 @@ def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> 
             if st == 0:
                 column_states[c] = 1
         else:
-            # What was wrong: kind "O" (and any other non f/i/u/b) returned
-            # without writing state, so a bool/int column stayed bool/int on
-            # the pure path and became float when the accelerator loaded.
-            # Cython ``_update_column_state`` sets state 3 for that else.
-            # float(val) already succeeded before this helper runs.
+            # Kind "O" (and any other non f/i/u/b) must still write state.
+            # Returning without writing left a bool/int column as bool/int on
+            # the pure path and float when the accelerator loaded. Cython
+            # ``_update_column_state`` sets state 3 for that else. float(val)
+            # already succeeded before this helper runs.
             column_states[c] = 3
         return
     tname = tv.__name__
@@ -1250,17 +1247,16 @@ _AS_TEXT = _AsText()
 def _numeric_cell_to_float(val: Any) -> float | _AsText:
     """Convert one cell to float64, or ``_AS_TEXT`` when it must be ``str(val)``.
 
-    What was wrong: the fast path and ``_flatten_append_cell_slow`` each called
-    ``float()`` on a plain ``int`` with no guard, so ``10**400`` raised
-    ``OverflowError`` (``RaisesContractError`` under deal, a worker failure
-    once deal is stripped). ``float(np.complex64/128/clongdouble)`` succeeds
-    and keeps only the real part. Decimal and Fraction already caught
-    ``OverflowError``. Python ``complex`` already failed ``float()`` and was
-    stored as text. Why this works: both Python flatten lanes call this
-    helper. Cython ``_flatten_cell`` mirrors the int-overflow and
-    ``dtype.kind == "c"`` checks; do not merge the loops. Integers that
-    ``float()`` accepts, including those past the 53-bit mantissa, stay
-    numeric.
+    The fast path and ``_flatten_append_cell_slow`` each called ``float()``
+    on a plain ``int`` with no guard, so ``10**400`` raised ``OverflowError``
+    (``RaisesContractError`` under deal, a worker failure once deal is
+    stripped). ``float(np.complex64/128/clongdouble)`` succeeds and keeps only
+    the real part. Decimal and Fraction already caught ``OverflowError``.
+    Python ``complex`` already failed ``float()`` and was stored as text.
+    Both Python flatten lanes call this helper. Cython ``_flatten_cell``
+    mirrors the int-overflow and ``dtype.kind == "c"`` checks; do not merge
+    the loops. Integers that ``float()`` accepts, including those past the
+    53-bit mantissa, stay numeric.
     """
     # crosshair: off  # Any cell; sibling of the already-off flatten loops.
     tv = type(val)
@@ -1356,12 +1352,11 @@ def _flatten_append_cell_slow(
                 # np.str_ subclasses str and Cython PyUnicode_Check stores it
                 # before trying float. Storing it raw fails host unpickle
                 # (LibreOffice Python has no NumPy). str() yields a builtin str.
-                # What was wrong: every other unknown kind (dtype "O" with
-                # __float__) was also stringified here, so the same value was
-                # 1.5 before a text cell and "W" after one. Cython
-                # PyFloat_AsDouble keeps the float. Kind "c" is the exception:
-                # float() keeps the real part, so _numeric_cell_to_float
-                # stringifies it.
+                # Other unknown kinds (dtype "O" with __float__) must not be
+                # stringified here, or the same value is 1.5 before a text
+                # cell and "W" after one. Cython PyFloat_AsDouble keeps the
+                # float. Kind "c" is the exception: float() keeps the real
+                # part, so _numeric_cell_to_float stringifies it.
                 if isinstance(val, str):
                     buf_append(nan)
                     strings[idx] = str(val)
@@ -1379,14 +1374,14 @@ def _flatten_append_cell_slow(
             if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan):
                 column_states[c] = 3
         elif not isinstance(val, str):
-            # Bugfix: the fast path and Cython ``_flatten_cell`` float() a
-            # Decimal or Fraction. This branch runs only after an earlier cell
-            # set has_non_numeric, and it used to str() those values, so the
-            # same number became 1.25 or the text "1.25" / "1/4" depending on
-            # position. decimal and fractions are on the venv import whitelist,
-            # and a pandas object column reaches this flatten without the
-            # pickle-leaf coerce. Strings stay text (zip codes). A value
-            # ``float()`` rejects (huge Fraction, Python complex) is text via
+            # The fast path and Cython ``_flatten_cell`` float() a Decimal or
+            # Fraction. This branch runs only after an earlier cell set
+            # has_non_numeric, and str() on those values made the same number
+            # 1.25 or the text "1.25" / "1/4" depending on position. decimal
+            # and fractions are on the venv import whitelist, and a pandas
+            # object column reaches this flatten without the pickle-leaf
+            # coerce. Strings stay text (zip codes). A value ``float()``
+            # rejects (huge Fraction, Python complex) is text via
             # ``_numeric_cell_to_float``.
             if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] != 3:
                 _flatten_update_column_state(column_states, c, val)
@@ -1399,10 +1394,10 @@ def _flatten_append_cell_slow(
 def _split_grid_row_width(row: Any) -> int:
     """Width of one 2D row.
 
-    What was wrong: ``len(row)`` on a later int raised ``TypeError`` once deal
-    was stripped (release / LibreOffice). Pack only declares ``ValueError``.
-    Why this works: a real row is a list or tuple. ``str`` has a length but is
-    not a row (``"ab"`` would otherwise look two cells wide).
+    ``len(row)`` on a later int raises ``TypeError`` once deal is stripped
+    (release / LibreOffice). Pack only declares ``ValueError``. A real row is
+    a list or tuple. ``str`` has a length but is not a row (``"ab"`` would
+    otherwise look two cells wide).
     """
     # crosshair: off  # malformed row (Any), sibling of already-off grid validate.
     if not isinstance(row, (list, tuple)):
@@ -1774,12 +1769,12 @@ def host_pack_multi_data(
 def _split_grid_string_index(key: Any) -> int:
     """Flat cell index for one ``strings`` key.
 
-    What was wrong: ``int(k)`` truncated a float key (``1.5`` landed in cell 1)
-    and ``int(float("inf"))`` raised OverflowError. The child unpack contract
+    ``int(k)`` truncates a float key (``1.5`` lands in cell 1) and
+    ``int(float("inf"))`` raises OverflowError. The child unpack contract
     only declares ValueError, so under deal that became RaisesContractError.
-    Why this works: production keys are ``int``. Legacy harnesses used digit
-    strings. A bool is an int subclass and used to become index 0 or 1; only
-    a real ``int``, or one optional minus plus ASCII digits, is accepted.
+    Production keys are ``int``. Legacy harnesses used digit strings. A bool
+    is an int subclass and used to become index 0 or 1; only a real ``int``,
+    or one optional minus plus ASCII digits, is accepted.
     """
     # crosshair: off  # malformed wire keys (Any key, not a closed int/str domain).
     if type(key) is int:
@@ -1797,13 +1792,12 @@ def _decode_split_grid_buffer(envelope: dict[str, Any], expected_cells: int) -> 
     Host and child each used to pick ``buffer`` vs ``b64`` and check length.
     Decode is cold next to materializing the grid.
 
-    What was wrong: the host sliced whatever bytes arrived, so a short buffer
-    became a short grid while ``wire_cell_count`` still reported the declared
-    shape. The child numeric path rejected that, but the 1D mixed path
-    reshaped only for 2D and returned a shorter list (or kept extra floats).
-    Why this works: both unpackers call here before ``array.frombytes`` /
-    ``np.frombuffer``, so a short, long, or non-multiple-of-8 buffer raises
-    instead of changing the grid.
+    The host used to slice whatever bytes arrived, so a short buffer became a
+    short grid while ``wire_cell_count`` still reported the declared shape.
+    The child numeric path rejected that, but the 1D mixed path reshaped only
+    for 2D and returned a shorter list (or kept extra floats). Both unpackers
+    call here before ``array.frombytes`` / ``np.frombuffer``, so a short,
+    long, or non-multiple-of-8 buffer raises instead of changing the grid.
     """
     # crosshair: off  # buffer/b64 bytes (cover-all: envelope Any). Same reason as the unpackers.
     if "buffer" in envelope:
@@ -1812,14 +1806,14 @@ def _decode_split_grid_buffer(envelope: dict[str, Any], expected_cells: int) -> 
         import base64
         import binascii
 
-        # What was wrong: b64decode raises binascii.Error, and a non-ASCII
-        # string raises UnicodeEncodeError. Both subclass ValueError, but
-        # deal's @deal.raises matches exact types, so a bad legacy b64 became
-        # RaisesContractError (AssertionError), outside _HOST_UNPACK_ERRORS.
-        # Why this works: both unpack contracts declare ValueError.
-        # validate=True rejects non-alphabet characters instead of skipping
-        # them. Production wire uses buffer bytes; b64encode output still
-        # decodes. A non-str b64 still raises AttributeError from .encode.
+        # b64decode raises binascii.Error, and a non-ASCII string raises
+        # UnicodeEncodeError. Both subclass ValueError, but deal's @deal.raises
+        # matches exact types, so a bad legacy b64 became RaisesContractError
+        # (AssertionError), outside _HOST_UNPACK_ERRORS. Both unpack contracts
+        # declare ValueError. validate=True rejects non-alphabet characters
+        # instead of skipping them. Production wire uses buffer bytes;
+        # b64encode output still decodes. A non-str b64 still raises
+        # AttributeError from .encode.
         try:
             raw = base64.b64decode(envelope["b64"].encode("ascii"), validate=True)
         except (binascii.Error, UnicodeEncodeError) as exc:
@@ -1942,12 +1936,11 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
 def _deal_host_unpack_wire_ok_pytest(wire: object) -> bool:
     """Any worker result is in domain.
 
-    What was wrong: datetime, Decimal, bytes, and other ordinary values
-    failed the type list. PreContractError (an AssertionError) fired on
-    the recursive call inside an accepted dict, before ``return wire``.
-    How: the pre enumerated JSON scalars plus numpy. Why: the body already
-    returns unrecognized objects unchanged. CrossHair keeps that type list.
-    ``wire`` is unused.
+    datetime, Decimal, bytes, and other ordinary values failed the type list.
+    PreContractError (an AssertionError) fired on the recursive call inside
+    an accepted dict, before ``return wire``. The pre enumerated JSON scalars
+    plus numpy. The body already returns unrecognized objects unchanged.
+    CrossHair keeps that type list. ``wire`` is unused.
     """
     return True
 
@@ -1977,10 +1970,9 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
     if is_image_payload(wire):
         return wire
     if is_calc_range_payload(wire):
-        # What was wrong: rebuilding only __wa_payload__/shape/data/address
-        # dropped any other envelope field. The dataframe branch already
-        # shallow-copies for the same reason.
-        # Why this works: copy the dict, then replace data so a future field
+        # Rebuilding only __wa_payload__/shape/data/address drops any other
+        # envelope field. The dataframe branch already shallow-copies for the
+        # same reason. Copy the dict, then replace data so a future field
         # survives. data is still unpacked.
         unpacked_inner = host_unpack_data(
             wire.get("data"), as_nested_list=as_nested_list, _depth=_depth + 1
@@ -1994,11 +1986,10 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True, _depth: int = 0)
     if is_split_grid(wire):
         return host_unpack_split_grid(wire, as_nested_list=as_nested_list)
     if is_dataframe_payload(wire):
-        # What was wrong: rebuilding only __wa_payload__/columns/data dropped
-        # any other envelope field (index, dtypes). The producer sets only
-        # those three today.
-        # Why this works: shallow-copy and replace data so a future field
-        # survives. data is still unpacked.
+        # Rebuilding only __wa_payload__/columns/data drops any other envelope
+        # field (index, dtypes). The producer sets only those three today.
+        # Shallow-copy and replace data so a future field survives. data is
+        # still unpacked.
         unpacked_inner = host_unpack_data(
             wire.get("data"), as_nested_list=as_nested_list, _depth=_depth + 1
         )
@@ -2164,11 +2155,11 @@ def _child_unpack_single_data(wire: Any) -> Any:
 
         grid: list[Any] | list[list[Any]]
         if unpacked and (type(unpacked[0]) in (list, tuple)):
-            # What was wrong: list(row) on a later int raised TypeError.
-            # This function has no grid pre, so deal did not hide it.
-            # Host pack already raises ValueError via _split_grid_row_width.
-            # Why this works: a real row is a list or tuple. A str has a
-            # length but is not a row ("ab" must not become two cells).
+            # list(row) on a later int raises TypeError. This function has no
+            # grid pre, so deal did not hide it. Host pack already raises
+            # ValueError via _split_grid_row_width. A real row is a list or
+            # tuple. A str has a length but is not a row ("ab" must not become
+            # two cells).
             grid = []
             for row in unpacked:
                 _split_grid_row_width(row)
@@ -2291,12 +2282,11 @@ def _is_numeric_wire_kind(kind: str | None) -> bool:
 def _reject_temporal_ndarray(arr: Any) -> None:
     """Refuse datetime64/timedelta64 on the float64 pack path.
 
-    What was wrong: ``astype(float64)`` turned a date into a Unix-epoch day
-    count (20629.0), and ``.tolist()`` on datetime64[ns] yielded integer
-    nanoseconds. How: ``child_pack_result`` sent kind ``M``/``m`` down the
-    numeric lane. Why this works: ``serialize_result`` converts those arrays
-    before it calls here; a direct caller now gets ``ValueError`` instead of
-    a silent wrong number.
+    ``astype(float64)`` turns a date into a Unix-epoch day count (20629.0),
+    and ``.tolist()`` on datetime64[ns] yields integer nanoseconds.
+    ``child_pack_result`` used to send kind ``M``/``m`` down the numeric lane.
+    ``serialize_result`` converts those arrays before it calls here; a direct
+    caller gets ``ValueError`` instead of a silent wrong number.
     """
     # crosshair: off
     kind = getattr(getattr(arr, "dtype", None), "kind", None)
@@ -2311,11 +2301,11 @@ def _reject_temporal_ndarray(arr: Any) -> None:
 def wire_str_key(key: Any, used: set[str]) -> str:
     """Stringify a dict key for the host pickle boundary.
 
-    What was wrong: ``{str(k): ...}`` last-wins, so ``{1: "a", "1": "b"}``
-    dropped ``"a"`` with no error. How: three egress sites each rebuilt the
-    dict that way. Why this works: the second key that stringifies to an
-    existing wire key raises before the value is overwritten. An exact ``str``
-    is kept; a subclass such as ``np.str_`` becomes a builtin ``str``.
+    ``{str(k): ...}`` is last-wins, so ``{1: "a", "1": "b"}`` dropped ``"a"``
+    with no error. Three egress sites each rebuilt the dict that way. The
+    second key that stringifies to an existing wire key raises before the
+    value is overwritten. An exact ``str`` is kept; a subclass such as
+    ``np.str_`` becomes a builtin ``str``.
     """
     # crosshair: off
     sk = key if type(key) is str else str(key)
@@ -2477,10 +2467,10 @@ def child_pack_result(
                         )
                         for i in range(int(result.shape[0]))
                     ]
-                # Bugfix: the old gate was ``kind not in ("U", "S", "O")``.
-                # Complex (``c``) passed it and astype(float64) dropped the
-                # imaginary part. Void/structured raised inside the cast and
-                # dropped the cell. Same whitelist as the DataFrame path.
+                # The old gate was ``kind not in ("U", "S", "O")``. Complex
+                # (``c``) passed it and astype(float64) dropped the imaginary
+                # part. Void/structured raised inside the cast and dropped the
+                # cell. Same whitelist as the DataFrame path.
                 wire_kind = kind if isinstance(kind, str) else None
                 if (
                     result.ndim in (1, 2)
@@ -2488,11 +2478,11 @@ def child_pack_result(
                     and should_use_binary_envelope(shape, min_cells=min_cells, force=force)
                 ):
                     return child_pack_split_grid(result)
-                # Bugfix: the log said json_list egress, then the ndarray was returned
-                # unchanged. A DataFrame under 100 cells kept an ndarray body, and
-                # result_to_calc_grid dropped that body. A bare multi-cell array
-                # became one Calc string. Recurse on tolist() so the list path
-                # (grid_from_nested_list) is what actually goes on the wire.
+                # Logging json_list egress and then returning the ndarray
+                # unchanged left a DataFrame under 100 cells with an ndarray
+                # body, and result_to_calc_grid dropped that body. A bare
+                # multi-cell array became one Calc string. Recurse on tolist()
+                # so the list path (grid_from_nested_list) is what goes on the wire.
                 if log.isEnabledFor(logging.DEBUG):
                     log.debug(
                         "payload_codec child_pack ndarray via list kind=%s shape=%s",

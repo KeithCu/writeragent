@@ -106,9 +106,8 @@ def run_trusted_worker_action(
         "context": context or {},
     }
     if additional_data:
-        # What was wrong: payload.update(additional_data) ran after core routing keys
-        # were set, allowing additional_data to silently overwrite domain, params, or context.
-        # Why this fixes it: reject reserved keys in additional_data to protect core packet fields.
+        # additional_data is merged after the routing keys. Reject reserved
+        # keys so it cannot overwrite domain, params, or context.
         colliding = _RESERVED_PAYLOAD_KEYS.intersection(additional_data)
         if colliding:
             raise ValueError(f"additional_data cannot override reserved keys: {sorted(colliding)}")

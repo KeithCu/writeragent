@@ -75,8 +75,8 @@ INPROCESS_SANDBOX_CONTEXT_PREFIX = (
 @deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
 def venv_authorized_top_level_modules() -> tuple[str, ...]:
     """Top-level module names allowed in the venv worker sandbox."""
-    # Bugfix: return real top-level module names instead of dotted paths (e.g. plugin.scripting.*).
-    # Intermediate internal nodes like 'plugin' are not authorized top-level imports and are omitted.
+    # Return real top-level module names, not dotted paths (plugin.scripting.*).
+    # Intermediate nodes such as 'plugin' are not authorized top-level imports.
     roots: set[str] = set(BASE_BUILTIN_MODULES)
     for entry in VENV_AUTHORIZED_IMPORTS:
         if entry.startswith("plugin."):
@@ -209,7 +209,7 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         # duckdb stays on VENV_AUTHORIZED_IMPORTS. Listing it here would steer
         # default chat toward raw import duckdb instead of session_duckdb().
         packages_list = [m for m in _venv_package_modules() if not _omit_from_prompt_packages(m)]
-        # Bugfix: show writeragent.scripting helpers once (excluding plugin.* twins).
+        # Show writeragent.scripting helpers once (excluding plugin.* twins).
         helpers = [h for h in _venv_writeragent_helpers() if not _omit_from_prompt_packages(h)]
         packages = _join_modules(tuple(sorted(set(packages_list) | set(helpers))))
         common = _join_modules(_VENV_COMMON_BLOCKED)

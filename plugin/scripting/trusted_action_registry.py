@@ -29,10 +29,9 @@ class TrustedActionWiring:
 
     def dispatch(self, data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
         parts = self.handler.rsplit(":", 1)
-        # What was wrong: a handler string with no colon made rsplit return
-        # one element, and the unpack raised ValueError with no context.
-        # Why this works: the wiring contract is module:attr; anything else
-        # fails here with that shape instead of a bare unpack error.
+        # A handler string with no colon makes rsplit return one element, and
+        # the unpack raises a bare ValueError. The wiring contract is
+        # module:attr; anything else fails here with that shape.
         if len(parts) != 2:
             raise ValueError(
                 f"Trusted action handler must be 'module:attr', got {self.handler!r}"
@@ -51,8 +50,6 @@ class TrustedActionWiring:
 _TRUSTED_ACTION_WIRING: tuple[TrustedActionWiring, ...] = (
     TrustedActionWiring("units", "plugin.scripting.venv.trusted_dispatch:dispatch_units"),
     TrustedActionWiring("symbolic", "plugin.scripting.venv.trusted_dispatch:dispatch_symbolic"),
-    # What was wrong: 'math' domain wiring duplicated 'symbolic' with no client caller or tests.
-    # Why this fixes it: deleted dead 'math' domain entry.
     TrustedActionWiring("viz", "plugin.scripting.venv.trusted_dispatch:dispatch_viz"),
     TrustedActionWiring("analysis", "plugin.scripting.venv.trusted_dispatch:dispatch_analysis"),
     TrustedActionWiring("forecast", "plugin.scripting.venv.trusted_dispatch:dispatch_forecast"),

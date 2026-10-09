@@ -159,11 +159,12 @@ _VENV_PACKAGES: tuple[str, ...] = (
     "spacytextblob.*",
     "pint",
     "pint.*",
-    # Bugfix: duckdb was removed from this allowlist, so `import duckdb` raised
-    # "Import of duckdb is not allowed" before get_safe_module could return the
-    # raw C module. User scripts need connect/execute/df on that module.
-    # session_duckdb() still returns GuardedDuckDBConnection for trusted SQL.
-    # import_policy keeps the name out of LLM blurbs.
+    # duckdb stays importable so user scripts can call connect/execute/df on
+    # the raw C module. Removing it from this allowlist made `import duckdb`
+    # raise "Import of duckdb is not allowed" before get_safe_module could
+    # return that module. session_duckdb() still returns
+    # GuardedDuckDBConnection for trusted SQL. import_policy keeps the name
+    # out of LLM blurbs.
     "duckdb",
     "duckdb.*",
     "sentence_transformers",
@@ -238,12 +239,11 @@ def _matches_allowlist(name: str, exact: frozenset[str], wildcards: tuple[str, .
 def import_authorized(name: str, authorized_imports: Sequence[str]) -> bool:
     """Whether *name* is on the sandbox import allowlist.
 
-    Bugfix: check_import_authorized allowed any intermediate trie node (e.g.
-    'plugin' or 'plugin.scripting'), inadvertently permitting imports of intermediate
-    packages. Require that the name is an exact allowlist entry or covered by a
-    wildcard prefix ('a.b.*' matching 'a.b' and 'a.b.<child>'). Precompute exact
-    names and wildcard prefixes per allowlist with caching instead of rebuilding
-    the trie on every check.
+    An intermediate trie node such as 'plugin' or 'plugin.scripting' is not
+    an authorized import. Require an exact allowlist entry or a wildcard
+    prefix ('a.b.*' matching 'a.b' and 'a.b.<child>'). Precompute exact names
+    and wildcard prefixes per allowlist instead of rebuilding the trie on
+    every check.
 
     A ``writeragent.*`` import is allowed only when the plugin module
     AliasImporter would load is on the same list, or the alias itself is an
@@ -356,12 +356,10 @@ _DEAL_BASENAME_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_PATH
 def _env_name_is_credential(name: str) -> bool:
     """True when an env name is a credential, matched on ``_`` tokens.
 
-    Bugfix: Token matching previously only checked if a token equaled or
-    started with a blocked word, which allowed OPENAI_APIKEY, GITHUB_APITOKEN,
-    AWS_SECRETKEY, and DATABASE_URL/*_DSN to leak, while mistakenly blocking
-    KEYBOARD_*. We now match tokens that equal, start with, or end with blocked
-    words, explicitly allow KEYBOARD tokens, and block DATABASE_URL and names
-    ending in _DSN.
+    Match tokens that equal, start with, or end with a blocked word.
+    Prefix-only matching let OPENAI_APIKEY, GITHUB_APITOKEN, AWS_SECRETKEY,
+    and DATABASE_URL/*_DSN through, and blocked KEYBOARD_*. KEYBOARD tokens
+    are allowed. DATABASE_URL and names ending in _DSN are blocked.
     """
     nu = name.upper()
     if nu in _ENV_CREDENTIAL_ALLOW:
@@ -398,9 +396,8 @@ def _env_name_is_credential(name: str) -> bool:
 def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
     """Drop likely-secret vars and LO Python overrides from the environment passed to venv Python.
 
-    Bugfix: scrub_subprocess_env({}) previously returned {} without applying UTF-8
-    and bytecode overrides. Only base is None returns {}. An empty dict receives
-    the standard Python environment overrides like any non-empty dict.
+    Only ``base is None`` returns {}. An empty dict still receives the UTF-8
+    and bytecode overrides. Returning {} for {} skipped those overrides.
     """
     if base is None:
         return {}
@@ -412,7 +409,7 @@ def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
         if _env_name_is_credential(k):
             continue
         out[k] = v
-    # Bugfix: setdefault kept whatever the parent already had. Callers pass
+    # setdefault kept whatever the parent already had. Callers pass
     # dict(os.environ) (venv worker, editor host, compute worker). A latin-1
     # PYTHONIOENCODING, PYTHONUTF8=0, or PYTHONDONTWRITEBYTECODE=0 then failed
     # the ensure in deal builds and spawned the child with that encoding once
@@ -562,7 +559,7 @@ def _normalize_venv_path_input(venv_dir: str) -> str:
 @deal.pre(lambda base: ascii_bounded(base, _DEAL_BASENAME_LEN))
 def _is_acceptable_python_basename(base: str) -> bool:
     """True for python / python3 / python.exe; false for pythonw and -config scripts."""
-    # Bugfix: python3.X-config scripts are shell wrappers, not Python interpreters.
+    # python3.X-config scripts are shell wrappers, not Python interpreters.
     lower = base.lower()
     if lower in ("pythonw", "pythonw.exe") or lower.endswith(("-config", "-config.exe")):
         return False
@@ -691,7 +688,8 @@ def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
     else:
         for name in ("python", "python3"):
             candidates.append(os.path.join(bin_dir, name))
-    # Bugfix: guard os.listdir with OSError like _bundled_lo_python_candidates.
+    # os.listdir raises OSError on a race or an unreadable directory. Same
+    # guard as _bundled_lo_python_candidates.
     if os.path.isdir(bin_dir):
         try:
             entries = sorted(os.listdir(bin_dir))

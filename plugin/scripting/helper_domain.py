@@ -179,10 +179,10 @@ def _writeragent_imported_names(tree: ast.AST) -> set[str]:
 def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]:
     """Literal params from ``helper(...)`` (units positional style and kwargs).
 
-    What was wrong: The positional argument mapping for units (value/from/to, quantity, etc.)
-    was applied to all helpers, turning describe_data(data) into {"quantity": "data"}.
-    How it happened: Positional argument mapping was not restricted to units helpers.
-    Why this change: Only apply units positional mapping when helper is a recognized units helper.
+    Units helpers take positional value/from/to (or quantity). Applying that
+    map to every helper turned describe_data(data) into {"quantity": "data"}.
+    Use it only for convert_quantity, parse_quantity, format_quantity, and
+    check_dimensionality.
     """
     params: dict[str, Any] = {}
     if node.keywords and any(kw.arg is None for kw in node.keywords):
@@ -252,11 +252,9 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
 def _find_binding_insertion_line(code: str) -> int:
     """Line index (0-based) where injected bindings should be inserted.
 
-    What was wrong: Prepending bindings at line 0 broke 'from __future__ import',
-    shebang, and coding headers, and shifted line numbers of the entire script.
-    How it happened: String concatenation prepended bindings before the first character of code.
-    Why this change: Insert bindings after any shebang (#!), coding comment,
-    module docstring, and __future__ imports so future statements remain valid.
+    Bindings go after any shebang, coding comment, module docstring, and
+    ``from __future__ import``. Prepending at line 0 breaks those headers
+    and shifts every line number in the script.
     """
     lines = code.splitlines(keepends=True)
     if not lines:
@@ -308,9 +306,8 @@ def _find_binding_insertion_line(code: str) -> int:
 def _binding_literal(val: Any) -> str:
     """Format an injected document binding as Python code.
 
-    What was wrong: json.dumps emitted null, true, false which are NameErrors in Python.
-    How it happened: json.dumps was used instead of Python literal serialization.
-    Why this change: Format strings as JSON (double-quoted), True/False/None as Python keywords.
+    json.dumps emits null, true, and false, which are NameErrors in Python.
+    Strings stay JSON (double-quoted). True, False, and None are Python keywords.
     """
     if val is None:
         return "None"
@@ -337,9 +334,8 @@ def prepend_run_import_document_bindings(code: str, *, bindings: dict[str, Any])
         return code
     lines = ["# Document inputs injected below — edit the run_*() call only."]
     for name, value in bindings.items():
-        # What was wrong: json.dumps emitted null, true, false which are NameErrors in Python.
-        # How it happened: json.dumps was used instead of Python literal serialization.
-        # Why this change: Use _binding_literal to emit valid Python literals (None, True, False, json.dumps strings).
+        # _binding_literal emits Python (None, True, False, JSON strings).
+        # json.dumps emits null/true/false, which are NameErrors here.
         lines.append(f"{name} = {_binding_literal(value)}")
     lines.append("")
     injection = "\n".join(lines) + "\n"
@@ -358,10 +354,9 @@ def prepend_run_import_document_bindings(code: str, *, bindings: dict[str, Any])
 def script_uses_run_import(code: str, *, run_name: str) -> bool:
     """True when *code* contains a call to *run_name*.
 
-    What was wrong: The substring check f"{run_name}(" in code was evaluated even when
-    AST parsed cleanly, so comments like '# run_vision(' matched and hijacked the script into that domain.
-    How it happened: Unconditional OR between AST check and substring check.
-    Why this change: Use the substring fallback only when ast.parse raises SyntaxError.
+    The substring fallback runs only when ast.parse raises. Using it on valid
+    source matched comments such as ``# run_vision(`` and sent the script into
+    that domain.
     """
     if not code or not run_name:
         return False
@@ -378,11 +373,8 @@ def script_uses_run_import(code: str, *, run_name: str) -> bool:
 def script_imports_module(code: str, module_name: str) -> bool:
     """True when *code* imports *module_name* (import or from-import).
 
-    What was wrong: Raw substring search "writeragent.scripting.text_analytics" in code
-    matched comments and docstrings.
-    How it happened: python_runner.py used a substring check instead of AST import check.
-    Why this change: Parse AST to check if the module is actually imported,
-    falling back to substring only on SyntaxError.
+    A raw substring search matches comments and docstrings. Walk the AST for
+    a real import, and fall back to the substring only when ast.parse raises.
     """
     if not code or not module_name:
         return False
@@ -413,11 +405,10 @@ def script_imports_module(code: str, module_name: str) -> bool:
 def _python_literal(val: Any) -> str:
     """Python source for a template parameter literal (repr-based).
 
-    What was wrong: val == "data" returned bare "data" for all string occurrences,
-    including dict keys and parameters like column="data", corrupting templates.
-    How it happened: _python_literal conflated the injected data variable name with the string "data".
-    Why this change: Return repr(val) for strings; bare data identifier is injected
-    only specifically for the data argument in build_helper_script_template.
+    Strings use repr. Treating every ``"data"`` as the bare injected name
+    rewrote dict keys and parameters such as column="data". The bare ``data``
+    identifier is injected only for the data argument in
+    build_helper_script_template.
     """
     if val is None:
         return "None"
@@ -523,10 +514,8 @@ def build_helper_script_template(
 def format_elapsed_time(seconds: float) -> str:
     """Human-readable duration for RPS status lines.
 
-    What was wrong: format_elapsed_time(59.999) returned "60.00s" instead of "1m 0s".
-    How it happened: seconds >= 60.0 checked unrounded seconds, while seconds >= 1.0 formatted
-    with .2f which rounded 59.999 to 60.00.
-    Why this change: Round seconds to 2 decimal places before checking >= 60.0.
+    Round to two decimal places before the 60-second check. Checking the raw
+    value formatted 59.999 as "60.00s" instead of "1m 0s".
     """
     if round(seconds, 2) >= 60.0:
         rounded = round(seconds, 2)
@@ -840,10 +829,9 @@ def run_trusted_calc_data_helper(
             context["range_a1"] = dr
         return py_data, err, context
 
-    # What was wrong: forecast_data / optimize_data wrapped this whole helper in
-    # execute_on_main_thread, so the venv IPC ran on the UI thread and froze Calc.
-    # How: sheet reads and client_run shared one function with no thread split.
-    # Why: hop only the UNO read to the main thread; client_run stays on the caller.
+    # forecast_data / optimize_data used to wrap this whole helper in
+    # execute_on_main_thread, so the venv IPC ran on the UI thread and froze
+    # Calc. Hop only the UNO read to the main thread; client_run stays on the caller.
     from plugin.framework.queue_executor import execute_on_main_thread
     from plugin.framework.thread_guard import on_main_thread
 
