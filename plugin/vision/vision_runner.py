@@ -224,10 +224,9 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
 
             if result.get("status") == "error":
-                # What was wrong: When multi-image vision failed on image N, completed results
-                # for images 1..N-1 were lost because the error dict carried no results.
-                # How: failed only set images_processed/image_names, not the actual result payloads.
-                # Why this fixes it: attach individual_results so completed images can be inserted.
+                # Attach individual_results on failure so images that already
+                # finished can still be inserted. The error dict's
+                # images_processed / image_names do not carry those payloads.
                 failed = dict(result)
                 failed["images_processed"] = len(results)
                 failed["image_names"] = list(target_names[: len(results)])
@@ -245,9 +244,9 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
                     insert_vision_result(ctx, doc, res, params=per_insert)
 
-                # What was wrong: execute_on_main_thread defaulted to binding to the send cancellation
-                # scope, which aborted this document mutation if Stop was clicked during/after OCR.
-                # Why this change: once bytes are in hand, marshal the insert unscoped (bound_scope=None).
+                # Once the bytes are in hand, insert with bound_scope=None.
+                # The default scope is the send cancellation, so Stop would
+                # abort a document mutation that already has its data.
                 execute_on_main_thread(_insert, bound_scope=None)
             result["image_name"] = image_name
             if "context" not in result or not isinstance(result["context"], dict):
@@ -278,10 +277,9 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             metrics.update(single_metrics)
 
     inserted = bool(insert_into_document)
-    # What was wrong: on a Stop break, the result still reported "OCR complete" and listed all
-    # target_names (including un-processed ones) without indicating partial execution.
-    # Why this change: return target_names[:len(results)], stopped=True, partial=True, and
-    # message "Stopped after N of M images".
+    # A Stop break returns only the names that finished, with stopped=True,
+    # partial=True, and "Stopped after N of M images". Reporting every
+    # target_name as "OCR complete" hides the partial run.
     if stopped_early:
         image_names = list(target_names[: len(results)])
         message = _("Stopped after {count} of {total} images.").format(count=len(results), total=len(target_names))

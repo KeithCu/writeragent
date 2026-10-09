@@ -89,12 +89,11 @@ class _KokoroProcess:
     def start(self) -> None:
         """Spawn the child. The pool publishes ``self`` before this returns.
 
-        What was wrong: ``__init__`` blocked in the ready handshake before the
-        pool stored the object. ``cancel_inflight`` saw ``_worker is None``
-        and left the child running, then the job was adopted anyway because
-        cancel did not drop ``_exec_token``.
-        Why: the pool assigns ``_worker`` first, then ``start`` so Stop can
-        ``kill`` during the handshake.
+        The pool assigns ``_worker`` first, then ``start``, so Stop can
+        ``kill`` during the handshake. Blocking in ``__init__`` before the
+        pool stored the object left ``cancel_inflight`` seeing
+        ``_worker is None`` and, because cancel did not drop ``_exec_token``,
+        the job was adopted anyway.
         """
         self._spawn()
 
@@ -416,11 +415,11 @@ class KokoroProcessPool:
     def cancel_inflight(self, token: object | None = None) -> None:
         """Kill the child only when a job is running. Idle warm processes stay up.
 
-        What was wrong: during the ready handshake ``_worker`` was still None
-        and ``_exec_token`` stayed put, so Stop returned without killing and
-        the spawn was adopted when the handshake finished.
-        Why: drop the token so the spawner cannot adopt the child, and kill
-        the process if it has already been published.
+        Drop ``_exec_token`` so the spawner cannot adopt the child, and kill
+        the process if it has already been published. During the ready
+        handshake ``_worker`` is still None; leaving the token in place made
+        Stop return without killing, then adopt the child when the handshake
+        finished.
         """
         with self._lock:
             if not self._inflight:

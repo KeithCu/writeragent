@@ -40,15 +40,10 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
             continue
         notes = item.get("notes")
         if notes and doc.supportsService("com.sun.star.presentation.PresentationDocument"):
-            # What was wrong: the first notes-page shape with setString was
-            # treated as speaker notes, and a failed write still returned ok.
-            # How it happened: header, footer, and date chrome can precede the
-            # NotesShape and also implement setString. except Exception then
-            # swallowed dispose and ordinary failures, and applied counted a
-            # write that never landed on the notes body.
-            # Why this fixes it: find_notes_shape is the NotesShape lookup the
-            # notes tools use. Dispose propagates. applied increments only
-            # after setString returns; a miss is status error.
+            # find_notes_shape is the NotesShape lookup the notes tools use.
+            # Header, footer, and date chrome also implement setString and can
+            # precede the notes body. Dispose propagates. applied increments
+            # only after setString returns; a miss is status error.
             try:
                 page = pages.getByIndex(idx)
                 shape = find_notes_shape(page.getNotesPage())

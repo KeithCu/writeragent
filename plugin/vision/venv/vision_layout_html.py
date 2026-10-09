@@ -28,8 +28,8 @@ class _LayoutBlock(NamedTuple):
 
 
 def _box_xywh(block: dict[str, Any]) -> tuple[int, int, int, int]:
-    # Bugfix: _box_xywh raised TypeError/ValueError on non-numeric or malformed box lists.
-    # Safely parse numeric coordinates and clamp missing elements to 0.
+    # Non-numeric or short box lists raise TypeError/ValueError, so parse
+    # coordinates as numbers and treat missing entries as 0.
     raw = block.get("box") if isinstance(block, dict) else None
     if not isinstance(raw, (list, tuple)):
         return (0, 0, 0, 0)
@@ -87,8 +87,8 @@ def _render_blocks(blocks: list[_LayoutBlock]) -> str:
 def _group_bands(blocks: list[_LayoutBlock]) -> list[list[_LayoutBlock]]:
     if not blocks:
         return []
-    # Bugfix: blocks with zero-box [0,0,0,0] defaulted to y=0 and sorted to the top of the page.
-    # Preserve zero-box blocks at their original input positions and isolate them from spatial bands.
+    # A zero box [0,0,0,0] has no position. Leave those blocks in input order
+    # and keep them out of spatial bands, or they sort to y=0 at the top.
     zero_indices = {i for i, b in enumerate(blocks) if not _has_box(b)}
     boxed_blocks = [b for i, b in enumerate(blocks) if i not in zero_indices]
     sorted_boxed = sorted(boxed_blocks, key=_sort_key)
@@ -122,10 +122,10 @@ def _render_band(band: list[_LayoutBlock], page_w: float, split_x: float) -> str
     if len(band) == 1:
         return _render_blocks(band)
 
-    # Bugfix: full-width blocks in a band caused the entire band to flatten by (y, x), interleaving columns;
-    # narrow blocks were also split into columns without verifying a horizontal gutter, turning single-column
-    # centered text into two-column tables. Split full-width blocks out as sequential elements and require
-    # a positive horizontal gap between column extents.
+    # Pull full-width blocks out of a band as sequential elements. Flattening
+    # the whole band by (y, x) interleaves columns. Split narrow blocks into
+    # columns only when their extents have a positive horizontal gap; without
+    # that gutter, centered single-column text becomes a two-column table.
     ordered = sorted(band, key=_sort_key)
     out_parts: list[str] = []
     narrow_run: list[_LayoutBlock] = []

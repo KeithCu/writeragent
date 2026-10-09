@@ -78,9 +78,8 @@ def vision_venv_configured(ctx: Any = None) -> bool:
     Used for schema/prompt gating on the main-thread Send path. Missing Docling/Paddle
     packages surface at OCR runtime or via Settings → Python → Test.
     """
-    # What was wrong: vision_venv_configured had a 'pytest' in sys.modules escape hatch
-    # that masked config errors and forced False under test, while ctx=None short-circuited.
-    # Why this change: catch ConfigError directly, log it, return False, and drop the ctx gate.
+    # Config read failures are ConfigError: log them and return False.
+    # get_config takes no ctx, so a missing ctx is not a reason to skip Settings.
     try:
         return _resolve_vision_python_exe() is not None
     except ConfigError as exc:
@@ -113,9 +112,8 @@ def filter_vision_specialized_tools(tools: list[Any], ctx: Any = None) -> list[A
 
 def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any = None) -> list[dict[str, Any]]:
     """Remove vision from delegate gateway domain enums when no Settings venv is configured."""
-    # What was wrong: ctx=None caused filter_vision_delegate_schemas to return schemas unchanged,
-    # exposing vision tools when unconfigured, while filter_vision_specialized_tools hid them.
-    # Why this change: drop the ctx is None short-circuit so both filters apply the same rule.
+    # Apply the same filter when ctx is None. Returning the schemas unchanged
+    # advertised vision tools that were not configured.
     if vision_venv_configured(ctx):
         return schemas
 

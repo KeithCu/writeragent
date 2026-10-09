@@ -168,8 +168,7 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
     from plugin.writer.html_import import insert_html_at_cursor
 
     html = vision_html_from_result(result)
-    # What was wrong: debug log contained document HTML snippet (privacy leak).
-    # Why this change: log only metadata (lengths and tag counts), omitting document content.
+    # Log lengths and tag counts only. The document HTML is user content.
     log.debug("insert_vision_result: helper=%s html_len=%d h_tags=%d style_attrs=%d", result.get("helper"), len(html), html.lower().count("<h"), html.count("style="))
 
     params_dict = dict(params) if isinstance(params, dict) else {}

@@ -96,8 +96,8 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
                 }
             return self._tool_error(message, code=code, vision_result=result, **partial_fields)
 
-        # What was wrong: int(result.get("images_processed") or 1) turned 0 processed images into 1.
-        # Why this change: default to 0 only when missing, preserving legitimate 0 counts.
+        # Default images_processed to 0 only when the key is missing.
+        # `or 1` turns a real 0 into 1.
         out: dict[str, Any] = {
             "status": "ok",
             "helper": "extract_structure",

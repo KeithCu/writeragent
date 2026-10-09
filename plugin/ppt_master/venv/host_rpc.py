@@ -34,20 +34,16 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     from plugin.framework.errors import ToolExecutionError
     from plugin.framework.queue_executor import execute_on_main_thread
 
-    # What was wrong: this client was built with no cancellation scope, so
-    # sidebar Stop closed the send worker's client and left the PPT-Master
-    # call reading. The scope registers the live client and must not be
+    # Build the client on the send cancellation scope so sidebar Stop closes
+    # this call too. The scope registers the live client and must not be
     # pickled to the child; dispatch attaches it on the way in, the same
     # way as _stop_checker.
     cancellation_scope = payload.get("_cancellation_scope")
     try:
-        # What was wrong: execute_on_main_thread(get_ctx) ran outside the try block.
-        # If it raised, the exception escaped dispatch_worker_response and the read loop,
-        # leaving the child waiting until timeout without receiving a reply.
-        # Why this works: moving it inside the try block ensures any failure is caught
-        # and reported back to the child as an RPC error response.
-        # Note: get_ctx() is @main_thread_only, so marshaling via execute_on_main_thread
-        # is required from background worker threads.
+        # get_ctx() is @main_thread_only, so a background worker marshals it
+        # with execute_on_main_thread. Keep that call inside the try: a raise
+        # must go back to the child as an RPC error, or the child waits until
+        # timeout with no reply.
         ctx = execute_on_main_thread(get_ctx)
         if max_tokens is None:
             max_tokens = get_config_int("chat_max_tokens")
@@ -87,8 +83,8 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         }
 
     except ToolExecutionError as exc:
-        # What was wrong: Stop raised USER_STOPPED and this handler turned it
-        # into a generic error string. The child kept the turn going.
+        # Preserve USER_STOPPED. A generic error string lets the child keep
+        # the turn going after Stop.
         if getattr(exc, "code", None) == "USER_STOPPED":
             return {"status": "error", "code": "USER_STOPPED", "message": exc.message}
         log.exception("ppt-master llm_request failed")
@@ -114,11 +110,10 @@ def dispatch_worker_response(
     if frame_type == "worker_event":
         event = response.get("event")
         if on_worker_event and isinstance(event, dict):
-            # What was wrong: a raising UI callback escaped the read loop.
-            # After exec_started that became a worker kill (_fail_no_replay);
-            # any other exception left the child sitting on an unread request.
-            # Why this works: same as the heartbeat callback — log and keep
-            # reading so the pipe stays aligned.
+            # A raising UI callback is logged and the read loop continues, same
+            # as the heartbeat callback, so the pipe stays aligned. Escaping
+            # the loop kills the worker after exec_started (_fail_no_replay)
+            # or leaves the child blocked on an unread request.
             try:
                 on_worker_event(event)
             except Exception:
@@ -145,12 +140,9 @@ def dispatch_worker_response(
             llm_response["result"] = llm_out.get("result")
         else:
             llm_response["message"] = llm_out.get("message", "LLM request failed")
-            # What was wrong: handle_llm_request returned code USER_STOPPED
-            # and this rebuild kept only status and message. The child
-            # _raise_if_stopped treats any other error as RuntimeError, so
-            # run_turn kept taking steps until max_tool_rounds.
-            # Why this works: the child raises UserStopped only when code is
-            # USER_STOPPED. Copy whatever code the handler set.
+            # Copy the handler's code through. The child raises UserStopped
+            # only when code is USER_STOPPED; any other error is RuntimeError
+            # and run_turn keeps taking steps until max_tool_rounds.
             if llm_out.get("code"):
                 llm_response["code"] = llm_out["code"]
         try:

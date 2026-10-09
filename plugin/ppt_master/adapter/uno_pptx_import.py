@@ -112,15 +112,12 @@ def _drop_page(pages: Any, page: Any) -> None:
 def _copy_page_notes(source_page: Any, target_page: Any) -> None:
     """Copy the source NotesShape onto the target NotesShape, including "".
 
-    What was wrong: the first notes-page shape with getString/setString was
-    treated as speaker notes, and an empty read returned without writing.
-    How it happened: a header, footer, or date field can precede the
-    NotesShape. clear_page_shapes only removes slide shapes, so a re-import
-    of empty notes left the previous NotesShape text in place (or wrote the
-    chrome text into whichever shape implemented setString first).
-    Why this fixes it: find_notes_shape is the NotesShape lookup the notes
-    tools use, and writing that shape even when the text is empty replaces
-    stale notes.
+    find_notes_shape is the NotesShape lookup the notes tools use. Header,
+    footer, and date fields also implement getString/setString and can
+    precede the NotesShape. clear_page_shapes only removes slide shapes, so
+    write the notes shape even when the text is empty; otherwise a re-import
+    of empty notes leaves the previous text (or writes chrome into the first
+    setString shape).
     """
     try:
         src_shape = find_notes_shape(source_page.getNotesPage())
@@ -137,12 +134,10 @@ def _copy_page_notes(source_page: Any, target_page: Any) -> None:
     except Exception as exc:
         if is_disposed_exception(exc):
             raise
-        # What was wrong: a non-disposed error (e.g. corrupted NotesShape) re-raised
-        # and aborted the entire PPTX import after earlier slides were already replaced.
-        # How it happened: any exception from NotesShape inspection or text setting
-        # was re-raised unconditionally.
-        # Why this fixes it: log a warning, skip copying notes for this slide, and return
-        # so remaining slides continue importing. A disposed document still re-raises.
+        # A non-disposed notes error (corrupt NotesShape) is logged and this
+        # slide's notes are skipped so the rest of the deck still imports.
+        # Re-raising aborts the import after earlier slides were replaced.
+        # A disposed document still re-raises.
         log.warning("Skipping slide notes copy due to error: %s", exc)
         return
 
@@ -172,14 +167,12 @@ def _import_slides_from_source(
     results: list[dict[str, Any]] = []
     for out_index, src_index in enumerate(indices):
         source_page = source_pages.getByIndex(src_index)
-        # What was wrong: the target slide was cleared before the copy, so a
-        # copy that returned no shapes had already destroyed user content.
-        # How it happened: ``_ensure_target_page(..., clear=True)`` called
-        # ``clear_page_shapes`` and only then ``copy_shapes_to_page``.
-        # Why this fixes it: shapes are appended. Previous shapes are removed
-        # only after that slide's copy reports at least one shape. A failed
-        # copy trims what it appended, or drops a slide this call just
-        # created, and leaves an existing slide's shapes in place.
+        # Append shapes first. Remove the previous shapes only after this
+        # slide's copy reports at least one shape. Clearing first
+        # (_ensure_target_page(..., clear=True) then copy_shapes_to_page)
+        # destroys user content when the copy returns nothing. A failed copy
+        # trims what it appended, or drops a slide this call just created,
+        # and leaves an existing slide's shapes in place.
         replace = clear_existing or out_index > 0
         existed = execute_on_main_thread(lambda: out_index < int(pages.getCount()))
         target_page = execute_on_main_thread(lambda: _ensure_target_page(bridge, out_index))

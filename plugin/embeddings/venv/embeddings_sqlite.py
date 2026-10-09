@@ -87,20 +87,17 @@ _dbapi_mod: Any = None
 def _dbapi() -> Any:
     """DB-API module for corpus connections.
 
-    What was wrong: ``conn.enable_load_extension`` raised AttributeError on
-    GitHub macos-latest CPython 3.13, so vec0 schema setup never ran.
-
-    How: python.org macOS CPython links SQLite built with
-    SQLITE_OMIT_LOAD_EXTENSION (Apple's libsqlite; CPython's
-    ``--enable-loadable-sqlite-extensions`` defaults off). The method is
-    absent from ``sqlite3.Connection``. sqlite-vec documents that error:
+    pysqlite3 bundles SQLite with extension loading. python.org macOS CPython
+    links SQLite built with SQLITE_OMIT_LOAD_EXTENSION (Apple's libsqlite;
+    CPython's ``--enable-loadable-sqlite-extensions`` defaults off), so
+    ``conn.enable_load_extension`` is absent and vec0 schema setup never runs.
+    sqlite-vec documents that error:
     https://alexgarcia.xyz/sqlite-vec/python.html
 
-    Why this fixes it: pysqlite3 bundles SQLite with extension loading.
-    Connections use it only when stdlib sqlite3 cannot load extensions and
-    the package is installed, so Linux, Windows, and Homebrew Python stay on
-    stdlib sqlite3. A host interpreter without pysqlite3 (LibreOffice) still
-    opens the corpus for metadata; vec loading reports the install line.
+    Use pysqlite3 only when stdlib sqlite3 cannot load extensions and the
+    package is installed. Linux, Windows, and Homebrew Python stay on stdlib
+    sqlite3. A host interpreter without pysqlite3 (LibreOffice) still opens
+    the corpus for metadata; vec loading reports the install line.
     """
     global _dbapi_mod
     if _dbapi_mod is not None:
@@ -695,12 +692,11 @@ def get_file_index_info(conn: sqlite3.Connection, doc_url: str) -> dict[str, flo
 def file_is_stale_in_db(conn: sqlite3.Connection, doc_url: str, file_mtime: float) -> bool:
     """True when *file_mtime* is newer than the mtime stored for *doc_url*.
 
-    What was wrong: this compared the filesystem mtime to ``last_indexed_at``,
-    which is wall-clock ``time.time()`` when the row was written. An edit whose
-    mtime moved forward but stayed older than that clock (restore, copy,
-    ``touch -d``) looked fresh, and a file mtime ahead of the clock looked
-    stale on every pass. Compare to the stored ``file_mtime`` captured from
-    the file when it was indexed.
+    Compare against the stored ``file_mtime`` captured from the file when it
+    was indexed. ``last_indexed_at`` is wall-clock ``time.time()`` at write
+    time, so a restored or ``touch -d`` mtime that moved forward but stayed
+    older than that clock looks fresh, and a file mtime ahead of the clock
+    looks stale on every pass.
     """
     info = get_file_index_info(conn, doc_url)
     if info["chunk_count"] == 0:

@@ -78,11 +78,11 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
     conn = connect_corpus_db(str(state["db_path"]))
     try:
         # Cold corpus: model_metadata does not exist until ensure_schema.
-        # What was wrong: except sqlite3.OperationalError missed that lookup.
-        # How: macOS runners open the corpus with pysqlite3, because stdlib
-        # sqlite3 has no enable_load_extension. pysqlite3.OperationalError does
-        # not subclass sqlite3.OperationalError, so "no such table" aborted
-        # the node. Catch this connection's OperationalError and continue.
+        # Catch this connection's OperationalError and continue. macOS opens
+        # the corpus with pysqlite3 (stdlib sqlite3 has no
+        # enable_load_extension), and pysqlite3.OperationalError does not
+        # subclass sqlite3.OperationalError, so "no such table" would abort
+        # the node.
         if dim is None and build_vectors:
             try:
                 row = conn.execute(
@@ -367,10 +367,9 @@ def ingest_paragraphs(
     model = (model_name or "").strip()
     if not model and build_vectors:
         raise ValueError("embedding model name is required")
-    # What was wrong: an empty row list returned here, before the graph. The
-    # same-model alignment pass sets has_missing and calls ingest with no
-    # rows, expecting the graph to embed chunks missing from vec_chunks.
-    # That return made the pass a no-op. fill_vector_gaps is that pass.
+    # An empty row list still enters the graph. fill_vector_gaps sets
+    # has_missing and calls ingest with no rows so the graph can embed chunks
+    # missing from vec_chunks. Returning here makes that pass a no-op.
     if not rows and not delete_keys and not fill_vector_gaps:
         return {"indexed": 0, "dim": 0, "storage_backend": "sqlite_vec"}
 

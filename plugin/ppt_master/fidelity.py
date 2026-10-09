@@ -218,13 +218,9 @@ def structural_metrics_pptx(
 ) -> StructuralMetrics:
     """Derive structural metrics comparing imported ODF shapes against source PPTX.
 
-    What was wrong: structural_metrics_pptx derived both the expected and
-    actual text-shape counts from imported_page, so the fidelity text-loss
-    gate could not see text dropped during PPTX import.
-    How it happened: svg_text_elements was set from count_page_text_shapes
-    on imported_page rather than the source presentation.
-    Why this fixes it: expected text shapes are counted from the source PPTX
-    package slide XML, so any dropped shapes cause odf_text_shapes < expected.
+    Expected text shapes come from the source PPTX slide XML. Counting both
+    sides from imported_page makes the fidelity text-loss gate blind to text
+    dropped during import: odf_text_shapes must be able to fall below expected.
     """
     counts = count_odf_shape_types(imported_page)
     if pptx_path is not None:
@@ -410,12 +406,9 @@ def evaluate_slide_fidelity(
     doc, page = imported
 
 
-    # What was wrong: evaluate_slide_fidelity moved doc.close(True) to the
-    # end, leaving the hidden Impress document open on early returns (missing
-    # reference PDF, PDF export failure, PNG rasterize failure).
-    # How it happened: early return paths returned without closing doc.
-    # Why this fixes it: wrapping post-import execution in try/finally ensures
-    # doc.close(True) runs on all paths after doc has been loaded.
+    # doc.close(True) runs in finally after the document is loaded. Early
+    # returns (missing reference PDF, PDF export failure, PNG rasterize
+    # failure) must not leave the hidden Impress document open.
     try:
         result.structural = structural_metrics_pptx(page, pptx_path=pptx_path, slide_index=slide_index)
         result.artifacts["imported_odp"] = str(odp_path)

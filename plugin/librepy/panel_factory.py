@@ -186,9 +186,9 @@ class PythonPanelElement(unohelper.Base, XUIElement):
 
                 _run_on_main_thread(_create_panel)
             except Exception as e:
-                # What was wrong: toolpanel was assigned before the controller
-                # finished. A later failure left the half-built panel latched,
-                # so the next getRealInterface returned it and never retried.
+                # Publish toolpanel only after the controller finishes. A
+                # failure before that leaves nothing latched, so the next
+                # getRealInterface retries instead of returning a half-built panel.
                 log.exception("PythonPanel getRealInterface failed")
                 self.toolpanel = None
                 controller = self.controller
@@ -211,11 +211,10 @@ class PythonPanelElement(unohelper.Base, XUIElement):
         provider = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.ContainerWindowProvider", ctx)
         self.m_panelRootWindow = provider.createContainerWindow(dialog_url, "", self.xParentWindow, None)
         if not self.m_panelRootWindow:
-            # What was wrong: a null window was returned and then latched on a
-            # PythonToolPanel. How: ContainerWindowProvider returns null when
-            # the XDL URL cannot be loaded, and the caller treated that as a
-            # panel. Why: raise before anything is published so the next
-            # getRealInterface can retry.
+            # ContainerWindowProvider returns null when the XDL URL cannot be
+            # loaded. Raise before anything is published so the next
+            # getRealInterface can retry; latching null treats a missing
+            # window as a panel.
             log.error("LibrePy createContainerWindow returned no window url=%s", dialog_url)
             raise UnoObjectError(
                 "LibrePy createContainerWindow returned no window",

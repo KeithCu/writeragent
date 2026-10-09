@@ -194,8 +194,8 @@ def _convert_tex_in_text(text: str, convert_fn: Any) -> str:
                     out.append(mathml)
                     i = close_at + 2
                     continue
-            # Bugfix: on failed $$ convert, emit and skip both dollar signs to prevent
-            # the second '$' from erroneously pairing later as inline math.
+            # A failed $$ convert emits and skips both dollar signs so the
+            # second '$' cannot pair later as inline math.
             out.append("$$")
             i += 2
             continue
@@ -246,9 +246,9 @@ def _replace_tex_outside_tags(s: str, convert_fn: Any) -> str:
     if not ("$" in s or r"\(" in s or r"\[" in s):
         return s
 
-    # Bugfix: delimiters were matched across HTML tags (swallowing markup), TeX entities were not
-    # unescaped before mathml conversion, and code/pre tags were not excluded.
-    # Tokenize on tags and convert only text runs outside <code>/<pre>.
+    # Match delimiters inside text runs only. Matching across tags swallows
+    # markup, and TeX entities must be unescaped before MathML conversion.
+    # Skip runs inside <code> and <pre>.
     tokens = re.split(r"(<[^>]*>)", s)
     out: list[str] = []
     in_code = 0
@@ -319,10 +319,10 @@ def _promote_first_header_row(inner: str) -> str:
     before = inner[: tr_match.start()]
     after = inner[tr_match.end() :]
 
-    # Bugfix: <caption> and <colgroup> before <tr> were placed inside <tbody>, and complex tables
-    # with <tfoot> or orphan <tbody> produced malformed nested bodies.
-    # Retain <caption> and <colgroup> before <thead>, and only rewrite when the remaining prefix/suffix
-    # match a single optional <tbody>/</tbody> pair.
+    # Keep <caption> and <colgroup> before <thead>. Putting them inside
+    # <tbody>, or rewriting tables that have <tfoot> or an orphan <tbody>,
+    # nests bodies. Rewrite only when the remaining prefix and suffix are
+    # a single optional <tbody></tbody> pair.
     prefix_match = _TABLE_PREFIX_RE.match(before)
     if prefix_match:
         table_prefix = prefix_match.group(0)
@@ -417,8 +417,8 @@ def prepare_html_for_lo_import(html: str) -> str:
     stripped = (html or "").strip()
     if not stripped:
         return html or ""
-    # Bugfix: css_inline.inline() enabled load_remote_stylesheets by default, risking remote stylesheet fetches.
-    # Use CSSInliner(load_remote_stylesheets=False).
+    # css_inline.inline() loads remote stylesheets by default. Pass
+    # CSSInliner(load_remote_stylesheets=False) so export does not fetch them.
     inliner = css_inline.CSSInliner(load_remote_stylesheets=False)
     inlined = inliner.inline(stripped)
     with_headings = augment_lo_heading_styles(inlined)
@@ -522,8 +522,8 @@ def _html_table_from_columns_rows(
     if num_rows == 0 or num_cols == 0:
         return ""
 
-    # Bugfix: unvalidated span values raised TypeError/ValueError and unbounded rowspan/colspan
-    # caused excessive loop iterations. Parse with safe int and clamp spans to grid bounds.
+    # Parse rowspan/colspan with a safe int and clamp to the grid. Raw values
+    # raise TypeError/ValueError, and an unbounded span loops the grid.
     covered: set[tuple[int, int]] = set()
     span_at: dict[tuple[int, int], tuple[int, int]] = {}
     for span in spans or []:

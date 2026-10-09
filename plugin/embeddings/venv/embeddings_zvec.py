@@ -332,11 +332,9 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
 
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
 
-    # What was wrong: commit 0ebedc9d5 added an early return when chunk_count_from_meta > 0
-    # in non-cold modes, returning 0 indexed_paragraphs immediately.
-    # How it happened: it checked row_count > 0 before inspecting files.
-    # Why this change: drop the early return so the incremental mtime loop below
-    # runs, skipping unchanged files and picking up new or modified files.
+    # Do not return early when chunk_count_from_meta > 0. That skipped the
+    # incremental mtime loop, which skips unchanged files and picks up new
+    # or modified ones. row_count > 0 is not "nothing to do".
 
     if not HAS_ZVEC or zvec is None:
         raise RuntimeError("Zvec backend selected but the 'zvec' package is not importable in the configured Python venv. Install it with: pip install zvec  (then restart LibreOffice or re-trigger the worker).")
@@ -441,10 +439,9 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
                 if mtime is not None and abs(mtime - entry.modified) < 1.0:
                     continue
         except Exception as e:
-            # What was wrong: calling .get("file_mtime") on a zvec Doc raised AttributeError
-            # which was silently swallowed with pass, causing every file to be re-embedded every tick.
-            # How it happened: zvec Doc has .field() or .fields, not .get(), and bare except hid it.
-            # Why this fixes it: read field via .field() or .fields, and log warning on probe failure.
+            # zvec Doc has .field() or .fields, not .get(). Calling .get()
+            # raises AttributeError; swallowing it re-embeds every file every
+            # tick. Log a probe failure instead.
             log.warning("zvec incremental probe failed for %s: %s", entry.name, e)
 
         try:

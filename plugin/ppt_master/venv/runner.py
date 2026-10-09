@@ -199,8 +199,8 @@ def _instructions_for_session(session_id: str, *, topic: str | None, ctx_block: 
 def _parse_finished(observations: str) -> dict[str, Any] | None:
     if "'status': 'finished'" not in observations and '"status": "finished"' not in observations:
         return None
-    # What was wrong: a regex stopped at the first apostrophe, so a finished
-    # handoff like "it's done" was cut to "it\\". str(dict) is a Python literal.
+    # Parse the handoff with ast.literal_eval. str(dict) is a Python literal;
+    # a regex that stops at the first apostrophe cuts "it's done" to "it\\".
     parsed = _finished_from_literal(observations)
     if parsed is not None:
         return parsed
@@ -275,9 +275,9 @@ def run_turn(payload: dict[str, Any]) -> dict[str, Any]:
     tools = _build_tools()
     smol_model = HostRpcModel(model_id=model, max_tokens=max_tokens, status_callback=lambda s: emit_worker_event({"kind": "status", "text": s}))
 
-    # What was wrong: system_prompt_examples was omitted, so ToolCallingAgent
-    # filled in the web-research demo (web_search / final_answer). This agent
-    # finishes with ppt_master_finished. Pass that block instead.
+    # Pass system_prompt_examples. ToolCallingAgent otherwise fills in the
+    # web-research demo (web_search / final_answer). This agent finishes with
+    # ppt_master_finished.
     agent = ToolCallingAgent(
         tools=tools,
         model=smol_model,

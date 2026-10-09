@@ -333,12 +333,11 @@ def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode:
     """
     mode = str(search_mode or "").strip().lower()
     if mode in ("zvec", "lancedb"):
-        # What was wrong: this returned True whenever corpus.db was missing.
-        # How: #1180 made a missing db file mean "empty", which is right for
-        # sqlite and wrong for zvec/lancedb. Auto maintain then resolved cold
-        # on every tick and clear_folder_cache deleted the real collection.
-        # Empty for those backends is chunk_count plus collection presence,
-        # the same signals search_ui and the research tools already use.
+        # A missing corpus.db means empty for sqlite. zvec and lancedb use
+        # chunk_count plus collection presence, the same signals search_ui
+        # and the research tools use. Treating a missing file as empty there
+        # resolved cold on every tick and clear_folder_cache deleted the
+        # real collection.
         return _vector_backend_is_empty(mode, listing_root, meta_path)
     if db_path is not None and not db_path.is_file():
         return True
