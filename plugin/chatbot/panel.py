@@ -1015,19 +1015,26 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def render_session_messages(self, session: Any) -> None:
         """Draw the sidebar from ``session.messages``."""
-        widget = getattr(self, "rich_text_widget", None)
-        if widget is not None:
-            widget.paint_session(session)
-            return
-        control = getattr(self, "response_control", None)
-        if control is None or not control.getModel():
-            return
-        from plugin.chatbot.dialogs import set_control_text
-        from plugin.chatbot.rich_text_paste import plain_transcript_text
+        def _paint() -> None:
+            widget = getattr(self, "rich_text_widget", None)
+            if widget is not None:
+                widget.paint_session(session)
+                return
+            control = getattr(self, "response_control", None)
+            if control is None or not control.getModel():
+                return
+            from plugin.chatbot.dialogs import set_control_text
+            from plugin.chatbot.rich_text_paste import plain_transcript_text
 
-        set_control_text(control, plain_transcript_text(session))
-        if self._should_auto_scroll():
-            self._scroll_response_to_bottom()
+            set_control_text(control, plain_transcript_text(session))
+            if self._should_auto_scroll():
+                self._scroll_response_to_bottom()
+
+        run_ui = getattr(self, "_run_rich_ui", None)
+        if callable(run_ui):
+            run_ui(_paint)
+        else:
+            _paint()
 
     def _project_closing_line(self, text: str) -> None:
         """Write a closing line onto this turn's session after ``abort``.

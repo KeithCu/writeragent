@@ -614,6 +614,9 @@ def _inject_on_listener(listener: Any, wrapped: str) -> None:
     session = getattr(listener, "session", None)
     if session is not None and hasattr(session, "add_user_message"):
         session.add_user_message(wrapped)
+    render = getattr(listener, "render_session_messages", None)
+    if callable(render) and session is not None:
+        render(session)
     append = getattr(listener, "_append_response", None)
     if callable(append):
         append(wrapped, role="user")

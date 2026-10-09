@@ -74,13 +74,23 @@ def start_mock_sidebar_session(*, delay_ms: int = 20, offline: bool = True, **fl
     host, port = httpd.server_address[:2]
     base_url = "http://%s:%s" % (host, port)
 
+    saved_stt_provider: Any = None
+    try:
+        from plugin.framework.config import get_config
+
+        saved_stt_provider = get_config("audio.stt_provider")
+    except Exception:
+        saved_stt_provider = None
+
     saved = {
         "endpoint": get_current_endpoint(),
         "text_model": get_text_model(),
         "api_key": get_api_key_for_endpoint(base_url),
+        "stt_provider": saved_stt_provider,
     }
     set_config("endpoint", base_url)
     set_text_model(MOCK_MODEL_ID, update_lru=False)
+    set_config("audio.stt_provider", "endpoint")
     if not get_api_key_for_endpoint(base_url):
         set_api_key_for_endpoint(base_url, "mock-key")
     # Live sidebar is the OXT process. get_config caches mtime checks for 2s.
@@ -93,7 +103,7 @@ def stop_mock_sidebar_session(session: MockSidebarSession | None) -> None:
     if session is None:
         return
     from plugin.framework.client.model_fetcher import set_text_model
-    from plugin.framework.config import set_api_key_for_endpoint, set_config
+    from plugin.framework.config import remove_config, set_api_key_for_endpoint, set_config
 
     try:
         session.httpd.shutdown()
@@ -105,6 +115,13 @@ def stop_mock_sidebar_session(session: MockSidebarSession | None) -> None:
         set_config("endpoint", saved["endpoint"])
     if saved.get("text_model"):
         set_text_model(saved["text_model"], update_lru=False)
+    if saved.get("stt_provider") is not None:
+        set_config("audio.stt_provider", saved["stt_provider"])
+    elif "stt_provider" in saved:
+        try:
+            remove_config("audio.stt_provider")
+        except Exception:
+            pass
     set_api_key_for_endpoint(session.base_url, saved.get("api_key") or "")
 
 

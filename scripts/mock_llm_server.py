@@ -538,7 +538,13 @@ def _pick_catalog_target(peers: list[dict[str, str]], *, prefer_type: str = "") 
     if prefer_type:
         typed = [p for p in peers if (p.get("type") or "") == prefer_type]
         if typed:
-            ordered = typed + [p for p in peers if p not in typed]
+            # If multiple peers match the type (e.g. user opened a new Calc doc during tests),
+            # prefer known test fixtures like BudgetPeer.ods over Untitled documents.
+            budget = [p for p in typed if "BudgetPeer" in str(p.get("name") or "")]
+            if budget:
+                ordered = budget + [p for p in typed if p not in budget] + [p for p in peers if p not in typed]
+            else:
+                ordered = typed + [p for p in peers if p not in typed]
     for peer in ordered:
         for key in ("uid", "url", "name"):
             value = (peer.get(key) or "").strip()
