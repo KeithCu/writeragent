@@ -466,7 +466,7 @@ WRITER_NAVIGATION_RULES = """NAVIGATING LARGE DOCUMENTS (map first, then drill â
 - Reserve get_document_content(scope='full') for short documents or a deliberate full read."""
 
 WRITER_IMAGES_RULES = """IMAGES:
-- Image tools live in the 'images' domain: image_generate, image_insert, image_delete, image_replace, image_list, image_get_info (includes crop_mm and width_px/height_px), image_download, image_crop_and_highlight.
+- Image tools live in the 'images' domain: image_generate, image_insert, image_delete, image_replace, image_list, image_get_info (includes crop_mm, width_px/height_px, and hyperlink_url), image_download, image_crop_and_highlight.
   Extract text and structure (layout, tables) from images with extract_structure_from_image in the 'vision' domain; inserts a high-quality representation into the document.
 - To edit, change, or restyle an existing or selected image, delegate domain=images with a task that instructs image_generate(source_image='selection') and keeps the user's wording (e.g. 'make it look like a wizard'). That runs img2img and replace_image_in_place. A generate-new paraphrase inserts a new graphic.
 - Writer letterhead logos: image_insert(target='header'|'footer'). A different first page needs page_set_style_properties(first_is_shared=false) then target='header_first' (or footer_first) â€” otherwise the logo lands in the shared header and repeats on every page.

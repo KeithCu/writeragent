@@ -408,7 +408,7 @@ class ImageGetInfo(ToolWriterImageBase):
 
     name: str | None = "image_get_info"
     intent: str | None = "media"
-    description: str = "Get detailed info about a specific image: URL, dimensions (mm, and width_px/height_px of the picture itself), anchor type, orientation, crop (crop_mm, mm trimmed per edge), and paragraph index."
+    description: str = "Get detailed info about a specific image: URL, dimensions (mm, and width_px/height_px of the picture itself), anchor type, orientation, crop (crop_mm, mm trimmed per edge), hyperlink_url (the image link, including an internal target), and paragraph index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the image (from image_list)."}}, "required": ["name"]}
 
 
@@ -485,6 +485,13 @@ class ImageGetInfo(ToolWriterImageBase):
         except Exception:
             pass
 
+        # What was wrong: image_get_info never reported an image hyperlink, so a
+        # footer button whose ODT link lives on the enclosing draw:a looked unlinked.
+        # LibreOffice maps that href onto HyperLinkURL (BaseFrameProperties).
+        # Shapes without the property (some Calc/Draw pictures) stay "".
+        raw_link = visual_helpers.safe_get_property(graphic, "HyperLinkURL", "")
+        hyperlink_url = raw_link if isinstance(raw_link, str) else ""
+
         # Paragraph index via anchor
         paragraph_index = -1
         is_calc = visual_helpers.get_visual_doc_type(ctx.doc) == "calc"
@@ -514,6 +521,7 @@ class ImageGetInfo(ToolWriterImageBase):
             "title": title,
             "description": description,
             "crop_mm": crop_mm,
+            "hyperlink_url": hyperlink_url,
             "paragraph_index": paragraph_index,
         }
 

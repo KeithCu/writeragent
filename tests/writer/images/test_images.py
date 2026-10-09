@@ -14,6 +14,7 @@ from plugin.framework.tool import ToolContext, ToolRegistry
 from plugin.writer.images.images import (
     ImageDownload,
     ImageGenerate,
+    ImageGetInfo,
     ImageInsert,
     ImageListNearbyFiles,
     ImageReplace,
@@ -454,6 +455,53 @@ def test_image_generate_marshals_insert_unscoped():
     assert result["status"] == "ok"
     assert None in scopes_passed
 
+
+
+def _graphic_for_info(extra: dict[str, Any] | None = None) -> MagicMock:
+    """Graphic whose getPropertyValue only answers the keys image_get_info needs."""
+    size = MagicMock()
+    size.Width = 700
+    size.Height = 390
+    props: dict[str, Any] = {
+        "Size": size,
+        "GraphicURL": "",
+        "Title": "",
+        "Description": "",
+        "Graphic": None,
+    }
+    if extra:
+        props.update(extra)
+    graphic = MagicMock()
+    graphic.Graphic = props.get("Graphic")
+
+    def _get(name: str) -> Any:
+        if name not in props:
+            raise Exception("missing %s" % name)
+        return props[name]
+
+    graphic.getPropertyValue.side_effect = _get
+    graphic.getAnchor.side_effect = Exception("no anchor")
+    return graphic
+
+
+def test_image_get_info_reports_hyperlink_url():
+    # ODF draw:a href is HyperLinkURL on the graphic. The tool must return it.
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = _graphic_for_info({"HyperLinkURL": "#ÍNDEX"})
+    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+        res = ImageGetInfo().execute(ctx, name="IndexButton")
+    assert res["status"] == "ok"
+    assert res["hyperlink_url"] == "#ÍNDEX"
+
+
+def test_image_get_info_hyperlink_url_empty_when_absent():
+    # Calc/Draw shapes often have no HyperLinkURL. Missing means no link, not an error.
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = _graphic_for_info()
+    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+        res = ImageGetInfo().execute(ctx, name="Plain")
+    assert res["status"] == "ok"
+    assert res["hyperlink_url"] == ""
 
 
 def test_object_size_reads_writer_property_and_draw_getsize():

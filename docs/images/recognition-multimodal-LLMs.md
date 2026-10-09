@@ -92,7 +92,7 @@ MCP vision clients receive the picture itself, not base64 pasted as text.
 
 ### Related image tooling (same PR / adjacent)
 
-- **`image_get_info`** reports `crop_mm` (mm trimmed per edge) from `GraphicCrop`.
+- **`image_get_info`** reports `crop_mm` (mm trimmed per edge) from `GraphicCrop`, and `hyperlink_url` from `HyperLinkURL` (the enclosing ODF `draw:a` link).
 - **`image_set_properties`** accepts per-edge `crop_*_mm`; only passed edges change (`_resolve_crop_edges` helper, unit-tested).
 - **Orientation** accepts friendly names (`left`/`center`/`right`, `top`/`center`/`bottom`, `centre`) mapped to live UNO constants via `uno.getConstantByName`; unknown names → clear tool error (`_resolve_orient`, unit-tested).
 

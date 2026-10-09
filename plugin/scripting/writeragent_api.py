@@ -1233,7 +1233,7 @@ class _ImagesProxy:
         return _rpc_call("image_generate", prompt=prompt, source_image=source_image, strength=strength, aspect_ratio=aspect_ratio, base_size=base_size, width=width, height=height, provider=provider, image_model=image_model)
 
     def get_info(self, name: str) -> dict[str, Any]:
-        """Get detailed info about a specific image: URL, dimensions (mm, and width_px/height_px of the picture itself), anchor type, orientation, crop (crop_mm, mm trimmed per edge), and paragraph index.
+        """Get detailed info about a specific image: URL, dimensions (mm, and width_px/height_px of the picture itself), anchor type, orientation, crop (crop_mm, mm trimmed per edge), hyperlink_url (the image link, including an internal target), and paragraph index.
 
         Args:
             name (required): Name of the image (from image_list).

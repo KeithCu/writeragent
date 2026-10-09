@@ -11,7 +11,7 @@ import os
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import TestingFactory, with_native_doc
 from plugin.doc.visual_helpers import GENERATED_IMAGE_MAX_DISPLAY_MM, px_to_units
 from plugin.writer.images.image_tools import insert_image, insert_image_into_header_footer
 from plugin.writer.page import _scan_region_content
@@ -186,3 +186,23 @@ def test_insert_image_caps_1024_display_size(ctx, doc):
     assert max(width, height) <= GENERATED_IMAGE_MAX_DISPLAY_MM * 100 + 2
     assert max(width, height) >= 13000
     assert max(width, height) < min(raw_w, raw_h)
+
+
+@native_test
+@with_native_doc("writer")
+def test_image_get_info_reads_hyperlink_url(ctx, doc):
+    """draw:a around a graphic is HyperLinkURL. image_get_info must return it."""
+    logo = _logo_path()
+    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    before = set(doc.getGraphicObjects().getElementNames())
+    insert_image(ctx, doc, logo, 64, 64, add_to_gallery=False, add_frame=False)
+    names = [n for n in doc.getGraphicObjects().getElementNames() if n not in before]
+    assert names, "expected an inserted graphic"
+    graphic = doc.getGraphicObjects().getByName(names[0])
+    bare = TestingFactory.execute_tool(doc, ctx, "image_get_info", {"name": names[0]}, doc_type="writer")
+    assert bare.get("status") == "ok", bare
+    assert bare.get("hyperlink_url") == ""
+    graphic.setPropertyValue("HyperLinkURL", "#ÍNDEX")
+    linked = TestingFactory.execute_tool(doc, ctx, "image_get_info", {"name": names[0]}, doc_type="writer")
+    assert linked.get("status") == "ok", linked
+    assert linked.get("hyperlink_url") == "#ÍNDEX"
