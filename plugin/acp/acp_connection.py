@@ -90,7 +90,7 @@ class ACPConnection:
         if self._env:
             env.update(self._env)
 
-        from plugin.scripting.venv_worker import wrap_command_for_sandbox
+        from plugin.scripting.sandbox import wrap_command_for_sandbox
 
         self._proc = cast("subprocess.Popen[bytes]", subprocess.Popen(wrap_command_for_sandbox(self._cmd_line), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd, **get_subprocess_creationflags()))
         self._stderr_drain = start_stderr_drain(self._proc.stderr, name=f"acp-stderr-{self._proc.pid}")

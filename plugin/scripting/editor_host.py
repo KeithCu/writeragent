@@ -46,12 +46,10 @@ from plugin.scripting.editor_ipc import (
 )
 from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES, handle_editor_script_message
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame_with_timeout
+from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
 from plugin.scripting.venv_worker import (
     _kill_process_tree,
-    resolve_venv_python,
-    scrub_subprocess_env,
     warm_venv_worker,
-    wrap_command_for_sandbox,
 )
 
 log = logging.getLogger(__name__)

@@ -22,12 +22,12 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
-from plugin.scripting.venv_worker import (  # noqa: E402
-    PythonWorkerManager,
+from plugin.scripting.sandbox import (  # noqa: E402
     resolve_libreoffice_python,
     resolve_venv_python,
     scrub_subprocess_env,
 )
+from plugin.scripting.venv_worker import PythonWorkerManager  # noqa: E402
 
 TEXT_NS = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
 DEFAULT_ODT = project_root / "scripts" / "longdocsample.odt"

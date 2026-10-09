@@ -41,7 +41,7 @@ def run_ppt_master_venv_turn(
     """Dispatch one sidebar turn to the venv ppt-master runner."""
     apply_data_root_env(uno_ctx)
 
-    manager, err = _worker_manager_for_ctx(uno_ctx)
+    manager, err = _worker_manager_for_ctx()
     if err is not None:
         return err
     assert manager is not None
