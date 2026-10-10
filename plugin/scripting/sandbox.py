@@ -287,6 +287,7 @@ _ENV_TOKEN_ALLOW = frozenset({"KEYBOARD"})
 # LD_PRELOAD, LD_AUDIT, and DYLD_INSERT_LIBRARIES run code before the harness.
 # PYTHONSTARTUP, PYTHONUSERBASE, PYTHONBREAKPOINT, PYTHONINSPECT alter python execution.
 # DATABASE_URL is a common connection string containing database credentials.
+# WRITERAGENT_COMPUTE_WORKER is compute-service only; venv workers support bidirectional tool calls.
 _BLOCKED_ENV_EXACT = {
     "PYTHONHOME",
     "PYTHONPATH",
@@ -299,6 +300,7 @@ _BLOCKED_ENV_EXACT = {
     "LD_AUDIT",
     "DYLD_INSERT_LIBRARIES",
     "DATABASE_URL",
+    "WRITERAGENT_COMPUTE_WORKER",
 }
 
 _PIPE_BUF_TARGET = 1024 * 1024

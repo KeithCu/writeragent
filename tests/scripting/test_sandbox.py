@@ -490,7 +490,7 @@ def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
     """PYTHONSTARTUP, PYTHONUSERBASE, PYTHONBREAKPOINT, PYTHONINSPECT are blocked, and empty dict gets overrides."""
     from plugin.scripting.sandbox import _BLOCKED_ENV_EXACT, scrub_subprocess_env
 
-    for var in ("PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONBREAKPOINT", "PYTHONINSPECT", "DATABASE_URL"):
+    for var in ("PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONBREAKPOINT", "PYTHONINSPECT", "DATABASE_URL", "WRITERAGENT_COMPUTE_WORKER"):
         assert var in _BLOCKED_ENV_EXACT
 
     base = {
@@ -499,6 +499,7 @@ def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
         "PYTHONBREAKPOINT": "0",
         "PYTHONINSPECT": "1",
         "DATABASE_URL": "postgres://user:pass@host/db",
+        "WRITERAGENT_COMPUTE_WORKER": "1",
         "OPENAI_APIKEY": "sk-test",
         "POSTGRES_DSN": "postgres://...",
         "KEYBOARD_LAYOUT": "us",
@@ -510,6 +511,7 @@ def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
     assert "PYTHONBREAKPOINT" not in scrubbed
     assert "PYTHONINSPECT" not in scrubbed
     assert "DATABASE_URL" not in scrubbed
+    assert "WRITERAGENT_COMPUTE_WORKER" not in scrubbed
     assert "OPENAI_APIKEY" not in scrubbed
     assert "POSTGRES_DSN" not in scrubbed
     assert scrubbed["KEYBOARD_LAYOUT"] == "us"

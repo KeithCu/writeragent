@@ -129,7 +129,7 @@ FormulaProcessPool / get_formula_pool
         POSIX: select() + stream.read(); TimeoutExpired on deadline
 
 formula_worker.py (child), current:
-  set WRITERAGENT_IS_WORKER and WRITERAGENT_COMPUTE_WORKER
+  main() sets WRITERAGENT_IS_WORKER and WRITERAGENT_COMPUTE_WORKER
   sys.path insert repo root
   import run_worker_stdio_loop (not the sandbox, not the Cython accelerator)
   main() → run_worker_stdio_loop

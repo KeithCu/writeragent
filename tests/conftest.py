@@ -25,6 +25,8 @@ def _drain_scheduler_override_for_tests():
 
 
 _WORKER_ENV_VARS = ("WRITERAGENT_IS_WORKER", "WRITERAGENT_COMPUTE_WORKER")
+for _worker_var in _WORKER_ENV_VARS:
+    os.environ.pop(_worker_var, None)
 
 
 @pytest.fixture(autouse=True)
@@ -36,17 +38,15 @@ def _isolate_worker_env_vars():
     whole pytest (xdist) process looked like a worker and fail-closed guards
     such as named_scripts._rpc_named raised in unrelated tests.
     Why this fix: clear before each test (tests that need the markers set them
-    explicitly) and restore afterwards.
+    explicitly) and clean up afterwards so worker modes never leak to other tests.
     """
-    saved = {k: os.environ.pop(k, None) for k in _WORKER_ENV_VARS}
+    for k in _WORKER_ENV_VARS:
+        os.environ.pop(k, None)
     try:
         yield
     finally:
-        for k, v in saved.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
+        for k in _WORKER_ENV_VARS:
+            os.environ.pop(k, None)
 
 
 def pytest_collection_modifyitems(config, items):
