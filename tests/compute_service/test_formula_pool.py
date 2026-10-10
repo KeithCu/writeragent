@@ -31,8 +31,6 @@ from tests.compute_service.conftest import get_free_port
 def cleanup_formula_pool():
     yield
     shutdown_formula_pool()
-    os.environ.pop("WRITERAGENT_IS_WORKER", None)
-    os.environ.pop("WRITERAGENT_COMPUTE_WORKER", None)
 
 
 def test_shared_mode_without_session_id_does_not_run(monkeypatch: pytest.MonkeyPatch) -> None:

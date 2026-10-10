@@ -578,7 +578,9 @@ def test_rpc_named_librepy_fallback_uses_exchange_tool_call():
         return real_import(name, globals, locals, fromlist, level)
 
     with (
-        patch.dict("os.environ", {"WRITERAGENT_IS_WORKER": "1"}),
+        # COMPUTE_WORKER is set by importing compute_service.formula_worker;
+        # force it off so this test does not depend on what ran earlier.
+        patch.dict("os.environ", {"WRITERAGENT_IS_WORKER": "1", "WRITERAGENT_COMPUTE_WORKER": "0"}),
         patch("builtins.__import__", side_effect=_block_api),
         patch("plugin.scripting.ipc.exchange_tool_call", return_value={"body": "x"}) as mock_exchange,
     ):
@@ -586,6 +588,18 @@ def test_rpc_named_librepy_fallback_uses_exchange_tool_call():
 
     assert result == {"body": "x"}
     mock_exchange.assert_called_once_with("get_named_python_script", {"name": "Hello"})
+
+
+def test_rpc_named_fails_closed_in_compute_worker():
+    from plugin.scripting.named_scripts import _rpc_named
+
+    with (
+        patch.dict("os.environ", {"WRITERAGENT_COMPUTE_WORKER": "1"}),
+        patch("plugin.scripting.ipc.exchange_tool_call") as mock_exchange,
+    ):
+        with pytest.raises(RuntimeError, match="compute service"):
+            _rpc_named("get_named_python_script", name="Hello")
+    mock_exchange.assert_not_called()
 
 
 def test_extract_library_source_rejects_decorator_calls():

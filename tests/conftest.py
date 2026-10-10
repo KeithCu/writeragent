@@ -24,6 +24,31 @@ def _drain_scheduler_override_for_tests():
         set_drain_scheduler_override(previous)
 
 
+_WORKER_ENV_VARS = ("WRITERAGENT_IS_WORKER", "WRITERAGENT_COMPUTE_WORKER")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_worker_env_vars():
+    """Start every test as the LibreOffice host, not a compute worker.
+
+    What was wrong: compute_service/formula_worker.py and vision.py set these
+    env vars at import time. Test modules import them during collection, so the
+    whole pytest (xdist) process looked like a worker and fail-closed guards
+    such as named_scripts._rpc_named raised in unrelated tests.
+    Why this fix: clear before each test (tests that need the markers set them
+    explicitly) and restore afterwards.
+    """
+    saved = {k: os.environ.pop(k, None) for k in _WORKER_ENV_VARS}
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def pytest_collection_modifyitems(config, items):
     """Drop leftover @native_test items so they are not counted as skipped.
 
