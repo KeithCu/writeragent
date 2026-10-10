@@ -27,7 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, PoolSingleton, resolve_override, run_worker_stdio_loop, start_refused
+from compute_service.worker_base import BaseProcessPool, PoolSingleton, floor_run_seconds, resolve_override, run_worker_stdio_loop, start_refused
 
 log = logging.getLogger("compute_service.vision")
 
@@ -145,7 +145,7 @@ class VisionProcessPool(BaseProcessPool):
 
             # execute() refuses a budget under one second. The minimum
             # request is already slightly under that after the lease returns.
-            run_for = remaining if remaining >= 1.0 else 1.0
+            run_for = floor_run_seconds(remaining)
             res = worker.execute(payload, timeout_sec=run_for)
             if req_id is not None and isinstance(res, dict):
                 res["id"] = req_id

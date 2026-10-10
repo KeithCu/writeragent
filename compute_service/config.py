@@ -244,9 +244,10 @@ class ComputeSettings:
         if self.max_code_chars < MIN_MAX_CODE_CHARS:
             raise ConfigError(f"max_code_chars must be >= {MIN_MAX_CODE_CHARS}")
         # inf < 0 and nan < 0 are both false, so a bare >= 0 check accepted
-        # them. inf never satisfies `now - last_active >= ttl`, so the session
-        # reaper never evicts and the idle reaper skips workers that still
-        # hold a session. nan fails the > 0 guard, so the reaper never starts.
+        # them. inf never satisfies `now - last_active >= ttl`, so a sticky
+        # call never treats the session as stale and the idle reaper skips
+        # workers that still hold one. nan fails the > 0 guard, so expiry
+        # stays off.
         # _as_float rejects the same values from JSON and the environment;
         # ComputeSettings() can be built without that helper.
         if not math.isfinite(self.shared_kernel_ttl_sec) or self.shared_kernel_ttl_sec < 0:

@@ -162,7 +162,7 @@ Same contract as [`compute_service/README.md`](../../compute_service/README.md#h
 
 ### Python compute service
 
-- Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `config.py`, `executor.py`, [`json_forward.py`](../../compute_service/json_forward.py), [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
+- Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `http_server.py`, `config.py`, `formula_worker.py`, [`json_forward.py`](../../compute_service/json_forward.py), [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
 - Listen with **stdlib** `http.server` / `ThreadingHTTPServer` (no FastAPI).
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"1.0.0"}` (unauthenticated for orchestrator liveness/readiness probes).
 - `POST /v1/execute[?session_id=...]` accepts **both** ingresses (`Content-Type` dispatch). Peel of `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` is today’s kit contract and will be retired after kit moves to `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional raw `data`). Response `{ "id?", "status", "result"|"error", "stdout?", "images?" }` — worker-dumped, host-forwarded. Details: [`compute_service/README.md`](../../compute_service/README.md#http-ingress-peel-vs-multipart).
@@ -373,7 +373,7 @@ so the broker's normal structured disabled response is covered end-to-end.
    =PY("import numpy as np; result = float(np.sum([1,2,3]))")
    ```
    Expect interim `#BUSY!`, then `6`.
-5. Process proof: `ps` / container logs show numpy import in the **service** PID, never in `coolkit`. Optionally add a temporary log line in `compute_service/executor.py` on successful `import numpy` in the sandbox namespace.
+5. Process proof: `ps` / container logs show numpy import in the **service** PID, never in `coolkit`. Optionally add a temporary log line in `compute_service/formula_worker.py` on successful `import numpy` in the sandbox namespace.
 
 **Wire-only without formula:** browser/devtools WS:
 ```text
@@ -449,7 +449,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
    coolwsd on the host reaches `127.0.0.1:8000`; the container has **no** route to the public internet (tenant `urllib` / sockets die). If the sandbox AST already blocks many imports, network isolation is still the real boundary for C-extension sockets.
 6. **No docker.sock, no privileged, no host FS mounts** of tenant data. Scratch only under `/tmp`. If models/weights are needed later, bake into the image (admin curates) — never bind-mount `~/.writeragent_venv`.
 7. **Auth between coolwsd and service:** coolwsd sends optional `security.python_compute.api_key` as `Authorization: Bearer …`. The compute service verifies that Bearer only when a key is configured (`PYTHON_COMPUTE_API_KEY` / key file / `python-compute.json`); empty key = no auth (dev/test). Remaining ops: cgroup/network isolation ([F4](#f4--compute-service-container-hardening) / G5).
-8. **Resource quotas already partially exist:** `timeout_ms` / `clamp_timeout_sec` in [`executor.py`](../../compute_service/executor.py); add RSS watch or rely on cgroup `--memory`. Document that wall-clock alone does not stop a malloc bomb — cgroup does.
+8. **Resource quotas already partially exist:** `timeout_ms` / `clamp_timeout_sec` in [`config.py`](../../compute_service/config.py) and [`formula_worker.py`](../../compute_service/formula_worker.py); add RSS watch or rely on cgroup `--memory`. Document that wall-clock alone does not stop a malloc bomb — cgroup does.
 9. **Health / readiness:** keep `/health` (`status`, `service`, `version`); orchestrators use it. Do not expose `/v1/execute` without the allowlist auth once enabled.
 10. **Signal handling & structured logging:** `SIGTERM`/`SIGINT` graceful shutdown for orchestrators; structured logging with request durations and configurable verbosity (`PYTHON_COMPUTE_LOG_LEVEL`). Request `id` is echoed on success and error payloads for async tracing.
 
@@ -460,7 +460,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 
 **Today:**
 
-- Service [`execute_code`](../../compute_service/executor.py) already honors `mode=="shared"` + non-empty `session_id`, with a per-id `threading.Lock`.
+- Service [`execute_code`](../../compute_service/formula_worker.py) already honors `mode=="shared"` + non-empty `session_id`, with a per-id `threading.Lock`.
 - Service `POST /v1/session/reset?session_id=...` reuses [`FormulaProcessPool.reset_session`](../../compute_service/formula_pool.py) → worker `action: reset_session` → LibrePy [`reset_sandbox_session`](../../plugin/scripting/venv/venv_sandbox.py). Query-only `session_id`; idempotent `ok`; the session map is dropped only when the worker reports `status: ok` (a failed reset keeps the map). Idle TTL (`shared_kernel_ttl_sec`) stays the safety net. This is **service-side only** — the coolwsd caller is not shipped. Online still hard-codes isolated.
 - Online AddIn [`buildExecuteRequestJson`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_anyjson.cxx) **hard-codes** `"mode": "isolated"` (via `tools::JsonWriter`) and never sends `session_id` / `init_script`. That emit is the **peel / single-JSON** ingress (today’s contract). Compute already accepts `multipart/form-data` too (`meta` + raw `code` + optional `init_script` + optional `data`); when kit switches to multipart, peel retires. See [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
 - LibrePy derives workbook ids via [`session_manager.calc_workbook_base_session_id`](../../plugin/scripting/session_manager.py) and seeds init scripts from document properties.
@@ -481,7 +481,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 3. **AddIn:** keep emitting isolated always **or** emit `mode` omit and let wsd decide — prefer **wsd owns mode** so a rebuilt AddIn is not required to flip admin policy.
 4. **Lifecycle:**
    - On DocumentBroker destroy / last session leave: coolwsd `POST /v1/session/reset?session_id=<id>` (service endpoint is landed; **coolwsd caller is not**). Query-only `session_id` (same L7 sticky as execute). Idempotent `ok` if the kernel is already gone. Do not put `session_id` in the JSON body.
-   - TTL: expire idle shared sessions in the service (`shared_kernel_ttl_sec`) to bound memory if reset is missed. Do not remove the reaper.
+   - TTL: expire idle shared sessions in the service (`shared_kernel_ttl_sec`) to bound memory if reset is missed. The next sticky call resets that kernel. The idle-worker reaper kills a process whose sessions are all past that TTL. Do not remove that expiry.
 5. **Recalc semantics:** document Online limitation — without Excel-style co-volatility, multi-cell shared-kernel scripts need real `data` precedents for dirtying and operator-managed run order (same advisory as LibrePy §6; the OOXML rewriter does not invent prior-PY edges). Do not invent Online co-volatility in v1.
 6. **Tests:**
    - Service unit: two sequential executes with same `session_id` share a name; different ids do not.
@@ -603,7 +603,7 @@ AddIn arms a process-wide one-shot `vcl::Timer` to the earliest `g_aPending` dea
 
 #### G6c — LRU breaks AddIn.idl identity; sticky errors — **done**
 
-`g_aParamCache` is now a process-wide param→volatile map of `unotools::WeakReference`s (same shape as `AccessibleSpreadsheet::m_mapCells`). A still-live entry is **never** evicted, so `getPy` returns the same `XVolatileResult` for the same params even past the soft cap — no duplicate HTTP emit. `kParamCacheSoftCap` (256) only prunes lapsed weaks; the live set may grow past it (like `ScAddInAsync`, bounded by listeners). A weak lapses once no cell holds the volatile **and** the request finished (in-flight `#BUSY!` is pinned by `g_aPending`). Kit teardown calls `pythoncompute_clear_caches` from `clearEmitter` (last session) for memory — not identity. Sticky finished success/error stays v1; retry = change `code`/`data`. CppUnit: `test_paramCacheIdentityUnderPressure`, `test_paramCacheDropsLapsedWeak`.
+`g_aParamCache` is now a process-wide param→volatile map of `unotools::WeakReference`s (same shape as `AccessibleSpreadsheet::m_mapCells`). A still-live entry is **never** evicted, so `getPy` returns the same `XVolatileResult` for the same params even past the soft cap — no duplicate HTTP emit. `kParamCacheSoftCap` (256) only prunes lapsed weaks; the live set may grow past it (like `ScAddInAsync`, bounded by listeners). A weak lapses once no cell holds the volatile **and** the request finished (in-flight `#BUSY!` is pinned by `g_aPending`). Kit teardown calls `pythoncompute_clear_caches` from `clearEmitter` (last session) for memory — not identity. A missing emitter is a one-shot `#N/A` and is **not** cached (`test_noEmitterThenEmitterRetries`). A pending timeout finishes `#N/A` and **erases** that param-cache key, so the next same-args recalc emits again (`test_pendingTimeoutThenRetryEmits`, plus `test_pendingTimeoutWithoutRecalc` for the no-recalc case). Finished success and service errors stay sticky; retry = change `code`/`data`. CppUnit: `test_paramCacheIdentityUnderPressure`, `test_paramCacheDropsLapsedWeak`.
 
 ### G8 — Test coverage gaps
 
@@ -633,6 +633,41 @@ From [forum #15](https://forum.collaboraonline.com/t/py-numpy-inside-collabora/4
 | **Configure vs runtime** | Drop `--disable-python-compute`, or default the runtime flag on | AddIn on by default; omit with `--disable-python-compute`. `security.python_compute.enable` stays default **false**. Run CppUnit + `unit-python-compute` with the AddIn enabled. |
 | **UNO ↔ JSON** | Merge `anyjson` into jsuno, or pull Poco into the AddIn | Typed jsuno (`appendUnoAsJson` / `parseJsonToAny`, optional QuickJS) is a different contract from untyped compute-wire JSON. `tools::JsonWriter` is the shared encoder. Later share, if any: string escape/parse (maybe a tiny scalar/array helper) in `tools`/`comphelper`; Calc matrix / envelope / errors stay in the AddIn. Pieces found so far; Core is large, we may have missed others. |
 | **Scope** | Excel Table / live ANCHORARRAY / co-volatility / torture-sheet engines in the AddIn | Piece-wise C++ tip only. Torture samples stay WriterAgent (`PythonExcelSamples/` + roundtrip script) until Collabora asks for gold. |
+
+#### Before the next patch
+
+From Tomaž’s reviews on [Gerrit 8122](https://gerrit.collaboraoffice.com/c/online/+/8122) and [8123](https://gerrit.collaboraoffice.com/c/online/+/8123) (2026-09 license/namespace and PS8; 2026-10 feature guard and lock order). Apply these on the next change so the same notes do not come back.
+
+**Match the tree you are landing on**
+
+- New files use `engine/TEMPLATE.SOURCECODE.HEADER` (MPL-only, `fill-column: 100`). Do not copy the Apache dual-license block. Do not rewrite headers on files that already existed.
+- C++ namespace stays short (`co::pythoncompute`). UNO identity stays `org.collaboraoffice.sheet.addin.*`. UNO types are `cpo::uno`, not `com::sun::star`.
+- Use the house helper that already exists: `o3tl::trim`, `tools::JsonWriter::finishAndGetAsStdString()`, `gb_Helper_optional`. Do not add a local trim or the less-used JsonWriter getter.
+
+**An optional feature has to vanish completely**
+
+- `--disable-python-compute` must omit the library, the CppUnit, **and** the IDL. `InternalUnoApi_scaddins.mk` `add_idlfiles` for `org/collaboraoffice/sheet/addin` is wrapped in `gb_Helper_optional,PYTHON_COMPUTE`, same as the library. A wizard name with no implementation is what the IDL comment caught.
+- A makefile `ENABLE_*` flag is not a C macro. Tests that name the feature (`ucalc` `testFunctionLists` expecting `PY` / `PYTHON`) need `HAVE_FEATURE_PYTHON_COMPUTE`: `AC_DEFINE` when enabled, default `0` in `engine/config_host/config_features.h.in`, and `#if` around the expectation. The `#else` branch is the old `{ "Add-in", nullptr }`. Compile that branch (stub header or a disabled configure) before upload; CI builds with the feature off.
+
+**Caches and branches that cannot fire**
+
+- Do not cache a failure that the next recalc should retry. See [G6c](#g6c--lru-breaks-addinidl-identity-sticky-errors--done): no emitter is one-shot `#N/A` with no `paramCachePut` (kit installs the emitter later via `dlsym`); a pending timeout erases that param-cache key. In-flight identity stays. Finished success and service errors stay sticky.
+- Do not look up an id you just minted with a monotonic counter. If `g_aPending.find` cannot hit, delete the branch.
+
+**ABI and lock order**
+
+- `extern "C"` that reaches `finish()` (`pythoncompute_complete_json`, and the pending-timeout timer) must not throw into kit. UNO exceptions do not inherit `std::exception`, so `catch (const std::exception&)` alone misses `RuntimeException`. `catch (...)` at that edge is enough. Do not wrap trivial setters (`set_emitter`, the test timeout setter).
+- Lock order is Solar, then kit `gMutex`. `pythoncompute_set_emitter` takes Solar. `emitThunk` takes `gMutex` under Solar. Snapshot `gSetEmitter` under `gMutex`, release, then call. Same pattern already used for `clear_caches` and `complete_json`. Calling the setter inside the `gMutex` scope deadlocks.
+
+**Build files: take upstream’s new shape**
+
+- Forkit objects for fuzzers come from `gbuild/StaticLibrary_forkit.mk` (`libforkit.a`). A new kit `.cpp` such as `PythonComputeEmitter` goes in `add_generated_exception_objects` there. Do not put `coolforkit_sources` back into `fuzzer/Makefile.am`; main removed that list.
+- Online unit tests link `libtesthelpers.la $(CPPUNIT_LIBS)` (`test/Makefile.am`). On a rebase conflict, keep that and add the new test line. Do not restore the pre-`libtesthelpers` `LIBADD`.
+- After a rebase, the series should merge clean against current `main`. Confirm the Gerrit change is mergeable before calling the rebase done.
+
+**What not to upload**
+
+`git commit-tree` has no `--author` flag; set `GIT_AUTHOR_*` and `GIT_COMMITTER_*` as in the recipe below. Do not commit untracked local files (`coolkitconfig.xcu`, helper scripts). Diff the patch-set file list against the previous one before `git push cogerrit HEAD:refs/for/main`.
 
 #### Cursor `Co-authored-by` on Gerrit commits
 

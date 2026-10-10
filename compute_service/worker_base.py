@@ -20,7 +20,6 @@ Child stdio framing (``RestrictedUnpickler``, ``run_worker_stdio_loop``,
 from __future__ import annotations
 
 import contextlib
-import enum
 import logging
 import os
 import subprocess
@@ -135,14 +134,29 @@ def start_refused(requested_sec: float, deadline: float) -> bool:
     return remaining < _MIN_REQUEST_SEC
 
 
+def floor_run_seconds(remaining: float) -> float:
+    """Seconds for a child that already passed ``start_refused``.
+
+    A spent deadline is 0. Any time still left is at least one second.
+    ``int`` of a one-second request is 0 once the clock has moved, and
+    ``signal.alarm(0)`` cancels the child's alarm. Vision uses the same
+    floor so a one-second OCR call is not given a sub-second read.
+    """
+    if remaining <= 0:
+        return 0.0
+    if remaining < _MIN_REQUEST_SEC:
+        return _MIN_REQUEST_SEC
+    return remaining
+
+
 class _Deadline:
     """One clock for spawn, the stdin write, and the stdout read.
 
     ``left()`` floors at ``_PIPE_WAIT_FLOOR`` so a select never sees 0.
-    ``too_short_to_start()`` is a requested budget under one second.
-    ``too_late_to_spawn()`` is that, or a longer budget that has already
-    fallen under one second. Flooring the whole budget used to turn a
-    spent deadline into 0.01s, which spawned a child and SIGKILL'd it.
+    ``too_late_to_spawn()`` is ``start_refused``: a requested budget under
+    one second, or a longer budget that has already fallen under one
+    second. Flooring the whole budget used to turn a spent deadline into
+    0.01s, which spawned a child and SIGKILL'd it.
     """
 
     __slots__: tuple[str, ...] = ("budget_sec", "_end")
@@ -157,46 +171,21 @@ class _Deadline:
         """True when the caller passed a spent budget, or the clock has passed it."""
         return self.budget_sec <= 0 or time.monotonic() >= self._end
 
-    def too_short_to_start(self) -> bool:
-        """True when the caller asked for less than one second.
-
-        A budget of one second is allowed. Checking time remaining here
-        refused that minimum, because monotonic() moves before the check.
-        A live child still uses ``left()`` for the pipe wait.
-        """
-        return self.budget_sec < _MIN_REQUEST_SEC
-
     def too_late_to_spawn(self) -> bool:
         """True when a dead slot must not be replaced.
 
-        A one-second request may spawn: it is the minimum budget, and the
-        clock has already moved. A longer request with under one second
-        left must not. That handshake could not finish and SIGKILL'd the
-        child.
+        Same rule as ``start_refused``. A one-second request may spawn:
+        it is the minimum budget, and the clock has already moved. A
+        longer request with under one second left must not. That handshake
+        could not finish and SIGKILL'd the child.
         """
-        if self.expired() or self.too_short_to_start():
-            return True
-        if self.budget_sec <= _MIN_REQUEST_SEC:
-            return False
-        return (self._end - time.monotonic()) < _MIN_REQUEST_SEC
+        return start_refused(self.budget_sec, self._end)
 
     def left(self) -> float:
         """Seconds still usable for a pipe wait, never below ``_PIPE_WAIT_FLOOR``."""
         if self.expired():
             return _PIPE_WAIT_FLOOR
         return max(_PIPE_WAIT_FLOOR, self._end - time.monotonic())
-
-
-class _LateAction(enum.Enum):
-    """What to do with the child after a failed request.
-
-    KILL is a timeout, a desynchronized pipe, a crash, or an empty response.
-    NONE is shutdown, or a child that never became live. The next lease
-    respawns a killed slot.
-    """
-
-    KILL = "kill"
-    NONE = "none"
 
 
 class BaseProcessWorker:
@@ -449,13 +438,14 @@ class BaseProcessWorker:
         *,
         budget_sec: float,
         pid: int | None,
-        action: _LateAction = _LateAction.KILL,
+        kill: bool = True,
     ) -> dict[str, Any]:
         """Build an error dict, then kill the child or leave it.
 
-        KILL is a timeout or a desynchronized pipe. The next lease respawns
-        the slot. NONE leaves the child: shutdown, or a process that never
-        became live. An oversized frame never gets here.
+        ``kill`` is a timeout, a desynchronized pipe, a crash, or an empty
+        response. The next lease respawns that slot. False leaves the child:
+        shutdown, or a process that never became live. An oversized frame
+        never gets here.
         """
         if code != "SERVICE_SHUTDOWN":
             # Timeouts and failed attempts count so a slot that keeps dying
@@ -465,7 +455,7 @@ class BaseProcessWorker:
         snippet = self._stderr_snippet()
         if snippet:
             msg = f"{msg}\n{snippet}"
-        if action is _LateAction.KILL:
+        if kill:
             log.warning("%s request failed (%s) on worker #%d; terminating pid=%s", self.worker_name, code, self.worker_id, pid)
             self.kill()
         res: dict[str, Any] = {"status": "error", "code": code, "error": msg}
@@ -497,19 +487,19 @@ class BaseProcessWorker:
 
         if proc is None or proc.poll() is not None:
             if self._shutting_down:
-                return self._fail_request("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.", budget_sec=deadline.budget_sec, pid=_pid(), action=_LateAction.NONE)
+                return self._fail_request("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.", budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
             if deadline.too_late_to_spawn():
-                return self._fail_request("EXECUTION_TIMEOUT", self._timeout_message(deadline), budget_sec=deadline.budget_sec, pid=_pid(), action=_LateAction.NONE)
+                return self._fail_request("EXECUTION_TIMEOUT", self._timeout_message(deadline), budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
             spawn_budget = min(_SPAWN_READY_TIMEOUT_SEC, deadline.left())
             self.respawn(timeout_sec=spawn_budget)
             proc = self.process
             if proc is None or proc.poll() is not None:
-                return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} could not be started.", budget_sec=deadline.budget_sec, pid=_pid(), action=_LateAction.NONE)
+                return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} could not be started.", budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
 
         stdin = proc.stdin
         stdout = proc.stdout
         if stdin is None or stdout is None:
-            return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} has no stdio pipes.", budget_sec=deadline.budget_sec, pid=_pid(), action=_LateAction.NONE)
+            return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} has no stdio pipes.", budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
         return proc, stdin, stdout
 
     def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
@@ -520,14 +510,14 @@ class BaseProcessWorker:
         # caller that already passed 0 would still spawn.
         with self.lock:
             deadline = _Deadline(timeout_sec)
-            if deadline.expired() or deadline.too_short_to_start():
+            if deadline.too_late_to_spawn():
                 current = self.process
                 return self._fail_request(
                     "EXECUTION_TIMEOUT",
                     self._timeout_message(deadline),
                     budget_sec=deadline.budget_sec,
                     pid=current.pid if current is not None else None,
-                    action=_LateAction.NONE,
+                    kill=False,
                 )
             ensured = self._ensure_live_process(deadline)
             if isinstance(ensured, dict):
@@ -559,7 +549,6 @@ class BaseProcessWorker:
                     self._timeout_message(deadline),
                     budget_sec=deadline.budget_sec,
                     pid=_pid(),
-                    action=_LateAction.KILL,
                 )
             except (BrokenPipeError, OSError) as exc:
                 return self._fail_request("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}", budget_sec=deadline.budget_sec, pid=_pid())
@@ -590,7 +579,6 @@ class BaseProcessWorker:
                     self._timeout_message(deadline),
                     budget_sec=deadline.budget_sec,
                     pid=_pid(),
-                    action=_LateAction.KILL,
                 )
             except Exception as exc:
                 return self._fail_request("WORKER_CRASHED", f"{self.worker_name} error: {exc}", budget_sec=deadline.budget_sec, pid=_pid())
@@ -703,7 +691,10 @@ class BaseProcessPool:
                 if self._skip_idle_evict(w):
                     continue
                 last_active = self._worker_last_active.get(w, now)
-                if now - last_active >= self.idle_worker_ttl_sec:
+                idle_expired = self.idle_worker_ttl_sec is not None and now - last_active >= self.idle_worker_ttl_sec
+                # Abandoned shared sessions are not left until idle TTL.
+                # The base pool has no session map, so this is false there.
+                if idle_expired or self._abandoned_sessions(w):
                     stale.append(w)
             for w in stale:
                 self._idle.pop(w, None)
@@ -725,6 +716,15 @@ class BaseProcessPool:
         """Return true to leave *worker* running past the idle TTL.
 
         Formula sessions override this. The base pool has no session map.
+        """
+        del worker
+        return False
+
+    def _abandoned_sessions(self, worker: BaseProcessWorker) -> bool:
+        """True when *worker* should be killed before idle TTL elapses.
+
+        Formula overrides this for a process whose shared sessions are all
+        past the session TTL. The base pool has no session map.
         """
         del worker
         return False

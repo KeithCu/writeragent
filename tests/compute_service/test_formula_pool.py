@@ -710,7 +710,7 @@ class TestFormulaPoolSupervisor:
             pool.shutdown()
 
     def test_session_ttl_evicts_idle_session(self) -> None:
-        """Session TTL reaper must evict sessions idle longer than shared_kernel_ttl_sec."""
+        """An idle worker whose session is past TTL is killed. The next lease respawns it."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, max_tasks=1, shared_kernel_ttl_sec=3600.0)
         try:
             sid = "ttl-evict-test"
@@ -718,21 +718,21 @@ class TestFormulaPoolSupervisor:
             assert r1.get("status") == "ok"
             assert pool.live_session_worker(sid) is not None
 
-            # Simulate passage of idle time and trigger eviction
+            # The worker itself is not past idle TTL. Session TTL is what
+            # makes the idle reaper kill it.
             with pool._cond:
                 pool._sessions[sid].last_active = time.monotonic() - 4000.0
-            pool._evict_stale_sessions()
-            assert pool.live_session_worker(sid) is None, "Session should be evicted after TTL expiration"
+            pool._evict_idle_workers()
+            assert pool.live_session_worker(sid) is None, "Session should be dropped when its worker is killed"
 
-            # Eviction's reset counts as a task. tasks_executed >= max_tasks,
-            # so release kills the slot and leaves it dead. The next execute
-            # respawns it.
             worker = pool.workers[0]
             assert not worker.is_alive()
             with pool._cond:
                 assert worker not in pool._idle
+                assert sid in pool._lost_sessions
 
             # The slot is dead, so this cell runs only after execute respawns.
+            # max_tasks is 1, so release retires that new process too.
             r2 = pool.execute(code="result = 'recycled'", mode="isolated", req_id="ttl-2")
             assert r2.get("status") == "ok", r2
             assert r2.get("result") == "recycled"
@@ -911,52 +911,31 @@ class TestFormulaPoolSupervisor:
             pool.shutdown()
 
     def test_ttl_keeps_session_when_worker_reset_fails(self, caplog: pytest.LogCaptureFixture) -> None:
-        """TTL eviction must not drop the map when the worker reset is not ok."""
+        """A stale sticky call must not drop the map when the worker reset is not ok."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
         try:
             sid = "ttl-reset-fail"
             ok = pool.execute(code="x = 4\nresult = x", session_id=sid, mode="shared", req_id="ttl-fail-1")
             assert ok.get("status") == "ok"
             worker = pool._sessions[sid].worker
+            real_execute = worker.execute
 
             def fail_reset(payload: dict, timeout_sec: float = 5.0) -> dict:
-                del timeout_sec
                 if payload.get("action") == "reset_session":
                     return {"status": "error", "error": "namespace still held"}
-                raise AssertionError(payload)
+                return real_execute(payload, timeout_sec)
 
             setattr(worker, "execute", fail_reset)
             with pool._cond:
                 pool._sessions[sid].last_active = time.monotonic() - 4000.0
             with caplog.at_level(logging.ERROR, logger="compute_service.formula"):
-                pool._evict_stale_sessions()
+                again = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="ttl-fail-2")
+            assert again.get("status") == "ok"
+            assert again.get("result") == 4
+            assert again.get("session_reset") is not True
             assert pool.live_session_worker(sid) is worker
             assert sid in pool._worker_sessions_for(worker)
             assert "keeping session map" in caplog.text
-        finally:
-            pool.shutdown()
-
-    def test_ttl_skips_session_refreshed_while_waiting(self) -> None:
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
-        try:
-            sid = "ttl-race"
-            setx = pool.execute(code="x = 3\nresult = x", session_id=sid, mode="shared", req_id="ttl-race-1")
-            assert setx.get("status") == "ok"
-            original = pool.lease_specific
-
-            def _refresh(worker: Any, timeout_sec: float = 0.0) -> Any:
-                with pool._cond:
-                    pool._sessions[sid].last_active = time.monotonic()
-                return original(worker, timeout_sec=timeout_sec)
-
-            setattr(pool, "lease_specific", _refresh)
-            with pool._cond:
-                pool._sessions[sid].last_active = time.monotonic() - 4000.0
-            pool._evict_stale_sessions()
-            assert sid in pool._sessions
-            later = pool.execute(code="result = x", session_id=sid, mode="shared", req_id="ttl-race-2")
-            assert later.get("status") == "ok"
-            assert later.get("result") == 3
         finally:
             pool.shutdown()
 
@@ -1252,48 +1231,9 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_ttl_evict_keeps_session_reserved_during_reset(self) -> None:
-        """A reservation created after reset pops the id must not be marked lost.
-
-        A second drop of the same id used to pop it again. The request in
-        between had already reserved that id again.
-        """
-        from compute_service.formula_pool import _Session
-
-        pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
-        try:
-            sid = "ttl-rereserve"
-            created = pool.execute(code="result = 1", session_id=sid, mode="shared", req_id="ttl-keep-1")
-            assert created.get("status") == "ok"
-            with pool._cond:
-                original = pool._sessions[sid].worker
-                pool._sessions[sid].last_active = time.monotonic() - 4000.0
-            other = next(w for w in pool.workers if w is not original)
-            real_reset = pool._reset_session_on_worker
-
-            def reset_then_rereserve(worker, session_id, timeout_sec=5.0, lost=False):
-                res = real_reset(worker, session_id, timeout_sec=timeout_sec, lost=lost)
-                proc = other.process
-                with pool._cond:
-                    pool._sessions[session_id] = _Session(
-                        worker=other,
-                        pid=proc.pid if proc is not None and proc.poll() is None else None,
-                        last_active=time.monotonic(),
-                    )
-                    pool._lost_sessions.pop(session_id, None)
-                return res
-
-            with patch.object(pool, "_reset_session_on_worker", side_effect=reset_then_rereserve):
-                pool._evict_stale_sessions()
-            with pool._cond:
-                assert pool._sessions[sid].worker is other
-                assert sid not in pool._lost_sessions
-        finally:
-            pool.shutdown()
-
     @pytest.mark.skipif(sys.platform == "win32", reason="uses SIGKILL")
-    def test_ttl_evict_dead_worker_does_not_respawn(self) -> None:
-        """An exited pid is marked lost. Eviction must not lease it and respawn."""
+    def test_reap_dead_worker_does_not_respawn(self) -> None:
+        """An exited pid is marked lost. Reaping it must not lease and respawn."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
         try:
             sid = "ttl-dead"
@@ -1304,16 +1244,7 @@ class TestFormulaPoolSupervisor:
             assert proc is not None
             proc.kill()
             proc.wait(timeout=5)
-            calls: list[dict] = []
-
-            def spy(payload, timeout_sec):
-                calls.append(payload)
-                del timeout_sec
-                return {"status": "ok"}
-
-            with patch.object(worker, "execute", side_effect=spy):
-                pool._evict_stale_sessions()
-            assert calls == []
+            assert pool.live_session_worker(sid) is None
             assert worker.process is proc
             assert not worker.is_alive()
             with pool._cond:
@@ -1672,83 +1603,55 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
-    def test_ttl_eviction_marks_session_lost_and_reports_reset(self) -> None:
-        """TTL eviction adds session to _lost_sessions so subsequent call gets session_reset: True."""
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    def test_ttl_expiry_reports_session_reset_on_the_sticky_call(self) -> None:
+        """The sticky call after session TTL resets that kernel and reports the flag once."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0)
         try:
             sid = "ttl-evicted-session"
             r1 = pool.execute(code="x = 77\nresult = x", session_id=sid, mode="shared")
             assert r1.get("status") == "ok"
             assert r1.get("session_reset") is not True
+            worker = pool.workers[0]
 
-            # Force TTL expiration
-            pool._evict_stale_sessions(ttl_sec=-1)
             with pool._cond:
-                assert sid in pool._lost_sessions
-                assert sid not in pool._sessions
+                pool._sessions[sid].last_active = time.monotonic() - 4000.0
 
             r2 = pool.execute(code="result = 88", session_id=sid, mode="shared")
             assert r2.get("status") == "ok"
+            assert r2.get("result") == 88
             assert r2.get("session_reset") is True
+            # The map stays on this process. Marking the id lost would make
+            # the following cell report session_reset again.
+            with pool._cond:
+                assert pool._sessions[sid].worker is worker
+                assert sid not in pool._lost_sessions
+            gone = pool.execute(code="result = x", session_id=sid, mode="shared")
+            assert gone.get("status") == "error"
+            assert gone.get("session_reset") is not True
         finally:
             pool.shutdown()
 
-    def test_ttl_evict_waiter_misses_session_reset(self) -> None:
-        """A cell already blocked on the lease does not see the TTL reset flag.
-
-        The lost set is consumed by the next call that observes it. This
-        waiter selected the worker before the reset, so it runs on the fresh
-        kernel without session_reset. The following call reports it once.
-        """
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    def test_stale_session_resets_without_killing_fresh_sibling(self) -> None:
+        """A fresh session on the same worker keeps the process up. The stale id resets on its next call."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=3600.0, idle_worker_ttl_sec=3600.0)
         try:
-            sid = "ttl-waiter"
-            primed = pool.execute(code="x = 77\nresult = x", session_id=sid, mode="shared")
-            assert primed.get("status") == "ok"
-            assert primed.get("session_reset") is not True
-
-            entered_lease = threading.Event()
-            orig_reset = pool._reset_session_on_worker
-            orig_lease = pool.lease_specific
-            holder: dict[str, threading.Thread] = {}
-
-            def blocking_reset(worker: Any, session_id: str, timeout_sec: float = 5.0, lost: bool = False) -> dict[str, Any]:
-                assert entered_lease.wait(timeout=10)
-                return orig_reset(worker, session_id, timeout_sec=timeout_sec, lost=lost)
-
-            def watch_lease(worker: Any, timeout_sec: float) -> Any:
-                if threading.current_thread() is holder.get("waiter"):
-                    entered_lease.set()
-                return orig_lease(worker, timeout_sec)
-
-            result: dict[str, Any] = {}
-
-            def run_waiter() -> None:
-                result["value"] = pool.execute(code="result = x", session_id=sid, mode="shared", timeout_sec=15)
-
-            waiter = threading.Thread(target=run_waiter)
-            holder["waiter"] = waiter
-            with (
-                patch.object(pool, "_reset_session_on_worker", side_effect=blocking_reset),
-                patch.object(pool, "lease_specific", side_effect=watch_lease),
-            ):
-                evictor = threading.Thread(target=lambda: pool._evict_stale_sessions(ttl_sec=-1))
-                evictor.start()
-                waiter.start()
-                evictor.join(timeout=20)
-                waiter.join(timeout=20)
-            assert not evictor.is_alive()
-            assert not waiter.is_alive()
-            waiting = result["value"]
-            assert waiting.get("session_reset") is not True
-            assert waiting.get("status") == "error"
-
-            nxt = pool.execute(code="result = 1", session_id=sid, mode="shared")
-            assert nxt.get("status") == "ok"
-            assert nxt.get("session_reset") is True
-            after = pool.execute(code="result = 2", session_id=sid, mode="shared")
-            assert after.get("status") == "ok"
-            assert after.get("session_reset") is not True
+            fresh = pool.execute(code="a = 1\nresult = a", session_id="fresh-sib", mode="shared")
+            stale = pool.execute(code="b = 2\nresult = b", session_id="stale-sib", mode="shared")
+            assert fresh.get("status") == "ok"
+            assert stale.get("status") == "ok"
+            worker = pool.workers[0]
+            with pool._cond:
+                pool._sessions["stale-sib"].last_active = time.monotonic() - 4000.0
+                pool._worker_last_active[worker] = time.monotonic() - 4000.0
+            pool._evict_idle_workers()
+            assert worker.is_alive()
+            later = pool.execute(code="result = b", session_id="stale-sib", mode="shared")
+            assert later.get("session_reset") is True
+            assert later.get("status") == "error"
+            still = pool.execute(code="result = a", session_id="fresh-sib", mode="shared")
+            assert still.get("status") == "ok"
+            assert still.get("result") == 1
+            assert still.get("session_reset") is not True
         finally:
             pool.shutdown()
 
