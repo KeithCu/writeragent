@@ -210,6 +210,50 @@ def test_unread_pipe_bytes_posix_peek_uses_set_blocking(monkeypatch):
     stream.read.assert_not_called()
 
 
+def test_nonblocking_skips_on_win32(monkeypatch):
+    """On Windows or when os.set_blocking is absent, _nonblocking yields cleanly without error."""
+    from plugin.scripting import ipc
+
+    monkeypatch.setattr(ipc.sys, "platform", "win32")
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("os.set_blocking must not run on win32")
+
+    monkeypatch.setattr(ipc.os, "set_blocking", boom)
+    with ipc._nonblocking(42):
+        pass
+
+
+def test_nonblocking_restores_blocking_posix(monkeypatch):
+    """On POSIX, _nonblocking records initial blocking state and restores it on normal exit or exception."""
+    from plugin.scripting import ipc
+
+    monkeypatch.setattr(ipc.sys, "platform", "linux")
+    events: list[tuple[str, int, bool | None]] = []
+
+    def fake_get_blocking(fd: int) -> bool:
+        events.append(("get", fd, None))
+        return True
+
+    def fake_set_blocking(fd: int, blocking: bool) -> None:
+        events.append(("set", fd, blocking))
+
+    monkeypatch.setattr(ipc.os, "get_blocking", fake_get_blocking)
+    monkeypatch.setattr(ipc.os, "set_blocking", fake_set_blocking)
+
+    # Normal exit
+    with ipc._nonblocking(10):
+        pass
+    assert events == [("get", 10, None), ("set", 10, False), ("set", 10, True)]
+
+    # Exception exit restores blocking
+    events.clear()
+    with pytest.raises(RuntimeError, match="boom"):
+        with ipc._nonblocking(11):
+            raise RuntimeError("boom")
+    assert events == [("get", 11, None), ("set", 11, False), ("set", 11, True)]
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX peek sets the pipe non-blocking")
 def test_bad_length_prefix_restores_blocking_mode():
     """A garbage length must not leave the pipe non-blocking for the next read."""

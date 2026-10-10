@@ -365,9 +365,20 @@ def _nonblocking(fd: int) -> Iterator[None]:
     ``EAGAIN`` or ``None`` as EOF and drop the following frame. Every exit,
     including an exception, puts the mode back.
     """
+    # Bugfix: What was wrong: ty on Windows failed because os.get_blocking and
+    # os.set_blocking are POSIX-only standard library functions.
+    # How it happened: _nonblocking was extracted as a standalone helper without
+    # the platform check that guarded earlier inline calls.
+    # Why this change: Skip non-blocking configuration on win32 or when set_blocking
+    # is unavailable, allowing static type checkers to narrow out the POSIX-only
+    # os calls on Windows and avoiding runtime AttributeError.
+    if sys.platform == "win32" or not hasattr(os, "set_blocking"):
+        yield
+        return
     was_blocking = True
     try:
-        was_blocking = os.get_blocking(fd)
+        if hasattr(os, "get_blocking"):
+            was_blocking = os.get_blocking(fd)
     except OSError:
         was_blocking = True
     os.set_blocking(fd, False)
