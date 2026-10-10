@@ -27,7 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, PoolSingleton, _Deadline, resolve_override, run_worker_stdio_loop
+from compute_service.worker_base import BaseProcessPool, PoolSingleton, _Deadline, resolve_override, run_compute_worker
 
 log = logging.getLogger("compute_service.vision")
 
@@ -237,18 +237,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    # Before any plugin import. writeragent_api treats a missing
-    # WRITERAGENT_IS_WORKER as the LibreOffice host and calls execute_tool
-    # → get_ctx(). This process has no office and no tool-call pipe.
-    # WRITERAGENT_COMPUTE_WORKER makes that call fail before either path.
-    os.environ["WRITERAGENT_IS_WORKER"] = "1"
-    os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
-
-    # The parent pool reads and writes COMPUTE_MAX_PAYLOAD_BYTES (33 MiB).
-    # The stdio default is 16 MiB, so a request the parent had accepted
-    # failed in the child, and a result over 16 MiB broke this loop
-    # (host saw EMPTY_RESPONSE). formula_worker already passes the cap.
-    return run_worker_stdio_loop(_handle_request, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+    return run_compute_worker(_handle_request)
 
 
 if __name__ == "__main__":

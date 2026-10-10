@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
 from compute_service.worker_stdio import (
     RestrictedUnpickler,
+    run_compute_worker,
     run_worker_stdio_loop,
     set_pdeathsig,
     unpack_restricted_pickle_frame,
@@ -49,6 +50,7 @@ __all__ = [
     "PoolSingleton",
     "RestrictedUnpickler",
     "resolve_override",
+    "run_compute_worker",
     "run_worker_stdio_loop",
     "set_pdeathsig",
     "unpack_restricted_pickle_frame",
@@ -302,20 +304,34 @@ class BaseProcessWorker:
             # is reaped so a failure log still sees the tail.
             self._close_stderr_log()
 
-    def respawn(self, timeout_sec: float = _SPAWN_READY_TIMEOUT_SEC) -> None:
+    def respawn(self, timeout_sec: float = _SPAWN_READY_TIMEOUT_SEC, *, deadline: _Deadline | None = None) -> None:
         """Spawn worker subprocess and await readiness handshake.
 
-        Returns without a child when the pool is stopping. Recycle calls this
-        after kill(); the flag is what stops that spawn. The check after reap
-        covers a shutdown that arrives while the previous child is reaped.
-        The new ``Popen`` is published under ``_lifecycle_lock``, which
-        ``kill()`` also holds, so a shutdown during spawn still reaps it.
+        Returns without a child when the pool is stopping, or when *deadline*
+        is already too late to start one. Recycle calls this after kill(); the
+        flag is what stops that spawn. The check after reap covers a shutdown
+        that arrives while the previous child is reaped. The new ``Popen`` is
+        published under ``_lifecycle_lock``, which ``kill()`` also holds, so a
+        shutdown during spawn still reaps it.
+
+        *deadline* is the caller's request clock. The reap wait is inside that
+        clock: budgeting the handshake from the time left before
+        ``_reap_previous_process`` let a call run about a second past its
+        timeout. ``None`` is startup, which has no request clock.
         """
         if self._shutting_down:
             return
         self._reap_previous_process()
         if self._shutting_down:
             return
+        # What was wrong: spawn_budget was fixed before this wait, and
+        # _REAP_WAIT_SEC can block for a second. A longer request with under
+        # a second left still started a child. The pipe-wait floor is not a
+        # handshake budget.
+        if deadline is not None:
+            if deadline.too_late_to_spawn():
+                return
+            timeout_sec = min(_SPAWN_READY_TIMEOUT_SEC, deadline.left())
         cmd = [sys.executable, self.script_path]
         stderr_log: IO[bytes] | None = None
         try:
@@ -324,6 +340,8 @@ class BaseProcessWorker:
             # **creationflags kwargs make the type checker treat this as Popen[str].
             # stderr is a file, not a pipe: nothing has to drain it, and a
             # kill during Popen unlinks that file when it reaps.
+            # A grandchild that inherits this stdout pipe holds the host read
+            # open until the request deadline; that timeout kills the child.
             stderr_log = self._open_stderr_log()
             proc = cast(
                 "subprocess.Popen[bytes]",
@@ -347,6 +365,14 @@ class BaseProcessWorker:
                     self._close_stderr_log()
                 return
             optimize_popen_pipes(proc)
+            # Popen itself is not on the clock. If it ran past the deadline,
+            # kill the child here. A handshake read would use the 0.01s floor
+            # and then SIGKILL.
+            if deadline is not None and deadline.too_late_to_spawn():
+                self.kill()
+                return
+            if deadline is not None:
+                timeout_sec = min(_SPAWN_READY_TIMEOUT_SEC, deadline.left())
             ready_data: Any = None
             if proc.stdout is not None:
                 ready_data = read_pickle_frame_with_timeout(
@@ -367,8 +393,11 @@ class BaseProcessWorker:
                 return
             log.info("%s #%d spawned (pid=%s, status=%s)", self.worker_name, self.worker_id, ready_data.get("pid", proc.pid), ready_data.get("status"))
             self.tasks_executed = 0
-        except subprocess.TimeoutExpired:
-            # Handshake hang: child may still be importing, or stdout was not pickle.
+        except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
+            # No-byte hang is TimeoutExpired. A deadline after the first
+            # handshake byte is IpcPartialFrameTimeout (a ConnectionError).
+            # That used to be logged as "Failed to spawn". The child is
+            # killed either way; the next lease respawns the slot.
             spawned = self.process
             rc = spawned.poll() if spawned is not None else None
             self._log_spawn_failure(f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})")
@@ -480,6 +509,8 @@ class BaseProcessWorker:
         ``SERVICE_SHUTDOWN``, not a new process. The handshake uses the
         remaining request budget, not a fresh spawn timeout. Under one second
         left, do not spawn: the pipe-wait floor is not a handshake budget.
+        Reap and ``Popen`` are inside that same clock. A budget that is gone
+        when they return is ``EXECUTION_TIMEOUT``, not ``WORKER_SPAWN_FAILED``.
         """
         proc = self.process
 
@@ -492,9 +523,15 @@ class BaseProcessWorker:
             if deadline.too_late_to_spawn():
                 return self._fail_request("EXECUTION_TIMEOUT", self._timeout_message(deadline), budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
             spawn_budget = min(_SPAWN_READY_TIMEOUT_SEC, deadline.left())
-            self.respawn(timeout_sec=spawn_budget)
+            self.respawn(timeout_sec=spawn_budget, deadline=deadline)
             proc = self.process
             if proc is None or proc.poll() is not None:
+                if self._shutting_down:
+                    return self._fail_request("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.", budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
+                # Reap or Popen spent the budget. The caller's deadline is
+                # gone, so this is not a worker that failed while time remained.
+                if deadline.too_late_to_spawn():
+                    return self._fail_request("EXECUTION_TIMEOUT", self._timeout_message(deadline), budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
                 return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} could not be started.", budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
 
         stdin = proc.stdin
@@ -857,21 +894,30 @@ class BaseProcessPool:
         """
         self._finish_release(worker)
 
+    def _drop_lease(self, worker: BaseProcessWorker) -> None:
+        """Remove *worker* from the leased set and wake waiters.
+
+        Shutdown calls this before ``kill()``. ``lease_any`` and
+        ``lease_specific`` return ``None`` once ``_is_shutdown`` is set, so
+        the slot cannot be cold-claimed during the reap. Recycle must not
+        drop first: ``lease_any`` would claim a process this release is
+        about to SIGKILL.
+        """
+        with self._cond:
+            self._leased.discard(worker)
+            self._cond.notify_all()
+
     def _finish_release(self, worker: BaseProcessWorker) -> None:
         if self._is_shutdown:
+            self._drop_lease(worker)
             worker.kill()
-            with self._cond:
-                self._leased.discard(worker)
-                self._cond.notify_all()
             return
 
         recycle = self.should_recycle_worker(worker)
         kill_for_shutdown = False
         with self._cond:
             if self._is_shutdown:
-                self._leased.discard(worker)
                 kill_for_shutdown = True
-                self._cond.notify_all()
             elif recycle:
                 # Keep the lease until kill returns. Dropping it first lets
                 # lease_any cold-claim a process this release is about to
@@ -887,15 +933,14 @@ class BaseProcessPool:
                 self._cond.notify_all()
 
         if kill_for_shutdown:
+            self._drop_lease(worker)
             worker.kill()
             return
 
         if recycle:
             log.info("Retiring %s #%d after %d tasks", self.worker_name, worker.worker_id, worker.tasks_executed)
             worker.kill()
-            with self._cond:
-                self._leased.discard(worker)
-                self._cond.notify_all()
+            self._drop_lease(worker)
 
     def shutdown(self) -> None:
         """Terminate all worker processes."""

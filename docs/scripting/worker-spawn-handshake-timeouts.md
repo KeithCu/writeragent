@@ -125,18 +125,18 @@ FormulaProcessPool / get_formula_pool
       read_pickle_frame_with_timeout(stdout, 15s, is_alive=self.is_alive)
         POSIX: select() + stream.read(); TimeoutExpired on deadline
 
-formula_worker.py (child), current:
-  main() sets WRITERAGENT_IS_WORKER and WRITERAGENT_COMPUTE_WORKER
+formula_worker.py and vision.py (child), current:
   sys.path insert repo root
-  import run_worker_stdio_loop (not the sandbox, not the Cython accelerator)
-  main() → run_worker_stdio_loop
+  main() → run_compute_worker
+      sets WRITERAGENT_IS_WORKER and WRITERAGENT_COMPUTE_WORKER
+      run_worker_stdio_loop(max_payload_bytes=33 MiB)
       write_pickle_frame({status: ready, pid})   # before the sandbox import
       loop: read request, handler, write response
 ```
 
 Venv path is different: [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) **never sends ready**. Parent writes a request immediately; child only reads after importing `venv_sandbox` / payload_codec / alias importer. Warm timeout is `WARM_WORKER_TIMEOUT_SEC` (30s) plus grace — still fails in a full run when the child is stuck or stdout is not pickle.
 
-Handshake read passes `max_payload_bytes`. On `TimeoutExpired` or a frame whose `status` is not `"ready"`, `_spawn` logs a stderr snippet and `kill()`s. That path is fail-closed.
+Handshake read passes `max_payload_bytes`. On `TimeoutExpired`, `IpcPartialFrameTimeout`, or a frame whose `status` is not `"ready"`, the spawn logs a stderr snippet and `kill()`s. That path is fail-closed.
 
 ---
 

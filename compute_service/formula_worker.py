@@ -28,7 +28,6 @@ if _PROJECT_ROOT not in sys.path:
 from compute_service.config import DEFAULT_SETTINGS, clamp_timeout_sec
 from compute_service.json_egress import normalize_execute_response
 from compute_service.json_forward import (
-    COMPUTE_MAX_PAYLOAD_BYTES,
     ExecuteRequestError,
     canonical_execute_mode,
     dumps_response,
@@ -36,7 +35,7 @@ from compute_service.json_forward import (
     validate_execute_response,
     validate_session_id,
 )
-from compute_service.worker_base import run_worker_stdio_loop
+from compute_service.worker_base import run_compute_worker
 
 # execute_code pulls in the sandbox lazily on the first execution so
 # the ready handshake is not spent on that graph with an empty stderr.
@@ -204,13 +203,7 @@ def _json_forward_envelope(res: dict[str, Any], *, req_id: Any, session_reset: b
 
 
 def main() -> int:
-    # Before running the stdio loop. writeragent_api treats a missing
-    # WRITERAGENT_IS_WORKER as the LibreOffice host and calls execute_tool
-    # → get_ctx(). This process has no office and no tool-call pipe.
-    # WRITERAGENT_COMPUTE_WORKER makes that call fail before either path.
-    os.environ["WRITERAGENT_IS_WORKER"] = "1"
-    os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
-    return run_worker_stdio_loop(_handle_request, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+    return run_compute_worker(_handle_request)
 
 
 if __name__ == "__main__":

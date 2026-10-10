@@ -82,8 +82,8 @@ class _RetiringSlot:
         self.killed += 1
         self._alive = False
 
-    def respawn(self, timeout_sec: float = 15.0) -> None:
-        del timeout_sec
+    def respawn(self, timeout_sec: float = 15.0, deadline: object | None = None) -> None:
+        del timeout_sec, deadline
         self.respawned += 1
         self._alive = True
         self.tasks_executed = 0
@@ -205,8 +205,8 @@ def test_execute_does_not_respawn_during_shutdown() -> None:
     assert not worker.is_alive()
     worker._shutting_down = True
 
-    def mock_respawn(timeout_sec: float = 15.0) -> None:
-        del timeout_sec
+    def mock_respawn(timeout_sec: float = 15.0, deadline: object | None = None) -> None:
+        del timeout_sec, deadline
         raise AssertionError("respawn during shutdown")
 
     worker.respawn = mock_respawn  # type: ignore[assignment]
@@ -226,7 +226,7 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
     from compute_service.worker_base import BaseProcessWorker
 
     original_respawn = BaseProcessWorker.respawn
-    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
     monkeypatch.setattr(BaseProcessWorker, "respawn", original_respawn)
 
@@ -275,7 +275,8 @@ def test_execute_respawn_respects_request_deadline() -> None:
 
     respawn_timeouts: list[float] = []
 
-    def mock_respawn(timeout_sec: float = 15.0) -> None:
+    def mock_respawn(timeout_sec: float = 15.0, deadline: object | None = None) -> None:
+        del deadline
         respawn_timeouts.append(timeout_sec)
         # Leave not alive so execute returns WORKER_SPAWN_FAILED without trying to write to pipe
 
@@ -401,7 +402,7 @@ def test_execute_timeout_increments_tasks_executed(monkeypatch: pytest.MonkeyPat
     from compute_service.worker_base import BaseProcessWorker
 
     # __init__ calls respawn(). A fake script path would launch a real interpreter.
-    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
     worker.process = MagicMock()
     worker.process.poll.return_value = None
@@ -432,7 +433,7 @@ def test_execute_stdin_write_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> N
     from unittest.mock import MagicMock
     from compute_service.worker_base import BaseProcessWorker
 
-    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
     worker.process = MagicMock()
     worker.process.poll.return_value = None
@@ -462,7 +463,7 @@ def test_partial_frame_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> None:
     from compute_service.worker_base import BaseProcessWorker
     from plugin.scripting.ipc import IpcPartialFrameTimeout
 
-    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
     worker.process = MagicMock()
     worker.process.poll.return_value = None
@@ -488,7 +489,7 @@ def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch
     from compute_service.worker_base import BaseProcessWorker
     from plugin.scripting.ipc import IpcPayloadSizeError
 
-    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
     worker.process = MagicMock()
     worker.process.poll.return_value = None
@@ -603,7 +604,7 @@ def test_spawn_failure_increments_tasks_executed(monkeypatch: pytest.MonkeyPatch
     """A slot that never becomes live still counts toward max_tasks."""
     from compute_service.worker_base import BaseProcessWorker
 
-    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
     worker.process = None
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
@@ -629,7 +630,7 @@ def test_failed_request_increments_tasks_executed(monkeypatch: pytest.MonkeyPatc
 
     from compute_service.worker_base import BaseProcessWorker
 
-    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
     worker.process = MagicMock()
     worker.process.poll.return_value = None
@@ -666,7 +667,7 @@ def test_subsecond_timeout_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     from unittest.mock import MagicMock
     from compute_service.worker_base import BaseProcessWorker
 
-    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
     proc = MagicMock()
     proc.poll.return_value = None
@@ -677,6 +678,246 @@ def test_subsecond_timeout_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "at least 1 second" in str(res.get("error"))
     assert "0.00" not in str(res.get("error"))
     assert worker.process is proc
+
+
+def _worker_without_spawn(monkeypatch: pytest.MonkeyPatch):
+    """A slot whose ``__init__`` does not start a real interpreter."""
+    from compute_service.worker_base import BaseProcessWorker
+
+    original = BaseProcessWorker.respawn
+
+    def _no_spawn(self: BaseProcessWorker, timeout_sec: float = 15.0, deadline: object | None = None) -> None:
+        del self, timeout_sec, deadline
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", _no_spawn)
+    worker = BaseProcessWorker(1, "unused.py")
+    monkeypatch.setattr(BaseProcessWorker, "respawn", original)
+    return worker
+
+
+class _DeadChild:
+    """Already-exited child. ``wait`` is where a test spends the deadline."""
+
+    def __init__(self, on_wait) -> None:
+        self.pid = 9
+        self.stdin = None
+        self.stdout = None
+        self.stderr = None
+        self.on_wait = on_wait
+
+    def poll(self) -> int:
+        return 0
+
+    def kill(self) -> None:
+        return None
+
+    def wait(self, timeout: float | None = None) -> int:
+        del timeout
+        self.on_wait()
+        return 0
+
+
+def test_reap_past_deadline_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A reap that leaves under a second does not start a new child.
+
+    What was wrong: the handshake budget was the time left before
+    ``_reap_previous_process``, and that wait can block for a second.
+    A longer request still called Popen after its deadline was gone.
+    """
+    from compute_service import worker_base
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(worker_base.time, "monotonic", lambda: clock["t"])
+    popen_calls: list[object] = []
+
+    def _popen(*_args: object, **_kwargs: object) -> object:
+        popen_calls.append(_args)
+        raise AssertionError("Popen after the deadline")
+
+    monkeypatch.setattr(worker_base.subprocess, "Popen", _popen)
+    worker = _worker_without_spawn(monkeypatch)
+
+    def _spend() -> None:
+        clock["t"] += 1.5
+
+    worker.process = _DeadChild(_spend)  # type: ignore[assignment]
+    res = worker.execute({"code": "result = 1"}, timeout_sec=2.0)
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert popen_calls == []
+    assert worker.process is None
+
+
+def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ready-frame read uses the time left after the previous child is reaped."""
+    from compute_service import worker_base
+    from compute_service.worker_base import _Deadline
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(worker_base.time, "monotonic", lambda: clock["t"])
+    seen: list[float] = []
+
+    class _Proc:
+        pid = 4
+        stdin = object()
+        stdout = object()
+        stderr = None
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            return 0
+
+    def _popen(*_args: object, **_kwargs: object) -> _Proc:
+        return _Proc()
+
+    def _read(_stdout: object, timeout_sec: float, **_kwargs: object) -> dict[str, object]:
+        seen.append(timeout_sec)
+        return {"status": "ready", "pid": 4}
+
+    monkeypatch.setattr(worker_base.subprocess, "Popen", _popen)
+    monkeypatch.setattr(worker_base, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_base, "optimize_popen_pipes", lambda _proc: None)
+    worker = _worker_without_spawn(monkeypatch)
+
+    def _spend() -> None:
+        clock["t"] += 0.4
+
+    worker.process = _DeadChild(_spend)  # type: ignore[assignment]
+    deadline = _Deadline(5.0)
+    try:
+        worker.respawn(timeout_sec=5.0, deadline=deadline)
+        assert len(seen) == 1
+        assert seen[0] == pytest.approx(4.6, abs=0.05)
+    finally:
+        worker.kill()
+
+
+def test_popen_past_deadline_skips_handshake(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Startup that overruns the deadline kills the child and does not read a frame.
+
+    Popen is not on the clock. A handshake after that would use the 0.01s
+    pipe-wait floor and then SIGKILL.
+    """
+    from compute_service import worker_base
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(worker_base.time, "monotonic", lambda: clock["t"])
+    reads: list[float] = []
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 4
+            self.stdin = object()
+            self.stdout = object()
+            self.stderr = None
+            self.killed = False
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            self.killed = True
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            return -9
+
+    proc = _Proc()
+
+    def _popen(*_args: object, **_kwargs: object) -> _Proc:
+        clock["t"] += 3.0
+        return proc
+
+    def _read(_stdout: object, timeout_sec: float, **_kwargs: object) -> dict[str, object]:
+        reads.append(timeout_sec)
+        return {"status": "ready", "pid": 4}
+
+    monkeypatch.setattr(worker_base.subprocess, "Popen", _popen)
+    monkeypatch.setattr(worker_base, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_base, "optimize_popen_pipes", lambda _proc: None)
+    worker = _worker_without_spawn(monkeypatch)
+    res = worker.execute({"code": "result = 1"}, timeout_sec=2.0)
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert reads == []
+    assert proc.killed
+    assert worker.process is None
+
+
+def test_partial_handshake_timeout_logs_timeout(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """A mid-frame ready handshake is a timeout, not a generic spawn failure.
+
+    What was wrong: IpcPartialFrameTimeout is a ConnectionError, so the
+    handshake logged "Failed to spawn" and hid that the deadline fired.
+    """
+    import logging
+
+    from compute_service import worker_base
+    from plugin.scripting.ipc import IpcPartialFrameTimeout
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 7
+            self.stdin = object()
+            self.stdout = object()
+            self.stderr = None
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            return -9
+
+    def _read(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise IpcPartialFrameTimeout("timeout mid-frame")
+
+    monkeypatch.setattr(worker_base.subprocess, "Popen", lambda *_args, **_kwargs: _Proc())
+    monkeypatch.setattr(worker_base, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_base, "optimize_popen_pipes", lambda _proc: None)
+    worker = _worker_without_spawn(monkeypatch)
+    with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+        worker.respawn(timeout_sec=2.0)
+    assert "spawn handshake timed out" in caplog.text
+    assert "Failed to spawn" not in caplog.text
+    assert worker.process is None
+
+
+def test_run_compute_worker_sets_identity_and_payload_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both children share the env vars and the parent pool's frame cap."""
+    import os
+
+    from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+    from compute_service.worker_stdio import run_compute_worker
+
+    seen: dict[str, object] = {}
+
+    def _loop(handler: object, *, max_payload_bytes: int = 0) -> int:
+        seen["handler"] = handler
+        seen["cap"] = max_payload_bytes
+        seen["is_worker"] = os.environ.get("WRITERAGENT_IS_WORKER")
+        seen["compute"] = os.environ.get("WRITERAGENT_COMPUTE_WORKER")
+        return 0
+
+    monkeypatch.setattr("compute_service.worker_stdio.run_worker_stdio_loop", _loop)
+    monkeypatch.delenv("WRITERAGENT_IS_WORKER", raising=False)
+    monkeypatch.delenv("WRITERAGENT_COMPUTE_WORKER", raising=False)
+
+    def _handler(_req: dict[str, object]) -> dict[str, str]:
+        return {"status": "ok"}
+
+    assert run_compute_worker(_handler) == 0
+    assert seen["handler"] is _handler
+    assert seen["cap"] == COMPUTE_MAX_PAYLOAD_BYTES
+    assert seen["is_worker"] == "1"
+    assert seen["compute"] == "1"
 
 
 def test_formula_worker_script_handshake() -> None:
