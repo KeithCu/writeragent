@@ -205,7 +205,6 @@ class ComputeSettings:
         object.__setattr__(self, "log_level", normalize_log_level(self.log_level))
         self.validate()
 
-
     @property
     def auth_required(self) -> bool:
         return bool(self.api_key)
@@ -218,6 +217,7 @@ class ComputeSettings:
         if not (1 <= self.port <= 65535):
             raise ConfigError(f"Invalid port: {self.port}")
         from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+
         if self.max_body_bytes < 1024 or self.max_body_bytes > COMPUTE_MAX_PAYLOAD_BYTES - 1024:
             raise ConfigError(f"max_body_bytes must be between 1024 and {COMPUTE_MAX_PAYLOAD_BYTES - 1024}")
         if self.default_timeout_sec < 1 or self.max_timeout_sec < 1:
@@ -265,13 +265,7 @@ class ComputeSettings:
 DEFAULT_SETTINGS = ComputeSettings()
 
 
-def clamp_timeout_sec(
-    timeout: Any,
-    *,
-    is_ms: bool = False,
-    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
-    max_timeout_sec: int | None = DEFAULT_SETTINGS.max_timeout_sec,
-) -> int:
+def clamp_timeout_sec(timeout: Any, *, is_ms: bool = False, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int | None = DEFAULT_SETTINGS.max_timeout_sec) -> int:
     """Normalize and clamp a timeout in seconds or milliseconds to integer seconds.
 
     Rejects booleans, non-numeric values, and non-finite floats (inf/nan), falling
@@ -371,18 +365,7 @@ _ALIASES = frozenset({"max_workers", "session_ttl_sec", "api_key_file"})
 _TOP_LEVEL_KEYS = _FIELD_NAMES | _SECTION_KEYS | _ALIASES
 _LISTEN_KEYS = frozenset({"host", "port"})
 _AUTH_KEYS = frozenset({"api_key", "api_key_file"})
-_LIMIT_KEYS = frozenset({
-    "max_body_bytes",
-    "default_timeout_sec",
-    "max_timeout_sec",
-    "workers",
-    "max_workers",
-    "worker_max_tasks",
-    "shared_kernel_ttl_sec",
-    "session_ttl_sec",
-    "idle_worker_ttl_sec",
-    "max_code_chars",
-})
+_LIMIT_KEYS = frozenset({"max_body_bytes", "default_timeout_sec", "max_timeout_sec", "workers", "max_workers", "worker_max_tasks", "shared_kernel_ttl_sec", "session_ttl_sec", "idle_worker_ttl_sec", "max_code_chars"})
 _OCR_KEYS = frozenset({"workers", "timeout_sec", "max_tasks", "allow_paths"})
 _LOGGING_KEYS = frozenset({"log_level", "level"})
 
@@ -451,12 +434,7 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
     ocr_cfg = raw.get("ocr")
     if isinstance(ocr_cfg, Mapping):
         _reject_unknown_keys(ocr_cfg, _OCR_KEYS, "ocr")
-        for ocr_key, out_key in (
-            ("workers", "ocr_workers"),
-            ("timeout_sec", "ocr_timeout_sec"),
-            ("max_tasks", "ocr_max_tasks"),
-            ("allow_paths", "ocr_allow_paths"),
-        ):
+        for ocr_key, out_key in (("workers", "ocr_workers"), ("timeout_sec", "ocr_timeout_sec"), ("max_tasks", "ocr_max_tasks"), ("allow_paths", "ocr_allow_paths")):
             if ocr_key in ocr_cfg:
                 out[out_key] = ocr_cfg[ocr_key]
     elif ocr_cfg is not None:

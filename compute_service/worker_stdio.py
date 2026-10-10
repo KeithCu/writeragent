@@ -20,33 +20,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from plugin.scripting.ipc import (
-    DEFAULT_MAX_PAYLOAD_BYTES,
-    AllowlistUnpickler,
-    IpcFrameError,
-    _PICKLE_LOAD_ERRORS,
-    claim_ipc_channel,
-    read_pickle_frame,
-    write_pickle_frame,
-)
+from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, AllowlistUnpickler, IpcFrameError, _PICKLE_LOAD_ERRORS, claim_ipc_channel, read_pickle_frame, write_pickle_frame
 
 log = logging.getLogger("compute_service.worker")
 
 # Allowed builtins for child->host and child stdin compute frames (strictly primitives/scalars/containers).
-_RESTRICTED_PICKLE_BUILTINS = frozenset({
-    "dict",
-    "list",
-    "tuple",
-    "set",
-    "frozenset",
-    "bytes",
-    "bytearray",
-    "str",
-    "int",
-    "float",
-    "complex",
-    "bool",
-})
+_RESTRICTED_PICKLE_BUILTINS = frozenset({"dict", "list", "tuple", "set", "frozenset", "bytes", "bytearray", "str", "int", "float", "complex", "bool"})
+
 
 class RestrictedUnpickler(AllowlistUnpickler):
     """Restricted unpickler for child->host IPC frames.
@@ -200,12 +180,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
             write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
         except IpcFrameError as exc:
             req_id = req.get("id") if isinstance(req, dict) else None
-            err_frame = {
-                "id": req_id,
-                "status": "error",
-                "code": "RESULT_TOO_LARGE",
-                "error": f"Result exceeds maximum payload size: {exc}",
-            }
+            err_frame = {"id": req_id, "status": "error", "code": "RESULT_TOO_LARGE", "error": f"Result exceeds maximum payload size: {exc}"}
             try:
                 write_pickle_frame(stdout_bin, err_frame, max_payload_bytes=max_payload_bytes)
             except Exception:

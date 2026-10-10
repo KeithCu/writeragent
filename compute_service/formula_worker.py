@@ -19,7 +19,6 @@ import sys
 from typing import Any
 
 
-
 # Ensure repo root is on sys.path
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 if _PROJECT_ROOT not in sys.path:
@@ -27,14 +26,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import DEFAULT_SETTINGS, clamp_timeout_sec
 from compute_service.json_egress import normalize_execute_response
-from compute_service.json_forward import (
-    ExecuteRequestError,
-    canonical_execute_mode,
-    dumps_response,
-    require_execute_wire,
-    validate_execute_response,
-    validate_session_id,
-)
+from compute_service.json_forward import ExecuteRequestError, canonical_execute_mode, dumps_response, require_execute_wire, validate_execute_response, validate_session_id
 from compute_service.worker_base import run_compute_worker
 
 # execute_code pulls in the sandbox lazily on the first execution so
@@ -45,17 +37,7 @@ from compute_service.worker_base import run_compute_worker
 # split_grid field on this pipe. Cython flatten stays on the LibrePy host.
 
 
-def execute_code(
-    code: str,
-    data: Any = None,
-    session_id: str | None = None,
-    timeout_sec: int | None = None,
-    *,
-    mode: str = "isolated",
-    init_script: str | None = None,
-    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
-    max_timeout_sec: int | None = None,
-) -> dict[str, Any]:
+def execute_code(code: str, data: Any = None, session_id: str | None = None, timeout_sec: int | None = None, *, mode: str = "isolated", init_script: str | None = None, default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec, max_timeout_sec: int | None = None) -> dict[str, Any]:
     """Execute *code* under AST sandboxing; return a JSON object of status, result, stdout, and error.
 
     The host already clamps request timeouts to configured bounds (e.g. 1800s);
@@ -65,11 +47,7 @@ def execute_code(
     from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
     # Always pass an explicit timeout so the sandbox never consults WriterAgent defaults.
-    timeout_sec = clamp_timeout_sec(
-        timeout_sec,
-        default_timeout_sec=default_timeout_sec,
-        max_timeout_sec=max_timeout_sec,
-    )
+    timeout_sec = clamp_timeout_sec(timeout_sec, default_timeout_sec=default_timeout_sec, max_timeout_sec=max_timeout_sec)
 
     # Shared kernel only when explicitly requested *and* a session id is provided.
     use_session: str | None = None
@@ -88,15 +66,7 @@ def execute_code(
         else:
             init_sid = f"isolated:{init_hash}:init"
 
-    raw = run_sandboxed_code(
-        code=code,
-        data=data,
-        session_id=use_session,
-        timeout_sec=timeout_sec,
-        init_script=init_code,
-        init_session_id=init_sid,
-        init_script_hash=init_hash,
-    )
+    raw = run_sandboxed_code(code=code, data=data, session_id=use_session, timeout_sec=timeout_sec, init_script=init_code, init_session_id=init_sid, init_script_hash=init_hash)
 
     return normalize_execute_response(raw)
 

@@ -35,31 +35,12 @@ from typing import IO, TYPE_CHECKING, Any, Generic, TypeVar, cast
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
-from compute_service.worker_stdio import (
-    RestrictedUnpickler,
-    run_compute_worker,
-    run_worker_stdio_loop,
-    set_pdeathsig,
-    unpack_restricted_pickle_frame,
-)
+from compute_service.worker_stdio import RestrictedUnpickler, run_compute_worker, run_worker_stdio_loop, set_pdeathsig, unpack_restricted_pickle_frame
 from plugin.framework.worker_pool import get_subprocess_creationflags, run_in_background
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, IpcPartialFrameTimeout, pack_pickle_frame, read_pickle_frame_with_timeout, write_packed_frame_with_timeout
 from plugin.scripting.sandbox import optimize_popen_pipes, scrub_subprocess_env
 
-__all__ = [
-    "BaseProcessPool",
-    "BaseProcessWorker",
-    "Deadline",
-    "MIN_REQUEST_SEC",
-    "PoolSingleton",
-    "RestrictedUnpickler",
-    "error_dict",
-    "resolve_override",
-    "run_compute_worker",
-    "run_worker_stdio_loop",
-    "set_pdeathsig",
-    "unpack_restricted_pickle_frame",
-]
+__all__ = ["BaseProcessPool", "BaseProcessWorker", "Deadline", "MIN_REQUEST_SEC", "PoolSingleton", "RestrictedUnpickler", "error_dict", "resolve_override", "run_compute_worker", "run_worker_stdio_loop", "set_pdeathsig", "unpack_restricted_pickle_frame"]
 
 log = logging.getLogger("compute_service.worker")
 
@@ -116,11 +97,7 @@ def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, message: str | 
 # A successful handshake resets the count, so killing failures do not add
 # up across processes. Unknown codes count the task and do not copy the
 # text onto ``message``.
-_FAIL_POLICY: dict[str, tuple[bool, bool]] = {
-    "SERVICE_SHUTDOWN": (False, False),
-    "EXECUTION_TIMEOUT": (True, True),
-    "WORKER_CRASHED": (True, True),
-}
+_FAIL_POLICY: dict[str, tuple[bool, bool]] = {"SERVICE_SHUTDOWN": (False, False), "EXECUTION_TIMEOUT": (True, True), "WORKER_CRASHED": (True, True)}
 _DEFAULT_FAIL_POLICY: tuple[bool, bool] = (True, False)
 
 
@@ -250,8 +227,6 @@ class PoolSingleton(Generic[_PoolT]):
         with self._cv:
             while self._building and self._build_id == inflight:
                 self._cv.wait()
-
-
 
 
 class _Deadline:
@@ -589,19 +564,7 @@ class BaseProcessWorker:
             # A grandchild that inherits this stdout pipe holds the host read
             # open until the request deadline; that timeout kills the child.
             stderr_log = self._open_stderr_log()
-            proc = cast(
-                "subprocess.Popen[bytes]",
-                subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=stderr_log,
-                    bufsize=0,
-                    text=False,
-                    env=scrub_subprocess_env(dict(os.environ)),
-                    **get_subprocess_creationflags(),
-                ),
-            )
+            proc = cast("subprocess.Popen[bytes]", subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_log, bufsize=0, text=False, env=scrub_subprocess_env(dict(os.environ)), **get_subprocess_creationflags()))
             # Do not hold _lifecycle_lock across Popen or the handshake read.
             # kill() takes that lock, and the handshake can block for the
             # spawn budget. Publishing here is after the inherit.
@@ -623,14 +586,7 @@ class BaseProcessWorker:
                 timeout_sec = min(_SPAWN_READY_TIMEOUT_SEC, deadline.left())
             ready_data: Any = None
             if proc.stdout is not None:
-                ready_data = read_pickle_frame_with_timeout(
-                    proc.stdout,
-                    timeout_sec,
-                    is_alive=self.is_alive,
-                    max_payload_bytes=self.max_payload_bytes,
-                    require_dict=True,
-                    unpacker=unpack_restricted_pickle_frame,
-                )
+                ready_data = read_pickle_frame_with_timeout(proc.stdout, timeout_sec, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, require_dict=True, unpacker=unpack_restricted_pickle_frame)
             # Only status "ready" counts. EOF or any other dict would mark the
             # worker idle, and the next execute would wait out the full
             # timeout before EMPTY_RESPONSE.
@@ -660,7 +616,6 @@ class BaseProcessWorker:
         finally:
             if stderr_log is not None:
                 stderr_log.close()
-
 
     def _adopt_spawned_process(self, proc: subprocess.Popen[bytes]) -> bool:
         """Publish *proc*, or refuse when shutdown already won.
@@ -746,14 +701,7 @@ class BaseProcessWorker:
         """Terminate the child using the same rules as spawn's reap."""
         self._reap_previous_process()
 
-    def _fail_request(
-        self,
-        code: str,
-        msg: str,
-        *,
-        pid: int | None,
-        kill: bool = True,
-    ) -> dict[str, Any]:
+    def _fail_request(self, code: str, msg: str, *, pid: int | None, kill: bool = True) -> dict[str, Any]:
         """Build an error dict, then kill the child or leave it.
 
         ``kill`` is a timeout, a desynchronized pipe, a crash, or an empty
@@ -794,12 +742,7 @@ class BaseProcessWorker:
 
     def _fail_timeout(self, deadline: _Deadline, pid: int | None, *, kill: bool = True) -> dict[str, Any]:
         """``EXECUTION_TIMEOUT`` for *deadline*. ``kill`` is false when no child should die."""
-        return self._fail_request(
-            "EXECUTION_TIMEOUT",
-            self._timeout_message(deadline),
-            pid=pid,
-            kill=kill,
-        )
+        return self._fail_request("EXECUTION_TIMEOUT", self._timeout_message(deadline), pid=pid, kill=kill)
 
     def _ensure_live_process(self, deadline: _Deadline) -> tuple[subprocess.Popen[bytes], IO[bytes], IO[bytes]] | dict[str, Any]:
         """Return a live child and its stdio pipes, or an error dict.
@@ -905,12 +848,7 @@ class BaseProcessWorker:
                 # child that stopped reading stdin would never return and the
                 # slot would stay leased. A partial frame is desynchronized,
                 # so the child is killed.
-                write_packed_frame_with_timeout(
-                    stdin,
-                    frame,
-                    deadline.left(),
-                    is_alive=self.is_alive,
-                )
+                write_packed_frame_with_timeout(stdin, frame, deadline.left(), is_alive=self.is_alive)
             except subprocess.TimeoutExpired:
                 return self._fail_timeout(deadline, pid)
             except OSError as exc:
@@ -921,13 +859,7 @@ class BaseProcessWorker:
                 return self._fail_request("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}", pid=pid)
 
             try:
-                resp = read_pickle_frame_with_timeout(
-                    stdout,
-                    deadline.left(),
-                    is_alive=self.is_alive,
-                    max_payload_bytes=self.max_payload_bytes,
-                    unpacker=unpack_restricted_pickle_frame,
-                )
+                resp = read_pickle_frame_with_timeout(stdout, deadline.left(), is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, unpacker=unpack_restricted_pickle_frame)
             except subprocess.TimeoutExpired:
                 # The frame never arrived. Kill rather than read it later:
                 # the next caller would consume this response as its own.
@@ -945,12 +877,7 @@ class BaseProcessWorker:
                 # like a crash. The pool is stopping, so this is
                 # SERVICE_SHUTDOWN and the child is already being reaped.
                 if self._shutting_down:
-                    return self._fail_request(
-                        "SERVICE_SHUTDOWN",
-                        f"{self.worker_name} #{self.worker_id} is shutting down.",
-                        pid=pid,
-                        kill=False,
-                    )
+                    return self._fail_request("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.", pid=pid, kill=False)
                 return self._fail_request("EMPTY_RESPONSE", f"No response returned from {self.worker_name}.", pid=pid)
             self.tasks_executed += 1
             self._cap_stderr_log()
@@ -972,7 +899,17 @@ class BaseProcessPool:
     _cond: threading.Condition
     _reaper_stop_event: threading.Event
 
-    def __init__(self, script_path: str, num_workers: int = 1, default_timeout_sec: int = 30, max_tasks: int = 500, worker_name: str = "Worker", idle_worker_ttl_sec: float | None = None, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, on_process_exit: Callable[[BaseProcessWorker, int], None] | None = None) -> None:
+    def __init__(
+        self,
+        script_path: str,
+        num_workers: int = 1,
+        default_timeout_sec: int = 30,
+        max_tasks: int = 500,
+        worker_name: str = "Worker",
+        idle_worker_ttl_sec: float | None = None,
+        max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
+        on_process_exit: Callable[[BaseProcessWorker, int], None] | None = None,
+    ) -> None:
         self.script_path = script_path
         self.num_workers = max(0, num_workers)
         self.default_timeout_sec = default_timeout_sec
@@ -1085,11 +1022,7 @@ class BaseProcessPool:
 
     def _start_idle_reaper(self, period: float) -> None:
         interval = max(0.02, min(period / 6.0, 300.0))
-        self._start_reaper(
-            name=f"{self.worker_name}-idle-reaper",
-            interval=interval,
-            fn=self._evict_idle_workers,
-        )
+        self._start_reaper(name=f"{self.worker_name}-idle-reaper", interval=interval, fn=self._evict_idle_workers)
 
     def _evict_idle_workers(self) -> None:
         if self._is_shutdown:
@@ -1251,12 +1184,7 @@ class BaseProcessPool:
                 self._cond.wait(remaining)
 
     @contextlib.contextmanager
-    def leased(
-        self,
-        worker: BaseProcessWorker | None = None,
-        *,
-        timeout_sec: float | None = None,
-    ) -> Generator[BaseProcessWorker | None, None, None]:
+    def leased(self, worker: BaseProcessWorker | None = None, *, timeout_sec: float | None = None) -> Generator[BaseProcessWorker | None, None, None]:
         """Context manager leasing a worker and releasing on exit.
 
         Leases *worker* if given, else any available worker.

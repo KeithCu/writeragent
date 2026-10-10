@@ -59,14 +59,7 @@ def _decode_image_b64(image_input: str) -> bytes:
 class VisionProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for Vision/OCR."""
 
-    def __init__(
-        self,
-        settings: ComputeSettings | None = None,
-        num_workers: int | None = None,
-        default_timeout_sec: int | None = None,
-        max_tasks: int | None = None,
-        idle_worker_ttl_sec: float | None = None,
-    ) -> None:
+    def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, idle_worker_ttl_sec: float | None = None) -> None:
         cfg = settings or ComputeSettings()
         eff_num_workers = resolve_override(num_workers, cfg.ocr_workers)
         eff_timeout = resolve_override(default_timeout_sec, cfg.ocr_timeout_sec)
@@ -76,15 +69,7 @@ class VisionProcessPool(BaseProcessPool):
         # Formula workers already pass this. The 16 MiB IPC default rejected a
         # body the HTTP layer had accepted (32 MiB) as an uncaught ValueError.
         # A read timeout kills the child. The next lease respawns it.
-        super().__init__(
-            script_path=_WORKER_SCRIPT,
-            num_workers=eff_num_workers,
-            default_timeout_sec=eff_timeout,
-            max_tasks=eff_max_tasks,
-            worker_name="Vision worker",
-            idle_worker_ttl_sec=eff_idle_ttl,
-            max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES,
-        )
+        super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Vision worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
 
     def execute(
         self,
@@ -204,12 +189,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     image_bytes: bytes
     has_bytes = isinstance(image_bytes_raw, (bytes, bytearray)) and len(image_bytes_raw) > 0
     if file_path and has_bytes:
-        return {
-            "id": req_id,
-            "status": "error",
-            "code": "INVALID_REQUEST",
-            "error": "Provide image bytes or file_path, not both.",
-        }
+        return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": "Provide image bytes or file_path, not both."}
     if file_path:
         image_bytes_opt, err_body = _read_allowed_image(file_path, req.get("allow_paths"), req_id)
         if err_body is not None:

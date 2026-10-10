@@ -117,10 +117,7 @@ def validate_session_id(session_id: Any) -> str:
         raise ExecuteRequestError("session_id must be a non-empty string.", code="INVALID_SESSION_ID")
     sid = session_id.strip()
     if sid.endswith(":init") or sid.startswith("isolated:"):
-        raise ExecuteRequestError(
-            f"Invalid session_id {sid!r}: names ending in ':init' or starting with 'isolated:' are reserved.",
-            code="INVALID_SESSION_ID",
-        )
+        raise ExecuteRequestError(f"Invalid session_id {sid!r}: names ending in ':init' or starting with 'isolated:' are reserved.", code="INVALID_SESSION_ID")
     return sid
 
 
@@ -619,4 +616,3 @@ def __getattr__(name: str) -> Any:
 
         return peel_execute_request
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
