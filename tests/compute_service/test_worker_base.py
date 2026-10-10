@@ -29,6 +29,10 @@ class _Slot:
         self.killed += 1
         self._on_kill()
 
+    def _cap_stderr_log(self) -> None:
+        """Idle eviction caps real workers. This stand-in has no log file."""
+        return None
+
 
 def test_finish_release_kills_after_releasing_pool_lock() -> None:
     """Shutdown between the unlocked check and the locked block must not kill under _cond.
@@ -267,30 +271,34 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
 
 
 def test_execute_respawn_respects_request_deadline() -> None:
-    from compute_service.worker_base import BaseProcessWorker
+    from compute_service.worker_base import BaseProcessWorker, _Deadline
 
     worker = BaseProcessWorker(1, "unused.py")
     # Simulate dead process
     worker.kill()
     assert not worker.is_alive()
 
-    respawn_timeouts: list[float] = []
+    respawn_left: list[float] = []
 
-    def mock_respawn(timeout_sec: float = 15.0, deadline: object | None = None) -> None:
-        del deadline
-        respawn_timeouts.append(timeout_sec)
-        # Leave not alive so execute returns WORKER_SPAWN_FAILED without trying to write to pipe
+    def mock_respawn(timeout_sec: float = 15.0, deadline: _Deadline | None = None) -> None:
+        # timeout_sec is the 15s startup default. execute passes the request
+        # clock, and respawn takes the handshake budget from that clock
+        # after Popen. Leave the child dead so execute returns
+        # WORKER_SPAWN_FAILED without writing the pipe.
+        del timeout_sec
+        assert deadline is not None
+        respawn_left.append(deadline.left())
 
-    worker.respawn = mock_respawn  # type: ignore[assignment]
+    worker.respawn = mock_respawn  # type: ignore[method-assign]
     res = worker.execute({"code": "result = 1"}, timeout_sec=0.25)
     assert res.get("code") == "EXECUTION_TIMEOUT"
-    assert respawn_timeouts == []
-    # A budget of at least one second is passed through, not replaced by the
-    # 15s spawn default.
+    assert respawn_left == []
+    # A one-second-or-longer request reaches respawn with that clock, not
+    # a fresh 15s spawn budget.
     again = worker.execute({"code": "result = 1"}, timeout_sec=2.0)
     assert again.get("code") == "WORKER_SPAWN_FAILED"
-    assert len(respawn_timeouts) == 1
-    assert 1.0 <= respawn_timeouts[0] <= 2.0
+    assert len(respawn_left) == 1
+    assert 1.0 <= respawn_left[0] <= 2.0
 
 
 def test_set_pdeathsig() -> None:
@@ -1060,6 +1068,86 @@ def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPat
     assert killed == []
     assert worker.tasks_executed == 0
     assert worker.process is proc
+
+
+def test_reap_timeout_caps_stderr(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A child still alive after the reap wait keeps its slot, and the log stays capped.
+
+    The idle reaper does not visit a slot that is neither idle nor leased.
+    """
+    import subprocess
+
+    from compute_service.worker_base import _STDERR_LOG_CAP
+
+    class _Stuck:
+        def __init__(self) -> None:
+            self.pid = 42
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            raise subprocess.TimeoutExpired(cmd="stuck", timeout=1)
+
+    worker = _worker_without_spawn(monkeypatch)
+    path = tmp_path / "stuck.stderr"
+    path.write_bytes(b"a" * (_STDERR_LOG_CAP + 8) + b"TAIL")
+    worker._stderr_path = str(path)
+    child = _Stuck()
+    worker.process = child  # type: ignore[assignment]
+    assert worker._reap_previous_process() is False
+    assert worker.process is child
+    data = path.read_bytes()
+    assert len(data) == _STDERR_LOG_CAP
+    assert data.endswith(b"TAIL")
+
+
+def test_idle_scan_caps_stderr_without_evicting(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An idle-reaper scan caps a live child's log before idle TTL elapses."""
+    import time
+
+    from compute_service.worker_base import BaseProcessPool, _STDERR_LOG_CAP
+
+    worker = _worker_without_spawn(monkeypatch)
+
+    class _Live:
+        def poll(self) -> None:
+            return None
+
+    worker.process = _Live()  # type: ignore[assignment]
+    path = tmp_path / "idle.stderr"
+    path.write_bytes(b"b" * (_STDERR_LOG_CAP + 4) + b"END")
+    worker._stderr_path = str(path)
+    pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=3600.0)
+    try:
+        with pool._cond:
+            pool._idle[worker] = None  # type: ignore[index]
+            pool._worker_last_active[worker] = time.monotonic()  # type: ignore[index]
+        pool._evict_idle_workers()
+        data = path.read_bytes()
+        assert len(data) == _STDERR_LOG_CAP
+        assert data.endswith(b"END")
+        assert worker in pool._idle
+    finally:
+        pool.shutdown()
+
+
+def test_error_dict_keeps_optional_id_and_message() -> None:
+    """``id`` is present when passed, including None. ``message`` is opt-in."""
+    from compute_service.worker_base import error_dict
+
+    bare = error_dict("PAYLOAD_TOO_LARGE", "too big")
+    assert bare == {"status": "error", "code": "PAYLOAD_TOO_LARGE", "error": "too big"}
+    with_id = error_dict("QUEUE_TIMEOUT", "expired", req_id=None)
+    assert with_id["id"] is None
+    assert "message" not in with_id
+    with_message = error_dict("EXECUTION_TIMEOUT", "slow", message="slow")
+    assert with_message["message"] == "slow"
+    assert "id" not in with_message
 
 
 def test_timeout_message_keeps_fractional_seconds(monkeypatch: pytest.MonkeyPatch) -> None:

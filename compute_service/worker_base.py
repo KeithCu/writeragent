@@ -7,7 +7,8 @@ Shared subprocess worker loop, worker process wrapper, and process pool supervis
 Provides:
 - High-speed length-prefixed Pickle 5 binary framing over stdio pipes
 - Deadline-bounded pickle reads and stdin writes (header + payload)
-- Child stderr is a log file, kept to the last 64 KiB, read only when spawn or a request fails
+- Child stderr is a log file, kept to the last 64 KiB after a request, on each
+  idle-reaper scan, and when a reap leaves the child alive
 - A read timeout, partial frame, or broken pipe kills the child. The next lease respawns it
 - Exclusive worker occupancy. Idle means the process completed a handshake or
   a response frame was consumed — a dead pid is not idle
@@ -50,6 +51,7 @@ __all__ = [
     "BaseProcessWorker",
     "PoolSingleton",
     "RestrictedUnpickler",
+    "error_dict",
     "resolve_override",
     "run_compute_worker",
     "run_worker_stdio_loop",
@@ -78,6 +80,29 @@ _ValT = TypeVar("_ValT")
 def resolve_override(override: _ValT | None, default: _ValT) -> _ValT:
     """Return *override* if not None, else *default*."""
     return default if override is None else override
+
+
+class _OmitId:
+    """Marker so ``error_dict`` can tell a missing id from ``id=None``."""
+
+
+_OMIT_ID = _OmitId()
+
+
+def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, message: str | None = None) -> dict[str, Any]:
+    """Build ``{"status": "error", "code", "error"}``.
+
+    ``id`` is set when the caller passes ``req_id``, including ``None``.
+    ``message`` is set only when passed. Pool execute methods pass ``req_id``.
+    The worker's ``_fail_request`` passes ``message`` for the two codes
+    callers already read from both keys.
+    """
+    res: dict[str, Any] = {"status": "error", "code": code, "error": error}
+    if req_id is not _OMIT_ID:
+        res["id"] = req_id
+    if message is not None:
+        res["message"] = message
+    return res
 
 
 class PoolSingleton(Generic[_PoolT]):
@@ -244,8 +269,8 @@ class BaseProcessWorker:
         A pipe would need a drain thread so the kernel buffer cannot fill
         and stall the handshake. The file is read only when spawn or a
         request fails, then unlinked when the child is reaped. ``_cap_stderr_log``
-        keeps the last ``_STDERR_LOG_CAP`` bytes so one chatty child cannot
-        grow it until recycle.
+        keeps the last ``_STDERR_LOG_CAP`` bytes after a request, on each
+        idle-reaper scan, and when a reap leaves the child alive.
         """
         if self._stderr_path is None:
             fd, path = tempfile.mkstemp(prefix=f"wa-compute-w{self.worker_id}-", suffix=".stderr")
@@ -340,6 +365,9 @@ class BaseProcessWorker:
             # effect (uninterruptible sleep).
             if not self._kill_and_wait(previous, pid, context=""):
                 log.warning("%s #%d pid=%s still alive after reap; not reporting exit", self.worker_name, self.worker_id, pid)
+                # The file stays with this child. The idle reaper does not
+                # see a slot that is neither idle nor leased.
+                self._cap_stderr_log()
                 return False
             self.process = None
             # After wait(), the pid is reaped. Tell the pool before the next
@@ -522,7 +550,6 @@ class BaseProcessWorker:
         code: str,
         msg: str,
         *,
-        budget_sec: float,
         pid: int | None,
         kill: bool = True,
     ) -> dict[str, Any]:
@@ -544,10 +571,9 @@ class BaseProcessWorker:
         if kill:
             log.warning("%s request failed (%s) on worker #%d; terminating pid=%s", self.worker_name, code, self.worker_id, pid)
             self.kill()
-        res: dict[str, Any] = {"status": "error", "code": code, "error": msg}
-        if code in ("EXECUTION_TIMEOUT", "WORKER_CRASHED"):
-            res["message"] = msg
-        return res
+        # Callers of these two codes read the text from either key.
+        message = msg if code in ("EXECUTION_TIMEOUT", "WORKER_CRASHED") else None
+        return error_dict(code, msg, message=message)
 
     def _timeout_message(self, deadline: _Deadline) -> str:
         """Error text for a spent budget. Sub-second budgets are refused, not reported as 0.
@@ -566,7 +592,6 @@ class BaseProcessWorker:
         return self._fail_request(
             "EXECUTION_TIMEOUT",
             self._timeout_message(deadline),
-            budget_sec=deadline.budget_sec,
             pid=pid,
             kill=kill,
         )
@@ -590,25 +615,27 @@ class BaseProcessWorker:
 
         if proc is None or proc.poll() is not None:
             if self._shutting_down:
-                return self._fail_request("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.", budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
+                return self._fail_request("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.", pid=_pid(), kill=False)
             if deadline.too_late_to_spawn():
                 return self._fail_timeout(deadline, _pid(), kill=False)
-            spawn_budget = min(_SPAWN_READY_TIMEOUT_SEC, deadline.left())
-            self.respawn(timeout_sec=spawn_budget, deadline=deadline)
+            # respawn recomputes the handshake timeout from deadline.left()
+            # after Popen. A budget taken before the reap wait can disagree
+            # with that floor, and the argument is unused when deadline is set.
+            self.respawn(deadline=deadline)
             proc = self.process
             if proc is None or proc.poll() is not None:
                 if self._shutting_down:
-                    return self._fail_request("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.", budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
+                    return self._fail_request("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.", pid=_pid(), kill=False)
                 # Reap or Popen spent the budget. The caller's deadline is
                 # gone, so this is not a worker that failed while time remained.
                 if deadline.too_late_to_spawn():
                     return self._fail_timeout(deadline, _pid(), kill=False)
-                return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} could not be started.", budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
+                return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} could not be started.", pid=_pid(), kill=False)
 
         stdin = proc.stdin
         stdout = proc.stdout
         if stdin is None or stdout is None:
-            return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} has no stdio pipes.", budget_sec=deadline.budget_sec, pid=_pid(), kill=False)
+            return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} has no stdio pipes.", pid=_pid(), kill=False)
         return proc, stdin, stdout
 
     def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
@@ -645,15 +672,15 @@ class BaseProcessWorker:
             except IpcFrameError as exc:
                 # Raised before any byte is written. The child is still the
                 # same kernel; killing it would drop every shared session.
-                return {"status": "error", "code": "PAYLOAD_TOO_LARGE", "error": str(exc)}
+                return error_dict("PAYLOAD_TOO_LARGE", str(exc))
             except (pickle.PicklingError, TypeError, AttributeError) as exc:
                 # pack_pickle_frame pickles before the first write. These used
                 # to escape execute. The child is still frame-aligned, so it stays.
-                return {"status": "error", "code": "REQUEST_NOT_SERIALIZABLE", "error": str(exc)}
+                return error_dict("REQUEST_NOT_SERIALIZABLE", str(exc))
             except subprocess.TimeoutExpired:
                 return self._fail_timeout(deadline, _pid())
-            except (BrokenPipeError, OSError) as exc:
-                return self._fail_request("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}", budget_sec=deadline.budget_sec, pid=_pid())
+            except OSError as exc:
+                return self._fail_request("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}", pid=_pid())
 
             try:
                 resp = read_pickle_frame_with_timeout(
@@ -673,9 +700,9 @@ class BaseProcessWorker:
                 # new response, so the child is killed.
                 return self._fail_timeout(deadline, _pid())
             except Exception as exc:
-                return self._fail_request("WORKER_CRASHED", f"{self.worker_name} error: {exc}", budget_sec=deadline.budget_sec, pid=_pid())
+                return self._fail_request("WORKER_CRASHED", f"{self.worker_name} error: {exc}", pid=_pid())
             if resp is None or not isinstance(resp, dict):
-                return self._fail_request("EMPTY_RESPONSE", f"No response returned from {self.worker_name}.", budget_sec=deadline.budget_sec, pid=_pid())
+                return self._fail_request("EMPTY_RESPONSE", f"No response returned from {self.worker_name}.", pid=_pid())
             self.tasks_executed += 1
             self._cap_stderr_log()
             return resp
@@ -770,6 +797,13 @@ class BaseProcessPool:
     def _evict_idle_workers(self) -> None:
         if self._is_shutdown or self.idle_worker_ttl_sec is None:
             return
+        with self._cond:
+            idle_now = list(self._idle)
+        # A child can append stderr for the whole idle gap. Cap outside
+        # the pool lock; the next request also caps, but may not arrive
+        # before the file has grown.
+        for worker in idle_now:
+            worker._cap_stderr_log()
         now = time.monotonic()
         # Split the reason. One "idle for" line blamed the idle timer when
         # the kill was a worker whose sessions were already past session TTL.

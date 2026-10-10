@@ -34,7 +34,7 @@ from compute_service.json_forward import (
     require_execute_wire,
     validate_session_id,
 )
-from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, _Deadline, resolve_override
+from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, _Deadline, error_dict, resolve_override
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 log = logging.getLogger("compute_service.formula")
@@ -459,7 +459,7 @@ class FormulaProcessPool(BaseProcessPool):
         # the host SIGKILLed a cell that was about to answer.
         run_for = clock.child_run_seconds()
         if run_for <= 0:
-            return {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+            return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
         child_alarm = int(run_for)
         payload["timeout_sec"] = child_alarm
         payload["session_reset"] = session_was_lost
@@ -519,7 +519,7 @@ class FormulaProcessPool(BaseProcessPool):
         ``data_json`` here, not packed as a second wire.
         """
         if self._is_shutdown or not self.workers:
-            return {"id": req_id, "status": "error", "code": "SERVICE_SHUTDOWN", "error": "Formula compute pool is shutting down."}
+            return error_dict("SERVICE_SHUTDOWN", "Formula compute pool is shutting down.", req_id=req_id)
 
         # One schema. A mode or wire the HTTP layer missed must not be
         # rewritten and run: that returned 200 for a kernel that kept no state.
@@ -533,7 +533,7 @@ class FormulaProcessPool(BaseProcessPool):
             if session_id:
                 validate_session_id(session_id)
         except ExecuteRequestError as exc:
-            return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
+            return error_dict("INVALID_REQUEST", str(exc), req_id=req_id)
 
         # Only None means "use the default". Zero is an explicit timeout.
         eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
@@ -543,12 +543,12 @@ class FormulaProcessPool(BaseProcessPool):
         if deadline is None:
             deadline = time.monotonic() + eff_timeout
         if time.monotonic() >= deadline:
-            return {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+            return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
 
         try:
             payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, mode=mode, init_script=init_script, req_id=req_id, wire=wire)
         except ExecuteRequestError as exc:
-            return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
+            return error_dict("INVALID_REQUEST", str(exc), req_id=req_id)
 
         clock = _Deadline.from_absolute(eff_timeout, deadline)
         # A budget under one second, or a longer one that has already fallen
@@ -558,7 +558,7 @@ class FormulaProcessPool(BaseProcessPool):
         # select so a miss does not reserve a session or consume the
         # lost-session marker.
         if clock.too_late_to_spawn():
-            return {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+            return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
 
         leased: BaseProcessWorker | None = None
         session_was_lost = False
@@ -569,7 +569,7 @@ class FormulaProcessPool(BaseProcessPool):
                 if session_was_lost:
                     with self._cond:
                         self._mark_session_lost_unlocked(session_id)
-                return {"id": req_id, "status": "error", "code": "SERVICE_SHUTDOWN", "error": "Formula compute pool is shutting down."}
+                return error_dict("SERVICE_SHUTDOWN", "Formula compute pool is shutting down.", req_id=req_id)
             lease_budget = max(deadline - time.monotonic(), 0.0)
             leased = self.lease_specific(target_worker, timeout_sec=lease_budget)
             busy_err = "Sticky session worker is busy and request timed out waiting for worker lease."
@@ -587,13 +587,13 @@ class FormulaProcessPool(BaseProcessPool):
                         self._drop_session(session_id, lost=False)
                     if session_was_lost:
                         self._mark_session_lost_unlocked(session_id)
-            return {"id": req_id, "status": "error", "code": "WORKER_POOL_BUSY", "error": busy_err}
+            return error_dict("WORKER_POOL_BUSY", busy_err, req_id=req_id)
 
         result: dict[str, Any] | None = None
         try:
             # Time passes while waiting for the lease. Recheck the same clock.
             if clock.too_late_to_spawn():
-                result = {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+                result = error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
                 return result
             if mode == "shared" and session_id and self._expire_leased_session(leased, session_id, deadline):
                 session_was_lost = True

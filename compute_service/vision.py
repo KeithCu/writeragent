@@ -27,7 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, PoolSingleton, _Deadline, resolve_override, run_compute_worker
+from compute_service.worker_base import BaseProcessPool, PoolSingleton, _Deadline, error_dict, resolve_override, run_compute_worker
 
 log = logging.getLogger("compute_service.vision")
 
@@ -105,7 +105,7 @@ class VisionProcessPool(BaseProcessPool):
         again before ``open``, so this layer does not add a third answer.
         """
         if not self.is_enabled():
-            return {"id": req_id, "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "Vision / OCR service is not enabled on this instance (ocr_workers=0)."}
+            return error_dict("VISION_SERVICE_DISABLED", "Vision / OCR service is not enabled on this instance (ocr_workers=0).", req_id=req_id)
 
         # Only None means "use the default". Zero is an explicit timeout.
         eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
@@ -118,9 +118,9 @@ class VisionProcessPool(BaseProcessPool):
                 try:
                     image_bytes = _decode_image_b64(image_input)
                 except Exception as exc:
-                    return {"id": req_id, "status": "error", "code": "INVALID_BASE64", "error": f"Base64 decode failed: {exc}"}
+                    return error_dict("INVALID_BASE64", f"Base64 decode failed: {exc}", req_id=req_id)
             else:
-                return {"id": req_id, "status": "error", "code": "INVALID_IMAGE", "error": "image must be base64 string or raw bytes"}
+                return error_dict("INVALID_IMAGE", "image must be base64 string or raw bytes", req_id=req_id)
 
         prefixes = () if allow_paths is None else tuple(str(p) for p in allow_paths)
         payload = {"id": req_id, "helper": helper, "image_bytes": image_bytes, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
@@ -137,12 +137,12 @@ class VisionProcessPool(BaseProcessPool):
         # still leases: the clock moves before this check.
         clock = _Deadline.from_absolute(eff_timeout, deadline)
         if clock.too_late_to_spawn():
-            return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
+            return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
         lease_budget = max(deadline - time.monotonic(), 0.0)
         with self.leased(timeout_sec=lease_budget) as worker:
             # Time passes while waiting for the lease. Recheck the same clock.
             if worker is None or clock.too_late_to_spawn():
-                return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
+                return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
 
             # execute() refuses a budget under one second. The minimum
             # request is already slightly under that after the lease returns.
