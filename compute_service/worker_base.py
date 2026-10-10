@@ -125,22 +125,68 @@ def _fail_policy(code: str) -> tuple[bool, bool]:
 class PoolSingleton(Generic[_PoolT]):
     """Thread-safe global singleton holder for a BaseProcessPool subclass."""
 
-    _lock: threading.Lock
+    _cv: threading.Condition
     _pool: _PoolT | None
     _closed: bool
+    _building: bool
+    _build_id: int
+    _epoch: int
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        # A plain Lock, not the Condition default RLock. Nothing here re-enters.
+        self._cv = threading.Condition(threading.Lock())
         self._pool = None
         self._closed = False
+        self._building = False
+        self._build_id = 0
+        self._epoch = 0
 
     def get(self, factory: Callable[[], _PoolT]) -> _PoolT:
-        with self._lock:
+        """Return the pool. ``factory`` runs outside this lock.
+
+        What was wrong: ``factory`` ran while the lock was held, and it
+        spawns every child before returning. ``shutdown`` blocked on that
+        lock for the whole spawn. One caller builds; the others wait.
+        A shutdown that lands during the build discards that pool instead
+        of installing it.
+        """
+        with self._cv:
+            while self._building:
+                if self._closed:
+                    raise RuntimeError("Compute pool is shut down.")
+                self._cv.wait()
             if self._closed:
                 raise RuntimeError("Compute pool is shut down.")
-            if self._pool is None:
-                self._pool = factory()
-            return self._pool
+            if self._pool is not None:
+                return self._pool
+            self._build_id += 1
+            self._building = True
+            epoch = self._epoch
+        created: _PoolT | None = None
+        stale = True
+        published: _PoolT | None = None
+        closed = False
+        try:
+            created = factory()
+            with self._cv:
+                # epoch moves on every shutdown, including a non-permanent
+                # one, so this build cannot appear after shutdown returned.
+                stale = self._closed or self._epoch != epoch or self._pool is not None
+                if not stale:
+                    self._pool = created
+                published = self._pool
+                closed = self._closed
+            if stale:
+                created.shutdown()
+        finally:
+            with self._cv:
+                self._building = False
+                self._cv.notify_all()
+        if not stale and created is not None:
+            return created
+        if published is not None and not closed:
+            return published
+        raise RuntimeError("Compute pool is shut down.")
 
     def shutdown(self, *, permanent: bool = False) -> None:
         """Drop the pool. *permanent* makes a later ``get`` raise.
@@ -149,12 +195,25 @@ class PoolSingleton(Generic[_PoolT]):
         the next ``get`` builds a new pool. The server process passes
         *permanent* on the way out so an abandoned handler cannot spawn
         children after shutdown.
+
+        The pool is reaped outside this lock. A build already inside
+        ``factory`` is not installed; this waits until that build has
+        discarded its children, and the wait is not held across the reap.
         """
-        with self._lock:
-            if self._pool is not None:
-                self._pool.shutdown()
-                self._pool = None
+        with self._cv:
+            pool = self._pool
+            self._pool = None
+            self._epoch += 1
             self._closed = permanent
+            inflight = self._build_id if self._building else None
+            self._cv.notify_all()
+        if pool is not None:
+            pool.shutdown()
+        if inflight is None:
+            return
+        with self._cv:
+            while self._building and self._build_id == inflight:
+                self._cv.wait()
 
 
 
@@ -251,17 +310,19 @@ class BaseProcessWorker:
     lock: threading.Lock
     _lifecycle_lock: threading.Lock
     tasks_executed: int
-    on_process_exit: Callable[[int], None] | None
+    on_process_exit: Callable[[BaseProcessWorker, int], None] | None
     _shutting_down: bool
 
-    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, on_process_exit: Callable[[int], None] | None = None) -> None:
+    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, on_process_exit: Callable[[BaseProcessWorker, int], None] | None = None) -> None:
         self.worker_id = worker_id
         self.script_path = script_path
         self.worker_name = worker_name
         self.max_payload_bytes = max_payload_bytes
-        # Formula sessions key off this pid. The callback runs only after
-        # wait() has reaped the child, so a pid that is still alive is not
-        # reported as exited.
+        # The callback receives this wrapper and the reaped pid. It runs
+        # only after wait() has reaped the child, so a pid that is still
+        # alive is not reported as exited. Formula matches the wrapper:
+        # is_alive()'s poll() can free the pid before this runs, and
+        # another slot may already be using that number.
         self.on_process_exit = on_process_exit
         self.process: subprocess.Popen[bytes] | None = None
         self.lock = threading.Lock()
@@ -289,15 +350,14 @@ class BaseProcessWorker:
         keeps the last ``_STDERR_LOG_CAP`` bytes after a request, on each
         idle-reaper scan, and when a reap leaves the child alive.
 
-        Does not publish ``_stderr_path``. ``kill()`` unlinks only that
-        published path, so a shutdown during ``Popen`` cannot delete this
-        file before the child inherits the fd. ``respawn`` publishes it
-        after ``Popen`` returns.
+        Always a new file. Reap clears ``_stderr_path`` before this runs,
+        so there is no live path to reuse. Does not publish ``_stderr_path``.
+        ``kill()`` unlinks only that published path, so a shutdown during
+        ``Popen`` cannot delete this file before the child inherits the fd.
+        ``respawn`` publishes it after ``Popen`` returns.
         """
-        path = self._stderr_path
-        if path is None:
-            fd, path = tempfile.mkstemp(prefix=f"wa-compute-w{self.worker_id}-", suffix=".stderr")
-            os.close(fd)
+        fd, path = tempfile.mkstemp(prefix=f"wa-compute-w{self.worker_id}-", suffix=".stderr")
+        os.close(fd)
         return open(path, "ab", buffering=0)
 
     def _publish_stderr_path(self, path: str) -> bool:
@@ -383,6 +443,13 @@ class BaseProcessWorker:
         extra = f" stderr={snippet!r}" if snippet else " stderr=<empty>"
         log.error("%s%s", message, extra)
 
+    def _log_spawn_outcome(self, message: str) -> None:
+        """Log *message*. A shutdown-interrupted handshake is not a failed spawn."""
+        if self._shutting_down:
+            log.info("%s", message)
+            return
+        self._log_spawn_failure(message)
+
     def _reap_previous_process(self) -> bool:
         """Wait on the Popen ``respawn`` is about to replace.
 
@@ -411,11 +478,12 @@ class BaseProcessWorker:
                 self._cap_stderr_log()
                 return False
             self.process = None
-            # After wait(), the pid is reaped. Tell the pool before the next
-            # Popen can reuse it, or a lookup can still treat the session as live.
+            # After wait(), the pid is reaped. Report this wrapper with it.
+            # Matching the pid alone dropped another slot's session when
+            # poll() had already freed this pid and the kernel reused it.
             if pid is not None and self.on_process_exit is not None:
                 try:
-                    self.on_process_exit(pid)
+                    self.on_process_exit(self, pid)
                 except Exception:
                     log.exception("%s #%d process-exit callback failed for pid=%s", self.worker_name, self.worker_id, pid)
             # Snippet readers run before kill(). Unlink only after the child
@@ -517,7 +585,7 @@ class BaseProcessWorker:
             # timeout before EMPTY_RESPONSE.
             if not isinstance(ready_data, dict) or ready_data.get("status") != "ready":
                 status = ready_data.get("status") if isinstance(ready_data, dict) else None
-                self._log_spawn_failure(f"{self.worker_name} #{self.worker_id} spawn handshake was not ready (status={status!r})")
+                self._log_spawn_outcome(f"{self.worker_name} #{self.worker_id} spawn handshake was not ready (status={status!r})")
                 self.kill()
                 return
             log.info("%s #%d spawned (pid=%s, status=%s)", self.worker_name, self.worker_id, ready_data.get("pid", proc.pid), ready_data.get("status"))
@@ -529,10 +597,10 @@ class BaseProcessWorker:
             # killed either way; the next lease respawns the slot.
             spawned = self.process
             rc = spawned.poll() if spawned is not None else None
-            self._log_spawn_failure(f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})")
+            self._log_spawn_outcome(f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})")
             self.kill()
         except Exception as exc:
-            self._log_spawn_failure(f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}")
+            self._log_spawn_outcome(f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}")
             # Popen failed before the path was published. kill() only
             # unlinks _stderr_path, so this file would otherwise leak.
             if stderr_log is not None and not published_stderr and self._stderr_path != stderr_log.name:
@@ -589,10 +657,13 @@ class BaseProcessWorker:
         # REQUEST_NOT_SERIALIZABLE. Snapshot once. Do not take
         # _lifecycle_lock here: kill() holds it across wait().
         proc = self.process
-        # poll() reaps a zombie and does not run on_process_exit. Idle prune
-        # and session finalize call this while holding the pool condition;
-        # the callback takes that condition, so it cannot run here. Formula
-        # drops those sessions in _reap_dead_sessions_unlocked.
+        # poll() reaps a zombie and does not run on_process_exit. A later
+        # reap still reports that pid, which the kernel may already have
+        # reused; the callback carries this wrapper so the formula pool
+        # does not drop another slot's session. Idle prune and session
+        # finalize call this while holding the pool condition; the callback
+        # takes that condition, so it cannot run here. Formula drops those
+        # sessions in _reap_dead_sessions_unlocked.
         return proc is not None and proc.poll() is None
 
     def request_shutdown(self) -> None:
@@ -816,11 +887,14 @@ class BaseProcessPool:
     _cond: threading.Condition
     _reaper_stop_event: threading.Event
 
-    def __init__(self, script_path: str, num_workers: int = 1, default_timeout_sec: int = 30, max_tasks: int = 500, worker_name: str = "Worker", idle_worker_ttl_sec: float | None = None, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, on_process_exit: Callable[[int], None] | None = None) -> None:
+    def __init__(self, script_path: str, num_workers: int = 1, default_timeout_sec: int = 30, max_tasks: int = 500, worker_name: str = "Worker", idle_worker_ttl_sec: float | None = None, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, on_process_exit: Callable[[BaseProcessWorker, int], None] | None = None) -> None:
         self.script_path = script_path
         self.num_workers = max(0, num_workers)
         self.default_timeout_sec = default_timeout_sec
-        self.max_tasks = max_tasks
+        # 0 used to recycle on the first release: tasks_executed >= 0 is
+        # always true. Config already rejects < 1. A direct caller gets
+        # the same floor.
+        self.max_tasks = max(1, max_tasks)
         self.worker_name = worker_name
         self.idle_worker_ttl_sec = idle_worker_ttl_sec
         self.max_payload_bytes = max_payload_bytes

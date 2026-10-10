@@ -60,6 +60,40 @@ def test_shared_mode_without_session_id_does_not_run(monkeypatch: pytest.MonkeyP
         pool.shutdown()
 
 
+def test_process_exit_drops_only_that_workers_pid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A reused pid on another slot stays. Only the exited worker's row is lost.
+
+    What was wrong: process exit dropped every session whose pid matched.
+    is_alive() reaps with poll() and does not run the callback, so that
+    number can belong to a live slot by the time reap reports it.
+    """
+    from compute_service.formula_pool import _Session
+
+    monkeypatch.setattr(
+        "compute_service.worker_base.BaseProcessWorker.respawn",
+        lambda self, timeout_sec=0.0, deadline=None: None,
+    )
+    pool = FormulaProcessPool(num_workers=2, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
+    try:
+        owner, other = pool.workers
+        now = time.monotonic()
+        with pool._cond:
+            pool._sessions["owned"] = _Session(worker=owner, pid=4242, last_active=now)
+            pool._sessions["reused"] = _Session(worker=other, pid=4242, last_active=now)
+            pool._sessions["reserved"] = _Session(worker=owner, pid=None, last_active=now)
+        pool._on_process_exit(owner, 4242)
+        with pool._cond:
+            assert "owned" not in pool._sessions
+            assert "owned" in pool._lost_sessions
+            assert pool._sessions["reused"].worker is other
+            assert pool._sessions["reused"].pid == 4242
+            assert "reused" not in pool._lost_sessions
+            assert pool._sessions["reserved"].pid is None
+            assert "reserved" not in pool._lost_sessions
+    finally:
+        pool.shutdown()
+
+
 class TestFormulaPoolSupervisor:
     def test_session_locks_removed_and_reset_succeeds(self) -> None:
         """Verify dead session locks are removed and reset_session succeeds cleanly."""

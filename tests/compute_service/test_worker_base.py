@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pickle
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -116,6 +117,85 @@ def test_max_tasks_release_leaves_slot_dead() -> None:
     assert claimed is worker
     assert worker in pool._leased
     assert worker not in pool._idle
+
+
+def test_max_tasks_is_at_least_one() -> None:
+    """A non-positive max_tasks is the same floor config already requires.
+
+    What was wrong: max_tasks=0 made should_recycle_worker true on every
+    release, because tasks_executed >= 0 is always true.
+    """
+    for raw in (0, -3):
+        pool = BaseProcessPool(script_path="unused.py", num_workers=0, max_tasks=raw, idle_worker_ttl_sec=None)
+        try:
+            assert pool.max_tasks == 1
+            worker = _RetiringSlot()
+            worker.tasks_executed = 0
+            assert not pool.should_recycle_worker(worker)  # type: ignore[arg-type]
+        finally:
+            pool.shutdown()
+
+
+def test_singleton_discards_pool_built_during_shutdown() -> None:
+    """Shutdown during factory() does not publish that pool.
+
+    What was wrong: get() held the singleton lock across factory(), so
+    shutdown blocked for every child spawn and then tore down a pool that
+    had already been installed.
+    """
+    from compute_service.worker_base import PoolSingleton
+
+    started = threading.Event()
+    release = threading.Event()
+    discarded: list[BaseProcessPool] = []
+
+    def factory() -> BaseProcessPool:
+        started.set()
+        assert release.wait(timeout=2.0)
+        pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
+        original = pool.shutdown
+
+        def _shutdown() -> None:
+            discarded.append(pool)
+            original()
+
+        pool.shutdown = _shutdown  # type: ignore[method-assign]
+        return pool
+
+    singleton: PoolSingleton[BaseProcessPool] = PoolSingleton()
+    errors: list[BaseException] = []
+
+    def _get() -> None:
+        try:
+            singleton.get(factory)
+        except BaseException as exc:
+            errors.append(exc)
+
+    getter = threading.Thread(target=_get, daemon=True)
+    getter.start()
+    assert started.wait(timeout=2.0)
+
+    def _stop() -> None:
+        singleton.shutdown(permanent=True)
+
+    stopper = threading.Thread(target=_stop, daemon=True)
+    stopper.start()
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not singleton._closed:
+        time.sleep(0.01)
+    assert singleton._closed
+    assert stopper.is_alive()
+    release.set()
+    stopper.join(timeout=2.0)
+    getter.join(timeout=2.0)
+    assert not stopper.is_alive()
+    assert not getter.is_alive()
+    assert singleton._pool is None
+    assert len(discarded) == 1
+    assert discarded[0]._is_shutdown
+    assert len(errors) == 1
+    assert isinstance(errors[0], RuntimeError)
+    assert "shut down" in str(errors[0])
 
 
 def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
@@ -951,6 +1031,53 @@ def test_partial_handshake_timeout_logs_timeout(monkeypatch: pytest.MonkeyPatch,
     assert worker.process is None
 
 
+def test_shutdown_handshake_is_not_a_spawn_error(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """A ready frame that disappears because shutdown won is not an error.
+
+    What was wrong: kill() during the handshake made the read return
+    empty, and respawn logged "spawn handshake was not ready" at error.
+    """
+    import logging
+
+    from compute_service import worker_base
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 7
+            self.stdin = object()
+            self.stdout = object()
+            self.stderr = None
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.returncode = -9
+            return -9
+
+    worker = _worker_without_spawn(monkeypatch)
+
+    def _read(*_args: object, **_kwargs: object) -> None:
+        worker._shutting_down = True
+        return None
+
+    monkeypatch.setattr(worker_base.subprocess, "Popen", lambda *_args, **_kwargs: _Proc())
+    monkeypatch.setattr(worker_base, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_base, "optimize_popen_pipes", lambda _proc: None)
+    with caplog.at_level(logging.INFO, logger="compute_service.worker"):
+        worker.respawn(timeout_sec=2.0)
+    matches = [record for record in caplog.records if "spawn handshake was not ready" in record.message]
+    assert len(matches) == 1
+    assert matches[0].levelno == logging.INFO
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records)
+    assert worker.process is None
+
+
 def test_run_compute_worker_sets_identity_and_payload_cap(monkeypatch: pytest.MonkeyPatch) -> None:
     """Both children share the env vars and the parent pool's frame cap."""
     import os
@@ -1009,7 +1136,7 @@ def test_reap_timeout_keeps_live_pid(monkeypatch: pytest.MonkeyPatch) -> None:
     worker = _worker_without_spawn(monkeypatch)
     child = _Stuck()
     exited: list[int] = []
-    worker.on_process_exit = exited.append
+    worker.on_process_exit = lambda _slot, pid: exited.append(pid)
     worker.process = child  # type: ignore[assignment]
     popped: list[object] = []
 
@@ -1046,11 +1173,11 @@ def test_reap_reports_exit_after_wait(monkeypatch: pytest.MonkeyPatch) -> None:
             return 0
 
     child = _Exited()
-    exited: list[int] = []
-    worker.on_process_exit = exited.append
+    exited: list[tuple[int, int]] = []
+    worker.on_process_exit = lambda slot, pid: exited.append((slot.worker_id, pid))
     worker.process = child  # type: ignore[assignment]
     assert worker._reap_previous_process() is True
-    assert exited == [7]
+    assert exited == [(worker.worker_id, 7)]
     assert worker.process is None
 
 

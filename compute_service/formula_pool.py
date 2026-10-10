@@ -10,7 +10,7 @@ Maintains a bounded pool of warm subprocesses. Provides:
 - Multi-core linear CPU scaling (bypasses single-interpreter GIL)
 - Sticky session affinity for stateful sessions (mode="shared")
 - Clean workers preferred for isolated work; falls back to fewest-sessions if all idle workers hold sessions
-- A shared session dies with its process; SIGKILL drops every session on that pid
+- A shared session dies with its worker; SIGKILL drops that worker's sessions on the exited pid
 - After max_tasks the slot is killed and left dead; the next lease respawns it
 - Active shared sessions are capped; a new id resets the oldest idle kernel or returns SESSION_LIMIT
 """
@@ -112,8 +112,8 @@ class FormulaProcessPool(BaseProcessPool):
 
         ``session_reset`` is once, for the next sticky call that observes
         this set. A caller already blocked on the lease when the marker is
-        set can run one cell without the flag. Worker death drops every
-        session on that pid, and this set still reports once.
+        set can run one cell without the flag. Worker death drops that
+        worker's sessions on the exited pid, and this set still reports once.
         """
         # Reinsert so dict order is recency. The cap drops the oldest id.
         self._lost_sessions.pop(session_id, None)
@@ -153,29 +153,36 @@ class FormulaProcessPool(BaseProcessPool):
     def _worker_sessions_for(self, worker: BaseProcessWorker) -> list[str]:
         return [sid for sid, s in self._sessions.items() if s.worker is worker]
 
-    def _on_process_exit(self, pid: int) -> None:
-        """Drop every shared session that named this pid.
+    def _on_process_exit(self, worker: BaseProcessWorker, pid: int) -> None:
+        """Drop shared sessions this worker still had on *pid*.
 
         SIGKILL and crash both come through the worker reap. The drop is
         under the pool lock so a lookup cannot observe the session on a
         process that has already exited.
+
+        What was wrong: the drop matched *pid* alone. ``is_alive`` reaps
+        with ``poll()`` and does not run this callback, so the kernel can
+        reuse that pid for another slot before reap reports it. The late
+        callback then dropped the live session.
         """
         with self._cond:
-            self._drop_pid_unlocked(pid)
+            self._drop_worker_pid_unlocked(worker, pid)
 
-    def _drop_pid_unlocked(self, pid: int) -> None:
-        stale = [sid for sid, s in self._sessions.items() if s.pid == pid]
+    def _drop_worker_pid_unlocked(self, worker: BaseProcessWorker, pid: int) -> None:
+        stale = [sid for sid, s in self._sessions.items() if s.worker is worker and s.pid == pid]
         for sid in stale:
             self._drop_session(sid)
         if stale:
-            log.info("Dropped %d shared session(s) with exited pid=%s", len(stale), pid)
+            log.info("Dropped %d shared session(s) with exited worker #%s pid=%s", len(stale), worker.worker_id, pid)
 
     def _reap_dead_sessions_unlocked(self) -> None:
         """Invalidate the session cache against the live pid.
 
-        An external SIGKILL does not enter kill(); poll() reaps that pid
-        and every session that named it is dropped. A wrapper that respawned
-        under a new pid is not the old session.
+        An external SIGKILL does not enter kill(); poll() reaps that pid.
+        A session whose worker is dead, or whose recorded pid is not that
+        worker's current pid, is dropped. Another slot that reused the
+        number is left alone. A wrapper that respawned under a new pid is
+        not the old session.
 
         ``pid is None`` is only a reservation that has not been leased yet.
         Dropping it here let a second request bind the same id to another worker.
