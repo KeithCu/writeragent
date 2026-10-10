@@ -898,10 +898,10 @@ class TestFormulaPoolSupervisor:
             worker = pool._sessions[sid].worker
             real_execute = worker.execute
 
-            def fail_reset(payload: dict, timeout_sec: float = 5.0) -> dict:
+            def fail_reset(payload: dict, timeout_sec: float = 5.0, *, req_id: Any = None) -> dict:
                 if payload.get("action") == "reset_session":
                     return {"status": "error", "error": "namespace still held"}
-                return real_execute(payload, timeout_sec)
+                return real_execute(payload, timeout_sec, req_id=req_id)
 
             setattr(worker, "execute", fail_reset)
             with caplog.at_level(logging.ERROR, logger="compute_service.formula"):
@@ -926,10 +926,10 @@ class TestFormulaPoolSupervisor:
             worker = pool._sessions[sid].worker
             real_execute = worker.execute
 
-            def fail_reset(payload: dict, timeout_sec: float = 5.0) -> dict:
+            def fail_reset(payload: dict, timeout_sec: float = 5.0, *, req_id: Any = None) -> dict:
                 if payload.get("action") == "reset_session":
                     return {"status": "error", "error": "namespace still held"}
-                return real_execute(payload, timeout_sec)
+                return real_execute(payload, timeout_sec, req_id=req_id)
 
             setattr(worker, "execute", fail_reset)
             with pool._cond:
@@ -1484,9 +1484,9 @@ class TestFormulaHttpEndpoint:
             calls: list[float] = []
             real_execute = worker.execute
 
-            def spy_execute(payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
+            def spy_execute(payload: dict[str, Any], timeout_sec: float, **kwargs: Any) -> dict[str, Any]:
                 calls.append(timeout_sec)
-                return real_execute(payload, timeout_sec)
+                return real_execute(payload, timeout_sec, **kwargs)
 
             setattr(worker, "execute", spy_execute)
             res = pool.execute(
@@ -1869,6 +1869,81 @@ class TestFormulaHttpEndpoint:
             assert res.get("code") == "QUEUE_TIMEOUT"
         finally:
             pool.shutdown()
+
+
+def _idle_reaper_idents() -> set[int]:
+    return {t.ident for t in threading.enumerate() if t.name.endswith("-idle-reaper") and t.ident is not None}
+
+
+def test_session_ttl_starts_reaper_when_idle_ttl_is_zero() -> None:
+    """Idle TTL 0 must not disable session-TTL eviction.
+
+    What was wrong: the reaper thread started only when idle_worker_ttl_sec
+    was positive, and it is the only pass that kills a worker whose shared
+    sessions are all past the session TTL.
+    """
+    before = _idle_reaper_idents()
+    pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=0, shared_kernel_ttl_sec=30)
+    try:
+        started = _idle_reaper_idents() - before
+        assert started
+    finally:
+        pool.shutdown()
+
+
+def test_both_ttls_zero_does_not_start_reaper() -> None:
+    """0 on both timers leaves the reaper off. A zero interval would spin."""
+    before = _idle_reaper_idents()
+    pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=0, shared_kernel_ttl_sec=0)
+    try:
+        assert _idle_reaper_idents() - before == set()
+    finally:
+        pool.shutdown()
+
+
+def test_idle_ttl_zero_reaps_abandoned_sessions_only(caplog: pytest.LogCaptureFixture) -> None:
+    """With idle TTL 0, a fresh session stays. A fully stale worker is killed.
+
+    Idle TTL 0 must not count as already expired, or the first scan would
+    kill every idle child.
+    """
+    from compute_service.formula_pool import _Session
+
+    class _StandIn:
+        def __init__(self) -> None:
+            self.killed = 0
+
+        def is_alive(self) -> bool:
+            return True
+
+        def kill(self) -> None:
+            self.killed += 1
+
+        def _cap_stderr_log(self) -> None:
+            return None
+
+    pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=0, shared_kernel_ttl_sec=3600.0)
+    fresh = _StandIn()
+    stale = _StandIn()
+    now = time.monotonic()
+    try:
+        with pool._cond:
+            pool._idle[fresh] = None  # type: ignore[index]
+            pool._idle[stale] = None  # type: ignore[index]
+            pool._worker_last_active[fresh] = now  # type: ignore[index]
+            pool._worker_last_active[stale] = now  # type: ignore[index]
+            pool._sessions["fresh"] = _Session(worker=fresh, pid=1, last_active=now)  # type: ignore[arg-type]
+            pool._sessions["stale"] = _Session(worker=stale, pid=2, last_active=now - 4000.0)  # type: ignore[arg-type]
+        with caplog.at_level(logging.INFO, logger="compute_service.worker"):
+            pool._evict_idle_workers()
+        assert fresh.killed == 0
+        assert fresh in pool._idle
+        assert stale.killed == 1
+        assert stale not in pool._idle
+        assert "shared sessions were all past the session TTL" in caplog.text
+        assert "idle for >" not in caplog.text
+    finally:
+        pool.shutdown()
 
 
 

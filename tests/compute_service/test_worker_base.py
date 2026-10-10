@@ -1161,6 +1161,109 @@ def test_timeout_message_keeps_fractional_seconds(monkeypatch: pytest.MonkeyPatc
     assert worker._timeout_message(_Deadline(2.0)) == "Execution exceeded maximum timeout of 2 seconds."
 
 
+def test_is_alive_snapshots_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second read of process must not run. kill() clears it between the two.
+
+    What was wrong: is_alive checked self.process, then called poll on a
+    second load. Shutdown set that to None, and the write path reported
+    AttributeError as REQUEST_NOT_SERIALIZABLE.
+    """
+    worker = _worker_without_spawn(monkeypatch)
+
+    class _Proc:
+        def poll(self) -> None:
+            return None
+
+    worker.process = _Proc()  # type: ignore[assignment]
+    loads = {"n": 0}
+
+    class _SecondReadIsNone(type(worker)):
+        def __getattribute__(self, name: str) -> object:
+            if name == "process":
+                loads["n"] += 1
+                if loads["n"] > 1:
+                    return None
+            return object.__getattribute__(self, name)
+
+    worker.__class__ = _SecondReadIsNone  # type: ignore[assignment]
+    assert worker.is_alive() is True
+    assert loads["n"] == 1
+
+
+def test_write_attribute_error_is_not_not_serializable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AttributeError from the write is not REQUEST_NOT_SERIALIZABLE.
+
+    What was wrong: the pickle handler also caught AttributeError, so a
+    shutdown race on self.process never killed the child and did not count
+    the task. PicklingError still maps to that code.
+    """
+    from unittest.mock import MagicMock
+
+    worker = _worker_without_spawn(monkeypatch)
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.pid = 11
+    proc.stdin = MagicMock()
+    proc.stdout = MagicMock()
+    worker.process = proc
+    killed: list[bool] = []
+    worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "compute_service.worker_base.write_pickle_frame_with_timeout",
+        MagicMock(side_effect=AttributeError("process")),
+    )
+
+    with pytest.raises(AttributeError, match="process"):
+        worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert killed == []
+    assert worker.tasks_executed == 0
+
+
+def test_execute_stamps_req_id_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """req_id is set on the error dict. None still omits the key."""
+    worker = _worker_without_spawn(monkeypatch)
+    res = worker.execute({"code": "result = 1"}, timeout_sec=0.1, req_id="abc")
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert res.get("id") == "abc"
+    assert res.get("message")
+    bare = worker.execute({"code": "result = 1"}, timeout_sec=0.1)
+    assert "id" not in bare
+
+
+@pytest.mark.parametrize(
+    ("budget", "remaining", "too_late", "child_run", "left_sec"),
+    [
+        (0.0, 0.0, True, 0.0, 0.01),
+        (0.5, 0.5, True, 1.0, 0.5),
+        (1.0, 0.0, True, 0.0, 0.01),
+        (1.0, 0.5, False, 1.0, 0.5),
+        (1.0, 1.0, False, 1.0, 1.0),
+        (5.0, -0.25, True, 0.0, 0.01),
+        (5.0, 0.5, True, 1.0, 0.5),
+        (5.0, 2.5, False, 2.5, 2.5),
+    ],
+)
+def test_deadline_budget_table(
+    monkeypatch: pytest.MonkeyPatch,
+    budget: float,
+    remaining: float,
+    too_late: bool,
+    child_run: float,
+    left_sec: float,
+) -> None:
+    """Lock the spawn / child-run / pipe-wait table. A 1s budget still starts."""
+    from compute_service.worker_base import _Deadline
+
+    now = 1_000.0
+    monkeypatch.setattr("compute_service.worker_base.time.monotonic", lambda: now)
+    clock = _Deadline.__new__(_Deadline)
+    clock.budget_sec = budget
+    clock._end = now + remaining
+    assert clock.too_late_to_spawn() is too_late
+    assert clock.child_run_seconds() == child_run
+    assert clock.left() == left_sec
+
+
 def test_formula_worker_script_handshake() -> None:
     """The production formula script completes the ready handshake and one cell."""
     import json

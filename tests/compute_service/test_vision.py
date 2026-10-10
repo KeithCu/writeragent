@@ -716,3 +716,38 @@ def test_vision_expired_deadline_does_not_execute() -> None:
         pool.shutdown()
 
 
+def test_one_second_budget_with_time_left_still_runs() -> None:
+    """A 1s request with 0.4s left still runs. That is not VISION_POOL_BUSY.
+
+    too_late_to_spawn stays false for a one-second budget. child_run_seconds
+    lifts the remainder to 1s so the worker is not given a sub-second read.
+    """
+    from unittest.mock import MagicMock
+
+    pool = VisionProcessPool(num_workers=0, idle_worker_ttl_sec=0)
+    pool.num_workers = 1
+    mock_worker = MagicMock()
+    mock_worker.tasks_executed = 0
+    mock_worker.is_alive.return_value = True
+    mock_worker.execute.return_value = {"status": "ok", "id": "slip"}
+    try:
+        with pool._cond:
+            pool._idle[mock_worker] = None
+        end = time.monotonic() + 0.4
+        res = pool.execute(
+            helper="extract_text",
+            image=b"\x89PNG",
+            timeout_sec=1,
+            deadline=end,
+            req_id="slip",
+        )
+        assert res.get("code") != "VISION_POOL_BUSY"
+        assert res.get("code") != "EXECUTION_TIMEOUT"
+        assert res.get("id") == "slip"
+        mock_worker.execute.assert_called_once()
+        assert mock_worker.execute.call_args.kwargs["timeout_sec"] >= 1.0
+        assert mock_worker.execute.call_args.kwargs["req_id"] == "slip"
+    finally:
+        pool.shutdown()
+
+

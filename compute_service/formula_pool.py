@@ -82,6 +82,25 @@ class FormulaProcessPool(BaseProcessPool):
         self.shared_kernel_ttl_sec = eff_shared_ttl
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES, on_process_exit=self._on_process_exit)
 
+    def _reaper_period_sec(self) -> float | None:
+        """Idle TTL, session TTL, or the shorter of the two. Both 0 stays off.
+
+        The idle reaper is the only pass that kills a worker whose sessions
+        are all past ``shared_kernel_ttl_sec``. Gating that thread on idle
+        TTL alone left those kernels up when idle eviction was disabled.
+        ``shared_kernel_ttl_sec`` is set before ``BaseProcessPool.__init__``
+        asks for this period.
+        """
+        periods: list[float] = []
+        idle = super()._reaper_period_sec()
+        if idle is not None:
+            periods.append(idle)
+        if self.shared_kernel_ttl_sec > 0:
+            periods.append(float(self.shared_kernel_ttl_sec))
+        if not periods:
+            return None
+        return min(periods)
+
     def _mark_session_lost_unlocked(self, session_id: str) -> None:
         """Remember that *session_id* lost its kernel. Caller holds ``self._cond``.
 
@@ -211,8 +230,9 @@ class FormulaProcessPool(BaseProcessPool):
         """True when every session on *worker* is past the session TTL.
 
         The idle reaper kills that process without waiting for
-        ``idle_worker_ttl_sec``. Process exit marks the ids lost. A TTL of
-        0 disables this. Caller holds ``self._cond``.
+        ``idle_worker_ttl_sec``. That thread still starts when this TTL is
+        positive and idle eviction is off. Process exit marks the ids lost.
+        A TTL of 0 disables this. Caller holds ``self._cond``.
         """
         if self.shared_kernel_ttl_sec <= 0:
             return False
@@ -464,11 +484,9 @@ class FormulaProcessPool(BaseProcessPool):
         payload["timeout_sec"] = child_alarm
         payload["session_reset"] = session_was_lost
         host_timeout = run_for + HOST_IPC_READ_GRACE_SEC
-        res = leased.execute(payload, timeout_sec=host_timeout)
+        res = leased.execute(payload, timeout_sec=host_timeout, req_id=req_id)
         if session_was_lost and isinstance(res, dict):
             res["session_reset"] = True
-        if req_id is not None and isinstance(res, dict):
-            res["id"] = req_id
         if decode_result and isinstance(res, dict):
             decoded = decode_worker_result(res)
             if session_was_lost and isinstance(decoded, dict):

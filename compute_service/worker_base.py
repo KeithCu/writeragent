@@ -105,6 +105,23 @@ def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, message: str | 
     return res
 
 
+# count_task, mirror_message. ``kill`` stays a call-site choice:
+# EXECUTION_TIMEOUT is kill=False when no child was started, and kill=True
+# after a desynchronized pipe. Unknown codes count the task and do not
+# copy the text onto ``message``.
+_FAIL_POLICY: dict[str, tuple[bool, bool]] = {
+    "SERVICE_SHUTDOWN": (False, False),
+    "EXECUTION_TIMEOUT": (True, True),
+    "WORKER_CRASHED": (True, True),
+}
+_DEFAULT_FAIL_POLICY: tuple[bool, bool] = (True, False)
+
+
+def _fail_policy(code: str) -> tuple[bool, bool]:
+    """Return ``(count_task, mirror_message)`` for a worker error *code*."""
+    return _FAIL_POLICY.get(code, _DEFAULT_FAIL_POLICY)
+
+
 class PoolSingleton(Generic[_PoolT]):
     """Thread-safe global singleton holder for a BaseProcessPool subclass."""
 
@@ -529,7 +546,13 @@ class BaseProcessWorker:
         self._kill_and_wait(proc, proc.pid, context="unadopted ")
 
     def is_alive(self) -> bool:
-        return self.process is not None and self.process.poll() is None
+        # kill() assigns None under _lifecycle_lock while execute's select
+        # loop calls this. A second read of self.process could be None and
+        # raise AttributeError, which the write handler reported as
+        # REQUEST_NOT_SERIALIZABLE. Snapshot once. Do not take
+        # _lifecycle_lock here: kill() holds it across wait().
+        proc = self.process
+        return proc is not None and proc.poll() is None
 
     def request_shutdown(self) -> None:
         """Publish shutdown so execute and respawn will not start a child.
@@ -560,7 +583,8 @@ class BaseProcessWorker:
         shutdown, or a process that never became live. An oversized frame
         never gets here.
         """
-        if code != "SERVICE_SHUTDOWN":
+        count_task, mirror_message = _fail_policy(code)
+        if count_task:
             # Timeouts and failed attempts count so a slot that keeps dying
             # still reaches max_tasks. Shutdown is not a task. An oversized
             # frame never gets here: no bytes were written, and the child stays.
@@ -571,8 +595,8 @@ class BaseProcessWorker:
         if kill:
             log.warning("%s request failed (%s) on worker #%d; terminating pid=%s", self.worker_name, code, self.worker_id, pid)
             self.kill()
-        # Callers of these two codes read the text from either key.
-        message = msg if code in ("EXECUTION_TIMEOUT", "WORKER_CRASHED") else None
+        # Callers of the mirrored codes read the text from either key.
+        message = msg if mirror_message else None
         return error_dict(code, msg, message=message)
 
     def _timeout_message(self, deadline: _Deadline) -> str:
@@ -638,8 +662,20 @@ class BaseProcessWorker:
             return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} has no stdio pipes.", pid=_pid(), kill=False)
         return proc, stdin, stdout
 
-    def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
-        """Send request to worker process and await response with timeout."""
+    def execute(self, payload: dict[str, Any], timeout_sec: float, *, req_id: Any = None) -> dict[str, Any]:
+        """Send request to worker process and await response with timeout.
+
+        ``req_id`` is copied onto the returned dict when it is not None.
+        Pools used to patch ``id`` afterward, so an error frame could leave
+        without it. ``None`` still omits the key.
+        """
+        res = self._execute(payload, timeout_sec)
+        if req_id is not None and isinstance(res, dict):
+            res["id"] = req_id
+        return res
+
+    def _execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
+        """Run one request. ``execute`` stamps ``id`` on the way out."""
         # One deadline covers spawn, the stdin write, and the stdout read.
         # It is created under self.lock so waiting for that lock is not
         # part of the budget. Do not floor timeout_sec before this: a
@@ -673,9 +709,11 @@ class BaseProcessWorker:
                 # Raised before any byte is written. The child is still the
                 # same kernel; killing it would drop every shared session.
                 return error_dict("PAYLOAD_TOO_LARGE", str(exc))
-            except (pickle.PicklingError, TypeError, AttributeError) as exc:
+            except (pickle.PicklingError, TypeError) as exc:
                 # pack_pickle_frame pickles before the first write. These used
                 # to escape execute. The child is still frame-aligned, so it stays.
+                # AttributeError is not included: a shutdown race on
+                # self.process used to land here and skip the kill.
                 return error_dict("REQUEST_NOT_SERIALIZABLE", str(exc))
             except subprocess.TimeoutExpired:
                 return self._fail_timeout(deadline, _pid())
@@ -759,10 +797,11 @@ class BaseProcessPool:
                     # the child as soon as the reaper ran.
                     self._worker_last_active[w] = time.monotonic()
 
-        # 0 disables the reaper, same as None. A zero interval would spin, and
-        # treating 0 as "evict immediately" would kill workers that just spawned.
-        if self.idle_worker_ttl_sec is not None and self.idle_worker_ttl_sec > 0:
-            self._start_idle_reaper()
+        # 0 and None mean this pool does not evict for idle time. A subclass
+        # can still start the thread for its own TTL (shared session expiry).
+        period = self._reaper_period_sec()
+        if period is not None:
+            self._start_idle_reaper(period)
 
     def _start_reaper(self, name: str, interval: float, fn: Callable[[], None]) -> None:
         def _loop() -> None:
@@ -785,9 +824,21 @@ class BaseProcessPool:
         # threading.Thread is not tagged for the UNO thread guard.
         run_in_background(_loop, name=name, dedicated=True)
 
-    def _start_idle_reaper(self) -> None:
-        ttl = cast("float", self.idle_worker_ttl_sec)
-        interval = max(0.02, min(ttl / 6.0, 300.0))
+    def _reaper_period_sec(self) -> float | None:
+        """Seconds the idle reaper uses for its interval, or None to stay off.
+
+        0 and None both mean this pool does not evict for idle time. A zero
+        interval would spin, and treating 0 as already expired would kill
+        workers that just spawned. Subclasses add their own TTL so a session
+        timer still runs when idle eviction is off.
+        """
+        ttl = self.idle_worker_ttl_sec
+        if ttl is None or ttl <= 0:
+            return None
+        return float(ttl)
+
+    def _start_idle_reaper(self, period: float) -> None:
+        interval = max(0.02, min(period / 6.0, 300.0))
         self._start_reaper(
             name=f"{self.worker_name}-idle-reaper",
             interval=interval,
@@ -795,7 +846,7 @@ class BaseProcessPool:
         )
 
     def _evict_idle_workers(self) -> None:
-        if self._is_shutdown or self.idle_worker_ttl_sec is None:
+        if self._is_shutdown:
             return
         with self._cond:
             idle_now = list(self._idle)
@@ -809,6 +860,7 @@ class BaseProcessPool:
         # the kill was a worker whose sessions were already past session TTL.
         idle_hits: list[BaseProcessWorker] = []
         abandoned_hits: list[BaseProcessWorker] = []
+        idle_ttl = self.idle_worker_ttl_sec
         with self._cond:
             # Drop dead pids before the TTL pass so lease_any cannot pop them.
             # A dead pid is not idle: the next lease performs the handshake.
@@ -817,7 +869,9 @@ class BaseProcessPool:
                 if self._skip_idle_evict(w):
                     continue
                 last_active = self._worker_last_active.get(w, now)
-                idle_expired = self.idle_worker_ttl_sec is not None and now - last_active >= self.idle_worker_ttl_sec
+                # 0 and None do not expire. A zero TTL used to compare as
+                # already elapsed and kill every idle child on the first tick.
+                idle_expired = idle_ttl is not None and idle_ttl > 0 and now - last_active >= idle_ttl
                 # Past idle TTL stays in the idle bucket even if the sessions
                 # are also stale: that sentence is still true. The other
                 # bucket is only the kill that happened before idle TTL.
@@ -826,32 +880,41 @@ class BaseProcessPool:
                     idle_hits.append(w)
                 elif self._abandoned_sessions(w):
                     abandoned_hits.append(w)
-            stale = idle_hits + abandoned_hits
-            for w in stale:
-                self._idle.pop(w, None)
-                # Same as _prune_dead_idle_unlocked. The next idle writes a
-                # new stamp; leaving the old one would look already expired
-                # if this slot were re-idled without that write.
-                self._worker_last_active.pop(w, None)
-        for w in stale:
+            for w in idle_hits:
+                self._drop_evicted_unlocked(w)
+            for w in abandoned_hits:
+                self._drop_evicted_unlocked(w)
+        for w in idle_hits:
+            w.kill()
+        for w in abandoned_hits:
             w.kill()
         # Do not put the killed process back in idle. Idle is a successful
         # handshake or a consumed response frame. lease_any claims the cold
         # slot and respawns it.
-        if stale:
+        if idle_hits or abandoned_hits:
             with self._cond:
                 self._cond.notify_all()
-        if idle_hits:
-            log.info("Idle worker reaper terminated %d %s(s) idle for >%.1fs", len(idle_hits), self.worker_name, self.idle_worker_ttl_sec)
+        if idle_hits and idle_ttl is not None:
+            log.info("Idle worker reaper terminated %d %s(s) idle for >%.1fs", len(idle_hits), self.worker_name, idle_ttl)
         if abandoned_hits:
             log.info("Idle worker reaper terminated %d %s(s) whose shared sessions were all past the session TTL", len(abandoned_hits), self.worker_name)
+
+    def _drop_evicted_unlocked(self, worker: BaseProcessWorker) -> None:
+        """Remove *worker* from idle. Caller holds ``self._cond``.
+
+        Same as ``_prune_dead_idle_unlocked``. The next idle writes a new
+        stamp; leaving the old one would look already expired if this slot
+        were re-idled without that write.
+        """
+        self._idle.pop(worker, None)
+        self._worker_last_active.pop(worker, None)
 
     def _skip_idle_evict(self, worker: BaseProcessWorker) -> bool:
         """Return true to leave *worker* running past the idle TTL.
 
         Formula sessions override this. The base pool has no session map.
         """
-        del worker
+        _unused = worker
         return False
 
     def _abandoned_sessions(self, worker: BaseProcessWorker) -> bool:
@@ -860,7 +923,7 @@ class BaseProcessPool:
         Formula overrides this for a process whose shared sessions are all
         past the session TTL. The base pool has no session map.
         """
-        del worker
+        _unused = worker
         return False
 
     def is_enabled(self) -> bool:

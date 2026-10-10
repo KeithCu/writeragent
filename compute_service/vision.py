@@ -144,12 +144,12 @@ class VisionProcessPool(BaseProcessPool):
             if worker is None or clock.too_late_to_spawn():
                 return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
 
-            # execute() refuses a budget under one second. The minimum
-            # request is already slightly under that after the lease returns.
-            res = worker.execute(payload, timeout_sec=clock.child_run_seconds())
-            if req_id is not None and isinstance(res, dict):
-                res["id"] = req_id
-            return res
+            # child_run_seconds floors a positive remainder under one second
+            # up to one second. A one-second OCR request still runs after the
+            # lease. too_late_to_spawn already returned VISION_POOL_BUSY when
+            # the clock is spent. Passing the raw remainder would make
+            # execute answer EXECUTION_TIMEOUT.
+            return worker.execute(payload, timeout_sec=clock.child_run_seconds(), req_id=req_id)
 
 
 # Global singleton per server process
