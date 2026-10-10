@@ -372,12 +372,16 @@ class BaseProcessWorker:
             self._stderr_path = path
             return True
 
-    def _unlink_stderr_file(self, path: str) -> None:
-        """Remove a stderr file that was never published on ``_stderr_path``."""
+    def _safe_unlink(self, path: str) -> None:
+        """Remove *path*. A missing file is normal when shutdown already unlinked it."""
         try:
             os.unlink(path)
         except OSError:
             log.debug("%s #%d could not remove stderr log %s", self.worker_name, self.worker_id, path, exc_info=True)
+
+    def _unlink_stderr_file(self, path: str) -> None:
+        """Remove a stderr file that was never published on ``_stderr_path``."""
+        self._safe_unlink(path)
 
     def _close_stderr_log(self) -> None:
         """Unlink the current stderr file. Caller holds ``_lifecycle_lock``."""
@@ -385,10 +389,7 @@ class BaseProcessWorker:
         self._stderr_path = None
         if path is None:
             return
-        try:
-            os.unlink(path)
-        except OSError:
-            log.debug("%s #%d could not remove stderr log %s", self.worker_name, self.worker_id, path, exc_info=True)
+        self._safe_unlink(path)
 
     def _cap_stderr_log(self) -> None:
         """Keep the last ``_STDERR_LOG_CAP`` bytes of this slot's stderr file.
@@ -901,12 +902,14 @@ class BaseProcessPool:
         self.workers: list[BaseProcessWorker] = []
         self._is_shutdown = False
         self._lock = threading.RLock()
-        # Oldest idle worker is first. Release moves a worker to the end.
-        self._idle: OrderedDict[BaseProcessWorker, None] = OrderedDict()
+        # Oldest idle worker is first. The value is the monotonic time of
+        # the last successful handshake or consumed response. Release moves
+        # a worker to the end and writes a new stamp. Leasing pops the entry,
+        # so the stamp cannot outlive the idle slot.
+        self._idle: OrderedDict[BaseProcessWorker, float] = OrderedDict()
         # Leased or cold-claimed. A dead pid nobody holds is not idle;
         # the next lease respawns it.
         self._leased: set[BaseProcessWorker] = set()
-        self._worker_last_active: dict[BaseProcessWorker, float] = {}
         self._cond = threading.Condition(self._lock)
         self._reaper_stop_event = threading.Event()
 
@@ -920,11 +923,10 @@ class BaseProcessPool:
                 # Idle only after the ready handshake. A failed spawn stays
                 # out of the idle set; the next lease respawns that slot.
                 if w.is_alive():
-                    self._idle[w] = None
                     # Stamp after spawn. A timestamp taken before this loop made a
                     # slow handshake look already idle, so a short idle TTL killed
                     # the child as soon as the reaper ran.
-                    self._worker_last_active[w] = time.monotonic()
+                    self._idle[w] = time.monotonic()
 
         # 0 and None mean this pool does not evict for idle time. A subclass
         # can still start the thread for its own TTL (shared session expiry).
@@ -997,7 +999,7 @@ class BaseProcessPool:
             for w in list(self._idle):
                 if self._skip_idle_evict(w):
                     continue
-                last_active = self._worker_last_active.get(w, now)
+                last_active = self._idle.get(w, now)
                 # 0 and None do not expire. A zero TTL used to compare as
                 # already elapsed and kill every idle child on the first tick.
                 idle_expired = idle_ttl is not None and idle_ttl > 0 and now - last_active >= idle_ttl
@@ -1009,13 +1011,10 @@ class BaseProcessPool:
                     idle_hits.append(w)
                 elif self._abandoned_sessions(w):
                     abandoned_hits.append(w)
-            for w in idle_hits:
+            to_kill = idle_hits + abandoned_hits
+            for w in to_kill:
                 self._drop_evicted_unlocked(w)
-            for w in abandoned_hits:
-                self._drop_evicted_unlocked(w)
-        for w in idle_hits:
-            w.kill()
-        for w in abandoned_hits:
+        for w in to_kill:
             w.kill()
         # Do not put the killed process back in idle. Idle is a successful
         # handshake or a consumed response frame. lease_any claims the cold
@@ -1031,12 +1030,10 @@ class BaseProcessPool:
     def _drop_evicted_unlocked(self, worker: BaseProcessWorker) -> None:
         """Remove *worker* from idle. Caller holds ``self._cond``.
 
-        Same as ``_prune_dead_idle_unlocked``. The next idle writes a new
-        stamp; leaving the old one would look already expired if this slot
-        were re-idled without that write.
+        The last-active stamp is the idle value, so this pop drops it too.
+        The next idle writes a new stamp.
         """
         self._idle.pop(worker, None)
-        self._worker_last_active.pop(worker, None)
 
     def _skip_idle_evict(self, _worker: BaseProcessWorker) -> bool:
         """Return true to leave *_worker* running past the idle TTL.
@@ -1069,7 +1066,6 @@ class BaseProcessPool:
         for worker in list(self._idle):
             if not worker.is_alive():
                 self._idle.pop(worker, None)
-                self._worker_last_active.pop(worker, None)
 
     def _pick_idle_worker(self) -> BaseProcessWorker | None:
         """Pop one protocol-ready idle worker. Caller must hold self._cond.
@@ -1205,9 +1201,8 @@ class BaseProcessPool:
                 self._leased.discard(worker)
                 if worker.is_alive():
                     # The response frame was consumed and worker is alive: return to idle.
-                    self._idle[worker] = None
+                    self._idle[worker] = time.monotonic()
                     self._idle.move_to_end(worker)
-                    self._worker_last_active[worker] = time.monotonic()
                 self._cond.notify_all()
 
         if kill_for_shutdown:
@@ -1234,7 +1229,6 @@ class BaseProcessPool:
             self.workers.clear()
             self._idle.clear()
             self._leased.clear()
-            self._worker_last_active.clear()
             self._cond.notify_all()
         # request_shutdown takes _lifecycle_lock. Reap's on_process_exit
         # takes _cond while that lock is held, so this stays outside _cond.

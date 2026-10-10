@@ -2,7 +2,7 @@
 
 **Status:** Leftover-stdout cause fixed in #546 (`smolagents` `__init__` no longer imports `huggingface_hub` on worker spawn). Hunt-only IPC breadcrumbs stripped after that. Do not reopen Hub/smolagents.
 
-**Also landed:** compute spawn requires a dict with `status == "ready"` (H6); `formula_worker` writes that frame before importing the sandbox (H3); `_worker_last_active` is stamped after each spawn (H7); compute `Popen` passes `scrub_subprocess_env`; handshake timeout logs a stderr snippet; a non-ready frame is spawn failure. `worker_harness` still imports before its first stdin read and does not send `ready`.
+**Also landed:** compute spawn requires a dict with `status == "ready"` (H6); `formula_worker` writes that frame before importing the sandbox (H3); `_idle` stores the spawn time after each handshake (H7); compute `Popen` passes `scrub_subprocess_env`; handshake timeout logs a stderr snippet; a non-ready frame is spawn failure. `worker_harness` still imports before its first stdin read and does not send `ready`.
 
 The call-path section below used to describe the pre-fix child (Cython load before `ready`, no stderr on timeout, non-ready counted as success). That is historical. Do not re-implement it. Current compute child: `formula_worker.py` writes `{status: ready}` in `run_worker_stdio_loop` before the sandbox import.  
 **Severity:** Unit-test flake that can fail ~30–40 tests at once; production spawn path is the same code  

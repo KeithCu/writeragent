@@ -659,7 +659,7 @@ def test_vision_pool_execute_accepts_bytearray() -> None:
 
         mock_worker.execute.side_effect = fake_exec
         with pool._cond:
-            pool._idle = OrderedDict([(mock_worker, None)])
+            pool._idle = OrderedDict([(mock_worker, time.monotonic())])
 
         data = bytearray(b"dummy image bytes")
         res = pool.execute(helper="test", image_b64=data, req_id="bytearray-test")
@@ -708,7 +708,7 @@ def test_vision_expired_deadline_does_not_execute() -> None:
         mock_worker.tasks_executed = 0
         mock_worker.execute.return_value = {"status": "ok"}
         with pool._cond:
-            pool._idle = OrderedDict([(mock_worker, None)])
+            pool._idle = OrderedDict([(mock_worker, time.monotonic())])
         res = pool.execute(helper="test", image_b64=_TINY_PNG_B64, deadline=time.monotonic() - 1)
         assert res.get("code") == "VISION_POOL_BUSY"
         mock_worker.execute.assert_not_called()
@@ -732,7 +732,7 @@ def test_one_second_budget_with_time_left_still_runs() -> None:
     mock_worker.execute.return_value = {"status": "ok", "id": "slip"}
     try:
         with pool._cond:
-            pool._idle[mock_worker] = None
+            pool._idle[mock_worker] = time.monotonic()
         end = time.monotonic() + 0.4
         res = pool.execute(
             helper="extract_text",

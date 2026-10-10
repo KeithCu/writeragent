@@ -698,12 +698,10 @@ def test_evict_idle_workers_drops_last_active() -> None:
     worker = _Slot()
     try:
         with pool._cond:
-            pool._idle[worker] = None  # type: ignore[index]
-            pool._worker_last_active[worker] = 0.0  # type: ignore[index]
+            pool._idle[worker] = 0.0  # type: ignore[index]
         pool._evict_idle_workers()
         assert worker.killed == 1
         assert worker not in pool._idle
-        assert worker not in pool._worker_last_active
     finally:
         pool.shutdown()
 
@@ -1297,8 +1295,7 @@ def test_idle_scan_caps_stderr_without_evicting(monkeypatch: pytest.MonkeyPatch,
     pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=3600.0)
     try:
         with pool._cond:
-            pool._idle[worker] = None  # type: ignore[index]
-            pool._worker_last_active[worker] = time.monotonic()  # type: ignore[index]
+            pool._idle[worker] = time.monotonic()  # type: ignore[index]
         pool._evict_idle_workers()
         data = path.read_bytes()
         assert len(data) == _STDERR_LOG_CAP

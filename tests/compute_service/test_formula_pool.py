@@ -790,7 +790,7 @@ class TestFormulaPoolSupervisor:
 
             # Simulate passage of idle time and trigger reaper eviction
             with pool._cond:
-                pool._worker_last_active[worker] = time.monotonic() - 4000.0
+                pool._idle[worker] = time.monotonic() - 4000.0
             with caplog.at_level(logging.INFO, logger="compute_service.worker"):
                 pool._evict_idle_workers()
             assert "idle for >" in caplog.text
@@ -812,7 +812,7 @@ class TestFormulaPoolSupervisor:
             assert res.get("status") == "ok"
             worker = pool.workers[0]
             with pool._cond:
-                pool._worker_last_active[worker] = time.monotonic() - 4000.0
+                pool._idle[worker] = time.monotonic() - 4000.0
             pool._evict_idle_workers()
             assert worker.is_alive()
             again = pool.execute(code="result = keep", session_id="idle-shared", mode="shared", req_id="idle-s2")
@@ -1160,7 +1160,7 @@ class TestFormulaPoolSupervisor:
             # Simulate only one worker being stale
             w0 = pool.workers[0]
             with pool._cond:
-                pool._worker_last_active[w0] = time.monotonic() - 4000.0
+                pool._idle[w0] = time.monotonic() - 4000.0
 
             pool._evict_idle_workers()
 
@@ -1214,9 +1214,8 @@ class TestFormulaPoolSupervisor:
             assert worker is not None
             worker.kill()
             with pool._cond:
-                pool._idle[worker] = None
+                pool._idle[worker] = time.monotonic() - 100.0
                 pool._leased.discard(worker)
-                pool._worker_last_active[worker] = time.monotonic() - 100.0
             pool._evict_idle_workers()
             with pool._cond:
                 assert worker not in pool._idle
@@ -1591,7 +1590,7 @@ class TestFormulaHttpEndpoint:
                 assert picked is not None
                 assert picked is not shared_worker
                 # Put it back
-                pool._idle[picked] = None
+                pool._idle[picked] = time.monotonic()
         finally:
             pool.shutdown()
 
@@ -1609,7 +1608,7 @@ class TestFormulaHttpEndpoint:
                 assert len(pool._idle) == 2
                 picked = pool._pick_idle_worker()
                 assert picked is not None
-                pool._idle[picked] = None
+                pool._idle[picked] = time.monotonic()
         finally:
             pool.shutdown()
 
@@ -1788,7 +1787,7 @@ class TestFormulaHttpEndpoint:
             worker = pool.workers[0]
             with pool._cond:
                 pool._sessions["stale-sib"].last_active = time.monotonic() - 4000.0
-                pool._worker_last_active[worker] = time.monotonic() - 4000.0
+                pool._idle[worker] = time.monotonic() - 4000.0
             pool._evict_idle_workers()
             assert worker.is_alive()
             later = pool.execute(code="result = b", session_id="stale-sib", mode="shared")
@@ -2068,10 +2067,8 @@ def test_idle_ttl_zero_reaps_abandoned_sessions_only(caplog: pytest.LogCaptureFi
     now = time.monotonic()
     try:
         with pool._cond:
-            pool._idle[fresh] = None  # type: ignore[index]
-            pool._idle[stale] = None  # type: ignore[index]
-            pool._worker_last_active[fresh] = now  # type: ignore[index]
-            pool._worker_last_active[stale] = now  # type: ignore[index]
+            pool._idle[fresh] = now  # type: ignore[index]
+            pool._idle[stale] = now  # type: ignore[index]
             pool._sessions["fresh"] = _Session(worker=fresh, pid=1, last_active=now)  # type: ignore[arg-type]
             pool._sessions["stale"] = _Session(worker=stale, pid=2, last_active=now - 4000.0)  # type: ignore[arg-type]
         with caplog.at_level(logging.INFO, logger="compute_service.worker"):
