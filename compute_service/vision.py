@@ -27,7 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, PoolSingleton, remaining_sec, resolve_override, run_worker_stdio_loop
+from compute_service.worker_base import BaseProcessPool, PoolSingleton, resolve_override, run_worker_stdio_loop, start_refused
 
 log = logging.getLogger("compute_service.vision")
 
@@ -75,8 +75,7 @@ class VisionProcessPool(BaseProcessPool):
 
         # Formula workers already pass this. The 16 MiB IPC default rejected a
         # body the HTTP layer had accepted (32 MiB) as an uncaught ValueError.
-        # A slow OCR call still writes one frame. recover_on_timeout drains
-        # that frame and reuses the process instead of SIGKILL.
+        # A read timeout kills the child. The next lease respawns it.
         super().__init__(
             script_path=_WORKER_SCRIPT,
             num_workers=eff_num_workers,
@@ -85,7 +84,6 @@ class VisionProcessPool(BaseProcessPool):
             worker_name="Vision worker",
             idle_worker_ttl_sec=eff_idle_ttl,
             max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES,
-            recover_on_timeout=True,
         )
 
     def execute(
@@ -133,17 +131,22 @@ class VisionProcessPool(BaseProcessPool):
         if deadline is None:
             deadline = time.monotonic() + eff_timeout
 
-        # remaining_sec floors at 0.01, so a deadline that has already passed
-        # still leased a worker and started OCR. A zero budget does not.
+        # Under one second requested, or a longer budget that has already
+        # fallen under one second, do not lease. A 0.01s floor used to start
+        # OCR on a deadline that had already passed. A one-second request
+        # still leases: the clock moves before this check.
         lease_budget = deadline - time.monotonic()
-        with self.leased(timeout_sec=max(0.0, lease_budget)) as worker:
-            if worker is None or time.monotonic() >= deadline:
+        if start_refused(eff_timeout, deadline):
+            return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
+        with self.leased(timeout_sec=max(lease_budget, 0.0)) as worker:
+            remaining = deadline - time.monotonic()
+            if worker is None or start_refused(eff_timeout, deadline):
                 return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
 
-            # Late drain gets a full OCR timeout, not the leftover request
-            # budget. A 0.01s drain would SIGKILL a worker about to answer.
-            drain_timeout = float(self.default_timeout_sec)
-            res = worker.execute(payload, timeout_sec=remaining_sec(deadline), drain_timeout_sec=drain_timeout)
+            # execute() refuses a budget under one second. The minimum
+            # request is already slightly under that after the lease returns.
+            run_for = remaining if remaining >= 1.0 else 1.0
+            res = worker.execute(payload, timeout_sec=run_for)
             if req_id is not None and isinstance(res, dict):
                 res["id"] = req_id
             return res

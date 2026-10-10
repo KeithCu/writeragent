@@ -199,7 +199,6 @@ class TestVisionPoolSupervisor:
         try:
             assert pool.is_enabled()
             assert len(pool.workers) == 1
-            assert pool.workers[0].recover_on_timeout
             # Execute simple text extraction helper on tiny PNG
             res = pool.execute(helper="extract_text", image_b64=_TINY_PNG_B64, req_id="v-1")
             assert res.get("id") == "v-1"
@@ -594,50 +593,23 @@ def _delay_worker(tmp_path):
     return script
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the late-frame drain read no frame on the Windows runner (GHA 37401464435) and the pid respawned; needs a Windows investigation")
-def test_vision_timeout_reuses_same_process(tmp_path) -> None:
-    """A late frame is discarded and the same process serves the next call.
+def test_read_timeout_kills_and_next_execute_respawns(tmp_path) -> None:
+    """A clean read timeout kills the child. The next execute gets a new pid.
 
-    Formula timeouts SIGKILL. Vision keeps the process because the model is
-    already loaded; the pipe stays leased until that one frame arrives.
+    The timed-out client already has EXECUTION_TIMEOUT. Keeping the process
+    to finish that frame is what the late-drain state machine existed for.
     """
     from compute_service.worker_base import BaseProcessPool
 
-    pool = BaseProcessPool(str(_delay_worker(tmp_path)), num_workers=1, worker_name="Vision worker", recover_on_timeout=True)
+    pool = BaseProcessPool(str(_delay_worker(tmp_path)), num_workers=1, worker_name="Vision worker")
     try:
         worker = pool.lease_any(2)
         assert worker is not None
         assert worker.process is not None
         pid = worker.process.pid
-        res = worker.execute({"delay": 0.45}, timeout_sec=0.3)
+        res = worker.execute({"delay": 30}, timeout_sec=2)
         assert res.get("code") == "EXECUTION_TIMEOUT"
-        assert worker.is_alive()
-        assert worker.process is not None
-        assert worker.process.pid == pid
-        pool.release_worker(worker)
-
-        again = pool.lease_any(2)
-        assert again is worker
-        nxt = again.execute({"delay": 0}, timeout_sec=2)
-        assert nxt.get("status") == "ok"
-        assert nxt.get("pid") == pid
-        pool.release_worker(again)
-    finally:
-        pool.shutdown()
-
-
-def test_vision_timeout_kills_when_late_frame_never_arrives(tmp_path) -> None:
-    """A second timeout still kills a call that never writes its frame."""
-    from compute_service.worker_base import BaseProcessPool
-
-    pool = BaseProcessPool(str(_delay_worker(tmp_path)), num_workers=1, worker_name="Vision worker", recover_on_timeout=True)
-    try:
-        worker = pool.lease_any(2)
-        assert worker is not None
-        assert worker.process is not None
-        pid = worker.process.pid
-        res = worker.execute({"delay": 30}, timeout_sec=0.2)
-        assert res.get("code") == "EXECUTION_TIMEOUT"
+        assert not worker.is_alive()
         pool.release_worker(worker)
 
         again = pool.lease_any(2)
@@ -677,7 +649,6 @@ def test_vision_pool_execute_accepts_bytearray() -> None:
     pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1))
     try:
         mock_worker = MagicMock()
-        mock_worker.defer_release.return_value = False
         mock_worker.tasks_executed = 0
         payload_received = None
 
@@ -734,7 +705,6 @@ def test_vision_expired_deadline_does_not_execute() -> None:
     pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1))
     try:
         mock_worker = MagicMock()
-        mock_worker.defer_release.return_value = False
         mock_worker.tasks_executed = 0
         mock_worker.execute.return_value = {"status": "ok"}
         with pool._cond:
@@ -744,37 +714,5 @@ def test_vision_expired_deadline_does_not_execute() -> None:
         mock_worker.execute.assert_not_called()
     finally:
         pool.shutdown()
-
-
-def test_vision_pool_execute_passes_drain_timeout_budget() -> None:
-    """VisionProcessPool.execute provides drain_timeout_sec >= default_timeout_sec (Bug 3)."""
-    from unittest.mock import MagicMock
-
-    pool = VisionProcessPool(settings=ComputeSettings(ocr_workers=1, ocr_timeout_sec=30))
-    try:
-        mock_worker = MagicMock()
-        mock_worker.defer_release.return_value = False
-        mock_worker.tasks_executed = 0
-        recorded_drain_timeout = None
-
-        def fake_exec(payload, timeout_sec, drain_timeout_sec=None):
-            nonlocal recorded_drain_timeout
-            recorded_drain_timeout = drain_timeout_sec
-            return {"status": "ok"}
-
-        mock_worker.execute.side_effect = fake_exec
-        with pool._cond:
-            pool._idle = OrderedDict([(mock_worker, None)])
-
-        # Deadline almost expired (remaining 0.05s)
-        near_deadline = time.monotonic() + 0.05
-        res = pool.execute(helper="test", image_b64=_TINY_PNG_B64, deadline=near_deadline)
-        assert res.get("status") == "ok"
-        assert recorded_drain_timeout is not None
-        assert recorded_drain_timeout >= 30.0
-    finally:
-        pool.shutdown()
-
-
 
 

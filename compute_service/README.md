@@ -80,7 +80,7 @@ request shapes, why multipart exists, and the plan to retire peel.
   ```
 
 - **Session Reset on Lost Kernel (`session_reset: true`)**:
-  If a shared session's worker process crashed, was recycled, was killed (e.g. by `SIGKILL` on an unrecoverable timeout), or was evicted by idle TTL, the pool loses the session state. The subsequent call with that same `session_id` transparently lands on a fresh worker kernel and includes `"session_reset": true` in the response JSON. A sticky call already waiting on that worker still receives `session_reset` when the TTL reset finishes. A request that fails before the cell runs (`PAYLOAD_TOO_LARGE`, `QUEUE_TIMEOUT`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`) does not consume that flag:
+  If a shared session's worker process crashed, was recycled, was killed (e.g. by `SIGKILL` on an unrecoverable timeout), or was evicted by idle TTL, the pool loses the session state. The next sticky call that observes that loss lands on a fresh kernel and includes `"session_reset": true` once. A call already blocked on the lease when the reset lands can run one cell without the flag. A request that fails before the cell runs (`PAYLOAD_TOO_LARGE`, `QUEUE_TIMEOUT`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`) does not consume that flag:
   ```json
   {
     "id": "req-123",
@@ -262,7 +262,7 @@ Key file permissions: readable only by the service user (e.g. mode `0400`).
 
 coolwsd is the only hop that should reach this process. Bind loopback, set the same Bearer secret as `security.python_compute.api_key`, and do **not** mount a host venv or docker.sock.
 
-`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Prefer `image_b64`. A vision call waits for a free OCR worker until its timeout, then returns HTTP 503 with `VISION_POOL_BUSY` in the JSON body. A call that exceeds its own timeout returns `EXECUTION_TIMEOUT` and leaves the process up while the late frame is discarded; a second timeout then kills it. On Windows that drain does not see the late frame, so an OCR timeout does not keep the warm process and the next call reloads the model. Linux reuses the process.
+`file_path` on `/v1/vision` is **denied** unless `ocr.allow_paths` is set. The worker resolves the path and checks the same prefixes again before `open`, so a symlink inside an allowed directory cannot point outside. Prefer `image_b64`. A vision call waits for a free OCR worker until its timeout, then returns HTTP 503 with `VISION_POOL_BUSY` in the JSON body. A call that exceeds its own timeout returns `EXECUTION_TIMEOUT` and kills that worker. The next call respawns it, which reloads the model.
 
 `--network=none` cannot be combined with `-p` (published ports need a network namespace). Publish to loopback on the host, or use an internal bridge **without a default route**. Tenant sockets still fail via the AST sandbox plus missing egress.
 
@@ -334,9 +334,9 @@ Kit-side dumb JSON contract: [`docs/scripting/numpy-jailsafe.md`](../docs/script
 - **Single-Threaded Child Subprocesses**: Each worker is a dedicated, single-threaded OS process running a synchronous IPC loop with exclusive lease occupancy (0 worker threads inside the child), ensuring determinism and zero race conditions.
 - **GIL Elimination**: Each worker runs its own Python interpreter, achieving true parallel multi-core scaling for pure-Python and NumPy workloads.
 - **Sticky Session Affinity**: For stateful calculations (`mode="shared"`), requests with the same `session_id` are routed to the process that owns that workbook. The supervisor maps are a cache of that pid: when the process exits, every session on it is dropped, and a respawn is not the same workbook. Clean workers without shared sessions are preferred for isolated work (`mode="isolated"`); however, when all idle workers hold shared sessions, isolated work falls back to the worker with the fewest sessions to avoid starving isolated calculations while waiting for shared session TTL. Shared sessions on one process still occupy it exclusively (one cell at a time). There are no explicit per-host caps on the number of active shared sessions: only coolwsd calls this service, and container OOM kills everything if memory limits are exceeded.
-- **Stderr drain**: Each worker pipes stderr into `start_stderr_drain` (same helper as the desktop venv worker) so a noisy child cannot fill the OS pipe and deadlock the parent.
+- **Stderr log**: Each worker's stderr is an append-only file, read when spawn or a request fails and removed when the child is reaped. A pipe would need a drain thread so a noisy child cannot fill the kernel buffer and deadlock the handshake.
 - **Timeouts**: The accept timestamp, the worker lease, and the child share one deadline. The child is given the time still left and returns an error frame when its alarm fires, so a normal timeout leaves the process up. `SIGKILL` is only when that frame never arrives. That kill drops every shared session on the pid.
-- **Task Recycling**: Recycles worker processes after `worker_max_tasks` (default: 500) to keep memory fragmentation low. Workers holding active stateful sessions (`mode="shared"`) bypass normal recycling to preserve state indefinitely while active. Idle sessions auto-evict after `shared_kernel_ttl_sec` (default: 1 hour) of inactivity.
+- **Task Recycling**: After `worker_max_tasks` (default: 500) the slot is killed and left dead; the next lease respawns it. Workers holding active stateful sessions (`mode="shared"`) skip that kill so the workbook stays up. Idle sessions auto-evict after `shared_kernel_ttl_sec` (default: 1 hour) of inactivity.
 - **Idle Worker Reaper**: All worker pools terminate worker subprocesses that remain idle for > `idle_worker_ttl_sec` (default: 1 hour) to free system RAM. A dead pid is not idle. The next lease claims that slot and the following request respawns it after a ready handshake. A worker that still owns a shared session is not idle-evicted; session TTL clears those namespaces.
 
 ### 3. Tier 2: Isolated Vision & OCR Pool (`VisionProcessPool`)
@@ -377,7 +377,7 @@ Execution Architecture Benchmark: In-Process vs Subprocess Pickle IPC
 4. **Complete GIL Bypass**:
    - Each worker runs in its own OS process with a dedicated Python interpreter, providing true linear multi-core scaling across all CPU cores for pure-Python loops.
 5. **Periodic Memory Recycling**:
-   - Workers are automatically recycled after `worker_max_tasks` (default: 500) to reclaim memory and prevent fragmentation over long-running deployments (active stateful sessions defer recycling until session reset).
+   - After `worker_max_tasks` (default: 500) the slot is killed and the next lease respawns it, so a long-running process does not keep a fragmented heap. Active stateful sessions defer that kill until session reset.
 
 ---
 

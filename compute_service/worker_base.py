@@ -7,12 +7,11 @@ Shared subprocess worker loop, worker process wrapper, and process pool supervis
 Provides:
 - High-speed length-prefixed Pickle 5 binary framing over stdio pipes
 - Deadline-bounded pickle reads and stdin writes (header + payload)
-- Live stderr drain (start_stderr_drain) so piped stderr cannot deadlock
-- Hard SIGKILL only when a child never writes its response frame (vision drains
-  one late frame first; formula waits for the in-process error frame)
+- Child stderr is an append-only log file, read only when spawn or a request fails
+- A read timeout, partial frame, or broken pipe kills the child. The next lease respawns it
 - Exclusive worker occupancy. Idle means the process completed a handshake or
   a response frame was consumed — a dead pid is not idle
-- Automatic crash recovery and worker recycling after max_tasks
+- After max_tasks the slot is killed and left dead. The next lease respawns it
 
 Child stdio framing (``RestrictedUnpickler``, ``run_worker_stdio_loop``,
 ``set_pdeathsig``) is defined in ``worker_stdio`` and re-exported here.
@@ -24,9 +23,9 @@ import contextlib
 import enum
 import logging
 import os
-import queue
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import OrderedDict
@@ -41,7 +40,7 @@ from compute_service.worker_stdio import (
     set_pdeathsig,
     unpack_restricted_pickle_frame,
 )
-from plugin.framework.worker_pool import BackgroundHandle, StderrTail, get_subprocess_creationflags, run_in_background, start_stderr_drain
+from plugin.framework.worker_pool import BackgroundHandle, get_subprocess_creationflags, run_in_background
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, IpcPartialFrameTimeout, read_pickle_frame_with_timeout, write_pickle_frame_with_timeout
 from plugin.scripting.sandbox import optimize_popen_pipes, scrub_subprocess_env
 
@@ -61,13 +60,12 @@ log = logging.getLogger("compute_service.worker")
 
 _SPAWN_READY_TIMEOUT_SEC = 15.0
 _STDERR_SNIPPET = 500
-# Reap wait and the stderr-drain join are short: the child is already
-# SIGKILL'd, and a drain whose pipe never reaches EOF must not stall shutdown.
+# The child is already SIGKILL'd. wait() must not stall shutdown.
 _REAP_WAIT_SEC = 1.0
-_STDERR_DRAIN_JOIN_SEC = 0.2
-# int() of a budget under one second is 0, so timeouts and leftover drain
-# budgets never report or wait on a zero deadline.
-_MIN_BUDGET_SEC = 0.01
+# select must not be handed 0 near the end of a call that already started.
+# A new spawn or lease is refused below _MIN_REQUEST_SEC instead.
+_PIPE_WAIT_FLOOR = 0.01
+_MIN_REQUEST_SEC = 1.0
 
 _PoolT = TypeVar("_PoolT", bound="BaseProcessPool")
 _ValT = TypeVar("_ValT")
@@ -115,18 +113,36 @@ class PoolSingleton(Generic[_PoolT]):
 
 
 
-def remaining_sec(deadline: float, *, floor: float = _MIN_BUDGET_SEC) -> float:
+def remaining_sec(deadline: float, *, floor: float = _PIPE_WAIT_FLOOR) -> float:
     """Return remaining seconds until *deadline*, bounded below by *floor*."""
     return max(floor, deadline - time.monotonic())
+
+
+def start_refused(requested_sec: float, deadline: float) -> bool:
+    """True when a pool must not take a lease for this deadline.
+
+    A requested budget under one second never starts. A longer request
+    with under one second left does not either: that used to lease and
+    then SIGKILL a worker that was about to answer. A one-second request
+    still starts. That is the minimum ``clamp_timeout_sec`` returns, and
+    the clock moves before this check.
+    """
+    remaining = deadline - time.monotonic()
+    if requested_sec < _MIN_REQUEST_SEC or remaining <= 0:
+        return True
+    if requested_sec <= _MIN_REQUEST_SEC:
+        return False
+    return remaining < _MIN_REQUEST_SEC
 
 
 class _Deadline:
     """One clock for spawn, the stdin write, and the stdout read.
 
-    ``left()`` floors at ``_MIN_BUDGET_SEC`` so a select or read never sees
-    0. ``expired()`` is the raw budget. Flooring before this object existed
-    made a deadline that had already passed look like 0.01s, which spawned
-    a child and SIGKILL'd it when the handshake could not finish.
+    ``left()`` floors at ``_PIPE_WAIT_FLOOR`` so a select never sees 0.
+    ``too_short_to_start()`` is a requested budget under one second.
+    ``too_late_to_spawn()`` is that, or a longer budget that has already
+    fallen under one second. Flooring the whole budget used to turn a
+    spent deadline into 0.01s, which spawned a child and SIGKILL'd it.
     """
 
     __slots__: tuple[str, ...] = ("budget_sec", "_end")
@@ -141,42 +157,44 @@ class _Deadline:
         """True when the caller passed a spent budget, or the clock has passed it."""
         return self.budget_sec <= 0 or time.monotonic() >= self._end
 
+    def too_short_to_start(self) -> bool:
+        """True when the caller asked for less than one second.
+
+        A budget of one second is allowed. Checking time remaining here
+        refused that minimum, because monotonic() moves before the check.
+        A live child still uses ``left()`` for the pipe wait.
+        """
+        return self.budget_sec < _MIN_REQUEST_SEC
+
+    def too_late_to_spawn(self) -> bool:
+        """True when a dead slot must not be replaced.
+
+        A one-second request may spawn: it is the minimum budget, and the
+        clock has already moved. A longer request with under one second
+        left must not. That handshake could not finish and SIGKILL'd the
+        child.
+        """
+        if self.expired() or self.too_short_to_start():
+            return True
+        if self.budget_sec <= _MIN_REQUEST_SEC:
+            return False
+        return (self._end - time.monotonic()) < _MIN_REQUEST_SEC
+
     def left(self) -> float:
-        """Seconds still usable for a pipe wait, never below ``_MIN_BUDGET_SEC``."""
+        """Seconds still usable for a pipe wait, never below ``_PIPE_WAIT_FLOOR``."""
         if self.expired():
-            return _MIN_BUDGET_SEC
-        return max(_MIN_BUDGET_SEC, self._end - time.monotonic())
-
-
-class _DrainState(enum.Enum):
-    """Late-frame drain. ``_start_late_drain`` writes it; ``defer_release`` consumes it.
-
-    DRAINING is set before the drain thread starts. ``defer_release`` turns
-    DRAINING into RELEASE_WAIT and stores the release callback.
-    ``_complete_drain`` runs that callback and sets IDLE, or sets DRAINED
-    when release has not asked yet. ``defer_release`` turns DRAINED into
-    IDLE and returns false so the caller releases immediately. A thread
-    that never starts finishes the drain itself: DRAINING becomes DRAINED,
-    and RELEASE_WAIT runs the stored callback then becomes IDLE. Otherwise
-    the slot would wait on a drain that cannot finish.
-    """
-
-    IDLE = "idle"
-    DRAINING = "draining"
-    RELEASE_WAIT = "release_wait"
-    DRAINED = "drained"
+            return _PIPE_WAIT_FLOOR
+        return max(_PIPE_WAIT_FLOOR, self._end - time.monotonic())
 
 
 class _LateAction(enum.Enum):
     """What to do with the child after a failed request.
 
-    DRAIN is a clean response-read timeout: vision reads one late frame,
-    formula kills. KILL is a desynchronized pipe (stdin timeout, partial
-    frame, crash, empty response). NONE is shutdown, or a child that
-    never became live.
+    KILL is a timeout, a desynchronized pipe, a crash, or an empty response.
+    NONE is shutdown, or a child that never became live. The next lease
+    respawns a killed slot.
     """
 
-    DRAIN = "drain"
     KILL = "kill"
     NONE = "none"
 
@@ -191,18 +209,14 @@ class BaseProcessWorker:
     lock: threading.Lock
     _lifecycle_lock: threading.Lock
     tasks_executed: int
-    recover_on_timeout: bool
     on_process_exit: Callable[[int], None] | None
-    _drain_state: _DrainState
-    _drain_lock: threading.Lock
     _shutting_down: bool
 
-    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False, on_process_exit: Callable[[int], None] | None = None) -> None:
+    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker", *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, on_process_exit: Callable[[int], None] | None = None) -> None:
         self.worker_id = worker_id
         self.script_path = script_path
         self.worker_name = worker_name
         self.max_payload_bytes = max_payload_bytes
-        self.recover_on_timeout = recover_on_timeout
         # Formula sessions key off this pid. The callback runs once the child
         # is being reaped so the supervisor can drop every session on it
         # before a replacement process is started.
@@ -213,13 +227,9 @@ class BaseProcessWorker:
         # across spawn, so reap must not take ``lock``.
         self._lifecycle_lock = threading.Lock()
         self.tasks_executed = 0
-        self._stderr_drain: StderrTail | None = None
-        # idle: no timeout drain. draining: late frame still on the pipe.
-        # release_wait: release_worker already ran and must re-idle after the
-        # frame. drained: frame consumed before release_worker ran.
-        self._drain_state = _DrainState.IDLE
-        self._drain_lock = threading.Lock()
-        self._release_cb: Callable[[], None] | None = None
+        # Path of the current child's stderr file. Unlinked when that child
+        # is reaped. None between children.
+        self._stderr_path: str | None = None
         # shutdown calls request_shutdown() before kill(). execute and respawn
         # read the flag without self.lock: kill takes _lifecycle_lock, not the
         # execute lock, so a flag under self.lock would stay invisible until
@@ -228,11 +238,46 @@ class BaseProcessWorker:
         self._shutting_down = False
         self.respawn()
 
+    def _open_stderr_log(self) -> IO[bytes]:
+        """Open this slot's stderr file for the child about to be spawned.
+
+        A pipe would need a drain thread so the kernel buffer cannot fill
+        and stall the handshake. The file is read only when spawn or a
+        request fails, then unlinked when the child is reaped.
+        """
+        if self._stderr_path is None:
+            fd, path = tempfile.mkstemp(prefix=f"wa-compute-w{self.worker_id}-", suffix=".stderr")
+            os.close(fd)
+            self._stderr_path = path
+        return open(self._stderr_path, "ab", buffering=0)
+
+    def _close_stderr_log(self) -> None:
+        """Unlink the current stderr file. Caller holds ``_lifecycle_lock``."""
+        path = self._stderr_path
+        self._stderr_path = None
+        if path is None:
+            return
+        try:
+            os.unlink(path)
+        except OSError:
+            log.debug("%s #%d could not remove stderr log %s", self.worker_name, self.worker_id, path, exc_info=True)
+
     def _stderr_snippet(self) -> str:
-        drain = self._stderr_drain
-        if drain is None:
+        """Last stderr bytes, decoded. Empty when this slot has no log file."""
+        path = self._stderr_path
+        if not path:
             return ""
-        text = drain.text().strip()
+        try:
+            with open(path, "rb") as handle:
+                handle.seek(0, os.SEEK_END)
+                size = handle.tell()
+                # Extra bytes so a multibyte character is not cut in half
+                # before the character trim below.
+                handle.seek(max(0, size - _STDERR_SNIPPET * 4))
+                raw = handle.read()
+        except OSError:
+            return ""
+        text = raw.decode("utf-8", errors="replace").strip()
         if not text:
             return ""
         return text[-_STDERR_SNIPPET:]
@@ -243,25 +288,17 @@ class BaseProcessWorker:
         extra = f" stderr={snippet!r}" if snippet else " stderr=<empty>"
         log.error("%s%s", message, extra)
 
-    def _reap_previous_process(self, *, only: subprocess.Popen[bytes] | None = None) -> None:
+    def _reap_previous_process(self) -> None:
         """Wait on the Popen ``respawn`` is about to replace.
 
         ``poll()`` reaps an already-dead child so the next ``respawn`` does
         not leave a zombie. Kill first only when it is still running, so a
         reused pid is not signaled.
-
-        *only* is the child a late drain snapshotted. When ``self.process``
-        is already a replacement, return without signaling it. ``None``
-        reaps whatever is published now.
         """
         with self._lifecycle_lock:
             previous = self.process
-            if only is not None and previous is not only:
-                return
-            drain = self._stderr_drain
             pid = previous.pid if previous is not None else None
             self.process = None
-            self._stderr_drain = None
             if previous is not None:
                 self._kill_and_wait(previous, pid, context="")
             # After wait(), the pid is reaped. Tell the pool before the next
@@ -271,8 +308,9 @@ class BaseProcessWorker:
                     self.on_process_exit(pid)
                 except Exception:
                     log.exception("%s #%d process-exit callback failed for pid=%s", self.worker_name, self.worker_id, pid)
-        if drain is not None:
-            drain.join(timeout=_STDERR_DRAIN_JOIN_SEC)
+            # Snippet readers run before kill(). Unlink only after the child
+            # is reaped so a failure log still sees the tail.
+            self._close_stderr_log()
 
     def respawn(self, timeout_sec: float = _SPAWN_READY_TIMEOUT_SEC) -> None:
         """Spawn worker subprocess and await readiness handshake.
@@ -289,17 +327,21 @@ class BaseProcessWorker:
         if self._shutting_down:
             return
         cmd = [sys.executable, self.script_path]
+        stderr_log: IO[bytes] | None = None
         try:
             # Scrub matches the venv host: drop PYTHONHOME / credential-like
             # names so the child does not inherit the parent's secret env.
             # **creationflags kwargs make the type checker treat this as Popen[str].
+            # stderr is a file, not a pipe: nothing has to drain it, and a
+            # kill during Popen unlinks that file when it reaps.
+            stderr_log = self._open_stderr_log()
             proc = cast(
                 "subprocess.Popen[bytes]",
                 subprocess.Popen(
                     cmd,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    stderr=stderr_log,
                     bufsize=0,
                     text=False,
                     env=scrub_subprocess_env(dict(os.environ)),
@@ -308,16 +350,13 @@ class BaseProcessWorker:
             )
             # Do not hold _lifecycle_lock across the handshake read: kill()
             # takes that lock, and the read can block for the spawn budget.
-            # The drain install takes the lock again. A kill in the gap after
-            # adopt has already cleared this child; attaching a drain then
-            # would point _stderr_drain at a process this worker no longer owns.
             if not self._adopt_spawned_process(proc):
                 self._discard_unadopted_process(proc)
+                # Reap already holds this lock. This path does not.
+                with self._lifecycle_lock:
+                    self._close_stderr_log()
                 return
             optimize_popen_pipes(proc)
-            if not self._install_stderr_drain(proc):
-                self.kill()
-                return
             ready_data: Any = None
             if proc.stdout is not None:
                 ready_data = read_pickle_frame_with_timeout(
@@ -347,6 +386,9 @@ class BaseProcessWorker:
         except Exception as exc:
             self._log_spawn_failure(f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}")
             self.kill()
+        finally:
+            if stderr_log is not None:
+                stderr_log.close()
 
 
     def _adopt_spawned_process(self, proc: subprocess.Popen[bytes]) -> bool:
@@ -360,20 +402,6 @@ class BaseProcessWorker:
             if self._shutting_down:
                 return False
             self.process = proc
-            return True
-
-    def _install_stderr_drain(self, proc: subprocess.Popen[bytes]) -> bool:
-        """Start the stderr drain only while *proc* is still the published child.
-
-        ``start_stderr_drain`` runs under ``_lifecycle_lock`` after the same
-        checks as adopt. Shutdown or a reap in the gap after adopt either
-        still owns this child (and this method refuses it) or has already
-        cleared ``self.process``.
-        """
-        with self._lifecycle_lock:
-            if self._shutting_down or self.process is not proc:
-                return False
-            self._stderr_drain = start_stderr_drain(proc.stderr, name=f"{self.worker_name}-stderr-{self.worker_id}")
             return True
 
     def _kill_and_wait(self, proc: subprocess.Popen[bytes], pid: int | None, *, context: str) -> None:
@@ -414,18 +442,6 @@ class BaseProcessWorker:
         """Terminate the child using the same rules as spawn's reap."""
         self._reap_previous_process()
 
-    def _kill_snapshotted(self, proc: subprocess.Popen[bytes] | None) -> None:
-        """Reap *proc* only while it is still this worker's child.
-
-        A late drain follows the Popen it snapshotted, not whatever
-        ``self.process`` is when the read finishes. Killing the current
-        child would SIGKILL a replacement if one was published after the
-        snapshot. ``None`` means there was no child to reap.
-        """
-        if proc is None:
-            return
-        self._reap_previous_process(only=proc)
-
     def _fail_request(
         self,
         code: str,
@@ -434,14 +450,12 @@ class BaseProcessWorker:
         budget_sec: float,
         pid: int | None,
         action: _LateAction = _LateAction.KILL,
-        drain_timeout_sec: float | None = None,
     ) -> dict[str, Any]:
-        """Build an error dict, then drain, kill, or leave the child.
+        """Build an error dict, then kill the child or leave it.
 
-        ``DRAIN`` is a response-read timeout: vision reads one late frame,
-        formula kills. A stdin write timeout and a partial frame are
-        ``KILL``: the pipe is desynchronized, so the next read would not
-        be that frame. ``NONE`` is shutdown or a child that never became live.
+        KILL is a timeout or a desynchronized pipe. The next lease respawns
+        the slot. NONE leaves the child: shutdown, or a process that never
+        became live. An oversized frame never gets here.
         """
         if code != "SERVICE_SHUTDOWN":
             # Timeouts and failed attempts count so a slot that keeps dying
@@ -451,19 +465,8 @@ class BaseProcessWorker:
         snippet = self._stderr_snippet()
         if snippet:
             msg = f"{msg}\n{snippet}"
-        if action is _LateAction.DRAIN:
-            if self.recover_on_timeout:
-                # Late drain gets its own budget. A leftover of ~0.01s after
-                # queue wait would SIGKILL a worker that was about to answer.
-                # When the caller omits it, use the original request budget,
-                # not time left after spawn.
-                eff_drain = budget_sec if drain_timeout_sec is None else max(_MIN_BUDGET_SEC, float(drain_timeout_sec))
-                log.warning("%s execution timed out after %.1fs on worker #%d; draining late frame from pid=%s", self.worker_name, budget_sec, self.worker_id, pid)
-                self._start_late_drain(eff_drain)
-            else:
-                log.warning("%s execution timed out after %.1fs on worker #%d; terminating pid=%s", self.worker_name, budget_sec, self.worker_id, pid)
-                self.kill()
-        elif action is _LateAction.KILL:
+        if action is _LateAction.KILL:
+            log.warning("%s request failed (%s) on worker #%d; terminating pid=%s", self.worker_name, code, self.worker_id, pid)
             self.kill()
         res: dict[str, Any] = {"status": "error", "code": code, "error": msg}
         if code in ("EXECUTION_TIMEOUT", "WORKER_CRASHED"):
@@ -471,8 +474,11 @@ class BaseProcessWorker:
         return res
 
     def _timeout_message(self, deadline: _Deadline) -> str:
-        """Error text for a spent budget. Two decimals: ``int()`` of a sub-second budget is 0."""
-        return f"Execution exceeded maximum timeout of {max(0.0, deadline.budget_sec):.2f} seconds."
+        """Error text for a spent budget. Sub-second budgets are refused, not reported as 0."""
+        seconds = int(deadline.budget_sec)
+        if seconds < 1:
+            return "Execution timeout must be at least 1 second."
+        return f"Execution exceeded maximum timeout of {seconds} seconds."
 
     def _ensure_live_process(self, deadline: _Deadline) -> tuple[subprocess.Popen[bytes], IO[bytes], IO[bytes]] | dict[str, Any]:
         """Return a live child and its stdio pipes, or an error dict.
@@ -481,9 +487,8 @@ class BaseProcessWorker:
         ``self.process`` to None; reading ``.pid`` or ``.stdin`` on that
         would be AttributeError. A dead child during shutdown is
         ``SERVICE_SHUTDOWN``, not a new process. The handshake uses the
-        remaining request budget, not a fresh spawn timeout. A budget that
-        is already spent does not spawn: the 0.01s floor is only for pipe
-        waits, and a handshake cannot finish in that long.
+        remaining request budget, not a fresh spawn timeout. Under one second
+        left, do not spawn: the pipe-wait floor is not a handshake budget.
         """
         proc = self.process
 
@@ -493,7 +498,7 @@ class BaseProcessWorker:
         if proc is None or proc.poll() is not None:
             if self._shutting_down:
                 return self._fail_request("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.", budget_sec=deadline.budget_sec, pid=_pid(), action=_LateAction.NONE)
-            if deadline.expired():
+            if deadline.too_late_to_spawn():
                 return self._fail_request("EXECUTION_TIMEOUT", self._timeout_message(deadline), budget_sec=deadline.budget_sec, pid=_pid(), action=_LateAction.NONE)
             spawn_budget = min(_SPAWN_READY_TIMEOUT_SEC, deadline.left())
             self.respawn(timeout_sec=spawn_budget)
@@ -507,7 +512,7 @@ class BaseProcessWorker:
             return self._fail_request("WORKER_SPAWN_FAILED", f"{self.worker_name} #{self.worker_id} has no stdio pipes.", budget_sec=deadline.budget_sec, pid=_pid(), action=_LateAction.NONE)
         return proc, stdin, stdout
 
-    def execute(self, payload: dict[str, Any], timeout_sec: float, drain_timeout_sec: float | None = None) -> dict[str, Any]:
+    def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
         """Send request to worker process and await response with timeout."""
         # One deadline covers spawn, the stdin write, and the stdout read.
         # It is created under self.lock so waiting for that lock is not
@@ -515,7 +520,7 @@ class BaseProcessWorker:
         # caller that already passed 0 would still spawn.
         with self.lock:
             deadline = _Deadline(timeout_sec)
-            if deadline.expired():
+            if deadline.expired() or deadline.too_short_to_start():
                 current = self.process
                 return self._fail_request(
                     "EXECUTION_TIMEOUT",
@@ -536,7 +541,7 @@ class BaseProcessWorker:
                 # The write shares the request deadline. It holds self.lock, so a
                 # child that stopped reading stdin would never return and the
                 # slot would stay leased. A partial frame is desynchronized,
-                # so the child is killed instead of late-drained.
+                # so the child is killed.
                 write_pickle_frame_with_timeout(
                     stdin,
                     payload,
@@ -568,18 +573,18 @@ class BaseProcessWorker:
                     unpacker=unpack_restricted_pickle_frame,
                 )
             except subprocess.TimeoutExpired:
+                # The frame never arrived. Kill rather than read it later:
+                # the next caller would consume this response as its own.
                 return self._fail_request(
                     "EXECUTION_TIMEOUT",
                     self._timeout_message(deadline),
                     budget_sec=deadline.budget_sec,
                     pid=_pid(),
-                    action=_LateAction.DRAIN,
-                    drain_timeout_sec=drain_timeout_sec,
                 )
             except IpcPartialFrameTimeout:
                 # A deadline after the first byte is a timeout, not a crash.
-                # KILL instead of DRAIN: the next read would consume the rest
-                # of this frame as a new response.
+                # The next read would consume the rest of this frame as a
+                # new response, so the child is killed.
                 return self._fail_request(
                     "EXECUTION_TIMEOUT",
                     self._timeout_message(deadline),
@@ -593,135 +598,6 @@ class BaseProcessWorker:
                 return self._fail_request("EMPTY_RESPONSE", f"No response returned from {self.worker_name}.", budget_sec=deadline.budget_sec, pid=_pid())
             self.tasks_executed += 1
             return resp
-
-    def _start_late_drain(self, timeout_sec: float) -> None:
-        """Read the one frame a timed-out vision call will still write.
-
-        The same budget applies again. A call that finishes shortly after the
-        client gave up keeps the process. A call that never returns is killed
-        so the slot can respawn.
-        """
-        # Snapshot process and its stdout while self.lock is still held by execute.
-        # The drain thread must reap this Popen, not a later replacement.
-        proc = self.process
-        stdout = proc.stdout if proc is not None else None
-        with self._drain_lock:
-            self._drain_state = _DrainState.DRAINING
-            self._release_cb = None
-        # A long stdout read that release_worker waits on. dedicated=True so
-        # it does not occupy a slot in the shared background pool.
-        # Thread.start() raises RuntimeError ("can't start new thread") after
-        # the state is already DRAINING. Leaving it there makes defer_release
-        # park the slot on a drain that never runs. KeyboardInterrupt is not
-        # an Exception; it still has to abandon, then propagate.
-        try:
-            run_in_background(
-                self._drain_late_response,
-                proc,
-                stdout,
-                timeout_sec,
-                name=f"{self.worker_name}-drain-{self.worker_id}",
-                dedicated=True,
-            )
-        except BaseException as exc:
-            if isinstance(exc, Exception):
-                log.exception("%s could not start late-frame drain on worker #%d", self.worker_name, self.worker_id)
-            self._abandon_unstarted_drain(proc)
-            if not isinstance(exc, Exception):
-                raise
-
-    def _abandon_unstarted_drain(self, proc: subprocess.Popen[bytes] | None) -> None:
-        """Mark a drain finished when its thread never started, and reap *proc*.
-
-        What was wrong: DRAINING was published before ``Thread.start()``.
-        ``RuntimeError`` from start left ``_release_cb`` unset, so
-        ``defer_release`` moved the slot to RELEASE_WAIT and waited forever.
-        DRAINED lets the caller release now. If release has already parked
-        on RELEASE_WAIT, that stored callback still has to run or the slot
-        stays leased. The unread frame is still on the pipe, so this child
-        is killed instead of re-idled. Kill before the callback, matching
-        ``_complete_drain``: the slot must not be released while this child
-        is still the published process.
-        """
-        with self._drain_lock:
-            callback: Callable[[], None] | None = None
-            if self._drain_state == _DrainState.DRAINING:
-                self._drain_state = _DrainState.DRAINED
-                self._release_cb = None
-            elif self._drain_state == _DrainState.RELEASE_WAIT:
-                callback = self._release_cb
-                self._release_cb = None
-                self._drain_state = _DrainState.IDLE
-        self._kill_snapshotted(proc)
-        if callback is not None:
-            callback()
-
-    def _drain_late_response(self, proc: subprocess.Popen[bytes] | None, stdout: Any, timeout_sec: float) -> None:
-        try:
-            resp: Any = None
-            # Liveness is the snapshotted child. self.is_alive() follows
-            # self.process, so a replacement would look alive and then be
-            # killed when this read failed.
-            if stdout is not None and proc is not None and self.process is proc and proc.poll() is None:
-                child = proc
-
-                def _still_this_child() -> bool:
-                    return self.process is child and child.poll() is None
-
-                resp = read_pickle_frame_with_timeout(
-                    stdout,
-                    timeout_sec,
-                    is_alive=_still_this_child,
-                    max_payload_bytes=self.max_payload_bytes,
-                    unpacker=unpack_restricted_pickle_frame,
-                )
-            if not isinstance(resp, dict):
-                # EOF or a non-frame: the pipe cannot take another request.
-                self._kill_snapshotted(proc)
-        except subprocess.TimeoutExpired:
-            log.warning("%s late frame exceeded %.1fs on worker #%d; terminating pid=%s", self.worker_name, timeout_sec, self.worker_id, proc.pid if proc is not None else None)
-            self._kill_snapshotted(proc)
-        except Exception:
-            log.exception("%s late-frame drain failed on worker #%d", self.worker_name, self.worker_id)
-            self._kill_snapshotted(proc)
-        except BaseException:
-            # KeyboardInterrupt / SystemExit skip Exception. An interrupted
-            # read may be a partial frame, so the child is killed instead of
-            # re-idled. _complete_drain still runs: a RELEASE_WAIT callback
-            # is what returns the slot.
-            self._kill_snapshotted(proc)
-            raise
-        finally:
-            self._complete_drain()
-
-    def _complete_drain(self) -> None:
-        with self._drain_lock:
-            if self._drain_state == _DrainState.RELEASE_WAIT:
-                callback = self._release_cb
-                self._release_cb = None
-                self._drain_state = _DrainState.IDLE
-            else:
-                callback = None
-                self._drain_state = _DrainState.DRAINED
-        if callback is not None:
-            callback()
-
-    def defer_release(self, callback: Callable[[], None]) -> bool:
-        """Run *callback* only after a late-frame drain, if one is in progress.
-
-        Returns True when the caller must not release yet. The stdio protocol
-        is one request then one response; idling the worker before the late
-        frame arrives hands that frame to the next caller.
-        """
-        with self._drain_lock:
-            if self._drain_state == _DrainState.DRAINING:
-                self._drain_state = _DrainState.RELEASE_WAIT
-                self._release_cb = callback
-                return True
-            if self._drain_state == _DrainState.DRAINED:
-                self._drain_state = _DrainState.IDLE
-                return False
-            return False
 
 
 class BaseProcessPool:
@@ -740,7 +616,7 @@ class BaseProcessPool:
     _reaper_stop_event: threading.Event
     _reaper_handles: list[BackgroundHandle]
 
-    def __init__(self, script_path: str, num_workers: int = 1, default_timeout_sec: int = 30, max_tasks: int = 500, worker_name: str = "Worker", idle_worker_ttl_sec: float | None = None, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, recover_on_timeout: bool = False, on_process_exit: Callable[[int], None] | None = None) -> None:
+    def __init__(self, script_path: str, num_workers: int = 1, default_timeout_sec: int = 30, max_tasks: int = 500, worker_name: str = "Worker", idle_worker_ttl_sec: float | None = None, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES, on_process_exit: Callable[[int], None] | None = None) -> None:
         self.script_path = script_path
         self.num_workers = max(0, num_workers)
         self.default_timeout_sec = default_timeout_sec
@@ -753,29 +629,20 @@ class BaseProcessPool:
         self._lock = threading.RLock()
         # Oldest idle worker is first. Release moves a worker to the end.
         self._idle: OrderedDict[BaseProcessWorker, None] = OrderedDict()
-        # Leased, cold-claimed, or mid-recycle. A dead pid nobody holds is
-        # not idle; the next lease respawns it. Recycle stays in this set
-        # until respawn finishes, or lease_any treats that dead pid as free.
+        # Leased or cold-claimed. A dead pid nobody holds is not idle;
+        # the next lease respawns it.
         self._leased: set[BaseProcessWorker] = set()
         self._worker_last_active: dict[BaseProcessWorker, float] = {}
         self._cond = threading.Condition(self._lock)
         self._reaper_stop_event = threading.Event()
         self._reaper_handles = []
-        self._recycle_queue: queue.Queue[BaseProcessWorker | None] = queue.Queue()
-        # dedicated=True: this loop runs until shutdown and must not occupy
-        # a slot in the shared background pool. It is a daemon and is not joined.
-        self._recycle_thread: BackgroundHandle = run_in_background(
-            self._recycle_loop,
-            name=f"{self.worker_name}-recycle-loop",
-            dedicated=True,
-        )
 
         if self.num_workers > 0:
             # Workers spawn one at a time, each waiting on its ready handshake
             # (up to _SPAWN_READY_TIMEOUT_SEC). Spawning them in parallel would
             # cut startup roughly with the worker count. Left for later.
             for i in range(self.num_workers):
-                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, recover_on_timeout=recover_on_timeout, on_process_exit=on_process_exit)
+                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, on_process_exit=on_process_exit)
                 self.workers.append(w)
                 # Idle only after the ready handshake. A failed spawn stays
                 # out of the idle set; the next lease respawns that slot.
@@ -970,14 +837,12 @@ class BaseProcessPool:
         return worker.tasks_executed >= self.max_tasks
 
     def release_worker(self, worker: BaseProcessWorker) -> None:
-        """Return worker to idle set, recycling if max_tasks reached.
+        """Return a live worker to idle. Kill a slot that has reached max_tasks.
 
-        A vision timeout returns before the child writes its frame. Re-idling
-        immediately would desync the next request, so that release waits until
-        the drain thread has consumed the frame.
+        A timeout already killed the child, so this release finds it dead
+        and does not re-idle it. max_tasks does the same kill and leaves the
+        slot dead. The next lease cold-claims it and execute respawns.
         """
-        if worker.defer_release(lambda: self._finish_release(worker)):
-            return
         self._finish_release(worker)
 
     def _finish_release(self, worker: BaseProcessWorker) -> None:
@@ -989,19 +854,16 @@ class BaseProcessPool:
             return
 
         recycle = self.should_recycle_worker(worker)
-        kill_worker = False
+        kill_for_shutdown = False
         with self._cond:
             if self._is_shutdown:
                 self._leased.discard(worker)
-                kill_worker = True
+                kill_for_shutdown = True
                 self._cond.notify_all()
             elif recycle:
-                # Stay leased across kill/respawn. Those calls run outside
-                # this lock because kill re-enters it from on_process_exit.
-                # Dropping the lease first made is_alive() false look like a
-                # free slot: lease_any claimed this same wrapper, the in-flight
-                # call failed (pipe broken, empty response, or spawn failed),
-                # and the wrapper ended in both _idle and _leased.
+                # Keep the lease until kill returns. Dropping it first lets
+                # lease_any cold-claim a process this release is about to
+                # SIGKILL. After kill the slot is dead and not idle.
                 pass
             else:
                 self._leased.discard(worker)
@@ -1012,58 +874,20 @@ class BaseProcessPool:
                     self._worker_last_active[worker] = time.monotonic()
                 self._cond.notify_all()
 
-        if kill_worker:
+        if kill_for_shutdown:
             worker.kill()
             return
 
         if recycle:
-            log.info("Recycling %s #%d after %d tasks to refresh memory", self.worker_name, worker.worker_id, worker.tasks_executed)
-            self._recycle_queue.put(worker)
-
-    def _recycle_loop(self) -> None:
-        """Persistent worker thread for recycling child processes without thread-exit PDEATHSIG races.
-
-        One failed recycle must not kill this daemon, or later items stay
-        in ``_leased`` and ``lease_any`` waits forever. ``kill`` / ``respawn``
-        failures still release that one slot in ``_recycle_worker_async``'s
-        ``finally``.
-        """
-        while True:
-            worker = self._recycle_queue.get()
-            if worker is None:
-                break
-            try:
-                self._recycle_worker_async(worker)
-            except Exception:
-                log.exception("Recycle of %s #%s failed", self.worker_name, worker.worker_id)
-
-    def _recycle_worker_async(self, worker: BaseProcessWorker) -> None:
-        """Kill and respawn recycled worker off the request path."""
-        kill_worker = False
-        try:
+            log.info("Retiring %s #%d after %d tasks", self.worker_name, worker.worker_id, worker.tasks_executed)
             worker.kill()
-            if not self._is_shutdown:
-                worker.respawn()
-        finally:
             with self._cond:
-                # Drop the recycle lease before idle. The other order lets a
-                # concurrent lease pop idle while this wrapper is still leased,
-                # then this discard clears the lease that pop just took.
                 self._leased.discard(worker)
-                if not self._is_shutdown and worker.is_alive():
-                    self._idle[worker] = None
-                    self._idle.move_to_end(worker)
-                    self._worker_last_active[worker] = time.monotonic()
-                elif self._is_shutdown:
-                    kill_worker = True
                 self._cond.notify_all()
-            if kill_worker:
-                worker.kill()
 
     def shutdown(self) -> None:
         """Terminate all worker processes."""
         self._reaper_stop_event.set()
-        self._recycle_queue.put(None)
         with self._cond:
             if self._is_shutdown:
                 return
@@ -1082,7 +906,7 @@ class BaseProcessPool:
         # Adopt then either sees the flag or publishes a child kill() reaps.
         for w in workers_to_kill:
             w.request_shutdown()
-        # Reaping/killing worker processes can take seconds (wait + drain join).
+        # Reaping worker processes can take seconds (kill + wait).
         # Perform outside the pool lock so waiting threads or release callbacks
         # do not block on child process termination.
         for w in workers_to_kill:

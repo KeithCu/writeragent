@@ -616,27 +616,22 @@ class TestFormulaPoolSupervisor:
             pool.shutdown()
 
     def test_recycled_worker_is_alive_after_release(self) -> None:
-        """After max_tasks is reached, release_worker must re-spawn the worker so the
-        idle set never contains a dead process (Bug 3 fix)."""
+        """max_tasks kills the slot and leaves it dead. The next execute respawns it."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, max_tasks=1)
         try:
-            # Execute exactly max_tasks=1 task to trigger recycling on the next release
+            worker = pool.workers[0]
             res = pool.execute(code="result = 'first'", req_id="recycle-1")
             assert res.get("status") == "ok"
-
-            # After release_worker ran, recycling happens off-path in a background thread.
-            # Wait for the re-spawned worker to return to idle.
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline:
-                with pool._cond:
-                    if len(pool._idle) == 1:
-                        break
-                time.sleep(0.02)
-
+            assert not worker.is_alive()
             with pool._cond:
-                idle_workers = list(pool._idle)
-            assert len(idle_workers) == 1, "Expected exactly one worker back in idle"
-            assert idle_workers[0].is_alive(), "Recycled worker must be alive after re-spawn"
+                assert worker not in pool._idle
+                assert worker not in pool._leased
+            # The slot is dead, so this cell can succeed only if execute respawns.
+            # max_tasks is 1, so release retires that new process too.
+            again = pool.execute(code="result = 'second'", req_id="recycle-2")
+            assert again.get("status") == "ok", again
+            assert again.get("result") == "second"
+            assert not worker.is_alive()
         finally:
             pool.shutdown()
 
@@ -723,32 +718,25 @@ class TestFormulaPoolSupervisor:
             assert r1.get("status") == "ok"
             assert pool.live_session_worker(sid) is not None
 
-            # Record pid before eviction
-            pid_before = pool.workers[0].process.pid if pool.workers[0].process else None
-            assert pid_before is not None
-
             # Simulate passage of idle time and trigger eviction
             with pool._cond:
                 pool._sessions[sid].last_active = time.monotonic() - 4000.0
             pool._evict_stale_sessions()
             assert pool.live_session_worker(sid) is None, "Session should be evicted after TTL expiration"
 
-            # Eviction runs a reset task on the worker and releases it.
-            # Because tasks_executed (2) >= max_tasks (1), release_worker triggers async recycling.
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline:
-                with pool._cond:
-                    if len(pool._idle) == 1 and pool.workers[0].process is not None and pool.workers[0].process.pid != pid_before:
-                        break
-                time.sleep(0.02)
-
-            # Next task runs on the recycled worker
+            # Eviction's reset counts as a task. tasks_executed >= max_tasks,
+            # so release kills the slot and leaves it dead. The next execute
+            # respawns it.
             worker = pool.workers[0]
-            assert worker.process is not None
-            assert worker.process.pid != pid_before, "Worker should be recycled after session TTL eviction"
+            assert not worker.is_alive()
+            with pool._cond:
+                assert worker not in pool._idle
 
+            # The slot is dead, so this cell runs only after execute respawns.
             r2 = pool.execute(code="result = 'recycled'", mode="isolated", req_id="ttl-2")
-            assert r2.get("status") == "ok"
+            assert r2.get("status") == "ok", r2
+            assert r2.get("result") == "recycled"
+            assert not worker.is_alive()
         finally:
             pool.shutdown()
 
@@ -881,56 +869,16 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_lost_gen_orphan_pruned_when_over_cap(self) -> None:
-        """A reset workbook leaves _lost_gen until the cap, then the oldest orphan goes.
-
-        What was wrong: reset_session popped _lost_sessions and left _lost_gen
-        for the life of the process, one entry per workbook ever seen.
-        """
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
-        try:
-            pool._max_lost_sessions = 1
-            ok = pool.execute(code="x = 1\nresult = x", session_id="workbook-1", mode="shared")
-            assert ok.get("status") == "ok"
-            with pool._cond:
-                pool._drop_session("workbook-1")
-            sticky = pool.execute(code="result = 1", session_id="workbook-1", mode="shared")
-            assert sticky.get("status") == "ok"
-            assert sticky.get("session_reset") is True
-            reset = pool.reset_session("workbook-1")
-            assert reset.get("status") == "ok"
-            with pool._cond:
-                assert "workbook-1" not in pool._sessions
-                assert "workbook-1" not in pool._lost_sessions
-                assert pool._lost_gen.get("workbook-1") == 1
-                pool._mark_session_lost_unlocked("workbook-2")
-                assert "workbook-1" not in pool._lost_gen
-                assert pool._lost_gen.get("workbook-2") == 1
-        finally:
-            pool.shutdown()
-
-    def test_lost_gen_keeps_live_session_over_cap(self) -> None:
-        """A generation still named by a live session survives the orphan sweep."""
-        from compute_service.formula_pool import _Session
-        from compute_service.worker_base import BaseProcessWorker
-
+    def test_lost_sessions_cap_drops_oldest(self) -> None:
+        """The lost set keeps the newest ids and drops the oldest past the cap."""
         pool = FormulaProcessPool(num_workers=0, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
         try:
             pool._max_lost_sessions = 1
             with pool._cond:
-                pool._sessions["live"] = _Session(
-                    worker=BaseProcessWorker(1, "unused.py"),
-                    pid=1,
-                    last_active=time.monotonic(),
-                    gen=4,
-                )
-                pool._lost_gen["live"] = 4
-                pool._lost_gen["orphan"] = 1
-                pool._mark_session_lost_unlocked("fresh")
-                assert pool._lost_gen.get("live") == 4
-                assert "orphan" not in pool._lost_gen
-                assert "fresh" in pool._lost_gen
-                assert "fresh" in pool._lost_sessions
+                pool._mark_session_lost_unlocked("workbook-1")
+                pool._mark_session_lost_unlocked("workbook-2")
+                assert "workbook-1" not in pool._lost_sessions
+                assert "workbook-2" in pool._lost_sessions
         finally:
             pool.shutdown()
 
@@ -1132,31 +1080,6 @@ class TestFormulaPoolSupervisor:
         assert not pool._reaper_stop_event.is_set()
         pool.shutdown()
         assert pool._reaper_stop_event.is_set()
-
-    def test_defer_release_drained_state(self) -> None:
-        """When drain completes before release, defer_release transitions DRAINED -> IDLE and returns False."""
-        from compute_service.worker_base import _DrainState
-
-        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
-        try:
-            worker = pool.lease_any(2)
-            assert worker is not None
-            with worker._drain_lock:
-                worker._drain_state = _DrainState.DRAINED
-            cb_called = False
-
-            def cb() -> None:
-                nonlocal cb_called
-                cb_called = True
-
-            deferred = worker.defer_release(cb)
-            assert deferred is False
-            assert cb_called is False
-            with worker._drain_lock:
-                assert worker._drain_state == _DrainState.IDLE
-            pool.release_worker(worker)
-        finally:
-            pool.shutdown()
 
     def test_evict_idle_workers_skips_dead_worker(self) -> None:
         """_evict_idle_workers must skip dead workers already in _idle via continue."""
@@ -1383,9 +1306,9 @@ class TestFormulaPoolSupervisor:
             proc.wait(timeout=5)
             calls: list[dict] = []
 
-            def spy(payload, timeout_sec, drain_timeout_sec=None):
+            def spy(payload, timeout_sec):
                 calls.append(payload)
-                del timeout_sec, drain_timeout_sec
+                del timeout_sec
                 return {"status": "ok"}
 
             with patch.object(worker, "execute", side_effect=spy):
@@ -1613,41 +1536,29 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
-    @pytest.mark.skipif(sys.platform == "win32", reason="uses signal.alarm")
     def test_subsecond_budget_does_not_sigkill_worker(self) -> None:
-        """A sub-second remaining deadline sets alarm=1s; host must wait alarm+grace so worker is not SIGKILLed."""
-        from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
-
+        """A deadline under one second is refused. It does not lease or SIGKILL."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
         try:
-            # Warm up worker subprocess so initial module imports don't burn the subsecond budget under CI load
             warm = pool.execute(code="result = 1", req_id="warmup")
             assert warm.get("status") == "ok"
 
             worker = pool.workers[0]
+            calls: list[float] = []
             real_execute = worker.execute
-            timeouts_passed: list[float] = []
 
             def spy_execute(payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
-                timeouts_passed.append(timeout_sec)
+                calls.append(timeout_sec)
                 return real_execute(payload, timeout_sec)
 
             setattr(worker, "execute", spy_execute)
-
-            # Sub-second deadline: child_budget ~ 0.5s (< 1.0s) -> child_alarm = 1s.
-            # Host must wait at least child_alarm (1s) + grace (2s) = 3s,
-            # NOT child_budget + grace (~2.5s).
             res = pool.execute(
                 code="result = 42",
                 deadline=time.monotonic() + 0.5,
                 req_id="subsecond-test",
             )
-            assert res.get("status") == "ok"
-            assert res.get("result") == 42
-            assert len(timeouts_passed) == 1
-            # Host timeout must be at least child_alarm (1.0) + grace (2.0) = 3.0s
-            assert timeouts_passed[0] >= 1.0 + HOST_IPC_READ_GRACE_SEC
-            assert worker.process is not None
+            assert res.get("code") == "QUEUE_TIMEOUT"
+            assert calls == []
             assert worker.is_alive()
         finally:
             pool.shutdown()
@@ -1782,12 +1693,12 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
-    def test_ttl_evict_waiter_reports_session_reset(self) -> None:
-        """A cell that selected the worker before the TTL reset still gets session_reset.
+    def test_ttl_evict_waiter_misses_session_reset(self) -> None:
+        """A cell already blocked on the lease does not see the TTL reset flag.
 
-        The reaper holds the lease across the reset. The cell snapshots
-        session_was_lost=False and blocks in lease_specific. The generation
-        bump is what the cell compares after the lease.
+        The lost set is consumed by the next call that observes it. This
+        waiter selected the worker before the reset, so it runs on the fresh
+        kernel without session_reset. The following call reports it once.
         """
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
@@ -1829,11 +1740,15 @@ class TestFormulaHttpEndpoint:
             assert not evictor.is_alive()
             assert not waiter.is_alive()
             waiting = result["value"]
-            assert waiting.get("session_reset") is True
+            assert waiting.get("session_reset") is not True
+            assert waiting.get("status") == "error"
 
             nxt = pool.execute(code="result = 1", session_id=sid, mode="shared")
             assert nxt.get("status") == "ok"
-            assert nxt.get("session_reset") is not True
+            assert nxt.get("session_reset") is True
+            after = pool.execute(code="result = 2", session_id=sid, mode="shared")
+            assert after.get("status") == "ok"
+            assert after.get("session_reset") is not True
         finally:
             pool.shutdown()
 

@@ -120,11 +120,8 @@ Spawn N `formula_worker` children **while** the parent (or sibling processes) im
 ```text
 FormulaProcessPool / get_formula_pool
   → BaseProcessWorker.__init__ → _spawn
-      Popen([sys.executable, formula_worker.py], stdin/stdout/stderr=PIPE, bufsize=0)
-      optimize_popen_pipes (Linux F_SETPIPE_SZ)
-      start_stderr_drain under _lifecycle_lock, only if that Popen is still
-        self.process and shutdown has not won (a kill after adopt must not
-        leave a drain attached to the reaped child)
+      Popen([sys.executable, formula_worker.py], stdin/stdout=PIPE, stderr=log file, bufsize=0)
+      optimize_popen_pipes (Linux F_SETPIPE_SZ on the stdout pipe)
       read_pickle_frame_with_timeout(stdout, 15s, is_alive=self.is_alive)
         POSIX: select() + stream.read(); TimeoutExpired on deadline
 

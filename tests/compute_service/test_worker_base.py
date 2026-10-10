@@ -64,132 +64,52 @@ def test_finish_release_kills_after_releasing_pool_lock() -> None:
     assert worker not in pool._leased
 
 
-class _RecyclingSlot:
-    """Worker whose process is dead for the whole kill and respawn."""
+class _RetiringSlot:
+    """Worker that dies on kill and stays dead until execute asks it to respawn."""
 
-    def __init__(self, pool: BaseProcessPool) -> None:
+    def __init__(self) -> None:
         self.tasks_executed = 1
         self.worker_id = 7
         self._alive = True
-        self._pool = pool
         self.killed = 0
         self.respawned = 0
-        self.phase = ""
-        self.entered = threading.Event()
-        self.gates = (threading.Event(), threading.Event())
+        self.process = None
 
     def is_alive(self) -> bool:
         return self._alive
 
-    def defer_release(self, _callback: object) -> bool:
-        return False
-
-    def _pause(self, name: str) -> None:
-        # on_process_exit takes the pool lock. Doing that while _finish_release
-        # still holds it deadlocks; the pause is the window lease_any used to
-        # cold-claim this same wrapper.
-        self.phase = name
-        with self._pool._cond:
-            self.entered.set()
-        gate = self.gates[0] if name == "kill" else self.gates[1]
-        assert gate.wait(timeout=2.0)
-
     def kill(self) -> None:
         self.killed += 1
         self._alive = False
-        self._pause("kill")
 
-    def request_shutdown(self) -> None:
-        return None
-
-    def respawn(self) -> None:
-        self._alive = False
-        self._pause("respawn")
+    def respawn(self, timeout_sec: float = 15.0) -> None:
+        del timeout_sec
         self.respawned += 1
         self._alive = True
         self.tasks_executed = 0
 
 
-def _assert_recycle_exclusive(pool: BaseProcessPool, worker: _RecyclingSlot) -> None:
-    """A dead pid that is still being recycled is not a free slot."""
-    assert worker.entered.wait(timeout=2.0)
-    claimed = pool.lease_any(timeout_sec=0.05)
-    assert claimed is None
-    assert worker in pool._leased
-    assert worker not in pool._idle
+def test_max_tasks_release_leaves_slot_dead() -> None:
+    """max_tasks kills the child and does not respawn it on release.
 
-
-def test_recycle_cannot_be_leased_until_respawn_finishes() -> None:
-    """max_tasks recycle used to drop _leased before kill/respawn.
-
-    is_alive() is false for that whole stretch, so lease_any cold-claimed
-    the wrapper. The next request then ran against a process that was
-    exiting or not yet ready, and release could put the same wrapper in
-    both _idle and _leased.
+    The next lease cold-claims the dead slot. Respawning while the slot
+    stayed leased made is_alive() false look like a free worker, and the
+    same wrapper could end up in both _idle and _leased.
     """
     pool = BaseProcessPool(script_path="unused.py", num_workers=0, max_tasks=1, idle_worker_ttl_sec=None)
-    worker = _RecyclingSlot(pool)
+    worker = _RetiringSlot()
     pool.workers.append(worker)  # type: ignore[arg-type]
     pool._leased.add(worker)  # type: ignore[arg-type]
-
-    releaser = threading.Thread(target=pool.release_worker, args=(worker,), daemon=True)
-    releaser.start()
-    try:
-        # release_worker returns immediately off the request path
-        releaser.join(timeout=2.0)
-        assert not releaser.is_alive()
-        # Background recycle thread is active and holds exclusive lease
-        _assert_recycle_exclusive(pool, worker)
-        assert worker.phase == "kill"
-        worker.entered.clear()
-        worker.gates[0].set()
-        _assert_recycle_exclusive(pool, worker)
-        assert worker.phase == "respawn"
-        worker.gates[1].set()
-        # Wait for background recycle to complete and worker to become available
-        claimed = pool.lease_any(timeout_sec=2.0)
-        assert claimed is worker
-        assert worker.killed == 1
-        assert worker.respawned == 1
-        assert worker in pool._leased
-        assert worker not in pool._idle
-    finally:
-        worker.gates[0].set()
-        worker.gates[1].set()
-        releaser.join(timeout=2.0)
-
-
-def test_recycle_loop_keeps_running_after_a_failed_recycle() -> None:
-    """One recycle fault used to kill the daemon. Later slots stayed leased."""
-    pool = BaseProcessPool(script_path="unused.py", num_workers=0, max_tasks=1, idle_worker_ttl_sec=None)
-    first = _RecyclingSlot(pool)
-    second = _RecyclingSlot(pool)
-    second.worker_id = 8
-    pool.workers.extend([first, second])  # type: ignore[arg-type]
-    pool._leased.add(first)  # type: ignore[arg-type]
-    pool._leased.add(second)  # type: ignore[arg-type]
-
-    real = pool._recycle_worker_async
-
-    def flaky(worker: _RecyclingSlot) -> None:
-        if worker is first:
-            raise RuntimeError("recycle blew up")
-        real(worker)
-
-    pool._recycle_worker_async = flaky  # type: ignore[method-assign]
-    # Open the pauses before enqueue so the second recycle finishes.
-    for gate in (*first.gates, *second.gates):
-        gate.set()
-    try:
-        pool._recycle_queue.put(first)  # type: ignore[arg-type]
-        pool._recycle_queue.put(second)  # type: ignore[arg-type]
-        claimed = pool.lease_any(timeout_sec=2.0)
-        assert claimed is second
-        assert pool._recycle_thread.is_alive()
-    finally:
-        for gate in (*first.gates, *second.gates):
-            gate.set()
-        pool.shutdown()
+    pool.release_worker(worker)  # type: ignore[arg-type]
+    assert worker.killed == 1
+    assert worker.respawned == 0
+    assert not worker.is_alive()
+    assert worker not in pool._leased
+    assert worker not in pool._idle
+    claimed = pool.lease_any(timeout_sec=0.2)
+    assert claimed is worker
+    assert worker in pool._leased
+    assert worker not in pool._idle
 
 
 def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
@@ -280,7 +200,7 @@ def test_execute_does_not_respawn_during_shutdown() -> None:
     """
     from compute_service.worker_base import BaseProcessWorker
 
-    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=False)
+    worker = BaseProcessWorker(1, "unused.py")
     worker.kill()
     assert not worker.is_alive()
     worker._shutting_down = True
@@ -332,79 +252,23 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
 
     def _popen(*_args: object, **_kwargs: object) -> _Proc:
         # The window after the unlocked check: shutdown sets the flag and
-        # kill() reaps whatever is published. Nothing is, yet.
+        # kill() reaps whatever is published. Nothing is, yet. The stderr
+        # file opened for this spawn is unlinked with that reap.
         worker._shutting_down = True
         worker.kill()
         return proc
 
-    drains: list[object] = []
     monkeypatch.setattr("compute_service.worker_base.subprocess.Popen", _popen)
-    monkeypatch.setattr(
-        "compute_service.worker_base.start_stderr_drain",
-        lambda *_args, **_kwargs: drains.append(True),
-    )
     worker.respawn()
     assert worker.process is None
     assert proc.killed
-    assert drains == []
-
-
-def test_respawn_does_not_install_stderr_drain_after_reap(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A kill between adopt and drain install must not keep the dead child's drain.
-
-    _adopt_spawned_process drops _lifecycle_lock before the drain starts.
-    kill() in that window reaps the child and clears _stderr_drain. The
-    spawn thread must not store a new drain for that process.
-    """
-    from compute_service.worker_base import BaseProcessWorker
-
-    original_respawn = BaseProcessWorker.respawn
-    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
-    worker = BaseProcessWorker(1, "unused.py")
-    monkeypatch.setattr(BaseProcessWorker, "respawn", original_respawn)
-
-    class _Proc:
-        def __init__(self) -> None:
-            self.pid = 5151
-            self.stdin = None
-            self.stdout = None
-            self.stderr = None
-            self.killed = False
-
-        def kill(self) -> None:
-            self.killed = True
-
-        def poll(self) -> int | None:
-            return 0 if self.killed else None
-
-        def wait(self, timeout: float | None = None) -> int:
-            del timeout
-            return 0
-
-    proc = _Proc()
-    drains: list[object] = []
-
-    def _optimize(popen: object) -> None:
-        del popen
-        worker.kill()
-
-    monkeypatch.setattr("compute_service.worker_base.subprocess.Popen", lambda *_args, **_kwargs: proc)
-    monkeypatch.setattr("compute_service.worker_base.optimize_popen_pipes", _optimize)
-    monkeypatch.setattr(
-        "compute_service.worker_base.start_stderr_drain",
-        lambda *_args, **_kwargs: drains.append(object()) or drains[-1],
-    )
-    worker.respawn()
-    assert worker.process is None
-    assert proc.killed
-    assert drains == []
-    assert worker._stderr_drain is None
+    assert worker._stderr_path is None
 
 
 def test_execute_respawn_respects_request_deadline() -> None:
     from compute_service.worker_base import BaseProcessWorker
 
-    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=False)
+    worker = BaseProcessWorker(1, "unused.py")
     # Simulate dead process
     worker.kill()
     assert not worker.is_alive()
@@ -417,9 +281,14 @@ def test_execute_respawn_respects_request_deadline() -> None:
 
     worker.respawn = mock_respawn  # type: ignore[assignment]
     res = worker.execute({"code": "result = 1"}, timeout_sec=0.25)
-    assert res.get("code") == "WORKER_SPAWN_FAILED"
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert respawn_timeouts == []
+    # A budget of at least one second is passed through, not replaced by the
+    # 15s spawn default.
+    again = worker.execute({"code": "result = 1"}, timeout_sec=2.0)
+    assert again.get("code") == "WORKER_SPAWN_FAILED"
     assert len(respawn_timeouts) == 1
-    assert respawn_timeouts[0] <= 0.25
+    assert 1.0 <= respawn_timeouts[0] <= 2.0
 
 
 def test_set_pdeathsig() -> None:
@@ -533,7 +402,7 @@ def test_execute_timeout_increments_tasks_executed(monkeypatch: pytest.MonkeyPat
 
     # __init__ calls respawn(). A fake script path would launch a real interpreter.
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
-    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=True)
+    worker = BaseProcessWorker(1, "unused.py")
     worker.process = MagicMock()
     worker.process.poll.return_value = None
     worker.process.stdin = MagicMock()
@@ -546,49 +415,15 @@ def test_execute_timeout_increments_tasks_executed(monkeypatch: pytest.MonkeyPat
         "compute_service.worker_base.read_pickle_frame_with_timeout",
         MagicMock(side_effect=subprocess.TimeoutExpired(cmd="worker", timeout=1.0)),
     )
-    monkeypatch.setattr(worker, "_start_late_drain", MagicMock())
 
     res = worker.execute({"code": "time.sleep(10)"}, timeout_sec=1.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
     assert worker.tasks_executed == 1
+    assert worker.process is None
 
 
-def test_execute_late_drain_timeout_budget(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Late-drain receives its own timeout budget rather than small leftover (Bug 3)."""
-    import subprocess
-    from unittest.mock import MagicMock
-    from compute_service.worker_base import BaseProcessWorker
-
-    # __init__ calls respawn(). A fake script path would launch a real interpreter.
-    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
-    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=True)
-    worker.process = MagicMock()
-    worker.process.poll.return_value = None
-    worker.process.stdin = MagicMock()
-    # _write_all rejects a write() that does not return a positive byte count.
-    worker.process.stdin.write.side_effect = lambda data: len(data)
-    worker.process.stdout = MagicMock()
-
-    drain_calls: list[float] = []
-    monkeypatch.setattr(worker, "_start_late_drain", lambda t: drain_calls.append(t))
-    monkeypatch.setattr(
-        "compute_service.worker_base.read_pickle_frame_with_timeout",
-        MagicMock(side_effect=subprocess.TimeoutExpired(cmd="worker", timeout=0.01)),
-    )
-
-    # 1. With explicit drain_timeout_sec:
-    worker.execute({"code": "ocr"}, timeout_sec=0.01, drain_timeout_sec=60.0)
-    assert len(drain_calls) == 1
-    assert drain_calls[0] == 60.0
-
-    # 2. Without drain_timeout_sec: falls back to the original request budget.
-    worker.execute({"code": "ocr"}, timeout_sec=0.01)
-    assert len(drain_calls) == 2
-    assert drain_calls[1] == 0.01
-
-
-def test_execute_stdin_write_timeout_kills_without_late_drain(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A wedged stdin write kills the child and returns, even when vision would drain a late frame.
+def test_execute_stdin_write_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wedged stdin write kills the child and returns.
 
     What was wrong: write_pickle_frame blocked while the worker lock was held.
     The request never returned, so the slot stayed leased.
@@ -598,15 +433,13 @@ def test_execute_stdin_write_timeout_kills_without_late_drain(monkeypatch: pytes
     from compute_service.worker_base import BaseProcessWorker
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
-    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=True)
+    worker = BaseProcessWorker(1, "unused.py")
     worker.process = MagicMock()
     worker.process.poll.return_value = None
     worker.process.stdin = MagicMock()
     worker.process.stdout = MagicMock()
     killed: list[bool] = []
-    drained: list[float] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-    worker._start_late_drain = lambda timeout_sec: drained.append(timeout_sec)  # type: ignore[method-assign]
     monkeypatch.setattr(
         "compute_service.worker_base.write_pickle_frame_with_timeout",
         MagicMock(side_effect=subprocess.TimeoutExpired(cmd="IPC frame", timeout=1.0)),
@@ -615,42 +448,37 @@ def test_execute_stdin_write_timeout_kills_without_late_drain(monkeypatch: pytes
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
     assert killed == [True]
-    assert drained == []
     assert worker.tasks_executed == 1
 
 
-@pytest.mark.parametrize("recover", [False, True])
-def test_partial_frame_timeout_kills_without_late_drain(monkeypatch: pytest.MonkeyPatch, recover: bool) -> None:
-    """A mid-frame deadline is EXECUTION_TIMEOUT and kills. Vision must not drain it.
+def test_partial_frame_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A mid-frame deadline is EXECUTION_TIMEOUT and kills the child.
 
     What was wrong: ConnectionError("timeout mid-frame") fell into the
-    generic handler as WORKER_CRASHED, and recover_on_timeout never ran
-    the kill that a desynced pipe needs.
+    generic handler as WORKER_CRASHED. The next read would treat the rest
+    of this frame as a new response.
     """
     from unittest.mock import MagicMock
     from compute_service.worker_base import BaseProcessWorker
     from plugin.scripting.ipc import IpcPartialFrameTimeout
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
-    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=recover)
+    worker = BaseProcessWorker(1, "unused.py")
     worker.process = MagicMock()
     worker.process.poll.return_value = None
     worker.process.stdin = MagicMock()
     worker.process.stdin.write.side_effect = lambda data: len(data)
     worker.process.stdout = MagicMock()
     killed: list[bool] = []
-    drained: list[float] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-    worker._start_late_drain = lambda timeout_sec: drained.append(timeout_sec)  # type: ignore[method-assign]
     monkeypatch.setattr(
         "compute_service.worker_base.read_pickle_frame_with_timeout",
         MagicMock(side_effect=IpcPartialFrameTimeout("IPC frame stream desynchronized: timeout mid-frame")),
     )
 
-    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0, drain_timeout_sec=60.0)
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
     assert killed == [True]
-    assert drained == []
     assert worker.tasks_executed == 1
 
 
@@ -661,7 +489,7 @@ def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch
     from plugin.scripting.ipc import IpcPayloadSizeError
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
-    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=False)
+    worker = BaseProcessWorker(1, "unused.py")
     worker.process = MagicMock()
     worker.process.poll.return_value = None
     worker.process.stdin = MagicMock()
@@ -705,13 +533,24 @@ def test_expired_budget_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
     assert spawned == []
     assert worker.tasks_executed == 1
 
+    # A positive budget under one second is the same refusal. It must not
+    # spawn for a handshake that cannot finish.
+    short = worker.execute({"code": "result = 1"}, timeout_sec=0.5)
+    assert short.get("code") == "EXECUTION_TIMEOUT"
+    assert "at least 1 second" in str(short.get("error"))
+    assert spawned == []
+    assert worker.tasks_executed == 2
+
     # The dead-child branch has its own check. execute() returns before
     # that branch when the budget is already spent at entry.
     ensured = worker._ensure_live_process(_Deadline(0))
     assert isinstance(ensured, dict)
     assert ensured.get("code") == "EXECUTION_TIMEOUT"
+    ensured_short = worker._ensure_live_process(_Deadline(0.5))
+    assert isinstance(ensured_short, dict)
+    assert ensured_short.get("code") == "EXECUTION_TIMEOUT"
     assert spawned == []
-    assert worker.tasks_executed == 2
+    assert worker.tasks_executed == 4
 
 
 def test_reaper_survives_tick_exception() -> None:
@@ -738,316 +577,6 @@ def test_reaper_survives_tick_exception() -> None:
     finally:
         pool.shutdown()
 
-
-class _LiveProc:
-    """Child stand-in whose poll() is None until kill(), so is_alive() is true."""
-
-    def __init__(self) -> None:
-        self.pid = 7
-        self.stdin = object()
-        self.stdout = object()
-        self.stderr = None
-        self.killed = 0
-        self._dead = False
-
-    def poll(self) -> int | None:
-        return 0 if self._dead else None
-
-    def kill(self) -> None:
-        self.killed += 1
-        self._dead = True
-
-    def wait(self, timeout: float | None = None) -> int:
-        del timeout
-        self._dead = True
-        return 0
-
-
-def _draining_worker(monkeypatch: pytest.MonkeyPatch) -> tuple[object, _LiveProc]:
-    """Worker with respawn suppressed and a live fake child."""
-    from compute_service.worker_base import BaseProcessWorker
-
-    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
-    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=True, worker_name="Drain")
-    proc = _LiveProc()
-    worker.process = proc  # type: ignore[assignment]
-    return worker, proc
-
-
-def test_late_drain_finishes_before_release(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A frame that arrives before release_worker is consumed, then the caller releases."""
-    from compute_service.worker_base import _DrainState
-
-    worker, proc = _draining_worker(monkeypatch)
-    reads: list[int] = []
-    done = threading.Event()
-    original = worker._complete_drain
-
-    def _complete() -> None:
-        original()
-        done.set()
-
-    worker._complete_drain = _complete  # type: ignore[method-assign]
-
-    def _read(*_args: object, **_kwargs: object) -> dict[str, str]:
-        reads.append(1)
-        return {"status": "ok"}
-
-    monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", _read)
-    worker._start_late_drain(1.0)
-    assert done.wait(timeout=2.0)
-    assert reads == [1]
-    assert proc.killed == 0
-    assert worker._drain_state == _DrainState.DRAINED
-    called: list[int] = []
-    assert worker.defer_release(lambda: called.append(1)) is False
-    assert called == []
-    assert worker._drain_state == _DrainState.IDLE
-
-
-def test_release_waits_for_late_drain(monkeypatch: pytest.MonkeyPatch) -> None:
-    """release_worker during the drain runs its callback once, after the frame."""
-    from compute_service.worker_base import _DrainState
-
-    worker, _proc = _draining_worker(monkeypatch)
-    started = threading.Event()
-    unblock = threading.Event()
-
-    def _read(*_args: object, **_kwargs: object) -> dict[str, str]:
-        started.set()
-        assert unblock.wait(timeout=2.0)
-        return {"status": "ok"}
-
-    monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", _read)
-    worker._start_late_drain(1.0)
-    assert started.wait(timeout=2.0)
-    called: list[int] = []
-    finished = threading.Event()
-
-    def _callback() -> None:
-        called.append(1)
-        finished.set()
-
-    assert worker.defer_release(_callback) is True
-    assert worker._drain_state == _DrainState.RELEASE_WAIT
-    unblock.set()
-    assert finished.wait(timeout=2.0)
-    assert called == [1]
-    assert worker._drain_state == _DrainState.IDLE
-
-
-def test_kill_during_late_drain_releases_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A kill while the late frame is still unread releases once and does not re-idle."""
-    from compute_service.worker_base import _DrainState
-
-    worker, proc = _draining_worker(monkeypatch)
-    pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
-    pool._leased.add(worker)
-    started = threading.Event()
-    unblock = threading.Event()
-
-    def _read(*_args: object, **_kwargs: object) -> dict[str, str]:
-        started.set()
-        assert unblock.wait(timeout=2.0)
-        return {"status": "ok"}
-
-    monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", _read)
-    finishes: list[object] = []
-    finished = threading.Event()
-    original = pool._finish_release
-
-    def _finish(released: object) -> None:
-        finishes.append(released)
-        original(released)  # type: ignore[arg-type]
-        finished.set()
-
-    pool._finish_release = _finish  # type: ignore[method-assign]
-    try:
-        worker._start_late_drain(1.0)
-        assert started.wait(timeout=2.0)
-        pool.release_worker(worker)  # type: ignore[arg-type]
-        assert worker._drain_state == _DrainState.RELEASE_WAIT
-        worker.kill()
-        assert not worker.is_alive()
-        unblock.set()
-        assert finished.wait(timeout=2.0)
-        assert finishes == [worker]
-        assert worker not in pool._idle
-        assert worker not in pool._leased
-        assert proc.killed == 1
-    finally:
-        unblock.set()
-        pool.shutdown()
-
-
-def test_late_drain_base_exception_still_releases(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An interrupt during the late read must not leave the slot leased.
-
-    _complete_drain runs on the way out, including BaseException. The
-    interrupted read may be a partial frame, so the child is killed before
-    the RELEASE_WAIT callback runs. The interrupt still propagates so the
-    drain thread unwinds.
-    """
-    from compute_service.worker_base import _DrainState
-
-    worker, proc = _draining_worker(monkeypatch)
-    called: list[object] = []
-
-    def _callback() -> None:
-        called.append("released")
-
-    def _read(*_args: object, **_kwargs: object) -> dict[str, str]:
-        assert worker.defer_release(_callback) is True
-        assert worker._drain_state == _DrainState.RELEASE_WAIT
-        raise KeyboardInterrupt
-
-    def _inline(func: object, *args: object, **_kwargs: object) -> None:
-        assert callable(func)
-        try:
-            func(*args)
-        except KeyboardInterrupt:
-            called.append("unwound")
-
-    monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", _read)
-    monkeypatch.setattr("compute_service.worker_base.run_in_background", _inline)
-    worker._start_late_drain(1.0)
-    assert called == ["released", "unwound"]
-    assert worker._drain_state == _DrainState.IDLE
-    assert proc.killed == 1
-
-
-def test_late_drain_thread_start_failure_releases(monkeypatch: pytest.MonkeyPatch) -> None:
-    """RuntimeError from Thread.start must not leave the slot DRAINING.
-
-    What was wrong: _start_late_drain set DRAINING before run_in_background.
-    If Thread.start raised, defer_release parked the release on a drain that
-    never ran, and the slot never returned to the pool.
-    """
-    import subprocess
-    from unittest.mock import MagicMock
-
-    from compute_service.worker_base import _DrainState
-
-    worker, proc = _draining_worker(monkeypatch)
-
-    def _boom(*_args: object, **_kwargs: object) -> None:
-        raise RuntimeError("can't start new thread")
-
-    monkeypatch.setattr("compute_service.worker_base.run_in_background", _boom)
-    monkeypatch.setattr("compute_service.worker_base.write_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        "compute_service.worker_base.read_pickle_frame_with_timeout",
-        MagicMock(side_effect=subprocess.TimeoutExpired(cmd="worker", timeout=1.0)),
-    )
-    res = worker.execute({"code": "ocr"}, timeout_sec=1.0, drain_timeout_sec=5.0)
-    assert res.get("code") == "EXECUTION_TIMEOUT"
-    assert worker.tasks_executed == 1
-    assert worker._drain_state == _DrainState.DRAINED
-    assert proc.killed == 1
-    called: list[int] = []
-    assert worker.defer_release(lambda: called.append(1)) is False
-    assert called == []
-    assert worker._drain_state == _DrainState.IDLE
-
-
-def test_late_drain_thread_start_interrupt_still_releases(monkeypatch: pytest.MonkeyPatch) -> None:
-    """KeyboardInterrupt during Thread.start still leaves a finished drain state."""
-    from compute_service.worker_base import _DrainState
-
-    worker, proc = _draining_worker(monkeypatch)
-
-    def _boom(*_args: object, **_kwargs: object) -> None:
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr("compute_service.worker_base.run_in_background", _boom)
-    with pytest.raises(KeyboardInterrupt):
-        worker._start_late_drain(1.0)
-    assert worker._drain_state == _DrainState.DRAINED
-    assert proc.killed == 1
-    assert worker.defer_release(lambda: None) is False
-    assert worker._drain_state == _DrainState.IDLE
-
-
-def test_abandon_unstarted_drain_runs_release_wait_callback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Abandoning a drain that release already parked on must return the slot.
-
-    What was wrong: _abandon_unstarted_drain only finished DRAINING.
-    RELEASE_WAIT kept _release_cb, so the worker stayed leased. execute
-    holds self.lock across the start, so defer_release cannot win that
-    race today; a later caller can.
-    """
-    from compute_service.worker_base import _DrainState
-
-    worker, proc = _draining_worker(monkeypatch)
-    called: list[int] = []
-    with worker._drain_lock:
-        worker._drain_state = _DrainState.RELEASE_WAIT
-        worker._release_cb = lambda: called.append(1)
-
-    worker._abandon_unstarted_drain(proc)  # type: ignore[arg-type]
-    assert called == [1]
-    assert worker._drain_state == _DrainState.IDLE
-    assert worker._release_cb is None
-    assert proc.killed == 1
-
-
-def test_late_drain_does_not_kill_replacement(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A drain that outlives its child must not SIGKILL the replacement.
-
-    What was wrong: the drain called self.kill(), which reaps whatever
-    self.process is now. The lease normally prevents a respawn during the
-    drain; a later path that published a new child would have been killed
-    by the old drain.
-    """
-    import subprocess
-
-    worker, proc = _draining_worker(monkeypatch)
-    replacement = _LiveProc()
-    replacement.pid = 99
-    done = threading.Event()
-    original = worker._complete_drain
-
-    def _complete() -> None:
-        original()
-        done.set()
-
-    worker._complete_drain = _complete  # type: ignore[method-assign]
-
-    def _read(*_args: object, **_kwargs: object) -> dict[str, str]:
-        worker.process = replacement  # type: ignore[assignment]
-        raise subprocess.TimeoutExpired(cmd="worker", timeout=1.0)
-
-    monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", _read)
-    worker._start_late_drain(1.0)
-    assert done.wait(timeout=2.0)
-    assert replacement.killed == 0
-    assert worker.process is replacement
-    assert proc.killed == 0
-
-
-def test_late_drain_skips_replaced_child(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A child replaced before the drain runs is not read and not killed."""
-    worker, proc = _draining_worker(monkeypatch)
-    replacement = _LiveProc()
-    replacement.pid = 99
-    reads: list[int] = []
-
-    def _read(*_args: object, **_kwargs: object) -> dict[str, str]:
-        reads.append(1)
-        return {"status": "ok"}
-
-    def _inline(func: object, *args: object, **_kwargs: object) -> None:
-        assert callable(func)
-        worker.process = replacement  # type: ignore[assignment]
-        func(*args)
-
-    monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", _read)
-    monkeypatch.setattr("compute_service.worker_base.run_in_background", _inline)
-    worker._start_late_drain(1.0)
-    assert reads == []
-    assert replacement.killed == 0
-    assert proc.killed == 0
-    assert worker.process is replacement
 
 
 def test_evict_idle_workers_drops_last_active() -> None:
@@ -1132,29 +661,22 @@ def test_failed_request_increments_tasks_executed(monkeypatch: pytest.MonkeyPatc
     assert killed == [True]
 
 
-def test_subsecond_timeout_message_keeps_fraction(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A budget under one second must not be reported as 0 seconds."""
-    import subprocess
+def test_subsecond_timeout_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A budget under one second is refused and is not reported as 0 seconds."""
     from unittest.mock import MagicMock
     from compute_service.worker_base import BaseProcessWorker
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
-    worker = BaseProcessWorker(1, "unused.py", recover_on_timeout=False)
-    worker.process = MagicMock()
-    worker.process.poll.return_value = None
-    worker.process.pid = 11
-    worker.process.stdin = MagicMock()
-    worker.process.stdin.write.side_effect = lambda data: len(data)
-    worker.process.stdout = MagicMock()
-    monkeypatch.setattr(
-        "compute_service.worker_base.read_pickle_frame_with_timeout",
-        MagicMock(side_effect=subprocess.TimeoutExpired(cmd="worker", timeout=0.25)),
-    )
+    worker = BaseProcessWorker(1, "unused.py")
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.pid = 11
+    worker.process = proc
     res = worker.execute({"code": "result = 1"}, timeout_sec=0.25)
-    message = str(res.get("error"))
     assert res.get("code") == "EXECUTION_TIMEOUT"
-    assert "0.25" in message
-    assert "0 seconds" not in message
+    assert "at least 1 second" in str(res.get("error"))
+    assert "0.00" not in str(res.get("error"))
+    assert worker.process is proc
 
 
 def test_formula_worker_script_handshake() -> None:
