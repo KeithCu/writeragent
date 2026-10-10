@@ -88,6 +88,12 @@ class FormulaProcessPool(BaseProcessPool):
         self.shared_kernel_ttl_sec = eff_shared_ttl
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES, on_process_exit=self._on_process_exit)
 
+    def _clear_pool_state_unlocked(self) -> None:
+        # Base shutdown drops workers and idle slots. These maps used to
+        # survive, so a pool object kept after shutdown still advertised sessions.
+        self._sessions.clear()
+        self._lost_sessions.clear()
+
     def _reaper_period_sec(self) -> float | None:
         """Idle TTL, session TTL, or the shorter of the two. Both 0 stays off.
 

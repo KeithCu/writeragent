@@ -338,14 +338,28 @@ def write_pickle_frame_with_timeout(
     """Write one Pickle5 frame, bounding the pipe write with *timeout_sec*.
 
     The frame is packed first. ``IpcFrameError`` means no byte was written and
-    the child is still aligned. POSIX uses non-blocking ``os.write`` plus
-    ``select`` (``is_alive`` is consulted on that loop only). Windows pipes are
-    not selectable, so a daemon thread is joined for the deadline.
-    ``TimeoutExpired`` can mean a partial frame is already in the pipe; the
-    caller kills that child. A stream with no real fileno (``BytesIO``) is
-    written without a deadline.
+    the child is still aligned. The packed bytes go through
+    ``write_packed_frame_with_timeout``.
     """
     frame = pack_pickle_frame(message, max_payload_bytes=max_payload_bytes)
+    write_packed_frame_with_timeout(stream, frame, timeout_sec, is_alive=is_alive)
+
+
+def write_packed_frame_with_timeout(
+    stream: IO[bytes],
+    frame: bytes,
+    timeout_sec: float,
+    *,
+    is_alive: Callable[[], bool] | None = None,
+) -> None:
+    """Write an already-packed frame, bounding the pipe write with *timeout_sec*.
+
+    POSIX uses non-blocking ``os.write`` plus ``select`` (``is_alive`` is
+    consulted on that loop only). Windows pipes are not selectable, so a
+    daemon thread is joined for the deadline. ``TimeoutExpired`` can mean a
+    partial frame is already in the pipe; the caller kills that child.
+    A stream with no real fileno (``BytesIO``) is written without a deadline.
+    """
     timeout_sec = max(0.0, float(timeout_sec))
     if sys.platform == "win32":
         _write_bytes_until_joined(stream, frame, timeout_sec)
@@ -355,6 +369,10 @@ def write_pickle_frame_with_timeout(
     except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
         fd = None
     if not isinstance(fd, int):
+        # Popen pipes always have an int fileno. This is BytesIO and mocks.
+        # _write_all has no deadline, so a real pipe that landed here would
+        # wedge the caller that holds the worker lock.
+        log.debug("write_packed_frame_with_timeout: no int fileno; writing without a deadline")
         _write_all(stream, frame)
         return
     _write_fd_with_timeout(fd, frame, timeout_sec, is_alive=is_alive)

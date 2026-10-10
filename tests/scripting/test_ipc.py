@@ -29,6 +29,7 @@ from plugin.scripting.ipc import (
     read_pickle_frame_with_timeout,
     unpack_pickle_frame,
     write_json_line,
+    write_packed_frame_with_timeout,
     write_pickle_frame,
     write_pickle_frame_with_timeout,
 )
@@ -932,6 +933,22 @@ def test_json_line_timeout_falls_back_when_fileno_not_int():
     stream.readline.return_value = '{"status": "ready"}\n'
     assert read_json_line(stream, timeout_sec=0.01) == {"status": "ready"}
     stream.readline.assert_called_once()
+
+
+def test_packed_frame_write_without_int_fileno_logs_and_writes(caplog: pytest.LogCaptureFixture) -> None:
+    """A stream whose fileno is not an int is written with no deadline.
+
+    Popen pipes always have an int fileno. BytesIO takes this path, and it
+    used to do so silently. A real pipe that landed here would wedge the
+    caller that holds the worker lock.
+    """
+    stream = io.BytesIO()
+    frame = pack_pickle_frame({"status": "ok"})
+    with caplog.at_level(logging.DEBUG, logger="writeragent.scripting.ipc"):
+        write_packed_frame_with_timeout(stream, frame, 0.01)
+    assert "without a deadline" in caplog.text
+    stream.seek(0)
+    assert read_pickle_frame(stream) == {"status": "ok"}
 
 
 def test_hostile_reduce_bytes_raises_value_error():

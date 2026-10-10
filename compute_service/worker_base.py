@@ -43,7 +43,7 @@ from compute_service.worker_stdio import (
     unpack_restricted_pickle_frame,
 )
 from plugin.framework.worker_pool import get_subprocess_creationflags, run_in_background
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, IpcPartialFrameTimeout, read_pickle_frame_with_timeout, write_pickle_frame_with_timeout
+from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, IpcPartialFrameTimeout, pack_pickle_frame, read_pickle_frame_with_timeout, write_packed_frame_with_timeout
 from plugin.scripting.sandbox import optimize_popen_pipes, scrub_subprocess_env
 
 __all__ = [
@@ -148,45 +148,50 @@ class PoolSingleton(Generic[_PoolT]):
         spawns every child before returning. ``shutdown`` blocked on that
         lock for the whole spawn. One caller builds; the others wait.
         A shutdown that lands during the build discards that pool instead
-        of installing it.
+        of installing it. A non-permanent shutdown used to fail this caller
+        with "shut down" even though the next ``get`` built a replacement.
         """
-        with self._cv:
-            while self._building:
+        while True:
+            with self._cv:
+                while self._building:
+                    if self._closed:
+                        raise RuntimeError("Compute pool is shut down.")
+                    self._cv.wait()
                 if self._closed:
                     raise RuntimeError("Compute pool is shut down.")
-                self._cv.wait()
-            if self._closed:
+                if self._pool is not None:
+                    return self._pool
+                self._build_id += 1
+                self._building = True
+                epoch = self._epoch
+            created: _PoolT | None = None
+            stale = True
+            published: _PoolT | None = None
+            closed = False
+            try:
+                created = factory()
+                with self._cv:
+                    # epoch moves on every shutdown, including a non-permanent
+                    # one, so this build cannot appear after shutdown returned.
+                    stale = self._closed or self._epoch != epoch or self._pool is not None
+                    if not stale:
+                        self._pool = created
+                    published = self._pool
+                    closed = self._closed
+                if stale:
+                    created.shutdown()
+            finally:
+                with self._cv:
+                    self._building = False
+                    self._cv.notify_all()
+            if not stale and created is not None:
+                return created
+            if published is not None and not closed:
+                return published
+            if closed:
                 raise RuntimeError("Compute pool is shut down.")
-            if self._pool is not None:
-                return self._pool
-            self._build_id += 1
-            self._building = True
-            epoch = self._epoch
-        created: _PoolT | None = None
-        stale = True
-        published: _PoolT | None = None
-        closed = False
-        try:
-            created = factory()
-            with self._cv:
-                # epoch moves on every shutdown, including a non-permanent
-                # one, so this build cannot appear after shutdown returned.
-                stale = self._closed or self._epoch != epoch or self._pool is not None
-                if not stale:
-                    self._pool = created
-                published = self._pool
-                closed = self._closed
-            if stale:
-                created.shutdown()
-        finally:
-            with self._cv:
-                self._building = False
-                self._cv.notify_all()
-        if not stale and created is not None:
-            return created
-        if published is not None and not closed:
-            return published
-        raise RuntimeError("Compute pool is shut down.")
+            # Non-permanent shutdown discarded this build. A waiter may
+            # publish the replacement; otherwise this caller builds again.
 
     def shutdown(self, *, permanent: bool = False) -> None:
         """Drop the pool. *permanent* makes a later ``get`` raise.
@@ -379,9 +384,14 @@ class BaseProcessWorker:
         except OSError:
             log.debug("%s #%d could not remove stderr log %s", self.worker_name, self.worker_id, path, exc_info=True)
 
-    def _unlink_stderr_file(self, path: str) -> None:
-        """Remove a stderr file that was never published on ``_stderr_path``."""
-        self._safe_unlink(path)
+    def _unlink_unpublished_stderr(self, path: str) -> None:
+        """Remove a stderr file that was never stored on ``_stderr_path``.
+
+        ``kill`` only unlinks the published path. A file Popen inherited and
+        shutdown refused must be removed here or it leaks.
+        """
+        if self._stderr_path != path:
+            self._safe_unlink(path)
 
     def _close_stderr_log(self) -> None:
         """Unlink the current stderr file. Caller holds ``_lifecycle_lock``."""
@@ -551,16 +561,11 @@ class BaseProcessWorker:
             # kill() takes that lock, and the handshake can block for the
             # spawn budget. Publishing here is after the inherit.
             if not self._publish_stderr_path(stderr_log.name):
-                self._discard_unadopted_process(proc)
-                if self._stderr_path != stderr_log.name:
-                    self._unlink_stderr_file(stderr_log.name)
+                self._drop_unadopted_spawn(proc, stderr_log.name, published=False)
                 return
             published_stderr = True
             if not self._adopt_spawned_process(proc):
-                self._discard_unadopted_process(proc)
-                # Reap already holds this lock. This path does not.
-                with self._lifecycle_lock:
-                    self._close_stderr_log()
+                self._drop_unadopted_spawn(proc, stderr_log.name, published=True)
                 return
             optimize_popen_pipes(proc)
             # Popen itself is not on the clock. If it ran past the deadline,
@@ -604,8 +609,8 @@ class BaseProcessWorker:
             self._log_spawn_outcome(f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}")
             # Popen failed before the path was published. kill() only
             # unlinks _stderr_path, so this file would otherwise leak.
-            if stderr_log is not None and not published_stderr and self._stderr_path != stderr_log.name:
-                self._unlink_stderr_file(stderr_log.name)
+            if stderr_log is not None and not published_stderr:
+                self._unlink_unpublished_stderr(stderr_log.name)
             self.kill()
         finally:
             if stderr_log is not None:
@@ -650,6 +655,21 @@ class BaseProcessWorker:
     def _discard_unadopted_process(self, proc: subprocess.Popen[bytes]) -> None:
         """Kill a child that was never assigned to ``self.process``."""
         self._kill_and_wait(proc, proc.pid, context="unadopted ")
+
+    def _drop_unadopted_spawn(self, proc: subprocess.Popen[bytes], stderr_name: str, *, published: bool) -> None:
+        """Kill a child shutdown refused, and drop the stderr file it inherited.
+
+        *published* means ``_stderr_path`` already names *stderr_name*, so
+        ``_close_stderr_log`` is the unlink. Otherwise the file was never
+        installed and ``kill`` will not remove it.
+        """
+        self._discard_unadopted_process(proc)
+        if published:
+            # Reap already holds this lock. This path does not.
+            with self._lifecycle_lock:
+                self._close_stderr_log()
+            return
+        self._unlink_unpublished_stderr(stderr_name)
 
     def is_alive(self) -> bool:
         # kill() assigns None under _lifecycle_lock while execute's select
@@ -807,33 +827,43 @@ class BaseProcessWorker:
             pid = proc.pid
 
             try:
-                # The write shares the request deadline. It holds self.lock, so a
-                # child that stopped reading stdin would never return and the
-                # slot would stay leased. A partial frame is desynchronized,
-                # so the child is killed.
-                write_pickle_frame_with_timeout(
-                    stdin,
-                    payload,
-                    deadline.left(),
-                    max_payload_bytes=self.max_payload_bytes,
-                    is_alive=self.is_alive,
-                )
+                # Pack before any pipe write. IpcFrameError and pickle errors
+                # mean no byte was written, so the child stays aligned.
+                # What was wrong: ValueError and TypeError were caught around
+                # the whole write. A pipe that raised them was reported as
+                # REQUEST_NOT_SERIALIZABLE and left alive on a desynced frame.
+                frame = pack_pickle_frame(payload, max_payload_bytes=self.max_payload_bytes)
             except IpcFrameError as exc:
                 # Raised before any byte is written. The child is still the
                 # same kernel; killing it would drop every shared session.
                 return error_dict("PAYLOAD_TOO_LARGE", str(exc))
             except (pickle.PicklingError, TypeError, ValueError, RecursionError) as exc:
-                # pack_pickle_frame pickles before the first write. These used
-                # to escape execute. ValueError and RecursionError from
-                # pickle.dumps did too, and the HTTP handler turned them into
-                # an unhandled 500. The child is still frame-aligned, so it
-                # stays. AttributeError is not included: a shutdown race on
+                # pickle.dumps used to escape execute. ValueError and
+                # RecursionError did too, and the HTTP handler turned them
+                # into an unhandled 500. The child is still frame-aligned, so
+                # it stays. AttributeError is not included: a shutdown race on
                 # self.process used to land here and skip the kill.
                 # MemoryError is not included: the process may be out of memory.
                 return error_dict("REQUEST_NOT_SERIALIZABLE", str(exc))
+
+            try:
+                # The write shares the request deadline. It holds self.lock, so a
+                # child that stopped reading stdin would never return and the
+                # slot would stay leased. A partial frame is desynchronized,
+                # so the child is killed.
+                write_packed_frame_with_timeout(
+                    stdin,
+                    frame,
+                    deadline.left(),
+                    is_alive=self.is_alive,
+                )
             except subprocess.TimeoutExpired:
                 return self._fail_timeout(deadline, pid)
             except OSError as exc:
+                return self._fail_request("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}", pid=pid)
+            except (TypeError, ValueError) as exc:
+                # These are no longer pickle failures. A pipe that raises them
+                # may already have written part of the frame.
                 return self._fail_request("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}", pid=pid)
 
             try:
@@ -1215,6 +1245,15 @@ class BaseProcessPool:
             worker.kill()
             self._drop_lease(worker)
 
+    def _clear_pool_state_unlocked(self) -> None:
+        """Drop subclass maps. Caller holds ``_cond`` and has set ``_is_shutdown``.
+
+        Base shutdown clears workers, idle, and leased. A subclass that keeps
+        its own maps overrides this so a pool object kept after shutdown does
+        not still advertise them.
+        """
+        return
+
     def shutdown(self) -> None:
         """Terminate all worker processes."""
         self._reaper_stop_event.set()
@@ -1222,6 +1261,7 @@ class BaseProcessPool:
             if self._is_shutdown:
                 return
             self._is_shutdown = True
+            self._clear_pool_state_unlocked()
             log.info("Shutting down %s pool (%d workers)...", self.worker_name, len(self.workers))
             workers_to_kill = list(self.workers)
             # Drop the pool sets before releasing this lock so lease_any

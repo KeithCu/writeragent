@@ -651,11 +651,11 @@ def _gated(
     settings: ComputeSettings,
     semaphore: threading.Semaphore | None,
     *,
-    admission_timeout_sec: float,
     busy_code: str,
     busy_message: str,
     route_fn: Callable[[Any], list[bytes]],
     prepare: Callable[[Any], tuple[float, list[bytes] | None]] | None = None,
+    admission_timeout_sec: float | None = None,
 ) -> list[bytes]:
     """Execute route_fn guarded by auth, optional concurrency permit, try/finally, and 500 fallback.
 
@@ -664,8 +664,10 @@ def _gated(
     returns an empty body instead of another status line.
 
     ``prepare`` runs after auth and before the permit. It reads the body
-    (cached for ``route_fn``) and returns the clamped request timeout.
-    An error response from ``prepare`` does not take a permit.
+    (cached for ``route_fn``) and returns the clamped request timeout, which
+    replaces *admission_timeout_sec*. Reset has no body timeout and passes
+    *admission_timeout_sec* itself. An error response from ``prepare`` does
+    not take a permit.
     """
     started = False
 
@@ -707,6 +709,8 @@ def _gated(
         # counts against the request; the lease does not start another timeout.
         # Execute and vision pass the clamped timeout_ms from prepare. Reset
         # has no timeout_ms and keeps default_timeout_sec.
+        if admission_timeout_sec is None:
+            raise RuntimeError("admission_timeout_sec is required when prepare is omitted")
         deadline = _request_deadline(environ.get("compute.accept_time"), admission_timeout_sec)
         remaining = deadline - time.monotonic()
         req_id = environ.get("compute.req_id")
@@ -857,7 +861,10 @@ def _vision_admission_timeout(
         default_timeout_sec=settings.ocr_timeout_sec,
         max_timeout_sec=settings.max_timeout_sec,
     )
-    return float(timeout_sec), None
+    clamped = float(timeout_sec)
+    # _handle_vision reads this instead of clamping timeout_ms again.
+    environ["compute.admission_timeout_sec"] = clamped
+    return clamped, None
 
 
 def _handle_execute(
@@ -1037,7 +1044,10 @@ def _handle_vision(
         params = raw_params
     else:
         return _error(start_response, "400 Bad Request", "params must be an object.", code="INVALID_REQUEST", req_id=req_id)
-    vision_budget = float(clamp_timeout_sec(req_data.get("timeout_ms"), is_ms=True, default_timeout_sec=settings.ocr_timeout_sec, max_timeout_sec=settings.max_timeout_sec))
+    raw_budget = environ.get("compute.admission_timeout_sec")
+    if isinstance(raw_budget, bool) or not isinstance(raw_budget, (int, float)):
+        raise RuntimeError("vision admission timeout was not prepared")
+    vision_budget = float(raw_budget)
     vision_deadline = _request_deadline(environ.get("compute.accept_time"), vision_budget)
 
     from compute_service.vision import get_vision_pool
@@ -1139,7 +1149,6 @@ def create_wsgi_app(
                 start_response,
                 settings,
                 route_sem,
-                admission_timeout_sec=float(settings.default_timeout_sec),
                 busy_code="WORKER_POOL_BUSY",
                 busy_message="All compute workers are currently busy.",
                 route_fn=lambda start: _handle_execute(environ, start, settings, _get_execute()),
@@ -1166,7 +1175,6 @@ def create_wsgi_app(
                 start_response,
                 settings,
                 vision_semaphore,
-                admission_timeout_sec=float(settings.ocr_timeout_sec),
                 busy_code="VISION_POOL_BUSY",
                 busy_message="All vision workers are currently busy.",
                 route_fn=lambda start: _handle_vision(environ, start, settings),

@@ -198,6 +198,63 @@ def test_singleton_discards_pool_built_during_shutdown() -> None:
     assert "shut down" in str(errors[0])
 
 
+def test_singleton_retries_after_non_permanent_shutdown_during_build() -> None:
+    """A non-permanent shutdown during factory() does not fail the builder.
+
+    What was wrong: the in-flight builder raised "Compute pool is shut down."
+    after shutdown(permanent=False) discarded its pool, while the next get
+    built a replacement.
+    """
+    from compute_service.worker_base import PoolSingleton
+
+    started = threading.Event()
+    release = threading.Event()
+    builds = {"n": 0}
+
+    def factory() -> BaseProcessPool:
+        builds["n"] += 1
+        if builds["n"] == 1:
+            started.set()
+            assert release.wait(timeout=2.0)
+        return BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
+
+    singleton: PoolSingleton[BaseProcessPool] = PoolSingleton()
+    outcome: list[BaseProcessPool | BaseException] = []
+
+    def _get() -> None:
+        try:
+            outcome.append(singleton.get(factory))
+        except BaseException as exc:
+            outcome.append(exc)
+
+    getter = threading.Thread(target=_get, daemon=True)
+    getter.start()
+    assert started.wait(timeout=2.0)
+
+    def _stop() -> None:
+        singleton.shutdown(permanent=False)
+
+    stopper = threading.Thread(target=_stop, daemon=True)
+    stopper.start()
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and singleton._epoch == 0:
+        time.sleep(0.01)
+    assert singleton._epoch == 1
+    assert stopper.is_alive()
+    release.set()
+    stopper.join(timeout=2.0)
+    getter.join(timeout=2.0)
+    assert not stopper.is_alive()
+    assert not getter.is_alive()
+    assert builds["n"] == 2
+    assert len(outcome) == 1
+    pool = outcome[0]
+    assert isinstance(pool, BaseProcessPool)
+    assert pool is singleton._pool
+    assert not pool._is_shutdown
+    pool.shutdown()
+
+
 def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
     import pickle
     import pytest
@@ -550,7 +607,7 @@ def test_execute_stdin_write_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> N
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
-        "compute_service.worker_base.write_pickle_frame_with_timeout",
+        "compute_service.worker_base.write_packed_frame_with_timeout",
         MagicMock(side_effect=subprocess.TimeoutExpired(cmd="IPC frame", timeout=1.0)),
     )
 
@@ -606,7 +663,7 @@ def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
-        "compute_service.worker_base.write_pickle_frame_with_timeout",
+        "compute_service.worker_base.pack_pickle_frame",
         MagicMock(side_effect=IpcPayloadSizeError("too big")),
     )
 
@@ -749,14 +806,14 @@ def test_failed_request_increments_tasks_executed(monkeypatch: pytest.MonkeyPatc
 
     if kind == "pipe":
         monkeypatch.setattr(
-            "compute_service.worker_base.write_pickle_frame_with_timeout",
+            "compute_service.worker_base.write_packed_frame_with_timeout",
             MagicMock(side_effect=BrokenPipeError("closed")),
         )
     elif kind == "empty":
-        monkeypatch.setattr("compute_service.worker_base.write_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("compute_service.worker_base.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
         monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
     else:
-        monkeypatch.setattr("compute_service.worker_base.write_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("compute_service.worker_base.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
         monkeypatch.setattr(
             "compute_service.worker_base.read_pickle_frame_with_timeout",
             MagicMock(side_effect=RuntimeError("died")),
@@ -784,7 +841,7 @@ def test_empty_read_during_shutdown_is_service_shutdown(monkeypatch: pytest.Monk
     worker._shutting_down = True
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-    monkeypatch.setattr("compute_service.worker_base.write_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("compute_service.worker_base.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
@@ -1229,7 +1286,7 @@ def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPat
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
-        "compute_service.worker_base.write_pickle_frame_with_timeout",
+        "compute_service.worker_base.pack_pickle_frame",
         MagicMock(side_effect=exc),
     )
 
@@ -1238,6 +1295,38 @@ def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPat
     assert killed == []
     assert worker.tasks_executed == 0
     assert worker.process is proc
+
+
+def test_pipe_value_error_kills(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A ValueError from the pipe write kills the child.
+
+    What was wrong: ValueError was caught with pickle.dumps, so a pipe that
+    raised it returned REQUEST_NOT_SERIALIZABLE and left the child on a
+    desynced frame.
+    """
+    from unittest.mock import MagicMock
+
+    from compute_service.worker_base import BaseProcessWorker
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.pid = 11
+    proc.stdin = MagicMock()
+    proc.stdout = MagicMock()
+    worker.process = proc
+    killed: list[bool] = []
+    worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "compute_service.worker_base.write_packed_frame_with_timeout",
+        MagicMock(side_effect=ValueError("short write")),
+    )
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert res.get("code") == "WORKER_PIPE_BROKEN"
+    assert killed == [True]
+    assert worker.tasks_executed == 1
 
 
 def test_reap_timeout_caps_stderr(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1378,7 +1467,7 @@ def test_write_attribute_error_is_not_not_serializable(monkeypatch: pytest.Monke
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
-        "compute_service.worker_base.write_pickle_frame_with_timeout",
+        "compute_service.worker_base.write_packed_frame_with_timeout",
         MagicMock(side_effect=AttributeError("process")),
     )
 

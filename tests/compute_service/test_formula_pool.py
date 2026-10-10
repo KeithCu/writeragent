@@ -94,6 +94,29 @@ def test_process_exit_drops_only_that_workers_pid(monkeypatch: pytest.MonkeyPatc
         pool.shutdown()
 
 
+def test_shutdown_clears_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Shutdown drops session maps with the workers.
+
+    What was wrong: BaseProcessPool.shutdown cleared workers, idle, and
+    leased, and left _sessions and _lost_sessions in place. A pool object
+    kept after shutdown still advertised those ids.
+    """
+    from compute_service.formula_pool import _Session
+
+    monkeypatch.setattr(
+        "compute_service.worker_base.BaseProcessWorker.respawn",
+        lambda self, timeout_sec=0.0, deadline=None: None,
+    )
+    pool = FormulaProcessPool(num_workers=1, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
+    worker = pool.workers[0]
+    with pool._cond:
+        pool._sessions["live"] = _Session(worker=worker, pid=1, last_active=time.monotonic())
+        pool._lost_sessions["gone"] = time.monotonic()
+    pool.shutdown()
+    assert not pool._sessions
+    assert not pool._lost_sessions
+
+
 class TestFormulaPoolSupervisor:
     def test_session_locks_removed_and_reset_succeeds(self) -> None:
         """Verify dead session locks are removed and reset_session succeeds cleanly."""
