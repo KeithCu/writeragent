@@ -709,7 +709,7 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_session_ttl_evicts_idle_session(self) -> None:
+    def test_session_ttl_evicts_idle_session(self, caplog: pytest.LogCaptureFixture) -> None:
         """An idle worker whose session is past TTL is killed. The next lease respawns it."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, max_tasks=1, shared_kernel_ttl_sec=3600.0)
         try:
@@ -722,7 +722,10 @@ class TestFormulaPoolSupervisor:
             # makes the idle reaper kill it.
             with pool._cond:
                 pool._sessions[sid].last_active = time.monotonic() - 4000.0
-            pool._evict_idle_workers()
+            with caplog.at_level(logging.INFO, logger="compute_service.worker"):
+                pool._evict_idle_workers()
+            assert "shared sessions were all past the session TTL" in caplog.text
+            assert "idle for >" not in caplog.text
             assert pool.live_session_worker(sid) is None, "Session should be dropped when its worker is killed"
 
             worker = pool.workers[0]
@@ -740,7 +743,7 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_idle_worker_reaper(self) -> None:
+    def test_idle_worker_reaper(self, caplog: pytest.LogCaptureFixture) -> None:
         """Idle worker reaper must terminate workers idle for longer than idle_worker_ttl_sec."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, idle_worker_ttl_sec=3600.0)
         try:
@@ -754,7 +757,10 @@ class TestFormulaPoolSupervisor:
             # Simulate passage of idle time and trigger reaper eviction
             with pool._cond:
                 pool._worker_last_active[worker] = time.monotonic() - 4000.0
-            pool._evict_idle_workers()
+            with caplog.at_level(logging.INFO, logger="compute_service.worker"):
+                pool._evict_idle_workers()
+            assert "idle for >" in caplog.text
+            assert "shared sessions were all past the session TTL" not in caplog.text
             assert not worker.is_alive(), "Idle worker process should be killed by idle worker reaper"
 
             # Subsequent execution lazily re-spawns worker
@@ -1122,13 +1128,13 @@ class TestFormulaPoolSupervisor:
                 wire="bogus_wire",
             )
 
-    def test_remaining_sec_helper(self) -> None:
-        from compute_service.worker_base import remaining_sec
+    def test_deadline_left_floors_spent_clock(self) -> None:
+        from compute_service.worker_base import _PIPE_WAIT_FLOOR, _Deadline
 
-        future = time.monotonic() + 10.0
-        assert remaining_sec(future) > 0.0
-        past = time.monotonic() - 10.0
-        assert remaining_sec(past, floor=0.05) == 0.05
+        future = _Deadline.from_absolute(10.0, time.monotonic() + 10.0)
+        assert future.left() > 0.0
+        spent = _Deadline.from_absolute(10.0, time.monotonic() - 10.0)
+        assert spent.left() == _PIPE_WAIT_FLOOR
 
     @pytest.mark.skipif(sys.platform == "win32", reason="uses SIGKILL")
     def test_shared_session_dies_with_its_process(self) -> None:

@@ -34,7 +34,7 @@ from compute_service.json_forward import (
     require_execute_wire,
     validate_session_id,
 )
-from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, floor_run_seconds, resolve_override, start_refused
+from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, _Deadline, resolve_override
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 log = logging.getLogger("compute_service.formula")
@@ -441,7 +441,7 @@ class FormulaProcessPool(BaseProcessPool):
         self,
         leased: BaseProcessWorker,
         payload: dict[str, Any],
-        deadline: float,
+        clock: _Deadline,
         session_was_lost: bool,
         req_id: str | None,
         decode_result: bool,
@@ -451,21 +451,19 @@ class FormulaProcessPool(BaseProcessPool):
         # grace. The original full timeout would let signal.alarm lose to
         # this read, so a normal sleep became SIGKILL and dropped every
         # shared session on that process.
-        child_budget = deadline - time.monotonic()
-        # floor_run_seconds lifts a 1s request that has already slipped
+        # child_run_seconds lifts a 1s request that has already slipped
         # under a second. int() of that remainder is 0, and alarm(0)
         # cancels the child's alarm. A deadline that is already spent
-        # does not run.
-        run_for = floor_run_seconds(child_budget)
+        # does not run. The host wait is that floored budget: a raw
+        # remainder under a second used to be shorter than the alarm, so
+        # the host SIGKILLed a cell that was about to answer.
+        run_for = clock.child_run_seconds()
         if run_for <= 0:
             return {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
         child_alarm = int(run_for)
         payload["timeout_sec"] = child_alarm
         payload["session_reset"] = session_was_lost
-        # The host wait covers the child's alarm. A 1s request whose
-        # remaining time truncated must not be read with a shorter timeout
-        # than the alarm, or the host SIGKILLs a cell that is about to answer.
-        host_timeout = max(child_budget, float(child_alarm)) + HOST_IPC_READ_GRACE_SEC
+        host_timeout = run_for + HOST_IPC_READ_GRACE_SEC
         res = leased.execute(payload, timeout_sec=host_timeout)
         if session_was_lost and isinstance(res, dict):
             res["session_reset"] = True
@@ -552,14 +550,19 @@ class FormulaProcessPool(BaseProcessPool):
         except ExecuteRequestError as exc:
             return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
 
-        leased: BaseProcessWorker | None = None
-        session_was_lost = False
-        is_new_session = False
-        deadline_missed = False
+        clock = _Deadline.from_absolute(eff_timeout, deadline)
         # A budget under one second, or a longer one that has already fallen
         # under one second, does not lease. A 0.01s floor used to lease
         # anyway and then give the child a 1s alarm. A one-second request
-        # still leases: the clock moves before this check.
+        # still leases: the clock moves before this check. This is before
+        # select so a miss does not reserve a session or consume the
+        # lost-session marker.
+        if clock.too_late_to_spawn():
+            return {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+
+        leased: BaseProcessWorker | None = None
+        session_was_lost = False
+        is_new_session = False
         if mode == "shared" and session_id:
             target_worker, session_was_lost, is_new_session = self._select_shared_worker(session_id)
             if target_worker is None:
@@ -567,16 +570,12 @@ class FormulaProcessPool(BaseProcessPool):
                     with self._cond:
                         self._mark_session_lost_unlocked(session_id)
                 return {"id": req_id, "status": "error", "code": "SERVICE_SHUTDOWN", "error": "Formula compute pool is shutting down."}
-            lease_budget = deadline - time.monotonic()
-            deadline_missed = start_refused(eff_timeout, deadline)
-            if not deadline_missed:
-                leased = self.lease_specific(target_worker, timeout_sec=max(lease_budget, 0.0))
+            lease_budget = max(deadline - time.monotonic(), 0.0)
+            leased = self.lease_specific(target_worker, timeout_sec=lease_budget)
             busy_err = "Sticky session worker is busy and request timed out waiting for worker lease."
         else:
-            lease_budget = deadline - time.monotonic()
-            deadline_missed = start_refused(eff_timeout, deadline)
-            if not deadline_missed:
-                leased = self.lease_any(timeout_sec=max(lease_budget, 0.0))
+            lease_budget = max(deadline - time.monotonic(), 0.0)
+            leased = self.lease_any(timeout_sec=lease_budget)
             busy_err = "All formula workers are currently busy and request timed out waiting for worker lease."
 
         if leased is None:
@@ -588,13 +587,12 @@ class FormulaProcessPool(BaseProcessPool):
                         self._drop_session(session_id, lost=False)
                     if session_was_lost:
                         self._mark_session_lost_unlocked(session_id)
-            if deadline_missed:
-                return {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
             return {"id": req_id, "status": "error", "code": "WORKER_POOL_BUSY", "error": busy_err}
 
         result: dict[str, Any] | None = None
         try:
-            if start_refused(eff_timeout, deadline):
+            # Time passes while waiting for the lease. Recheck the same clock.
+            if clock.too_late_to_spawn():
                 result = {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
                 return result
             if mode == "shared" and session_id and self._expire_leased_session(leased, session_id, deadline):
@@ -602,7 +600,7 @@ class FormulaProcessPool(BaseProcessPool):
             result = self._run_execution(
                 leased,
                 payload=payload,
-                deadline=deadline,
+                clock=clock,
                 session_was_lost=session_was_lost,
                 req_id=req_id,
                 decode_result=decode_result,

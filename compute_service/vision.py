@@ -27,7 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, PoolSingleton, floor_run_seconds, resolve_override, run_worker_stdio_loop, start_refused
+from compute_service.worker_base import BaseProcessPool, PoolSingleton, _Deadline, resolve_override, run_worker_stdio_loop
 
 log = logging.getLogger("compute_service.vision")
 
@@ -135,18 +135,18 @@ class VisionProcessPool(BaseProcessPool):
         # fallen under one second, do not lease. A 0.01s floor used to start
         # OCR on a deadline that had already passed. A one-second request
         # still leases: the clock moves before this check.
-        lease_budget = deadline - time.monotonic()
-        if start_refused(eff_timeout, deadline):
+        clock = _Deadline.from_absolute(eff_timeout, deadline)
+        if clock.too_late_to_spawn():
             return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
-        with self.leased(timeout_sec=max(lease_budget, 0.0)) as worker:
-            remaining = deadline - time.monotonic()
-            if worker is None or start_refused(eff_timeout, deadline):
+        lease_budget = max(deadline - time.monotonic(), 0.0)
+        with self.leased(timeout_sec=lease_budget) as worker:
+            # Time passes while waiting for the lease. Recheck the same clock.
+            if worker is None or clock.too_late_to_spawn():
                 return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
 
             # execute() refuses a budget under one second. The minimum
             # request is already slightly under that after the lease returns.
-            run_for = floor_run_seconds(remaining)
-            res = worker.execute(payload, timeout_sec=run_for)
+            res = worker.execute(payload, timeout_sec=clock.child_run_seconds())
             if req_id is not None and isinstance(res, dict):
                 res["id"] = req_id
             return res

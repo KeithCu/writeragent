@@ -48,7 +48,6 @@ __all__ = [
     "BaseProcessWorker",
     "PoolSingleton",
     "RestrictedUnpickler",
-    "remaining_sec",
     "resolve_override",
     "run_worker_stdio_loop",
     "set_pdeathsig",
@@ -112,51 +111,21 @@ class PoolSingleton(Generic[_PoolT]):
 
 
 
-def remaining_sec(deadline: float, *, floor: float = _PIPE_WAIT_FLOOR) -> float:
-    """Return remaining seconds until *deadline*, bounded below by *floor*."""
-    return max(floor, deadline - time.monotonic())
-
-
-def start_refused(requested_sec: float, deadline: float) -> bool:
-    """True when a pool must not take a lease for this deadline.
-
-    A requested budget under one second never starts. A longer request
-    with under one second left does not either: that used to lease and
-    then SIGKILL a worker that was about to answer. A one-second request
-    still starts. That is the minimum ``clamp_timeout_sec`` returns, and
-    the clock moves before this check.
-    """
-    remaining = deadline - time.monotonic()
-    if requested_sec < _MIN_REQUEST_SEC or remaining <= 0:
-        return True
-    if requested_sec <= _MIN_REQUEST_SEC:
-        return False
-    return remaining < _MIN_REQUEST_SEC
-
-
-def floor_run_seconds(remaining: float) -> float:
-    """Seconds for a child that already passed ``start_refused``.
-
-    A spent deadline is 0. Any time still left is at least one second.
-    ``int`` of a one-second request is 0 once the clock has moved, and
-    ``signal.alarm(0)`` cancels the child's alarm. Vision uses the same
-    floor so a one-second OCR call is not given a sub-second read.
-    """
-    if remaining <= 0:
-        return 0.0
-    if remaining < _MIN_REQUEST_SEC:
-        return _MIN_REQUEST_SEC
-    return remaining
-
-
 class _Deadline:
-    """One clock for spawn, the stdin write, and the stdout read.
+    """Accept-time budget for a pool, or the worker clock started under its lock.
+
+    ``__init__`` starts at now. ``BaseProcessWorker.execute`` builds that
+    under ``self.lock`` so the wait for the lock is not part of the budget.
+    ``from_absolute`` keeps the original requested seconds and an end the
+    HTTP handler already chose. Formula and vision use that one.
 
     ``left()`` floors at ``_PIPE_WAIT_FLOOR`` so a select never sees 0.
-    ``too_late_to_spawn()`` is ``start_refused``: a requested budget under
-    one second, or a longer budget that has already fallen under one
-    second. Flooring the whole budget used to turn a spent deadline into
-    0.01s, which spawned a child and SIGKILL'd it.
+    ``too_late_to_spawn()`` refuses a requested budget under one second,
+    or a longer budget that has already fallen under one second. Flooring
+    the whole budget used to turn a spent deadline into 0.01s, which
+    spawned a child and SIGKILL'd it. A one-second request still starts:
+    that is the minimum ``clamp_timeout_sec`` returns, and the clock moves
+    before this check.
     """
 
     __slots__: tuple[str, ...] = ("budget_sec", "_end")
@@ -167,19 +136,51 @@ class _Deadline:
         self.budget_sec = float(timeout_sec)
         self._end = time.monotonic() + self.budget_sec
 
+    @classmethod
+    def from_absolute(cls, requested_sec: float, end: float) -> _Deadline:
+        """Clock whose end is already fixed and whose budget is the original request.
+
+        ``requested_sec`` is not ``end - now``. A one-second request whose
+        clock has already moved still starts; rebuilding the budget from
+        the time left would refuse it.
+        """
+        clock = cls.__new__(cls)
+        clock.budget_sec = float(requested_sec)
+        clock._end = float(end)
+        return clock
+
     def expired(self) -> bool:
         """True when the caller passed a spent budget, or the clock has passed it."""
         return self.budget_sec <= 0 or time.monotonic() >= self._end
 
     def too_late_to_spawn(self) -> bool:
-        """True when a dead slot must not be replaced.
+        """True when a lease or a dead slot must not start.
 
-        Same rule as ``start_refused``. A one-second request may spawn:
-        it is the minimum budget, and the clock has already moved. A
-        longer request with under one second left must not. That handshake
-        could not finish and SIGKILL'd the child.
+        A one-second request may start: it is the minimum budget, and the
+        clock has already moved. A longer request with under one second
+        left must not. That handshake could not finish and SIGKILL'd the child.
         """
-        return start_refused(self.budget_sec, self._end)
+        remaining = self._end - time.monotonic()
+        if self.budget_sec < _MIN_REQUEST_SEC or remaining <= 0:
+            return True
+        if self.budget_sec <= _MIN_REQUEST_SEC:
+            return False
+        return remaining < _MIN_REQUEST_SEC
+
+    def child_run_seconds(self) -> float:
+        """Seconds for a child that already passed ``too_late_to_spawn``.
+
+        A spent deadline is 0. Any time still left is at least one second.
+        ``int`` of a one-second request is 0 once the clock has moved, and
+        ``signal.alarm(0)`` cancels the child's alarm. Vision uses the same
+        floor so a one-second OCR call is not given a sub-second read.
+        """
+        remaining = self._end - time.monotonic()
+        if remaining <= 0:
+            return 0.0
+        if remaining < _MIN_REQUEST_SEC:
+            return _MIN_REQUEST_SEC
+        return remaining
 
     def left(self) -> float:
         """Seconds still usable for a pipe wait, never below ``_PIPE_WAIT_FLOOR``."""
@@ -682,7 +683,10 @@ class BaseProcessPool:
         if self._is_shutdown or self.idle_worker_ttl_sec is None:
             return
         now = time.monotonic()
-        stale: list[BaseProcessWorker] = []
+        # Split the reason. One "idle for" line blamed the idle timer when
+        # the kill was a worker whose sessions were already past session TTL.
+        idle_hits: list[BaseProcessWorker] = []
+        abandoned_hits: list[BaseProcessWorker] = []
         with self._cond:
             # Drop dead pids before the TTL pass so lease_any cannot pop them.
             # A dead pid is not idle: the next lease performs the handshake.
@@ -692,10 +696,15 @@ class BaseProcessPool:
                     continue
                 last_active = self._worker_last_active.get(w, now)
                 idle_expired = self.idle_worker_ttl_sec is not None and now - last_active >= self.idle_worker_ttl_sec
-                # Abandoned shared sessions are not left until idle TTL.
-                # The base pool has no session map, so this is false there.
-                if idle_expired or self._abandoned_sessions(w):
-                    stale.append(w)
+                # Past idle TTL stays in the idle bucket even if the sessions
+                # are also stale: that sentence is still true. The other
+                # bucket is only the kill that happened before idle TTL.
+                # The base pool has no session map, so abandoned is false there.
+                if idle_expired:
+                    idle_hits.append(w)
+                elif self._abandoned_sessions(w):
+                    abandoned_hits.append(w)
+            stale = idle_hits + abandoned_hits
             for w in stale:
                 self._idle.pop(w, None)
                 # Same as _prune_dead_idle_unlocked. The next idle writes a
@@ -710,7 +719,10 @@ class BaseProcessPool:
         if stale:
             with self._cond:
                 self._cond.notify_all()
-            log.info("Idle worker reaper terminated %d %s(s) idle for >%.1fs", len(stale), self.worker_name, self.idle_worker_ttl_sec)
+        if idle_hits:
+            log.info("Idle worker reaper terminated %d %s(s) idle for >%.1fs", len(idle_hits), self.worker_name, self.idle_worker_ttl_sec)
+        if abandoned_hits:
+            log.info("Idle worker reaper terminated %d %s(s) whose shared sessions were all past the session TTL", len(abandoned_hits), self.worker_name)
 
     def _skip_idle_evict(self, worker: BaseProcessWorker) -> bool:
         """Return true to leave *worker* running past the idle TTL.
