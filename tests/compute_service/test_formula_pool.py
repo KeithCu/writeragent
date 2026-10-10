@@ -1946,5 +1946,44 @@ def test_idle_ttl_zero_reaps_abandoned_sessions_only(caplog: pytest.LogCaptureFi
         pool.shutdown()
 
 
+def test_bad_result_json_is_worker_crashed_without_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A result_json that is not JSON is an error dict, and the child stays.
+
+    What was wrong: decode_worker_result's json.loads escaped execute.
+    The pickle frame was already consumed, so killing the child would drop
+    shared sessions for a bad inner blob.
+    """
+    from compute_service.worker_base import BaseProcessWorker, _Deadline
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    killed: list[bool] = []
+    worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+    blob = {"raw": b"not-json"}
+
+    def _return_blob(payload: dict[str, Any], timeout_sec: float, *, req_id: Any = None) -> dict[str, Any]:
+        del payload, timeout_sec
+        return {"status": "ok", "result_json": blob["raw"], "id": req_id}
+
+    worker.execute = _return_blob  # type: ignore[method-assign]
+    pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=0, shared_kernel_ttl_sec=0)
+    try:
+        clock = _Deadline(30.0)
+        res = pool._run_execution(worker, {}, clock, False, "bad-json", True)
+        assert res.get("code") == "WORKER_CRASHED"
+        assert res.get("id") == "bad-json"
+        assert "session_reset" not in res
+        assert "could not be decoded" in str(res.get("error"))
+
+        blob["raw"] = b"\xff"
+        lost = pool._run_execution(worker, {}, clock, True, "bad-utf8", True)
+        assert lost.get("code") == "WORKER_CRASHED"
+        assert lost.get("id") == "bad-utf8"
+        assert lost.get("session_reset") is True
+        assert killed == []
+    finally:
+        pool.shutdown()
+
+
 
 

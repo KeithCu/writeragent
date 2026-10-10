@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import pickle
 import threading
 from pathlib import Path
 
@@ -1037,13 +1038,22 @@ def test_stderr_log_keeps_tail(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     assert worker._stderr_snippet().endswith("END")
 
 
-def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "exc",
+    [
+        pytest.param(pickle.PicklingError("cannot pickle"), id="pickling"),
+        pytest.param(ValueError("bad value"), id="value"),
+        pytest.param(RecursionError("too deep"), id="recursion"),
+    ],
+)
+def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPatch, exc: BaseException) -> None:
     """A pickle error before any byte is written leaves the child up.
 
     What was wrong: PicklingError escaped execute instead of an error dict.
-    pack_pickle_frame runs before the first write, so the pipe stays aligned.
+    ValueError and RecursionError from pickle.dumps did too, and the HTTP
+    handler turned them into an unhandled 500. pack_pickle_frame runs before
+    the first write, so the pipe stays aligned.
     """
-    import pickle
     from unittest.mock import MagicMock
 
     from compute_service.worker_base import BaseProcessWorker
@@ -1060,7 +1070,7 @@ def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPat
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
         "compute_service.worker_base.write_pickle_frame_with_timeout",
-        MagicMock(side_effect=pickle.PicklingError("cannot pickle")),
+        MagicMock(side_effect=exc),
     )
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)

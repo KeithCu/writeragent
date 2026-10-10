@@ -689,9 +689,9 @@ class BaseProcessWorker:
             if isinstance(ensured, dict):
                 return ensured
             proc, stdin, stdout = ensured
-
-            def _pid() -> int | None:
-                return proc.pid
+            # proc is live here. The nullable pid helper stays in
+            # _ensure_live_process, where the slot may still be empty.
+            pid = proc.pid
 
             try:
                 # The write shares the request deadline. It holds self.lock, so a
@@ -709,16 +709,19 @@ class BaseProcessWorker:
                 # Raised before any byte is written. The child is still the
                 # same kernel; killing it would drop every shared session.
                 return error_dict("PAYLOAD_TOO_LARGE", str(exc))
-            except (pickle.PicklingError, TypeError) as exc:
+            except (pickle.PicklingError, TypeError, ValueError, RecursionError) as exc:
                 # pack_pickle_frame pickles before the first write. These used
-                # to escape execute. The child is still frame-aligned, so it stays.
-                # AttributeError is not included: a shutdown race on
+                # to escape execute. ValueError and RecursionError from
+                # pickle.dumps did too, and the HTTP handler turned them into
+                # an unhandled 500. The child is still frame-aligned, so it
+                # stays. AttributeError is not included: a shutdown race on
                 # self.process used to land here and skip the kill.
+                # MemoryError is not included: the process may be out of memory.
                 return error_dict("REQUEST_NOT_SERIALIZABLE", str(exc))
             except subprocess.TimeoutExpired:
-                return self._fail_timeout(deadline, _pid())
+                return self._fail_timeout(deadline, pid)
             except OSError as exc:
-                return self._fail_request("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}", pid=_pid())
+                return self._fail_request("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}", pid=pid)
 
             try:
                 resp = read_pickle_frame_with_timeout(
@@ -731,16 +734,16 @@ class BaseProcessWorker:
             except subprocess.TimeoutExpired:
                 # The frame never arrived. Kill rather than read it later:
                 # the next caller would consume this response as its own.
-                return self._fail_timeout(deadline, _pid())
+                return self._fail_timeout(deadline, pid)
             except IpcPartialFrameTimeout:
                 # A deadline after the first byte is a timeout, not a crash.
                 # The next read would consume the rest of this frame as a
                 # new response, so the child is killed.
-                return self._fail_timeout(deadline, _pid())
+                return self._fail_timeout(deadline, pid)
             except Exception as exc:
-                return self._fail_request("WORKER_CRASHED", f"{self.worker_name} error: {exc}", pid=_pid())
+                return self._fail_request("WORKER_CRASHED", f"{self.worker_name} error: {exc}", pid=pid)
             if resp is None or not isinstance(resp, dict):
-                return self._fail_request("EMPTY_RESPONSE", f"No response returned from {self.worker_name}.", pid=_pid())
+                return self._fail_request("EMPTY_RESPONSE", f"No response returned from {self.worker_name}.", pid=pid)
             self.tasks_executed += 1
             self._cap_stderr_log()
             return resp
@@ -909,21 +912,19 @@ class BaseProcessPool:
         self._idle.pop(worker, None)
         self._worker_last_active.pop(worker, None)
 
-    def _skip_idle_evict(self, worker: BaseProcessWorker) -> bool:
-        """Return true to leave *worker* running past the idle TTL.
+    def _skip_idle_evict(self, _worker: BaseProcessWorker) -> bool:
+        """Return true to leave *_worker* running past the idle TTL.
 
         Formula sessions override this. The base pool has no session map.
         """
-        _unused = worker
         return False
 
-    def _abandoned_sessions(self, worker: BaseProcessWorker) -> bool:
-        """True when *worker* should be killed before idle TTL elapses.
+    def _abandoned_sessions(self, _worker: BaseProcessWorker) -> bool:
+        """True when *_worker* should be killed before idle TTL elapses.
 
         Formula overrides this for a process whose shared sessions are all
         past the session TTL. The base pool has no session map.
         """
-        _unused = worker
         return False
 
     def is_enabled(self) -> bool:

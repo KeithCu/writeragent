@@ -217,17 +217,17 @@ class FormulaProcessPool(BaseProcessPool):
         current = time.monotonic() if now is None else now
         return any(s.worker is worker and not self._session_past_ttl(s, current) for s in self._sessions.values())
 
-    def _skip_idle_evict(self, worker: BaseProcessWorker) -> bool:
+    def _skip_idle_evict(self, _worker: BaseProcessWorker) -> bool:
         """Keep a shared kernel that is still inside the session TTL.
 
         Idle TTL and session TTL are independent and both default to 3600s.
         Killing a worker that still holds a live session drops that workbook.
         A session TTL of 0 never expires, so any session pins the process.
         """
-        return self._worker_has_fresh_session(worker)
+        return self._worker_has_fresh_session(_worker)
 
-    def _abandoned_sessions(self, worker: BaseProcessWorker) -> bool:
-        """True when every session on *worker* is past the session TTL.
+    def _abandoned_sessions(self, _worker: BaseProcessWorker) -> bool:
+        """True when every session on *_worker* is past the session TTL.
 
         The idle reaper kills that process without waiting for
         ``idle_worker_ttl_sec``. That thread still starts when this TTL is
@@ -238,7 +238,7 @@ class FormulaProcessPool(BaseProcessPool):
             return False
         saw = False
         for sess in self._sessions.values():
-            if sess.worker is not worker:
+            if sess.worker is not _worker:
                 continue
             saw = True
             if not self._session_past_ttl(sess):
@@ -488,7 +488,21 @@ class FormulaProcessPool(BaseProcessPool):
         if session_was_lost and isinstance(res, dict):
             res["session_reset"] = True
         if decode_result and isinstance(res, dict):
-            decoded = decode_worker_result(res)
+            try:
+                decoded = decode_worker_result(res)
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                # What was wrong: json.loads on result_json escaped execute.
+                # The pickle frame was already consumed and tasks_executed
+                # already counted, so killing the child would drop shared
+                # sessions for a bad inner JSON blob.
+                failed = error_dict(
+                    "WORKER_CRASHED",
+                    f"Worker result_json could not be decoded: {exc}",
+                    req_id=req_id,
+                )
+                if session_was_lost:
+                    failed["session_reset"] = True
+                return failed
             if session_was_lost and isinstance(decoded, dict):
                 decoded["session_reset"] = True
             return decoded

@@ -292,8 +292,11 @@ def _write_fd_with_timeout(
 ) -> None:
     """Write *payload* to a POSIX pipe fd, or raise ``TimeoutExpired``.
 
-    A short count already in the pipe desynchronizes the next frame. This
-    raises instead of resuming the rest later. The caller kills the child.
+    A short ``os.write`` resumes in this loop (``offset += written``).
+    The function raises on timeout, a non-positive count, or a dead child.
+    It does not return a partial write for the caller to finish later.
+    ``TimeoutExpired`` can mean a partial frame is already in the pipe;
+    the caller kills that child.
     """
     deadline = time.monotonic() + max(0.0, timeout_sec)
     view = memoryview(payload)
