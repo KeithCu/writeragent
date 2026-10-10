@@ -103,12 +103,10 @@ def _refresh_active_snippet() -> None:
     from plugin.framework.queue_executor import post_to_main_thread
 
     def _apply() -> None:
-        # What was wrong: the tunnel worker read _active_settings_dialog_ref
-        # and the posted lambda closed over that object. The UI thread can
-        # clear the dialog before the lambda runs; QueueExecutor then
-        # swallows the disposed-dialog error and the update is dropped.
-        # Why: re-read under the same lock on the UI thread. If clear won,
-        # there is nothing to update.
+        # The tunnel worker must not close over the dialog. The UI thread can
+        # clear it before this lambda runs; QueueExecutor then swallows the
+        # disposed-dialog error and the update is dropped. Re-read under the
+        # same lock on the UI thread. If clear won, there is nothing to update.
         dlg = _current_settings_dialog()
         if dlg is None:
             return
@@ -129,13 +127,12 @@ def remember_tested_tunnel_url(provider: str, url: str) -> None:
 def clear_tested_provider_tunnel_url(provider: str | None = None) -> None:
     """Drop cached public URLs that are no longer a live tunnel.
 
-    What was wrong: ``sync_mcp_config_snippet`` kept copying
+    ``sync_mcp_config_snippet`` kept copying
     ``_tested_provider_tunnel_urls`` after the tunnel stopped, failed, or
     lost its public URL. Settings copy and the client snippet still showed
-    that dead URL.
-    Why: retiring the provider makes the next sync use the local URL or the
-    provider template. ``remember_tested_tunnel_url`` (Test or a new
-    connect) is what puts a URL back.
+    that dead URL. Retiring the provider makes the next sync use the local
+    URL or the provider template. ``remember_tested_tunnel_url`` (Test or a
+    new connect) is what puts a URL back.
     """
     if provider is None:
         for name in list(_tested_provider_tunnel_urls):
@@ -159,7 +156,7 @@ def notify_tunnel_url_acquired(provider: str, url: str) -> None:
 def _schedule_mcp_snippet_refresh(dlg: Any) -> None:
     """Wait off the UI thread, then refresh the snippet once.
 
-    What was wrong: a running tunnel with no public URL yet made
+    A running tunnel with no public URL yet used to make
     ``sync_mcp_config_snippet`` sleep up to 1.2 seconds on the UI thread.
     Settings open and the tunnel checkbox, provider, and port listeners all
     call it there, so the dialog could not paint. The snippet is already
@@ -193,9 +190,9 @@ def _schedule_mcp_snippet_refresh(dlg: Any) -> None:
 
     from plugin.framework.worker_pool import run_in_background
 
-    # What was wrong: this wait (up to 1.2s) used the shared background
-    # pool. Several Settings saves in a row could pin every pool worker
-    # on the poll. Why: the job is short but must not take a pool slot.
+    # This wait is up to 1.2s. The shared background pool would pin every
+    # worker if several Settings saves queued the poll. The job is short but
+    # must not take a pool slot.
     run_in_background(_wait, name="mcp-snippet-refresh", dedicated=True)
 
 

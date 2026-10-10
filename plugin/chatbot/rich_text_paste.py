@@ -453,15 +453,11 @@ def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> b
     if not isinstance(messages, list):
         return False
     if role == "user":
-        # What was wrong: fold_transcript_chunk returned False when the user
-        # row was already in session.messages (e.g. from add_user_message at send time).
-        # That caused panel._paint_from_list to early-return without painting the session,
-        # so the 'You:' row only appeared upon the first stream chunk. If stopped before
-        # the first token, the 'You:' row was never drawn and '[Stopped by user]' was
-        # appended directly under the greeting.
-        # How it happened: early return on duplicate user row was treated as no-op.
-        # Why this change fixes it: returning True without re-appending ensures
-        # panel._paint_from_list paints the session with the user row immediately upon sending.
+        # A user row already in session.messages (add_user_message at send
+        # time) is still a paint. Returning False makes panel._paint_from_list
+        # skip the session, so 'You:' waits for the first stream chunk and a
+        # Stop before that token draws '[Stopped by user]' under the greeting.
+        # Return True without appending again.
         if not text or not str(text).strip():
             return False
         if messages and messages[-1].get("role") == "user":
@@ -498,11 +494,10 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
     """Plain sidebar text for ``session.messages``. The control is this string."""
     from plugin.framework.i18n import _
 
-    # What was wrong: after File > Reload the plain box showed raw HTML
-    # ("Assistant <p>done</p>") until the rich control took over.
-    # How: panel wiring paints history before the rich control is ready, and
-    # this fallback wrote stored HTML answers verbatim. Why: the plain box is a
-    # text field, so give it the same stripped text the stream stripper shows.
+    # The plain box is a text field. Panel wiring paints history before the
+    # rich control is ready, and writing stored HTML answers verbatim shows
+    # "Assistant <p>done</p>" after File > Reload until the rich control
+    # takes over. Give it the same stripped text the stream stripper shows.
     text = (_plain_fallback_text(greeting) + "\n") if greeting else ""
     messages = getattr(session, "messages", None)
     if not isinstance(messages, list):
@@ -557,8 +552,8 @@ _STOP_BANNER = "[Stopped by user]"
 def _append_stop_banner(items: list[tuple[str, str]], text: str) -> None:
     """Show the stop line as the last paragraph of the answer it stopped.
 
-    What was wrong: the stop line is a separate assistant message whose
-    content is "\n[Stopped by user]\n". Painted as its own row it gave a bold
+    The stop line is a separate assistant message whose content is
+    "\n[Stopped by user]\n". Painted as its own row it gives a bold
     "Assistant:" label with nothing after it, the banner on the next line,
     and a double blank gap before the next "You:" row (every full repaint of a
     stopped turn, and the turn-end format after a Stop). Display only:
@@ -606,14 +601,14 @@ def _replace_control_with_plain(
 def _force_rich_full_reformat(control: Any) -> None:
     """Make the RichTextControl EditEngine lay out the whole control again.
 
-    What was wrong: after clear_control and a bulk refill, the EditEngine drew
-    a layout that disagreed with its own text height. Lines were missing and
-    a gap below the last line grew with the transcript, until the sidebar
-    went blank in long sessions. invalidate() and hide/show did not fix it.
-    Why this fixes it: a paper-width change does. Resizing the peer reaches
+    After clear_control and a bulk refill, the EditEngine draws a layout
+    that disagrees with its own text height. Lines go missing and a gap
+    below the last line grows with the transcript, until the sidebar goes
+    blank in long sessions. invalidate() and hide/show do not fix it. A
+    paper-width change does: resizing the peer reaches
     EditEngine::SetPaperSize (editeng/source/editeng/editeng.cxx), which
-    reformats the whole document when the width changes. Narrow by 1px, then
-    restore.
+    reformats the whole document when the width changes. Narrow by 1px,
+    then restore.
     """
     try:
         ps = control.getPosSize()
@@ -870,10 +865,10 @@ def _copy_formatted_from_hidden_doc_to_control(
 def _plain_fallback_text(text: str) -> str:
     """Visible text when the hidden Writer that formats HTML is missing.
 
-    What was wrong: a missing Writer returned without inserting the message,
-    so the sidebar skipped it. A later regex left ``<script>`` / ``<style>``
-    bodies and disagreed with the chat stream stripper. Use that stripper
-    (it also unescapes entities).
+    A missing Writer must still insert the message, or the sidebar skips
+    it. A later regex leaves ``<script>`` / ``<style>`` bodies and disagrees
+    with the chat stream stripper. Use that stripper (it also unescapes
+    entities).
     """
     from plugin.framework.html_stripper import strip_html_tags
 
@@ -883,9 +878,9 @@ def _plain_fallback_text(text: str) -> str:
 def _rollback_rich_insert(control: Any, before: int | None) -> None:
     """Undo a separator or partial copy that did not finish as a full insert.
 
-    What was wrong: the separator (and any partial copy) stayed in the
-    control when the formatted insert returned false, and cell-link spans
-    recorded for that tail still resolved clicks into deleted text.
+    The separator (and any partial copy) must not stay in the control
+    when the formatted insert returns false, and cell-link spans recorded
+    for that tail must not resolve clicks into deleted text.
     A length of None means the control length could not be read. Truncate
     treats 0 as "delete from the start", so an unknown length must not roll
     back.
@@ -906,8 +901,9 @@ def _plain_role_prefix(role: str) -> str:
 def _plain_append_messages(control: Any, batch: Any, ctx: Any, style_window: Any, auto_scroll: bool = False, *, restore_focus: Any = None) -> bool:
     """Plain transcript rows with the formatted path's role label, color, and gap.
 
-    What was wrong: every row used the assistant color and had no prefix or
-    blank line, so a user turn and the next assistant turn ran together.
+    Each row needs the role prefix, color, and a blank line. Sharing the
+    assistant color with no gap runs a user turn into the next assistant
+    turn.
     """
     wrote = False
     theme = ChatTheme.resolve(style_window=style_window)
@@ -1006,9 +1002,9 @@ def append_rich_messages_via_clipboard(
                 any_inserted = True
                 _scroll_rich_to_tail(control, ctx, restore_focus=restore_focus)
             else:
-                # What was wrong: one bad element failed the batch, the rollback
-                # removed it, and history has no second copy, so up to
-                # HISTORY_RENDER_BATCH_CHARS of messages disappeared.
+                # One bad element must not fail the batch. The rollback
+                # removes it, and history has no second copy, so up to
+                # HISTORY_RENDER_BATCH_CHARS of messages would disappear.
                 log.warning(
                     "append_rich_messages_via_clipboard: batch insert into control failed messages=%d",
                     len(batch),

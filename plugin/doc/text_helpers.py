@@ -55,13 +55,16 @@ def _writer_char_count(model: Any) -> int:
     """Length of the Writer body in cursor steps: the space every offset here uses
     (``get_text_cursor_at_range``, ``get_selection_range``, the chat excerpt reads).
 
-    What was wrong: this returned the ``CharacterCount`` statistic, which leaves out paragraph
-    breaks and text deleted by pending tracked changes (54 chars read as 53; 60 pending edits,
-    2385 against offsets up to 3404). Adding ``ParagraphCount - 1`` puts the breaks back but
-    not the deleted text, which the cursor still steps over. Callers treat it as the end of the offset space, so the
-    chat's [DOCUMENT END] excerpt and get_full_writer_text dropped the end of the document, and a
-    selection at the end came back as (length, length). The statistic was not cheap either: after
-    an edit it recomputes (253 ms on a 348k-char body; this walk took 55 ms).
+    The ``CharacterCount`` statistic leaves out paragraph breaks
+    and text deleted by pending tracked changes (54 chars read as
+    53; 60 pending edits, 2385 against offsets up to 3404). Adding
+    ``ParagraphCount - 1`` puts the breaks back but not the deleted
+    text, which the cursor still steps over. Callers treat this
+    length as the end of the offset space, so the chat's [DOCUMENT
+    END] excerpt and get_full_writer_text drop the end of the
+    document, and a selection at the end comes back as (length,
+    length). The statistic is not cheap either: after an edit it
+    recomputes (253 ms on a 348k-char body; this walk took 55 ms).
 
     Future: if huge-document chat feels slow, cache this length (and the visible
     ``get_document_length`` walk) until the next edit instead of walking every call.
@@ -751,11 +754,13 @@ def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> 
     Returns None on error or invalid range."""
     try:
         check_disposed(model, "Document Model")
-        # What was wrong: both offsets were clamped to get_document_length(), which for Writer is
-        # the CharacterCount statistic -- it leaves out paragraph breaks and tracked deletions, while
-        # offsets (search_in_document return_offsets, getString) count both. On a long document the
-        # range was clamped past its real end and set_selection selected nothing (relato #37).
-        # No clamp is needed at the end: goRight stops at the end of the text on its own.
+        # Offsets are not clamped to get_document_length(). For Writer
+        # that is the CharacterCount statistic -- it leaves out paragraph
+        # breaks and tracked deletions, while offsets
+        # (search_in_document return_offsets, getString) count both. On
+        # a long document the range is clamped past its real end and
+        # set_selection selects nothing (relato #37). No clamp is needed
+        # at the end: goRight stops at the end of the text on its own.
         start_offset = max(0, start_offset)
         end_offset = max(0, end_offset)
         if start_offset > end_offset:
@@ -784,11 +789,11 @@ def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> 
         return None
 
 
-# Bugfix: what was wrong: ast_source_offset used str.splitlines(), which splits on form feed (\x0c),
-# vertical tab (\x0b), U+2028, U+2029, and other Unicode breaks that Python AST line counting does not.
-# How it happened: Python standard str.splitlines() has broader line break semantics than the Python lexer/AST.
-# Why this change fixes it: split lines strictly on \r\n, \r, or \n, matching Python AST line numbering,
-# and precompute line start offsets for O(1) random-access lookups.
+# ast_source_offset splits lines on \r\n, \r, or \n, matching
+# Python AST line numbering. str.splitlines() also splits on form
+# feed (\x0c), vertical tab (\x0b), U+2028, U+2029, and other
+# Unicode breaks the lexer does not. Line-start offsets are
+# precomputed for O(1) random-access lookups.
 _AST_LINE_BREAK_RE = re.compile(r"\r\n|\r|\n")
 
 

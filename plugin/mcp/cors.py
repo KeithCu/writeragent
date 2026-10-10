@@ -123,9 +123,9 @@ def normalize_cors_origin(value: str | None) -> str | None:
     origin = str(value).strip()
     if not origin:
         return None
-    # What was wrong: origins were compared as exact strings without lowercasing scheme/host
-    # or parsing scheme://host[:port], so https://App.Example.com or http://host:80 failed to match.
-    # Why: parse scheme and host into lowercase and canonicalize scheme://host[:port].
+    # Origins are compared after parsing, not as exact strings.
+    # https://App.Example.com and http://host:80 must match the canonical
+    # scheme://host[:port] with scheme and host lowercased.
     try:
         parsed = urlparse(origin)
     except ValueError:

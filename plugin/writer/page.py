@@ -282,11 +282,13 @@ def resolve_page_style(doc: Any, style_name: str = "Standard") -> tuple[Any, str
 def _mm(style: Any, name: str) -> float | None:
     """A 1/100 mm page-style property in mm, or None while LibreOffice leaves it void.
 
-    What was wrong: HeaderHeight, HeaderBodyDistance, FooterHeight and FooterBodyDistance are
-    void (Python None) while that header or footer is off, which is how every new Writer
-    document starts (checked live). ``None / 100.0`` raised TypeError, and the whole read
-    failed with "Error reading properties from page style 'Standard'". Why this fixes it: a
-    void measure is reported as None (not applicable), and the rest of the style still reads.
+    HeaderHeight, HeaderBodyDistance, FooterHeight and
+    FooterBodyDistance are void (Python None) while that header or
+    footer is off, which is how every new Writer document starts
+    (checked live). ``None / 100.0`` raises TypeError, and the whole
+    read fails with "Error reading properties from page style
+    'Standard'". A void measure is reported as None (not applicable),
+    and the rest of the style still reads.
     """
     value = style.getPropertyValue(name)
     return None if value is None else value / 100.0

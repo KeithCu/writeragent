@@ -294,17 +294,14 @@ def _resolve_mcp_doc_key(document_url: str | None, doc: Any) -> str:
 def _arguments_without_thread_guard_bypass(arguments: dict[str, Any]) -> dict[str, Any]:
     """Copy client arguments and drop ``bypass_thread_guard``.
 
-    What was wrong: ``tools/call`` and the localhost ``/debug`` ``call_tool``
-    action spread arguments into ``ToolRegistry.execute``. That parameter is
+    ``tools/call`` and the localhost ``/debug`` ``call_tool`` action spread
+    arguments into ``ToolRegistry.execute``. ``bypass_thread_guard`` is
     keyword-only, so a client value bound to it. The registry then called
     ``tool.execute`` instead of ``execute_safe`` (no disposed-document check)
-    and, for a sync long-running tool, ran UNO on the HTTP worker.
-    How: ``_run_prepared_mcp_execute`` used ``execute(..., **arguments)``.
-    Why: the flag is an internal eval-harness switch. A client argument must
-    not be able to set it. Drop the key and do not pass the keyword at all.
-    The registry then keeps ``execute_safe``. A long-running tool is
-    ``is_async`` with a positive timeout and takes that same path; there is
-    no second call whose only job is to hand the flag to the registry.
+    and, for a sync long-running tool, ran UNO on the HTTP worker. The flag
+    is an internal eval-harness switch. Drop the key and do not pass the
+    keyword at all. The registry then keeps ``execute_safe``. A long-running
+    tool is ``is_async`` with a positive timeout and takes that same path.
     """
     cleaned = dict(arguments)
     cleaned.pop("bypass_thread_guard", None)
@@ -407,9 +404,8 @@ class MCPProtocolHandler:
         self._cancelled_requests: set[tuple[Any, str | int]] = set()
         self._in_flight_requests: dict[tuple[Any, str | int], int] = {}
         self._requests_lock: threading.Lock = threading.Lock()
-        # What was wrong: self.version was unassigned if EXTENSION_VERSION import failed,
-        # causing AttributeError in _mcp_initialize.
-        # Why: assign default 'unknown' before the try.
+        # EXTENSION_VERSION import can fail. Leave "unknown" so
+        # _mcp_initialize does not AttributeError on an unassigned version.
         self.version = "unknown"
         try:
             from plugin.version import EXTENSION_VERSION
@@ -446,11 +442,11 @@ class MCPProtocolHandler:
             return
         document_url = handler.headers.get("X-Document-URL") or None
 
-        # What was wrong: handle_mcp_post registered POST threads via note_sse_keepalive,
-        # causing HttpServer.stop() to join POST threads. If a POST was waiting on the
-        # main-thread queue while stop() ran on the main thread, it could stall or deadlock.
-        # Why: only long-lived SSE streams require keepalive tracking and shutdown; POST
-        # handlers are short-lived daemon threads and must not be joined in stop().
+        # POST threads are short-lived daemons. Registering them via
+        # note_sse_keepalive makes HttpServer.stop() join them. A POST waiting
+        # on the main-thread queue while stop() runs on the main thread can
+        # stall or deadlock. Only long-lived SSE streams need keepalive
+        # tracking and shutdown.
         self._handle_mcp(body, handler, document_url=document_url)
 
     def handle_mcp_sse(self, handler: Any) -> None:
@@ -471,12 +467,12 @@ class MCPProtocolHandler:
 
     def handle_mcp_delete(self, handler: Any) -> None:
         """DELETE /mcp — not supported: one process-wide session must stay alive."""
-        # Bugfix: Nelson a3d69e68 / GitHub #38. Streamable HTTP lets a client
-        # DELETE the session URL to end it. WriterAgent has one session id for
-        # the whole soffice process, shared by every client. Returning 200
-        # claimed the session ended when it did not; clearing the id would cut
-        # every other client off. 405 tells spec clients the session is still
-        # here. They recover on 404 (stale id after restart), not 409 or 200.
+        # Nelson a3d69e68 / GitHub #38. Streamable HTTP lets a client DELETE
+        # the session URL to end it. WriterAgent has one session id for the
+        # whole soffice process, shared by every client. Returning 200 claimed
+        # the session ended when it did not; clearing the id would cut every
+        # other client off. 405 tells spec clients the session is still here.
+        # They recover on 404 (stale id after restart), not 409 or 200.
         log_mcp_transport_entry(handler, "mcp")
 
         def _headers(h: Any) -> None:
@@ -505,12 +501,12 @@ class MCPProtocolHandler:
     def _run_sse_keepalive_loop(self, handler: Any, interval: float = 15) -> None:
         """Keep an SSE stream alive until the client drops or the HTTP server stops.
 
-        What was wrong: this loop ran on the ThreadingMixIn request thread
-        until the socket errored. HttpServer.stop() only ends
-        serve_forever(), so each toggle left another daemon thread in
-        select() for up to ``interval`` seconds, including across restart.
-        Why: register the socket, watch this generation's stop event, and
-        leave when stop() shuts the socket down (that wakes select).
+        This loop runs on the ThreadingMixIn request thread until the socket
+        errors. HttpServer.stop() only ends serve_forever(), so each toggle
+        would leave another daemon thread in select() for up to ``interval``
+        seconds, including across restart. Register the socket, watch this
+        generation's stop event, and leave when stop() shuts the socket down
+        (that wakes select).
         """
         sock = handler.connection
         tcp_server = getattr(handler, "server", None)
@@ -691,10 +687,10 @@ class MCPProtocolHandler:
             if responses:
                 self._send_json(handler, 200, responses)
             else:
-                # What was wrong: passing _send_mcp_response_headers directly
-                # calls it with session_id=None, so a notifications-only batch
-                # omitted Mcp-Session-Id. A single notification already passed
-                # the process id. Why: use that same lambda.
+                # Passing _send_mcp_response_headers directly calls it with
+                # session_id=None, so a notifications-only batch omits
+                # Mcp-Session-Id. A single notification already passes the
+                # process id. Use that same lambda.
                 write_http_empty(handler, 202, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
             return
 
@@ -720,9 +716,9 @@ class MCPProtocolHandler:
         # _validate_http_protocol_version answers 400 to every later request.
         client_version = params.get("protocolVersion", MCP_PROTOCOL_VERSION)
         if not isinstance(client_version, str):
-            # What was wrong: non-string protocolVersion raised TypeError on set membership,
-            # returning HTTP 500 instead of a JSON-RPC error.
-            # Why: MCP specification requires protocolVersion to be a string; return INVALID_PARAMS.
+            # protocolVersion must be a string. A non-string raises TypeError
+            # on set membership and becomes HTTP 500 instead of a JSON-RPC
+            # INVALID_PARAMS error.
             raise ValueError("protocolVersion must be a string")
         if client_version not in _SUPPORTED_HTTP_PROTOCOL_VERSIONS:
             client_version = MCP_PROTOCOL_VERSION
@@ -869,12 +865,10 @@ class MCPProtocolHandler:
         tool = self.tool_registry.get(tool_name)
         if tool:
             tier = getattr(tool, "tier", "core")
-            # What was wrong: mode != "direct_flat" used MCP_DELEGATE_EXCLUDE_TIERS,
-            # which excludes "specialized" tools. In direct_discovery mode,
-            # find_tools advertises specialized tools, but invoking them failed here.
-            # How it happened: only direct_flat was checked when setting exclude_tiers.
-            # Why this change: direct_discovery also allows calling specialized tools
-            # directly; only specialized_control and chat are excluded.
+            # direct_discovery advertises specialized tools via find_tools, so
+            # invoking them must work. MCP_DELEGATE_EXCLUDE_TIERS excludes
+            # "specialized". Both direct modes use MCP_DIRECT_FLAT_EXCLUDE_TIERS
+            # (specialized_control and chat only).
             if mode in ("direct_flat", "direct_discovery"):
                 exclude_tiers = MCP_DIRECT_FLAT_EXCLUDE_TIERS
             else:
@@ -967,9 +961,8 @@ class MCPProtocolHandler:
             return (400, wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"))
 
         # Handle cancellation notifications globally.
-        # What was wrong: cancellations were keyed by JSON-RPC id alone, allowing
-        # one client to cancel another client's request with the same id.
-        # Why: key cancellations by (session, requestId) for client isolation.
+        # Key cancellations by (session, requestId). An id alone lets one
+        # client cancel another client's request that reused the same id.
         if msg.get("method") == "notifications/cancelled":
             params = msg.get("params")
             req_id_to_cancel = params.get("requestId") if isinstance(params, dict) else None
@@ -1054,14 +1047,12 @@ class MCPProtocolHandler:
         HTTP worker. Document resolve and the tool body are marshalled to the
         VCL main thread. UNO still runs only on that thread.
 
-        What was wrong: the gate acquire lived inside ``_execute_tool_on_main``,
-        which this method dispatched as one main-thread job. A long-running
-        mutator already holding the gate (on its worker) made the UI thread
-        block for up to the 30s gate timeout, and that mutator could not
-        marshal its own UNO work until the wait gave up with BusyError.
-        How: ``queue_executor.execute(_execute_tool_on_main)`` held the main
-        thread across ``_document_mutation_gate``.
-        Why: wait for the gate here, then dispatch only the tool body.
+        The gate used to be acquired inside ``_execute_tool_on_main``, which
+        this method dispatched as one main-thread job. A long-running mutator
+        already holding the gate (on its worker) made the UI thread block for
+        up to the 30s gate timeout, and that mutator could not marshal its own
+        UNO work until the wait gave up with BusyError. Wait for the gate
+        here, then dispatch only the tool body.
         """
         acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
         if not acquired:

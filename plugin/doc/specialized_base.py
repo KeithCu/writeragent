@@ -82,9 +82,9 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
     try:
         return bool(queue_executor.execute_on_main_thread(_probe))
     except Exception as e:
-        # What was wrong: cancelling peer-work logged warning with empty message because str(e) is empty.
-        # How it happened: string interpolation %s converted empty exceptions like CancelledError() to "".
-        # Why this change fixes it: %r prints exception class name and repr so context is preserved.
+        # Cancelling peer-work must not log a warning with an empty
+        # message. str(CancelledError()) is "", and %s interpolates that
+        # to nothing. %r prints the exception class and repr.
         log.warning("peer-work turn probe failed: %r", e)
         return False
 
@@ -312,14 +312,14 @@ class DelegateToSpecializedBase(ToolBase):
         def _note_peer_send_result(name: str, result: Any) -> None:
             """Record delivery only after the tool returns accepted.
 
-            What was wrong: tool_call_handler set peer_result_send_invoked when
-            the model called send_peer_result, before the tool ran. A
-            PEER_NOT_FOUND / PEER_SIDEBAR_NOT_OPEN / PEER_QUEUE_FULL /
-            PEER_NOT_CHAT_MODE payload still looked like delivery, so
-            annotate_outer_peer_wait stamped idle-after-send and skipped
-            delivery-still-required. The asking peer waited for a reply that
-            was never queued. Why this change: the adapter sees the real
-            return value. Only status ok and accepted true counts.
+            peer_result_send_invoked is set only after the tool returns
+            accepted. Setting it when the model calls send_peer_result,
+            before the tool runs, treats a PEER_NOT_FOUND /
+            PEER_SIDEBAR_NOT_OPEN / PEER_QUEUE_FULL / PEER_NOT_CHAT_MODE
+            payload as delivery. annotate_outer_peer_wait then stamps
+            idle-after-send and skips delivery-still-required. The asking
+            peer waits for a reply that was never queued. The adapter sees
+            the real return value. Only status ok and accepted true counts.
             """
             nonlocal peer_send_invoked, peer_result_send_invoked
             if domain != "document_research":

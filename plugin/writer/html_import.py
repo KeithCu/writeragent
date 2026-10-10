@@ -200,11 +200,11 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
         base, reading, is_above = item[0], item[1], item[2] if len(item) > 2 else True
         if not base or not reading:
             continue
-        # What was wrong: haystack.find(base, pos) bound RubyText to the first
-        # copy of the base. 漢字 before <ruby>漢字<rt>…</rt></ruby> took the
-        # reading. How it happened: extract kept only the base string, so the
-        # later search had no position. Why this fixes it: the span's fourth
-        # item is that base's visible-text offset, and the search starts there.
+        # haystack.find(base, pos) binds RubyText to the first copy of the
+        # base. 漢字 before <ruby>漢字<rt>…</rt></ruby> takes the reading
+        # when extract keeps only the base string and the later search has
+        # no position. The span's fourth item is that base's visible-text
+        # offset, and the search starts there.
         start = pos
         if len(item) > 3 and isinstance(item[3], int) and item[3] >= 0:
             start = max(pos, anchor + item[3])
@@ -279,10 +279,11 @@ class _BlockLoStyleExtractor(HTMLParser):
         return tag in xhtml_post.BLOCK_TAGS or (tag == "div" and self._style_of(attrs) is not None)
 
     def _slot(self, val: str | None) -> None:
-        # What was wrong: <blockquote><p> and <li><p> took two slots but make ONE Writer
-        # paragraph, so every later style landed one paragraph late ("2. DO DIREITO" lost its
-        # heading, a list item became a quote). Why this fixes it: a block's first child block
-        # is that same paragraph -- it shares the slot, and its own style wins when it has one.
+        # <blockquote><p> and <li><p> take two slots but make ONE Writer
+        # paragraph, so every later style lands one paragraph late ("2. DO
+        # DIREITO" loses its heading, a list item becomes a quote). A
+        # block's first child block is that same paragraph -- it shares
+        # the slot, and its own style wins when it has one.
         parent = self._open[-1] if self._open else None
         if parent is not None and parent[1] is False and self.styles:
             parent[1] = True
@@ -454,12 +455,13 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: li
         if not (hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph")):
             continue
         if i >= start_idx:
-            # What was wrong: with more styled blocks than imported paragraphs, the leftover
-            # styles went on to the paragraphs after the import -- in review mode the old text a
-            # full_document had just deleted. A paragraph style on deleted text turns its Delete
-            # into a Format change, so "Accept all" kept the old header glued into one paragraph
-            # (relatos #35/#40, reproduced live). *end* is a cursor parked after the import:
-            # stop at the first paragraph that does not start before it.
+            # With more styled blocks than imported paragraphs, leftover styles
+            # go onto the paragraphs after the import -- in review mode, the
+            # old text a full_document just deleted. A paragraph style on
+            # deleted text turns its Delete into a Format change, so "Accept
+            # all" keeps the old header glued into one paragraph (relatos
+            # #35/#40, reproduced live). *end* is a cursor parked after the
+            # import: stop at the first paragraph that does not start before it.
             if end is not None and text_obj.compareRegionStarts(el.getStart(), end) != 1:
                 break
             paras.append(el)
@@ -566,14 +568,17 @@ def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> st
 def _parked_cursor(cursor: Any) -> Any:
     """A cursor parked at *cursor*'s end, in the same ``XText``.
 
-    What was wrong: multi-segment inserts moved the cursor to the END OF THE BODY after each
-    segment, which only works when inserting at the end. A search replace whose content had math
-    left "[Math import failed] ..." and the rest of the content orphaned at the end of the
-    document (relatos #46/#47/#48), and any cursor in a frame, cell or header raised an empty
-    RuntimeException (#52): it cannot go to a range in another text. Why this fixes it: the HTML
-    import, ``insertString`` and ``insertTextContent`` all leave a cursor parked at the insert
-    point AFTER what they insert (checked live; the import leaves *cursor* itself BEFORE it), so
-    going back to the parked cursor continues right after the content, in any text.
+    Multi-segment inserts must not move the cursor to the END OF THE
+    BODY after each segment. That only works when inserting at the
+    end. A search replace whose content has math leaves "[Math import
+    failed] ..." and the rest of the content orphaned at the end of
+    the document (relatos #46/#47/#48), and any cursor in a frame,
+    cell or header raises an empty RuntimeException (#52): it cannot
+    go to a range in another text. The HTML import, ``insertString``
+    and ``insertTextContent`` all leave a cursor parked at the insert
+    point AFTER what they insert (checked live; the import leaves
+    *cursor* itself BEFORE it), so going back to the parked cursor
+    continues right after the content, in any text.
     """
     return cursor.getText().createTextCursorByRange(cursor.getEnd())
 
@@ -1171,12 +1176,15 @@ def _replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any =
     if not _is_recording_changes(model):
         _insert_mixed_or_plain_html(model, ctx, cursor, content, config_svc=config_svc)
         return
-    # What was wrong: in review mode the deleted text stays in place, and the import at its start
-    # took the character formatting of the first old paragraph as direct formatting -- a document
-    # opening with an 18pt bold heading came back 18pt bold throughout (reproduced live; the
-    # data-lo-style pass then kept it as a "hand-set" override). Why this fixes it: import into a
-    # fresh empty paragraph opened before the deleted text, then drop that paragraph if it is left
-    # over empty (the import puts its blocks before it) -- a tracked insertion swallows the break.
+    # In review mode the deleted text stays in place, and an import at
+    # its start takes the character formatting of the first old
+    # paragraph as direct formatting -- a document opening with an 18pt
+    # bold heading comes back 18pt bold throughout (reproduced live;
+    # the data-lo-style pass then keeps it as a "hand-set" override).
+    # Import into a fresh empty paragraph opened before the deleted
+    # text, then drop that paragraph if it is left over empty (the
+    # import puts its blocks before it) -- a tracked insertion swallows
+    # the break.
     text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
     cursor.goLeft(1, False)
     leftover = text.createTextCursorByRange(cursor.getStart())
@@ -1451,10 +1459,10 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
 def _restore_xtext_string(text_obj: Any, original: str) -> None:
     """Write *original* back into *text_obj* after a failed import.
 
-    What was wrong: ``replace_xtext_with_html`` cleared the header or footer
-    before StarWriter import. A failed ``insertDocumentFromURL`` left the
-    region empty. Why this fixes it: the previous characters are put back.
-    Direct formatting and live fields are not reconstructed; the region is
+    ``replace_xtext_with_html`` clears the header or footer before
+    StarWriter import. A failed ``insertDocumentFromURL`` leaves the
+    region empty unless the previous characters are put back. Direct
+    formatting and live fields are not reconstructed; the region is
     not left blank.
     """
     try:

@@ -918,9 +918,9 @@ def compact_session(
     while estimate_tokens(summary_pair(summary)) > budget and len(summary) > 32:
         summary = cap_summary(summary, max(32, len(summary) * 3 // 4))
 
-    # What was wrong: Clear replaces session.messages while this call is
-    # blocked in the summarizer. Assigning compaction afterwards wrote a
-    # summary of the deleted chat onto the new list.
+    # Clear replaces session.messages while this call is blocked in the
+    # summarizer. Skip the assign when the list has changed, or the summary
+    # of the deleted chat lands on the new one.
     if session.messages is not messages:
         return CompactResult(False, "aborted", before, before)
 

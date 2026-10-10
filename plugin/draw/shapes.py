@@ -335,10 +335,10 @@ class GetDrawSummary(ToolDrawShapeBase):
         except IndexError:
             return self._tool_error("Invalid page index: %s" % actual_idx)
         except Exception as exc:
-            # What was wrong: a disposed document was reported as "No draw page".
-            # How: resolve_slide raises DisposedException, and this handler
-            # treated every other Exception as a missing page.
-            # Why this works: re-raise disposal so the tool layer reports it.
+            # A disposed document is not "No draw page". resolve_slide
+            # raises DisposedException; treating every other Exception as a
+            # missing page hides disposal. Re-raise disposal so the tool
+            # layer reports it.
             if is_disposed_exception(exc):
                 raise
             return self._tool_error("No draw page available.")
@@ -371,15 +371,14 @@ class DrawShapes:
     def _is_valid_size(self, size: Any, shape_type: str | None = None) -> bool:
         """Reject a size LibreOffice will not use as a shape box.
 
-        What was wrong: ``Width <= 0`` or ``Height <= 0`` raised
-        ``DRAW_INVALID_SIZE``, so ``shape_upsert`` with ``shape_type``
-        ``line`` could not create a horizontal or vertical line.
-        How it happened: the check treated every shape like a rectangle.
-        A ``LineShape`` uses its bounding box; an axis-aligned line has a
-        zero width (vertical) or a zero height (horizontal).
-        Why this fixes it: ``LineShape`` may have one zero side. Other
-        shapes still need both sides positive. A negative side, or both
-        sides zero, is still invalid.
+        ``Width <= 0`` or ``Height <= 0`` must not raise
+        ``DRAW_INVALID_SIZE`` for ``shape_type`` ``line``. A horizontal
+        or vertical line is a valid shape. Treating every shape like a
+        rectangle rejects it: a ``LineShape`` uses its bounding box, and
+        an axis-aligned line has a zero width (vertical) or a zero
+        height (horizontal). ``LineShape`` may have one zero side.
+        Other shapes still need both sides positive. A negative side,
+        or both sides zero, is still invalid.
         """
         if not hasattr(size, "Width") or not hasattr(size, "Height"):
             return False
@@ -680,11 +679,11 @@ class UpsertShape(ToolDrawShapeBase):
         try:
             page = bridge.get_pages().getByIndex(actual_idx)
         except Exception as exc:
-            # What was wrong: DisposedException became "Invalid page index".
-            # How: get_pages/getByIndex raise when the document is gone, and
-            # this handler mapped every Exception to a bad index.
-            # Why this works: re-raise disposal; a real bad index still
-            # returns the page-index error.
+            # DisposedException is not "Invalid page index".
+            # get_pages/getByIndex raise when the document is gone, and
+            # mapping every Exception to a bad index hides disposal.
+            # Re-raise disposal; a real bad index still returns the
+            # page-index error.
             if is_disposed_exception(exc):
                 raise
             return self._tool_error("Invalid page index: %s" % actual_idx)
@@ -902,16 +901,18 @@ class ConnectShapes(ToolDrawShapeBase):
 def _create_shape_collection(uno_ctx: Any) -> Any:
     """Temporary ``XShapes`` bag for ``XDrawPage.group``.
 
-    What was wrong: ``doc.createInstance("com.sun.star.drawing.ShapeCollection")``
+    ``doc.createInstance("com.sun.star.drawing.ShapeCollection")``
     fails. LibreOffice 26 Writer and Draw raise
-    ``ServiceNotRegisteredException: unknown service: com.sun.star.drawing.ShapeCollection``.
-    Calc's document factory returns None.
-    How it happened: ``ShapeCollection`` is not a document-factory service. It is
-    the global implementation ``com.sun.star.drawing.SvxShapeCollection``
-    (LibreOffice ``services.rdb``). ``XMultiServiceFactory`` on the document only
-    creates services that factory registers.
-    Why this fixes it: the component-context service manager creates that global
-    service, and ``XDrawPage.group`` accepts it (Writer ``AT_PAGE`` shapes, Draw, Calc).
+    ``ServiceNotRegisteredException: unknown service:
+    com.sun.star.drawing.ShapeCollection``. Calc's document factory
+    returns None. ``ShapeCollection`` is not a document-factory
+    service. It is the global implementation
+    ``com.sun.star.drawing.SvxShapeCollection`` (LibreOffice
+    ``services.rdb``). ``XMultiServiceFactory`` on the document
+    only creates services that factory registers. The
+    component-context service manager creates that global service,
+    and ``XDrawPage.group`` accepts it (Writer ``AT_PAGE`` shapes,
+    Draw, Calc).
     """
     from plugin.framework.uno_context import get_service_manager
 
@@ -1000,11 +1001,11 @@ def _resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any |
     try:
         page = bridge.get_pages().getByIndex(actual_idx)
     except Exception as exc:
-        # What was wrong: align/distribute/diagram reported a disposed page
-        # as "Invalid page index". How: getByIndex raises DisposedException
-        # and this handler treated every Exception as a bad index.
-        # Why this works: re-raise disposal; a real bad index still returns
-        # the page-index error to the caller.
+        # align/distribute/diagram must not report a disposed page as
+        # "Invalid page index". getByIndex raises DisposedException, and
+        # treating every Exception as a bad index hides disposal.
+        # Re-raise disposal; a real bad index still returns the
+        # page-index error to the caller.
         if is_disposed_exception(exc):
             raise
         return None, actual_idx, "Invalid page index: %s" % actual_idx

@@ -79,10 +79,10 @@ def _stop_event(busy_key: str) -> threading.Event:
 def _chat_stop_requested() -> bool:
     """True when sidebar Stop has latched the active send scope.
 
-    What was wrong: Stop did nothing for the rest of a chat-owned Run All.
-    How: the chat Stop button only cancels ``SendCancellation``. Run All
-    watched the notebook Event, which that button never sets.
-    Why: the scope is on this thread, and ``_clear_stop`` does not reset it.
+    Chat Stop cancels ``SendCancellation`` only. Run All must read that
+    scope (it is on this thread, and ``_clear_stop`` does not reset it).
+    The notebook Event is never set by that button, so watching it left
+    the rest of a chat-owned Run All running.
     """
     from plugin.framework.queue_executor import get_current_send_cancellation
 
@@ -1211,15 +1211,13 @@ def find_run_from_here_index(doc: Any, state: NotebookDocState) -> int:
 def _pump_between_notebook_cells(ctx: Any) -> None:
     """Deliver a Stop click between cells.
 
-    What was wrong: Stop was ignored for the rest of a chat-owned Run All.
-    How: ``flush_ui_idle`` calls ``process_events_to_idle``, which does not
-    pump while a drain owner is set. The event-driven drain has already
-    returned, but it still holds the owner across slices, so between-cell
-    ``flush_ui_idle`` no-ops and chat Stop never runs.
-    Why: while an owner is set, call ``pump_ui_idle`` (depth 1 still
-    delivers VCL). With no owner, keep ``flush_ui_idle`` (hamburger Stop,
-    and the tests that patch it). Do not pump inside ``execute_code``
-    (LayoutIdle).
+    While a drain owner is set, call ``pump_ui_idle`` (depth 1 still
+    delivers VCL). ``flush_ui_idle`` calls ``process_events_to_idle``, which
+    does not pump while an owner is set. The event-driven drain has already
+    returned but still holds the owner across slices, so between-cell
+    ``flush_ui_idle`` no-ops and chat Stop never runs. With no owner, keep
+    ``flush_ui_idle`` (hamburger Stop, and the tests that patch it). Do not
+    pump inside ``execute_code`` (LayoutIdle).
     """
     try:
         from plugin.framework.async_drain_guard import get_drain_owner

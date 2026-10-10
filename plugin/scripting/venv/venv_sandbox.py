@@ -56,15 +56,20 @@ _SESSION_EXECUTORS: dict[str, LocalPythonExecutor] = {}
 _SESSION_LOCK = threading.Lock()
 _MAX_ISOLATED_INIT_SNAPSHOTS = 32
 _ISOLATED_INIT_LRU: OrderedDict[str, None] = OrderedDict()
+# Init scripts run once in calc:{workbook}:init; isolated cells seed from that snapshot.
+_INIT_SCRIPT_HASH: dict[str, str] = {}
+_CELL_SESSION_INIT_DIGEST: dict[str, str] = {}
 
 
 def _record_isolated_init_access_unlocked(init_session_id: str) -> None:
     _ISOLATED_INIT_LRU[init_session_id] = None
     _ISOLATED_INIT_LRU.move_to_end(init_session_id)
     while len(_ISOLATED_INIT_LRU) > _MAX_ISOLATED_INIT_SNAPSHOTS:
-        oldest, _ = _ISOLATED_INIT_LRU.popitem(last=False)
-        _SESSION_EXECUTORS.pop(oldest, None)
-        _INIT_SCRIPT_HASH.pop(oldest, None)
+        oldest = next(iter(_ISOLATED_INIT_LRU))
+        # Same path as an explicit reset: executor, hash, DuckDB, and the LRU slot.
+        # The pop after clear is what stops the loop if the id is not isolated:.
+        _clear_init_session_unlocked(oldest)
+        _ISOLATED_INIT_LRU.pop(oldest, None)
 
 # Cell / RPS session for the current execute. Isolated runs leave this None so
 # DuckDB and similar caches stay per-request. Init-only ids are not stored here
@@ -91,15 +96,21 @@ def sandbox_execute_active() -> bool:
 def _install_timeout_context_pool() -> None:
     """Copy sandbox ContextVars onto the SIGALRM fallback thread.
 
-    What was wrong: ``local_python_executor.timeout`` runs the cell on a
-    ``ThreadPoolExecutor`` worker when SIGALRM cannot be installed (Windows,
-    or not the main thread). That worker starts with an empty context, so
-    ``current_sandbox_session_id`` and ``sandbox_execute_active`` were the
-    defaults and ``session_duckdb(other_id)`` opened another workbook.
-    Why this works: the vendored timeout looks up ``ThreadPoolExecutor`` on
-    its module when the fallback runs. Submit through ``copy_context().run``
-    so the worker sees the session ``run_sandboxed_code`` just set. The
-    vendored file stays unchanged; it must keep using that module global.
+    ``local_python_executor.timeout`` runs the cell on a ``ThreadPoolExecutor``
+    worker when SIGALRM cannot be installed (Windows, or not the main thread).
+    That worker starts with an empty context, so the session id and the
+    execute flag would be the defaults and ``session_duckdb(other_id)`` would
+    open another workbook.
+
+    The vendored timeout looks up ``ThreadPoolExecutor`` on its module when
+    the fallback runs. Submit through ``copy_context().run`` so the worker
+    sees the session ``run_sandboxed_code`` just set. The vendored file stays
+    unchanged; it must keep using that module global.
+
+    That fallback thread cannot be killed. After a timeout,
+    ``_run_on_executor`` restores ``result`` and returns while the orphan
+    may still mutate the shared executor. Copying context does not close
+    that race; Python will not let us stop the thread.
     """
     import contextvars
     from concurrent.futures import ThreadPoolExecutor
@@ -151,14 +162,12 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     except ImportError:
         return
 
-    # Bugfix: run_sql used to ignore its scoped_dir argument and then read
-    # executor.state["scoped_dir"]. Bindings inject the host folder, but the
-    # cell can assign scoped_dir (set_value writes that state) before calling
-    # run_sql, and resolve_flat_file_path then accepted files under the
-    # rewritten folder. Capture the host path at inject time — after bindings,
-    # before user code — and do not consult state again.
-    # run_sandboxed_code drops a previous execute's scoped_dir before bindings,
-    # so this read is only the folder this execute actually bound.
+    # Capture the host folder at inject time — after bindings, before user
+    # code — and do not read executor.state["scoped_dir"] again. The cell can
+    # assign scoped_dir before calling run_sql, and resolve_flat_file_path
+    # would then accept files under that folder. run_sandboxed_code drops a
+    # previous execute's scoped_dir before bindings, so this read is only the
+    # folder this execute actually bound.
     host_scoped_dir = executor.state.get("scoped_dir")
     if not isinstance(host_scoped_dir, str) or not host_scoped_dir.strip():
         host_scoped_dir = None
@@ -182,12 +191,11 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     executor.custom_tools.update(helpers)
 
 
-# Init scripts run once in calc:{workbook}:init; isolated cells seed from that snapshot.
-_INIT_SCRIPT_HASH: dict[str, str] = {}
-_CELL_SESSION_INIT_DIGEST: dict[str, str] = {}
 _INIT_STATE_SKIP_KEYS = frozenset(
     {
         "__name__",
+        # _snapshot_init_bindings already drops key.startswith("_"). These two
+        # stay so a future filter change does not seed the framework counters.
         "_print_outputs",
         "_operations_count",
         "result",
@@ -225,7 +233,10 @@ def is_module_imported(code_str: str, module_name: str) -> bool:
     return False
 
 
-_OPTIONAL_MODULE_LOCK = threading.Lock()
+# RLock: a module that calls optional_module during its own import on this
+# thread must re-enter. A plain Lock deadlocks there. The nested call then
+# takes the "still initializing → None" path inside the lock.
+_OPTIONAL_MODULE_LOCK = threading.RLock()
 
 
 def optional_module(name: str) -> Any | None:
@@ -240,11 +251,10 @@ def optional_module(name: str) -> Any | None:
             spec = getattr(mod, "__spec__", None)
             if spec is None or not getattr(spec, "_initializing", False):
                 return mod
-            # What was wrong: importlib.import_module returns the same partial
-            # module already in sys.modules while spec._initializing is set, so
-            # the lock did not mean "wait until the import finishes."
-            # Why this works: another thread still owns that import. None is
-            # "not ready", which is what the check above the lock already does.
+            # import_module returns the partial module already in sys.modules
+            # while spec._initializing is set, so holding the lock does not
+            # mean the import has finished. Another thread still owns it.
+            # None is "not ready", same as the check above the lock.
             return None
         try:
             return importlib.import_module(name)
@@ -266,8 +276,8 @@ def apply_auto_imports(code: str) -> tuple[str, int]:
     return "\n".join(prepended_lines) + "\n" + code, len(prepended_lines)
 
 
-def _parse_bound_names(code_str: str) -> set[str]:
-    """Return names bound (assigned, defined, or imported) in *code_str*.
+def _scan_user_code(code_str: str) -> tuple[set[str], set[str]] | None:
+    """Bound names and imported module strings from one parse.
 
     Known edge case: ast.walk also sees names bound inside function bodies,
     lambdas and comprehensions, so ``def f(): dt = 1`` skips the ``dt``
@@ -277,9 +287,10 @@ def _parse_bound_names(code_str: str) -> set[str]:
     try:
         tree = ast.parse(code_str)
     except SyntaxError:
-        return set()
+        return None
 
     bound: set[str] = set()
+    imported: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
             bound.add(node.id)
@@ -288,21 +299,92 @@ def _parse_bound_names(code_str: str) -> set[str]:
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 bound.add(alias.asname or alias.name.split(".")[0])
+                imported.add(alias.name)
         elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                imported.add(node.module)
             for alias in node.names:
                 bound.add(alias.asname or alias.name)
-    return bound
+    return bound, imported
+
+
+def _code_imports_module(imported: set[str], module_name: str) -> bool:
+    prefix = module_name + "."
+    return any(name == module_name or name.startswith(prefix) for name in imported)
+
+
+def _module_binds_name(code: str, name: str) -> bool:
+    """True when *code* stores *name* in the module state the executor keeps.
+
+    Smolagents runs function, class, and lambda bodies on a copied dict and
+    does not write those assignments back. Comprehension targets, filters,
+    and elements also use a copy; the iter expression does not.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+    return _node_binds_module_name(tree, name)
+
+
+def _node_binds_module_name(node: ast.AST, name: str) -> bool:
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if child.name == name:
+                return True
+            continue
+        if isinstance(child, ast.Lambda):
+            continue
+        if isinstance(child, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            for comp in child.generators:
+                if _node_binds_module_name(comp.iter, name):
+                    return True
+            continue
+        # ``result: int`` has a Store target but evaluate_annassign does not
+        # write the name unless there is a value.
+        if isinstance(child, ast.AnnAssign) and child.value is None:
+            if _node_binds_module_name(child.annotation, name):
+                return True
+            continue
+        if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store) and child.id == name:
+            return True
+        if isinstance(child, ast.Import):
+            for alias in child.names:
+                bound = alias.asname or alias.name.split(".")[0]
+                if bound == name:
+                    return True
+            continue
+        if isinstance(child, ast.ImportFrom):
+            for alias in child.names:
+                if (alias.asname or alias.name) == name:
+                    return True
+            continue
+        if _node_binds_module_name(child, name):
+            return True
+    return False
 
 
 def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
     """Inject auto imports into executor state if not already bound or imported in code."""
-    bound_names = _parse_bound_names(code)
+    scanned = _scan_user_code(code)
+    if scanned is None:
+        bound_names: set[str] = set()
+        imported: set[str] | None = None
+    else:
+        bound_names, imported = scanned
     bindings = {}
     for module_name, import_stmt in AUTO_IMPORTS.items():
         alias = import_stmt.split(" as ")[-1].strip() if " as " in import_stmt else module_name
         if alias in bound_names or alias in executor.state:
             continue
-        if not is_module_imported(code, module_name):
+        # SyntaxError keeps is_module_imported's substring fallback. A cell
+        # that fails to parse never runs, but the executor is reused.
+        already = (
+            is_module_imported(code, module_name)
+            if imported is None
+            else _code_imports_module(imported, module_name)
+        )
+        if not already:
             mod = optional_module(module_name)
             if mod is not None:
                 bindings[alias] = mod
@@ -345,9 +427,8 @@ def _coerce_host_pickle_scalar(obj: Any, pd_mod: Any) -> Any:
         return _coerce_host_pickle_scalar(converted, pd_mod)
     if converted is not obj:
         return converted
-    # What was wrong: child_pack turns a bare np.int64 into a Python int, but a
-    # grid of those scalars took the list path and skipped that. The boundary
-    # check then rejected the grid. .item() is the Python value the host can unpickle.
+    # .item() is the Python value the host can unpickle. A grid of np.int64
+    # has to take this path too, or the boundary check rejects the grid.
     np_mod = optional_module("numpy")
     if np_mod is not None and isinstance(obj, np_mod.generic):
         try:
@@ -362,6 +443,20 @@ def _coerce_host_pickle_scalar(obj: Any, pd_mod: Any) -> Any:
     return obj
 
 
+def _set_or_list(original: set[Any] | frozenset[Any], elements: list[Any]) -> Any:
+    """Rebuild *original*'s set type, or a list when an element is unhashable.
+
+    ``range`` becomes a list and a matplotlib Figure becomes a dict. Either
+    is unhashable, and rebuilding the set would raise after the cell already
+    succeeded. Hashable elements stay a set. Unhashable ones become a list
+    the host unpickler accepts.
+    """
+    try:
+        return type(original)(elements)
+    except TypeError:
+        return elements
+
+
 def _coerce_host_pickle_tree(
     obj: Any,
     pd_mod: Any,
@@ -371,12 +466,11 @@ def _coerce_host_pickle_tree(
 ) -> Any:
     """Turn containers into values the host unpickler accepts.
 
-    What was wrong: a self-referential list recursed until RecursionError.
-    ``_reject_host_unpickleable`` already stops at ``_HOST_PICKLE_MAX_DEPTH``,
-    but it runs after this walk, so a cycle never reached it.
-    Why this works: ``seen`` is the current path (add, then discard), so a
-    DAG that mentions the same list twice still coerces. A cycle or a nest
-    past the depth cap is a script error instead of a worker crash.
+    ``seen`` is the current path (add, then discard), so a DAG that mentions
+    the same list twice still coerces. A cycle or a nest past the depth cap
+    is a script error. ``_reject_host_unpickleable`` stops at the same depth,
+    but it runs after this walk, so a cycle would recurse until RecursionError
+    if this walk did not track the path.
     """
     if depth > _HOST_PICKLE_MAX_DEPTH:
         raise ValueError("Result is too deeply nested to cross the LibreOffice pickle boundary")
@@ -407,9 +501,11 @@ def _coerce_host_pickle_tree(
             return [_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj]
         if isinstance(obj, tuple):
             return tuple(_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj)
-        if isinstance(obj, set):
-            return {_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj}
-        return frozenset(_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj)
+        if isinstance(obj, (set, frozenset)):
+            # range becomes a list. A set of those lists used to raise
+            # TypeError and turn a successful cell into an error frame.
+            elements = [_coerce_host_pickle_tree(v, pd_mod, depth=depth + 1, seen=path) for v in obj]
+            return _set_or_list(obj, elements)
     finally:
         path.discard(oid)
 
@@ -433,10 +529,9 @@ def _reject_host_unpickleable(obj: Any, *, depth: int = 0) -> None:
         for value in obj:
             _reject_host_unpickleable(value, depth=depth + 1)
         return
-    # What was wrong: clongdouble.item() is another clongdouble, so the
-    # coercer leaves it in place and this check failed the whole cell with
-    # a generic boundary message. Large object arrays still stringify it in
-    # child_pack_result before they get here; do not reject it in the coercer.
+    # clongdouble.item() is another clongdouble, so the coercer leaves it.
+    # Reject it here with a specific message. A large object array stringifies
+    # it in child_pack_result before it reaches this check.
     if type(obj).__name__ == "clongdouble":
         raise ValueError(
             "numpy.clongdouble cannot cross the LibreOffice pickle boundary: "
@@ -493,12 +588,9 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
             payload = _figure_to_image_payload(figs[0], fmt=fmt)
         return payload, note
     finally:
-        # What was wrong: close("all") ran only after a successful render.
-        # A bad figure left the others open, and the next cell returned that
-        # stale SVG.
-        # Why this works: close runs even when rendering raises. A close
-        # failure must not replace the payload or the original render error
-        # (same swallow as _close_open_figures).
+        # Close even when rendering raises. A leftover figure is what the
+        # next cell returns. A close failure must not replace the payload
+        # or the original render error (same swallow as _close_open_figures).
         try:
             plt_mod.close("all")
         except Exception:
@@ -664,11 +756,15 @@ def _temporal_cell_to_stdlib(value: Any, pd_mod: Any) -> Any:
 def _temporal_ndarray_to_python(arr: Any, pd_mod: Any) -> Any:
     """datetime64/timedelta64 ndarray → nested Python lists of stdlib values."""
     if arr.ndim == 0:
-        return _temporal_cell_to_stdlib(arr.item() if hasattr(arr, "item") else arr, pd_mod)
+        # arr[()] keeps the numpy scalar and its dtype. arr.item() on
+        # datetime64[ns] / timedelta64[ns] is a Python int, so the cell
+        # would become a raw count before _temporal_cell_to_stdlib.
+        # Rank 1+ already iterates those scalars.
+        return _temporal_cell_to_stdlib(arr[()], pd_mod)
     if arr.ndim > 2:
-        # What was wrong: rank 3+ used shape[0] x shape[1] and dropped the
-        # remaining axes. Why this works: one plane at a time, same as
-        # child_pack_result. The caller coerces timedelta to fractional days.
+        # One plane at a time, same as child_pack_result. shape[0] by shape[1]
+        # drops every axis after the second. The caller turns timedelta into
+        # fractional days.
         return [_temporal_ndarray_to_python(arr[i], pd_mod) for i in range(int(arr.shape[0]))]
     # Iterate datetime64 scalars — .tolist() on datetime64[ns] yields Python ints (ns), not datetimes.
     flat = [_temporal_cell_to_stdlib(v, pd_mod) for v in arr.ravel()]
@@ -682,9 +778,9 @@ def _serialize_result_impl(obj: Any) -> Any:
     from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
 
     if isinstance(obj, CalcRange):
-        # Bugfix (#412): Returning a 1x1 CalcRange (e.g. result = data in fan-out DAGs)
-        # unrolls to a scalar so the host does not treat it as a matrix list result
-        # and walk MATRIX_SCALAR_SESSIONS. Multi-cell ranges echo values.
+        # A 1x1 CalcRange (result = data in a fan-out) unrolls to a scalar.
+        # The host would otherwise treat it as a matrix and walk
+        # MATRIX_SCALAR_SESSIONS. Multi-cell ranges echo values.
         if obj.shape == (1, 1) and obj.values and obj.values[0]:
             return _serialize_result_impl(obj.values[0][0])
         return child_pack_result(obj.values)
@@ -702,53 +798,43 @@ def _serialize_result_impl(obj: Any) -> Any:
         if isinstance(obj, np_mod.ndarray):
             kind = _dtype_kind(obj)
             if kind in ("M", "m"):
-                # What was wrong: timedelta64 became datetime.timedelta and
-                # skipped _coerce_host_pickle_tree. Under BINARY_MIN_CELLS the
-                # host unpickler rejected it; at or above that, split_grid
-                # stored "1 day, 0:00:00" instead of fractional days.
-                # DataFrame and Series already coerce. datetime64 was already
-                # ISO text; coercion leaves that string as-is.
-                # Why this works: _coerce_host_pickle_scalar turns timedelta
-                # into total_seconds()/86400 before pack.
+                # timedelta64 becomes total_seconds()/86400 before pack.
+                # datetime.timedelta is rejected under BINARY_MIN_CELLS, and
+                # split_grid would store "1 day, 0:00:00" instead of
+                # fractional days. DataFrame and Series already coerce.
+                # datetime64 is already ISO text; coercion leaves that string.
                 return child_pack_result(
                     _coerce_host_pickle_tree(_temporal_ndarray_to_python(obj, pd_mod), pd_mod)
                 )
             if kind == "O":
-                # What was wrong: an object ndarray under BINARY_MIN_CELLS
-                # took the list path, and _cell_for_json leaves np.int64,
-                # datetime, Decimal, and Fraction untouched, so the pickle
-                # check raised. At >= 100 cells split_grid already normalizes
-                # them. DataFrame and Series coerce; this arm did not.
-                # Why this works: tolist() then the same tree coercer as the
-                # container arm. Numeric kinds stay on the ndarray fast path.
+                # tolist() then the same tree coercer as the container arm.
+                # Numeric kinds stay on the ndarray fast path. An object
+                # array under BINARY_MIN_CELLS otherwise leaves np.int64,
+                # datetime, Decimal, and Fraction for the pickle check.
+                # At or above 100 cells, split_grid already normalizes them.
                 return child_pack_result(_coerce_host_pickle_tree(obj.tolist(), pd_mod))
             return child_pack_result(obj)
         if isinstance(obj, (np_mod.datetime64, np_mod.timedelta64)):
-            # What was wrong: np.timedelta64 subclasses np.integer, so the
-            # branch below called child_pack_result and int() raised
-            # TypeError on the datetime.timedelta from .item(). The old
-            # arm returned that timedelta and the pickle check rejected it.
-            # datetime64 was already an ISO string; coercion leaves it as-is.
+            # np.timedelta64 subclasses np.integer, so the branch below would
+            # int() the datetime.timedelta from .item() and raise TypeError.
+            # datetime64 is already an ISO string; coercion leaves it as-is.
             return _coerce_host_pickle_scalar(obj, pd_mod)
         if isinstance(obj, (np_mod.integer, np_mod.floating, np_mod.bool_)):
             return child_pack_result(obj)
     if pd_mod is not None:
         def _pack_coerced_grid(grid: Any) -> Any:
-            # What was wrong: a frame under BINARY_MIN_CELLS took the list
-            # path, and _cell_for_json only rewrites None. numpy.bool_,
-            # np.int64, Decimal, and Fraction then failed the host unpickler.
-            # At >= 100 cells split_grid flatten already converts them. The
-            # container arm below already coerces; this branch did not.
-            # Why this works: _coerce_host_pickle_tree unwraps np.generic
-            # via .item(), float()s Decimal/Fraction, and maps pd.NA in
-            # _temporal_cell_to_stdlib before .item().
-            # Considered doing this inside _cell_for_json so every small
-            # list is pickle-safe. Not yet: that helper is also host_pack_data
-            # for small grids; _numpy_scalar_item().item() on datetime64 /
-            # timedelta64 is a nanosecond or day int, not the ISO or
-            # fractional-day value this function emits; pd.NA and temporal
-            # policy live here, and moving them would import pandas into
-            # payload_codec.
+            # _coerce_host_pickle_tree unwraps np.generic via .item(),
+            # float()s Decimal and Fraction, and maps pd.NA in
+            # _temporal_cell_to_stdlib before .item(). Under BINARY_MIN_CELLS
+            # a frame otherwise keeps numpy.bool_, np.int64, Decimal, and
+            # Fraction, which the host unpickler rejects. At >= 100 cells
+            # split_grid flatten already converts them.
+            # Doing this inside _cell_for_json would cover every small list,
+            # but that helper is also host_pack_data for small grids.
+            # _numpy_scalar_item().item() on datetime64 / timedelta64 is a
+            # nanosecond or day int, not the ISO or fractional-day value
+            # this function emits. pd.NA and the temporal policy live here;
+            # moving them would import pandas into payload_codec.
             return child_pack_result(_coerce_host_pickle_tree(grid, pd_mod))
 
         if isinstance(obj, pd_mod.DataFrame):
@@ -815,13 +901,10 @@ def _serialize_result_impl(obj: Any) -> Any:
                 return out_dict
             elif isinstance(obj, list):
                 return [serialize_result(v) for v in obj]
-            elif isinstance(obj, set):
-                # Known edge case: a hashable custom object (e.g. a matplotlib
-                # Figure) serializes to a dict payload, which is unhashable, so
-                # this raises TypeError. Could fall back to a list if it matters.
-                return {serialize_result(v) for v in obj}
-            elif isinstance(obj, frozenset):
-                return frozenset(serialize_result(v) for v in obj)
+            elif isinstance(obj, (set, frozenset)):
+                # A Figure (or range coerced to a list) is unhashable after
+                # serialize. The list fallback keeps the values.
+                return _set_or_list(obj, [serialize_result(v) for v in obj])
             else:
                 return tuple(serialize_result(v) for v in obj)
         # Short lists skip split_grid and are pickled as Python objects. A date
@@ -941,12 +1024,16 @@ def _snapshot_init_custom_tools(init_session_id: str) -> dict[str, Any]:
 
 
 def _copy_isolated_seed_value(value: Any) -> Any:
-    """Duplicate an init binding so isolated cells cannot mutate the workbook seed.
+    """Duplicate an init binding so a cell cannot mutate that copied object.
 
     Cell 1 wrote ``items.append(...)`` without reassigning ``items``; that
-    in one isolated cell changed what every later isolated cell on that worker
-    saw. Functions and modules stay shared; deepcopy rejects them. Shared-kernel
-    seeding does not use this — that workbook is one namespace.
+    changed what every later isolated cell on that worker saw. Deepcopy gives
+    each cell its own containers. Functions and modules stay shared: deepcopy
+    rejects them, and a smolagents function closes over the init executor
+    state. ``def add(x): items.append(x)`` therefore mutates the seed, and
+    the next isolated cell sees that change. Lambdas and methods on
+    init-defined classes do the same. Shared-kernel seeding does not use
+    this — that workbook is one namespace.
 
     A lazy copy-on-demand or size guard would be too complex and prone to edge
     cases, so a simple deepcopy is used here on every cell execution for safety.
@@ -974,15 +1061,14 @@ def _seed_executor_from_init(executor: LocalPythonExecutor, init_session_id: str
 def _resolve_init_digest(init_script: str | None, init_script_hash: str | None) -> str:
     """Digest that decides whether the init session must re-run.
 
-    What was wrong: a missing hash became ``""``. The next edit also compared
-    as ``""``, so ``_ensure_init_executed`` returned early and the shared cell
-    executor was not cleared or reseeded.
-    Why this works: a caller-supplied hash still wins, so the host and child
-    stay on the same digest. When the hash is omitted, this hashes the
-    stripped script — the same bytes ``document_scripts.init_script_hash``
-    hashes. Both the init map and the cell-seed map store that digest, so a
-    later call that starts passing the host hash does not look like a change
-    and reseed over a cell rebind.
+    A caller-supplied hash still wins, so the host and child stay on the
+    same digest. When the hash is omitted, hash the stripped script — the
+    same bytes ``document_scripts.init_script_hash`` hashes. An empty
+    stand-in would match the next edit and ``_ensure_init_executed`` would
+    return early, leaving the shared cell executor uncleared. Both the init
+    map and the cell-seed map store this digest, so a later call that starts
+    passing the host hash does not look like a change and reseed over a
+    cell rebind.
     """
     provided = (init_script_hash or "").strip()
     if provided:
@@ -1192,12 +1278,81 @@ def _close_open_figures() -> None:
         log.debug("failed to close pyplot figures", exc_info=True)
 
 
+def _error_result(
+    message: str,
+    *,
+    code: str | None = None,
+    stdout: str = "",
+    include_traceback: bool = False,
+) -> dict[str, Any]:
+    """Error dict shared by the ``_run_on_executor`` failure arms."""
+    out: dict[str, Any] = {"status": "error", "message": message, "stdout": stdout}
+    if code is not None:
+        out["code"] = code
+    if include_traceback:
+        import traceback
+
+        out["traceback"] = traceback.format_exc()
+    return out
+
+
+def _serialize_cell_result(result: Any) -> tuple[Any, str]:
+    """Serialize *result*, swapping in open matplotlib figures when that is the output.
+
+    A helper-only init script evaluates to the function, and plt.plot()
+    evaluates to Line2D artists. Capture open figures before the pickle
+    check rejects those objects, or the figures stay open and the next
+    script returns that SVG.
+    """
+    if _is_defined_function(result):
+        result = None
+
+    extra_stdout = ""
+    if _is_mpl_artist_result(result):
+        captured, note = _capture_open_figures_payload()
+        if captured is None:
+            serialized = serialize_result(result)
+        else:
+            serialized = captured
+            extra_stdout = note
+    else:
+        serialized = serialize_result(result)
+        if not find_image_payloads(serialized):
+            captured, note = _capture_open_figures_payload()
+            if captured is not None:
+                serialized = captured
+                extra_stdout = note
+        else:
+            _close_open_figures()
+    return serialized, extra_stdout
+
+
+def _fail_cell(
+    executor: LocalPythonExecutor,
+    prior_result: Any,
+    message: str,
+    *,
+    code: str | None = None,
+    stdout: str = "",
+    include_traceback: bool = False,
+) -> dict[str, Any]:
+    """Restore the pre-cell ``result``, close figures, and return an error dict."""
+    _restore_prior_result(executor, prior_result)
+    _close_open_figures()
+    return _error_result(
+        message, code=code, stdout=stdout, include_traceback=include_traceback
+    )
+
+
 def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]:
-    # Bugfix (#388): shared-kernel leftover ``result`` was used as egress for later
-    # last-expression cells. Popping ``result`` after every cell (or before the next)
-    # stopped the hijack but also made ``result * 2`` in a later cell NameError.
-    # Fix: keep ``result`` in the namespace; use it for egress only when this cell
-    # rebound it (identity change). On failure, restore the pre-cell value.
+    # Keep ``result`` in the namespace. Egress uses it when this cell stored
+    # the name. Popping it after every cell would make ``result * 2`` in a
+    # later cell a NameError, and a leftover binding would also be the egress
+    # of a later last-expression cell. Identity misses interned singletons
+    # (``result = 5`` then ``pass``) and in-place ``result += [2]`` (the same
+    # list is stored again). A module-scope Store covers those. Identity still
+    # covers writes the visitor does not see, such as ``except Exception as result``.
+    # On failure, restore the pre-cell value.
     prior_result = executor.state.get("result", _RESULT_MISSING)
     token = None
     try:
@@ -1210,43 +1365,19 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         try:
             code_output = executor(code)
         finally:
-            # What was wrong: ContextVar set by bind_named_scripts_executor was never reset,
-            # leaking stale executor references.
-            # How it happened: bind_named_scripts_executor lacked reset cleanup.
-            # Why this change: Reset the ContextVar using the token returned by bind.
+            # Reset with the token from bind. A leftover ContextVar is the
+            # previous cell's executor on this thread.
             reset_named_scripts_executor(token)
         _sync_custom_tools(executor)
 
         current = executor.state.get("result", _RESULT_MISSING)
-        if current is not _RESULT_MISSING and current is not prior_result:
+        rebound = current is not prior_result or _module_binds_name(code, "result")
+        if current is not _RESULT_MISSING and rebound:
             result = current
         else:
             result = code_output.output
 
-        # What was wrong: a helper-only init script evaluates to the function,
-        # and plt.plot() evaluates to Line2D artists. The pickle check rejected
-        # both before open figures were captured, and those figures stayed open
-        # so the next script returned that SVG instead of its own value.
-        if _is_defined_function(result):
-            result = None
-
-        extra_stdout = ""
-        if _is_mpl_artist_result(result):
-            captured, note = _capture_open_figures_payload()
-            if captured is None:
-                serialized = serialize_result(result)
-            else:
-                serialized = captured
-                extra_stdout = note
-        else:
-            serialized = serialize_result(result)
-            if not find_image_payloads(serialized):
-                captured, note = _capture_open_figures_payload()
-                if captured is not None:
-                    serialized = captured
-                    extra_stdout = note
-            else:
-                _close_open_figures()
+        serialized, extra_stdout = _serialize_cell_result(result)
 
         if is_split_grid(serialized):
             log.debug("venv_sandbox worker result %s", describe_wire_value(serialized))
@@ -1257,38 +1388,33 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
             "stdout": stdout,
         }
     except UserStopped as e:
-        # What was wrong: exchange_tool_call turned host USER_STOPPED into
-        # RuntimeError. evaluate_try catches Exception, so the script kept
-        # running and issued more wa.* calls after Stop.
-        # Why this works: UserStopped is BaseException, so that handler does
-        # not run. End the turn with the code the host already sent.
-        _restore_prior_result(executor, prior_result)
-        _close_open_figures()
-        return {
-            "status": "error",
-            "code": "USER_STOPPED",
-            "message": str(e) or "Stopped by user.",
-            "stdout": "",
-        }
+        # UserStopped is BaseException, so evaluate_try does not swallow it.
+        # Wrapping host USER_STOPPED in RuntimeError lets the script keep
+        # issuing wa.* calls after Stop.
+        return _fail_cell(executor, prior_result, str(e) or "Stopped by user.", code="USER_STOPPED")
     except InterpreterError as e:
-        _restore_prior_result(executor, prior_result)
-        _close_open_figures()
-        return {
-            "status": "error",
-            "message": str(e),
-            "stdout": str(executor.state.get("_print_outputs", "")),
-        }
+        return _fail_cell(
+            executor,
+            prior_result,
+            str(e),
+            stdout=str(executor.state.get("_print_outputs", "")),
+        )
     except Exception as e:
-        import traceback
-
+        return _fail_cell(executor, prior_result, str(e), include_traceback=True)
+    except BaseException as e:
+        # SystemExit and KeyboardInterrupt are BaseException. The vendored
+        # executor only catches Exception, so they would leave
+        # run_sandboxed_code. After EXEC_STARTED a process death is not
+        # replayed, and every shared session on that worker is dropped.
+        # compute_service calls run_sandboxed_code directly, so this catch
+        # is required even with the harness backstop. Return an error dict
+        # and keep the executor. Re-raise GeneratorExit after the restore
+        # so generator cleanup is unchanged.
         _restore_prior_result(executor, prior_result)
         _close_open_figures()
-        return {
-            "status": "error",
-            "message": str(e),
-            "traceback": traceback.format_exc(),
-            "stdout": "",
-        }
+        if isinstance(e, GeneratorExit):
+            raise
+        return _error_result(str(e), include_traceback=True)
 
 
 def _restore_prior_result(executor: LocalPythonExecutor, prior_result: Any) -> None:
@@ -1362,11 +1488,11 @@ def run_sandboxed_code(
         inject_auto_imports(executor, code)
         ranges = _inject_data(executor, data)
         _inject_excel_xl(executor, ranges)
-        # Bugfix: a shared calc: executor is reused by =PY() and Run Python
-        # Script. The cell assignment scoped_dir = "/some/dir" stayed in
-        # state. The next execute that did not bind a folder (RPS injects
-        # none) re-read that path as the host folder. Drop it before bindings
-        # so only this execute's host value is visible.
+        # Drop scoped_dir before bindings. A shared calc: executor is reused
+        # by =PY() and Run Python Script, so a cell assignment
+        # scoped_dir = "/some/dir" is still in state. The next execute that
+        # binds no folder (Run Python Script injects none) would treat that
+        # path as the host folder.
         executor.state.pop("scoped_dir", None)
         _inject_bindings(executor, bindings)
         _inject_session_duckdb(executor)

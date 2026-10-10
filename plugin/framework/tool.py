@@ -541,11 +541,11 @@ class ToolRegistry:
             # wrappers for shape_upsert / manage_charts) — log so registration order is visible.
             if type(existing_tool).__name__ != type(tool).__name__ or type(existing_tool).__module__ != type(tool).__module__:
                 log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
-            # What was wrong: last-wins kept only the survivor's required_core_tools
-            # (Writer loads last), so Calc shapes/charts domains never requested
-            # get_sheet_summary / read_cell_range. How: shared names replace the
-            # instance. Why: union both sets (plus any prior merge); get_tools
-            # still drops cores that fail tool_supports_document for the active doc.
+            # Shared names replace the instance (Writer loads last). Union both
+            # required_core_tools sets, plus any prior merge, or Calc
+            # shapes/charts never request get_sheet_summary / read_cell_range.
+            # get_tools still drops cores that fail tool_supports_document
+            # for the active doc.
             prev = self._required_core_union.get(tool.name) or getattr(existing_tool, "required_core_tools", None)
             nxt = getattr(tool, "required_core_tools", None)
             if prev or nxt:
@@ -676,12 +676,11 @@ class ToolRegistry:
             tools = [t for t in tools if t.tier == tier]
         if intent:
             tools = [t for t in tools if t.intent == intent]
-        # What was wrong: ``if names`` treated ``[]`` and ``""`` as no filter
-        # and returned every tool. A bare string is iterable, so
-        # ``t.name in "target"`` matched the tool named ``get``.
-        # How: only ``None`` skips the filter. A str is one exact name;
+        # Only None skips the filter. Callers pass tool names, not a substring
+        # to search. ``if names`` treats ``[]`` and ``""`` as no filter and
+        # returns every tool. A bare string is iterable, so ``t.name in
+        # "target"`` matches the tool named ``get``. A str is one exact name;
         # any other collection becomes a set, and an empty set matches nothing.
-        # Why: callers pass tool names, not a substring to search.
         if names is not None:
             if isinstance(names, str):
                 name_set = frozenset((names,))
@@ -757,10 +756,9 @@ class ToolRegistry:
             return func(**kwargs)
 
         if not run_threaded:
-            # What was wrong: this warning ran on every call, so a sync tool
-            # with timeout= flooded the log. How: the timeout needs a thread,
-            # and execute hits this path on each run. Why: one line per tool
-            # name is enough to see the misconfiguration.
+            # The timeout needs a thread, and execute hits this path on each
+            # run. One line per tool name is enough; warning every call
+            # floods the log for a sync tool with timeout=.
             if tool_name not in _sync_timeout_warned:
                 _sync_timeout_warned.add(tool_name)
                 log.warning("Tool '%s' declares timeout=%s but is synchronous; timeout is ignored. Set is_async() to True to enable timeout enforcement.", tool_name, timeout)
@@ -774,13 +772,11 @@ class ToolRegistry:
             except Exception as e:
                 result_queue.put(("error", e))
             except BaseException as exc:
-                # What was wrong: ``except Exception`` left KeyboardInterrupt,
-                # SystemExit, and GeneratorExit off the queue.
-                # How: the dedicated thread died (``run_in_background`` lets
-                # BaseException unwind), ``join`` returned, ``is_alive()`` was
-                # false, and ``result_queue.get()`` blocked the send forever.
-                # Why: queue the error before unwinding so the joiner returns
-                # a tool error instead of waiting on an empty queue.
+                # Queue the error before unwinding. ``except Exception`` leaves
+                # KeyboardInterrupt, SystemExit, and GeneratorExit off the
+                # queue. ``run_in_background`` lets BaseException unwind, the
+                # dedicated thread dies, ``join`` returns, ``is_alive()`` is
+                # false, and ``result_queue.get()`` blocks the send forever.
                 result_queue.put(("error", exc))
                 log.exception("Tool '%s' worker exited", tool_name)
                 raise
@@ -794,23 +790,21 @@ class ToolRegistry:
             except queue.Empty:
                 return None
 
-        # What was wrong: timeout was only ``is_alive()`` after ``join``.
-        # How: the worker can ``put`` a success and still be alive while
-        # ``run_in_background`` logs and clears the thread-guard tag, so a
-        # finished mutation was reported as TOOL_TIMEOUT and a retry could
-        # apply it again.
-        # Why: a queued result wins. A live thread with an empty queue is
-        # still a timeout — the wait is not extended.
+        # A queued result wins. The worker can ``put`` a success and still be
+        # alive while ``run_in_background`` logs and clears the thread-guard
+        # tag. Treating timeout as only ``is_alive()`` after ``join`` reports
+        # that finished mutation as TOOL_TIMEOUT, and a retry can apply it
+        # again. A live thread with an empty queue is still a timeout — the
+        # wait is not extended.
         if worker_thread.is_alive():
             queued = _queued()
             if queued is None:
-                # What was wrong: this called ``send_cancellation.cancel()``
-                # and also returned ``TOOL_TIMEOUT``. How: the drain stop
-                # checker is that same flag, so it treated the send as Stop
-                # and discarded the error dict before ``TOOL_DONE`` was
-                # applied. The tool loop then waited forever for that event.
-                # Why: the worker is already abandoned. Return the timeout
-                # dict and let the caller decide whether the send should stop.
+                # The worker is already abandoned. Return the timeout dict and let
+                # the caller decide whether the send should stop. Calling
+                # ``send_cancellation.cancel()`` as well sets the drain stop
+                # checker, which treats the send as Stop and discards the
+                # error dict before ``TOOL_DONE`` is applied. The tool loop
+                # then waits forever for that event.
                 return make_tool_error(f"Tool timed out after {timeout} seconds", code="TOOL_TIMEOUT", tool_name=tool_name)
         else:
             queued = _queued()
@@ -906,11 +900,11 @@ class ToolRegistry:
             required = schema.get("required") or []
             required_names = set(required) if isinstance(required, list) else set()
             if any(v is None and k not in required_names for k, v in kwargs.items()):
-                # What was wrong: advertised schemas allow JSON null on optional
-                # scalars, but validate() uses the source schema and rejects None.
-                # How: models send null for an omitted optional. Why: drop those
-                # keys so the tool sees the argument as omitted. A required null
-                # still fails validation.
+                # Advertised schemas allow JSON null on optional scalars. Models
+                # send null for an omitted optional, and validate() uses the
+                # source schema, which rejects None. Drop those keys so the
+                # tool sees the argument as omitted. A required null still
+                # fails validation.
                 kwargs = {k: v for k, v in kwargs.items() if v is not None or k in required_names}
 
             kwargs = coerce_call_args(tool.name, props, kwargs)

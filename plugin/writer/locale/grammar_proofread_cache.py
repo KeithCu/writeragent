@@ -112,13 +112,14 @@ def _is_complete_sentence(canon: str) -> bool:
 def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len: int) -> list[dict[str, Any]]:
     """Clip or drop errors that reference positions beyond the canonical sentence length.
 
-    What was wrong: ``effective_len <= 0`` dropped Harper inserts
-    (``n_error_length == 0``), and ``start >= canonical_len`` dropped an
-    insert at the canonical end. ``cache_put_sentence`` then stored the
-    sentence with no errors. A zero-width point with
-    ``0 <= start <= canonical_len`` stays, including its suggestions and
-    rule id. Positive lengths still clip, and still drop when they start
-    at or past that end. Negative starts, non-ints, and bools are dropped.
+    ``effective_len <= 0`` must not drop Harper inserts
+    (``n_error_length == 0``), and ``start >= canonical_len`` must
+    not drop an insert at the canonical end. ``cache_put_sentence``
+    would then store the sentence with no errors. A zero-width
+    point with ``0 <= start <= canonical_len`` stays, including its
+    suggestions and rule id. Positive lengths still clip, and still
+    drop when they start at or past that end. Negative starts,
+    non-ints, and bools are dropped.
     """
     clipped: list[dict[str, Any]] = []
     for e in errors:

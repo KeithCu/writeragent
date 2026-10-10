@@ -27,9 +27,7 @@ def _require_str(value: Any, label: str) -> str:
 
 
 def _require_str_list(value: Any, label: str) -> list[str]:
-    # What was wrong: _require_str_list coerced non-string items with str(item),
-    # turning None or ints into "None" or numbers silently.
-    # Why this fixes it: validate every item is an actual str and reject non-string elements.
+    # Every element must already be a str. str(None) or str(1) would hide a bad packet.
     if not isinstance(value, list):
         raise ValueError(f"{label} must be a list")
     for item in value:

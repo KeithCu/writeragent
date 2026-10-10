@@ -15,7 +15,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 
-from plugin.scripting.venv_worker import PythonWorkerManager, resolve_libreoffice_python, resolve_venv_python
+from plugin.scripting.sandbox import resolve_libreoffice_python, resolve_venv_python
+from plugin.scripting.venv_worker import PythonWorkerManager
 
 
 def find_config_path():

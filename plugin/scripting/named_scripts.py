@@ -97,12 +97,10 @@ def _expr_has_namedexpr(node: ast.AST) -> bool:
 def _function_import_time_call_lines(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[int]:
     """Lines evaluated when a function definition is reached.
 
-    What was wrong: FunctionDef/AsyncFunctionDef were kept without scanning decorators,
-    defaults, or annotations.
-    How it happened: Function bodies are deferred until called, but decorators,
-    default argument values, and annotations evaluate at definition/import time.
-    Why this change: Reject calls in decorator_list, args.defaults, args.kw_defaults,
-    and argument/return annotations.
+    Function bodies wait until the function is called, but decorators, default
+    argument values, and annotations run when the definition is reached.
+    Reject calls in decorator_list, args.defaults, args.kw_defaults, and
+    argument/return annotations.
     """
     lines: list[int] = []
 
@@ -138,11 +136,10 @@ def _function_import_time_call_lines(node: ast.FunctionDef | ast.AsyncFunctionDe
 def _class_import_time_call_lines(node: ast.ClassDef) -> list[int]:
     """Lines ``evaluate_class_def`` would execute while the library loads.
 
-    What was wrong: Class decorators and non-assign class-body statements were not scanned.
-    How it happened: Class statements previously only checked bases, keywords, and assignments.
-    Calls in decorators or non-assign class-body statements (like expressions or calls) ran at load time.
-    Why this change: Scan decorator_list, bases, keywords, method definitions, assignments,
-    and reject non-def/assign class-body statements that contain calls or unpermitted code.
+    Class decorators and non-assign class-body statements run at load time.
+    Scanning only bases, keywords, and assignments missed those calls.
+    Scan decorator_list, bases, keywords, method definitions, and assignments,
+    and reject other class-body statements that contain calls.
     """
     lines: list[int] = []
 
@@ -252,11 +249,9 @@ def _rpc_named(tool_name: str, **kwargs: Any) -> Any:
     if os.environ.get("WRITERAGENT_COMPUTE_WORKER") == "1":
         raise RuntimeError("WriterAgent document tools are not available in the Python compute service.")
     if os.environ.get("WRITERAGENT_IS_WORKER") == "1":
-        # What was wrong: _rpc_call was invoked inside try: except ImportError:, so any
-        # internal ImportError raised during execution caused a fallback to exchange_tool_call,
-        # sending the RPC request twice.
-        # How it happened: The try block wrapped both the import and the function call.
-        # Why this change: Wrap only the import statement in try...except ImportError.
+        # Catch ImportError only around the import. Wrapping _rpc_call too
+        # turned an ImportError raised during the call into a second
+        # exchange_tool_call, so the RPC was sent twice.
         try:
             from plugin.scripting.writeragent_api import _rpc_call
         except ImportError:
@@ -367,14 +362,14 @@ class ScriptLibrary:
     def _resolve_executor(self) -> Any:
         """Executor for this lookup.
 
-        What was wrong: one module-level ScriptLibrary stored ``_executor``,
-        and ``bind_named_scripts_executor`` overwrote it. ``__getattr__`` used
+        One module-level ScriptLibrary stored ``_executor``, and
+        ``bind_named_scripts_executor`` overwrote it. ``__getattr__`` used
         that field and ignored the ContextVar, so the next run stole lookups
-        that still held the old library object.
-        How: ``writeragent`` is one process-global module. Why this works:
-        each executor keeps its own ScriptLibrary. On the bind thread the
-        ContextVar wins. Off that thread (timeout fallback) the library's own
-        executor is used, because the ContextVar does not follow the thread.
+        that still held the old library object. ``writeragent`` is one
+        process-global module. Each executor keeps its own ScriptLibrary. On
+        the bind thread the ContextVar wins. Off that thread (timeout
+        fallback) the library's own executor is used, because the ContextVar
+        does not follow the thread.
         """
         current = _current_executor.get()
         if current is not None:
@@ -467,10 +462,10 @@ def attach_named_script_libraries(executor: Any | None = None) -> None:
         mods.append(alias)
     if not mods:
         return
-    # What was wrong: every bind wrote ``_executor`` on the same module-level
-    # ScriptLibrary. A second document's run redirected the first run's object.
     # Bind this execute's libraries onto the executor and point the alias
-    # module at those objects. Do not retarget a library another run still holds.
+    # module at those objects. Do not retarget a library another run still
+    # holds: one module-level ScriptLibrary meant a second document's run
+    # redirected the first run's object.
     if executor is None:
         scripts = ScriptLibrary(ORIGIN_USER)
         doc = ScriptLibrary(ORIGIN_DOCUMENT)
@@ -486,22 +481,23 @@ def bind_named_scripts_executor(executor: Any) -> Any:
     """New execute: re-check hashes; keep module cache on the shared executor.
 
     Returns the ContextVar token so callers can reset it on completion.
+
+    Set the ContextVar only after attach succeeds. Attach stamps the executor
+    onto the library and does not read the var. Setting the var first meant a
+    raise in attach never reached ``_run_on_executor``'s finally, so the var
+    stayed bound to this executor on the thread.
     """
     executor._named_script_checked = set()
     executor._named_script_listing = None
-    token = _current_executor.set(executor)
     attach_named_script_libraries(executor)
-    return token
+    return _current_executor.set(executor)
 
 
 def reset_named_scripts_executor(token: Any) -> None:
     """Reset the ContextVar token from bind_named_scripts_executor.
 
-    What was wrong: _current_executor ContextVar was never reset after execution,
-    leaking stale executor references to later code on the same thread.
-    How it happened: bind_named_scripts_executor set the ContextVar without returning
-    the token or resetting it.
-    Why this change: Reset the ContextVar using the token returned by bind.
+    Reset the ContextVar with the token from bind. Leaving it set leaked the
+    executor to later code on the same thread.
     """
     if token is not None:
         try:

@@ -67,11 +67,10 @@ class MemoryStore:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
-                # What was wrong: os.replace could publish USER.md while the
-                # new bytes were still only in the page cache. How: the temp
-                # fd was closed without flush+fsync. Why: match
-                # config._write_config_file so a crash after the replace
-                # does not lose the write.
+                # Flush and fsync before replace, matching
+                # config._write_config_file. Otherwise os.replace can publish
+                # USER.md while the new bytes are still only in the page cache,
+                # and a crash after the replace loses the write.
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, path)
@@ -99,12 +98,11 @@ UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 
 
 def _deal_memory_args_ok_pytest(arguments: object) -> bool:
-    # What was wrong: isinstance(arguments, (str, dict)) raised
-    # PreContractError on a list under make test. How: smolagents can hand
-    # the tool a non-dict, and deal_shim says LLM/ingest boundaries stay
-    # total on pytest. Why: the body already returns None unless the value
-    # is a dict or a JSON object string. CrossHair keeps the short domain.
-    # ``arguments`` is unused.
+    # Pytest stays total on this LLM/ingest boundary: smolagents can hand
+    # the tool a non-dict, and isinstance(arguments, (str, dict)) raises
+    # PreContractError on a list. The body already returns None unless the
+    # value is a dict or a JSON object string. CrossHair keeps the short
+    # domain. ``arguments`` is unused.
     return True
 
 
@@ -221,11 +219,9 @@ class MemoryTool(ToolBase):
         key = kwargs.get("key")
         if not key:
             return self._tool_error("Key is required.")
-        # What was wrong: a missing content argument defaulted to "" and
-        # popped the key. How: kwargs.get("content", "") treats omit the
-        # same as an explicit empty string, and empty content is the
-        # documented delete. Why: omit is an error; "" and JSON null still
-        # delete.
+        # Omit is an error. kwargs.get("content", "") treats a missing
+        # argument the same as an explicit empty string, and empty content
+        # is the documented delete. "" and JSON null still delete.
         if "content" not in kwargs:
             return self._tool_error("Content is required.")
         content = kwargs.get("content")
@@ -246,10 +242,9 @@ class MemoryTool(ToolBase):
         try:
             current = store.read(target)
         except (OSError, UnicodeDecodeError) as e:
-            # What was wrong: invalid UTF-8 in USER.md escaped the tool.
-            # How: open(..., encoding="utf-8") raises UnicodeDecodeError,
-            # which is a ValueError, not an OSError, so this except missed
-            # it. Why: return the same tool error as any other failed read.
+            # Invalid UTF-8 raises UnicodeDecodeError, a ValueError, not
+            # an OSError. Catch both and return the same tool error as any
+            # other failed read.
             return self._tool_error(f"Failed to read existing memory: {e}")
 
         raw = current.strip()

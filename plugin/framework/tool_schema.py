@@ -48,10 +48,10 @@ def _schema_type_includes_array(type_value: Any) -> bool:
 def call_properties(schema: Any) -> dict[str, Any] | None:
     """Properties object used to check a call, including ``{}``.
 
-    What was wrong: ``if props`` treated an empty ``properties`` object as
-    "no schema", so hallucinated kwargs reached no-arg tools. A dict schema
-    defaults a missing ``properties`` key to ``{}``, and that object is
-    closed. A non-dict schema is not an allow-list.
+    An empty ``properties`` object is a closed schema, not "no schema".
+    ``if props`` treats it as missing, so hallucinated kwargs reach no-arg
+    tools. A dict schema defaults a missing ``properties`` key to ``{}``.
+    A non-dict schema is not an allow-list.
     """
     if not isinstance(schema, dict):
         return None
@@ -100,11 +100,11 @@ def _parameter_schema(tool: Any) -> tuple[str, dict[str, Any]] | None:
 def _merge_parameter_schemas(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
     """Union ``properties`` so a later duplicate name cannot hide the earlier schema.
 
-    What was wrong: last-wins kept only the survivor. An empty ``properties``
-    object on the second entry erased the first entry's keys, and a real
-    argument then looked unknown. How: keep every property key, first spec
-    wins for a repeated key. Why: the call is checked against every schema
-    advertised for that name.
+    Keep every property key; the first spec wins for a repeated key. The
+    call is checked against every schema advertised for that name.
+    Last-wins keeps only the survivor, so an empty ``properties`` object on
+    the second entry erases the first entry's keys and a real argument
+    looks unknown.
     """
     if "properties" not in left and "properties" not in right:
         return left
@@ -273,15 +273,15 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
 def _collapse_union_type(types: list[str]) -> str | list[str]:
     """Keep every source type, including null. Drop duplicate names only.
 
-    What was wrong: any union other than one scalar plus ``null`` collapsed
-    to a single member, and ``array`` beat the rest. An optional property
-    then gained ``null`` on that survivor, so ``["string", "number"]``
-    became ``["string", "null"]`` and ``apply_document_content`` content
-    ``["array", "string"]`` became ``"array"``. ``validate`` accepts each
-    listed member, and execute accepts a bare string for that content
-    field. How: dedupe, and return one string only when a single name
-    remains. Why: the provider schema must not be narrower than the
-    source schema. Null on an optional scalar is added later.
+    Dedupe, and return one string only when a single name remains. The
+    provider schema must not be narrower than the source schema.
+    Collapsing any union other than one scalar plus ``null`` to a single
+    member, with ``array`` beating the rest, then adds ``null`` on that
+    survivor: ``["string", "number"]`` becomes ``["string", "null"]`` and
+    ``apply_document_content`` content ``["array", "string"]`` becomes
+    ``"array"``. ``validate`` accepts each listed member, and execute
+    accepts a bare string for that content field. Null on an optional
+    scalar is added later.
     """
     # crosshair: off
     if not types:
@@ -352,12 +352,12 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     if "type" in params and isinstance(params["type"], list):
         params["type"] = _collapse_union_type(params["type"])
     type_value = params.get("type")
-    # What was wrong: ``type != "array"`` is also true when ``type`` is
-    # missing and when a union still lists ``array`` (``["array", "string"]``
-    # or ``["array", "null"]``). Popping ``items`` then hid the element
-    # schema. How: drop ``items`` only when ``type`` is present and does not
-    # include ``array``. Why: no ``type`` plus ``items`` is an implicit array,
-    # and a union ``validate`` accepts must keep its element schema.
+    # Drop ``items`` only when ``type`` is present and does not include
+    # ``array``. ``type != "array"`` is also true when ``type`` is missing
+    # and when a union still lists ``array`` (``["array", "string"]`` or
+    # ``["array", "null"]``). Popping ``items`` then hides the element
+    # schema. No ``type`` plus ``items`` is an implicit array, and a union
+    # ``validate`` accepts must keep its element schema.
     if "items" in params and type_value is not None and not _schema_type_includes_array(type_value):
         params.pop("items", None)
     if params.get("required") == []:
@@ -365,11 +365,10 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
 
     required_keys = set(params.get("required") or [])
 
-    # What was wrong: this required ``type == "object"``. A nested object
-    # written as ``{"properties": {...}}`` with no ``type`` was returned
-    # untouched, so children never got nullable or union normalization.
-    # How: walk whenever ``properties`` is a dict, then walk ``items`` too.
-    # Why: JSON Schema still describes an object when ``type`` is omitted.
+    # Walk whenever ``properties`` is a dict, then walk ``items`` too.
+    # JSON Schema still describes an object when ``type`` is omitted.
+    # Requiring ``type == "object"`` returns ``{"properties": {...}}``
+    # untouched, so children never get nullable or union normalization.
     if isinstance(params.get("properties"), dict):
         new_props = {}
         for k, v in params["properties"].items():

@@ -38,10 +38,9 @@ def _close_scratch_doc(doc: Any) -> None:
 def _reraise_document_disposed(exc: BaseException, object_type: str) -> None:
     """Re-raise real UNO disposal. Other exceptions stay with the caller.
 
-    What was wrong: scratch cleanup and document lookup caught Exception and
-    treated a disposed document as empty or not open. How: DisposedException
-    is an Exception, so those handlers swallowed it. Why: only real disposal
-    (not a bare RuntimeException) becomes DocumentDisposedError.
+    Only real disposal (not a bare RuntimeException) becomes
+    DocumentDisposedError. Catching Exception and treating a disposed
+    document as empty or not open swallows DisposedException.
     """
     if not is_real_disposal(exc):
         return
@@ -125,15 +124,14 @@ def _get_clear_writer_body_fn() -> Any:
 def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0, extra_props: tuple[Any, ...] = ()) -> Any:
     """Hidden, **empty** Writer used as a scratch buffer.
 
-    What was wrong: every scratch document was opened with
-    ``private:factory/swriter``, which honours the user's *default template*.
-    How it happened: a firm that sets its petition model as the default template
-    got that model's text in every scratch doc, and the callers append to it and
-    read the whole body back — so the model's header ("AO DOUTO JUIZO DO ...")
-    came back glued to the caller's real content, and landed in range reads,
-    plain-text conversions and full-document rewrites. Why this change fixes it:
-    the factory URL is still used (it is the only way to get a Writer with the
-    user's own styles), but the body is emptied before the caller sees it.
+    ``private:factory/swriter`` is the only way to get a Writer with the
+    user's own styles, and it honours the user's default template. A firm
+    that sets its petition model as that template would otherwise get the
+    model's text in every scratch doc. Callers append to it and read the
+    whole body back, so the model's header ("AO DOUTO JUIZO DO ...") comes
+    back glued to the real content and lands in range reads, plain-text
+    conversions, and full-document rewrites. Empty the body before the
+    caller sees the document.
 
     Returns None when the desktop is unavailable (no-VCL helper processes).
     """
@@ -148,11 +146,11 @@ def new_blank_writer(ctx: Any = None, *, target: str = "_blank", flags: int = 0,
     doc = desktop.loadComponentFromURL("private:factory/swriter", target, flags, (hidden,) + tuple(extra_props))
     if doc is None:
         return None
-    # What was wrong: a failed clear still returned the scratch Writer, so the
-    # default-template text this function exists to drop was handed to the
-    # caller. How: clear_writer_body logs and returns False on a non-disposal
-    # error, and this ignored that. Why: an already-empty body is False too,
-    # so only a leftover non-empty string is a failure. Disposal still raises.
+    # clear_writer_body logs and returns False on a non-disposal error.
+    # An already-empty body is False too, so only a leftover non-empty
+    # string is a failure. Returning the scratch Writer anyway would hand
+    # the caller the default-template text this function exists to drop.
+    # Disposal still raises.
     clear_fn = _get_clear_writer_body_fn()
     if not clear_fn(doc):
         try:

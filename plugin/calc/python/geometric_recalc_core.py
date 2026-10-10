@@ -454,14 +454,11 @@ def compute_eval_index(
 ) -> frozenset[EvalIndexKey]:
     """Strip-safe iff every discovered cell with that triple is attached and ours.
 
-    Bugfix: checking only that a record exists in records allows stale records
-    (e.g. from an edit between passes or a leftover record) to falsely mark a group
-    strip-safe when the user replaced the attached predecessor with real data.
-    What: compute_eval_index verified addr in records, but not that the cell's
-    actual trailing argument matches rec.predecessor.
-    Why: require that the cell has a trailing single-cell argument matching
-    rec.predecessor via same_cell_ref. This guarantees stale records never
-    cause user data to be stripped.
+    The cell's trailing single-cell argument must match rec.predecessor
+    via same_cell_ref. compute_eval_index used to accept any address that
+    was already in records. A leftover from an edit between passes would
+    then mark the group strip-safe after the user replaced the attached
+    predecessor with real data, and that data would be stripped.
     """
     cell_by_addr = {cell.address: cell for cell in cells}
     groups: dict[EvalIndexKey, list[str]] = {}

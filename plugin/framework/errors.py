@@ -100,10 +100,8 @@ class suppress_disposed(contextlib.ContextDecorator):
         if exc_val is None:
             return False
 
-        # What was wrong: suppress_all (default True) also swallowed
-        # KeyboardInterrupt, SystemExit, and GeneratorExit. How: the
-        # non-disposal path returned suppress_all for every exc_type.
-        # Why: a UI context manager must let those BaseExceptions propagate.
+        # suppress_all (default True) covers Exception only. KeyboardInterrupt,
+        # SystemExit, and GeneratorExit must still propagate.
         if exc_type is not None and not issubclass(exc_type, Exception):
             return False
 
@@ -145,14 +143,11 @@ def resolve_exception_message(e: Any) -> str:
 def _translate_exception_message(message: Any) -> str:
     """Translate a catalog msgid. Long runtime text skips ``_()``.
 
-    What was wrong: ``_()`` rejects strings longer than ``DEAL_MAX_MSGID``
-    with ``deal.PreContractError``. ``NetworkError`` on a provider body and
-    ``make_tool_error`` on UNO text raised that contract error instead of
-    the exception the caller asked for.
-    How: gettext only matches an extracted source string. A message longer
-    than the msgid bound is not in the catalog, so ``_()`` would not
-    translate it even without the contract.
-    Why: return the runtime text unchanged so construction succeeds.
+    ``_()`` rejects strings longer than ``DEAL_MAX_MSGID`` with
+    ``deal.PreContractError``. A provider body or UNO text would then raise
+    that contract error instead of the exception the caller asked for.
+    Gettext only matches an extracted source string, so a message past the
+    msgid bound is not in the catalog anyway. Return it unchanged.
     """
     text = resolve_exception_message(message)
     if len(text) > DEAL_MAX_MSGID:
@@ -363,12 +358,10 @@ def format_error_message(e: Exception) -> str:
     msg = "mock" if UNDER_CROSSHAIR else str(e)
     if isinstance(e, ssl.SSLError):
         return _("TLS/SSL Error: {0}").format(msg)
-    # What was wrong: every http.client.HTTPException became "HTTP Error 0: "
-    # when it had no status. RemoteDisconnected, BadStatusLine, and
-    # IncompleteRead have no .code/.status/.reason, so str(e) was discarded.
-    # How: the branch treated HTTPException like urllib.error.HTTPError.
-    # Why: only HTTPError carries a status. Other HTTPExceptions fall
-    # through to the connection/OSError path or the final str(e) fallback.
+    # Only HTTPError carries a status. RemoteDisconnected, BadStatusLine,
+    # and IncompleteRead have no .code/.status/.reason; treating every
+    # HTTPException like HTTPError discarded str(e) and reported "HTTP Error 0".
+    # Those fall through to the connection/OSError path or the final str(e).
     if isinstance(e, urllib.error.HTTPError):
         code_candidate = getattr(e, "code", None)
         if code_candidate is None:
@@ -410,15 +403,12 @@ def format_error_message(e: Exception) -> str:
     if isinstance(e, socket.timeout):
         return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
 
-    # What was wrong: every OSError became "Connection Error", including
-    # FileNotFoundError and PermissionError. How: the branch matched the
-    # OSError base. Why: filesystem errors are not a down local server.
+    # Filesystem errors are not a down local server. Match connection-shaped
+    # OSError, not FileNotFoundError or PermissionError.
     if isinstance(e, (urllib.error.URLError, OSError)) and not isinstance(e, (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError)):
-        # What was wrong: urllib.error.URLError was labeled "Connection Error"
-        # before the "timed out" sentence, so a wrapped socket.timeout told the
-        # user the server was down. How: URLError is not itself a socket.timeout;
-        # the timeout is e.reason, and that branch returned first. Why: same
-        # request-timeout sentence as a bare socket.timeout.
+        # URLError is not itself a socket.timeout; the timeout is e.reason.
+        # Check that before the connection-error sentence, or a wrapped
+        # timeout tells the user the server is down.
         reason_obj: BaseException | None
         if isinstance(e, urllib.error.URLError):
             raw_reason = getattr(e, "reason", None)
@@ -452,9 +442,9 @@ def format_error_message(e: Exception) -> str:
         return _("Python execution timed out. Open Settings → Python to raise the timeout.")
     if msg.strip() == "#SPILL!":
         return _("Formula spill collision: destination range contains non-empty cells.")
-    # What was wrong: any message containing "timed out" became "increase
-    # Request Timeout", including formula evaluation. The Python branch above
-    # only matched "python timed out", not "python execution timed out".
+    # Formula evaluation also says "timed out". The Python branch above
+    # already covers "python timed out" and "python execution timed out",
+    # so this request-timeout sentence skips formula text.
     if "timed out" in lower and "formula" not in lower:
         return _("Request Timed Out. Try increasing 'Request Timeout' in Settings.")
     if "finish_reason=error" in msg:
@@ -667,9 +657,9 @@ def handle_errors(context_name: str) -> Any:
                 # We catch Exception here because pyuno bridge exceptions don't always inherit from Python's standard Exception cleanly in all builds,
                 # but catching Exception is the standard way to grab them. We immediately wrap it.
                 e_name = type(e).__name__
-                # What was wrong: is_disposed_exception matches any RuntimeException
-                # name, so a live-document failure became DocumentDisposedError and
-                # skipped the live-doc check in is_tool_document_disposed.
+                # is_disposed_exception matches any RuntimeException name.
+                # A live-document failure is not disposal and must not skip
+                # the live-doc check in is_tool_document_disposed.
                 if is_real_disposal(e):
                     raise DocumentDisposedError(f"UNO object disposed during {context_name}", object_type=context_name, details={"original_error": str(e)}) from e
                 else:
@@ -685,9 +675,9 @@ def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
     try:
         return fn(*args, **kwargs)
     except Exception as e:
-        # What was wrong: is_disposed_exception treated RuntimeException as
-        # disposal. A live document then looked closed. Only DisposedException
-        # is disposal; other UNO failures stay UnoObjectError.
+        # Only DisposedException is disposal. Treating RuntimeException as
+        # disposal makes a live document look closed. Other UNO failures
+        # stay UnoObjectError.
         e_name = type(e).__name__
         if is_real_disposal(e):
             raise DocumentDisposedError(f"UNO object disposed during {context_name}", object_type=context_name, details={"original_error": str(e)}) from e

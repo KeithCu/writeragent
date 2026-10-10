@@ -108,11 +108,11 @@ class BackgroundHandle:
             return
         if fut.done():
             return
-        # What was wrong: join() from a wa-bg-* pool thread waits on a Future
-        # that only another pool worker can finish. With two workers both
-        # blocked in join, the pool deadlocks and the timeout hides it.
-        # A finished future requires no pool worker to complete; checking
-        # fut.done() first prevents spurious deadlock errors.
+        # join() from a wa-bg-* pool thread waits on a Future that only
+        # another pool worker can finish. With two workers both blocked in
+        # join, the pool deadlocks and the timeout hides it. A finished
+        # future needs no pool worker; checking fut.done() first avoids a
+        # false deadlock.
         if threading.current_thread().name.startswith("wa-bg-"):
             raise RuntimeError("join() of a pooled job from a pool thread would deadlock the background pool")
         try:
@@ -136,11 +136,11 @@ class BackgroundHandle:
     def is_current_thread(self) -> bool:
         """True when this handle is the dedicated thread now running.
 
-        What was wrong: callers read ``_thread`` to skip a self-join.
-        A pooled handle has no thread, so that check was false and
-        ``join`` ran. From a ``wa-bg-*`` worker that raises, which is
-        the deadlock guard and must stay. Why: one supported check.
-        Pool workers that join a different pooled future still hit it.
+        One supported check. Callers that read ``_thread`` to skip a
+        self-join miss a pooled handle: it has no thread, so that check is
+        false and ``join`` runs. From a ``wa-bg-*`` worker that raises,
+        which is the deadlock guard and must stay. Pool workers that join
+        a different pooled future still hit it.
         """
         thread = self._thread
         return thread is not None and thread is threading.current_thread()
@@ -230,14 +230,13 @@ class _DaemonWorkPool:
 def _join_pool_workers(threads: list[threading.Thread]) -> None:
     """Join each pool worker. Do not return while it is still alive.
 
-    What was wrong: ``join(timeout=5.0)`` once, then drop the pool. Under
-    load the job already dequeued outlasts 5s, the sentinel sits until that
-    job ends, and the thread keeps running as ``wa-bg-retired-*`` next to
-    the next pool.
-    How: shutdown treated the timeout as "joined".
-    Why: keep joining. ``_wait_for_exit`` uses no timeout for the same
-    reason (a reader is not done until it returns). Slices stay interruptible.
-    A job that never returns blocks shutdown instead of leaving a live worker.
+    Keep joining. ``join(timeout=5.0)`` once, then dropping the pool,
+    treats the timeout as "joined". Under load the job already dequeued
+    outlasts 5s, the sentinel sits until that job ends, and the thread
+    keeps running as ``wa-bg-retired-*`` next to the next pool.
+    ``_wait_for_exit`` uses no timeout for the same reason (a reader is
+    not done until it returns). Slices stay interruptible. A job that
+    never returns blocks shutdown instead of leaving a live worker.
     """
     for thread in threads:
         while thread.is_alive():
@@ -255,11 +254,11 @@ def _get_pool() -> _DaemonWorkPool:
 def reset_background_pool_for_tests(max_workers: int | None = None) -> None:
     """Tear down the process pool so tests can bound size or avoid leaked work.
 
-    What was wrong: ``shutdown`` joined workers while this function held
-    ``_pool_lock``. A pooled job that calls ``run_in_background`` takes
-    that lock in ``_get_pool``, so reset waited on the job and the job
-    waited on reset. Why: detach the pool under the lock, then join it
-    after the lock is released.
+    Detach the pool under the lock, then join it after the lock is
+    released. ``shutdown`` joining workers while this function holds
+    ``_pool_lock`` deadlocks: a pooled job that calls ``run_in_background``
+    takes that lock in ``_get_pool``, so reset waits on the job and the
+    job waits on reset.
     """
     global _pool, _pool_size_override
     with _pool_lock:
@@ -425,12 +424,11 @@ def _read_stderr_chunk(stream: IO[Any]) -> bytes | str | None:
 def _iter_decoded_chunks(stream: IO[Any]) -> Iterator[str]:
     """Yield text from ``_read_stderr_chunk``, joining UTF-8 split across reads.
 
-    What was wrong: ``AsyncProcess._read_stream`` and ``_drain_stream`` decoded
-    each chunk with ``errors='replace'``. A code point split across two short
-    reads became U+FFFD twice. How it happened: those readers grew up separate
-    from ``start_stderr_drain``, which already kept an incremental UTF-8 decoder.
-    Why this change: one decoder feeds all three. ``final=True`` runs only at
-    EOF, so a trailing incomplete sequence is replaced once, not per read.
+    One decoder feeds ``_read_stream``, ``_drain_stream``, and
+    ``start_stderr_drain``. Decoding each chunk with ``errors='replace'``
+    turns a code point split across two short reads into U+FFFD twice.
+    ``final=True`` runs only at EOF, so a trailing incomplete sequence is
+    replaced once, not per read.
     """
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     while True:
@@ -451,11 +449,11 @@ def _iter_decoded_chunks(stream: IO[Any]) -> Iterator[str]:
 def _split_on_newlines(pending: str) -> tuple[list[str], str]:
     """Split on ``\\n``, ``\\r\\n``, and a lone ``\\r``. Hold a trailing ``\\r``.
 
-    What was wrong: ``str.splitlines`` also breaks on vertical tab, form
-    feed, and the Unicode line separators. The callback then saw a new
-    line with that separator still in the text, because ``rstrip`` only
-    removes ``\\n`` and ``\\r``. A trailing ``\\r`` stays in the remainder
-    so the next chunk can finish a CRLF instead of emitting a line early.
+    ``str.splitlines`` also breaks on vertical tab, form feed, and the
+    Unicode line separators. The callback then sees a new line with that
+    separator still in the text, because ``rstrip`` only removes ``\\n``
+    and ``\\r``. A trailing ``\\r`` stays in the remainder so the next
+    chunk can finish a CRLF instead of emitting a line early.
     """
     lines: list[str] = []
     start = 0
@@ -532,12 +530,12 @@ class AsyncProcess:
             self._popen_kwargs.setdefault("creationflags", subprocess.CREATE_NO_WINDOW)
         self._popen_kwargs.setdefault("stdout", subprocess.PIPE)
         self._popen_kwargs.setdefault("stderr", subprocess.PIPE)
-        # What was wrong: text=True was documented as keeping the caller's
-        # encoding, but _read_stream reads the binary buffer and decodes
-        # UTF-8. A TextIOWrapper plus that read desyncs the two buffers.
-        # No AsyncProcess caller passes text=True (the tunnel uses the
-        # binary default). Force binary pipes. encoding, errors, or
-        # universal_newlines would still open text mode after text=False.
+        # Force binary pipes. text=True was documented as keeping the
+        # caller's encoding, but _read_stream reads the binary buffer and
+        # decodes UTF-8. A TextIOWrapper plus that read desyncs the two
+        # buffers. No AsyncProcess caller passes text=True (the tunnel uses
+        # the binary default). encoding, errors, or universal_newlines
+        # would still open text mode after text=False.
         if self._popen_kwargs.get("text") or self._popen_kwargs.get("universal_newlines") or self._popen_kwargs.get("encoding") or self._popen_kwargs.get("errors"):
             log.debug("AsyncProcess forces binary pipes; text mode and encoding arguments are ignored")
         self._popen_kwargs["text"] = False
@@ -663,19 +661,18 @@ class AsyncProcess:
                 pass
 
     def _wait_for_exit(self, proc: subprocess.Popen[Any], stdout_thread: BackgroundHandle | None, stderr_thread: BackgroundHandle | None) -> None:
-        # What was wrong: this read self.process and the reader handles at
-        # wait time. start() can run again and point those at a new child,
-        # so the first wait thread blocked on that child and fired
-        # on_exit_cb for its exit as well. _reap already captures the
-        # handles it was given. Why: wait and join only this call's child.
+        # Wait and join only this call's child. Reading self.process and
+        # the reader handles at wait time follows start() if it runs again
+        # and points those at a new child, so the first wait thread blocks
+        # on that child and fires on_exit_cb for its exit as well. _reap
+        # already captures the handles it was given.
         rc = proc.wait()
-        # What was wrong: this join used timeout=None. A grandchild that
-        # inherited stdout or stderr never closes the pipe, so the readers
-        # never see EOF, on_exit_cb never runs, and this thread leaks. How:
-        # the join was unbounded so a trailing line without a newline could
-        # not lose to the exit callback. Why: a bounded join still delivers
-        # that line when the readers finish in time, and on_exit_cb still
-        # runs when they do not. _reap uses the same 1s bound.
+        # A bounded join still delivers a trailing line without a newline
+        # when the readers finish in time, and on_exit_cb still runs when
+        # they do not. timeout=None never returns if a grandchild inherited
+        # stdout or stderr and never closes the pipe: the readers never see
+        # EOF, on_exit_cb never runs, and this thread leaks. _reap uses the
+        # same 1s bound.
         self._join_handles((stdout_thread, stderr_thread), timeout=1.0)
         args = self.args
         if isinstance(args, str):
@@ -715,13 +712,13 @@ class AsyncProcess:
     def terminate(self, timeout: float = 5.0) -> None:
         """Signal the child and return. Reap on a dedicated thread.
 
-        What was wrong: terminate() waited up to 5s twice, then joined the
-        stdout, stderr, and wait threads. MCP tunnel stop calls this while
-        holding the lock those line callbacks need, including from the UI
-        thread, so LibreOffice froze. A callback that called terminate joined
-        itself. Why: signal the child, close its pipes so reads return, and
-        reap after the caller can drop its lock. The timed wait stays on the
-        reaper so a stuck SIGKILL cannot block forever.
+        Signal the child, close its pipes so reads return, and reap after
+        the caller can drop its lock. Waiting up to 5s twice, then joining
+        the stdout, stderr, and wait threads, freezes LibreOffice: MCP
+        tunnel stop calls this while holding the lock those line callbacks
+        need, including from the UI thread. A callback that called
+        terminate joined itself. The timed wait stays on the reaper so a
+        stuck SIGKILL cannot block forever.
         """
         proc = self.process
         if proc is None:

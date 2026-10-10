@@ -197,17 +197,12 @@ def endpoint_for_api_key_write(
 ) -> str | None:
     """Normalized endpoint to store *typed_key* under, or None for no write.
 
-    What was wrong: Settings OK stored the API key field under the URL in
-    the endpoint box. Typing a new URL leaves the previous host's key in
-    that field (the box is not rewritten on each keystroke, so a key the
-    user just pasted is not wiped). OK then saved that secret under the
-    new host.
-    How: the compare was only against the key already stored for the URL
-    being saved. The previous host's key differs from the new host's key,
-    so it was written there.
-    Why: a value that still equals the key stored for the endpoint on disk
-    belongs to that endpoint. Return None and leave both slots alone. A
-    different value was typed for the URL this OK saves, including a key
+    A value that still equals the key stored for the endpoint on disk
+    belongs to that endpoint. Return None and leave both slots alone.
+    Comparing only against the key already stored for the URL being saved
+    writes the previous host's key under the new host: typing a URL leaves
+    that key in the field (the box is not rewritten on each keystroke).
+    A different value was typed for the URL this OK saves, including a key
     pasted and then a one-character URL correction. An unchanged key for
     the same endpoint is not a write.
     """
@@ -220,18 +215,14 @@ def endpoint_for_api_key_write(
 def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     """Apply settings dialog result to config. Shared by Writer and Calc.
 
-    What was wrong: each field called ``set_config``, which rewrote
-    ``writeragent.json`` and emitted ``config:changed``, and this function
-    emitted again even when nothing differed. The extra event refreshed the
-    sidebar mode combo. ``set_text_model``, ``set_scoped_tts_voice``, and
-    ``set_api_key_for_endpoint`` each wrote again before the loop finished.
-
     Endpoint, text model, API key, voice family, and the other fields go
     through one ``set_configs``, and only when the value differs from disk
     or from the schema default of a missing key. LRU lists for those keys
     are entries in that same dict. A list that already starts with the new
     value is omitted. A batch that changes nothing does not write and does
-    not emit.
+    not emit. Per-field ``set_config`` rewrites ``writeragent.json`` and
+    emits ``config:changed`` once each, and a second emit refreshes the
+    sidebar mode combo.
     """
     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
     from plugin.chatbot.settings_fields import stored_select_value
@@ -326,14 +317,11 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
             val = f"{spd:g}x" if s_val.endswith(("x", "X")) or s_val.startswith("1.0x") else f"{spd:g}"
 
         if save_key in ("image_model", "audio.stt_model", "audio.tts_model"):
-            # What was wrong: OK stored combobox placeholders such as
-            # "(Enter API Key to load models)" and "(Connection failed)" as
-            # image_model / audio.stt_model / audio.tts_model when the catalog
-            # could not be listed, wiping the configured model.
-            # How: text_model already dropped those strings; these keys wrote
-            # the raw combo text (image only sanitized the LRU copy).
-            # Why: skip empty and placeholder values, and persist the sanitized
-            # id — the same value the LRU path already computed.
+            # Skip empty and placeholder values, and persist the sanitized
+            # id — the same value the LRU path already computed. Storing
+            # "(Enter API Key to load models)" or "(Connection failed)" as
+            # image_model / audio.stt_model / audio.tts_model wipes the
+            # configured model when the catalog cannot be listed.
             sanitized_model = _sanitize_stored_model_value(val)
             if not sanitized_model:
                 continue
@@ -369,15 +357,11 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     # schema default of a missing key. Passing the whole dialog made a
     # one-field edit a rewrite of every settings key.
     #
-    # What was wrong: after that batch, each changed combobox called
-    # update_lru_history, and each of those called set_config. A Settings OK
-    # that changed the endpoint and two models rewrote writeragent.json once
-    # for the fields and again for every LRU list, and emitted config:changed
-    # once per write.
-    # How: the list updates ran after set_configs returned.
-    # Why: the new lists are computed here and stored in the same dict, so
+    # The new lists are computed here and stored in the same dict, so
     # one set_configs writes the file once and emits once. A list that
-    # already has this value at the head is left out.
+    # already has this value at the head is left out. Calling
+    # update_lru_history afterwards writes writeragent.json again for
+    # every LRU list.
     changed = changed_config_values(pending, get_config)
     _stage_settings_lru(changed, current_endpoint, text_model_lru, image_model_lru, ordinary_lru)
     if changed:

@@ -174,13 +174,12 @@ def _notify_thread_violation(msg: str) -> None:
         except Exception:
             log.exception("Failed to show thread violation message box")
         finally:
-            # What was wrong: the ident stayed until set_background_task(None).
-            # A thread that exited without that clear left its id in the set,
-            # so a recycled OS thread id suppressed the next dialog and the
-            # set grew without bound. How: only the job-end clear removed it.
-            # Why: drop the ident when the dialog returns. A later violation
-            # on that id can post again. set_background_task(None) still
-            # clears an in-flight id when the job ends first.
+            # Drop the ident when the dialog returns. Waiting for
+            # set_background_task(None) leaves a thread that exited without
+            # that clear in the set: a recycled OS thread id then suppresses
+            # the next dialog, and the set grows without bound. A later
+            # violation on that id can post again. set_background_task(None)
+            # still clears an in-flight id when the job ends first.
             with _violation_ui_lock:
                 _violation_ui_threads.discard(tid)
 
@@ -306,12 +305,10 @@ class _UnoThreadGuardProxy:
         return self._target.getTypes(*args, **kwargs)
 
     # --- Diagnostics / transparency ---
-    # What was wrong: __repr__/__str__ read _target with no assert_main_thread
-    # and swallowed Exception, so a log on a worker entered PyUNO and hid it.
-    # How it happened: the guard's RuntimeError is an Exception, and these
-    # dunders never went through the same check as __getattr__.
-    # Why this change: assert before touching _target, and do not catch that
-    # RuntimeError, so the violation propagates instead of a fallback string.
+    # Assert before touching _target, and do not catch that RuntimeError.
+    # These dunders do not go through __getattr__. Swallowing Exception
+    # would let a log on a worker enter PyUNO and hide the violation behind
+    # a fallback string. The guard's RuntimeError is an Exception.
     def __repr__(self) -> str:  # type: ignore[override]
         assert_main_thread("UNO repr")
         try:
@@ -332,10 +329,10 @@ class _UnoThreadGuardProxy:
 
     # --- Protocols. Implicit dunders skip __getattr__, so they are declared here. ---
     def __iter__(self) -> Iterator[Any]:  # type: ignore[override]
-        # What was wrong: the assert ran once here, then next() walked the
-        # raw UNO iterator with no check. A later edit asserted inside
-        # ``for item in it``, and that loop calls next() before the body.
-        # Why: assert on every pull, before the raw iterator advances.
+        # Assert on every pull, before the raw iterator advances. One assert
+        # here then lets next() walk UNO with no check. A later edit that
+        # asserts inside ``for item in it`` is too late: that loop calls
+        # next() before the body.
         assert_main_thread("UNO iter")
         it = iter(self._target)
 
@@ -363,12 +360,11 @@ class _UnoThreadGuardProxy:
         return _wrap_uno(self._target[key])
 
     def __next__(self) -> Any:
-        # What was wrong: next(proxy) raised TypeError in dev. Release
-        # _wrap_uno returns the raw object, so next() on an iterator succeeds.
-        # How: implicit special methods do not use __getattr__. __iter__
-        # guards the for-loop path; it is not __next__.
-        # Why: assert, then delegate, and wrap a PyUNO item the same way
-        # __getitem__ does.
+        # Implicit special methods do not use __getattr__. __iter__ guards
+        # the for-loop path; it is not __next__. Release _wrap_uno returns
+        # the raw object, so next() on an iterator succeeds, but next(proxy)
+        # raises TypeError in dev without this. Assert, then delegate, and
+        # wrap a PyUNO item the same way __getitem__ does.
         assert_main_thread("UNO next")
         return _wrap_uno(next(self._target))
 

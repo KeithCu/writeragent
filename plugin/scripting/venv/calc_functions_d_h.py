@@ -217,9 +217,8 @@ def daverage(db: Any, field: Any, criteria: Any) -> float:
 
 
 def days(end_date: Any, start_date: Any) -> float:
-    # What was wrong: days(45000.9, 45000.1) returned 0.8000000000029104 without truncating serial dates.
-    # How it happened: float(ed - sd) subtracted raw floating-point timestamps without integer truncation.
-    # Why this change fixes it: Excel and Calc DAYS truncates both serial date inputs to integers before subtraction.
+    # DAYS truncates both serials to integers before subtracting. A fractional
+    # serial is still that calendar day.
     try:
         ed = int(float(end_date))
         sd = int(float(start_date))
@@ -237,9 +236,8 @@ def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
 
 
 def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> float:
-    # What was wrong: db accepted non-positive costs/lives and period < 1 without returning NaN.
-    # How it happened: period 0 looped 0 times and returned 0.0 instead of #NUM!.
-    # Why this change fixes it: Validates 1 <= period <= life + 1 and valid cost/salvage/life/month.
+    # 1 <= period <= life + 1, and cost, salvage, life, and month must be valid.
+    # Period 0 is #NUM!, not 0.
     try:
         c = float(cost)
         s = float(salvage)
@@ -277,9 +275,8 @@ def dcounta(db: Any, field: Any, criteria: Any) -> float:
 
 
 def ddb(cost: Any, salvage: Any, life: Any, period: Any, factor: Any = 2) -> float:
-    # What was wrong: ddb accepted period 0 returning 0.0, and unbounded period looped excessively.
-    # How it happened: period was not validated against 1 <= period <= life.
-    # Why this change fixes it: Excel and Calc require 1 <= period <= life, cost >= 0, salvage >= 0, life > 0, factor > 0.
+    # Excel and Calc: 1 <= period <= life, cost >= 0, salvage >= 0, life > 0,
+    # factor > 0.
     try:
         c = float(cost)
         s = float(salvage)
@@ -302,10 +299,8 @@ def ddb(cost: Any, salvage: Any, life: Any, period: Any, factor: Any = 2) -> flo
 
 
 def decimal(text: Any, radix: Any) -> float:
-    # What was wrong: decimal("0x1F", 16) returned 31 because Python int(..., r) accepts 0x prefixes, underscores, and signs.
-    # How it happened: int(str(text), r) was called without validating that each character is a valid radix digit.
-    # Why this change fixes it: Validates every character against allowed base digits (0-9, a-z up to radix), rejecting
-    # signs, prefixes, and punctuation per Excel and Calc DECIMAL semantics.
+    # Every character must be a digit for this radix. Python int() accepts
+    # 0x, signs, and underscores; Excel and Calc DECIMAL do not.
     try:
         r = int(float(radix))
         if r < 2 or r > 36:
@@ -359,9 +354,7 @@ def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 
 
 
 def dmax(db: Any, field: Any, criteria: Any) -> float:
-    # What was wrong: dmax returned NaN when no records matched criteria.
-    # How it happened: `float(np.max(vals)) if vals else float("nan")` treated no match as NaN.
-    # Why this change fixes it: Excel and Calc return 0.0 when no matching records are found.
+    # No matching record is 0, not #NUM!. Excel and Calc DMAX do the same.
     vals = _eval_d_criteria(db, field, criteria)
     if vals is None:
         return float("nan")
@@ -369,9 +362,7 @@ def dmax(db: Any, field: Any, criteria: Any) -> float:
 
 
 def dmin(db: Any, field: Any, criteria: Any) -> float:
-    # What was wrong: dmin returned NaN when no records matched criteria.
-    # How it happened: `float(np.min(vals)) if vals else float("nan")` treated no match as NaN.
-    # Why this change fixes it: Excel and Calc return 0.0 when no matching records are found.
+    # No matching record is 0, not #NUM!. Excel and Calc DMIN do the same.
     vals = _eval_d_criteria(db, field, criteria)
     if vals is None:
         return float("nan")
@@ -380,9 +371,7 @@ def dmin(db: Any, field: Any, criteria: Any) -> float:
 
 def _format_rounded(val: float, decimals: int, *, commas: bool) -> str:
     """Format ``val`` after rounding half-up to ``decimals`` places."""
-    # What was wrong: _format_rounded used Python's round(), producing banker's rounding (fixed(2.5, 0) == '2').
-    # How it happened: round(val, decimals) rounds half to even.
-    # Why this change fixes it: _round_half_up uses Decimal ROUND_HALF_UP (fixed(2.5, 0) == '3', fixed(-2.5, 0) == '-3').
+    # Half away from zero (2.5 -> 3, -2.5 -> -3). Python round() is half-to-even.
     places = max(0, decimals)
     q = _round_half_up(val, decimals)
     if places == 0:
@@ -391,9 +380,7 @@ def _format_rounded(val: float, decimals: int, *, commas: bool) -> str:
 
 
 def dollar(number: Any, decimals: Any = 2) -> str | float:
-    # What was wrong: dollar(-1234.567) returned '$-1,234.57', placing the negative sign after '$', and used banker's rounding.
-    # How it happened: string template f"${...}" was applied before checking the sign of the rounded number.
-    # Why this change fixes it: Uses _round_half_up and places '-' before '$' for negative numbers (-$1,234.57).
+    # The minus sits before the dollar sign (-$1,234.57), after half-up rounding.
     try:
         val = float(number)
         dec = int(float(decimals))
@@ -505,9 +492,7 @@ def dvarp(db: Any, field: Any, criteria: Any) -> float:
 
 
 def edate(start_date: Any, months: Any) -> float:
-    # What was wrong: date arithmetic hand-rolled leap years and lacked date helper reuse.
-    # How it happened: edate manually computed leap years and offsets instead of using calendar.monthrange.
-    # Why this change fixes it: uses _serial_to_date and calendar.monthrange.
+    # Month length comes from calendar.monthrange, including February in a leap year.
     sd = _serial_to_date(start_date)
     if sd is None:
         return float("nan")
@@ -554,9 +539,7 @@ def encodeurl(text: Any) -> str | float:
 
 
 def eomonth(start_date: Any, months: Any) -> float:
-    # What was wrong: eomonth duplicated manual date stepping and ordinal calculation.
-    # How it happened: hand-rolled month stepping and +693594 offset without using _serial_to_date.
-    # Why this change fixes it: uses _serial_to_date and calendar.monthrange.
+    # Last day of the month via _serial_to_date and calendar.monthrange.
     sd = _serial_to_date(start_date)
     if sd is None:
         return float("nan")
@@ -641,9 +624,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
         return float("nan")
 
     if not is_full:
-        # What was wrong: euroconvert used Python's round-half-even (banker's rounding).
-        # How it happened: round(res, decimals) rounded 0.5 to nearest even integer.
-        # Why this change fixes it: uses _round_half_up per spreadsheet conventions.
+        # Half away from zero, same as FIXED and DOLLAR. Python round() is half-to-even.
         try:
             res = float(_round_half_up(res, _EURO_DECIMALS[to_curr]))
         except (OverflowError, ValueError):
@@ -693,9 +674,8 @@ def fact(n: Any) -> float:
 
 
 def factdouble(n: Any) -> float:
-    # What was wrong: factdouble(1e7) hung the interpreter looping down to 0 by -2.
-    # How it happened: no upper bound check on n; LibreOffice ScInterpreter caps at 300.
-    # Why this change fixes it: returns float("nan") when n < 0 or n > 300.
+    # n < 0 or n > 300 is #NUM!. LibreOffice ScInterpreter caps FACTDOUBLE at 300;
+    # a larger n walks down to 0 by twos.
     try:
         v = int(float(n))
         if v < 0 or v > 300:
@@ -723,9 +703,8 @@ def fdist(x: Any, r1: Any, r2: Any) -> float:
 
 
 def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
-    # What was wrong: FILTER with a column-vector include (e.g. [[True], [False]]) raised IndexError and returned #VALUE!.
-    # How it happened: 2D criteria with shape (n, 1) or (1, m) was treated as an exact elementwise mask rather than a row/column filter.
-    # Why this change fixes it: detects (n, 1) column vectors to filter rows and (1, m) row vectors to filter columns.
+    # An (n, 1) include filters rows; a (1, m) include filters columns.
+    # Treating either as an elementwise mask raises IndexError.
     try:
         arr = np.asarray(range_arr)
         crit = np.asarray(criteria)
@@ -835,10 +814,8 @@ def forecast(x: Any, data_y: Any, data_x: Any) -> float:
 
 
 def frequency(data: Any, bins: Any) -> Any:
-    # What was wrong: frequency used a nested Python loop and returned [] on any non-numeric cell or exception.
-    # How it happened: broad except Exception wrapped iterating over unconverted elements.
-    # Why this change fixes it: extracts numeric arrays, uses np.sort on bins and np.searchsorted to place values,
-    # returning counts per bin plus overflow.
+    # Numeric cells only, bins sorted, counts from searchsorted, plus the
+    # overflow bin. A text cell is skipped, not an empty result.
     try:
         data_arr = _extract_numeric_array(data, ignore_text=True, ignore_bool=True, propagate_nan=False)
         bins_arr = _extract_numeric_array(bins, ignore_text=True, ignore_bool=True, propagate_nan=False)
@@ -948,9 +925,7 @@ def gauss(x: Any) -> float:
 
 
 def geomean(*args: Any) -> float:
-    # What was wrong: geomean used scipy.stats.gmean with a numpy fallback that did the same thing.
-    # How it happened: duplicate calculation paths with lazy scipy import.
-    # Why this change fixes it: uses direct numpy calculation exp(mean(log(arr))).
+    # exp(mean(log(arr))). Same result as scipy.stats.gmean, without the import.
     arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
     if not arr.size or np.any(arr <= 0):
         return float("nan")
@@ -994,9 +969,7 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
 
 
 def harmean(*args: Any) -> float:
-    # What was wrong: harmean used scipy.stats.hmean with a numpy fallback that did the same thing.
-    # How it happened: duplicate calculation paths with lazy scipy import.
-    # Why this change fixes it: uses direct numpy calculation len(arr) / sum(1.0 / arr).
+    # len(arr) / sum(1/arr). Same result as scipy.stats.hmean, without the import.
     arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
     if not arr.size or np.any(arr <= 0):
         return float("nan")

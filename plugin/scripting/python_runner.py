@@ -74,10 +74,9 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
         return "".join(parts)
 
     # Handle list of dicts (e.g. pandas records) -- legacy path
-    # What was wrong: Dict headers only inspected the first row, dropping keys from subsequent rows,
-    # and mixed dict/non-dict rows could crash or format inconsistently.
-    # How: Headers were set to list(data[0].keys()) and assumed all rows were dicts.
-    # Why this fixes it: Build headers from first-seen union across all dict rows and type-check each row safely.
+    # Dict headers must come from the first-seen union of every dict row.
+    # Using only data[0].keys() dropped later keys, and mixed dict/non-dict
+    # rows crashed or formatted inconsistently.
     if any(isinstance(row, dict) for row in data):
         seen_keys: dict[str, None] = {}
         for row in data:
@@ -218,8 +217,8 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
             insert_cell_html_rich(doc, uno_ctx, anchor_addr, formatted)
 
     except Exception:
-        # Bugfix: the message box returned normally, so execute_and_insert_result
-        # reported ok=True. Writer insert lets the error reach
+        # The message box returns normally, so execute_and_insert_result would
+        # report ok=True. Writer insert lets the error reach
         # rps_insert_failed_outcome; Calc must do the same.
         log.exception("Failed to insert result into Calc")
         raise
@@ -293,9 +292,9 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
     def _early(outcome: dict[str, Any]) -> dict[str, Any]:
         return {"early_outcome": outcome}
 
-    # What was wrong: Vision script preparation resolved Calc data before checking if the script was a vision helper.
-    # How: When a graphic was selected in Calc, _resolve_python_data failed on the non-cell selection and returned an early error.
-    # Why this fixes it: The vision branch runs before _resolve_python_data because vision does not use py_data.
+    # Vision does not use py_data, so the vision branch runs before
+    # _resolve_python_data. Resolving Calc data first failed when a graphic
+    # was selected and returned an early error for a vision helper.
     vis = _prepare_vision(ctx, doc, code, t0)
     if vis is not None:
         return vis
@@ -327,10 +326,9 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         script_uses_run_import,
     )
 
-    # What was wrong: Substring check "writeragent.scripting.text_analytics" in code
-    # matched comments and docstrings, improperly prepending document bindings.
-    # How it happened: Direct substring search on raw source string.
-    # Why this change: Check imports via AST using script_imports_module.
+    # A substring search matches comments and docstrings. Check the import
+    # with script_imports_module (AST), or document bindings get prepended
+    # for a mention that is not an import.
     if is_writer(doc) and (
         script_uses_run_import(code, run_name="run_text_analytics")
         or script_imports_module(code, "writeragent.scripting.text_analytics")
@@ -341,7 +339,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
         call_spec = parse_run_import_call_spec(code, run_name="run_text_analytics") or {}
         helper = str(call_spec.get("helper") or "full")
         text, document_context = resolve_text_analytics_document_inputs(doc, helper)
-        # Bugfix: topics/sentiment return list[str] (one string per section).
+        # topics/sentiment return list[str] (one string per section).
         # str(text) made that the list repr, and json.dumps then bound one
         # document whose body was "['sec', ...]". Lists already dump as JSON
         # arrays, which the template analyzes per section.
@@ -442,9 +440,8 @@ def _finish_vision_execution(prepared: dict[str, Any], response: dict[str, Any])
             insert_params["image_name"] = img_name
         insert_vision_result(prepared["ctx"], prepared["doc"], indiv_res, params=insert_params)
 
-    # What was wrong: Multi-image vision runs that failed on image N lost results 1..N-1.
-    # How: _finish_rps_execution returned only the error dict without inserting earlier completed results.
-    # Why this fixes it: Insert individual_results before returning the error outcome.
+    # A multi-image vision run that fails on image N must still insert
+    # results 1..N-1. Returning only the error dict dropped them.
     if result.get("status") == "error":
         return rps_error_outcome(str(result.get("message") or _("Vision helper failed.")), t0=t0)
 
@@ -632,13 +629,11 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
                 return {"type": "error", "message": err}
         if action == "save":
             return {"type": "saved", "ok": True, "status_ok_text": save_ok_text}
-        # What was wrong: Run called execute_and_insert_result on the UI
-        # thread, inside the editor save handler. The venv wait froze
-        # LibreOffice until the script finished.
-        # How: the pipe reader marshals on_save onto the UI thread and blocks
-        # until it returns.
-        # Why this works: the library write above stays on the UI thread.
-        # The venv wait uses the same prepare/finish split as the native Run
+        # Run must not call execute_and_insert_result on the UI thread inside
+        # the editor save handler. The pipe reader marshals on_save onto the
+        # UI thread and blocks until it returns, so the venv wait froze
+        # LibreOffice. The library write above stays on the UI thread. The
+        # venv wait uses the same prepare/finish split as the native Run
         # button. The Monaco frame is delivered when that run finishes.
         run_busy["on"] = True
         snapshot = code

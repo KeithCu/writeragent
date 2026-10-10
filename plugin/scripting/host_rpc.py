@@ -150,14 +150,11 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
     for part in parts:
         names = domain_proxy_tool_names(part)
         if names is None:
-            # What was wrong: LibrePy returned an empty allowlist for any
-            # domain string, and execute_tool then refused every document tool
-            # with the =PY() disabled message.
-            # How: domain_proxy_tool_names returns None when writeragent_api
-            # is not installed; that None was treated as "allow nothing".
-            # Why this works: None is unrestricted, matching
-            # python_tool_domain is None. A real unknown domain name is an
-            # empty set, not None.
+            # LibrePy's domain_proxy_tool_names returns None when writeragent_api
+            # is not installed. Treating that None as an empty allowlist refused
+            # every document tool with the =PY() disabled message. None means
+            # unrestricted, matching python_tool_domain is None. A real unknown
+            # domain name is an empty set, not None.
             return None
         allowed |= names
     # Blocked even when a domain entry lists it (``DOMAIN_TOOLS['python']``).
@@ -208,10 +205,10 @@ def _rpc_tool_name(method: Any, known: frozenset[str]) -> str | None:
     for name in found:
         if name not in locals_:
             return name
-    # What was wrong: every const that matched a tool name was also a
-    # parameter name. Returning found[0] treated that parameter as the RPC
-    # tool (the skip above exists so a colliding name is not the tool).
-    # Why this works: no remaining candidate is a real tool-name const.
+    # A const that matches a tool name can also be a parameter name. Returning
+    # found[0] treated that parameter as the RPC tool. The skip above exists
+    # so a colliding name is not the tool; no remaining candidate is a real
+    # tool-name const.
     return None
 
 
@@ -348,12 +345,12 @@ def execute_tool(
         raise RuntimeError(
             f"Tool {tool_name!r} cannot run from a venv script (it would re-enter the worker)."
         )
-    # What was wrong: named-script tools dispatched before this gate. =PY()
-    # recalc passes an empty allowlist, so get_named_python_script and
-    # list_named_python_scripts still returned every user script's source.
-    # Why this works: an empty allowlist is recalc-only and now refuses those
-    # tools with the same error as every other tool. A non-empty domain
-    # allowlist still reaches the named-script branch below.
+    # Named-script tools must hit this gate. Dispatching them first let =PY()
+    # recalc, which passes an empty allowlist, return every user script's
+    # source from get_named_python_script and list_named_python_scripts. An
+    # empty allowlist is recalc-only and refuses those tools with the same
+    # error as every other tool. A non-empty domain allowlist still reaches
+    # the named-script branch below.
     if allowed_tools is not None and not allowed_tools:
         raise RuntimeError(
             "Document tool RPC is disabled during =PY() recalculation. "
@@ -398,14 +395,15 @@ def execute_tool(
         from plugin.scripting.session_manager import document_for_script_session
 
         uno_ctx = get_ctx()
-        # What was wrong: every venv tool used the focused document. A PPT-Master
-        # turn started on deck A exported into B after the user switched windows.
-        # How: the frame URL lived only inside the child payload, so this RPC
-        # had no session id. Named scripts already resolve document_for_script_session
-        # before get_active_document. Why this works: the IPC request now carries
-        # ppt_master:{url}, and that lookup matches the open component's URL.
-        # Chat run_venv_python_script passes a doc: pin of ctx.doc the same way.
-        # That pin is host-only and is not the worker namespace id.
+        # A venv tool must not always use the focused document. A PPT-Master
+        # turn started on deck A exported into B after the user switched
+        # windows, because the frame URL lived only inside the child payload
+        # and this RPC had no session id. Named scripts already resolve
+        # document_for_script_session before get_active_document. The IPC
+        # request carries ppt_master:{url}, and that lookup matches the open
+        # component's URL. Chat run_venv_python_script passes a doc: pin of
+        # ctx.doc the same way. That pin is host-only and is not the worker
+        # namespace id.
         doc = document_for_script_session(uno_ctx, script_session_id)
         if doc is None:
             doc = get_active_document(uno_ctx)
@@ -555,10 +553,10 @@ def handle_tool_call_frame(
             log.warning("venv tool_call reply failed (worker pipe closed)", exc_info=True)
         return True
     args = args or {}
-    # What was wrong: Stop was checked once before the venv turn. The child
-    # then kept calling host tools, including export, after the sidebar went idle.
-    # Why this works: the same checker the LLM frame already receives refuses
-    # the call and tells the child to end with USER_STOPPED.
+    # Stop was checked once before the venv turn, so the child kept calling
+    # host tools, including export, after the sidebar went idle. The same
+    # checker the LLM frame already receives refuses the call and tells the
+    # child to end with USER_STOPPED.
     is_stopped = False
     if stop_checker is not None:
         try:
@@ -581,11 +579,10 @@ def handle_tool_call_frame(
             "message": "Stopped by user.",
         }
         frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-        # What was wrong: a broken worker pipe raised from stdin_write and
-        # escaped this handler. The host then aborted the stop path, so the
-        # child never received USER_STOPPED and kept calling tools after the
-        # sidebar went idle (or the host replayed the script).
-        # Why this works: pipe failure stays here and the host keeps reading.
+        # A broken worker pipe raises from stdin_write. Letting that escape
+        # aborted the stop path, so the child never received USER_STOPPED and
+        # kept calling tools after the sidebar went idle (or the host replayed
+        # the script). Pipe failure stays here and the host keeps reading.
         try:
             stdin_write(frame)
         except (OSError, ValueError):
@@ -603,11 +600,9 @@ def handle_tool_call_frame(
         tool_response = {"status": "ok", "id": call_id, "result": res}
     except Exception as exc:
         log.exception("venv tool_call %s failed", tool_name)
-        # What was wrong: error codes on exceptions (such as ToolExecutionError with
-        # code="USER_STOPPED" or domain codes) were dropped, returning only status and message.
-        # How: tool_response was constructed with only status, id, and message.
-        # Why this change fixes it: include code in tool_response when present on exc,
-        # allowing the child worker to detect USER_STOPPED or specific error codes.
+        # Copy code onto the response when the exception has one
+        # (ToolExecutionError code="USER_STOPPED", domain codes). A payload of
+        # only status and message hid that code from the child worker.
         tool_response = {"status": "error", "id": call_id, "message": str(exc)}
         err_code = getattr(exc, "code", None)
         if err_code:

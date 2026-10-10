@@ -742,15 +742,13 @@ def _run_sub_queries_parallel(
 def _shutdown_research_pool(pool: ThreadPoolExecutor, *, user_stopped: bool) -> None:
     """Cancel unstarted work on Stop, then join the pool.
 
-    What was wrong: Stop called ``shutdown(wait=False, cancel_futures=True)``
-    and returned. ``finally`` skipped ``shutdown(wait=True)`` when
-    ``user_stopped``, so the non-daemon pool threads kept running.
-    ``cancel_futures`` does not stop a future that already started.
-
-    Why: cancel the queue first, then join. Tasks check the stop checker
-    captured with the send and return, so the join finishes. A worker stuck
-    in HTTP is joined only up to ``_STOP_POOL_JOIN_SEC``. Do not use
-    ``with ThreadPoolExecutor``: that joins before this path can cancel.
+    Cancel the queue first, then join. ``shutdown(wait=False,
+    cancel_futures=True)`` returns while non-daemon pool threads keep
+    running, and ``cancel_futures`` does not stop a future that already
+    started. Tasks check the stop checker captured with the send and
+    return, so the join finishes. A worker stuck in HTTP is joined only
+    up to ``_STOP_POOL_JOIN_SEC``. Do not use ``with ThreadPoolExecutor``:
+    that joins before this path can cancel.
     """
     if not user_stopped:
         pool.shutdown(wait=True)

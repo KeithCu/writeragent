@@ -1003,17 +1003,18 @@ class ApplyDocumentContent(ToolBase):
             _nl_after_esc = content.count("\n")
             if _nl_after_esc != _nl_before_esc:
                 log.debug("apply_document_content: literal \\\\n/\\\\t escape expand (plain text) newline_count %d -> %d", _nl_before_esc, _nl_after_esc)
-            # What was wrong: the import path unescapes HTML entities (html_import
-            # `_ensure_html_linebreaks`, and LO's own filter), but this
-            # format-preserving path wrote raw_content straight into the document. How it
-            # happened: content_has_markup() sees no tag in "R&#36;5.000,00", so a model
-            # that escaped the dollar sign took the plain path and the six characters
-            # "&#36;" landed in the petition verbatim. Why this change fixes it: run the
-            # same html.unescape the import path uses, so both paths agree on what the
-            # model's text means. Decode ONLY complete references (_ENTITY_RE, ";" required):
-            # html.unescape on the whole string also expands semicolon-less names, so
-            # "&sect 2o" became "§ 2o" and "&not incluidos" became "¬ incluidos". A bare "&"
-            # in "Banco & Cia" is never touched.
+            # The import path unescapes HTML entities (html_import
+            # `_ensure_html_linebreaks`, and LO's own filter). This
+            # format-preserving path must do the same, or raw_content lands
+            # verbatim. content_has_markup() sees no tag in "R&#36;5.000,00",
+            # so a model that escaped the dollar sign takes the plain path and
+            # the six characters "&#36;" land in the petition. Run the same
+            # html.unescape the import path uses, so both paths agree on what
+            # the model's text means. Decode ONLY complete references
+            # (_ENTITY_RE, ";" required): html.unescape on the whole string
+            # also expands semicolon-less names, so "&sect 2o" becomes "§ 2o"
+            # and "&not incluidos" becomes "¬ incluidos". A bare "&" in
+            # "Banco & Cia" is never touched.
             if _ENTITY_RE.search(content):
                 _before_ent = content
                 content = _ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), content)
@@ -1098,11 +1099,11 @@ class ApplyDocumentContent(ToolBase):
             # Parameter error (like old_content=None), not a search no-op: the search never ran,
             # so there's no replaced_count to report — use the standard tool error shape.
             return self._tool_error("old_content is empty after normalization."), session
-        # What was wrong: the search drops the spaces at old_content's edges but the replacement
-        # kept its own, so old_content=" paragrafo" with content="" deleted only "paragrafo" and
-        # left "Primeiro  inteiro." with a double space (same for " paragrafo inteiro" ->
-        # " inteiro"). Why this fixes it: the replacement drops the edge spaces the search
-        # dropped, and a deletion takes the space on one side along with the word.
+        # The search drops the spaces at old_content's edges. The replacement
+        # must drop the same edges, or old_content=" paragrafo" with content=""
+        # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
+        # double space (same for " paragrafo inteiro" -> " inteiro"). A
+        # deletion takes the space on one side along with the word.
         separator = 0
         if (position == "replace" and not kwargs.get("regex") and isinstance(content, str)
                 and not format_support.content_has_markup(content)
@@ -1305,17 +1306,19 @@ class ApplyDocumentContent(ToolBase):
                     "position='before'/'after' next to a match inside a table cell is not "
                     "supported yet; use position='replace' with plain text, or rewrite the "
                     "cell content."), session
-            # What was wrong: the content was imported at the exact match edge whatever it was.
-            # A block (<p>, headings, tables) imported mid-paragraph splits the host paragraph,
-            # and LibreOffice merges the first imported block into the text before the cursor:
-            # anchoring on the end of "4. CABIMENTO ... EM DOBRO" left "4. CABIMENTO NOVA SECAO A"
-            # / "NOVA SECAO B" / "EM DOBRO", and even position='after' on the last words of a
-            # paragraph glued the new paragraph onto it. Plain text was wrapped in <p> first, so
-            # inserting one word split the paragraph too. Why this fixes it: inline content goes
-            # in at the exact edge without a <p>; block content goes between paragraphs -- before
-            # the anchor's paragraph, or into a fresh paragraph opened right after it.
-            # A line break is a paragraph too: plain "Novo A\n\nNovo B" on the inline path went in
-            # as manual line breaks glued onto the matched paragraph (review finding).
+            # Inline content goes in at the exact match edge without a <p>.
+            # Block content (<p>, headings, tables) imported mid-paragraph
+            # splits the host paragraph, and LibreOffice merges the first
+            # imported block into the text before the cursor: anchoring on
+            # the end of "4. CABIMENTO ... EM DOBRO" leaves "4. CABIMENTO
+            # NOVA SECAO A" / "NOVA SECAO B" / "EM DOBRO", and even
+            # position='after' on the last words of a paragraph glues the
+            # new paragraph onto it. Plain text wrapped in <p> first splits
+            # the paragraph too. Block content goes between paragraphs --
+            # before the anchor's paragraph, or into a fresh paragraph
+            # opened right after it. A line break is a paragraph too: plain
+            # "Novo A\n\nNovo B" on the inline path goes in as manual line
+            # breaks glued onto the matched paragraph.
             is_block = (format_support.content_has_block_markup(str(content))
                         or "\n" in str(content) or "\\n" in str(content))
             text_obj = found.getText()
@@ -1376,14 +1379,14 @@ class ApplyDocumentContent(ToolBase):
         # outline URL is painted from the paragraph start (_select_replacement), not from
         # this anchor. Outline capture happens inside _replace_found, also before that delete.
         anchor = collapsed_anchor(found)
-        # What was wrong: an empty replacement inside a table only cleared that text and
-        # returned success, so a request to delete the table left the empty shell. How it
-        # happened: the table's name is a CSS class in the HTML, and the agent edited text
-        # instead of calling table_delete. Why this deletes: the replacement is the last
-        # text in the table, so the shell would be all that remained. A partial cell clear
-        # (other cells still have text, or the match is only part of its cell) falls
-        # through to the text replace below. Same delete path as table_delete, inside this
-        # edit's review session — not a second one.
+        # An empty replacement that is the last text in a table deletes
+        # the table. Clearing only that text and returning success leaves
+        # the empty shell: the table's name is a CSS class in the HTML,
+        # and the agent edited text instead of calling table_delete. A
+        # partial cell clear (other cells still have text, or the match
+        # is only part of its cell) falls through to the text replace
+        # below. Same delete path as table_delete, inside this edit's
+        # review session.
         from plugin.writer.specialized.tables import writer_tables_emptied_by_matches
 
         doomed = writer_tables_emptied_by_matches([found], content)

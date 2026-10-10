@@ -82,11 +82,10 @@ _IMPORT_NOTE_MARKER = "Set `result` to a return value (NumPy ndarray, Pandas Dat
 def _with_import_note(text: str) -> str:
     """Insert the sandbox import policy when the tool schema is built.
 
-    What was wrong: ``PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE`` starts as ``""``
-    and is filled on first prompt assembly. How: these descriptions
-    concatenated that name at import, which is tool discovery, before the
-    note exists. Later assignment does not rewrite the strings.
-    Why: read the global here, after ensuring init has run.
+    Read the global here, after ensuring init has run.
+    PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE starts empty and is filled on first
+    prompt assembly. Concatenating that name at import (tool discovery)
+    captures the empty string, and a later assignment does not rewrite it.
     """
     from plugin.framework import prompts
 
@@ -152,13 +151,11 @@ class RunVenvPythonScript(ToolCalcPythonBase):
             if kwargs.get("data_range") is not None or kwargs.get("data") is not None:
                 log.debug("run_venv_python_script: ignoring data/data_range on doc_type=%s", ctx.doc_type)
 
-        # What was wrong: wa.draw / wa.shape inside this script bound to the
-        # front window. The IPC request had no session id, so host tool RPC
-        # used get_active_document instead of ctx.doc.
-        # How: pin ctx.doc for this call only. The pin is not the worker
-        # session_id, so Isolated mode still gets a fresh namespace.
-        # Why this works: document_for_script_session resolves doc:… before
-        # the desktop's current component.
+        # Pin ctx.doc for this call only. document_for_script_session
+        # resolves a doc: id before the desktop's current component. The
+        # pin is not the worker session id, so Isolated mode still gets a
+        # fresh namespace. With no session id, host tool RPC uses
+        # get_active_document and wa.draw / wa.shape bind to the front window.
         from plugin.scripting.session_manager import pin_script_document, release_script_document
 
         script_session_id = pin_script_document(ctx.doc)
@@ -194,11 +191,10 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     from plugin.calc.python.image_egress import insert_image_result_on_sheet
                     from plugin.framework.queue_executor import execute_on_main_thread
 
-                    # What was wrong: the plot landed on the front window, and a
-                    # failed insert still said "plot(s) inserted". How: doc= was
-                    # omitted (egress used getCurrentComponent) and the call's
-                    # silent return was treated as success. Why: pass ctx.doc,
-                    # and only report inserted after the main-thread call returns.
+                    # Pass ctx.doc, and report inserted only after the
+                    # main-thread call returns. Omitting doc= makes egress
+                    # use getCurrentComponent (the front window), and a
+                    # silent return was treated as success.
                     inserted = 0
                     failure: Exception | None = None
                     for img in images:

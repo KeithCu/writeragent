@@ -147,12 +147,12 @@ class _PanelResizeListener(BaseWindowListener):
         self._root_window = None
 
     def disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO signature
-        # What was wrong: PythonPanelElement.disposing never ran. The element
-        # is XUIElement only, not XComponent, so LibreOffice's dispose query
-        # fails and deck close leaked the controller's listeners.
-        # How: VCL does call this window listener when the root window goes.
-        # Why: run controller cleanup from here. Do not removeWindowListener;
-        # this listener is already disposing (same as the chat panel listener).
+        # LibreOffice queries XComponent for dispose. This element is
+        # XUIElement only, so PythonPanelElement.disposing never runs and
+        # deck close would leak the controller's listeners. VCL does call
+        # this window listener when the root window goes; clean up from here.
+        # Do not removeWindowListener; this listener is already disposing
+        # (same as the chat panel listener).
         callback = self._on_dispose
         self._on_dispose = None
         self._root_window = None
@@ -349,16 +349,13 @@ class PythonSidebarController:
                 log.debug("sidebar diagnostics listener add failed", exc_info=True)
 
     def disposing(self) -> None:
-        # What was wrong: only PythonPanelElement.disposing called this, and
-        # LibreOffice never does. The element is XUIElement, not XComponent,
-        # so the sidebar dispose query fails. Deck close leaked the diagnostics
-        # listener and the Calc activation listener, which then ran against a
-        # dead frame.
-        # How: the root window listener's on_dispose calls this method. An
-        # explicit element.disposing still does too.
-        # Why: drop the window listener while the root is still held, then
-        # drop the other listeners. Clear on_dispose first so the window
-        # hook cannot re-enter.
+        # Deck close never calls PythonPanelElement.disposing: the element is
+        # XUIElement, not XComponent, so the sidebar dispose query fails.
+        # The root window listener's on_dispose calls this method (an explicit
+        # element.disposing still does too). Drop the window listener while
+        # the root is still held, then the diagnostics and Calc activation
+        # listeners; otherwise they run against a dead frame. Clear on_dispose
+        # first so the window hook cannot re-enter.
         rl = getattr(self, "resize_listener", None)
         if rl is not None:
             self.resize_listener = None
@@ -485,11 +482,10 @@ class PythonSidebarController:
 
         Writer panels must not fall back to some other open Calc document.
         """
-        # What was wrong: self._calc_panel was only set at construction time. After switching
-        # frames to Writer, is_calc(model) was False, falling through to get_calc_document_from_ctx
-        # which found a separate open Calc document on the desktop.
-        # Why this change: refresh self._calc_panel from self._frame_is_calc() on each lookup;
-        # if this frame is not Calc, return None immediately.
+        # Refresh _calc_panel from _frame_is_calc() on each lookup, and
+        # return None when this frame is not Calc. A value captured at
+        # construction stays Calc after a switch to Writer, and
+        # get_calc_document_from_ctx then returns some other open Calc document.
         self._calc_panel = self._frame_is_calc()
         if not self._calc_panel:
             return None

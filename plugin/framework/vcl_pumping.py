@@ -149,16 +149,14 @@ def _post_secondary_idle(ctx: Any) -> None:
             return
         if posted is not None and default_executor.callable_is_scheduled(posted):
             return
-        # What was wrong: each 75ms tick could enqueue another no-op pump, and
-        # the guard for that skipped the post whenever ``pending_work_count()``
-        # was non-zero. How: that count is the whole process-wide marshal
-        # queue. A leftover item from another test (pytest-xdist) or unrelated
-        # UI work looked like "our pump is already queued", so a Dummy-*
-        # linguistic wait never posted. The lint then ran out its own timeout
-        # (CI: ``posts["n"] == 0``, slow result elapsed_ms=2000). Why: coalesce
-        # only this pump. ``post`` dropping the callable, or a test double that
-        # does not enqueue it, leaves nothing scheduled, so the next tick tries
-        # again.
+        # Coalesce only this pump. pending_work_count() is the whole
+        # process-wide marshal queue. Skipping the post whenever that count
+        # is non-zero treats a leftover item from another test (pytest-xdist)
+        # or unrelated UI work as "our pump is already queued", so a Dummy-*
+        # linguistic wait never posts and the lint runs out its own timeout
+        # (CI: ``posts["n"] == 0``, slow result elapsed_ms=2000). ``post``
+        # dropping the callable, or a test double that does not enqueue it,
+        # leaves nothing scheduled, so the next tick tries again.
         _secondary_idle_posted = _SECONDARY_IDLE_RESERVING
         if uno_ctx_mod is not None and hasattr(uno_ctx_mod, "_secondary_idle_posted"):
             setattr(uno_ctx_mod, "_secondary_idle_posted", _SECONDARY_IDLE_RESERVING)

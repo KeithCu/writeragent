@@ -174,14 +174,14 @@ def find_paragraph_for_range(match_range: Any, para_ranges: list[Any], text_obj:
     # optional made basedpyright treat compareRegionStarts as optional access.
     """Return the enumeration index of the element that contains *match_range*.
 
-    What was wrong: binary search called ``getStart`` / ``getEnd`` on every
-    enumerated element. ``SwXTextTable`` is not an ``XTextRange``. The attribute
-    lookup happens before ``safe_call``, so it raised ``AttributeError`` (callers
-    that catch ``Exception`` then dropped the index, often to 0).
-
-    Why this works: only ``com.sun.star.text.Paragraph`` elements are compared,
-    and the returned index is still the full-enumeration index (tables keep
-    their slots). A point in the gap between paragraphs maps to that slot.
+    Binary search calls ``getStart`` / ``getEnd`` only on
+    ``com.sun.star.text.Paragraph`` elements. ``SwXTextTable`` is
+    not an ``XTextRange``. The attribute lookup happens before
+    ``safe_call``, so it raises ``AttributeError`` (callers that
+    catch ``Exception`` then drop the index, often to 0). The
+    returned index is still the full-enumeration index (tables
+    keep their slots). A point in the gap between paragraphs maps
+    to that slot.
     """
     try:
         if text_obj is None:
@@ -218,14 +218,16 @@ def find_paragraph_for_range(match_range: Any, para_ranges: list[Any], text_obj:
 def confirm_paragraph_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: Any) -> int | None:
     """Return *para_idx* when it is a real hit, or None for the unplaced fallback.
 
-    What was wrong: ``find_paragraph_for_range`` returns 0 both when the anchor
-    sits in the first paragraph and when the anchor cannot be placed (disposed
-    range, compare failure, or a point past the last paragraph). ``bookmark:``
-    locators then navigated and edited paragraph 0 and reported success.
-    How: a stale ``_mcp_`` mark after save/reopen or ``bookmark_cleanup`` still
-    has a name, so the missing-name error never runs; only the finder fails.
-    Why: index 0 is kept only when the anchor start lies in that element. Any
-    other non-negative index is a hit inside the search, not the fallback.
+    ``find_paragraph_for_range`` returns 0 both when the anchor
+    sits in the first paragraph and when the anchor cannot be
+    placed (disposed range, compare failure, or a point past the
+    last paragraph). ``bookmark:`` locators then navigate and edit
+    paragraph 0 and report success. A stale ``_mcp_`` mark after
+    save/reopen or ``bookmark_cleanup`` still has a name, so the
+    missing-name error never runs; only the finder fails. Index 0
+    is kept only when the anchor start lies in that element. Any
+    other non-negative index is a hit inside the search, not the
+    fallback.
     """
     if not isinstance(para_idx, int) or isinstance(para_idx, bool) or para_idx < 0:
         return None

@@ -104,8 +104,8 @@ def _cleanup_stale_native_backups(bin_dir: str) -> None:
 
         for root, _dirs, files in os.walk(bin_dir):
             for name in files:
-                # What was wrong: '.old' in name matched unrelated files like foo.older.py.
-                # Why this change: exact regex matches only .old and .old.<num> backup suffixes.
+                # '.old' in name also matches foo.older.py. Match only the
+                # .old and .old.<num> backup suffixes.
                 if not re.search(r"\.old(\.\d+)?$", name):
                     continue
                 stale = os.path.join(root, name)
@@ -215,9 +215,9 @@ def _download_url_to_file(
     )
     dest_dir = os.path.dirname(dest_path) or "."
     os.makedirs(dest_dir, exist_ok=True)
-    # What was wrong: using fixed partial_path = dest_path + '.partial' meant concurrent
-    # downloads (e.g. settings probe + background worker) clobbered each other.
-    # Why this change: tempfile.mkstemp ensures unique partial files per download.
+    # A fixed dest_path + '.partial' lets concurrent downloads (settings probe
+    # and the background worker) clobber each other. mkstemp gives each
+    # download its own partial file.
     fd, partial_path = tempfile.mkstemp(dir=dest_dir, suffix=".partial")
     try:
         with urllib.request.urlopen(req, timeout=_NATIVE_DOWNLOAD_TIMEOUT_SEC) as response:

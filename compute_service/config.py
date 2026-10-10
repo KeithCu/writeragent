@@ -26,6 +26,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 MIN_MAX_CODE_CHARS = 64
+# HTTP body cap and the vision worker's file_path read cap. One value so a
+# path read cannot accept a file the HTTP layer would have rejected.
+MAX_BODY_BYTES = 32 * 1024 * 1024
 VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "WARN", "ERROR", "CRITICAL"})
 LOOPBACK_HOSTS = frozenset({"", "127.0.0.1", "::1", "localhost"})
 
@@ -167,7 +170,7 @@ class ComputeSettings:
     host: str = "127.0.0.1"
     port: int = 8000
     api_key: str = field(default="", repr=False)
-    max_body_bytes: int = 32 * 1024 * 1024
+    max_body_bytes: int = MAX_BODY_BYTES
     default_timeout_sec: int = 30
     max_timeout_sec: int = 600
     # Listener threads. Not a setting: one per formula worker and vision worker.
@@ -192,9 +195,9 @@ class ComputeSettings:
             object.__setattr__(self, "ocr_workers", 0)
         # Base worker capacity across formula and vision subprocesses.
         # The HTTP server sizes its thread pool above this count (at least W + 2)
-        # and gates each pool with its own non-blocking semaphore. A full formula
-        # pool does not take a vision permit (or the reverse). A miss returns 503
-        # without holding a listener thread, leaving spare threads for GET /health.
+        # and gates each pool with its own semaphore. A full formula pool does
+        # not take a vision permit (or the reverse). A permit waits until the
+        # request deadline; 503 is that timeout, not a miss of a few milliseconds.
         object.__setattr__(self, "threads", self.workers + self.ocr_workers)
         object.__setattr__(self, "ocr_allow_paths", _as_path_tuple(self.ocr_allow_paths))
         object.__setattr__(self, "shared_kernel_ttl_sec", float(self.shared_kernel_ttl_sec))
@@ -233,10 +236,7 @@ class ComputeSettings:
             raise ConfigError("ocr_workers must be >= 0")
         if self.ocr_timeout_sec < 1:
             raise ConfigError("ocr_timeout_sec must be >= 1")
-        # Bugfix (#1365 regression): ocr_timeout_sec was not checked against max_timeout_sec.
-        # When max_timeout_sec was configured lower than ocr_timeout_sec (e.g. max 30s with
-        # default 60s OCR timeout), OCR jobs could exceed the maximum timeout ceiling.
-        # Adding this check ensures ocr_timeout_sec respects max_timeout_sec like default_timeout_sec does.
+        # OCR uses the same ceiling as the other timeouts.
         if self.ocr_timeout_sec > self.max_timeout_sec:
             raise ConfigError("ocr_timeout_sec cannot exceed max_timeout_sec")
         if self.ocr_max_tasks < 1:
@@ -255,11 +255,8 @@ class ComputeSettings:
             raise ConfigError("idle_worker_ttl_sec must be a finite number >= 0")
         if self.log_level.upper() not in VALID_LOG_LEVELS:
             raise ConfigError(f"Invalid log_level: {self.log_level!r} (must be one of {sorted(VALID_LOG_LEVELS)})")
-        # Loopback with no key stays open for local dev. Any other bind used to
-        # start with auth off; the shell entrypoints then reimplemented the
-        # check, so ``python compute_service/server.py --host 0.0.0.0`` did not.
-        # The refusal lives here so every load_settings / ComputeSettings path
-        # fails before the process listens.
+        # Loopback with no key stays open for local dev. Any other bind
+        # must have a key, or the process listens with auth off.
         if not self.is_loopback_bind and not self.api_key:
             raise ConfigError("Refusing to listen on a non-loopback address without an API key. Set PYTHON_COMPUTE_API_KEY or an api_key_file.")
 
@@ -311,8 +308,8 @@ def _as_int(value: Any, *, field: str) -> int:
     except (TypeError, ValueError, OverflowError) as exc:
         # json.loads accepts Infinity and 1e9999 (they become inf). int(inf)
         # and int() of an out-of-range float raise OverflowError, which is
-        # not a ValueError. main() only catches ConfigError, so the traceback
-        # killed the process instead of a configuration error and exit 2.
+        # not a ValueError. main() only catches ConfigError, so this must
+        # be a ConfigError or startup dies with a traceback.
         raise ConfigError(f"Invalid integer for {field}: {value!r}") from exc
 
 
@@ -322,7 +319,7 @@ def _as_float(value: Any, *, field: str) -> float:
     except (TypeError, ValueError, OverflowError) as exc:
         # A JSON number with no decimal point arrives as a Python int.
         # float() of an int bigger than the float range raises OverflowError,
-        # not ValueError, and used to escape the same way as _as_int.
+        # not ValueError, so both become ConfigError.
         raise ConfigError(f"{field} must be a number: {value!r}") from exc
     if not math.isfinite(number):
         # JSON Infinity/NaN and 1e9999 become inf/nan without raising.
@@ -337,7 +334,7 @@ def _read_key_file(path: str | Path) -> str:
         text = key_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         # UnicodeDecodeError subclasses ValueError, not OSError. A binary
-        # or non-UTF-8 --api-key-file used to crash startup with a traceback.
+        # or non-UTF-8 key file is a config error, not a traceback.
         raise ConfigError(f"Cannot read api_key_file {key_path}: {exc}") from exc
     # Strip one trailing newline only if present; keep interior whitespace.
     if text.endswith("\r\n"):
@@ -356,7 +353,7 @@ def _load_json_file(path: str | Path) -> dict[str, Any]:
         raw = json.loads(cfg_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError) as exc:
         # UnicodeDecodeError subclasses ValueError, not OSError. A binary
-        # or non-UTF-8 --config used to crash startup with a traceback.
+        # or non-UTF-8 config file is a config error, not a traceback.
         raise ConfigError(f"Cannot read config file {cfg_path}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ConfigError(f"Invalid JSON in config file {cfg_path}: {exc}") from exc
@@ -365,11 +362,8 @@ def _load_json_file(path: str | Path) -> dict[str, Any]:
     return raw
 
 
-# Bugfix (#1365 regression): _FIELD_NAMES included non-init fields like 'threads'
-# because fields(ComputeSettings) contains all dataclass fields regardless of init=True.
-# A config specifying 'threads' passed _reject_unknown_keys but failed inside
-# ComputeSettings(**values) with a TypeError on startup. Filtering by f.init ensures
-# only constructor fields are accepted, rejecting 'threads' as an unknown key via ConfigError.
+# Only constructor fields are accepted. Non-init names such as 'threads'
+# are unknown keys, not a TypeError inside ComputeSettings(**values).
 _FIELD_NAMES = frozenset(f.name for f in fields(ComputeSettings) if f.init)
 _SECTION_KEYS = frozenset({"listen", "auth", "limits", "ocr", "logging"})
 _ALIASES = frozenset({"max_workers", "session_ttl_sec", "api_key_file"})
@@ -434,10 +428,8 @@ def _flatten_config_json(raw: Mapping[str, Any]) -> dict[str, Any]:
             out["port"] = listen["port"]
     elif listen is not None:
         raise ConfigError("listen must be a JSON object")
-    # A raw api_key in the file used to be dropped and the process started
-    # with auth off (the log line "auth=no" is easy to miss). Refuse it so
-    # the operator uses a key file or PYTHON_COMPUTE_API_KEY. Do not accept
-    # the raw key.
+    # Refuse a raw api_key in the file. Auth comes from a key file or
+    # PYTHON_COMPUTE_API_KEY, so the process cannot start with auth off.
     auth = raw.get("auth")
     if "api_key" in raw or (isinstance(auth, Mapping) and "api_key" in auth):
         raise ConfigError("Do not put api_key in the JSON config. Set PYTHON_COMPUTE_API_KEY or auth.api_key_file.")
@@ -514,12 +506,7 @@ def load_settings(
     if resolved_config:
         values.update(_flatten_config_json(_load_json_file(resolved_config)))
 
-    # Environment settings.
-    # Bugfix (#1365 regression): Environment variables were ignored when a setting was
-    # defined in JSON config because 'field_name not in values' prevented overrides.
-    # In #1365, that guard was added when converting to a loop over _ENV_FIELD_MAP,
-    # violating the layering rule (defaults -> JSON -> env -> CLI). Dropping the guard
-    # allows environment variables to take precedence over JSON config.
+    # Environment overrides JSON. Order is defaults, then JSON, then env, then CLI.
     for env_name, field_name in _ENV_FIELD_MAP:
         if env.get(env_name):
             values[field_name] = env[env_name]

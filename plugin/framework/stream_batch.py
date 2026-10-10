@@ -250,9 +250,9 @@ class BatchingStreamQueue:
     def _emit_pending_locked(self) -> None:
         """Emit each contiguous display run, in arrival order. Caller holds lock."""
         # crosshair: off
-        # What was wrong: CHUNK was always queued before THINKING, so a burst
-        # that started with thinking showed the reply first. Why: one joined
-        # string per contiguous run, in the order the fragments arrived.
+        # One joined string per contiguous run, in the order the fragments
+        # arrived. Queuing every CHUNK before every THINKING shows the reply
+        # first when a burst started with thinking.
         for kind, parts in self._runs:
             self._raw.put((kind, "".join(parts)))
         self._runs.clear()
@@ -282,10 +282,9 @@ class BatchingStreamQueue:
                 return
 
         # Any other kind (including bare kinds or control tuples) is a boundary.
-        # What was wrong: flush() released the lock, then raw.put ran after a
-        # separate _dropped check. discard() could set _dropped in that gap
-        # and the control item (STREAM_DONE) still landed on the queue.
-        # Why: emit, the dropped check, and the put share this lock.
+        # Emit, the dropped check, and the put share this lock. Releasing the
+        # lock between flush and raw.put lets discard() set _dropped in that
+        # gap, and the control item (STREAM_DONE) still lands on the queue.
         # discard() then either runs wholly before (item dropped) or wholly
         # after (item already queued). Unbounded Queue.put does not take
         # this lock, so the timer flush cannot deadlock.
@@ -306,11 +305,11 @@ class BatchingStreamQueue:
     def discard(self) -> None:
         """Drop pending display text without emitting it.
 
-        What was wrong: the tool-loop ``finally`` cleared the host's batcher
-        reference while the 250 ms timer could still flush those runs. After
-        Stop or a new send that flush applied the first turn's tail onto the
-        next queue. Discard under the same lock as emit, and stay dropped so
-        a later ``put`` cannot arm the timer again.
+        The tool-loop ``finally`` can clear the host's batcher reference
+        while the 250 ms timer can still flush those runs. After Stop or a
+        new send that flush would apply the first turn's tail onto the next
+        queue. Discard under the same lock as emit, and stay dropped so a
+        later ``put`` cannot arm the timer again.
         """
         # crosshair: off
         with self._lock:

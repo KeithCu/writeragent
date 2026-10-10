@@ -11,6 +11,7 @@ termination on hangs/timeouts without affecting the master HTTP server.
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import os
@@ -29,16 +30,81 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, canonical_execute_mode, dumps_response, require_execute_wire, validate_execute_response
+from compute_service.config import DEFAULT_SETTINGS, clamp_timeout_sec
+from compute_service.json_egress import normalize_execute_response
+from compute_service.json_forward import (
+    COMPUTE_MAX_PAYLOAD_BYTES,
+    ExecuteRequestError,
+    canonical_execute_mode,
+    dumps_response,
+    require_execute_wire,
+    validate_execute_response,
+    validate_session_id,
+)
 from compute_service.worker_base import run_worker_stdio_loop
 
-# execute_code pulls in the sandbox. Import it on the first real request so
-# run_worker_stdio_loop can write {"status": "ready"} before that graph loads.
-# A cold import used to consume the 15s handshake with an empty stderr.
+# execute_code pulls in the sandbox lazily on the first execution so
+# the ready handshake is not spent on that graph with an empty stderr.
 
 # Do not load the Cython accelerator here. The compute payload is JSON-forward
 # (worker json.loads data_json / dumps result_json once). There is no
 # split_grid field on this pipe. Cython flatten stays on the LibrePy host.
+
+
+def execute_code(
+    code: str,
+    data: Any = None,
+    session_id: str | None = None,
+    timeout_sec: int | None = None,
+    *,
+    mode: str = "isolated",
+    init_script: str | None = None,
+    default_timeout_sec: int = DEFAULT_SETTINGS.default_timeout_sec,
+    max_timeout_sec: int | None = None,
+) -> dict[str, Any]:
+    """Execute *code* under AST sandboxing; return a JSON object of status, result, stdout, and error.
+
+    The host already clamps request timeouts to configured bounds (e.g. 1800s);
+    the worker does not impose a second 600s clamp when max_timeout_sec is None.
+    """
+    # Lazy import to avoid loading the heavy sandbox graph at module load time.
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+
+    # Always pass an explicit timeout so the sandbox never consults WriterAgent defaults.
+    timeout_sec = clamp_timeout_sec(
+        timeout_sec,
+        default_timeout_sec=default_timeout_sec,
+        max_timeout_sec=max_timeout_sec,
+    )
+
+    # Shared kernel only when explicitly requested *and* a session id is provided.
+    use_session: str | None = None
+    if mode == "shared" and isinstance(session_id, str) and session_id.strip():
+        use_session = validate_session_id(session_id)
+
+    # Stable init_session_id so run_sandboxed_code runs init once per worker and
+    # seeds later cells from that namespace (hash change replaces the snapshot).
+    init_sid: str | None = None
+    init_code = init_script if isinstance(init_script, str) and init_script.strip() else None
+    init_hash: str | None = None
+    if init_code is not None:
+        init_hash = hashlib.sha256(init_code.encode("utf-8")).hexdigest()
+        if use_session is not None:
+            init_sid = f"{use_session}:init"
+        else:
+            init_sid = f"isolated:{init_hash}:init"
+
+    raw = run_sandboxed_code(
+        code=code,
+        data=data,
+        session_id=use_session,
+        timeout_sec=timeout_sec,
+        init_script=init_code,
+        init_session_id=init_sid,
+        init_script_hash=init_hash,
+    )
+
+    return normalize_execute_response(raw)
 
 
 def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
@@ -75,8 +141,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         return _json_forward_envelope(err, req_id=req_id, session_reset=session_reset)
 
     session_id = req.get("session_id")
-    # Same mode rule as the HTTP handler. Missing is isolated. false / 0 / a
-    # typo used to be rewritten on one path and rejected on the other.
+    # Same mode rule as the HTTP handler. Missing is isolated; anything else
+    # is rejected, so a typo is not rewritten on one path only.
     raw_mode = req.get("mode", None)
     try:
         mode = canonical_execute_mode(raw_mode)
@@ -90,8 +156,6 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     init_script = req.get("init_script")
 
     try:
-        from compute_service.executor import execute_code
-
         data = _load_request_data(req)
         res = validate_execute_response(execute_code(code=code, data=data, session_id=session_id, timeout_sec=timeout_sec, mode=mode, init_script=init_script))
         if req_id is not None and isinstance(res, dict):
@@ -107,9 +171,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 def _load_request_data(req: dict[str, Any]) -> Any:
     """One deserialize of the data blob on the worker (never on the HTTP host).
 
-    The stdio dict used to also carry a ``data`` object for the pickle /
-    split_grid wire. Reading it here ran a payload the JSON path had not
-    accepted. Absent ``data_json`` is no data, not a second wire.
+    The stdio dict carries ``data_json`` only. A ``data`` object is not a
+    second wire: absent ``data_json`` means no data.
     """
     raw = req.get("data_json")
     if raw is None:

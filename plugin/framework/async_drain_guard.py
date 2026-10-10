@@ -66,13 +66,11 @@ def acquire_drain_owner(owner_name: str) -> str | None:
 def release_drain_owner(previous_owner: str | None) -> None:
     """Undo one :func:`acquire_drain_owner`. Idle callbacks run at depth 0.
 
-    What was wrong: with depth still above zero this restored
-    *previous_owner*. Event-driven drains in two documents overlap and can
-    finish in either order. The first drain to start (previous owner None)
-    finishing first set the owner to None while the other drain still held
-    the pump, so a different owner (MCP) could start under it.
-    Why keeping the name is right: acquire refuses a different name while
-    one is set, so every holder at depth > 0 has the current name.
+    While depth is still above zero the current owner name stays. Event-driven
+    drains in two documents overlap and can finish in either order. Clearing
+    the name when the first drain finishes would let a different owner (MCP)
+    start under the drain that is still pumping. Acquire refuses a different
+    name while one is set, so every holder at depth > 0 already has that name.
     """
     global _active_owner_name, _drain_depth
     became_idle = False
@@ -180,11 +178,9 @@ def _notify_drain_idle() -> None:
     """Invoke idle callbacks. Never raise into the drain ``finally``."""
     # Copy under the lock, then drop it before calling. Peer ``_on_drain_idle``
     # calls ``get_drain_owner()``, which takes this same non-reentrant lock.
-    # What was wrong: commit 157237cd1 cleared _drain_idle_callbacks here.
-    # How it happened: callbacks were assumed to be one-shot, but peer_message.py
-    # registers a persistent process-wide callback (add_drain_idle_callback(_on_drain_idle)).
-    # Why this change: do not clear the list; callbacks remain registered across
-    # drain cycles so subsequent peer turns queued during a drain are kicked.
+    # Do not clear the list. peer_message.py registers one process-wide
+    # callback (add_drain_idle_callback(_on_drain_idle)) that must stay across
+    # drain cycles so a peer turn queued during a drain still gets kicked.
     with _drain_lock:
         callbacks = list(_drain_idle_callbacks)
     for cb in callbacks:

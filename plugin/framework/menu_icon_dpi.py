@@ -83,8 +83,7 @@ def _candidate_windows(ctx: Any = None) -> list[Any]:
             return wins
         if ctx is None:
             ctx = get_ctx()
-        # What was wrong: this created Desktop itself, bypassing get_desktop's
-        # no-VCL guard (#768).
+        # get_desktop refuses to create Desktop when there is no VCL (#768).
         desktop = get_desktop(ctx)
         if desktop is None:
             return wins

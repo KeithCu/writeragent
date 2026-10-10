@@ -464,9 +464,8 @@ def _convert_image_bytes(image: Any, params: dict[str, Any]) -> Any:
 
 
 def _cell_text(cell: Any) -> str:
-    # What was wrong: getattr(cell, "text", None) or cell fell through to the TableCell
-    # pydantic object when text was empty "", returning its str repr in tables.
-    # Why this change: return "" when text is falsy without falling through to cell.
+    # Empty cell text is "", not missing. Returning the TableCell falls through
+    # to its str repr. Return "" when text is falsy.
     if isinstance(cell, dict):
         return str(cell.get("text") or cell.get("value") or "").strip()
     return str(getattr(cell, "text", "") or "").strip()
@@ -540,9 +539,8 @@ def _map_docling_document(
                         "total_rows": len(rows),
                     }
 
-        # What was wrong: item.export_to_dict() failed on TableItem instances (which lack export_to_dict),
-        # silently falling back to [0, 0, 0, 0] boxes.
-        # Why this change: inspect item.prov directly to extract bounding box coordinates.
+        # TableItem has no export_to_dict; that call failed and boxes became
+        # [0, 0, 0, 0]. Read coordinates from item.prov.
         prov = getattr(item, "prov", None) if not isinstance(item, dict) else item.get("prov")
         if prov:
             box = prov_bbox_to_xywh(prov)
@@ -602,10 +600,8 @@ def _run_docling_conversion(
     params: dict[str, Any],
     helper: str,
 ) -> tuple[dict[str, Any] | None, Any, str, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[str]]:
-    # What was wrong: ValueError was unconditionally mapped to OCR_BACKEND_UNAVAILABLE, masking
-    # parameter errors and pydantic validation exceptions.
-    # Why this change: map only typed OcrBackendError to OCR_BACKEND_UNAVAILABLE; other ValueErrors
-    # become INVALID_PARAMS.
+    # Only OcrBackendError maps to OCR_BACKEND_UNAVAILABLE. Other ValueErrors
+    # (bad parameters, pydantic validation) are INVALID_PARAMS.
     try:
         document = _convert_image_bytes(image, params)
         from plugin.vision.venv.vision_html_export import export_docling_to_html
@@ -641,8 +637,8 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     if err is not None:
         return err
 
-    # What was wrong: extract_text omitted table text from full_text, and mean_confidence was always 0.
-    # Why this change: include all text parts (including tables) in full_text, and drop mean_confidence for Docling.
+    # full_text includes every text part, tables included. Docling has no
+    # mean_confidence, so that field is omitted.
     full_text = "\n".join(text_parts)
     warnings: list[str] = []
     if not full_text:

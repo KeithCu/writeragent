@@ -15,16 +15,16 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """One session per open frame.
 
-What was wrong: focus pins, click handlers, and the chatbot sidebar lived in
-process globals (``_default_focus_restore``, ``_stream_focus_trackers``,
-``panels[0]``) and were aimed with ``Desktop.getCurrentComponent()`` or
-``get_active_document()``. How: a handler installed for whichever document
-was current stayed for the process; a second sidebar skipped its listener
-because the first was still set; dispose cleared the other window's pin;
-``uno_same`` off the main thread fell through to ``panels[0]``. Why: the
-frame the sidebar was given already identifies the window. This object is
-created when that frame is opened and destroyed when it closes. It owns the
-listeners, the focus pin, and the panel. Dispose removes only this session.
+Focus pins, click handlers, and the chatbot sidebar belong to the frame
+the sidebar was given, not to process globals (``_default_focus_restore``,
+``_stream_focus_trackers``, ``panels[0]``) aimed with
+``Desktop.getCurrentComponent()`` or ``get_active_document()``. A handler
+installed for whichever document was current would stay for the process; a
+second sidebar would skip its listener because the first was still set;
+dispose would clear the other window's pin; ``uno_same`` off the main
+thread would fall through to ``panels[0]``. This object is created when
+that frame is opened and destroyed when it closes. It owns the listeners,
+the focus pin, and the panel. Dispose removes only this session.
 """
 
 from __future__ import annotations
@@ -141,12 +141,11 @@ def _forget(session: FrameSession) -> None:
 def _is_attach_thread_violation(exc: BaseException) -> bool:
     """True when *exc* is the main-thread guard, not a missing UNO method.
 
-    What was wrong: ``getController``, ``addFocusListener``, ``addMouseListener``,
-    and ``addMouseClickHandler`` caught ``Exception`` and logged at debug. How:
-    off the main thread those calls raise ``RuntimeError`` (``UNO thread
-    violation``), so the session kept going with no listener and ``install``
-    looked successful. Why: that is the thread guard. Callers re-raise it. Any
-    other attach error stays a debug log.
+    Off the main thread, ``getController``, ``addFocusListener``,
+    ``addMouseListener``, and ``addMouseClickHandler`` raise ``RuntimeError``
+    (``UNO thread violation``). That is the thread guard: callers re-raise it.
+    Catching it and logging at debug would leave the session with no listener
+    while ``install`` looked successful. Any other attach error stays a debug log.
     """
     from plugin.framework.uno_listeners import listener_boundary
 
@@ -202,9 +201,8 @@ class FrameSession:
     def clear_focus_pin_if(self, control: Any) -> None:
         """Clear the pin only when it is still *control*.
 
-        What was wrong: every sidebar dispose set the process pin to None,
-        including a second window closing while the first window's query
-        field was the pin.
+        Only this session's pin. A second window closing must not clear the
+        first window's query field.
         """
         if control is not None and self.focus_pin is control:
             self.focus_pin = None
@@ -261,15 +259,14 @@ class FrameSession:
         Closes over this session. Callers do not pass a frame or look up the
         current component.
 
-        What was wrong (release QA BUG A): while doc B streamed, every chunk
-        called ``query.setFocus()`` here about 3 times with no check that B
-        was the window the user was in. VCL's GrabFocus pulls keyboard focus
-        into a background top window, so a window the user switched to was
-        raised but never activated, and its Window menu would not open until
-        B finished. How: restore only while this frame's container window is
-        the active top window. Why not deactivate the restore flag instead:
-        when the user comes back to B, chunks should keep the caret in Ask
-        again without a fresh click there.
+        Restore only while this frame's container window is the active top
+        window. While doc B streamed, every chunk called ``query.setFocus()``
+        here about 3 times with no check that B was the window the user was
+        in. VCL's GrabFocus pulls keyboard focus into a background top window,
+        so a window the user switched to was raised but never activated, and
+        its Window menu would not open until B finished. Do not clear the
+        restore flag: when the user comes back to B, chunks should keep the
+        caret in Ask again without a fresh click there.
         """
         if self._closed or not self._restore_query:
             return
@@ -310,14 +307,10 @@ class FrameSession:
 
         from plugin.framework.uno_listeners import _catch_and_log
 
-        # What was wrong: _FrameClose.disposing called session.dispose() without
-        # _catch_and_log. If an exception occurred during disposal (such as
-        # listener removal or thread violation), it propagated into the UNO
-        # bridge and aborted teardown of remaining listeners.
-        # How: All other listeners in FrameSession use Base*Listener which wraps
-        # callbacks in _catch_and_log, but _FrameClose was a bare class.
-        # Why: Wrapping disposing in _catch_and_log catches and logs unexpected
-        # errors so teardown of other listeners proceeds safely.
+        # Other listeners use Base*Listener, which wraps callbacks in
+        # _catch_and_log. A bare disposing() lets a listener-removal or
+        # thread-violation error into the UNO bridge and aborts teardown
+        # of the remaining listeners.
         class _FrameClose(unohelper.Base, XEventListener):  # type: ignore[misc]
             @_catch_and_log
             def disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO signature
@@ -362,13 +355,13 @@ class FrameSession:
     def forget_listener(self, listener: Any) -> None:
         """Drop *listener* from this session. Do not call ``remove*``.
 
-        What was wrong: ``on_disposing`` called ``removeMouseListener`` /
-        ``removeFocusListener`` / ``removeMouseClickHandler`` while UNO was
-        already disposing the broadcaster. How: disposing walks the listener
-        list and notifies each one. Why: only the Python lists change here.
-        ``remove*`` stays on :meth:`release_listeners`. Panel teardown calls
-        it while the controls are alive. Frame :meth:`dispose` calls it too;
-        :meth:`_remove` ignores a control that is already dead.
+        Disposing walks the listener list and notifies each one. Calling
+        ``removeMouseListener`` / ``removeFocusListener`` /
+        ``removeMouseClickHandler`` from ``on_disposing`` hits a broadcaster
+        that is already tearing those listeners down. Only the Python lists
+        change here. ``remove*`` stays on :meth:`release_listeners`. Panel
+        teardown calls it while the controls are alive. Frame :meth:`dispose`
+        calls it too; :meth:`_remove` ignores a control that is already dead.
         """
         if listener is None:
             return
@@ -417,25 +410,21 @@ class FrameSession:
         same frame is the same object. Another frame's session is not in
         this method.
 
-        What was wrong: a late dispose of the previous sidebar still called
-        ``release_listeners`` after ``bind_panel`` had pointed this session
-        at the new sidebar. How: ``open_frame_session`` returns the existing
-        session for the frame, so the old element's dispose and the new
-        element's listeners share one object. The ``self.panel is panel``
-        check kept the new panel, then ``release_listeners`` removed the new
-        query, leave, and click listeners anyway. Why: those listeners
-        belong to the panel currently bound. Only that panel's dispose
+        ``open_frame_session`` returns the existing session for the frame, so
+        the old element's dispose and the new element's listeners share one
+        object. A late dispose of the previous sidebar must not call
+        ``release_listeners`` after ``bind_panel`` has pointed this session
+        at the new sidebar: the ``self.panel is panel`` check keeps the new
+        panel, and those listeners belong to it. Only that panel's dispose
         removes them. ``clear_focus_pin_if`` stays scoped to the control
         that is still the pin.
         """
         if self._closed:
             return
         self.clear_focus_pin_if(query_control)
-        # What was wrong: close hooks registered by _bind_close_hook leaked in
-        # _close_hooks across sidebar deck reopens.
-        # How: each time a sidebar was built, a new on_frame_close closure was
-        # appended to self._close_hooks, keeping the old panel and send_listener alive.
-        # Why: drop the registered hook for this panel on release.
+        # Each sidebar build appends an on_frame_close closure. Drop this
+        # panel's hook or the old panel and send_listener stay alive across
+        # deck reopens.
         hook = getattr(panel, "_frame_close_hook", None)
         if hook is not None:
             self.remove_close_hook(hook)
@@ -453,17 +442,17 @@ class FrameSession:
         ``removeEventListener`` on the frame. Sidebar listeners are a
         different broadcaster.
 
-        What was wrong: this set ``_closed`` and cleared the Python lists
-        without :meth:`release_listeners`. How: frame ``disposing`` often
-        runs before sidebar teardown. :meth:`release_panel` then returned
-        immediately, so the query, leave, and click listeners stayed
-        registered. Those listeners close over this session and kept it
-        alive after the frame was gone. Why: release them here, the same
-        way :meth:`release_panel` does. :meth:`_remove` swallows a dead
-        control, so a control that is already disposing does not raise,
-        and a later :meth:`release_panel` does not remove them again.
-        ``_closed`` is set first so a ``remove*`` that re-enters
-        :meth:`release_panel` cannot start a second remove.
+        Frame ``disposing`` often runs before sidebar teardown. Setting
+        ``_closed`` and clearing the Python lists without
+        :meth:`release_listeners` makes :meth:`release_panel` return
+        immediately, so the query, leave, and click listeners stay
+        registered. Those listeners close over this session and keep it
+        alive after the frame is gone. Release them here, the same way
+        :meth:`release_panel` does. :meth:`_remove` swallows a dead control,
+        so a control that is already disposing does not raise, and a later
+        :meth:`release_panel` does not remove them again. ``_closed`` is set
+        first so a ``remove*`` that re-enters :meth:`release_panel` cannot
+        start a second remove.
         """
         if self._closed:
             return
@@ -485,10 +474,10 @@ class FrameSession:
     def _controller(self) -> Any:
         """Controller for this frame. Never ``Desktop.getCurrentComponent()``.
 
-        What was wrong: the page-click handler subscribed whichever controller
-        was current when the first sidebar installed. Clicks in this window
-        never cleared stream focus, and later chunks called ``setFocus`` on
-        the other window's Ask field.
+        This frame's controller, not whichever one was current when the first
+        sidebar installed. Subscribing that controller means clicks in this
+        window never clear stream focus, and later chunks call ``setFocus``
+        on the other window's Ask field.
         """
         frame = self.frame
         if frame is None:
@@ -568,9 +557,9 @@ class FrameSession:
     def _attach_leave_query(self, control: Any) -> None:
         """Stop restoring Ask when the pointer is on this sidebar control.
 
-        What was wrong: ``addFocusListener`` threw after ``addMouseListener``
-        succeeded, and the mouse listener was not recorded, so dispose never
-        removed it. Why: roll back whichever half attached.
+        Roll back whichever half attached. If ``addFocusListener`` throws
+        after ``addMouseListener`` succeeded and the mouse listener is not
+        recorded, dispose never removes it.
         """
         if control is None:
             return
@@ -651,9 +640,10 @@ class FrameSession:
     def _attach_click_handler(self) -> None:
         """Page click on this frame's controller calls :meth:`note_user_left_query`.
 
-        What was wrong: the handler was added once, to whichever controller
-        ``getCurrentComponent()`` returned, and never removed. A later window
-        never subscribed, so its clicks did not stop stream ``setFocus``.
+        Subscribe this frame's controller, and remove the handler with the
+        session. Adding it once to whichever controller
+        ``getCurrentComponent()`` returned leaves a later window unsubscribed,
+        so its clicks do not stop stream ``setFocus``.
         """
         try:
             import unohelper

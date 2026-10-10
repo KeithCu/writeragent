@@ -1713,16 +1713,16 @@ def _native_suite_set_config(
 ) -> None:
     """Stand-in for ``set_config`` while native suites run.
 
-    What was wrong: ``set_text_model``, ``set_image_model``, and
-    ``set_api_key_for_endpoint`` always pass ``event_key`` — the listener
-    key when a settings field is stored under another name, or ``None`` so
-    listeners see the stored key. The suite wrapper only took ``(key, value)``,
-    so mock-LLM sidebar setup raised ``TypeError`` and both suites aborted
-    before any test (GHA 36809189426, 36809192143).
+    Forward ``event_key``. ``set_text_model``, ``set_image_model``, and
+    ``set_api_key_for_endpoint`` always pass it: the listener key when a
+    settings field is stored under another name, or ``None`` so listeners
+    see the stored key. A wrapper that only takes ``(key, value)`` raises
+    ``TypeError`` and aborts both suites before any test
+    (GHA 36809189426, 36809192143).
 
-    Forward ``event_key`` into the real writer. ``doc.agent_edit_review_mode``
-    stays in memory; a caller-supplied ``event_key`` is still the
-    ``config:changed`` key so that signal is not dropped.
+    ``doc.agent_edit_review_mode`` stays in memory; a caller-supplied
+    ``event_key`` is still the ``config:changed`` key so that signal is
+    not dropped.
     """
     if key == "doc.agent_edit_review_mode":
         review_mode_override[key] = value

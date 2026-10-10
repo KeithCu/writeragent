@@ -35,15 +35,42 @@ def cleanup_formula_pool():
     os.environ.pop("WRITERAGENT_COMPUTE_WORKER", None)
 
 
+def test_shared_mode_without_session_id_does_not_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """mode=shared with no session id must not run as an isolated cell.
+
+    HTTP already rejects this. The pool used to lease a worker, and the
+    child treated a missing id as isolated.
+    """
+    spawns = {"n": 0}
+
+    def _no_spawn(self: object, timeout_sec: float = 0.0) -> None:
+        del self, timeout_sec
+        spawns["n"] += 1
+
+    monkeypatch.setattr("compute_service.worker_base.BaseProcessWorker.respawn", _no_spawn)
+    pool = FormulaProcessPool(num_workers=1, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
+    try:
+        spawned_at_init = spawns["n"]
+        for sid in (None, "", "   "):
+            res = pool.execute(code="result = 1", session_id=sid, mode="shared", req_id="nosid")
+            assert res.get("status") == "error"
+            assert res.get("code") == "INVALID_REQUEST"
+            assert res.get("id") == "nosid"
+            assert "session_id" in str(res.get("error"))
+        assert spawns["n"] == spawned_at_init
+    finally:
+        pool.shutdown()
+
+
 class TestFormulaPoolSupervisor:
     def test_session_locks_removed_and_reset_succeeds(self) -> None:
         """Verify dead session locks are removed and reset_session succeeds cleanly."""
-        import compute_service.executor as ex
+        import compute_service.formula_worker as fw
         from compute_service.formula_worker import _handle_request
 
-        assert not hasattr(ex, "_SESSION_RUN_LOCKS")
-        assert not hasattr(ex, "_session_lock")
-        assert not hasattr(ex, "release_session_lock")
+        assert not hasattr(fw, "_SESSION_RUN_LOCKS")
+        assert not hasattr(fw, "_session_lock")
+        assert not hasattr(fw, "release_session_lock")
 
         sid = "clean-reset-session"
         res = _handle_request({"action": "reset_session", "session_id": sid})
@@ -432,7 +459,6 @@ class TestFormulaPoolSupervisor:
             [
                 "import sys",
                 "import compute_service.formula_worker",
-                "assert 'compute_service.executor' not in sys.modules",
                 "assert 'plugin.scripting.venv.venv_sandbox' not in sys.modules",
             ]
         )
@@ -805,6 +831,108 @@ class TestFormulaPoolSupervisor:
                 assert pool.live_session_worker(sid) is worker
             finally:
                 pool.release_worker(held)
+        finally:
+            pool.shutdown()
+
+    def test_reset_lease_failure_keeps_lost_marker(self) -> None:
+        """A busy reset must not drop the lost marker before the kernel is reset.
+
+        What was wrong: reset_session popped _lost_sessions before leased().
+        WORKER_POOL_BUSY left the kernel untouched and the next sticky call
+        did not report session_reset.
+        """
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "busy-lost-reset"
+            ok = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared", req_id="busy-lost-1")
+            assert ok.get("status") == "ok"
+            worker = pool._sessions[sid].worker
+            with pool._cond:
+                pool._lost_sessions[sid] = time.monotonic()
+            held = pool.lease_specific(worker, timeout_sec=1)
+            assert held is worker
+            try:
+                res = pool.reset_session(sid, timeout_sec=0.05)
+                assert res.get("code") == "WORKER_POOL_BUSY"
+                with pool._cond:
+                    assert sid in pool._lost_sessions
+            finally:
+                pool.release_worker(held)
+            again = pool.execute(code="result = 1", session_id=sid, mode="shared")
+            assert again.get("status") == "ok"
+            assert again.get("session_reset") is True
+        finally:
+            pool.shutdown()
+
+    def test_successful_reset_clears_lost_marker(self) -> None:
+        """An explicit reset that reaches the worker drops the lost marker."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "reset-clears-lost"
+            ok = pool.execute(code="x = 1\nresult = x", session_id=sid, mode="shared")
+            assert ok.get("status") == "ok"
+            with pool._cond:
+                pool._lost_sessions[sid] = time.monotonic()
+            reset_res = pool.reset_session(sid)
+            assert reset_res.get("status") == "ok"
+            with pool._cond:
+                assert sid not in pool._lost_sessions
+            again = pool.execute(code="result = 2", session_id=sid, mode="shared")
+            assert again.get("status") == "ok"
+            assert again.get("session_reset") is not True
+        finally:
+            pool.shutdown()
+
+    def test_lost_gen_orphan_pruned_when_over_cap(self) -> None:
+        """A reset workbook leaves _lost_gen until the cap, then the oldest orphan goes.
+
+        What was wrong: reset_session popped _lost_sessions and left _lost_gen
+        for the life of the process, one entry per workbook ever seen.
+        """
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
+        try:
+            pool._max_lost_sessions = 1
+            ok = pool.execute(code="x = 1\nresult = x", session_id="workbook-1", mode="shared")
+            assert ok.get("status") == "ok"
+            with pool._cond:
+                pool._drop_session("workbook-1")
+            sticky = pool.execute(code="result = 1", session_id="workbook-1", mode="shared")
+            assert sticky.get("status") == "ok"
+            assert sticky.get("session_reset") is True
+            reset = pool.reset_session("workbook-1")
+            assert reset.get("status") == "ok"
+            with pool._cond:
+                assert "workbook-1" not in pool._sessions
+                assert "workbook-1" not in pool._lost_sessions
+                assert pool._lost_gen.get("workbook-1") == 1
+                pool._mark_session_lost_unlocked("workbook-2")
+                assert "workbook-1" not in pool._lost_gen
+                assert pool._lost_gen.get("workbook-2") == 1
+        finally:
+            pool.shutdown()
+
+    def test_lost_gen_keeps_live_session_over_cap(self) -> None:
+        """A generation still named by a live session survives the orphan sweep."""
+        from compute_service.formula_pool import _Session
+        from compute_service.worker_base import BaseProcessWorker
+
+        pool = FormulaProcessPool(num_workers=0, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
+        try:
+            pool._max_lost_sessions = 1
+            with pool._cond:
+                pool._sessions["live"] = _Session(
+                    worker=BaseProcessWorker(1, "unused.py"),
+                    pid=1,
+                    last_active=time.monotonic(),
+                    gen=4,
+                )
+                pool._lost_gen["live"] = 4
+                pool._lost_gen["orphan"] = 1
+                pool._mark_session_lost_unlocked("fresh")
+                assert pool._lost_gen.get("live") == 4
+                assert "orphan" not in pool._lost_gen
+                assert "fresh" in pool._lost_gen
+                assert "fresh" in pool._lost_sessions
         finally:
             pool.shutdown()
 
@@ -1222,8 +1350,8 @@ class TestFormulaPoolSupervisor:
             other = next(w for w in pool.workers if w is not original)
             real_reset = pool._reset_session_on_worker
 
-            def reset_then_rereserve(worker, session_id, timeout_sec=5.0):
-                res = real_reset(worker, session_id, timeout_sec=timeout_sec)
+            def reset_then_rereserve(worker, session_id, timeout_sec=5.0, lost=False):
+                res = real_reset(worker, session_id, timeout_sec=timeout_sec, lost=lost)
                 proc = other.process
                 with pool._cond:
                     pool._sessions[session_id] = _Session(
@@ -1652,6 +1780,61 @@ class TestFormulaHttpEndpoint:
         finally:
             pool.shutdown()
 
+    def test_ttl_evict_waiter_reports_session_reset(self) -> None:
+        """A cell that selected the worker before the TTL reset still gets session_reset.
+
+        The reaper holds the lease across the reset. The cell snapshots
+        session_was_lost=False and blocks in lease_specific. The generation
+        bump is what the cell compares after the lease.
+        """
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "ttl-waiter"
+            primed = pool.execute(code="x = 77\nresult = x", session_id=sid, mode="shared")
+            assert primed.get("status") == "ok"
+            assert primed.get("session_reset") is not True
+
+            entered_lease = threading.Event()
+            orig_reset = pool._reset_session_on_worker
+            orig_lease = pool.lease_specific
+            holder: dict[str, threading.Thread] = {}
+
+            def blocking_reset(worker: Any, session_id: str, timeout_sec: float = 5.0, lost: bool = False) -> dict[str, Any]:
+                assert entered_lease.wait(timeout=10)
+                return orig_reset(worker, session_id, timeout_sec=timeout_sec, lost=lost)
+
+            def watch_lease(worker: Any, timeout_sec: float) -> Any:
+                if threading.current_thread() is holder.get("waiter"):
+                    entered_lease.set()
+                return orig_lease(worker, timeout_sec)
+
+            result: dict[str, Any] = {}
+
+            def run_waiter() -> None:
+                result["value"] = pool.execute(code="result = x", session_id=sid, mode="shared", timeout_sec=15)
+
+            waiter = threading.Thread(target=run_waiter)
+            holder["waiter"] = waiter
+            with (
+                patch.object(pool, "_reset_session_on_worker", side_effect=blocking_reset),
+                patch.object(pool, "lease_specific", side_effect=watch_lease),
+            ):
+                evictor = threading.Thread(target=lambda: pool._evict_stale_sessions(ttl_sec=-1))
+                evictor.start()
+                waiter.start()
+                evictor.join(timeout=20)
+                waiter.join(timeout=20)
+            assert not evictor.is_alive()
+            assert not waiter.is_alive()
+            waiting = result["value"]
+            assert waiting.get("session_reset") is True
+
+            nxt = pool.execute(code="result = 1", session_id=sid, mode="shared")
+            assert nxt.get("status") == "ok"
+            assert nxt.get("session_reset") is not True
+        finally:
+            pool.shutdown()
+
     def test_explicit_reset_does_not_mark_session_lost(self) -> None:
         """Explicit reset_session clears session without marking it lost (no session_reset on next call)."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
@@ -1835,7 +2018,7 @@ class TestFormulaHttpEndpoint:
             setattr(worker, "execute", spy)
             orig = pool._select_shared_worker
 
-            def slow(sid: str) -> tuple[Any, bool, bool]:
+            def slow(sid: str) -> tuple[Any, bool, bool, int]:
                 time.sleep(0.2)
                 return orig(sid)
 
@@ -1849,6 +2032,15 @@ class TestFormulaHttpEndpoint:
             assert res.get("code") == "QUEUE_TIMEOUT"
             assert called == []
             assert pool.live_session_worker("budget-sid") is None
+        finally:
+            pool.shutdown()
+
+    def test_zero_timeout_is_not_the_default(self) -> None:
+        """timeout_sec=0 expires immediately. It used to become the 30s default."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=30)
+        try:
+            res = pool.execute(code="result = 1", timeout_sec=0)
+            assert res.get("code") == "QUEUE_TIMEOUT"
         finally:
             pool.shutdown()
 

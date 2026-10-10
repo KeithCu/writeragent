@@ -218,8 +218,8 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
         from plugin.calc.python.function import CalcSpillModifyListener, _spill_registry_doc_key
 
         # Job 1 — spill orphan cleanup. Walks SPILL_REGISTRY only.
-        # Bugfix: url is "" for every unsaved book, and the listener matched
-        # on that. Pass the lifecycle id the spill registry uses instead.
+        # Pass the lifecycle id the spill registry uses. The URL is empty
+        # for every unsaved book, so matching on it hits the wrong book.
         registry_id = _spill_registry_doc_key(doc) if doc is not None else url
         CalcSpillModifyListener(ctx, registry_id, name).modified(SimpleNamespace(Source=sheet))
 
@@ -246,9 +246,9 @@ def dispatch_sheet_modified(ctx: Any, doc_url: str, sheet_name: str, event: Any,
     sheet = getattr(event, "Source", None)
     if sheet is None:
         return
-    # Bugfix: ``_get_calc_doc`` is the active window. A modify in a background
-    # workbook was scheduled against that other document. Prefer the sheet's
-    # owner, then the document stored when the listener was attached.
+    # Prefer the sheet's owner, then the document stored when the listener
+    # was attached. _get_calc_doc is the active window, so a modify in a
+    # background workbook was scheduled against that other document.
     owner = _owning_calc_doc(sheet)
     if owner is None:
         owner = doc

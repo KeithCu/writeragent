@@ -64,13 +64,13 @@ _WINDOWS_CLI_SUFFIXES = frozenset({".exe", ".cmd", ".bat"})
 def _cli_basename_matches(path: str, binary_name: str) -> bool:
     """True when ``path`` is this CLI, including Windows launcher suffixes.
 
-    What was wrong: ``shutil.which`` on Windows returns ``hermes.exe``,
-    ``hermes.cmd``, or ``hermes.bat``. Comparing that basename to
-    ``get_binary_name()`` (``hermes``) failed, so ``default_extra_args``
-    (``("acp",)``) was never appended and the CLI started interactive
-    instead of ACP stdio. Why: match the stem when the suffix is one of
-    those three, case-insensitively. Any other suffix stays an exact
-    basename compare so a wrapper is not treated as the official binary.
+    ``shutil.which`` on Windows returns ``hermes.exe``, ``hermes.cmd``, or
+    ``hermes.bat``. Comparing that basename to ``get_binary_name()``
+    (``hermes``) fails, so ``default_extra_args`` (``("acp",)``) is never
+    appended and the CLI starts interactive instead of ACP stdio. Match the
+    stem when the suffix is one of those three, case-insensitively. Any other
+    suffix stays an exact basename compare so a wrapper is not treated as
+    the official binary.
     """
     name = os.path.basename(path).lower()
     expected = binary_name.lower()
@@ -87,10 +87,10 @@ def _cancelled_permission() -> dict[str, Any]:
 def _permission_description(params: dict[str, Any]) -> str:
     """Dialog text from the ACP fields that actually carry it.
 
-    What was wrong: the client read ``params["description"]``. ACP puts the
-    human text on ``toolCall.title`` and ``options[].name``, so a conformant
-    request showed only the generic fallback. Why: build the dialog string
-    from those fields and ignore the private key.
+    ACP puts the human text on ``toolCall.title`` and ``options[].name``.
+    ``params["description"]`` is a private key, so a conformant request
+    showed only the generic fallback. Build the dialog string from those
+    fields and ignore the private key.
     """
     tool_call = params.get("toolCall")
     title = ""
@@ -350,15 +350,13 @@ class ACPBackend(AgentBackend):
         self._conn = conn
         conn.start()
 
-        # What was wrong: time.sleep(0.5) after start() never looked at
-        # Stop. stop() or a true stop_checker during that half-second was
-        # ignored, and this method continued into initialize (then send()
-        # into session/prompt). Why: poll the same grace period in short
-        # slices and return as soon as the stop latch or stop_checker()
+        # time.sleep(0.5) after start() never looked at Stop. stop() or a
+        # true stop_checker during that half-second was ignored, and this
+        # method continued into initialize. Poll the same grace period in
+        # short slices and return as soon as the stop latch or stop_checker()
         # says so, before the handshake.
-        # What was wrong: the handshake re-read self._conn. stop() sets that
-        # to None, so send_request then raised AttributeError. Why: keep the
-        # connection created above and use that local for the rest of startup.
+        # Keep the connection created above. stop() sets self._conn to None,
+        # so re-reading it for the handshake raises AttributeError.
         polls_left = _STARTUP_POLLS
         while True:
             if self._startup_stopped(stop_checker):
@@ -404,8 +402,8 @@ class ACPBackend(AgentBackend):
             return
 
         # mcp_servers is required by the ACP schema
-        # What was wrong: mcp_url was attached to session/new even when mcp.mcp_enabled was False.
-        # Why this change: gate attaching mcp_servers on as_bool(get_config("mcp.mcp_enabled")).
+        # Attach mcp_servers only when MCP is enabled. A disabled server must
+        # not be handed to session/new.
         from plugin.framework.config import get_config
         from plugin.framework.config_schema import as_bool
 
@@ -480,15 +478,15 @@ class ACPBackend(AgentBackend):
         if session_update == "agent_message_chunk":
             _queue_text_blocks(update.get("content"), queue, StreamQueueKind.CHUNK)
         elif session_update == "agent_thought_chunk":
-            # What was wrong: thought text lives in ``content`` with ``type: text``.
-            # The legacy path queued that as CHUNK, and the agent drain appends
-            # every non-thinking chunk into the saved assistant row. Why:
-            # THINKING is displayed when thinking is on and is left out of that row.
+            # Thought text lives in ``content`` with ``type: text``. The legacy
+            # path queued that as CHUNK, and the agent drain appends every
+            # non-thinking chunk into the saved assistant row. THINKING is
+            # displayed when thinking is on and is left out of that row.
             _queue_text_blocks(update.get("content"), queue, StreamQueueKind.THINKING)
         elif session_update in ("tool_call", "tool_call_update"):
-            # What was wrong: these updates have no ``content`` list of
-            # ``type: tool_call`` blocks, so the old handler returned before
-            # queueing anything and the transcript never showed the tool.
+            # These updates have no ``content`` list of ``type: tool_call``
+            # blocks. The old handler returned before queueing anything, so
+            # the transcript never showed the tool.
             queue.put((_tool_stream_kind(update), _tool_activity_payload(update)))
         # user_message_chunk is already the user turn. plan / usage / mode
         # updates are not the assistant answer, so they are not queued.
@@ -591,8 +589,8 @@ class ACPBackend(AgentBackend):
     def _cancel_pending_permissions(self) -> None:
         """Answer every outstanding permission with the ACP ``cancelled`` outcome.
 
-        What was wrong: Stop never replied, so the agent blocked inside
-        ``session/request_permission`` and kept the turn alive. The spec
+        Stop must reply, or the agent blocks inside
+        ``session/request_permission`` and keeps the turn alive. The spec
         requires ``cancelled`` when the client sends ``session/cancel``.
         Pop under the lock so a concurrent Approve cannot answer twice.
         """
@@ -617,15 +615,13 @@ class ACPBackend(AgentBackend):
 
     def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any) -> None:
         """Send a message via ACP stdio. The subprocess is shut down before return."""
-        # What was wrong: entry always set ``_stop_requested = False`` and
-        # cleared ``_prompt_done``, and never read ``stop_checker``.
         # ``register_on_cancel(adapter.stop)`` can run before this worker
-        # enters ``send()``, so that reset wiped a latched Stop. The UI
-        # showed Stopped while the CLI, session, and prompt still started.
-        # Why: under the same lock ``stop()`` sets, honor an already-latched
-        # stop or a true ``stop_checker`` and return without starting the
-        # process. The latch is cleared only when this turn is not already
-        # stopped.
+        # enters ``send()``. Clearing ``_stop_requested`` and ``_prompt_done``
+        # on entry, and never reading ``stop_checker``, wiped that latch. The
+        # UI showed Stopped while the CLI, session, and prompt still started.
+        # Under the same lock ``stop()`` sets, honor an already-latched stop
+        # or a true ``stop_checker`` and return without starting the process.
+        # The latch is cleared only when this turn is not already stopped.
         checker_hit = callable(stop_checker) and bool(stop_checker())
         with self._permission_lock:
             if checker_hit or self._stop_requested:
@@ -661,11 +657,10 @@ class ACPBackend(AgentBackend):
             def on_notification(method: str, params: Any, msg_id: Any = None) -> None:
                 self._dispatch_notification(method, params, msg_id, queue)
 
-            # What was wrong: this callback was installed after session/new.
             # Agents emit session/update and session/request_permission while
-            # that request is in flight. _notify_callback was still None, so
-            # the reader dropped them. Why: register as soon as the process
-            # is up, before session/new, so those notifications reach the queue.
+            # session/new is in flight. Installing this callback afterwards
+            # leaves _notify_callback None, and the reader drops them.
+            # Register as soon as the process is up, before session/new.
             if self._conn:
                 self._conn.set_notification_callback(on_notification)
 
@@ -721,24 +716,21 @@ class ACPBackend(AgentBackend):
                     log.exception("Prompt execution failed")
                     queue.put((StreamQueueKind.ERROR, format_error_payload(e)))
         finally:
-            # What was wrong: each send spawned an ACP process and returned
-            # without shutdown()/stop(). The child and its reader stayed
-            # alive, so the next chat message leaked another agent that
-            # could still edit the document. Why: stop the connection on
-            # success, error, and cancel. stop() may already have killed it;
-            # ACPConnection.stop() is safe to call again.
+            # Every send must stop the connection on success, error, and
+            # cancel. Leaving the child and its reader alive leaks another
+            # agent that can still edit the document on the next message.
+            # stop() may already have killed it; ACPConnection.stop() is safe
+            # to call again.
             self.shutdown()
             self._prompt_done.set()
 
     def stop(self) -> None:
         """Cancel the prompt turn and terminate the ACP subprocess.
 
-        What was wrong: this sent ``session/interrupt``, which ACP does not
-        define, left the child running, and never answered a pending
-        ``session/request_permission``. The UI showed Stopped while the
-        agent kept editing. Why: cancellation is the ``session/cancel``
-        notification, every outstanding permission must be ``cancelled``,
-        and the subprocess has to be terminated.
+        ACP does not define ``session/interrupt``. Cancellation is the
+        ``session/cancel`` notification, every outstanding permission must
+        be ``cancelled``, and the subprocess has to be terminated. Otherwise
+        the UI shows Stopped while the agent keeps editing.
         """
         # Same lock send() holds while it decides whether to clear the latch,
         # so a Stop that lands as send() begins cannot be wiped by that reset.
@@ -758,10 +750,10 @@ class ACPBackend(AgentBackend):
     def submit_approval(self, request_id: Any, approved: bool) -> None:
         """Submit a schema-valid permission result for one HITL dialog choice.
 
-        What was wrong: the result was ``{"approved": bool}``. Agents reject
-        that; ACP requires ``outcome.selected`` plus an ``optionId`` from the
-        request, or ``outcome.cancelled``. Why: the options were stored when
-        the request arrived so this can echo one of those ids.
+        Agents reject ``{"approved": bool}``. ACP requires
+        ``outcome.selected`` plus an ``optionId`` from the request, or
+        ``outcome.cancelled``. The options were stored when the request
+        arrived so this can echo one of those ids.
         """
         if not self._conn or not self._conn.is_alive:
             log.warning("Cannot submit approval, ACP connection is dead")

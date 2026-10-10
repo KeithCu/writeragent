@@ -102,9 +102,7 @@ __all__ = [
 
 
 def iferror(f: Callable[[], Any], alt: Any) -> Any:
-    # What was wrong: iferror only caught float NaN, ignoring string error tokens like #VALUE! or #REF!.
-    # How it happened: line 106 only checked isinstance(val, float) and np.isnan(val).
-    # Why this change fixes it: uses shared _is_calc_error to detect both NaNs and Calc error token strings.
+    # NaN and Calc error tokens (#VALUE!, #REF!, …). A float-only check misses the tokens.
     try:
         val = f()
         if _is_calc_error(val):
@@ -238,12 +236,11 @@ def impower(inumber: Any, number: Any) -> str:
         c = _to_complex(inumber)
         p = float(number)
         result = c**p
-        # What was wrong: macOS libm returns a non-finite complex for
-        # (1+1j)**inf and does not raise. _from_complex then printed
-        # "nannani" (nan concatenated, because nan > 0 is false). Linux
-        # raises OverflowError, which this except already maps to #VALUE!
-        # (GHA 37719597720).
-        # Why: a non-finite power is the same failure as that overflow.
+        # macOS libm returns a non-finite complex for (1+1j)**inf and does
+        # not raise. _from_complex would then print "nannani" (nan
+        # concatenated, because nan > 0 is false). Linux raises
+        # OverflowError, which this except already maps to #VALUE!. A
+        # non-finite power is the same failure.
         if not (math.isfinite(result.real) and math.isfinite(result.imag)):
             return "#VALUE!"
         return _from_complex(result)
@@ -404,16 +401,12 @@ def isblank(val: Any) -> bool:
 
 
 def iserr(val: Any) -> bool:
-    # What was wrong: iserr treated any string starting with '#' as an error (e.g. '#hashtag').
-    # How it happened: line 392 checked val.startswith('#') rather than real Calc error tokens.
-    # Why this change fixes it: uses _is_calc_error to validate real error tokens and excludes #N/A.
+    # Real Calc error tokens, excluding #N/A. '#hashtag' is text.
     return _is_calc_error(val) and not is_na_value(val)
 
 
 def iserror(val: Any) -> bool:
-    # What was wrong: iserror(nan) was False (missing NA()), and strings like '#hashtag' were treated as errors.
-    # How it happened: line 398 checked val.startswith('#') and ignored NaN.
-    # Why this change fixes it: uses _is_calc_error to match real Calc error tokens and NaN.
+    # Real Calc error tokens and NaN (NA()). '#hashtag' is text.
     return _is_calc_error(val)
 
 
@@ -446,9 +439,7 @@ def isnontext(val: Any) -> bool:
 
 
 def isnumber(val: Any) -> bool:
-    # What was wrong: numpy integer/float scalars (e.g. np.int64) returned False.
-    # How it happened: line 429 used isinstance(val, (int, float)) which excludes np.integer/np.floating.
-    # Why this change fixes it: includes np.integer and np.floating while excluding bool and np.bool_.
+    # np.integer and np.floating count. bool and np.bool_ do not: they are logical.
     return isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, (bool, np.bool_))
 
 
@@ -496,9 +487,7 @@ def isref(val: Any) -> bool:
 
 
 def istext(val: Any) -> bool:
-    # What was wrong: strings starting with '#' like '#hashtag' were rejected, and line had redundant isinstance check.
-    # How it happened: line 477 had redundant isinstance and excluded all strings starting with '#'.
-    # Why this change fixes it: checks isinstance(val, str) and excludes only real Calc error tokens via _is_calc_error.
+    # Text, except a real Calc error token. '#hashtag' is text.
     return isinstance(val, str) and not _is_calc_error(val)
 
 
@@ -527,9 +516,7 @@ def kurt(*args: Any) -> float:
 
 
 def large(r: Any, k: Any) -> float:
-    # What was wrong: large accepted numeric text like '5' and corrupted sorting when NaNs were present.
-    # How it happened: lines 519-526 parsed strings with float() and appended NaNs without filtering.
-    # Why this change fixes it: uses _extract_numeric_array(propagate_nan=False) to ignore text, bools, and NaNs.
+    # Numbers only. Text such as '5', bools, and NaN are ignored, not sorted in.
     arr = _extract_numeric_array(r, propagate_nan=False)
     try:
         ki = int(float(k))
@@ -542,10 +529,8 @@ def large(r: Any, k: Any) -> float:
 
 
 def linest(*args: Any, **kwargs: Any) -> Any:
-    # What was wrong: multi-X coefficients were [m1,..,mk,b] instead of [mk,..,m1,b];
-    # const was ignored; row-oriented known_y with 2D known_x failed with #VALUE!.
-    # How it happened: linest didn't check len(args)>2 for const, didn't reverse slopes, and didn't transpose known_x.
-    # Why this change fixes it: reverses slopes per Excel order, supports const=False (b=0), and transposes matching known_x.
+    # Excel order is [mk, …, m1, b]. const=False forces b = 0. A row-oriented
+    # known_x is transposed so it lines up with known_y.
     try:
         raw_y = np.asarray(args[0]).ravel()
         if any(isinstance(v, str) for v in raw_y):
@@ -589,9 +574,8 @@ def linest(*args: Any, **kwargs: Any) -> Any:
 
 
 def logest(*args: Any, **kwargs: Any) -> Any:
-    # What was wrong: multi-X coefficients were not reversed; const was ignored; row-oriented known_x failed.
-    # How it happened: logest lacked const argument handling, didn't reverse slopes, and didn't transpose known_x.
-    # Why this change fixes it: reverses slopes per Excel order, handles const=False (b=1), and transposes matching known_x.
+    # Excel order reverses the slopes. const=False forces b = 1. A row-oriented
+    # known_x is transposed so it lines up with known_y.
     try:
         raw_y = np.asarray(args[0]).ravel()
         if any(isinstance(v, str) for v in raw_y):
@@ -669,9 +653,7 @@ def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
 
 
 def lookup(lookup_val: Any, *args: Any) -> Any:
-    # What was wrong: lookup coerced mixed-type ranges into string arrays and case-sensitive compares.
-    # How it happened: np.asarray lacked dtype=object, and fallbacks compared str(v) <= str(lookup_val).
-    # Why this change fixes it: uses dtype=object to preserve cell types and casefold for text comparison.
+    # dtype=object keeps numbers as numbers. Text compares case-insensitively.
     if len(args) == 1:
         vec = np.asarray(args[0], dtype=object).ravel()
         result = vec
@@ -787,9 +769,7 @@ def mmult(array1: Any, array2: Any) -> Any:
 
 
 def mode(r: Any) -> Any:
-    # What was wrong: mixed-type ranges were coerced to strings by bare np.asarray, returning np.str_.
-    # How it happened: np.asarray lacked dtype=object.
-    # Why this change fixes it: uses dtype=object so numbers and cell objects retain their native types.
+    # dtype=object. A bare asarray stringifies a mixed range, so 1 comes back as text.
     vals = [x for x in np.asarray(r, dtype=object).ravel() if x is not None and x != ""]
     if not vals:
         return float("nan")
@@ -820,10 +800,8 @@ def mround(number: Any, multiple: Any) -> float:
     # is #NUM! for a non-finite argument; this module reports that as NaN.
     if not math.isfinite(n) or not math.isfinite(m):
         return float("nan")
-    # What was wrong: mround(n, 0) returned NaN assuming multiple=0 was #DIV/0!.
-    # How it happened: commit 0b2a3e0e returned NaN when multiple == 0.
-    # Why this change fixes it: LibreOffice analysis.cxx getMround (if fMult == 0.0 return fMult)
-    # and Excel return 0.0 when multiple is 0.
+    # multiple 0 returns 0. LibreOffice analysis.cxx getMround
+    # (if fMult == 0.0 return fMult) and Excel agree; it is not #DIV/0!.
     if m == 0:
         return 0.0
     if (n > 0 and m < 0) or (n < 0 and m > 0):
@@ -871,9 +849,7 @@ def munit(dimension: Any) -> Any:
 
 
 def n(val: Any) -> float:
-    # What was wrong: n("5") returned 5.0 because it parsed numeric strings via float().
-    # How it happened: line 838 had try float(val) for string inputs.
-    # Why this change fixes it: Excel and Calc N() return 0.0 for any text argument.
+    # N() of any text is 0, including a numeric-looking string such as "5".
     if isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, (bool, np.bool_)):
         return float(val)
     if isinstance(val, (bool, np.bool_)):

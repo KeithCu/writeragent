@@ -169,3 +169,39 @@ def test_handle_request_unknown_action_does_not_execute(mock_execute) -> None:
     assert bad_type["status"] == "error"
     assert "Unknown action" in bad_type["message"]
     assert mock_execute.call_count == 3
+
+
+def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
+    """SystemExit after EXEC_STARTED must become a terminal error frame.
+
+    What was wrong: the harness only caught Exception. raise SystemExit
+    killed the process with no terminal frame, and the host refused replay.
+    """
+    from plugin.scripting.ipc import EXEC_STARTED, read_pickle_frame, write_pickle_frame
+    from plugin.scripting.venv import worker_harness
+
+    stdin = BytesIO()
+    write_pickle_frame(stdin, {"id": "req-1", "action": "execute", "code": "raise SystemExit(3)"})
+    stdin.seek(0)
+    stdout = BytesIO()
+
+    def boom(request: dict, stdout: object = None) -> None:
+        del request, stdout
+        raise SystemExit(3)
+
+    monkeypatch.setattr(worker_harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(worker_harness, "_init_logging", lambda: None)
+    monkeypatch.setattr(worker_harness, "claim_ipc_channel", lambda: stdout)
+    monkeypatch.setattr(worker_harness, "_handle_request", boom)
+    monkeypatch.setattr(worker_harness.sys, "stdin", type("Stdin", (), {"buffer": stdin})())
+
+    worker_harness.main()
+
+    stdout.seek(0)
+    started = read_pickle_frame(stdout, require_dict=True)
+    assert started["type"] == EXEC_STARTED
+    assert started["id"] == "req-1"
+    terminal = read_pickle_frame(stdout, require_dict=True)
+    assert terminal["id"] == "req-1"
+    assert terminal["status"] == "error"
+    assert "SystemExit" in terminal.get("traceback", "")

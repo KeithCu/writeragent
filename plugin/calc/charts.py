@@ -61,11 +61,10 @@ CHART_CLSID_DRAW_OLE = "12DCAE26-281F-416F-A234-C3086127382E"
 def _byte_sequence_payload(clsid: Any) -> bytes | bytearray | None:
     """Payload of a UNO ByteSequence, or None when *clsid* is not one.
 
-    What was wrong: ``uno.ByteSequence`` is not ``bytes``, so CLSID checks fell
-    through to ``str(seq)`` (``<ByteSequence instance ...>``) and chart embeds
-    disappeared from list/get/delete/resolve.
-    How: Python UNO stores the bytes on ``.value``; some bridges use ``.Value``.
-    Why: unwrap that payload before the bytes/string checks so the GUID compares.
+    ``uno.ByteSequence`` is not ``bytes``. Unwrap ``.value`` (some bridges
+    use ``.Value``) before the bytes/string checks, or ``str(seq)`` is
+    ``<ByteSequence instance ...>`` and chart embeds disappear from
+    list/get/delete/resolve.
     """
     for attr in ("Value", "value"):
         payload = getattr(clsid, attr, None)
@@ -192,12 +191,8 @@ CHART_SERVICE_MAP = {
 def _axis_title_shape_string(shape: Any, value: str | None) -> str | None:
     """Read or write axis title text on a diagram title shape (ChartAxis*Supplier).
 
-    What was wrong: a missing ``String`` property still returned *value*, so
-    callers logged the axis title as set.
-    How: ``hasattr`` failed and the write branch returned the requested text
-    anyway.
-    Why: return None unless the property exists, so a missing setter is not a
-    successful write.
+    Return None unless the ``String`` property exists. ``hasattr`` failing
+    and still returning *value* logs a missing setter as a successful write.
     """
     if shape is None or not hasattr(shape, "String"):
         return None
@@ -249,13 +244,10 @@ _WRITER_CHART_MODEL_WAIT_SEC = 0.5
 def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _WRITER_CHART_MODEL_WAIT_SEC) -> Any | None:
     """Poll for an embedded Writer chart model without spinning the UI thread.
 
-    What was wrong: chart create pumped ``_process_events`` and slept in a tight
-    loop on the UI thread. ``processEventsToIdle`` does not return when idle
-    never arrives, so the wait froze the UI.
-    How: the loop had a fixed retry count and no total deadline, and it kept
-    going when the pump was a no-op.
-    Why: stop at a hard timeout, and stop immediately when a pump does not
-    report that idle was reached.
+    Stop at a hard timeout, and stop immediately when a pump does not
+    report that idle was reached. A fixed retry count with no deadline
+    keeps calling ``_process_events``, and ``processEventsToIdle`` does
+    not return when idle never arrives, which freezes the UI thread.
     """
     import time
 
@@ -276,10 +268,9 @@ def _await_writer_chart_document(chart_obj: Any, ctx: Any, *, timeout: float = _
         if not idle_reached:
             log.debug("Writer chart model wait stopped: idle did not arrive")
             return None
-        # What was wrong: time.sleep between pumps ran on the main thread with
-        # SolarMutex held, so worker threads waiting on the mutex stalled.
-        # Why: no sleep; the next pump's VCL yield is where workers get the
-        # mutex, and the total deadline above bounds the loop.
+        # No sleep between pumps. time.sleep here holds SolarMutex, so
+        # worker threads waiting on the mutex stall. The next pump's VCL
+        # yield is where they get it, and the deadline above bounds the loop.
     log.debug("Writer chart model wait hit total timeout (%.2fs)", timeout)
     return None
 
@@ -395,13 +386,11 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> None:
             chart_doc.HasLegend = False
             log.debug("Set legend position: none")
         elif legend_pos in _LEGEND_POSITION_MEMBER:
-            # What was wrong: this called uno.Enum("...ChartLegendAlignment", ...).
-            # How: that type is not in the API, so uno.Enum raises
-            # com.sun.star.uno.RuntimeException. The handler only caught
-            # ImportError and AttributeError, which let it escape after the
-            # chart had already been inserted.
-            # Why: Alignment is ChartLegendPosition. If this still fails, the
-            # create path removes the chart it just inserted.
+            # Alignment is ChartLegendPosition. ChartLegendAlignment is not
+            # in the API, so uno.Enum raises RuntimeException. The handler
+            # only catches ImportError and AttributeError, which lets that
+            # escape after the chart is already inserted. If this still
+            # fails, the create path removes the chart it just inserted.
             member = _LEGEND_POSITION_MEMBER[legend_pos]
             chart_doc.getLegend().Alignment = uno.Enum(_CHART_LEGEND_POSITION_ENUM, member)
             log.debug("Set legend position: %s", legend_pos)
@@ -447,9 +436,10 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> None:
                                         if s.getPropertySetInfo().hasPropertyByName(prop):
                                             s.setPropertyValue(prop, color_val)
                                 except Exception as exc:
-                                    # What was wrong: one disposed series aborted coloring for every later series.
-                                    # How: getPropertySetInfo/setPropertyValue raised out of the shared try.
-                                    # Why: skip that series and keep applying colors to the rest.
+                                    # Skip a disposed series and keep coloring
+                                    # the rest. One getPropertySetInfo or
+                                    # setPropertyValue failure must not abort
+                                    # every later series.
                                     if is_disposed_exception(exc):
                                         log.debug("Skipping disposed chart series %d", idx)
                                         continue
@@ -522,17 +512,14 @@ def _apply_chart_data_arrays(chart_doc: Any, headers: Any, rows: Any) -> None:
 def _drop_failed_chart_insert(remove: Callable[[], None], name: str) -> None:
     """Remove a chart inserted before a later create step failed.
 
-    What was wrong: ``manage_charts`` create returned an error after the chart
-    was already in the document, so the sheet, text, or slide kept a chart the
-    caller was told did not exist.
-    How: ``legend_position`` called ``uno.Enum`` for ``ChartLegendAlignment``.
-    That type is not in the UNO API, so ``uno.Enum`` raises
-    ``com.sun.star.uno.RuntimeException``. The legend handler only caught
-    ``ImportError`` and ``AttributeError``, and the create handler did not
-    remove the chart it had just inserted. The same window exists for any
-    property set that fails after the insert (diagram, title, legend).
-    Why: delete this insert before the error is returned. A failed delete is
-    logged and does not replace the original error.
+    Delete this insert before the error is returned. A failed delete is
+    logged and does not replace the original error. ``legend_position``
+    used ``uno.Enum`` for ``ChartLegendAlignment``, which is not in the
+    UNO API, so that call raises ``RuntimeException``. The legend handler
+    only caught ``ImportError`` and ``AttributeError``, and the create
+    handler left the chart in the sheet, text, or slide while telling the
+    caller it did not exist. The same window exists for any property set
+    that fails after the insert (diagram, title, legend).
     """
     try:
         remove()
@@ -610,11 +597,9 @@ def _find_calc_chart_and_sheet(doc: Any, chart_name: str, sheet_name: str | None
 def _ole2_shape_at(page: Any, index: int) -> Any | None:
     """OLE2 shape at *index*, or None when it is another type or disposed.
 
-    What was wrong: ``getShapeType`` on one disposed shape aborted list/resolve
-    for every later shape on the page.
-    How: the page loop called ``getShapeType`` with no per-shape guard, so one
-    ``DisposedException`` escaped and ended the operation.
-    Why: skip that shape and keep scanning. Other errors still propagate.
+    Skip a disposed shape and keep scanning. ``getShapeType`` with no
+    per-shape guard lets one ``DisposedException`` end list/resolve for
+    every later shape. Other errors still propagate.
     """
     try:
         shape = page.getByIndex(index)
@@ -960,11 +945,10 @@ class UpsertChart(ToolBaseDummy):
             except Exception:
                 pass
 
-        # What was wrong: this debug line read rect.X before addNewByName.
-        # How: headless pytest stubs uno.createUnoStruct with an empty
-        # SimpleNamespace, so AttributeError aborted create and a legend
-        # failure never reached removeByName.
-        # Why: the log does not place the chart. Missing fields stay None.
+        # The log does not place the chart. Missing fields stay None.
+        # Reading rect.X before addNewByName aborts create on the headless
+        # pytest stub (an empty SimpleNamespace), so a legend failure never
+        # reaches removeByName.
         log.debug(
             "Creating Calc chart: sheet=%s, rect=(%s,%s,%s,%s), range=(%s,%s,%s,%s)",
             sheet.getName(),

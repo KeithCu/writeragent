@@ -52,12 +52,10 @@ def _address_on_sheet(sheet: Any, col: int, row: int) -> str:
 def _sheet_for_precedent(doc: Any, fallback: Any, sheet_index: Any) -> Any:
     """Spreadsheet named by ``CellRangeAddress.Sheet``.
 
-    What was wrong: ``queryPrecedents`` carries a sheet index, and the walk
-    snapshotted the formula's sheet anyway. ``=Data.A1`` reported the
-    formula sheet's A1.
-    How: ``addr.Sheet`` was ignored.
-    Why: ``getSheets().getByIndex`` is the sheet that index names. A missing
-    index (callers that only have the formula sheet) keeps *fallback*.
+    ``getSheets().getByIndex`` is the sheet that index names. Ignoring
+    ``addr.Sheet`` makes ``=Data.A1`` report the formula sheet's A1, even
+    though ``queryPrecedents`` carries the sheet index. A missing index
+    (callers that only have the formula sheet) keeps *fallback*.
     """
     if doc is None or sheet_index is None:
         return fallback

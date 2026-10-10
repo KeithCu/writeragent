@@ -40,9 +40,9 @@ def test_sandbox_import_does_not_load_huggingface_hub() -> None:
     "value",
     [
         pytest.param("import compute_service.worker_base", id="test_worker_base_import_does_not_load_huggingface_hub"),
-        # formula_worker.py imports executor + worker_base + payload_codec.
-        pytest.param("import compute_service.executor, compute_service.worker_base, "
-        "plugin.scripting.payload_codec", id="test_formula_executor_import_does_not_load_huggingface_hub"),
+        # formula_worker.py imports worker_base + payload_codec.
+        pytest.param("import compute_service.formula_worker, compute_service.worker_base, "
+        "plugin.scripting.payload_codec", id="test_formula_worker_import_does_not_load_huggingface_hub"),
     ],
 )
 def test_worker_base_import_does_not_load_huggingface_hub(value) -> None:

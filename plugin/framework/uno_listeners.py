@@ -305,15 +305,7 @@ def _catch_and_log(func: Any) -> Any:
                 raise boundary.original
             raise
         except Exception as exc:
-            # What was wrong: this handler grew a type-name allow-list
-            # (CloseVeto, then TerminationVeto, and DisposedException was
-            # added and removed). A bare except Exception also swallowed
-            # assert_main_thread's RuntimeError, and a disposed desktop
-            # became the failure return (None / False) — the same shape as
-            # "nothing is open". A RuntimeException name was easy to treat
-            # as that disposal, or the reverse. How: every one of those is
-            # an Exception, so each call site re-checked names. Why: one
-            # boundary. Vetoes are re-raised as the original UNO exception
+            # One boundary. Vetoes are re-raised as the original UNO exception
             # so the bridge can still veto. Thread violations and real
             # disposal leave as ListenerBoundary, which except Exception
             # cannot swallow. disposing() does not raise on disposal: a
@@ -321,13 +313,20 @@ def _catch_and_log(func: Any) -> Any:
             # listeners. Any other callback is a query, and a dead desktop
             # must not look like an empty success. A runtime error is logged
             # and returns the failure value; it is not disposal.
+            # A type-name allow-list (CloseVeto, then TerminationVeto, with
+            # DisposedException added and removed) and a bare except
+            # Exception both miss this: the except swallows
+            # assert_main_thread's RuntimeError, and a disposed desktop
+            # becomes the failure return (None / False) — the same shape as
+            # "nothing is open". A RuntimeException name is easy to treat
+            # as that disposal, or the reverse. Every one of those is an
+            # Exception, so each call site would re-check names.
             #
-            # TypeError and ValueError used to be their own except clauses
-            # above this one, so listener_boundary never saw them. A future
-            # disposal or veto that subclasses either type would have been
-            # logged and returned as a soft failure. Classify first. An
-            # ordinary TypeError or ValueError still logs under its type
-            # name and does not enter the bridge.
+            # Classify first. TypeError and ValueError as their own except
+            # clauses never reach listener_boundary. A disposal or veto that
+            # subclasses either type would be logged and returned as a soft
+            # failure. An ordinary TypeError or ValueError still logs under
+            # its type name and does not enter the bridge.
             signal = listener_boundary(exc)
             if signal is not None and signal.kind == "disposed" and func.__name__ == "disposing":
                 log.debug("%s disposing: source already disposed", self.__class__.__name__)
@@ -355,10 +354,10 @@ def _catch_and_log(func: Any) -> Any:
 class BaseListener(_BaseParent, _XEventListenerParent):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        # What was wrong: subclasses that override disposing() skip
-        # @_catch_and_log, so an exception before their own try enters the
-        # C++ bridge. How: UNO calls disposing, not on_disposing. Why: wrap
-        # that override once. The base method is already wrapped.
+        # Wrap that override once. UNO calls disposing, not on_disposing.
+        # A subclass that overrides disposing() skips @_catch_and_log, so
+        # an exception before its own try enters the C++ bridge. The base
+        # method is already wrapped.
         #
         # Same hole for itemStateChanged / textChanged / etc.: Settings and
         # MCP listeners inherit BaseListener and define those methods on the

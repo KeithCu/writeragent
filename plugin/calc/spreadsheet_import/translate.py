@@ -63,10 +63,9 @@ class _CodegenState:
 
 def _canonical_range(addr: str) -> str:
     s = str(addr).strip()
-    # Bugfix: keep quotes on quoted sheet names ('My Sheet'!A1) through tokenize/emit.
-    # What was wrong: _canonical_range stripped quotes and uppercased sheet names ('My Sheet'.A1 -> MY SHEET.A1).
-    # How: str(addr).replace('$', '').upper() stripped quotes and lost case.
-    # Why: preserve quotes and sheet case while stripping $ from references and uppercasing cell address.
+    # Keep the quotes and the sheet name's case. Strip $ from the reference
+    # and uppercase the cell address. Uppercasing the whole address turned
+    # 'My Sheet'.A1 into MY SHEET.A1.
     sheet, cell = split_sheet_prefix(s)
     if sheet is not None:
         clean_s = s.lstrip("$")
@@ -139,10 +138,9 @@ def _emit_operator(node: OperatorNode, state: _CodegenState, cell_addr: str | No
             return rhs
         raise TranslationError("unsupported prefix op")
     if node.ttype == "operator-postfix":
-        # Bugfix: Postfix % must bind with Excel precedence (tighter than ^ and * /; check -50% and 2^50%).
-        # What was wrong: operator-postfix was rejected with 'unsupported operator type'.
-        # How: tokenizer previously converted % to multiplication, but parser now creates a postfix OperatorNode.
-        # Why: emitting ({expr} * 0.01) with parenthesis ensures correct mathematical binding.
+        # Emit (expr * 0.01), parenthesized. Postfix % binds tighter than
+        # ^ and * / (check -50% and 2^50%). The parser builds a postfix
+        # operator node; rejecting that node drops a legal formula.
         if node.tvalue == "%":
             expr = _emit_expr(node.left, state, cell_addr)
             return f"({expr} * 0.01)"
@@ -183,10 +181,9 @@ def _emit_row_col(axis: int, is_count: bool, node: FunctionNode, state: _Codegen
     # ROW / COLUMN:
     if not node.args:
         if not cell_addr:
-            # Bugfix: ROW() and COLUMN() silently defaulted to float(1) when cell_addr was None.
-            # What was wrong: missing cell_addr fell through to "float(1)".
-            # How: without cell_addr, fallback 1 was returned and counted as successful translation.
-            # Why: without cell address, the formula cannot determine its row/column. Fail as unsupported.
+            # Without a cell address, ROW() and COLUMN() cannot name a row
+            # or a column, so fail as unsupported. Falling through to
+            # float(1) counted as a successful translation.
             raise UnsupportedRef("ROW/COLUMN without reference requires cell_addr")
         try:
             col_idx, row_idx = parse_address(cell_addr.replace("$", ""))
@@ -198,10 +195,10 @@ def _emit_row_col(axis: int, is_count: bool, node: FunctionNode, state: _Codegen
     if not isinstance(arg, RangeNode):
         raise UnsupportedRef("ROW/COLUMN argument must be a range")
 
-    # Bugfix: $ and sheet prefixes caused parse_range_string to fail and silently fall back to float(1).
-    # What was wrong: =ROW($A$5) and =ROW(Sheet2.A1:A3) emitted (1)+0.0 instead of actual row numbers.
-    # How: parse_range_string rejects prefixes and $, triggering except ValueError -> return "float(1)".
-    # Why: strip sheet prefix and $ so parse_range_string extracts valid coordinates; anything else raises UnsupportedRef.
+    # Strip the sheet prefix and $ so parse_range_string can read the
+    # coordinates. Anything else raises UnsupportedRef. parse_range_string
+    # rejects a prefix and $, and the ValueError handler returned float(1),
+    # so =ROW($A$5) and =ROW(Sheet2.A1:A3) emitted (1)+0.0.
     _sheet, bare = split_sheet_prefix(arg.address)
     clean_ref = bare.replace("$", "")
     try:
@@ -272,18 +269,16 @@ def _emit_function(node: FunctionNode, state: _CodegenState, cell_addr: str | No
     try:
         return emitted(args)
     except IndexError as exc:
-        # Bugfix: catch IndexError when a function gets too few args and report an unsupported/arity error instead of crashing.
-        # What was wrong: indexing missing args crashed out of translate_formula.
-        # How: custom lambdas indexed args directly without length checks.
-        # Why: catch IndexError and raise BadArity to report UNSUPPORTED_ARITY gracefully.
+        # Catch IndexError and raise BadArity (UNSUPPORTED_ARITY). The
+        # emitters index args directly, so too few arguments crash out of
+        # translate_formula.
         raise BadArity(f"insufficient arguments for {name}") from exc
 
 
 def _emit_if(args: list[str]) -> str:
-    # Bugfix: IF with 2 arguments (no else branch) was rejected with ValueError.
-    # What was wrong: _emit_if required len(args) == 3, reporting legal IF(cond; val) as PARSE_ERROR.
-    # How: len(args) != 3 raised ValueError("IF arity").
-    # Why: Excel and Calc return FALSE when the condition is false and the else branch is omitted.
+    # Excel and Calc return FALSE when IF's condition is false and the else
+    # branch is omitted. Requiring three arguments reports a legal
+    # IF(cond; val) as PARSE_ERROR.
     if len(args) == 2:
         return f"({args[1]} if {args[0]} else False)"
     if len(args) == 3:
@@ -337,10 +332,10 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "EXP": lambda a: f"np.exp({a[0]})" if len(a) == 1 else _bad_arity("EXP", 1, len(a)),
     "LN": lambda a: f"np.log({a[0]})" if len(a) == 1 else _bad_arity("LN", 1, len(a)),
     "LOG10": lambda a: f"np.log10({a[0]})" if len(a) == 1 else _bad_arity("LOG10", 1, len(a)),
-    # Bugfix: parenthesize infix emitter expressions (MOD, POWER, QUOTIENT, etc.) to preserve operator precedence when nested.
-    # What was wrong: =2*MOD(A1;B1) emitted (2 * a % b) evaluating as (2*a)%b, and 1/LOG(...) evaluated as (1/np.log(a)/np.log(b)).
-    # How: expressions lacked outer parentheses in the emitted strings.
-    # Why: wrapping every compound/infix emitter in parentheses ensures Python evaluates with correct Calc formula semantics.
+    # Parenthesize every compound or infix emitter (MOD, POWER, QUOTIENT,
+    # and the rest). Without the outer parentheses, =2*MOD(A1;B1) emits
+    # (2 * a % b), which Python evaluates as (2*a)%b, and 1/LOG(...)
+    # becomes (1/np.log(a)/np.log(b)).
     "MOD": lambda a: f"({a[0]} % {a[1]})" if len(a) == 2 else _bad_arity("MOD", 2, len(a)),
     "POWER": lambda a: f"({a[0]} ** {a[1]})" if len(a) == 2 else _bad_arity("POWER", 2, len(a)),
     "ROUND": lambda a: (f"np.round({a[0]}, {a[1]})" if len(a) > 1 else f"np.round({a[0]})") if 1 <= len(a) <= 2 else _bad_arity("ROUND", "1-2", len(a)),

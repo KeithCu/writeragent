@@ -643,11 +643,10 @@ def _stage_config_assignment(config_data: dict[str, Any], key: str, value: Any) 
 def _validated_config_for_write(data: dict[str, Any], keys_label: str) -> _config_schema.WriterAgentConfig:
     """Validate a copy of *data*. The caller's dict is left unchanged.
 
-    What was wrong: this used to return ``to_dict()``, and every writer
-    saved that blob. ``to_dict()`` drops unknown keys and other defaults,
-    so a later one-key save erased keys an earlier writer had stored.
-    Why: validation still has to run (bounds, endpoint ``/v1``), but the
-    file patch is applied separately and only for keys this call changed.
+    Validation still runs (bounds, endpoint ``/v1``), but this does not
+    return ``to_dict()``. That dump drops unknown keys and other defaults,
+    so a later one-key save would erase keys an earlier writer had stored.
+    The file patch is applied separately, and only for keys this call changed.
     """
     try:
         # deepcopy: validate() mutates nested dicts in place (saved scripts).
@@ -986,13 +985,12 @@ def set_config(key: str, value: Any, *, event_key: str | None = None) -> None:
 def set_configs(values: dict[str, Any]) -> None:
     """Set many keys with one load, one validate, one patch, and one event.
 
-    What was wrong: Settings OK called ``set_config`` once per field. Each
-    call reloaded ``writeragent.json``, validated, wrote the file, and emitted
-    ``config:changed``, and the dialog emitted once more even when every
-    coerced value already matched disk. That extra event refreshed the sidebar
-    mode combo. A bad value could also leave the earlier keys already saved.
-    The write then saved ``to_dict()`` of the whole file, so keys that were
-    not in that dump disappeared.
+    One load, one validate, one patch, one event. Saving each field on its
+    own reloads ``writeragent.json``, writes, and emits ``config:changed``
+    per field, and a bad value can leave the earlier keys already saved.
+    Writing ``to_dict()`` of the whole file also drops keys that dump omits.
+    An event when every coerced value already matches disk refreshes the
+    sidebar mode combo for no change.
 
     Each key is coerced and staged with the same dotted-key and omitted-default
     rules as ``set_config``. The dict is validated once. A validation error
@@ -1075,11 +1073,10 @@ def _get_validated_config_dict() -> dict[str, Any]:
                 log.warning("Config has out-of-range values (%s); coercing to in-range defaults", e)
                 config.validate(coerce_out_of_range=True)
 
-            # What was wrong: validate() already rewrote calc_prompt_max_tokens
-            # below 100 to 4096 on the object, then a second block parsed the
-            # raw file and wrote again. Persisting to_dict() also dropped every
-            # key the schema omits. One compare patches only values validate()
-            # changed and leaves a file that already matches untouched.
+            # One compare patches only values validate() changed (including
+            # calc_prompt_max_tokens below 100 rewritten to 4096) and leaves a
+            # file that already matches untouched. A second parse-and-write,
+            # or persisting to_dict(), drops every key the schema omits.
             data = _config_store.persist_load_repairs(config_file_path, loaded, config)
             if data is not loaded:
                 try:
@@ -1110,14 +1107,11 @@ def _get_validated_config_dict() -> dict[str, Any]:
 def _merge_api_key_slots(current: Any, patch: dict[str, Any]) -> dict[str, Any]:
     """Return *current* with only the URL slots in *patch* replaced.
 
-    What was wrong: Settings copied ``api_keys_by_endpoint``, set one URL,
-    and ``set_configs`` replaced the map with that copy. A key written for
-    another endpoint after the copy and before the replace was dropped.
-    How: the copy ran before ``_config_write_lock``. The batch then stored
-    the whole dict.
-    Why: ``ConfigStore.apply`` calls this on the value just read under that
-    lock. Slots absent from *patch* stay as they were read. Callers pass
-    only the slots they are setting, not a snapshot of the rest of the map.
+    ``ConfigStore.apply`` calls this on the value just read under
+    ``_config_write_lock``. Slots absent from *patch* stay as they were read.
+    Callers pass only the slots they are setting. Replacing the map with a
+    copy taken before the lock drops a key written for another endpoint
+    between that copy and the replace.
     """
     base = dict(current) if isinstance(current, dict) else {}
     for slot, secret in patch.items():
@@ -1128,11 +1122,9 @@ def _merge_api_key_slots(current: Any, patch: dict[str, Any]) -> dict[str, Any]:
 def update_config_mapping(key: str, mutate: Callable[[dict[str, Any]], None], *, event_key: str | None = None) -> None:
     """Read-modify-write one dict config value through ``ConfigStore.update``.
 
-    What was wrong: callers copied a map, edited the copy, then ``set_config``
-    replaced the whole value. A second writer that had read the map first
-    wrote its copy back and dropped the other key. How: ``mutate`` used to
-    run on a snapshot taken outside the write. Why: ``update_config`` calls
-    ``mutate`` on the value just read, under the same lock as the patch.
+    ``update_config`` calls ``mutate`` on the value just read, under the same
+    lock as the patch. Editing a copy taken outside that lock, then replacing
+    the whole value, drops a key another writer stored in between.
     """
 
     def _apply(current: Any) -> dict[str, Any]:

@@ -155,9 +155,9 @@ class RecordingStopHandoff:
 def _read_json_line(proc: subprocess.Popen[str], timeout: float) -> dict[str, Any]:
     if proc.stdout is None:
         raise RuntimeError("Recording subprocess stdout is not available.")
-    # Bugfix: this used to call stdout.readline() directly, so the ready/stop
-    # timeout was ignored when the child hung before emitting JSON. The shared
-    # IPC helper waits with a real deadline before reading the line.
+    # stdout.readline() ignores the ready/stop timeout when the child hangs
+    # before emitting JSON. The shared IPC helper waits with a real deadline
+    # before reading the line.
     try:
         payload = read_json_line(proc.stdout, timeout_sec=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -229,11 +229,10 @@ def _stop_recording_via_handoff(
     fallback_path: str | None,
 ) -> str:
     """Write stop and wait for the monitor. Do not read stdout."""
-    # What was wrong: _stop_recording_via_handoff could exit or raise without reaping
-    # the child process (wait_for_path timeout, stdin None, or already-exited timeout).
-    # How it happened: Gap introduced by commit 6cacb559 separating handoff logic from reap.
-    # Why this change fixes it: wrap in try/finally _reap_recording_process so the child
-    # is guaranteed to be reaped and its stderr drain removed on all exit paths.
+    # _stop_recording_via_handoff can return or raise without reaping the child
+    # (wait_for_path timeout, stdin None, or an already-exited timeout).
+    # try/finally _reap_recording_process reaps it and drops the stderr drain
+    # on every exit.
     try:
         if proc.poll() is not None:
             known = _known_path(handoff, fallback_path)
@@ -343,10 +342,8 @@ def monitor_recording_stdout(proc: subprocess.Popen[str], *, on_auto_stopped: Ca
                     break
                 continue
             except ValueError as exc:
-                # What was wrong: non-JSON lines (e.g. ALSA/PortAudio library warnings or stray prints)
-                # caused ValueError, stopping the monitor prematurely before reading the 'ok' frame.
-                # How it happened: ValueError was grouped with RuntimeError in the break-loop except block.
-                # Why this change fixes it: skip and log non-JSON lines so the monitor stays alive to receive 'ok'.
+                # Non-JSON lines (ALSA/PortAudio warnings, stray prints) raise
+                # ValueError. Skip and log them so the monitor stays up until 'ok'.
                 log.warning("Skipping non-JSON line from recording subprocess: %s", exc)
                 continue
             except RuntimeError as exc:
@@ -462,13 +459,9 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
         return False
 
     turn = getattr(host, "_turn", None)
-    # What was wrong: try_native_audio_stt_fallback called get_text_model() and get_current_endpoint()
-    # when marking native audio unsupported.
-    # How it happened: if the user switched models in the UI combobox mid-turn while the first request was in flight,
-    # re-reading the global combobox/config state marked the newly chosen model as unsupported rather than
-    # the model the audio was actually sent to.
-    # Why this change fixes it: read text_model and endpoint from the turn captured at send time when audio
-    # was attached, matching the PR #1390 fix for _cleanup_audio.
+    # Read text_model and endpoint from the turn captured when the audio was
+    # attached. Re-reading the combobox mid-turn would mark the newly chosen
+    # model unsupported instead of the model the audio was sent to.
     turn_model = getattr(turn, "text_model", None)
     turn_endpoint = getattr(turn, "endpoint", None)
     if not turn_model:
@@ -504,12 +497,11 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                     log.debug("Failed to remove audio_wav_path after STT fallback: %s", rem_err)
             if not (transcript or "").strip():
                 # G27: empty STT must not spawn a blank chat POST.
-                # What was wrong: this returned True. The drain keeps running
-                # only when on_error returns True, which means a replacement
-                # worker was spawned. Empty speech spawns nothing and posts
-                # no STREAM_DONE, so the sidebar stayed on Stop.
-                # Why: None already means "this turn is finished; do not
-                # show a second API error."
+                # The drain keeps running only when on_error returns True,
+                # which means a replacement worker was spawned. Empty speech
+                # spawns nothing and posts no STREAM_DONE, so returning True
+                # left the sidebar on Stop. None means this turn is finished
+                # and a second API error should not be shown.
                 host._append_response("\n" + _("[No speech detected.]") + "\n")
                 host._terminal_status = ""
                 return None

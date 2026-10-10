@@ -45,14 +45,13 @@ class _DownloadVecPackListener(BaseActionListener):
             invalidate_host_cython_accelerator()
 
         def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> tuple[bool, str]:
-            # What was wrong: run_vec_pack_download appended audio_binaries to
-            # sys.path and cleared the Cython accelerator on the probe worker.
-            # How: VenvProbeProgressDialog runs probe_fn via run_in_background
-            # while the progress dialog's execute() pumps VCL. Why: keep the
-            # download on the worker and hop those mutations with
-            # execute_on_main_thread. That nested loop already dispatches
-            # AsyncCallback for the progress lines, so the bind does not wait
-            # on a thread that is blocked outside the message loop.
+            # The download stays on the probe worker. Appending audio_binaries
+            # to sys.path and clearing the Cython accelerator must run on the
+            # main thread via execute_on_main_thread. VenvProbeProgressDialog
+            # runs probe_fn with run_in_background while execute() pumps VCL;
+            # that nested loop already dispatches AsyncCallback for the
+            # progress lines, so the bind does not wait on a thread blocked
+            # outside the message loop.
             ok = run_vec_pack_download(on_display, on_status, bind_host=False)
             if ok:
                 execute_on_main_thread(bind_downloaded_vec_on_main)
@@ -145,10 +144,9 @@ def open_librepy_settings(ctx: Any) -> None:
             msgbox(ctx, _("Python Settings"), _("Could not open Settings.") + detail, box_type=3)
             return
 
-        # What was wrong: Step, chrome, populate, and the title ran before the
-        # try that calls dlg.dispose, so a raise leaked the UNO dialog.
-        # How: only dlg.execute() was in that finally. Why: SettingsDialog.show
-        # wraps create, populate, and execute in one try/finally that disposes.
+        # SettingsDialog.show wraps create, populate, and execute in one
+        # try/finally that disposes. Running Step, chrome, populate, and the
+        # title before that try leaked the UNO dialog on a raise.
         # UNO multi-page dialogs use model.Step (not Page); setPropertyValue("Page") fails on Linux.
         dlg.getModel().Step = _SCRIPTING_TAB_PAGE
         _configure_librepy_settings_chrome(dlg)

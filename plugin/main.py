@@ -202,10 +202,9 @@ def bootstrap(ctx: Any | None = None) -> None:
         _services.register("main_thread", default_executor)
 
         # Wire config service to events, then load module.yaml public flags.
-        # What was wrong: bootstrap called set_events and never initialize(),
-        # so _manifest stayed empty. A cross-module read of a key marked
-        # public in module.yaml was denied as private. initialize() is the
-        # existing hook; it does not start a second service lifecycle.
+        # initialize() fills _manifest. set_events alone leaves it empty, so
+        # a cross-module read of a key marked public in module.yaml is denied
+        # as private. initialize() does not start a second service lifecycle.
         config_svc = _services.get("config")
         events_svc = _services.get("events")
         if config_svc and events_svc:
@@ -549,14 +548,11 @@ def get_menu_text(command: str) -> str | None:
         "main.report_bug": _("Report bug..."),
         "mcp.toggle_server": _("Toggle MCP Server"),
         "mcp.server_status": _("MCP Server Status"),
-        # What was wrong: JA menus kept the English Addons.xcu titles for
-        # these two items even though the catalogs had msgstrs.
-        # How: addStatusListener pushes get_menu_text() via FeatureStateEvent.
-        # Returning None leaves the en-US xcu string (Vision OCR was absent
-        # from this map). Debug was a raw English literal, so the event
-        # overwrote the catalog with "Debug".
-        # Why this works: the same _("literal") map already translates the
-        # other WriterAgent menu titles.
+        # addStatusListener pushes get_menu_text() via FeatureStateEvent.
+        # Returning None leaves the en-US Addons.xcu string (Vision OCR was
+        # absent from this map). A raw English literal overwrites the catalog
+        # ("Debug"). Use the same _("literal") map as the other WriterAgent
+        # menu titles so the JA msgstrs apply.
         "vision.open_settings": _("Vision OCR Settings..."),
         "main.NoOp": _("Debug"),
         "main.RunFormatTests": _("Run format tests"),

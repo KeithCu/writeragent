@@ -134,7 +134,7 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
                 # Unwrap so PropertyBag-style None tests see the real object, then re-wrap on return.
                 check_disposed(_unwrap_uno(doc))
                 ctrl = getattr(doc, "getCurrentController", lambda: None)()
-                # Bugfix: headless soffice returns None from getCurrentController().
+                # Headless soffice returns None from getCurrentController().
                 # Requiring a controller skipped the open model, so session reset
                 # and shared-kernel lookup never saw it. A controller with no
                 # frame is an unfocused window — keep searching in that case.
@@ -242,10 +242,10 @@ def _workbook_session_key(doc: Any) -> str:
     new_id = f"unsaved:{uuid.uuid4()}"
     try:
         set_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP, new_id)
-        # Bugfix: set_document_property returns without writing when the
-        # document has no UserDefinedProperties bag, and it does not raise.
-        # Returning the minted id made the next call mint a different key.
-        # Read it back; otherwise use the unsaved:uuid fallback.
+        # set_document_property returns without writing when the document has
+        # no UserDefinedProperties bag, and it does not raise. Returning the
+        # minted id made the next call mint a different key. Read it back;
+        # otherwise use the unsaved:uuid fallback.
         stored = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
         if stored is not None and str(stored) == new_id:
             return new_id
@@ -384,12 +384,10 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
                 if _existing_workbook_session_key(model) == key:
                     from plugin.framework.thread_guard import guard_uno
 
-                    # What was wrong: the open model was returned raw. A worker
-                    # that resolved wa.doc / tool RPC could then call UNO off
-                    # the main thread.
-                    # How: desktop enumeration hands back the component itself.
-                    # Why this works: guard_uno asserts on later access unless
-                    # the caller is already on the main thread.
+                    # Desktop enumeration hands back the component itself. Returning
+                    # it raw let a worker that resolved wa.doc / tool RPC call
+                    # UNO off the main thread. guard_uno asserts on later
+                    # access unless the caller is already on the main thread.
                     return guard_uno(model)
             except Exception:
                 log.debug("document_for_script_session: key read failed", exc_info=True)
@@ -523,13 +521,12 @@ def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
 
         return execute_on_main_thread(reset_workbook_python_session, ctx, doc)
 
-    # What was wrong: Resetting session on an unsaved/clean document minted a session key in
-    # UserDefinedProperties, and resetting when a non-Writer/Draw/Calc window (Base, Math,
-    # Start Center) was focused bypassed the window and cleared a background Calc document.
-    # How: _workbook_session_key wrote a property if none existed, and non-supported doc types
-    # fell through to desktop enumeration in _calc_document.
-    # Why this fixes it: Check _existing_workbook_session_key and return early if None; if the
-    # current component is not Writer/Draw/Calc, show a message to the user and return.
+    # Resetting a session on an unsaved/clean document must not mint a key:
+    # _workbook_session_key wrote a UserDefinedProperties entry when none
+    # existed. Check _existing_workbook_session_key and return when it is
+    # None. A focused Base, Math, or Start Center window is not Writer, Draw,
+    # or Calc; falling through to desktop enumeration cleared a background
+    # Calc document. Tell the user and return.
     if doc is not None:
         if is_writer(doc):
             if not _has_notebook_registry(doc) and _existing_workbook_session_key(doc) is None:

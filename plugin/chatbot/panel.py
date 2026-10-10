@@ -278,9 +278,9 @@ class QueryTextListener(BaseTextListener):
         self.send_listener = send_listener
 
     def on_text_changed(self, rEvent: Any) -> None:
-        # What was wrong: disposing left this listener on the Ask control, so a
-        # late text event dispatched TEXT_UPDATED into a dead panel.
-        # Why: ``is True`` so a MagicMock host (tests) is not treated as dead.
+        # Disposing must drop this listener from the Ask control, or a
+        # late text event dispatches TEXT_UPDATED into a dead panel.
+        # ``is True`` so a MagicMock host (tests) is not treated as dead.
         if getattr(self.send_listener, "_panel_teardown", False) is True:
             return
         model = getattr(rEvent.Source, "Model", None)
@@ -391,12 +391,10 @@ class QueryKeyListener(BaseKeyListener):
             return
         from plugin.framework.i18n import _
 
-        # What was wrong: enter-to-send only checked that the button was Enabled,
-        # not its label. When the box was empty, the button read "Record", so pressing
-        # Enter unexpectedly started recording; or "Stop Rec" while recording stopped
-        # and sent; or "Accept" during web search approval.
-        # Why this change: Enter in the query box must only trigger a send when the
-        # button label is explicitly "Send".
+        # Enter in the query box sends only when the button label is
+        # "Send". Enabled alone is not enough: an empty box reads "Record"
+        # (Enter would start recording), "Stop Rec" while recording would
+        # stop and send, and "Accept" is web-search approval.
         if sc.getModel().Label != _("Send"):
             return
         with suppress_disposed("QueryKeyListener Consume", logger=log):
@@ -426,14 +424,14 @@ def _chunk_text(turn: Any, text: str, role: str, *, strip_non_assistant: bool) -
 def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
     """Change a sidebar button's label without moving it or losing its mnemonic.
 
-    What was wrong: after a reply the Send/Record relabel also set the button
-    to a fixed send width (the old ``_fixed_send_width``), measured from the
-    XDL before the panel layout shared the button row. Record shrank (1x) or grew over Stop
-    (2x) until the next relayout. Setting the label also dropped the
-    mnemonic VCL had added (``~Record``), so the R underline went away.
-    Why: keep the rect the layout gave the button, and put back the
-    mnemonic VCL chose for that label the last time the button showed it.
-    The model keeps the plain label that the click handlers compare.
+    Keep the rect the layout gave the button, and put back the mnemonic
+    VCL chose for that label the last time the button showed it. A
+    Send/Record relabel that also sets a fixed send width (the old
+    ``_fixed_send_width``, measured from the XDL before the panel layout
+    shared the button row) shrinks Record (1x) or grows it over Stop (2x)
+    until the next relayout. Setting the label also drops the mnemonic VCL
+    added (``~Record``), so the R underline goes away. The model keeps the
+    plain label that the click handlers compare.
     """
     model = ctrl.getModel()
     if model is None or model.Label == label:
@@ -657,9 +655,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             event_bus = getattr(get_tools()._services, "events", None)
             if event_bus:
-                # What was wrong: disposing unsubscribed global_event_bus, so
-                # this subscription stayed and kept calling a closed panel.
-                # Why: remember this object and unsubscribe it in disposing.
+                # Remember this object and unsubscribe it in disposing.
+                # Unsubscribing global_event_bus leaves this subscription,
+                # which keeps calling a closed panel.
                 self._mcp_event_bus = event_bus
                 event_bus.subscribe("mcp:request", self._on_mcp_request, weak=True)
                 event_bus.subscribe("mcp:result", self._on_mcp_result, weak=True)
@@ -775,11 +773,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         )
 
         flags = getattr(self, "sidebar_mode_flags", None)
-        # What was wrong: clear_brainstorming_session blanks _brainstorming_topic,
-        # and this method read that field afterwards, so the writing-plan handoff
-        # was always "Implement the saved spec: ". selectItemPos often does not
-        # fire ChatModeListener, so the combo moved and the sidebar stayed in
-        # the old mode until the user touched it.
+        # Read _brainstorming_topic before clear_brainstorming_session blanks
+        # it, or the writing-plan handoff is always "Implement the saved spec: ".
+        # selectItemPos often does not fire ChatModeListener, so the combo
+        # moves and the sidebar stays in the old mode until the user touches it.
+        # Apply the mode here.
         topic = getattr(self, "_brainstorming_topic", "") or ""
         clear_brainstorming_session(self)
         apply_fn = getattr(self, "_apply_sidebar_mode_fn", None)
@@ -1127,14 +1125,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             "_append_response: rich-control stream start len=%s (final answer)",
                             self._assistant_stream_start_len,
                         )
-                    # Append, do not repaint. What was wrong: this called
-                    # paint_session on every streamed batch (about 3 a second).
-                    # Each one built a hidden Writer doc, cleared the control
-                    # and refilled the whole transcript, and VCL then drew from
-                    # a stale layout: a blank transcript, or a gap below the
-                    # last line that grew with the session. stream_session
-                    # appends only the new text. The full repaint is kept for
-                    # load/switch, Stop and Clear.
+                    # Append, do not repaint. paint_session on every
+                    # streamed batch (about 3 a second) builds a hidden Writer
+                    # doc, clears the control, and refills the whole transcript.
+                    # VCL then draws from a stale layout: a blank transcript, or
+                    # a gap below the last line that grows with the session.
+                    # stream_session appends only the new text. The full
+                    # repaint stays for load/switch, Stop, and Clear.
                     widget.stream_session(turn.session)
                     if role == "user":
                         self._assistant_stream_start_len = widget.get_text_length()
@@ -1202,19 +1199,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _on_mcp_result(self, tool: str = "", result_snippet: str = "", **kwargs: Any) -> None:
         """Handle MCP result events from the bus (background thread)."""
-        # What was wrong: a result posted before disposing still ran
-        # _append_response after the panel was gone.
-        # How: the bus callback and the queued UI hop are different turns.
-        # Why: drop both once teardown has started or ctx is cleared.
+        # Drop the result once teardown has started or ctx is cleared.
+        # The bus callback and the queued UI hop are different turns, so a
+        # result posted before disposing still runs _append_response after
+        # the panel is gone.
         if self._panel_teardown or self.ctx is None:
             return
 
-        # What was wrong: gating on kwargs["req_id"] == self._last_mcp_req_id
-        # dropped the result for the earlier of two concurrent MCP requests.
-        # How it happened: _on_mcp_request overwrote _last_mcp_req_id with the newest
-        # request ID, so any earlier in-flight request was discarded on completion.
-        # Why this change: rely on per-request turn tracking in _last_mcp_turn[rid].
-        # Each request is tied to its originating TurnController without interference.
+        # Each request is tied to its originating TurnController in
+        # _last_mcp_turn[rid]. Gating on kwargs["req_id"] == self._last_mcp_req_id
+        # drops the earlier of two concurrent MCP requests: _on_mcp_request
+        # overwrites _last_mcp_req_id with the newest id.
         try:
             from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
@@ -1345,13 +1340,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def stop_during_take(self) -> bool:
         """Stop while a take is recording. True when this click was handled.
 
-        What was wrong: Stop was disabled during every take, and a hands-free
-        loop is a take between turns, so there was no way out short of Clear
-        (which wipes the chat) or closing the sidebar. Stop Rec cannot be the
-        exit: it is the send, and loud rooms need it when silence never fires.
-        Why: one step down per click. A locked take becomes a one-shot take
-        that keeps recording (Stop Rec or silence sends it, nothing re-arms);
-        Stop on a one-shot take cancels it without sending.
+        One step down per click. Stop disabled during every take leaves a
+        hands-free loop (a take between turns) with no exit short of Clear
+        (which wipes the chat) or closing the sidebar. Stop Rec cannot be
+        the exit: it is the send, and loud rooms need it when silence never
+        fires. A locked take becomes a one-shot take that keeps recording
+        (Stop Rec or silence sends it, nothing re-arms); Stop on a one-shot
+        take cancels it without sending.
         """
         from plugin.framework.i18n import _
 
@@ -1411,10 +1406,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _release_open_microphone(self) -> None:
         """Stop capture and leave the Stop Rec label.
 
-        What was wrong: Clear and sidebar close called exit_hands_free_record
-        and left AudioRecorder running. Recording is not is_busy, so
-        STOP_CLICKED does not apply, and the next click sent that take.
-        ERROR_OCCURRED clears is_recording without starting a send.
+        Clear and sidebar close must stop the mic, not only
+        exit_hands_free_record. Leaving AudioRecorder running keeps the
+        take: recording is not is_busy, so STOP_CLICKED does not apply, and
+        the next click sends it. ERROR_OCCURRED clears is_recording without
+        starting a send.
         """
         recorder = getattr(self, "audio_recorder", None)
         if recorder is not None:
@@ -1528,9 +1524,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             case LogSidebarEffect():
                 log.debug("%s", effect.message)
             case UpdateUIEffect():
-                # What was wrong: web search approval replaces Send/Stop/Clear with Accept/Change/Reject,
-                # but late or concurrent UpdateUIEffects would overwrite Accept back to Send (disabled).
-                # Why this change: preserve button states and labels while approval is pending.
+                # Preserve button states and labels while approval is
+                # pending. Web search approval replaces Send/Stop/Clear with
+                # Accept/Change/Reject; a late UpdateUIEffect writes Accept
+                # back to Send (disabled).
                 if not _is_approval_pending(self):
                     self._set_button_states(effect.send_enabled, effect.stop_enabled)
 
@@ -1588,11 +1585,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             case StartSendEffect():
                 from plugin.framework.queue_executor import SendCancellation
 
-                # What was wrong: STT runs inside run_blocking_in_thread, which
-                # pumps the UI. A second Send replaced _send_cancellation and
-                # cleared the stop fallback while the first Whisper child was
-                # still alive, so Stop for the first send did not kill it.
-                # Why: leave the first scope in place until that child exits.
+                # Leave the first scope in place until that child exits.
+                # STT runs inside run_blocking_in_thread, which pumps the UI.
+                # A second Send replaces _send_cancellation and clears the
+                # stop fallback while the first Whisper child is still alive,
+                # so Stop for the first send does not kill it.
                 if getattr(self, "_stt_inflight", False):
                     log.info("StartSend ignored while speech-to-text is running")
                     return
@@ -1685,11 +1682,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def _sync_has_text_from_query(self) -> None:
         """Ask is the source of truth after SEND_COMPLETED forces has_text False.
 
-        What was wrong: completion always cleared has_text. Text typed while a
-        reply streamed, and the extracted-peer path that never clears Ask,
-        then looked empty. With recording support the button became Record.
-        The FSM still forces False so a missed text listener cannot leave
-        has_text true on an empty box. This event corrects it from the control.
+        Ask is the source of truth after completion. Completion always
+        clears has_text, so text typed while a reply streamed, and the
+        extracted-peer path that never clears Ask, then look empty. With
+        recording support the button becomes Record. The FSM still forces
+        False so a missed text listener cannot leave has_text true on an
+        empty box. This event corrects it from the control.
         """
         ctrl = getattr(self, "query_control", None)
         if ctrl is None:
@@ -1736,15 +1734,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self._send_cancellation = cancel_scope
             if cancel_scope.is_cancelled() or self._stop_requested_fallback:
                 log.info("Send drain skipped (Stop before drain started)")
-                # What was wrong: _terminal_status was left at "Ready", causing TTS to replay
-                # the previous answer when Stop was pressed before the drain began.
-                # Why this change: set terminal status to "Stopped" so completion and TTS skip it.
+                # Terminal status is "Stopped" so completion and TTS skip
+                # this turn. Leaving it at "Ready" replays the previous
+                # answer when Stop is pressed before the drain begins.
                 self._terminal_status = "Stopped"
-                # What was wrong: Stop Rec stored the take on audio_wav_path,
-                # Stop landed before this drain ran, and nothing consumed the
-                # WAV. The next typed Send then transcribed or attached it.
-                # Why: STT never starts on this path, so the take cannot be
-                # kept as text; drop it so it is not sent with a later message.
+                # Drop the take. STT never starts on this path, so it
+                # cannot be kept as text. Stop Rec stores it on
+                # audio_wav_path; if Stop lands before this drain runs,
+                # nothing consumes the WAV and the next typed Send
+                # transcribes or attaches it.
                 self.clear_pending_audio_wav()
                 return
             self._do_send()
@@ -1780,10 +1778,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Dispose runs inside this drain, then sets ctx to None. The
         # completion dispatch writes the status line, and the rest starts
         # TTS or arms the mic on a dead panel.
-        # What was wrong: an inner finally cleared _send_cancellation even
-        # when disposing had just cancelled that scope, so a late reader
-        # saw None on a dead panel.
-        # Why: drop the field only while the panel is still alive.
+        # Drop _send_cancellation only while the panel is still alive.
+        # An inner finally that clears it after disposing cancelled that
+        # scope leaves a late reader with None on a dead panel.
         try:
             if not self._panel_teardown:
                 self._send_cancellation = None
@@ -1797,10 +1794,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self._set_status(_(self._terminal_status))
                     try:
                         from plugin.framework.config import get_config_bool_safe
-                        # What was wrong: checking an alive turn failed because the tool loop finally
-                        # had already run abort_turn(self), marking the turn not alive.
-                        # Why this change: speak from session_for_turn(self) (valid until drop_turn)
-                        # whenever TTS is enabled and terminal status is not Stopped.
+                        # Speak from session_for_turn(self) (valid until
+                        # drop_turn) when TTS is enabled and terminal status
+                        # is not Stopped. An alive-turn check fails here: the
+                        # tool-loop finally already ran abort_turn(self).
                         if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
                             from plugin.chatbot.tool_loop_actions import session_for_turn
 
@@ -1808,11 +1805,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             start_count = getattr(self, "_send_start_msg_count", None)
                             if spoken and spoken.messages:
                                 last_msg = spoken.messages[-1]
-                                # What was wrong: whitespace-only queries or cancelled sends replayed
-                                # the previous turn's assistant message through TTS because the session's
-                                # last message was from the prior turn.
-                                # Why this change: only speak if an assistant message exists AND a new
-                                # message was actually appended during this send turn.
+                                # Speak only when an assistant message
+                                # exists and this send appended a new message.
+                                # A whitespace-only query or a cancelled send
+                                # otherwise replays the previous turn: the
+                                # session's last message is still that reply.
                                 has_new_assistant_msg = (
                                     last_msg.get("role") == "assistant"
                                     and bool(last_msg.get("content"))
@@ -1868,10 +1865,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         log.debug("TTS playback trigger: %s", e)
                     self._flush_sticky_restart()
         finally:
-            # What was wrong: commit 588704555 returned early when content_to_speak was empty,
-            # bypassing drop_turn and leaking the turn when Stop was clicked with TTS enabled.
-            # Why this change: guarantee drop_turn and kick_pending_peer_starts run under
-            # finally so no early return or TTS exception can leak active_turns.
+            # drop_turn and kick_pending_peer_starts run under finally.
+            # An early return when content_to_speak is empty (or a TTS
+            # exception) skips them and leaks the turn, including Stop
+            # with TTS enabled.
             from plugin.chatbot.tool_loop_actions import drop_turn, session_for_turn
             from plugin.doc.peer_message import kick_pending_peer_starts
 
@@ -1920,10 +1917,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         # begin_send_turn aborts the turn already in flight. A pump re-entry
         # during Whisper must not do that, and must not clear the WAV.
-        # What was wrong: this read self._stt_inflight. Smol tests call
-        # _do_send on a SimpleNamespace that never ran __init__, so the
-        # attribute was missing and every chat send raised AttributeError.
-        # Why: missing means not transcribing, same as the mixin default.
+        # Missing means not transcribing, same as the mixin default.
+        # Reading self._stt_inflight raises AttributeError on the smol
+        # _do_send double: that SimpleNamespace never ran __init__.
         if getattr(self, "_stt_inflight", False):
             log.info("_do_send re-entered during speech-to-text; the first Stop still applies")
             return
@@ -1977,11 +1973,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self._terminal_status = "Error"
                 self._set_status(_("Error"))
                 return
-            # What was wrong: an empty-query early return left _terminal_status as "",
-            # skipping _set_status in _finish_send_drain_ui so status remained "Getting document…".
-            # It also failed to prevent TTS from speaking the prior turn's reply.
-            # Why this change: mark the terminal status as "Ready" so the UI updates,
-            # and rely on message count tracking to suppress TTS when no new message was added.
+            # Mark the terminal status "Ready" so the UI updates, and
+            # rely on message-count tracking to suppress TTS when no new
+            # message was added. An empty-query return that leaves
+            # _terminal_status as "" skips _set_status in
+            # _finish_send_drain_ui (status stays "Getting document…") and
+            # speaks the prior turn's reply.
             self._terminal_status = "Ready"
             return
 
@@ -2051,10 +2048,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         if not query_text.strip():
                             self._append_response("\n" + _("[No speech detected.]") + "\n")
                             self._terminal_status = "Stopped"
-                            # What was wrong: an empty take finishes as Stopped, not
-                            # Error, so sticky re-armed Record. Noise that trips
-                            # silence auto-stop then looped empty takes forever.
-                            # Why: end hands-free after EMPTY_TAKES_EXIT in a row.
+                            # End hands-free after EMPTY_TAKES_EXIT empty
+                            # takes in a row. An empty take finishes as
+                            # Stopped, not Error, so sticky re-arms Record
+                            # and noise that trips silence auto-stop loops
+                            # empty takes forever.
                             gesture = getattr(self, "_record_gesture", None)
                             if gesture is not None and gesture.sticky:
                                 self._empty_take_count = getattr(self, "_empty_take_count", 0) + 1
@@ -2141,10 +2139,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 return
 
             # Agent backend (Aider, Hermes): use external agent instead of built-in LLM.
-            # What was wrong: `_do_send_via_agent_backend` sat in this try. The except
-            # only logged, then execution fell through to `_do_send_chat_with_tools`,
-            # so one Send started a second builtin turn. The handler documents no
-            # builtin fallback. Show the error and end the send here.
+            # Show the error and end the send here. The handler documents
+            # no builtin fallback. Leaving `_do_send_via_agent_backend` in
+            # this try means the except only logs, then execution falls
+            # through to `_do_send_chat_with_tools` and one Send starts a
+            # second builtin turn.
             try:
                 from plugin.framework.config import get_config
                 from plugin.acp.registry import normalize_backend_id
@@ -2256,12 +2255,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             self._set_status(_(self._terminal_status))
                             self._flush_sticky_restart()
                 finally:
-                    # What was wrong: an exception from the completion dispatch above
-                    # skipped drop_turn and kick_pending_peer_starts, leaking the turn
-                    # and stalling queued peer turns.
-                    # Why this works: same inner finally as _run_send_drain. Drop the
-                    # turn after SEND_COMPLETED, never before, so the next peer turn
-                    # starts only once this one is finished.
+                    # Same inner finally as _run_send_drain. Drop the turn
+                    # after SEND_COMPLETED, never before, so the next peer
+                    # turn starts only once this one is finished. An exception
+                    # from the completion dispatch otherwise skips drop_turn
+                    # and kick_pending_peer_starts, leaking the turn and
+                    # stalling queued peer turns.
                     from plugin.chatbot.tool_loop_actions import drop_turn
                     from plugin.doc.peer_message import kick_pending_peer_starts
 
@@ -2342,9 +2341,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def disposing(self, Source: Any = None) -> None:
         _stop_tts()
-        # What was wrong: attach_stop_mouse_listener and attach_record_mouse_listener
-        # added mouse listeners that strongly held send_listener and were never removed.
-        # Why this change: detach both mouse listeners on dispose to prevent leaks.
+        # Detach both mouse listeners on dispose. attach_stop_mouse_listener
+        # and attach_record_mouse_listener add listeners that strongly hold
+        # send_listener; leaving them attached leaks the listener.
         stop_mouse = getattr(self, "_stop_mouse_listener", None)
         stop_ctrl = getattr(self, "_stop_mouse_control", None) or self.stop_control
         if stop_mouse is not None and stop_ctrl is not None:
@@ -2371,9 +2370,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Match StopSendEffect: cancel the scope and latch the fallback.
         self._panel_teardown = True
         self._last_mcp_turn.clear()
-        # What was wrong: silence auto-stop lambdas stayed on the recorder and
-        # posted UI work after this listener was gone.
-        # Why: drop them before cleanup so stop does not re-enter the panel.
+        # Drop silence auto-stop lambdas before cleanup. They stay on the
+        # recorder and post UI work after this listener is gone, and stop
+        # then re-enters the panel.
         recorder = getattr(self, "audio_recorder", None)
         if recorder is not None:
             try:
@@ -2404,11 +2403,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         try:
             from plugin.framework.event_bus import global_event_bus
 
-            # What was wrong: mcp:request / mcp:result were subscribed on
-            # services.events and unsubscribed on global_event_bus. Those are
-            # not always the same object, so the panel stayed subscribed.
-            # Why: unsubscribe the bus saved at subscribe time. grammar:status
-            # was subscribed on global_event_bus and stays on that bus.
+            # Unsubscribe the bus saved at subscribe time. mcp:request /
+            # mcp:result subscribed on services.events and unsubscribed on
+            # global_event_bus stay subscribed when those are different
+            # objects. grammar:status was subscribed on global_event_bus
+            # and stays on that bus.
             mcp_bus = getattr(self, "_mcp_event_bus", None)
             if mcp_bus is not None:
                 mcp_bus.unsubscribe("mcp:request", self._on_mcp_request)
@@ -2481,9 +2480,9 @@ def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
     except ImportError:
         return
 
-    # What was wrong: repeated attachments or stale sidebar instances retained
-    # previous mouse listeners strongly referencing the send_listener.
-    # Why this change: detach prior listener before attaching a new one.
+    # Detach the prior listener before attaching a new one. Repeated
+    # attachments or stale sidebar instances otherwise retain mouse
+    # listeners that strongly reference the send_listener.
     prior = getattr(send_listener, "_stop_mouse_listener", None)
     if prior is not None and hasattr(stop_control, "removeMouseListener"):
         with suppress_disposed("remove prior stop mouse listener", logger=log):
@@ -2552,9 +2551,9 @@ def attach_record_mouse_listener(send_control: Any, send_listener: Any) -> None:
     except ImportError:
         return
 
-    # What was wrong: repeated attachments or stale sidebar instances retained
-    # previous mouse listeners strongly referencing the send_listener.
-    # Why this change: detach prior listener before attaching a new one.
+    # Detach the prior listener before attaching a new one. Repeated
+    # attachments or stale sidebar instances otherwise retain mouse
+    # listeners that strongly reference the send_listener.
     prior = getattr(send_listener, "_record_mouse_listener", None)
     if prior is not None and hasattr(send_control, "removeMouseListener"):
         with suppress_disposed("remove prior record mouse listener", logger=log):
@@ -2668,9 +2667,9 @@ class ClearButtonListener(BaseActionListener):
         if self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None:
             self.send_listener._finish_inline_web_approval(False)
             return
-        # What was wrong: Clear wiped messages on the UI thread while a send
-        # drain was still active, and it did not latch Stop. The in-flight
-        # reply was then appended onto that wiped chat.
+        # Latch Stop before wiping messages. Clear on the UI thread while
+        # a send drain is still active leaves the in-flight reply to append
+        # onto that wiped chat.
         send_state = getattr(getattr(self.send_listener, "sidebar_state", None), "send", None)
         if self.send_listener is not None and send_state is not None and send_state.is_busy:
             self.send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
@@ -2681,10 +2680,10 @@ class ClearButtonListener(BaseActionListener):
             # send; abort again when it was idle so a worker that outlived
             # the button cannot paint onto the new list.
             abort_turn(self.send_listener)
-            # What was wrong: Clear wiped session history but left the mode topics
-            # (_brainstorming_topic, _writing_plan_topic, _ppt_master_topic) intact.
-            # After Clear, _do_send reused the stale topic with an empty history.
-            # Why this change: resetting them to "" ensures the next prompt sets a fresh topic.
+            # Reset mode topics so the next prompt sets a fresh one. Clear
+            # wipes session history; leaving _brainstorming_topic,
+            # _writing_plan_topic, and _ppt_master_topic lets _do_send reuse
+            # the stale topic with an empty history.
             self.send_listener._brainstorming_topic = ""
             self.send_listener._writing_plan_topic = ""
             self.send_listener._ppt_master_topic = ""

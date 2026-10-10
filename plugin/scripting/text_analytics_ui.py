@@ -62,9 +62,9 @@ class TextAnalyticsDialog:
     def close(self, *, toolkit_teardown: bool = False) -> None:
         """Hide or dispose the dialog.
 
-        Bugfix: Esc / title-bar close on a closeable modeless dialog already
-        destroys the window. ``windowClosing`` must not ``dispose()`` again
-        (native crash, no Python traceback). The Close button disposes once.
+        Esc / title-bar close on a closeable modeless dialog already destroys
+        the window. ``windowClosing`` must not ``dispose()`` again (native
+        crash, no Python traceback). The Close button disposes once.
         """
         if self._closed:
             return

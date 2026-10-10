@@ -420,11 +420,12 @@ def kick_pending_peer_starts() -> None:
         start_fn = getattr(listener, "start_extracted_peer_send", None)
         if not callable(start_fn):
             continue
-        # What was wrong: the turn was already removed from q and a False
-        # return was ignored. send_state refuses EXTRACTED_SEND while the
-        # hands-free mic records, so the turn was lost and an already-appended
-        # user message sat unanswered. start_fn has no side effects when it
-        # returns False, so put the turn back like the busy case above.
+        # The turn is already removed from q, and a False return is
+        # ignored. send_state refuses EXTRACTED_SEND while the
+        # hands-free mic records, so the turn is lost and an
+        # already-appended user message sits unanswered. start_fn has
+        # no side effects when it returns False, so put the turn back
+        # like the busy case above.
         if start_fn(turn.wrapped_text, already_appended=turn.already_appended) is False:
             q.appendleft(turn)
             skipped.append((ref, turn))
@@ -720,13 +721,14 @@ class _SendPeerBase(ToolBase):
             kind=envelope_kind,
         )
 
-        # What was wrong: the envelope was written into the peer session and
-        # painted before schedule_peer_turn. On PEER_QUEUE_FULL the tool
-        # returned an error for a turn that was never queued, so nothing ran
-        # it, and a retry appended a second phantom user turn.
-        # Why this change: the cap is the same check enqueue uses. Refuse a
-        # full queue before any transcript write. Success still injects
-        # before schedule so an immediate kick sees already_appended.
+        # The envelope is not written into the peer session, and not
+        # painted, before schedule_peer_turn. On PEER_QUEUE_FULL the
+        # tool would otherwise return an error for a turn that was never
+        # queued, so nothing runs it, and a retry appends a second
+        # phantom user turn. The cap is the same check enqueue uses.
+        # Refuse a full queue before any transcript write. Success
+        # still injects before schedule so an immediate kick sees
+        # already_appended.
         if listener_queue_len(listener) >= PEER_QUEUE_CAP:
             return self._tool_error(
                 f"Peer sidebar queue is full (max {PEER_QUEUE_CAP} pending turns).",

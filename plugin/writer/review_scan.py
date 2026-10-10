@@ -155,17 +155,21 @@ def snapshot_redline_ids(doc: Any) -> tuple[set[Any], bool]:
 def new_redlines_since(doc: Any, before: set[Any]) -> tuple[list[Any], bool]:
     """Redlines the edit made since the *before* snapshot (``snapshot_redline_ids``), plus scan reliability.
 
-    What was wrong: "new" meant "RedlineIdentifier not seen before", and the identifier is not a
-    stable id. Deleting text that is another author's tracked insertion stacks our Delete on
-    that SAME redline (same identifier), so the deletion was never tagged and never showed up
-    as an agent change (relato #34). Deleting inside the middle of someone else's insertion
-    splits it, and the tail piece gets a NEW identifier, so the user's own text was tagged as
-    an agent change (Accept/Reject would then resolve it). Why this fixes it: a redline counts
-    as old only if its whole key (identifier, type, author, date, comment) is unchanged, and a
-    new-identifier redline with the same type, author, date and comment as an old one is a
-    piece split off it, not ours (checked live: the piece keeps all four). An agent change
-    stacked on another author's pending change is left untagged (``_stacked_on_someone_else``):
-    fail closed, it reads as the user's and is never resolved in bulk.
+    "New" is not "RedlineIdentifier not seen before": the identifier
+    is not a stable id. Deleting text that is another author's
+    tracked insertion stacks our Delete on that SAME redline (same
+    identifier), so the deletion is never tagged and never shows up
+    as an agent change (relato #34). Deleting inside the middle of
+    someone else's insertion splits it, and the tail piece gets a
+    NEW identifier, so the user's own text would be tagged as an
+    agent change (Accept/Reject would then resolve it). A redline
+    counts as old only if its whole key (identifier, type, author,
+    date, comment) is unchanged, and a new-identifier redline with
+    the same type, author, date and comment as an old one is a piece
+    split off it, not ours (checked live: the piece keeps all four).
+    An agent change stacked on another author's pending change is
+    left untagged (``_stacked_on_someone_else``): fail closed, it
+    reads as the user's and is never resolved in bulk.
     """
     before_sigs = {key[1:] for key in before}
     out: list[Any] = []

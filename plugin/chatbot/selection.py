@@ -86,13 +86,11 @@ def stream_completion_tasks(ctx: Any, client: LlmClient, tasks: list[StreamCompl
     """Run simple completion streams sequentially, advancing from each done callback."""
     task_index = [0]
 
-    # What was wrong: stream_completion_tasks passed a new lambda to add_drain_idle_callback
-    # on each task. With the event-driven drain returning immediately after starting the stream,
-    # the existing owner check in async_stream rejected later tasks because the callback
-    # fired while the pump was still owned by the previous task's cleanup or someone else.
-    # Why this change: schedule_next_when_idle registers a one-shot callback that removes
-    # itself. run_next_task defers itself using this callback if the pump is already owned,
-    # ensuring tasks queue up cleanly without NestedDrainOwnerError.
+    # schedule_next_when_idle registers a one-shot callback that removes
+    # itself. run_next_task defers itself with that callback if the pump is
+    # already owned. A fresh lambda per task fires while the previous task
+    # still owns the pump, and async_stream then rejects the later task
+    # (NestedDrainOwnerError).
 
     def schedule_next_when_idle() -> None:
         fired = [False]
@@ -148,10 +146,10 @@ def do_selection_action_for_document(ctx: Any, model: Any, input_box_fn: Any, is
 def _action_selection(services: Any, is_edit: bool, frame: Any = None) -> None:
     """Extend or Edit the sidebar frame's document, or the focused one.
 
-    What was wrong: the hamburger already had the sidebar frame, then this
-    called ``get_active_document()``. Sidebar on A and focus on B edited B.
-    Why this change: a passed frame resolves with ``get_document_from_frame``.
-    The menubar calls this with no frame, so it still uses the focused document.
+    A passed frame resolves with ``get_document_from_frame``. The hamburger
+    already has the sidebar frame; ``get_active_document()`` edits whichever
+    document has focus. The menubar calls this with no frame, so it still
+    uses the focused document.
     """
     ctx = get_ctx()
     if frame is not None:

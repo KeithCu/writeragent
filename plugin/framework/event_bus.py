@@ -134,17 +134,13 @@ class EventBus:
             try:
                 entry = (weakref.WeakMethod(callback, lambda r: self._cleanup(event, r)), True)
             except TypeError:
-                # What was wrong: after WeakMethod raised, this stored
-                # ``weakref.ref(callback)``. That ref tracks the bound-method
-                # object, not the instance. Callers pass the method inline
-                # (``items.append``) and do not keep it, so the next GC drops
-                # the subscription and emit never runs.
-                # How: WeakMethod rejects builtins and methods of instances
-                # with no ``__weakref__`` (``__slots__``). ``weakref.ref`` of
-                # those objects still succeeds.
-                # Why: keep the callback strongly. A dead weakref is a silent
-                # no-op; a strong ref still fires. Python methods on normal
-                # instances stay on the WeakMethod path above.
+                # WeakMethod rejects builtins and methods of instances with no
+                # ``__weakref__`` (``__slots__``). Keep the callback strongly.
+                # ``weakref.ref(callback)`` tracks the bound-method object, not
+                # the instance. Callers pass the method inline (``items.append``)
+                # and do not keep it, so the next GC would drop the subscription
+                # and emit would never run. A strong ref still fires. Python
+                # methods on normal instances stay on the WeakMethod path above.
                 entry = (callback, False)
         elif weak:
             entry = self._weakref_or_strong(event, callback)
@@ -197,13 +193,10 @@ class EventBus:
         stored_func = getattr(stored, "__func__", None)
         other_func = getattr(callback, "__func__", None)
         if stored_func is None and other_func is None:
-            # What was wrong: both missing ``__func__`` values compared
-            # equal (``None is None``), so ``items.append`` unsubscribed
-            # ``items.clear`` on the same list.
-            # How: builtins and method-wrappers have ``__self__`` and no
-            # ``__func__``.
-            # Why: ``==`` is true for the same builtin method and false for
-            # a sibling method on that object.
+            # Builtins and method-wrappers have ``__self__`` and no ``__func__``.
+            # ``None is None`` would treat every pair as the same method, so
+            # ``items.append`` would unsubscribe ``items.clear``. ``==`` is
+            # true for the same builtin method and false for a sibling.
             return bool(stored_self is other_self and stored == callback)
         return stored_self is other_self and stored_func is other_func
 
@@ -262,15 +255,13 @@ class EventBus:
     def _cleanup(self, event: str, ref: Any) -> None:
         """Called when a weakref target is garbage-collected.
 
-        What was wrong: ``_lock`` was a ``threading.Lock``, and emit /
-        subscribe / unsubscribe allocate while holding it. GC of a cyclic
-        weak subscriber runs this callback on that same thread, and the
-        callback took ``_lock`` again. A non-reentrant lock never returns.
-        How: queue the dead ref. Apply the queue only when this thread is
-        not already inside ``_guard`` (outermost exit, or a callback that
-        found the lock free). ``RLock`` lets the callback enter at all.
-        Why: the list a caller is copying stays stable until that copy
-        finishes, and the callback cannot deadlock against the bus lock.
+        ``_lock`` is an ``RLock``. Emit, subscribe, and unsubscribe allocate
+        while holding it, and GC of a cyclic weak subscriber runs this
+        callback on that same thread. A non-reentrant lock taken again here
+        never returns. Queue the dead ref and apply it only when this thread
+        is not already inside ``_guard`` (outermost exit, or a callback that
+        found the lock free). The list a caller is copying stays stable until
+        that copy finishes, and the callback cannot deadlock against the bus.
         """
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         self._lock.acquire()

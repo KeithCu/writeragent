@@ -232,9 +232,9 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     columns = kwargs.get("columns")
     if rows is None or columns is None:
         return {"status": "error", "message": "rows and columns are required.", "code": "TOOL_EXECUTION_ERROR"}
-    # What was wrong: non-numeric rows or columns raised uncaught ValueError/TypeError past the tool error.
-    # How it happened: rows and columns were cast to int without a try/except guard.
-    # Why this fixes it: validate integer conversion with (TypeError, ValueError) guard and return tool error.
+    # Non-numeric rows or columns return a tool error. int() without
+    # a guard raises ValueError/TypeError past the tool boundary.
+    # Catch (TypeError, ValueError) around the conversion.
     try:
         rows = int(rows)
         columns = int(columns)
@@ -251,11 +251,11 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     try:
         page = bridge.get_pages().getByIndex(actual_idx)
     except Exception as exc:
-        # What was wrong: DisposedException became "Invalid page index".
-        # How: get_pages/getByIndex raise when the document is gone, and
-        # this handler mapped every Exception to a bad index.
-        # Why this works: re-raise disposal; a real bad index still
-        # returns the page-index error.
+        # DisposedException is not "Invalid page index".
+        # get_pages/getByIndex raise when the document is gone, and
+        # mapping every Exception to a bad index hides disposal.
+        # Re-raise disposal; a real bad index still returns the
+        # page-index error.
         from plugin.framework.errors import is_disposed_exception
 
         if is_disposed_exception(exc):

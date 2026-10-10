@@ -286,15 +286,15 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
     already has an assigned design master. Prefer the previous slide, then the
     following one, so add_slide keeps the deck look.
 
-    What was wrong: ``add_slide(page=0)`` passed ``insert_at=0`` while the new
-    page actually sat at index 1. The only candidate was then index 1, which
-    is the new page, so the copy assigned that page's own master.
-    How it happened: ``InsertSdPage`` cannot create a page at index 0, and
-    the neighbor formula did not check object identity.
-    Why this fixes it: skip the new page object (``uno_same``), not the
-    integer ``insert_at``. A stale ``insert_at`` of 0 is the neighbor when
-    the new page actually sits at 1. With placement fixed, index 0's
-    neighbor is the previous first slide.
+    ``add_slide(page=0)`` can pass ``insert_at=0`` while the new
+    page actually sits at index 1. The only candidate is then index
+    1, which is the new page, so the copy assigns that page's own
+    master. ``InsertSdPage`` cannot create a page at index 0, and a
+    neighbor chosen by integer index alone is the new page. Skip
+    the new page object (``uno_same``), not the integer
+    ``insert_at``. A stale ``insert_at`` of 0 is the neighbor when
+    the new page actually sits at 1. With placement fixed, index
+    0's neighbor is the previous first slide.
     """
     try:
         count = int(pages.getCount())

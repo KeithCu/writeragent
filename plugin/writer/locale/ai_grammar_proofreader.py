@@ -242,17 +242,17 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
 def _ensure_persistence_bound(ctx: Any, doc_id: str | None) -> None:
     """Bind ``DocumentPersistence`` to the Writer model being proofread.
 
-    What was wrong: this asked ``get_document_model_for_id`` for the model.
-    That helper only returns ``p._model`` when a ``DocumentPersistence`` for
-    the id is already in the map, so the first ``doProofreading`` always got
-    None and returned. Udprops never loaded and save listeners never
-    registered. ``doProofreading`` calls this only when the map has no model,
-    so that lookup cannot succeed.
-    How: nothing else passed the open Writer into ``get_persistence``. The
-    linguistic id stayed an unbound map key.
-    Why: resolve the Writer on this main thread and pass that model in. A
-    second call sees a bound model and does not replace it or reload udprops
-    over live edits. No model → return without raising.
+    ``get_document_model_for_id`` only returns ``p._model`` when a
+    ``DocumentPersistence`` for the id is already in the map, so the
+    first ``doProofreading`` always gets None and returns. Udprops
+    never load and save listeners never register.
+    ``doProofreading`` calls this only when the map has no model, so
+    that lookup cannot succeed. Nothing else passes the open Writer
+    into ``get_persistence``; the linguistic id stays an unbound map
+    key. Resolve the Writer on this main thread and pass that model
+    in. A second call sees a bound model and does not replace it or
+    reload udprops over live edits. No model → return without
+    raising.
     """
     if not doc_id:
         return

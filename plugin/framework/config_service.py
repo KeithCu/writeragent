@@ -23,9 +23,9 @@ from plugin.framework.config import get_config, set_config, remove_config, get_c
 from plugin.framework.config_schema import get_manifest_modules
 
 # get_stt_model / set_image_model / set_text_model stay inside the ai.* branches.
-# What was wrong: importing them here pulled model_fetcher whenever ConfigService
-# was imported. LibrePy must not gain that edge, and model_fetcher must not
-# import ConfigService the other way.
+# Importing them here pulls model_fetcher whenever ConfigService is imported.
+# LibrePy must not gain that edge, and model_fetcher must not import
+# ConfigService the other way.
 
 _unohelper_mod: Any
 try:
@@ -123,11 +123,10 @@ class ConfigService(ServiceBase):
     def initialize(self, ctx: Any) -> None:
         """Load module.yaml defaults and public flags once.
 
-        What was wrong: bootstrap registers this service and set_events but
-        never set_manifest, so _defaults and _manifest stayed empty and
-        module.yaml public flags never applied. Build the dict set_manifest
-        already expects from get_manifest_modules(). ctx is not used for
-        I/O; init_config already ran at bootstrap.
+        Bootstrap registers this service and set_events, not set_manifest.
+        Build the dict set_manifest already expects from get_manifest_modules()
+        or _defaults and _manifest stay empty and module.yaml public flags
+        never apply. ctx is not used for I/O; init_config already ran.
         """
         del ctx
         if self._manifest:
@@ -193,9 +192,8 @@ class ConfigService(ServiceBase):
 
         try:
             val = get_config(key)
-            # What was wrong: ``val != ""`` treated a stored empty string as
-            # missing, so get() returned the caller default. Only None is
-            # missing. False and 0 stay real values.
+            # Only None is missing. A stored empty string, False, and 0 are
+            # real values; treating "" as missing returned the caller default.
             if val is not None:
                 return val
         except ConfigError:
@@ -231,14 +229,12 @@ class ConfigService(ServiceBase):
                 if field == "endpoint":
                     from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
 
-                    # What was wrong: str(None) is the literal "None". The
-                    # selector kept that text and set_config stored it as the
-                    # endpoint. An empty string already fails below. None is
-                    # not an endpoint either.
+                    # str(None) is the literal "None". That is not an endpoint,
+                    # and set_config would store it. An empty string fails below.
                     endpoint_text = "" if value is None else str(value)
                     resolved = endpoint_from_selector_text(endpoint_text)
-                    # What was wrong: an empty resolve returned without writing,
-                    # and the caller treated set() as success.
+                    # An empty resolve is a failure. Returning without writing
+                    # looks like success to the caller.
                     if not resolved:
                         raise ConfigError("Endpoint text did not resolve to a URL", "CONFIG_INVALID_ENDPOINT", details={"value": value})
                     set_config("endpoint", resolved, event_key=key)
@@ -259,10 +255,10 @@ class ConfigService(ServiceBase):
                 return
 
         # Test fallback. The store patches this file under the same lock as
-        # production set_config. What was wrong: this branch loaded the whole
-        # JSON and wrote it back, so a second writer dropped keys. emit=False
-        # because this method emits the one event below (old_value is the
-        # manifest default, not the store's missing-key None).
+        # production set_config, so a second writer cannot drop keys the way
+        # a load-the-whole-JSON-and-write-it-back did. emit=False because
+        # this method emits the one event below (old_value is the manifest
+        # default, not the store's missing-key None).
         if self._config_path:
 
             def _replace(_current: Any) -> Any:

@@ -36,9 +36,8 @@ def _get_paddle_ocr(lang: str) -> Any:
     global _paddle_ocr_engine, _paddle_ocr_lang
     if _paddle_ocr_engine is not None and _paddle_ocr_lang == lang:
         return _paddle_ocr_engine
-    # What was wrong: missing AttributeError guard if paddleocr lacked PaddleOCR, and
-    # constructor errors escaped as unhandled exceptions.
-    # Why this change: guard (ImportError, AttributeError) and catch constructor exceptions in callers.
+    # Guard (ImportError, AttributeError): paddleocr may not export PaddleOCR.
+    # Callers catch constructor exceptions so they do not escape unhandled.
     try:
         paddleocr_mod = importlib.import_module("paddleocr")
         paddle_ocr_cls = paddleocr_mod.PaddleOCR
@@ -224,8 +223,8 @@ def _parse_ocr_lines(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
 def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_text"
     lang = str(params.get("lang") or "en").strip() or "en"
-    # What was wrong: constructor errors in _get_paddle_ocr escaped as unhandled exceptions.
-    # Why this change: catch constructor exceptions and return error_result.
+    # Constructor errors from _get_paddle_ocr become error_result. Leaving
+    # them unhandled aborts the vision call.
     try:
         engine = _get_paddle_ocr(lang)
     except ImportError:
@@ -523,9 +522,9 @@ def _parse_v3_structure_page(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str], int]:
     """One PPStructureV3 page: layout blocks plus ``table_res_list`` HTML."""
     htmls = [_v3_table_html(item) for item in _seq(payload.get("table_res_list"))]
-    # What was wrong: filtering out empty strings from htmls shifted indices, causing subsequent tables to be matched to the wrong HTML or exhausted early.
-    # How it happened: list comprehension [html for html in htmls if html] discarded empty slots.
-    # Why this change: keep unfiltered list of htmls so table_res_list indices align 1:1 with table blocks.
+    # Keep empty HTML slots. Dropping them with `if html` shifts indices, so
+    # later tables attach to the wrong HTML or run out of slots. table_res_list
+    # indices must line up 1:1 with table blocks.
     html_at = 0
     blocks: list[dict[str, Any]] = []
     tables: list[dict[str, Any]] = []
@@ -651,8 +650,8 @@ def _get_pp_structure(lang: str = "en") -> Any:
     # show_log is not a PPStructureV3 parameter. It lands in **kwargs, and
     # PaddleX raises ValueError: Unknown argument: show_log, so
     # extract_structure never starts on 3.x.
-    # What was wrong: constructor errors in PPStructureV3 escaped as unhandled exceptions, and lang wasn't passed or cached.
-    # Why this change: pass lang, cache per lang, and callers handle constructor exceptions in error_result.
+    # Pass lang and cache one engine per lang. Callers turn constructor
+    # exceptions into error_result.
     _pp_structure_engine = structure_cls(
         use_doc_orientation_classify=False,
         use_doc_unwarping=False,
@@ -674,8 +673,8 @@ def _run_pp_structure(engine: Any, image_array: Any) -> list[Any]:
 def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     helper = "extract_structure"
     lang = str(params.get("lang") or "en").strip() or "en"
-    # What was wrong: constructor errors in _get_pp_structure escaped as unhandled exceptions.
-    # Why this change: catch constructor exceptions and return error_result with VISION_ERROR.
+    # Constructor errors from _get_pp_structure become error_result with
+    # VISION_ERROR. Leaving them unhandled aborts the vision call.
     try:
         engine = _get_pp_structure(lang)
     except ImportError:

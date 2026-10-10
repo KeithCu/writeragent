@@ -571,15 +571,15 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
         raise RuntimeError(
             "Could not locate the replaced text to update its outline hyperlink: %s" % exc
         ) from exc
-    # What was wrong: writing HyperLinkURL on a *subrange* of an already-linked
-    # TOC line (the title only) splits that portion and LibreOffice paints
-    # Internet-link defaults (navy + single underline) on the new fragments.
-    # How it happened: replace_preserving_format keeps CharColor / CharUnderline
-    # and the old URL on the whole line; the pending pass already rewrites that
-    # URL; _paint then assigned the same URL again on just the title. Why this
-    # fixes it: skip that subrange write when the replacement already has the
-    # new URL, and when a paint is still needed (HTML dropped the URL) put the
-    # snapshotted look on the same cursor immediately after the assignment.
+    # Writing HyperLinkURL on a *subrange* of an already-linked TOC
+    # line (the title only) splits that portion and LibreOffice paints
+    # Internet-link defaults (navy + single underline) on the new
+    # fragments. replace_preserving_format keeps CharColor /
+    # CharUnderline and the old URL on the whole line; the pending pass
+    # already rewrites that URL. Skip the subrange write when the
+    # replacement already has the new URL. When a paint is still needed
+    # (HTML dropped the URL), put the snapshotted look on the same
+    # cursor immediately after the assignment.
     look_runs = _snapshot_char_look(text, anchor)
     title_look = _look_covering(
         look_runs, len(snapshot.prefix), len(snapshot.prefix) + len(new_plain))

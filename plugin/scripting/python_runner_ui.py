@@ -109,16 +109,15 @@ def start_native_script_run(
 ) -> None:
     """Run a script without blocking the UNO event thread.
 
-    What was wrong: the Run button called ``execute_and_insert_result`` on the
-    dialog dispatch thread. Subprocess spawn and the venv wait froze the
-    native XDL dialog until the script finished. Monaco Run did the same
-    inside the editor save handler.
-    How: the native listener and Monaco Run both call this. ``data_range`` is
-    the Monaco data-binding text; the native dialog leaves it empty and uses
-    the current selection.
-    Why this works: document prep and result insert stay on the main thread
-    (``execute_on_main_thread``). Only the venv IPC wait runs in the
-    background. ``on_complete`` is posted back to the main thread.
+    The Run button must not call ``execute_and_insert_result`` on the dialog
+    dispatch thread. Subprocess spawn and the venv wait froze the native XDL
+    dialog until the script finished. Monaco Run did the same inside the
+    editor save handler. The native listener and Monaco Run both call this.
+    ``data_range`` is the Monaco data-binding text; the native dialog leaves
+    it empty and uses the current selection. Document prep and result insert
+    stay on the main thread (``execute_on_main_thread``). Only the venv IPC
+    wait runs in the background. ``on_complete`` is posted back to the main
+    thread.
     """
     from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
     from plugin.scripting.editor_ipc import exception_traceback
@@ -427,10 +426,9 @@ class NativePythonScriptDialog:
                     if real_name in get_user_scripts():
                         return _("Cannot save to My Scripts: a script named '%s' already exists.") % real_name
                     save_user_script(real_name, t)
-                    # What was wrong: After falling back to My Scripts, the dropdown still showed
-                    # the [Doc] entry, causing state mismatch.
-                    # How: save_user_script was called without refreshing or selecting the user script.
-                    # Why this change: Refresh dropdown and select the newly saved user script.
+                    # After falling back to My Scripts, refresh the dropdown and
+                    # select the saved user script. Leaving the [Doc] entry
+                    # selected disagrees with where the script was stored.
                     self._refresh_script_dropdown(select_display=real_name)
                     return _("%s Saved to My Scripts instead.") % err
                 return _("Script '%s' saved to this document.") % real_name
@@ -513,9 +511,8 @@ class NativePythonScriptDialog:
                 ec = dlg.getControl("CodeEdit")
                 t = (ec.getModel().Text or "").rstrip()
                 lbl = dlg.getControl("InstructionLbl")
-                # What was wrong: Run called _save_current_script and discarded the returned message.
-                # How: The return value was unread, hiding save warnings or fallback to My Scripts.
-                # Why this change: Display the save message in the label text when starting the run.
+                # Show the save message. Discarding it hid save warnings and a
+                # fallback to My Scripts.
                 save_msg = owner._save_current_script(t)
                 if save_msg:
                     set_control_text(lbl, save_msg)
@@ -698,10 +695,9 @@ def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> N
     if outcome.get("no_output"):
         msgbox(ctx, _("Success"), status_text)
     elif outcome.get("stdout"):
-        # What was wrong: stdout was shown only when result is None, so a
-        # script that returned a value and also printed never opened Output.
-        # How: the condition required result is None. The result is inserted
-        # into the document; printed text still belongs in this box.
+        # Printed text belongs in this box even when the script also returned
+        # a value. The result is inserted into the document; requiring
+        # result is None hid that stdout.
         msgbox(ctx, _("Output"), outcome.get("stdout"))
     if lbl is not None:
         set_control_text(lbl, status_text)

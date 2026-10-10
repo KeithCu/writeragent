@@ -81,9 +81,8 @@ def index_paragraphs(ctx: Any, db_path: str, meta_path: str, rows: list[dict[str
     model_name = (model or "").strip()
     if build_vectors and not model_name:
         raise ToolExecutionError("No embedding model configured.", code="EMBEDDING_MODEL_MISSING")
-    # What was wrong: params omitted search_mode. Dispatch then used the
-    # sqlite default, so a configured zvec, LanceDB, or LlamaIndex backend
-    # never saw the rows.
+    # Pass search_mode. Without it, dispatch uses the sqlite default and a
+    # configured zvec, LanceDB, or LlamaIndex backend never sees the rows.
     resolved_mode = _resolved_folder_search_mode(search_mode)
     return _run_embeddings_action(ctx, "index_paragraphs", {"db_path": str(db_path), "meta_path": str(meta_path), "model": model_name, "rows": list(rows or []), "build_fts": build_fts, "build_vectors": build_vectors, "search_mode": resolved_mode}, model=model_name or "corpus", stop_checker=stop_checker, cancellation_scope=cancellation_scope)
 

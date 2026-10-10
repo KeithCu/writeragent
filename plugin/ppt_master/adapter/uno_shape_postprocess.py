@@ -153,19 +153,18 @@ def _assign_graphic(dest_shape: Any, graphic: Any) -> bool:
 def _reimport_shape_graphic(uno_ctx: Any | None, source_shape: Any, dest_shape: Any) -> bool:
     """Install a dest-owned picture instead of the hidden source ``Graphic``.
 
-    What was wrong: ``clone_shape_to_page`` copied ``Graphic`` and
-    ``GraphicURL`` onto the target shape.
-    How it happened: those properties are SfxItems from the hidden PPTX
+    ``Graphic`` and ``GraphicURL`` are SfxItems from the hidden PPTX
     document's pool. ``import_pptx_to_doc`` then closes that document, so
     the target still points at a disposed pool and soffice aborts in
     ``GetUserOrPoolDefaultItem``. ``plugin/draw/designs.py`` documents the
     same anti-pattern for design masters.
-    Why this fixes it: while the source is still open,
-    ``GraphicProvider.storeGraphic`` writes the pixels to a temp file and
-    ``queryGraphic`` loads a new ``XGraphic`` the target owns. The hidden
-    pool item is never assigned. This is the file round-trip in
-    ``designs._reimport_graphic`` (a PPTX picture is not a shipped ``.otp``
-    ``Pictures/`` member, so there is nothing earlier to extract).
+
+    While the source is still open, ``GraphicProvider.storeGraphic`` writes
+    the pixels to a temp file and ``queryGraphic`` loads a new ``XGraphic``
+    the target owns. The hidden pool item is never assigned. This is the
+    file round-trip in ``designs._reimport_graphic`` (a PPTX picture is not
+    a shipped ``.otp`` ``Pictures/`` member, so there is nothing earlier to
+    extract).
     """
     if uno_ctx is None:
         return False

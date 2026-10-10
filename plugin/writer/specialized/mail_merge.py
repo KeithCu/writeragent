@@ -53,11 +53,12 @@ def _to_file_url(path_or_url: str) -> str:
 def _get_database_context(ctx: Any) -> Any:
     """Obtain ``com.sun.star.sdb.DatabaseContext`` from the global service manager.
 
-    What was wrong: a fallback called ``doc.createInstance("com.sun.star.sdb.DatabaseContext")``.
-    How it happened: that service is the global single-instance
-    ``com.sun.star.comp.dba.ODatabaseContext`` (``services.rdb``). LibreOffice 26's
-    document factory raises ``ServiceNotRegisteredException: unknown service``.
-    Why this fixes it: only ``getServiceManager().createInstanceWithContext`` creates it.
+    A document ``createInstance("com.sun.star.sdb.DatabaseContext")``
+    cannot create this service. It is the global single-instance
+    ``com.sun.star.comp.dba.ODatabaseContext`` (``services.rdb``).
+    LibreOffice 26's document factory raises
+    ``ServiceNotRegisteredException: unknown service``. Only
+    ``getServiceManager().createInstanceWithContext`` creates it.
     """
     comp_ctx = None
     if hasattr(ctx, "get_ctx"):

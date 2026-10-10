@@ -139,10 +139,10 @@ def unregister_debug_live_panel(element: Any) -> None:
 def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
     """Drop this sidebar from the uid map and the focus pin, then cancel send.
 
-    What was wrong: dispose looked up the document on the frame again and
-    popped that uid unconditionally, so the other window of the same model
-    lost its panel. It also cleared the focus pin even when another sidebar
-    owned it. The uid stored at register time is the slot this panel owns.
+    The uid stored at register time is the slot this panel owns. Looking
+    the document up on the frame again and popping that uid unconditionally
+    drops the other window of the same model. Clearing the focus pin also
+    drops it when another sidebar owns it.
     """
     if getattr(panel, "_released", False):
         return
@@ -397,13 +397,13 @@ def _is_sha256_hex(value: Any) -> bool:
 def _fork_doc_chat_history(old_session_id: str, new_session_id: str) -> None:
     """Copy document-chat rows onto *new_session_id*.
 
-    What was wrong: ``clear()`` then ``get_messages()`` wiped the only store
-    when the regenerated id was the stored id, and a JSON ``clear`` that
-    swallowed ``OSError`` then appended onto the rows it failed to remove.
-    How: Save As re-entered setup after a partial property write, or
-    ``os.remove`` failed and the copy still ran.
-    Why: snapshot the source first and replace the destination in one write.
-    The caller skips this when the two ids are equal.
+    Snapshot the source first and replace the destination in one write.
+    ``clear()`` then ``get_messages()`` wipes the only store when the
+    regenerated id is the stored id, and a JSON ``clear`` that swallows
+    ``OSError`` then appends onto the rows it failed to remove. Save As
+    re-enters setup after a partial property write, or ``os.remove`` fails
+    and the copy still runs. The caller skips this when the two ids are
+    equal.
     """
     from plugin.chatbot.history_db import get_chat_history
 
@@ -501,12 +501,12 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # Dummy-N URP getRealInterface: hop path init + window/wiring
                 # (get_extension_url and later @main_thread_only getters) to VCL.
                 def _create_panel() -> None:
-                    # What was wrong: a failed getRealInterface called release_live_sidebar,
-                    # which set _released = True. A subsequent retry would rebuild the panel,
-                    # but on eventual disposal release_live_sidebar returned early because
-                    # _released remained True, skipping cleanup and leaking listeners.
-                    # How: _released was never reset when re-creating the panel.
-                    # Why: reset _released = False so the newly created panel's lifecycle is tracked.
+                    # Reset _released so the rebuilt panel's lifecycle is
+                    # tracked. A failed getRealInterface calls
+                    # release_live_sidebar, which sets _released = True. A
+                    # retry rebuilds the panel, and disposal then returns
+                    # early on that flag, skipping cleanup and leaking
+                    # listeners.
                     self._released = False
                     # Ensure extension on path early so _wireControls imports work
                     _initialize_extension_paths(self.ctx)
@@ -518,9 +518,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
                 _run_on_main_thread(_create_panel)
             except Exception as e:
-                # What was wrong: toolpanel was assigned before wiring. A later
-                # getControl failure left the half-built panel latched, so the
-                # next getRealInterface returned it and never retried.
+                # Assign toolpanel only after wiring. Assigning it first
+                # leaves a half-built panel latched when a later getControl
+                # fails, so the next getRealInterface returns it and never
+                # retries.
                 log.exception("getRealInterface failed [resource_url=%s]", self.ResourceURL)
                 with suppress_disposed("frame session release on getRealInterface fail", logger=log):
                     release_live_sidebar(self)
@@ -641,10 +642,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     length = len(text)
                     response_ctrl.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
         except Exception:
-            # What was wrong: the format named greeting but passed no argument,
-            # so the log kept a literal %s. How: Logger.exception only
-            # interpolates when args are supplied. Why: pass greeting so a
-            # failed history render records which greeting was in use.
+            # Pass greeting. Logger.exception interpolates only when args
+            # are supplied, so a format that names greeting and passes
+            # nothing keeps a literal %s and the failed history render does
+            # not record which greeting was in use.
             log.exception("_render_session_history failed [greeting=%s]", greeting)
 
     def _refresh_controls_from_config(self) -> None:
@@ -662,8 +663,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         emit('config_changed') -> _refresh_controls_from_config in an infinite synchronous
         recursion loop on the main UI thread that freezes LibreOffice.
         """
-        # What was wrong: a config refresh queued by _on_config_changed could run
-        # after teardown and touch disposed controls. Why: no-op once released.
+        # No-op once released. A config refresh queued by _on_config_changed
+        # can run after teardown and touch disposed controls.
         if getattr(self, "_released", False):
             return
         if getattr(self, "_in_refresh_controls", False):
@@ -687,12 +688,11 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             current_endpoint = get_current_endpoint()
 
-            # What was wrong: config:changed refreshed these combos with a
-            # synchronous /v1/models fetch on the main thread. A dead endpoint
-            # hung the editor on every settings apply, and failures are not
-            # memoized. How: populate_combobox_with_lru defaults to fetching
-            # unless skip_remote_fetch is set. Why: match Settings/eval — LRU
-            # plus provider defaults only, no catalog HTTP on this thread.
+            # LRU plus provider defaults only, no catalog HTTP on this
+            # thread. populate_combobox_with_lru fetches /v1/models unless
+            # skip_remote_fetch is set. A dead endpoint then hangs the
+            # editor on every settings apply, and failures are not memoized.
+            # Match Settings/eval.
             if model_selector:
                 set_val = populate_combobox_with_lru(
                     self.ctx, model_selector, current_model, "model_lru", current_endpoint,
@@ -810,10 +810,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         current_model = get_text_model()
         current_endpoint = get_current_endpoint()
 
-        # What was wrong: creating the sidebar fetched the model catalog on
-        # the UI thread. An unreachable endpoint froze LibreOffice for the
-        # fetch timeout. How: the same populate path as config:changed, without
-        # skip_remote_fetch. Why: keep catalog refresh off the main thread.
+        # Keep catalog refresh off the main thread. The same populate path
+        # as config:changed, without skip_remote_fetch, fetches the model
+        # catalog on the UI thread and an unreachable endpoint freezes
+        # LibreOffice for the fetch timeout.
         if model_selector:
             set_model_val = populate_combobox_with_lru(
                 self.ctx, model_selector, current_model, "model_lru", current_endpoint,
@@ -953,9 +953,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if aspect_ratio_selector:
             from plugin.chatbot.settings_dialog import IMAGE_ASPECT_RATIO_LABELS, aspect_label_gettext, canonical_aspect_label
 
-            # What was wrong: this runs after translate_dialog and refilled the
-            # combo with the English tuple, so Square stayed English even though
-            # the catalog had 正方形 / Cuadrado.
+            # This runs after translate_dialog. Refilling the combo with
+            # the English tuple leaves Square in English when the catalog
+            # has 正方形 / Cuadrado. Use the translated labels.
             aspect_ratio_selector.addItems(
                 tuple(aspect_label_gettext(label) for label in IMAGE_ASPECT_RATIO_LABELS),
                 0,
@@ -1123,10 +1123,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # only this combo listener is ignored.
                 send_state = getattr(getattr(send_listener, "sidebar_state", None), "send", None)
                 if send_state is not None and send_state.is_busy:
-                    # What was wrong: returning early left the dropdown visually changed
-                    # while self.session and UI stayed on the old mode, causing desync on next send.
-                    # How: the early return ignored the event after the combobox had already updated.
-                    # Why: revert the selector back to the active applied mode under a re-entrancy guard.
+                    # Revert the selector to the applied mode under a
+                    # re-entrancy guard. The combobox has already updated, so
+                    # returning here leaves the dropdown on the new mode while
+                    # self.session and the UI stay on the old one.
                     applied_mode = getattr(self.panel, "_current_mode", None)
                     if applied_mode and self.selector:
                         self._in_revert = True
@@ -1148,9 +1148,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         # Deferred: importing panel.py at module load breaks unopkg (writeRegistryInfo) — heavy stack.
         from plugin.chatbot.panel import ChatSession
 
-        # What was wrong: the seeded prompt skipped vision, peer, and memory/humanizer.
-        # How: this call omitted ctx while refresh_document_context passes the panel ctx.
-        # Why: ChatPanelElement already holds that context; pass it so the seed matches.
+        # Pass the panel ctx. refresh_document_context does; omitting it
+        # here skips vision, peer, and memory/humanizer in the seeded prompt.
+        # ChatPanelElement already holds that context.
         system_prompt = get_chat_system_prompt_for_document(model, extra_instructions or "", ctx=self.ctx)
 
         session_id = get_document_property(model, "WriterAgentSessionID")
@@ -1165,17 +1165,16 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if session_id:
             session_url = get_document_property(model, "WriterAgentSessionURL")
             url_id = hashlib.sha256(url.encode("utf-8")).hexdigest() if url else ""
-            # What was wrong: Save As could clear the only chat history, or
-            # keep the original id so the new file shared that chat.
-            # How: a regenerated sha256 equal to the stored id called clear()
-            # before the copy read the rows. A copied file whose stored id is
-            # a 64-hex digest but has no WriterAgentSessionURL skipped the
-            # URL-change branch, then stamped the new URL onto that old id.
-            # A UUID from the first save of an untitled document is not a
-            # url-hash and must keep its history.
-            # Why: fork only when the id has to change. Snapshot and replace
+            # Fork only when the id has to change. Snapshot and replace
             # the destination. When the id already names this file, update
-            # the stored URL and leave the rows alone.
+            # the stored URL and leave the rows alone. A regenerated sha256
+            # equal to the stored id that calls clear() before the copy
+            # reads the rows wipes the only history. A copied file whose
+            # stored id is a 64-hex digest but has no WriterAgentSessionURL
+            # skips the URL-change branch, then stamps the new URL onto that
+            # old id so the new file shares the old chat. A UUID from the
+            # first save of an untitled document is not a url-hash and must
+            # keep its history.
             fork_to = ""
             if session_url and url and session_url != url:
                 fork_to = url_id
@@ -1230,10 +1229,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if mode_flags is None:
             from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
-            # What was wrong: a failed mode-UI wire left mode_flags as None.
-            # How: include_brainstorming raised AttributeError inside the
-            # Send/Stop try, and the broad except skipped addActionListener.
-            # Why: default flags keep Send/Stop and the mode listener wired.
+            # Default flags keep Send/Stop and the mode listener wired.
+            # include_brainstorming raising AttributeError inside the
+            # Send/Stop try hits the broad except, skips addActionListener,
+            # and leaves mode_flags as None.
             log.warning("mode_flags missing; wiring Send/Stop with default sidebar mode flags")
             mode_flags = SidebarModeFlags()
         from plugin.chatbot.panel import (
@@ -1362,10 +1361,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 send_listener.cached_uno_services = get_document_uno_services(model)
                 send_listener.sidebar_include_brainstorming = send_listener.cached_doc_type == "writer"
             except Exception as e:
-                # What was wrong: an exception querying document uno services or doc type
-                # aborted the entire try block, skipping Send/Stop button listener attachment.
-                # How: doc service introspection was inside the monolithic try block before addActionListener.
-                # Why: isolate document service query so Send and Stop listeners are still attached.
+                # Isolate the document-service query so Send and Stop
+                # listeners are still attached. An exception here used to
+                # abort the try that also called addActionListener.
                 log.exception("Failed to query document type / UNO services for Send listener: %s", e)
                 send_listener.cached_uno_services = frozenset()
                 if not getattr(send_listener, "cached_doc_type", None):

@@ -219,9 +219,9 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
 def get_calc_init_script(doc: Any, *, default: str = "") -> str:
     """Return the workbook init script on *doc*, checking INIT first then Init."""
     scripts = get_document_scripts(doc)
-    # What was wrong: scripts.get("INIT") or scripts.get("Init") used `or`,
-    # so an empty "INIT" fell through to a stale "Init".
-    # Why this fix: check key presence so an explicit empty "INIT" is respected.
+    # ``scripts.get("INIT") or scripts.get("Init")`` treats an empty "INIT"
+    # as missing and falls through to a stale "Init". Check key presence so
+    # an explicit empty "INIT" is kept.
     if "INIT" in scripts:
         return scripts["INIT"]
     if "Init" in scripts:
@@ -232,9 +232,8 @@ def get_calc_init_script(doc: Any, *, default: str = "") -> str:
 def set_calc_init_script(doc: Any, code: str) -> DocumentScriptError | None:
     """Persist init script on *doc* under the name 'INIT' in document scripts."""
     scripts = dict(get_document_scripts(doc))
-    # What was wrong: if both 'INIT' and 'Init' existed, writes updated 'Init'
-    # while reads preferred 'INIT', making saves appear to do nothing.
-    # Why this fix: normalize on write by removing both keys and storing single 'INIT'.
+    # If both 'INIT' and 'Init' exist, a write to 'Init' while reads prefer
+    # 'INIT' makes saves look like no-ops. Drop both keys and store one 'INIT'.
     scripts.pop("INIT", None)
     scripts.pop("Init", None)
     if code:
@@ -303,8 +302,8 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
         log.debug("document_scripts: could not resolve active Calc document", exc_info=True)
         return None
     if doc is not None and (is_writer(doc) or is_draw(doc)):
-        # Bugfix: with Writer focused and a Calc file open, enumerating the
-        # desktop bound that Calc. The Python deck already refuses this.
+        # With Writer focused and a Calc file open, enumerating the desktop
+        # bound that Calc. The Python deck already refuses this.
         return None
     if doc is None or not is_calc(doc):
         return _select_enumerated_calc_document(_enumerate_calc_documents(desktop))
@@ -377,9 +376,8 @@ def delete_document_script(doc: Any, name: str) -> DocumentScriptError | None:
             DocumentScriptErrorCode.RESERVED_NAME,
         )
     scripts = dict(get_document_scripts(doc))
-    # What was wrong: deleting a non-existent document script reported success
-    # and rewrote document properties.
-    # Why this fix: return a NOT_FOUND error and do not call set_document_scripts.
+    # Deleting a script that is not there must not report success or rewrite
+    # document properties. Return NOT_FOUND and skip set_document_scripts.
     if name not in scripts:
         return DocumentScriptError(
             _("Script '{0}' does not exist in this document.").format(name),
@@ -419,9 +417,9 @@ def document_scripts_write_is_stale(session_doc: Any | None, session_doc_url: st
     """
     if session_doc is None or session_doc_url is None:
         return False
-    # Bugfix: an untitled file captures "". After File → Save the same
-    # component has a URL. That is not a different document. Go stale only
-    # when a non-empty captured URL no longer matches.
+    # An untitled file captures "". After File → Save the same component has
+    # a URL. That is not a different document. Go stale only when a non-empty
+    # captured URL no longer matches.
     if session_doc_url == "":
         return False
     return document_scripts_identity(session_doc) != session_doc_url
@@ -587,11 +585,10 @@ def build_scripts_list_message(
             "scripts": display_scripts,
         })
 
-    # What was wrong: when document_stale was True, doc was still passed to
-    # resolve_run_script_selection, returning a '[Doc] X' selection that was
-    # not in sections, and writing a selection config entry against the stale doc.
-    # Why this fix: pass None instead of the stale doc so selection only considers
-    # user scripts and templates.
+    # A stale document must not be passed to resolve_run_script_selection.
+    # That returned a '[Doc] X' selection missing from sections and wrote a
+    # selection config entry against the stale doc. Pass None so selection
+    # only considers user scripts and templates.
     selection_doc = None if document_stale else doc
     selected_name, _selected_code, _merged_scripts = resolve_run_script_selection(
         ctx, selection_doc, user_scripts
@@ -644,10 +641,8 @@ def get_user_scripts() -> dict[str, str]:
 def save_user_script(name: str, code: str) -> str | None:
     from plugin.scripting.domain_registry import is_reserved_script_name
 
-    # What was wrong: save_user_script did not reject names starting with reserved prefixes
-    # like "[Doc] ", causing collisions and confusing display keys in the script picker.
-    # How it happened: No prefix validation was performed when storing user scripts.
-    # Why this change: Validate against RESERVED_SCRIPT_PREFIXES and raise ValueError.
+    # Names starting with a reserved prefix such as "[Doc] " collide with
+    # document-script display keys. Reject them with ValueError.
     if is_reserved_script_name(name):
         raise ValueError(f"Script name {name!r} starts with a reserved prefix")
     scripts = get_user_scripts()
@@ -658,9 +653,8 @@ def save_user_script(name: str, code: str) -> str | None:
 
 def delete_user_script(name: str) -> DocumentScriptError | None:
     scripts = get_user_scripts()
-    # What was wrong: deleting a non-existent user script reported success
-    # and rewrote config.
-    # Why this fix: return a NOT_FOUND error and do not call set_config.
+    # Deleting a user script that is not there must not report success or
+    # rewrite config. Return NOT_FOUND and skip set_config.
     if name not in scripts:
         return DocumentScriptError(
             _("Script '{0}' does not exist in My Scripts.").format(name),
@@ -801,11 +795,9 @@ def _on_save_script(
         storage_name = _document_script_storage_name(name)
         save_err = save_document_script(session_doc, storage_name, script_code)
         if save_err:
-            # What was wrong: any document save error (including 'INIT' or too-large)
-            # triggered a fallback write to My Scripts, bypassing validation.
-            # Why this fix: fall back to My Scripts ONLY when the error is READONLY
-            # (read-only document or unwritable properties). All other errors are
-            # returned directly to the user.
+            # Fall back to My Scripts only for READONLY (read-only document or
+            # unwritable properties). Other save errors, including 'INIT' and
+            # too-large, go back to the user. A blanket fallback skipped validation.
             if getattr(save_err, "code", None) == DocumentScriptErrorCode.READONLY:
                 if storage_name in get_user_scripts() and not bool(msg.get("overwrite")):
                     send_list(
@@ -987,14 +979,12 @@ def handle_editor_script_message(
             send_list=_send_list,
         )
     except DocumentDisposedError:
-        # What was wrong: a disposed untitled document raised out of save/list.
-        # How: set_document_scripts and get_active_document_for_scripts re-raise
-        # DocumentDisposedError, and this handler had no top-level catch. The
-        # pipe reader treats that as a dead child and terminate()s Monaco.
-        # Why this works: save/close in editor_host swallow handler failures
-        # and answer the webview. Disposal becomes a script-list error and
-        # this message stays handled. A second disposal while rebuilding the
-        # list uses a payload that does not touch the document.
+        # set_document_scripts and get_active_document_for_scripts re-raise
+        # DocumentDisposedError. An uncaught raise looks like a dead child to
+        # the pipe reader, which terminate()s Monaco. Save/close in editor_host
+        # swallow handler failures and answer the webview, so disposal becomes
+        # a script-list error and this message stays handled. A second disposal
+        # while rebuilding the list uses a payload that does not touch the document.
         if kind not in SCRIPT_PICKER_MESSAGE_TYPES:
             return False
         log.exception("scripts picker: document disposed during %s", kind)

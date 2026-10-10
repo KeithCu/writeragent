@@ -32,16 +32,15 @@ OFFICE_EXTS = (".xlsx", ".xls", ".ods")
 def _reraise_if_disposed(exc: BaseException) -> None:
     """Leave disposal alone so ``execute_safe`` can report DOCUMENT_DISPOSED.
 
-    What was wrong: a disposed document during a DuckDB grid read came back
-    as a generic tool error (``TOOL_EXECUTION_ERROR`` or ``DUCKDB_SQL_ERROR``).
-    How: the table-read loop, ``execute``, and the sibling-file reader caught
-    ``Exception`` and rewrote it, including ``DisposedException``. Named-range
-    and open-workbook probes did the same by swallowing the exception and
-    continuing, so the caller saw a missing name or a failed open instead.
-    Why: re-raise disposal. ``execute_safe`` maps ``DisposedException`` and
+    Re-raise disposal. ``execute_safe`` maps ``DisposedException`` and
     ``DocumentDisposedError`` to ``DOCUMENT_DISPOSED`` and stops the turn.
-    A live-document ``RuntimeException`` still fails as a normal tool error
-    because this does not wrap it as ``DocumentDisposedError``.
+    The table-read loop, ``execute``, and the sibling-file reader used to
+    catch ``Exception`` and rewrite it, including disposal, as
+    ``TOOL_EXECUTION_ERROR`` or ``DUCKDB_SQL_ERROR``. Named-range and
+    open-workbook probes swallowed it and continued, so the caller saw a
+    missing name or a failed open. A live-document ``RuntimeException``
+    still fails as a normal tool error because this does not wrap it as
+    ``DocumentDisposedError``.
     """
     if is_disposed_exception(exc):
         raise
@@ -213,12 +212,12 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
 
             return {"scoped": scoped, "preloaded": preloaded or None, "flat_files": flat_files or None}
 
-        # What was wrong: this async tool pushed the SQL and the venv IPC onto
-        # the UI thread via execute_on_main_thread and froze Calc.
-        # How: one nested function both read the sheets and called run_folder_sql.
-        # Why: hop only the UNO preload when the caller is a worker; the IPC
-        # stays on this thread. Already-on-main callers (tests, sync entry)
-        # run the preload inline so they do not deadlock the UI thread.
+        # Hop only the UNO preload when the caller is a worker; the IPC
+        # stays on this thread. One function that both reads the sheets and
+        # calls run_folder_sql pushes the SQL and the venv IPC onto the UI
+        # thread via execute_on_main_thread and freezes Calc. Callers that
+        # are already on main (tests, sync entry) run the preload inline so
+        # they do not deadlock the UI thread.
         try:
             if on_main_thread():
                 prepared = _load_sql_inputs()
@@ -508,14 +507,11 @@ def _sheet_qualified_a1(sheet_name: str, range_str: str) -> str:
     Hidden sibling opens often lack a usable controller; a sheet prefix is the
     same resolve path live-range tools already use (``CalcBridge.resolve``).
 
-    What was wrong: a sheet name containing an apostrophe was wrapped in
-    single quotes without doubling that apostrophe, so ``O'Brien`` became
-    ``'O'Brien'.C5:D6``. ``split_sheet_prefix`` ended the quoted name at the
-    first ``'``, the match failed, and the sheet was lost.
-    How: ``'`` was only a "needs quotes" character, not an escaped character.
-    Why: Calc and Excel escape an apostrophe by doubling it
+    Calc and Excel escape an apostrophe by doubling it
     (``'O''Brien'.C5:D6``). ``split_sheet_prefix`` unescapes that back to
-    ``O'Brien`` before the sheet lookup.
+    ``O'Brien`` before the sheet lookup. Wrapping ``O'Brien`` as
+    ``'O'Brien'.C5:D6`` ends the quoted name at the first apostrophe, the
+    match fails, and the sheet is lost.
     """
     if any(ch in sheet_name for ch in " .!'"):
         escaped = sheet_name.replace("'", "''")

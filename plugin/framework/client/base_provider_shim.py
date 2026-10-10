@@ -249,10 +249,9 @@ class BaseProviderShim:
     def parse_sync_response(self, response_data: dict[str, Any]) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
         from .stream_normalizer import _normalize_delta, _normalize_message_content
 
-        # OpenAI-compatible / local models response parsing
-        # What was wrong: Local models (e.g. Ollama) returning {"done_reason": "stop", "message": ...}
-        # without a top-level "choices" list fell through to chunk parsing and lost done_reason and content.
-        # This change handles choices[0] if present while falling back to top-level message/done_reason.
+        # Local models (Ollama) can return {"done_reason": "stop", "message": ...}
+        # with no top-level "choices". Prefer choices[0] when present, and fall
+        # back to the top-level message / done_reason so content is kept.
         choices = response_data.get("choices")
         choice = choices[0] if (isinstance(choices, list) and choices and isinstance(choices[0], dict)) else {}
         message = choice.get("message") or response_data.get("message") or {}
@@ -272,21 +271,17 @@ class BaseProviderShim:
                 err_msg = err_obj.strip()
             if not err_msg:
                 err_msg = _("Stream ended with finish_reason=error")
-            # What was wrong: sync LLM path ignored finish_reason == 'error' and
-            # choices[0].error, returning empty content to the delegate caller.
-            # How it happened: parse_sync_response extracted content and finish_reason
-            # without raising NetworkError like the streaming loop does.
-            # Why this change fixes it: raising NetworkError fails fast on provider
-            # errors instead of burning turns in an empty/broken loop.
+            # The streaming loop raises NetworkError on finish_reason == 'error'
+            # and choices[0].error. The sync path must do the same, or an empty
+            # body looks like a successful reply and the caller burns turns.
             raise NetworkError(err_msg, code="STREAM_ERROR")
 
         raw_content = message.get("content")
         content = _normalize_message_content(raw_content) or ""
         images = message.get("images") or []
         tool_calls = message.get("tool_calls")
-        # What was wrong: response_data.get("usage", {}) returned None when the API returned
-        # "usage": null in JSON, causing downstream code expecting a dict to fail.
-        # Why this change fixes it: response_data.get("usage") or {} normalizes null to {}.
+        # JSON "usage": null makes .get("usage", {}) return None, because the
+        # key is present. ``or {}`` normalizes that to a dict.
         usage = response_data.get("usage") or {}
 
         return content, finish_reason, tool_calls, usage, images, message

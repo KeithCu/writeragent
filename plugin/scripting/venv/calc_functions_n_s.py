@@ -241,9 +241,7 @@ def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 
 
 
 def npv(rate: Any, *args: Any) -> float:
-    # What was wrong: npv treated blank and non-numeric cells as 0.0, which consumed a discount period.
-    # How it happened: lines 258-259 caught ValueError/TypeError and appended 0.0 to cash flows.
-    # Why this change fixes it: Excel and Calc NPV ignore empty cells and non-numeric entries.
+    # Empty and non-numeric cells are skipped. Treating them as 0 consumes a discount period.
     try:
         r = float(rate)
     except (ValueError, TypeError, OverflowError):
@@ -271,9 +269,8 @@ def npv(rate: Any, *args: Any) -> float:
 
 
 def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
-    # What was wrong: numbervalue("1,5", ",") returned 15.0 because default grp_sep="," stripped the comma.
-    # How it happened: when only dec_sep was passed, grp_sep retained default "," and stripped dec_sep.
-    # Why this change fixes it: when grp_sep equals dec_sep, group separator stripping is skipped.
+    # When the group separator equals the decimal separator, do not strip it.
+    # numbervalue("1,5", ",") is 1.5, not 15.
     try:
         s = str(text).strip()
         if not s:
@@ -425,10 +422,7 @@ def pearson(data1: Any, data2: Any) -> float:
 
 
 def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
-    # What was wrong: percentrank rounded instead of truncating, sig < 1 returned a value,
-    # and code contained leftover debugging musings.
-    # How it happened: line 468 used np.round(res, sig) and did not validate sig >= 1.
-    # Why this change fixes it: truncates at 10^sig per Excel/Calc spec, validates sig >= 1, and removes musings.
+    # Truncate at 10^sig (Excel/Calc), and sig must be >= 1. round() is not truncate.
     try:
         d = np.asarray(data, dtype=float).ravel()
         d = d[np.isfinite(d)]
@@ -561,9 +555,7 @@ def quartile(r: Any, q: Any) -> float:
 
 
 def rank(val: Any, r: Any, order: int | float = 0) -> float:
-    # What was wrong: rank accepted NaN, and strings/bools through float(), and one text cell aborted the whole call.
-    # How it happened: arr = [float(x) for x in np.asarray(r).ravel() if x is not None and x != ""] raised ValueError or included NaN.
-    # Why this change fixes it: uses _extract_numeric_array(r, propagate_nan=False) to extract numbers, ignoring text, bools, and NaNs.
+    # Numbers only. Text, bools, and NaN are ignored; one text cell must not abort the call.
     try:
         target = float(val)
         if math.isnan(target):
@@ -597,9 +589,7 @@ def _translate_calc_replacement(rep: str) -> str:
 
 
 def regex(text: Any, expr: Any, replacement: Any | None = None, flags: str = "") -> str | float:
-    # What was wrong: regex replacement used Python \1 syntax, not Calc $1 / $& / $$.
-    # How it happened: replacement string was passed directly to re.sub, where $ has no backreference meaning.
-    # Why this change fixes it: translates $n -> \g<n>, $& -> \g<0>, $$ -> $ before calling re.sub.
+    # Calc replacements are $1, $&, and $$. re.sub wants \g<n>, \g<0>, and a literal $.
     try:
         if text is None:
             text = ""
@@ -659,9 +649,7 @@ def sec(x: Any) -> float:
 
 
 def sech(x: Any) -> float:
-    # What was wrong: sech(1000) raised OverflowError.
-    # How it happened: math.cosh(float(x)) raises OverflowError on large x, and except only caught (ValueError, TypeError, ZeroDivisionError).
-    # Why this change fixes it: catches OverflowError and returns 0.0 (since 1/cosh(x) -> 0 as x -> inf).
+    # 1/cosh(x) goes to 0 as |x| grows. OverflowError is that limit, not an error.
     try:
         return float(1.0 / math.cosh(float(x)))
     except OverflowError:
@@ -671,9 +659,7 @@ def sech(x: Any) -> float:
 
 
 def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
-    # What was wrong: seriessum with negative base and fractional power returned a complex number.
-    # How it happened: Python evaluates (-x)**float as complex, which was returned directly.
-    # Why this change fixes it: returns NaN when term/result is complex or non-finite, matching Calc #NUM!.
+    # A complex or non-finite term is #NUM!. Python's (-x)**float is complex.
     try:
         x_val = float(x)
         n_val = float(n)
@@ -720,9 +706,7 @@ def slope(data_y: Any, data_x: Any) -> float:
 
 
 def small(r: Any, k: Any) -> float:
-    # What was wrong: small accepted NaN, text, and bools in ranges, breaking sort or giving wrong results.
-    # How it happened: sorted(float(x) for x in np.asarray(r).ravel() if x is not None and x != "") converted text/bools and kept NaNs.
-    # Why this change fixes it: uses _extract_numeric_array(r, propagate_nan=False) to extract only real numeric values.
+    # Numbers only. Text, bools, and NaN are not part of the ranking.
     try:
         ki = int(float(k))
     except (ValueError, TypeError, OverflowError):
@@ -735,9 +719,8 @@ def small(r: Any, k: Any) -> float:
 
 
 def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 1, by_col: bool = False) -> list[Any] | float:
-    # What was wrong: sort stringified mixed ranges (corrupting numbers to text) and reversed ties on descending sort.
-    # How it happened: np.asarray(range_arr) without dtype=object coerced mixed types to strings; order[::-1] inverted tie order.
-    # Why this change fixes it: uses dtype=object, _calc_sort_key for mixed-type comparison, and stable sort with reverse flag.
+    # dtype=object so a mixed range stays mixed. Stable sort with reverse=
+    # keeps tie order; reversing the index afterwards flips ties.
     arr = np.asarray(range_arr, dtype=object)
     if arr.size == 0:
         return []
@@ -793,9 +776,8 @@ def _sort_order_sign(val: Any) -> int | None:
 
 
 def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: Any) -> list[Any] | float:
-    # What was wrong: sortby stringified mixed ranges and inverted tie order on descending keys.
-    # How it happened: np.asarray(range_arr) without dtype=object stringified data; secondary keys weren't stably preserved.
-    # Why this change fixes it: uses dtype=object, _calc_sort_key, and stable backward multi-key sort preserving tie order.
+    # dtype=object so a mixed range stays mixed. Sort keys from the last
+    # backward so an earlier key wins ties.
     arr = np.asarray(range_arr, dtype=object)
     if arr.size == 0:
         return []
@@ -956,9 +938,8 @@ def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
 
 
 def sumifs(sr: Any, *args: Any) -> float:
-    # What was wrong: sumifs with mismatched range lengths truncated to shortest range instead of returning #VALUE! (NaN).
-    # How it happened: checked idx >= len(cr) instead of verifying all criteria ranges match len(sr_flat).
-    # Why this change fixes it: uses _multi_criteria_mask which validates all criteria ranges match len(sr_flat).
+    # Criteria ranges must match the sum range. A shorter range is #VALUE!,
+    # not a silent truncate.
     if len(args) % 2 != 0:
         return float("nan")
     sr_flat = np.asarray(sr, dtype=object).ravel()

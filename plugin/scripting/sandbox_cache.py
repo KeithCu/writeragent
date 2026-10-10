@@ -101,15 +101,15 @@ def validate_sandbox_ast(module: ast.Module, authorized_imports: Sequence[str]) 
                 # on the list used to pass here, then AliasImporter loaded
                 # framework.config and LlmClient.
                 if not import_authorized(alias.name, authorized_imports):
-                    # Bugfix: keep import-failure messages short; dumping authorized_imports exposes duckdb.
+                    # Keep the message short. Dumping authorized_imports exposes duckdb.
                     return f"Import of {alias.name} is not allowed."
         elif isinstance(node, ast.ImportFrom):
             if node.level and node.level > 0:
-                # Bugfix: relative imports (from . import x) are not supported in sandbox.
+                # Relative imports (from . import x) are not supported in the sandbox.
                 return "Relative imports are not allowed."
             module_name = node.module or ""
             if not import_authorized(module_name, authorized_imports):
-                # Bugfix: keep import-failure messages short; dumping authorized_imports exposes duckdb.
+                # Keep the message short. Dumping authorized_imports exposes duckdb.
                 return f"Import from {module_name} is not allowed."
         elif isinstance(node, ast.Attribute):
             if is_forbidden_dunder_attribute(node.attr):

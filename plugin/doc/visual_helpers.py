@@ -271,9 +271,9 @@ def apply_character_properties(
     if bold is not None:
         results["CharWeight"] = safe_set_property(target, "CharWeight", 150.0 if bold else 100.0)
     if italic is not None:
-        # What was wrong: 1 was stored for italic. FontSlant IDL is
-        # NONE=0, OBLIQUE=1, ITALIC=2 (offapi awt/FontSlant.idl), so italic
-        # text became oblique. Named constants match calc manipulator.
+        # FontSlant IDL is NONE=0, OBLIQUE=1, ITALIC=2 (offapi
+        # awt/FontSlant.idl). Storing 1 for italic makes italic text
+        # oblique. Named constants match the calc manipulator.
         results["CharPosture"] = safe_set_property(target, "CharPosture", _font_slant(italic))
     if color is not None:
         parsed = parse_color_to_uno_int(color)

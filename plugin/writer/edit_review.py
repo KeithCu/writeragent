@@ -484,18 +484,20 @@ class EditReviewSession:
         The scan still collects every ``RedlineComment`` that starts with this session's
         prefix. The returned set is the intersection with tokens on ``ChangeRecord``s.
 
-        What was wrong: a failed tag, or a missing-bookmark clear that left orphans, does
-        not register a change, but the redline can still carry ``wa-review:<session>:<n>``.
-        ``wait_for_review`` used to loop until every such comment was gone. After the user
-        resolved the registered change, the orphan tag — which has no review-UI row — kept
-        the wait going until timeout.
+        A failed tag, or a missing-bookmark clear that left orphans, does
+        not register a change, but the redline can still carry
+        ``wa-review:<session>:<n>``. ``wait_for_review`` must not loop
+        until every such comment is gone. After the user resolves the
+        registered change, the orphan tag — which has no review-UI row —
+        keeps the wait going until timeout.
 
-        Why the intersection: an unregistered token must not block completion. A registered
-        token that is still on a redline still waits. ``reliable`` stays False when the scan
-        is incomplete (enum/count error, a count/enumeration mismatch, or an unreadable
-        comment). An empty intersection from a partial scan is not completion — the caller
-        fail-closes and keeps waiting, because the unseen tail might still hold a registered
-        change.
+        An unregistered token must not block completion. A registered
+        token that is still on a redline still waits. ``reliable`` stays
+        False when the scan is incomplete (enum/count error, a
+        count/enumeration mismatch, or an unreadable comment). An empty
+        intersection from a partial scan is not completion — the caller
+        fail-closes and keeps waiting, because the unseen tail might
+        still hold a registered change.
         """
         prefix = self._session_token_prefix()
         registered = {record.token for record in self.changes}
@@ -1158,20 +1160,22 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
 def refuse_tracked_insert_or_delete(text_range: Any) -> None:
     """Raise before any streamed-edit write when the range has an Insert or Delete.
 
-    What was wrong: Extend/Edit Selection read the selection with
-    ``get_string_without_tracked_deletions`` (Delete text dropped, Insert text kept
-    as ordinary characters). ``WriterStreamedRewriteSession`` then turned
-    ``RecordChanges`` off and called ``setString("")``. ``WriterStreamedAppendSession``
-    streamed with ``setString(original + continuation)`` and ``finish`` called
-    ``setString(original_text)``. With tracking off, ``setString`` accepts every
-    redline in the range — struck text disappears and insertions flatten — before
-    the model returns anything.
+    Extend/Edit Selection reads the selection with
+    ``get_string_without_tracked_deletions`` (Delete text dropped,
+    Insert text kept as ordinary characters).
+    ``WriterStreamedRewriteSession`` then turns ``RecordChanges`` off
+    and calls ``setString("")``. ``WriterStreamedAppendSession``
+    streams with ``setString(original + continuation)`` and ``finish``
+    calls ``setString(original_text)``. With tracking off, ``setString``
+    accepts every redline in the range — struck text disappears and
+    insertions flatten — before the model returns anything.
 
-    Why this raise: both session constructors call it before the undo context,
-    before ``RecordChanges`` is changed, and before the first ``setString``, so the
-    redlines stay untouched even if the menu wrapper is skipped. A range with no
-    Insert/Delete keeps the rewrite path. An empty model result restores the
-    original text and does not record a deletion.
+    Both session constructors call this before the undo context,
+    before ``RecordChanges`` is changed, and before the first
+    ``setString``, so the redlines stay untouched even if the menu
+    wrapper is skipped. A range with no Insert/Delete keeps the
+    rewrite path. An empty model result restores the original text
+    and does not record a deletion.
     """
     if range_has_tracked_insert_or_delete(text_range):
         log.warning(

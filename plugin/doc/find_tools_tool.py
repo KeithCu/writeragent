@@ -197,16 +197,16 @@ class FindTools(ToolBase):
             from plugin.mcp.mcp_protocol import drop_unavailable_domains
             schemas = drop_unavailable_domains(schemas, registry, getattr(ctx, "ctx", None))
 
-        # What was wrong: this called sidebar_only_tool_names(registry, doc)
-        # without doc_type or uno_services_supported. The helper no longer
-        # forwards the live doc, so with a document open get_tools rejected
-        # every tool that declares uno_services. The ppt-master name set was
-        # empty and find_tools(domain="ppt-master") returned those schemas.
-        # Writer sidebar-only domains are forced to schemas=[] above; only
-        # IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS uses this filter. direct_flat
-        # already passes the cached fields. Why: pass the same fields from
-        # ctx so an open Draw/Impress document hides ppt-master, matching
-        # the no-document and direct_flat paths.
+        # sidebar_only_tool_names needs doc_type and
+        # uno_services_supported. Without them the helper does not
+        # forward the live doc, so with a document open get_tools rejects
+        # every tool that declares uno_services. The ppt-master name set
+        # is empty and find_tools(domain="ppt-master") returns those
+        # schemas. Writer sidebar-only domains are forced to schemas=[]
+        # above; only IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS uses this filter.
+        # direct_flat already passes the cached fields. Pass the same
+        # fields from ctx so an open Draw/Impress document hides
+        # ppt-master, matching the no-document and direct_flat paths.
         sidebar_only = sidebar_only_tool_names(
             registry,
             doc,

@@ -502,9 +502,8 @@ def extract_odf_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun]
                 return None
             return _odf_paragraph_runs_from_roots(content_root, styles_root=styles_root, doc_default=doc_default)
     except (OSError, zipfile.BadZipFile, ET.ParseError):
-        # What was wrong: returning [] caused corrupt or unreadable ODF files to be treated
-        # as empty documents with 0 passages rather than skipping indexation.
-        # Why this change: return None on failure so extract_chunks_from_file_on_disk skips the file.
+        # Return None when an ODF file cannot be read so the caller skips it.
+        # [] is a successful empty document (0 passages).
         log.debug("extract_odf_paragraph_runs failed for %s", path, exc_info=True)
         return None
 

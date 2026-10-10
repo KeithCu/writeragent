@@ -196,10 +196,9 @@ TOOLS FOR COMPLETION:
         + "\nFormat reply_to_user answer with this style; that text is shown in the chat sidebar."
     )
     if user_mem and user_mem.strip():
-        # What was wrong: librarian appended raw USER.md while the main
-        # chat prompt caps the same file. How: a long profile crowded out
-        # the librarian instructions. Why: _cap_injected_prompt_blob uses
-        # CHAT_DOCUMENT_CONTEXT_MAX_CHARS, the same cap as the chat path.
+        # Cap USER.md with the same CHAT_DOCUMENT_CONTEXT_MAX_CHARS limit
+        # as the main chat prompt. A raw profile crowds out the librarian
+        # instructions.
         instructions += "\n\n[USER PROFILE / MEMORY]\n" + _cap_injected_prompt_blob(user_mem) + "\n"
 
     from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC, StickyReplyToUserTool, interpret_sticky_final_answer
@@ -230,10 +229,9 @@ TOOLS FOR COMPLETION:
         if status_callback:
             status_callback(f"{step.name}...")
 
-    # What was wrong: Stop returned a payload from this loop and left agent.run()
-    # going, because the loop never called interrupt(). The model's HTTP client
-    # stayed open after the sidebar had stopped. execute_safe calls interrupt()
-    # before it reports USER_STOPPED, which closes that client.
+    # execute_safe calls interrupt() before it reports USER_STOPPED, which
+    # closes the model's HTTP client. Returning from this loop without that
+    # leaves agent.run() going after the sidebar has stopped.
     res = SmolAgentExecutor(ctx).execute_safe(
         agent,
         task,

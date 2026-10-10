@@ -42,8 +42,8 @@ def _cells_of_row(row: Any) -> list[Any]:
     Once the first row is a real sequence, every later row used to go through
     ``list(row)``.
     """
-    # What was wrong: Non-iterable row items (e.g. ints) raised TypeError when passed to list(row).
-    # Why this change: Treat any non-list/tuple object (including str and bytes) as a single cell [row].
+    # list(row) raises TypeError on a non-iterable cell such as an int.
+    # Any non-list/tuple (including str and bytes) is one cell: [row].
     if not isinstance(row, (list, tuple)) or isinstance(row, (str, bytes)):
         return [row]
     return list(row)
@@ -183,10 +183,9 @@ class CalcRange:
 
     def __init__(self, values: Any, *, address: str | None = None) -> None:
         # crosshair: off
-        # What was wrong: CalcRange(np.ndarray) or CalcRange(DataFrame) built a 1x1 range
-        # because ensure_rectangular_2d treats non-list/tuple objects as a scalar.
-        # Why this change: Route values through _materialize_inner_grid to unpack ndarrays,
-        # DataFrames, and nested structures into a rectangular 2D list.
+        # ensure_rectangular_2d treats a non-list/tuple as a scalar, so an
+        # ndarray or DataFrame became a 1x1 range. _materialize_inner_grid
+        # unpacks those, and nested structures, into a rectangular 2D list.
         self._values = _materialize_inner_grid(values)
         self._address = address
 
@@ -248,8 +247,8 @@ class CalcRange:
 
     def __array__(self, dtype: Any = None, copy: bool | None = None) -> Any:
         # crosshair: off
-        # What was wrong: __array__ had no copy parameter, causing DeprecationWarning on numpy 2.
-        # Why this change: Accept copy parameter and pass through to to_numpy per NumPy 2 protocol.
+        # NumPy 2's __array__ protocol passes copy=. Forward it to to_numpy
+        # or the call warns.
         return self.to_numpy(dtype=dtype, copy=copy)
 
     def to_numpy(self, *, dtype: Any = None, copy: bool | None = None) -> Any:
@@ -277,9 +276,8 @@ class CalcRange:
         if dtype is not None:
             return np.array(grid, dtype=dtype, **kwargs)
 
-        # What was wrong: np.asarray(grid, dtype=float64) silently converted string numbers
-        # like "1.5" to 1.5 and True to 1.0, breaking parse_strings=False expectations.
-        # Why this change: Use float64 only when every cell is a real number (int/float, not bool) or None.
+        # np.asarray(..., dtype=float64) turns "1.5" into 1.5 and True into 1.0.
+        # Use float64 only when every cell is a real number (int/float, not bool) or None.
         is_numeric = all(
             cell is None or (not isinstance(cell, bool) and isinstance(cell, (int, float)))
             for row in self._values
@@ -402,9 +400,8 @@ class CalcRange:
     # Dispatchers
     def _binary_op(self, other: Any, op: Any, *, is_reverse: bool = False) -> Any:
         # crosshair: off
-        # What was wrong: 1x1 range with None raised TypeError on arithmetic (None + 1),
-        # while multi-cell ranges mapped None to nan.
-        # Why this change: Map None to nan in the 1x1 numeric path for non-equality operations.
+        # A 1x1 None raises TypeError on arithmetic (None + 1). Multi-cell
+        # ranges already map None to nan; do the same here except for equality.
         if self.shape == (1, 1):
             val = self._values[0][0]
             if val is None and op not in (operator.eq, operator.ne):
@@ -583,9 +580,8 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
             if unpacked.ndim == 0:
                 val = unpacked.item()
                 return [[_numpy_scalar_item(val) if unpacked.dtype == object else val]]
-            # What was wrong: unwrapping imported numpy on every cell even for
-            # non-object arrays. Why this change: tolist() already returns
-            # native Python values for non-object arrays.
+            # tolist() already returns native Python values for non-object
+            # arrays, so those cells do not need an imported-numpy unwrap.
             if unpacked.dtype != object:
                 raw_list = unpacked.tolist()
                 if unpacked.ndim == 1:

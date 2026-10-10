@@ -238,11 +238,9 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
 
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
 
-    # What was wrong: commit 0ebedc9d5 added an early return when chunk_count_from_meta > 0
-    # in non-cold modes, returning 0 indexed_paragraphs immediately.
-    # How it happened: it checked row_count > 0 before inspecting files.
-    # Why this change: drop the early return so the incremental mtime loop below
-    # runs, skipping unchanged files and picking up new or modified files.
+    # Do not return early when chunk_count_from_meta > 0. That skipped the
+    # incremental mtime loop, which skips unchanged files and picks up new
+    # or modified ones. row_count > 0 is not "nothing to do".
 
     if not HAS_LANCEDB or lancedb is None:
         raise RuntimeError("LanceDB backend selected but the 'lancedb' package is not importable in the configured Python venv.")
@@ -335,9 +333,7 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
                 if mtime is not None and abs(mtime - entry.modified) < 1.0:
                     continue
         except Exception as e:
-            # What was wrong: a thrown probe error was swallowed with pass, falling through to a full re-embed.
-            # How it happened: bare except Exception: pass hid query failure.
-            # Why this fixes it: log warning on probe failure instead of silently rebuilding.
+            # Log a probe failure. Swallowing it falls through to a full re-embed.
             log.warning("lancedb incremental probe failed for %s: %s", entry.name, e)
 
         try:

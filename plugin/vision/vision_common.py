@@ -39,9 +39,8 @@ DEFAULT_VISION_INSERT_MODE = "html"
 
 def merge_vision_params(ctx: Any = None, template_params: dict[str, Any] | None = None) -> dict[str, Any]:
     """Apply persisted vision.* settings defaults; template params win on conflict."""
-    # What was wrong: ctx is not None gate skipped Settings when ctx=None, and except Exception: pass
-    # silently hid configuration read errors.
-    # Why this change: get_config takes no ctx, so drop the gate and log config failures.
+    # get_config takes no ctx, so read Settings even when ctx is None.
+    # Log config failures instead of swallowing them.
     merged: dict[str, Any] = {}
     try:
         from plugin.framework.config import get_config
@@ -112,10 +111,9 @@ def _box_to_xywh(box_points: Any) -> list[int]:
 
 def bbox_to_xywh(bbox: Any, *, page_height: float | None = None) -> list[int]:
     """Normalize bbox to [x, y, w, h] from quad, xyxy, xywh, or Docling l/t/r/b dict."""
-    # What was wrong: Docling bboxes with coord_origin=BOTTOMLEFT had top > bottom,
-    # causing max(0, d - b) to evaluate to 0 height and inverted y coordinates.
-    # Why this change: compute height as max(0, abs(d - b)), flip with page_height if available,
-    # and honor BOTTOMLEFT coordinate origin.
+    # BOTTOMLEFT boxes have top > bottom, so max(0, d - b) is 0 height and y
+    # is inverted. Height is max(0, abs(d - b)); flip with page_height when
+    # it is available.
     # TODO: live run check - verify multi-page BOTTOMLEFT flipping against live Docling PDF pages.
     if isinstance(bbox, dict):
         coord_origin = str(bbox.get("coord_origin") or "").strip().upper()
@@ -156,9 +154,8 @@ def bbox_to_xywh(bbox: Any, *, page_height: float | None = None) -> list[int]:
 
 def decode_image_bytes(image: Any) -> Any:
     """Return a numpy RGB array from raw PNG/JPEG bytes."""
-    # What was wrong: img.convert('RGB') dropped alpha for transparent images (rendering black-on-black),
-    # and EXIF orientation metadata was ignored.
-    # Why this change: transpose EXIF orientation, and composite transparent pixels onto white background.
+    # Transpose EXIF orientation, then composite transparent pixels onto white.
+    # convert('RGB') drops alpha and paints transparent images black-on-black.
     if image is None:
         raise ValueError("image bytes are required")
     if not isinstance(image, (bytes, bytearray)):
@@ -197,9 +194,8 @@ def prov_bbox_to_xywh(prov: Any, *, page_height: float | None = None) -> list[in
 
 def resolve_engine(params: dict[str, Any]) -> str:
     """Resolve vision engine name, raising ValueError on unknown engines."""
-    # What was wrong: resolve_engine accepted any string and fell back to DEFAULT_ENGINE, so
-    # typos like 'padle' silently ran Docling instead of raising an error.
-    # Why this change: validate engine against ENGINES and raise ValueError on unknown engines.
+    # Unknown engine names raise ValueError. Falling back to DEFAULT_ENGINE
+    # turned a typo like 'padle' into a silent Docling run.
     raw = params.get("engine")
     if raw is None or str(raw).strip() == "":
         return DEFAULT_ENGINE
@@ -310,9 +306,9 @@ def table_from_span_cells(
 
 def table_to_tsv_lines(table: dict[str, Any]) -> list[str]:
     """Format a table dict into TSV lines, preserving empty cells to avoid column misalignment."""
-    # What was wrong: table-to-TSV dropped empty cells with `if str(c)`, causing columns to misalign,
-    # and only kept the last row as block_text.
-    # Why this change: keep empty cells and share table_to_tsv_lines across Paddle and Docling.
+    # Keep empty cells so columns stay aligned, and share table_to_tsv_lines
+    # between Paddle and Docling. Dropping falsy cells with `if str(c)` shifts
+    # columns, and keeping only the last row drops the rest of the table.
     lines: list[str] = []
     cols = table.get("columns")
     if isinstance(cols, list) and cols:

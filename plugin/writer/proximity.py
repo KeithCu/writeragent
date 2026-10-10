@@ -83,14 +83,14 @@ class ProximityService(ServiceBase):
         fingerprint = _heading_tree_fingerprint(doc)
         if is_cacheable_doc_key(key) and key in self._flat_cache:
             cached_fp = self._flat_fp.get(key)
-            # What was wrong: any cache hit returned the previous flat list and
-            # ignored ``root``. A programmatic edit that XModifyListener misses
-            # still moves CharacterCount, so TreeService rebuilds and hands the
-            # new tree here. next/previous/sibling/parent kept walking the old
-            # paragraphs.
-            # Why: same CharacterCount rule as TreeService.build_heading_tree
-            # (no count → listener-only). Also require this tree object: a
-            # rebuilt root must not reuse the list flattened from the previous one.
+            # A cache hit must not return the previous flat list and ignore
+            # ``root``. A programmatic edit that XModifyListener misses still
+            # moves CharacterCount, so TreeService rebuilds and hands the new
+            # tree here. next/previous/sibling/parent would keep walking the
+            # old paragraphs. Same CharacterCount rule as
+            # TreeService.build_heading_tree (no count → listener-only). Also
+            # require this tree object: a rebuilt root must not reuse the list
+            # flattened from the previous one.
             if (fingerprint is None or fingerprint == cached_fp) and self._flat_root.get(key) is root:
                 return self._flat_cache[key]
 

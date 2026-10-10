@@ -80,7 +80,7 @@ request shapes, why multipart exists, and the plan to retire peel.
   ```
 
 - **Session Reset on Lost Kernel (`session_reset: true`)**:
-  If a shared session's worker process crashed, was recycled, was killed (e.g. by `SIGKILL` on an unrecoverable timeout), or was evicted by idle TTL, the pool loses the session state. The subsequent call with that same `session_id` transparently lands on a fresh worker kernel and includes `"session_reset": true` in the response JSON. A request that fails before the cell runs (`PAYLOAD_TOO_LARGE`, `QUEUE_TIMEOUT`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`) does not consume that flag:
+  If a shared session's worker process crashed, was recycled, was killed (e.g. by `SIGKILL` on an unrecoverable timeout), or was evicted by idle TTL, the pool loses the session state. The subsequent call with that same `session_id` transparently lands on a fresh worker kernel and includes `"session_reset": true` in the response JSON. A sticky call already waiting on that worker still receives `session_reset` when the TTL reset finishes. A request that fails before the cell runs (`PAYLOAD_TOO_LARGE`, `QUEUE_TIMEOUT`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`) does not consume that flag:
   ```json
   {
     "id": "req-123",
@@ -148,7 +148,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
   }
   ```
 
-- **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker opens the file and checks the opened path against the same prefix list. On Linux that is `/proc/self/fd` for the descriptor, so a symlink swapped in after the name check cannot leave the allowlist. macOS and Windows have no `/proc`; realpath of that string used to deny every file, so those platforms realpath the path that was opened (a swap that landed before `open` returns is still rejected). An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return HTTP 413 with `FILE_TOO_LARGE`. A missing file, a directory, an empty path, or a read error on that path returns HTTP 400 (`FILE_NOT_FOUND`, `NOT_A_FILE`, `INVALID_FILE_PATH`, `FILE_READ_ERROR`):
+- **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker opens the file and checks the opened path against the same prefix list. On Linux that is `/proc/self/fd` for the descriptor, so a symlink swapped in after the name check cannot leave the allowlist. macOS and Windows have no `/proc`; realpath of that string used to deny every file, so those platforms realpath the path that was opened (a swap that landed before `open` returns is still rejected). An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return HTTP 413 with `FILE_TOO_LARGE`. A missing, blank, or whitespace-only `file_path` with no image buffer is HTTP 400 `MISSING_IMAGE_SOURCE` and is not sent to the worker. A missing file, a directory, or a read error on a path that was sent returns HTTP 400 (`FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`). `INVALID_FILE_PATH` is the worker's rejection of a non-string or empty path if one reaches `read_allowlisted_file`:
   ```json
   {
     "id": "ocr-124",
@@ -181,12 +181,12 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
 | HTTP Status | Condition | Response Payload Shape |
 | :--- | :--- | :--- |
 | **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone). A formula `WORKER_EXECUTION_ERROR` inside forwarded `result_json` stays 200 so the sheet shows the text | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
-| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, reserved `session_id` namespace (`:init` or `isolated:`), a non-finite `id` (`NaN`, `Infinity`, `1e9999`) on execute, vision, or reset, vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`), a vision path that is empty, missing, not a regular file, or unreadable (`INVALID_FILE_PATH`, `FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`), vision `image_b64` and `file_path` together (`INVALID_REQUEST`), vision `params` that is not an object, a vision image that is not valid base64 (`INVALID_BASE64`, `INVALID_IMAGE`, `MISSING_IMAGE_SOURCE`), or `Transfer-Encoding: chunked` on any POST | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
+| **`400 Bad Request`** | Malformed JSON or multipart, missing `code`, `code` or `init_script` longer than `max_code_chars` (`CODE_TOO_LARGE`; peel and multipart), invalid UTF-8 in a multipart source part, `mode` other than `isolated` or `shared`, missing/empty reset `session_id`, `session_id` in the request body, reserved `session_id` namespace (`:init` or `isolated:`), a non-finite `id` (`NaN`, `Infinity`, `1e9999`) on execute, vision, or reset, vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`), a vision path that is missing, not a regular file, or unreadable (`FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`), a blank or whitespace-only vision `file_path` with no image (`MISSING_IMAGE_SOURCE`; a non-string or empty path that reaches the worker is `INVALID_FILE_PATH`), vision `image_b64` and `file_path` together (`INVALID_REQUEST`), vision `params` that is not an object, an unknown vision `helper` (`INVALID_REQUEST`; omitted or blank stays `extract_text`), a vision image that is not valid base64 (`INVALID_BASE64`, `INVALID_IMAGE`, `MISSING_IMAGE_SOURCE`), or `Transfer-Encoding: chunked` on any POST | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 | **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes`, the execute frame exceeds the IPC limit (`PAYLOAD_TOO_LARGE`), the result frame does (`RESULT_TOO_LARGE`), or a vision image is larger than 32 MiB (`FILE_TOO_LARGE`) | `{"status": "error", "code"?: "RESULT_TOO_LARGE", "error": "..."}` |
 | **`501 Not Implemented`** | `/v1/vision` when OCR is off (`VISION_SERVICE_DISABLED`, `ocr_workers=0`) | `{"id"?: "...", "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "..."}` |
-| **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the cell never ran and a proxy may retry (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `QUEUE_TIMEOUT`, `VISION_UNAVAILABLE`). Sticky execute and session reset share a listener cap; a miss is the same 503. A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
+| **`503 Service Unavailable`** | `/v1/execute`, `/v1/session/reset`, or `/v1/vision` when the cell never ran and a proxy may retry (`WORKER_POOL_BUSY`, `VISION_POOL_BUSY`, `SERVICE_SHUTDOWN`, `WORKER_SPAWN_FAILED`, `WORKER_PIPE_BROKEN`, `QUEUE_TIMEOUT`, `VISION_UNAVAILABLE`). A full permit set queues until the request deadline. Execute and vision use the clamped `timeout_ms` (the pool default when it is omitted: `default_timeout_sec` or `ocr_timeout_sec`, at most `max_timeout_sec`). Session reset uses `default_timeout_sec`. 503 is that timeout. A few milliseconds of queueing is the steady state at 200–400 rps and stays HTTP 200. Sticky execute and session reset share a listener cap. A vision request that never leased a worker is `VISION_POOL_BUSY` at 503, same as the route's accept-deadline pre-check. Eval errors inside `result_json`, and `EXECUTION_TIMEOUT`, stay HTTP 200. coolwsd may map 503 to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception, JSON encoding failure, worker-side session reset error, a worker that died or returned no frame (`WORKER_CRASHED`, `EMPTY_RESPONSE`), or a dict-shaped internal fault (`VISION_WORKER_ERROR`, `WORKER_EXECUTION_ERROR`). A `WORKER_EXECUTION_ERROR` wrapped in forwarded `result_json` stays HTTP 200 | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
 
 ---
@@ -207,7 +207,7 @@ There is **no** `--api-key` CLI flag (secrets in argv are visible in `ps`).
 Rules:
 
 - **Loopback and no key** → `/v1/execute` and `/v1/session/reset` are open (local dev/test only).
-- **Host header validation in keyless mode** → When running without an API key, the server rejects requests with non-loopback `Host` headers with `403 Forbidden` (for example, accessing via a Docker service name such as `http://python-compute:8000` gets 403). Only loopback Host headers (`localhost`, `127.0.0.1`, `[::1]`) are accepted.
+- **Host header validation in keyless mode** → When running without an API key, the server rejects requests with a missing, empty, or non-loopback `Host` header with `403 Forbidden` (for example, accessing via a Docker service name such as `http://python-compute:8000` gets 403, and an HTTP/1.0 client that omits `Host` does too). Only loopback Host headers (`localhost`, `127.0.0.1`, `[::1]`) are accepted.
 - **Empty bind address (`--host ""`)** → Binding `--host ""` binds loopback interfaces only.
 - **Any other bind without a key** → `load_settings` refuses to start. This includes `0.0.0.0` and `::`. The image entrypoint checks the same case before exec.
 - **Key configured** → `/v1/execute`, `/v1/session/reset`, and `/v1/vision` require a `Bearer <token>` match
@@ -287,7 +287,7 @@ Shared `mode=shared` **must** use a per-document `session_id` query parameter (`
 ## Lifecycle & Signal Handling
 
 - **Graceful Shutdown**: The service traps `SIGTERM` and `SIGINT`.
-- When `SIGTERM` is received (from Kubernetes pod termination or `docker stop`), the server stops accepting on a background thread. It immediately closes listening sockets so new connections are refused rather than hanging, then waits up to 30s for requests already taken to drain, terminates worker subprocesses, and cleans up resources. A cell still running at the end of that wait is abandoned.
+- When `SIGTERM` is received (from Kubernetes pod termination or `docker stop`), a background thread asks the accept loop to stop. `serve_forever` returns within one poll (0.5s), and the listening sockets close in that `finally`. The server then waits up to 30s for requests already taken to drain, terminates worker subprocesses, and cleans up resources. A handler still running in the pool can keep the process up after that wait, because those threads outlive the drain. A cell still running at the end of the wait is abandoned.
 
 ---
 
@@ -297,9 +297,9 @@ The Python Compute Service is structured as a resilient master HTTP server front
 
 ### 1. Master HTTP Router (~20MB RAM)
 - Ultra-thin network process that accepts HTTP connections, verifies Bearer authentication tokens, and forwards each job as a **length-prefixed Pickle 5 envelope** on the worker's stdin pipe. Large formula `data` / results are **raw JSON bytes** inside that envelope (not a second codec stage).
-- **HTTP listener**: Accept pool is $\max(\max(8, T + 4),\; W + V + W + 2)$, where $T$ is formula workers plus OCR workers and $V$ is $\max(1, \text{ocr workers})$. That is one isolated permit and one sticky permit per formula worker, the vision permit (present even when OCR is off), and two threads left for `GET /health`. The default of 2 formula workers and OCR off stays at 8 listener threads and 3 sticky slots. With 4 or more formula workers the sticky cap is $W$, so one workbook waiting on its worker does not 503 the others. An explicit `max_threads` on the server class (tests, benchmark) still uses $\max(8, n + 4)$ and does not add the sticky term again. `/v1/vision` has its own semaphore sized to the vision pool. The worker pool lease (`lease_specific` / `lease_any`) is the gate for worker execution.
+- **HTTP listener**: Accept pool is $\max(\max(8, T + 4),\; W + V + W + 2)$, where $T$ is formula workers plus OCR workers and $V$ is $\max(1, \text{ocr workers})$. That is one isolated permit and one sticky permit per formula worker, the vision permit (present even when OCR is off), and two threads left without a permit so `GET /health` is not stuck behind admitted work. A header or body read still occupies its listener before that permit. The default of 2 formula workers and OCR off stays at 8 listener threads and 3 sticky slots. With 1–2 formula workers the 8-thread floor leaves extra sticky slots. With 3 or more formula workers and OCR off, the sticky cap is $W$, so one workbook waiting on its worker does not block the others past their own deadline. An explicit `max_threads` on the server class (tests, benchmark) still uses $\max(8, n + 4)$ and does not add the sticky term again. `/v1/vision` has its own semaphore sized to the vision pool. Each permit waits until the request deadline instead of failing immediately. The worker pool lease (`lease_specific` / `lease_any`) is the gate for worker execution and uses that same deadline.
 - **HTTP/1.0 & Transfer Semantics**: The server operates on HTTP/1.0 with no keep-alive or chunked transfer encoding. A chunked POST (`Transfer-Encoding: chunked`) returns `400 Bad Request` on every route. `/v1/execute` and `/v1/vision` also return 400 when `Content-Length` is missing. `/v1/session/reset` treats a missing or zero `Content-Length` as an empty body. Total read deadlines prevent slow clients from exhausting listener threads.
-- **Sticky Session Semaphores**: Sticky sessions queue for their designated worker inside the pool. The route semaphore allows one in-flight sticky execute or session reset per formula worker (three on the default 2-worker pool, because of the 8-thread floor).
+- **Sticky Session Semaphores**: Sticky sessions queue for their designated worker inside the pool. The route semaphore allows one in-flight sticky execute or session reset per formula worker (three on the default 2-worker pool, because of the 8-thread floor). Extra sticky calls wait until the request deadline, then return 503.
 - **Unbreakable Design**: The master process never executes user code directly, ensuring that user errors, native crashes, or memory spikes cannot destabilize the HTTP service.
 
 ### Internal wire: JSON-forward
@@ -318,7 +318,7 @@ The host is a proxy: auth, sticky routing, timeouts, worker lease. One deseriali
 - Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`. Plots `find_image_payloads` returns move to `images` and become null in `result`. An image that scan did not return stays inline; it is not replaced with null.
 - HTTP: `_start_raw_json` writes `result_json` as the response body.
 
-**Pickle framing** (control envelope only — [`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py), [`worker_base.py`](worker_base.py)):
+**Pickle framing** (control envelope only — [`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py) `AllowlistUnpickler`, [`worker_stdio.py`](worker_stdio.py); re-exported from [`worker_base.py`](worker_base.py)):
 
 - Write: `pickle.dumps(dict, protocol=5)` prefixed with a 4-byte big-endian length.
 - Read: 4-byte size, then exactly *N* bytes, `pickle.loads`.
@@ -442,6 +442,12 @@ python scripts/benchmark_compute_service.py --workers 1,2,4 --concurrency 4
 
 # Multi-concurrency client load benchmark (1 to 32 concurrent clients)
 python scripts/benchmark_compute_service.py --concurrency 1,2,4,8,16,32 --requests 50 --threads 32
+
+# 32 threads hammering 2 workers scenario (asserts math accuracy, session monotonicity, health probe liveness, error resilience)
+python scripts/benchmark_compute_service.py --stress
+
+# Stress runner with fault/chaos injection (hangs, timeouts, crashes, auto-respawns)
+python scripts/benchmark_compute_service.py --stress --chaos hangs,crashes
 ```
 
 #### Benchmark Archetypes & Scaling Characteristics

@@ -86,9 +86,9 @@ class PythonExecutor:
         def _require_calc(helper: str) -> None:
             if spreadsheet:
                 return
-            # Bugfix: these helpers were injected on Writer too. lp_helper
-            # caught the RuntimeError from a non-spreadsheet and returned
-            # None, so the tool reported success. Fail the call instead.
+            # Fail the call on a non-spreadsheet. These helpers used to be
+            # injected on Writer too, and lp_helper caught the RuntimeError
+            # and returned None, so the tool reported success.
             raise WriterAgentException(f"{helper}: {_CALC_HELPER_ERROR}", code="UNSUPPORTED_OPERATION")
 
         def lp_helper(addr: str) -> Any:
@@ -101,10 +101,10 @@ class PythonExecutor:
                 sheet = bridge.get_active_sheet()
                 return manipulator.safe_get_cell_value(sheet, addr)
             except ExecutionTimeoutError:
-                # Bugfix: the sandbox arms SIGALRM once (local_python_executor.timeout).
-                # This helper's broad catch swallowed ExecutionTimeoutError, the
-                # alarm was not re-armed, and `while True: lp('A1')` never returned
-                # to the UI thread. Let the timeout leave the cell.
+                # Let ExecutionTimeoutError leave the cell. The sandbox arms
+                # SIGALRM once (local_python_executor.timeout). Swallowing it
+                # here leaves the alarm unset, and a loop of lp('A1') never
+                # returns to the UI thread.
                 raise
             except Exception:
                 log.exception("lp_helper failed for address %s", addr)
@@ -121,9 +121,9 @@ class PythonExecutor:
         """Processes the result for storage and display."""
         if result is None or isinstance(result, _JSON_RESULT_TYPES):
             return result
-        # Bugfix: only objects with __dict__ were stringified. set, bytes,
-        # range, and generators have no __dict__, and json.dumps then raised
-        # TypeError when the tool result was serialized.
+        # Stringify set, bytes, range, and generators too. They have no
+        # __dict__, and json.dumps then raises TypeError when the tool
+        # result is serialized.
         try:
             return f"<Result: {str(result)}>"
         except Exception:

@@ -323,13 +323,14 @@ def _range_in_cell(found: Any, cell: Any) -> bool:
 def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tuple[Any, str]]:
     """Tables whose last text this empty replacement removes.
 
-    What was wrong: asked to delete a table, agents emptied its text with
-    apply_document_content and got status ok — the shell stayed and the agent
-    reported success. A hint on every empty cell was the wrong signal: clearing
-    one cell of a fee table is a normal edit. Why this decides the delete: the
-    table goes only when every cell is already empty or one of *ranges* is that
-    cell's entire text. A table that hosts a nested table is left alone (the
-    host-cell wipe refusal still applies). A non-empty replacement returns [].
+    Asked to delete a table, agents empty its text with
+    apply_document_content and get status ok — the shell stays and
+    the agent reports success. A hint on every empty cell is the
+    wrong signal: clearing one cell of a fee table is a normal
+    edit. The table goes only when every cell is already empty or
+    one of *ranges* is that cell's entire text. A table that hosts
+    a nested table is left alone (the host-cell wipe refusal still
+    applies). A non-empty replacement returns [].
     """
     if str(content or "").strip():
         return []
@@ -546,14 +547,15 @@ def _recording_changes(doc: Any) -> bool:
 def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) -> None:
     """Delete a Writer table as a tracked change. Change tracking must already be on.
 
-    What was wrong: table_delete removed the table with removeTextContent, and with change
-    tracking on -- the agent's review mode records every edit -- that produced no redline.
-    The table vanished, the user had nothing to review or reject, and tracked changes
-    still pending inside it vanished with it. Neither removeTextContent / dispose nor
-    removing every row is recorded (checked on LibreOffice 26.2: 0 redlines each way).
-    Why this fixes it: selecting the table and running .uno:DeleteTable -- the UI's own
-    delete -- is recorded as a tracked deletion; the table stays, struck through, until
-    the change is accepted.
+    Removing the table with removeTextContent while change tracking
+    is on -- the agent's review mode records every edit -- produces
+    no redline. The table vanishes, the user has nothing to review
+    or reject, and tracked changes still pending inside it vanish
+    with it. Neither removeTextContent / dispose nor removing every
+    row is recorded (checked on LibreOffice 26.2: 0 redlines each
+    way). Selecting the table and running .uno:DeleteTable -- the
+    UI's own delete -- is recorded as a tracked deletion; the table
+    stays, struck through, until the change is accepted.
 
     Empty rows need one more step. Writer records a row deletion as the deletion of the
     row's text, and for a row with none it inserts a U+200D anchor into the row -- but
@@ -748,9 +750,10 @@ class TableList(ToolWriterTableBase):
                     table_obj = tables.getByName(name)
                     rows, cols = _dims(table_obj)
                 except Exception as exc:
-                    # What was wrong: one bad or corrupt table failed the entire table_list call.
-                    # How it happened: _dims(tables.getByName(name)) was unguarded inside the table iteration loop.
-                    # Why this fixes it: catch per-table errors, re-raise document disposal, log warning and skip.
+                    # One bad or corrupt table must not fail the entire table_list
+                    # call. _dims(tables.getByName(name)) raises inside the iteration.
+                    # Catch per-table errors, re-raise document disposal, log a
+                    # warning, and skip.
                     if is_disposed_exception(exc):
                         raise
                     log.warning("table_list: skipping unreadable table '%s': %s", name, exc)
@@ -841,9 +844,9 @@ class TableGetCells(ToolWriterTableBase):
                 try:
                     cells[cell_name] = _cell_matrix_text(table.getCellByName(cell_name))
                 except Exception as exc:
-                    # What was wrong: per-cell read errors were silently swallowed with a bare continue.
-                    # How it happened: any exception including document disposal was caught without logging or check.
-                    # Why this fixes it: re-raise document disposal per AGENTS.md and log cell read failures.
+                    # Per-cell read errors must not disappear into a bare continue.
+                    # That also swallows document disposal. Re-raise disposal and log
+                    # the cell read failure.
                     if is_disposed_exception(exc):
                         raise
                     log.warning("table_get_cells: could not read cell '%s' in table '%s': %s", cell_name, name, exc)
@@ -899,9 +902,9 @@ class TableSetCell(ToolWriterTableBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         name = str(kwargs.get("name") or "").strip()
-        # What was wrong: kwargs.get("cell") without str() raised AttributeError on non-string inputs.
-        # How it happened: unlike TableGetCells, TableSetCell called .strip() directly on the raw value outside try.
-        # Why this fixes it: coerce to string with str(...) before stripping whitespace.
+        # kwargs.get("cell") without str() raises AttributeError on
+        # non-string inputs. TableSetCell must not call .strip() on the
+        # raw value. Coerce with str(...) before stripping whitespace.
         cell_raw = str(kwargs.get("cell") or "").strip()
         text = kwargs.get("text")
         if text is None:
@@ -1116,9 +1119,9 @@ class TableInsert(ToolWriterTableBase):
         parent = str(kwargs.get("parent") or "").strip()
         cell_raw = str(kwargs.get("cell") or "").strip()
         try:
-            # What was wrong: Draw branch ran outside try and could raise unhandled tool error.
-            # How it happened: Draw branch preceded try block and relied on insert_draw_table.
-            # Why this fixes it: wrap Draw branch inside try to ensure consistent error handling matching Writer.
+            # The Draw branch sits inside the try. Outside it,
+            # insert_draw_table raises past the tool error. The Writer path
+            # already catches; this matches it.
             if _is_draw_doc(ctx.doc):
                 from plugin.draw.tables import insert_draw_table
                 from plugin.framework.errors import make_tool_error

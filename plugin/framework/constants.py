@@ -62,6 +62,10 @@ EMBEDDINGS_INDEX_INTERVAL_S = 300
 # Worker heartbeat during long folder maintain RPC (docs/embeddings.md).
 EMBEDDINGS_HEARTBEAT_INTERVAL_S = 5
 EMBEDDINGS_HEARTBEAT_GRACE_S = 90
+# Heartbeats may extend a trusted-action read, but not past this many seconds
+# from the start of that read. A tight emit loop must not hold the pipe forever.
+# Long folder indexes still fit; the cap is the wall clock, not timeout+grace.
+HEARTBEAT_ABSOLUTE_CAP_SEC = 2 * 60 * 60
 # Max sub-chunks per embed+upsert window during ingest (docs/embeddings.md).
 EMBEDDINGS_INGEST_BATCH_SIZE = 64
 # Host-side bounded pool for short run_in_background jobs (not venv subprocess pools).

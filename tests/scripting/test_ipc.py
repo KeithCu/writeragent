@@ -21,6 +21,7 @@ import pytest
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
+    IpcPartialFrameTimeout,
     pack_pickle_frame,
     read_frame_payload,
     read_json_line,
@@ -29,6 +30,7 @@ from plugin.scripting.ipc import (
     unpack_pickle_frame,
     write_json_line,
     write_pickle_frame,
+    write_pickle_frame_with_timeout,
 )
 
 
@@ -336,6 +338,84 @@ def test_pickle_frame_timeout_on_pipe():
                 read_pickle_frame_with_timeout(reader, 0.05)
     finally:
         os.close(write_fd)
+
+
+def test_pickle_frame_timeout_mid_frame_is_partial():
+    """Bytes already read are a desynced pipe, not a clean TimeoutExpired."""
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, b"\x00\x00")
+        with os.fdopen(read_fd, "rb", buffering=0) as reader:
+            with pytest.raises(IpcPartialFrameTimeout, match="timeout mid-frame"):
+                read_pickle_frame_with_timeout(reader, 0.05)
+    finally:
+        os.close(write_fd)
+
+
+def test_pickle_frame_write_timeout_on_unread_pipe():
+    """A reader that stops consuming stdin must not block the writer past the deadline."""
+    read_fd, write_fd = os.pipe()
+    try:
+        import fcntl
+
+        fcntl.fcntl(write_fd, fcntl.F_SETPIPE_SZ, 4096)
+    except (ImportError, AttributeError, OSError):
+        pass
+    writer = os.fdopen(write_fd, "wb", buffering=0)
+    try:
+        started = time.monotonic()
+        with pytest.raises(subprocess.TimeoutExpired):
+            write_pickle_frame_with_timeout(writer, {"blob": b"x" * (256 * 1024)}, 0.2)
+        assert time.monotonic() - started < 2.0
+    finally:
+        writer.close()
+        os.close(read_fd)
+
+
+def test_pickle_frame_write_with_timeout_roundtrip():
+    import threading
+
+    read_fd, write_fd = os.pipe()
+    got: dict[str, object] = {}
+
+    def _reader() -> None:
+        with os.fdopen(read_fd, "rb", buffering=0) as reader:
+            got["msg"] = read_pickle_frame(reader)
+
+    thread = threading.Thread(target=_reader)
+    thread.start()
+    try:
+        with os.fdopen(write_fd, "wb", buffering=0) as writer:
+            write_pickle_frame_with_timeout(writer, {"status": "ok"}, 2.0)
+    finally:
+        thread.join(timeout=2)
+    assert got["msg"] == {"status": "ok"}
+    assert not thread.is_alive()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="is_alive aborts the select write loop; Windows joins a blocking write")
+def test_pickle_frame_write_aborts_when_child_exits_and_pipe_is_full():
+    read_fd, write_fd = os.pipe()
+    os.set_blocking(write_fd, False)
+    try:
+        try:
+            while True:
+                os.write(write_fd, b"x" * 65536)
+        except BlockingIOError:
+            pass
+        os.set_blocking(write_fd, True)
+        with os.fdopen(write_fd, "wb", buffering=0) as writer:
+            started = time.monotonic()
+            with pytest.raises(BrokenPipeError, match="child exited"):
+                write_pickle_frame_with_timeout(
+                    writer,
+                    {"blob": b"y" * 65536},
+                    2.0,
+                    is_alive=lambda: False,
+                )
+            assert time.monotonic() - started < 1.5
+    finally:
+        os.close(read_fd)
 
 
 def test_json_line_timeout_on_pipe():

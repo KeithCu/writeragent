@@ -224,9 +224,8 @@ def _split_text(text: str, delimiter: str, case_insensitive: bool) -> list[str]:
 
 
 def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_empty: Any = False, match_mode: Any = 0, pad_with: Any = float("nan")) -> Any:
-    # What was wrong: textsplit with match_mode=1 lowercased the whole string, modifying output casing.
-    # How it happened: s = s.lower() altered the text before splitting.
-    # Why this change fixes it: uses re.split with re.IGNORECASE on the original text so casing is preserved.
+    # Case-insensitive split still returns the original text. lower() would
+    # change the pieces, not just the match.
     try:
         s = str(text)
         ci = (match_mode == 1)
@@ -357,9 +356,7 @@ def trend(*args: Any) -> Any:
 
 
 def trimmean(r: Any, percent: Any) -> float:
-    # What was wrong: trimmean returned NaN if any cell was blank, text, or bool.
-    # How it happened: 0b2a3e0e rejected non-numeric cells instead of skipping them.
-    # Why this change fixes it: uses _extract_numeric_array(r, propagate_nan=True) to ignore empty cells, text, and bools per Excel/Calc spec, while propagating formula errors.
+    # Skip blanks, text, and bools. A formula error (NaN) still propagates.
     try:
         arr = _extract_numeric_array(r, propagate_nan=True)
         if len(arr) == 0 or np.any(np.isnan(arr)):
@@ -415,9 +412,8 @@ def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
 
 
 def type(val: Any) -> float:
-    # What was wrong: type(np.bool_) returned 1.0 (number) instead of 4.0 (logical), and had duplicate return 1.0.
-    # How it happened: isinstance(val, bool) only matched Python bool, and np.bool_ fell through to np.integer/np.floating.
-    # Why this change fixes it: checks isinstance(val, (bool, np.bool_)) for 4.0 and removes the duplicate return.
+    # np.bool_ is logical (4), same as bool. It is a numpy integer subclass,
+    # so the number check has to come after this one.
     if _is_calc_error(val):
         return 16.0
     if isinstance(val, (bool, np.bool_)):
@@ -453,9 +449,7 @@ def unicode(text: Any) -> float:
 
 
 def _unique_items(items: list[Any], exactly_once: bool) -> list[Any]:
-    # What was wrong: kept a redundant seen list with an O(n) membership check inside an O(n) loop (O(n^2)).
-    # How it happened: seen.append was checked with `item not in seen`.
-    # Why this change fixes it: Python 3.7+ dict preserves insertion order; counts dict gives keys in order in O(n).
+    # Dict insertion order is the first-seen order, so a second list is not needed.
     counts: dict[Any, int] = {}
     for item in items:
         counts[item] = counts.get(item, 0) + 1
@@ -465,9 +459,7 @@ def _unique_items(items: list[Any], exactly_once: bool) -> list[Any]:
 
 
 def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[Any]:
-    # What was wrong: unique stringified mixed-type ranges (treating 1 and '1' as duplicates).
-    # How it happened: np.asarray(arr) without dtype=object coerced mixed types to strings.
-    # Why this change fixes it: uses np.asarray(arr, dtype=object) to preserve individual cell types.
+    # dtype=object. A bare asarray makes 1 and '1' the same string.
     data = np.asarray(arr, dtype=object)
     if data.size == 0:
         return []
@@ -850,9 +842,8 @@ def xor(*args: Any) -> bool | float | str:
 
 
 def yearfrac(start_date: Any, end_date: Any, basis: Any = 0) -> float:
-    # What was wrong: yearfrac returned negative values when start_date > end_date.
-    # How it happened: 7e5b3e96 dropped the date swap, but Excel and LibreOffice GetYearFrac swap start and end dates.
-    # Why this change fixes it: swaps s and e when s > e so duration is always non-negative.
+    # Swap when start is after end. Excel and LibreOffice GetYearFrac return
+    # a non-negative fraction either way.
     from plugin.scripting.venv.calc_functions_d_h import days360
 
     try:

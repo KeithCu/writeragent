@@ -780,13 +780,14 @@ def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bc
 
         found_range = None
         try:
-            # What was wrong: the paragraph-relative cursor was built only when
-            # start_pos > 0. n_start is the sentence offset inside the proofread
-            # paragraph, so 0 is its first sentence, not "search from the caret".
-            # findNext from the view cursor then retagged a different copy of the
-            # same sentence. How: the guard treated 0 as "no offset".
-            # Why: offset 0 still selects from the start of that paragraph.
-            # start_pos > 0 still moves, then expands, on the same cursor.
+            # The paragraph-relative cursor is built for every start_pos,
+            # including 0. n_start is the sentence offset inside the
+            # proofread paragraph, so 0 is its first sentence, not "search
+            # from the caret". findNext from the view cursor retags a
+            # different copy of the same sentence when 0 is treated as "no
+            # offset". Offset 0 still selects from the start of that
+            # paragraph. start_pos > 0 still moves, then expands, on the same
+            # cursor.
             if view_cursor is not None and start_pos >= 0:
                 text_obj = model.getText()
                 doc_cursor = text_obj.createTextCursorByRange(view_cursor.getStart())

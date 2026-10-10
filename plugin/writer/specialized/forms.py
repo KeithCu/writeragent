@@ -218,14 +218,15 @@ def _calc_cell_content_kind(cell: Any) -> str:
 def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
     """Append *text* to the active Calc cell when that will not destroy it.
 
-    What was wrong: ``getString()`` + ``setString()`` stored the displayed
-    characters as text. A formula or number in the active cell became a
-    literal, plus the form label or the space inserted after each control.
-    How: ``FormCreate._insert_space`` and ``FormGenerate._insert_text`` both
-    call this for spreadsheet documents.
-    Why: VALUE and FORMULA cells are left unchanged. EMPTY and TEXT cells
-    still take the append, which is where a Calc form label belongs. An
-    unknown type is left unchanged too — guessing would risk the same rewrite.
+    ``getString()`` + ``setString()`` stores the displayed characters
+    as text. A formula or number in the active cell becomes a
+    literal, plus the form label or the space inserted after each
+    control. ``FormCreate._insert_space`` and
+    ``FormGenerate._insert_text`` both call this for spreadsheet
+    documents. VALUE and FORMULA cells are left unchanged. EMPTY and
+    TEXT cells still take the append, which is where a Calc form
+    label belongs. An unknown type is left unchanged too — guessing
+    would risk the same rewrite.
     """
     controller = doc.getCurrentController()
     sheet = controller.ActiveSheet
@@ -250,10 +251,10 @@ def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
 def _field_failure_result(tool: Any, results: list[Any], *, total: int, action: str, names: list[Any] | None = None) -> dict[str, Any] | None:
     """Return an error payload when any form field failed, else None.
 
-    What was wrong: ``form_create`` and ``form_generate`` returned status ok
-    after a control failed, so the caller treated a partial form as finished.
-    How: each field result was stored or discarded and then ignored.
-    Why: the error payload repeats those results and names the failures.
+    ``form_create`` and ``form_generate`` must not return status ok
+    after a control failed, or the caller treats a partial form as
+    finished. The error payload repeats those field results and
+    names the failures.
     """
     bits: list[str] = []
     for index, res in enumerate(results):

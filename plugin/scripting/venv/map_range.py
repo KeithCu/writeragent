@@ -67,9 +67,7 @@ def _to_plain_sequence(val: Any) -> Any:
     """Unwrap NumPy ndarray, pandas Series/DataFrame to nested lists."""
     if isinstance(val, CalcRange):
         return val
-    # What was wrong: pandas DataFrame does not have .tolist() or .to_list(),
-    # so inspect_input fell back to treating it as a scalar unknown object.
-    # Why this change: Calling to_numpy().tolist() unwraps DataFrame/Series into plain lists.
+    # DataFrame and Series have no tolist(). to_numpy().tolist() is the plain list.
     if hasattr(val, "to_numpy") and callable(val.to_numpy):
         try:
             arr: Any = val.to_numpy()
@@ -188,10 +186,8 @@ def broadcast_args(
         scalar_kwargs = {k: [insp.flat_items[0]] for k, insp in inspected_kwargs.items()}
         return BroadcastResult(primary, scalar_args, scalar_kwargs, vector_arg_indices, vector_kwarg_keys)
 
-    # What was wrong: Any M×N grid with len(vector_items) > 1 raised ValueError even when
-    # paired with an identically-shaped M×N grid. Also length-only check silently zipped 1×N and N×1.
-    # Why this change: Compare (nrows, ncols) across all vector arguments, allowing equal-shape grids
-    # and rejecting row-vs-column orientation mismatches.
+    # Compare (nrows, ncols), not just length. Equal-shape grids are valid.
+    # A 1×N vector zipped with an N×1 vector is an orientation mismatch.
     target_shape = (vector_items[0].nrows, vector_items[0].ncols)
     target_length = vector_items[0].length
     primary = vector_items[0]
@@ -256,11 +252,8 @@ def map_over_range(
         row_kwargs = {k: kwarg_list[i] for k, kwarg_list in b_kwargs.items()}
 
         if handle_blanks:
-            # What was wrong: Only row_args[0] was checked, so missing values in other
-            # vector arguments were passed to fn (causing #VALUE!), and a blank scalar
-            # first argument blanked all output rows.
-            # Why this change: Check if any vector argument has a missing value in this row.
-            # If all arguments are scalars, check if the primary input is missing.
+            # A missing value in any vector argument blanks this row. When every
+            # argument is a scalar, only the primary input can blank the row.
             if vector_arg_indices or vector_kwarg_keys:
                 is_blank = any(is_missing_value(row_args[idx]) for idx in vector_arg_indices) or any(
                     is_missing_value(row_kwargs[k]) for k in vector_kwarg_keys
@@ -276,16 +269,14 @@ def map_over_range(
             res = fn(*row_args, **row_kwargs)
             results.append(res)
         except ZeroDivisionError as exc:
-            # What was wrong: ZeroDivisionError was swallowed into generic #VALUE! with no logging.
-            # Why this change: Map ZeroDivisionError to #DIV/0! and log via log.debug.
+            # #DIV/0!, not a generic #VALUE!.
             log.debug("map_over_range division by zero: %s", exc, exc_info=True)
             if return_errors:
                 results.append("#DIV/0!")
             else:
                 raise
         except Exception as exc:
-            # What was wrong: Exception was swallowed with no logging.
-            # Why this change: Log the error with exc_info before returning #VALUE!.
+            # Log before returning #VALUE! so the cell failure is visible.
             log.debug("map_over_range evaluation error: %s", exc, exc_info=True)
             if return_errors:
                 results.append("#VALUE!")

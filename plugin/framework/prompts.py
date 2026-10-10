@@ -992,11 +992,9 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
 
         seen: dict[str, str] = {}
         for base, label in ((ToolWriterSpecialBase, "Writer"), (ToolCalcSpecialBase, "Calc"), (ToolDrawSpecialBase, "Draw")):
-            # What was wrong: find_tools with no document asked for discovery, but
-            # this merge left for_discovery false. How: the per-app branches forwarded
-            # the flag and this loop did not, so CALC_HIDDEN_SPECIALIZED_DOMAINS still
-            # applied. python is also on Writer and Draw, which hid the gap. Why:
-            # pass the same flag so a Calc-only hidden domain stays discoverable.
+            # The per-app branches forward for_discovery. This merge must too,
+            # or a Calc-only hidden domain stays hidden. python is also on
+            # Writer and Draw, which hid that gap.
             for entry in _catalog_entries_from_base(base, agent_label=label, ctx=ctx, for_discovery=for_discovery):
                 dom = entry["domain"]
                 desc = entry["description"]
@@ -1152,11 +1150,10 @@ _PROFILE_DATA_CLOSE = "<<<</profile>>>"
 def _neutralize_profile_fence(body: str) -> str:
     """Break a fence marker that appears inside profile text.
 
-    What was wrong: USER.md or additional instructions could contain
-    ``<<</profile>>>`` and end the data block early. How: the body was
-    wrapped without scanning. The rest was then ordinary system-prompt
-    text, and ``upsert_memory`` can persist that string. Why: insert a
-    space after ``<<<`` so the markers no longer match the wrapper.
+    USER.md or additional instructions can contain ``<<</profile>>>`` and
+    end the data block early. The rest would then be ordinary system-prompt
+    text, and ``upsert_memory`` can persist that string. Insert a space
+    after ``<<<`` so the markers no longer match the wrapper.
     """
     # The closer is four left brackets (``<<<`` + ``</profile>>>``). A space
     # after ``<<<`` stops it matching the wrapper.
@@ -1274,9 +1271,9 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
             if user_mem:
                 base += _profile_data_block("[USER PROFILE / MEMORY]", _cap_injected_prompt_blob(user_mem))
         except Exception:
-            # What was wrong: a broken USER.md dropped the profile with only a
-            # debug line. How: this except used logger.debug. Why: log like the
-            # peer-block failure (exception + traceback) and still build the prompt.
+            # A broken USER.md still builds the prompt. Log it the same way as
+            # a peer-block failure (exception + traceback); debug alone drops
+            # the profile with no traceback.
             logging.getLogger(__name__).exception("Failed to read user memory for prompt")
 
         # Humanizer skill (minimal addition, re-uses the exact same injection pattern as memory above).
@@ -1311,11 +1308,10 @@ def get_chat_system_prompt_for_document(model: Any, additional_instructions: str
 def _ensure_venv_import_policy_strings() -> None:
     """Fill venv-policy prompt strings on first use (import_policy pulls smolagents).
 
-    What was wrong: a second caller returned as soon as the compact string
-    was non-empty. How: ``_init`` assigns that string before
-    ``DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE``, and eval workers call
-    ``get_chat_system_prompt_for_kind`` concurrently. Why: other threads
-    wait until init returns. Same-thread re-entry is allowed because
+    Other threads wait until init returns. ``_init`` assigns the compact
+    string before ``DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE``, and eval
+    workers call ``get_chat_system_prompt_for_kind`` concurrently, so a
+    non-empty string is not "ready". Same-thread re-entry is allowed because
     ``_build_calc_chat_system_prompt_template`` calls back here while the
     lock is held.
     """

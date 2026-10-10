@@ -90,11 +90,9 @@ class SkillStore:
                         parts = content.split("---", 2)
                         if len(parts) >= 3:
                             content = parts[2].strip()
-                    # What was wrong: a front-matter-only SKILL.md stripped to
-                    # "" and was returned, so the prompt got no humanizer rules.
-                    # How: split on "---" leaves an empty body when nothing
-                    # follows the closing marker. Why: an empty body is the
-                    # same as a missing file — use HUMANIZER_GUIDANCE.
+                    # A front-matter-only file splits to an empty body.
+                    # That is the same as a missing file: use HUMANIZER_GUIDANCE
+                    # so the prompt still gets the humanizer rules.
                     if content:
                         return content
             except Exception as e:
@@ -110,12 +108,9 @@ class SkillStore:
 
     def write_humanizer_guidance(self, content: str) -> bool:
         """Persist a user-edited version of the humanizer rules."""
-        # What was wrong: open(path, "w") truncated SKILL.md in place, and
-        # _humanizer_path() (makedirs) sat outside this try, so an OSError
-        # escaped instead of returning False. How: a crash mid-write, or a
-        # permission error creating skills/humanizer. Why: write a temp file
-        # in the same directory and os.replace it, with path setup inside
-        # the try.
+        # Write a temp file in the same directory and os.replace it, with
+        # path setup inside the try. open(path, "w") truncates SKILL.md in
+        # place, and an OSError from makedirs must return False.
         try:
             path = self._humanizer_path()
             directory = os.path.dirname(path) or "."

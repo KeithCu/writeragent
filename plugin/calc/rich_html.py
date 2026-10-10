@@ -219,14 +219,14 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
             raise ToolExecutionError("Could not create temporary Writer document")
 
         text = temp_doc.getText()
-        # What was wrong: setString("") leaves a default-template letterhead that is
-        # only a table, text frame, or drawing (body string is already ""). How it
-        # happened: private:factory/swriter honours that template, and a successful
-        # paste keeps this Writer (CREATE|GLOBAL reuses _wa_calc_html), so the first
-        # rich-HTML paste copies the letterhead into the cell and later pastes append
-        # onto the previous fragment. Why this fixes it: clear_writer_body disposes
-        # those objects and then clears the text, on a fresh load and on the reused
-        # keeper, before the HTML is inserted.
+        # clear_writer_body disposes the template objects and then clears
+        # the text, on a fresh load and on the reused keeper, before the
+        # HTML is inserted. setString("") leaves a default-template
+        # letterhead that is only a table, text frame, or drawing (the body
+        # string is already empty). private:factory/swriter honours that
+        # template, and a successful paste keeps this Writer (CREATE|GLOBAL
+        # reuses _wa_calc_html), so the first rich-HTML paste copies the
+        # letterhead into the cell and later pastes append onto it.
         clear_writer_body(temp_doc)
         cursor = text.createTextCursor()
         cursor.gotoStart(False)

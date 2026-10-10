@@ -185,10 +185,9 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
         max_retries = _event_int(event.data, "max_retries", state.max_retries)
 
         # Cancel any previous timer / process if re-starting.
-        # What was wrong: TerminateProcessEffect did not carry port. When the port
-        # changed, post_stop read the new state.port and ran `funnel <newport> off`.
-        # How it happened: START_REQUESTED overwrites state.port before effects run.
-        # Why: capture pre-transition state.port so old port's funnel is turned off.
+        # START_REQUESTED overwrites state.port before effects run. The effect
+        # must carry the pre-transition port, or post_stop reads the new port
+        # and runs `funnel <newport> off`.
         effects.append(CancelRetryTimerEffect())
         effects.append(TerminateProcessEffect(provider=state.provider, port=state.port))
 
@@ -234,14 +233,13 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
             new_state = dataclasses.replace(state, status=TunnelStatus.RECONNECTING, public_url=None, retry_count=attempt, last_error=err_msg)
             return FsmTransition(new_state, effects)
         else:
-            # What was wrong: retry exhaustion returned FAILED with no effects.
-            # Tailscale post_stop (funnel reset / serve reset) only ran from
-            # TerminateProcessEffect, which START and STOP emit. The process
-            # is already dead here — _on_exit cleared it before this event —
-            # but funnel/serve config lives on tailscaled and kept forwarding
-            # the local MCP port while desired_running was false.
-            # Why: name the provider that owned the session, same as stop.
-            # The effect handler resets even when the subprocess is gone.
+            # Retry exhaustion is FAILED, but Tailscale funnel/serve config
+            # lives on tailscaled. Without TerminateProcessEffect (START and
+            # STOP already emit it) that config keeps forwarding the local
+            # MCP port after desired_running is false. The process is already
+            # dead — _on_exit cleared it before this event. Name the provider
+            # that owned the session, same as stop. The effect handler resets
+            # even when the subprocess is gone.
             err_msg = "tunnel disconnected; failed to reconnect after %s attempts (code %s)" % (state.max_retries, rc)
             effects.append(TerminateProcessEffect(provider=state.provider, port=state.port))
             new_state = dataclasses.replace(state, status=TunnelStatus.FAILED, public_url=None, last_error=err_msg, desired_running=False)

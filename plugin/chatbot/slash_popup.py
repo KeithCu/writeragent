@@ -53,14 +53,13 @@ def _ovlog(msg: str, *args: object, exc_info: bool = False) -> None:
 def _defer_to_next_turn(fn: Any, *args: Any) -> None:
     """Run ``fn`` on a later main-thread turn. Do not call it inline on failure.
 
-    What was wrong: Accept and Esc reached ``hide()``, which ``dispose()``d the
-    toolkit window from inside its own ``XKeyHandler`` / ``XMouseListener``.
-    VCL was still in that callback.
-    How it happened: ``accept_selected`` → ``run_slash_command`` → ``hide()``
-    (and Esc → ``hide()``) ran on the listener stack.
-    Why this change: ``post_to_main_thread`` enqueues once AsyncCallback exists
-    (the headed sidebar). The listener returns before dispose. An inline
-    fallback would be the same deadlock, so a failed post is only logged.
+    Accept and Esc must not reach ``hide()`` on the listener stack.
+    ``accept_selected`` → ``run_slash_command`` → ``hide()`` (and Esc →
+    ``hide()``) ``dispose()`` the toolkit window from inside its own
+    ``XKeyHandler`` / ``XMouseListener`` while VCL is still in that callback.
+    ``post_to_main_thread`` enqueues once AsyncCallback exists (the headed
+    sidebar). The listener returns before dispose. An inline fallback is
+    the same deadlock, so a failed post is only logged.
     """
     try:
         from plugin.framework.queue_executor import post_to_main_thread
@@ -689,13 +688,12 @@ class SlashPopupController:
     def _dispatch_query_has_text(self) -> None:
         """Re-enable Send from the text still in Ask.
 
-        What was wrong: ``QueryTextListener`` returns before ``TEXT_UPDATED``
-        for any slash draft, and ``hide()`` / Esc never dispatched ``has_text``.
-        After Esc, Ask still held e.g. ``/he`` while Send stayed disabled.
-        How it happened: the listener skipped UpdateUI so a mapped TOP overlay
-        would not ``getPosSize`` Ask (that deadlocks VCL).
-        Why this change: dispatch only after the popup is closed, using Ask
-        as the source of truth.
+        ``QueryTextListener`` returns before ``TEXT_UPDATED`` for any
+        slash draft, and ``hide()`` / Esc never dispatched ``has_text``.
+        After Esc, Ask still holds e.g. ``/he`` while Send stays disabled.
+        The listener skips UpdateUI so a mapped TOP overlay does not
+        ``getPosSize`` Ask (that deadlocks VCL). Dispatch only after the
+        popup is closed, using Ask as the source of truth.
         """
         dispatch = getattr(self.send_listener, "dispatch", None)
         if not callable(dispatch):
@@ -816,13 +814,12 @@ class SlashPopupController:
     def _on_document_key(self, key_code: int, modifiers: int = 0, key_char: Any = None) -> bool:
         """Frame and toolkit handlers: navigation only.
 
-        What was wrong: both passed ``from_overlay=True``, so every printable
-        character was appended to Ask and the handler returned true. Document
-        keystrokes never reached the document.
-        How it happened: the listbox listener is the one that has focus on the
-        menu and must insert; the frame/toolkit handlers see the whole document.
-        Why this change: ``from_overlay=False`` keeps printable keys for the
-        document (or Ask's own listener) and only consumes Esc/arrows/Enter/Tab.
+        The listbox listener is the one that has focus on the menu and
+        must insert. Frame and toolkit handlers see the whole document:
+        ``from_overlay=True`` appends every printable character to Ask and
+        returns true, so document keystrokes never reach the document.
+        ``from_overlay=False`` keeps printable keys for the document (or
+        Ask's own listener) and only consumes Esc/arrows/Enter/Tab.
         """
         return bool(self.handle_key(key_code, modifiers, key_char, from_overlay=False))
 

@@ -324,12 +324,11 @@ def handle_debug_sidebar_command(command: str) -> None:
         return
     if op == "KICK_PEERS":
         # Packet P URP: queues live in soffice; the test-process kick is a no-op.
-        # What was wrong: KICK_PEERS called kick_pending_peer_starts() directly on
-        # the URP Dummy thread, which ran start_extracted_peer_send and stream drain
-        # on the background thread without a working VCL event pump, deadlocking URP.
-        # How it happened: handle_debug_sidebar_command runs on a URP bridge thread.
-        # Why this change: post to VCL via _post_to_soffice_vcl so peer sends drain
-        # on the main UI thread.
+        # Post to VCL via _post_to_soffice_vcl so peer sends drain on the
+        # main UI thread. handle_debug_sidebar_command runs on a URP bridge
+        # thread; calling kick_pending_peer_starts() there runs
+        # start_extracted_peer_send and the stream drain without a working
+        # VCL event pump and deadlocks URP.
         from plugin.doc.peer_message import kick_pending_peer_starts
 
         _post_to_soffice_vcl(kick_pending_peer_starts, sl=sl)
@@ -440,12 +439,12 @@ def handle_debug_sidebar_command(command: str) -> None:
         return
     # Post, do not execute(): URP executeDispatch + blocking VCL wait deadlocks
     # (office sits idle, tests wait forever). AsyncCallback runs _apply on VCL.
-    # What was wrong: this posted with force-marshal straight to the listener's
-    # executor. Force-marshal skips AsyncCallback init, so on a fresh panel the
-    # poke was a no-op and the op sat queued. Packet P's opening STOP_CLICKED
-    # then ran seconds later, when KICK_PEERS first poked that executor, and
-    # cancelled Calc's peer turn mid-flight (P1 never saw write_formula_range).
     # _post_to_soffice_vcl initializes AsyncCallback before the post.
+    # Force-marshal straight to the listener's executor skips that init, so
+    # on a fresh panel the poke is a no-op and the op sits queued. Packet P's
+    # opening STOP_CLICKED then runs seconds later, when KICK_PEERS first
+    # pokes that executor, and cancels Calc's peer turn mid-flight (P1 never
+    # sees write_formula_range).
     _post_to_soffice_vcl(_apply, sl=sl)
 
 
@@ -558,11 +557,11 @@ def _send_event_or_urp(kind: SendEventKind, *, listener: Any = None) -> None:
                 break
             time.sleep(0.05)
         if _try_click_send_for_kind(kind):
-            # What was wrong: only Stop Rec counted as the click taking. G4's
-            # stub auto-stop sent the take before a poll saw Stop Rec, so the
-            # fallback op started a second take that never stopped (hidden
-            # while Stop was greyed during takes, since idle = Stop off).
-            # Why: any move off Record, or Stop enabled, means it took.
+            # Any move off Record, or Stop enabled, means it took. Counting
+            # only Stop Rec misses G4's stub auto-stop, which sends the take
+            # before a poll sees Stop Rec. The fallback op then starts a
+            # second take that never stops (hidden while Stop is greyed
+            # during takes, since idle = Stop off).
             deadline = time.monotonic() + 2.0
             while time.monotonic() < deadline:
                 if _urp_record_click_took():
@@ -599,10 +598,10 @@ def _frames_match(left: Any, right: Any) -> bool:
     PyUNO hands out distinct wrappers; bare ``is`` misses after Packet P / E12
     reopen the Writer deck. ``uno_same`` is the product identity test.
 
-    What was wrong: ``handle_debug_sidebar_command`` runs on the URP thread.
-    ``uno_same`` is main-thread-only, the guard raised, and this ``except``
-    turned that into a miss. ``sidebar_panel`` then returned ``panels[0]``.
-    Why this change: off the main thread, identity is ``is`` only.
+    Off the main thread, identity is ``is`` only. ``uno_same`` is
+    main-thread-only. ``handle_debug_sidebar_command`` runs on the URP
+    thread, the guard raises, and this ``except`` turns that into a miss.
+    ``sidebar_panel`` then returns ``panels[0]``.
     """
     if left is None or right is None:
         return False
@@ -673,12 +672,12 @@ def sidebar_panel(frame: Any = None, *, uid: str = "") -> Any:
     When *frame* is omitted and several decks are live, prefer the current
     component. A single live panel is still returned when nothing was named.
 
-    What was wrong: a frame miss (including ``uno_same`` raising off the URP
-    thread) fell through to ``panels[0]``, the same leftover-Calc pad as
-    Packet K. How: both the match branch and the single-panel branch returned
-    the first panel even when the caller had already named a frame. Why this
-    change: a named frame that does not match returns None. ``panels[0]`` is
-    only the no-frame, one-deck debug fallback.
+    A named frame that does not match returns None. ``panels[0]`` is
+    only the no-frame, one-deck debug fallback. A frame miss (including
+    ``uno_same`` raising off the URP thread) that falls through to
+    ``panels[0]`` is the leftover-Calc pad from Packet K: both the match
+    branch and the single-panel branch used to return the first panel
+    even when the caller had already named a frame.
     """
     _require_debug()
     panels = iter_live_chat_panels()
@@ -1740,9 +1739,9 @@ def clear_sidebar_chat(*, listener: Any = None) -> None:
     Clear control. In-process, ``clear_listener.on_action_performed`` stops
     speech, drops hands-free, releases the mic, and latches Stop when busy.
 
-    What was wrong: this called ``session.clear`` and ``clear_and_greeting("")``
-    while a drain could still paint the reply onto the wiped transcript.
-    Why this change: ``ClearButtonListener`` is the path that latches Stop first.
+    ``ClearButtonListener`` is the path that latches Stop first.
+    ``session.clear`` and ``clear_and_greeting("")`` let a drain still
+    paint the reply onto the wiped transcript.
     """
     _require_debug()
     sl = listener if listener is not None else send_listener()
@@ -1853,10 +1852,11 @@ def approval_active(*, listener: Any = None) -> bool:
 def press_record(*, listener: Any = None) -> None:
     """Short Record click. No-op unless the Send button label is Record.
 
-    What was wrong: this dispatched ``RECORD_CLICKED`` even when the label
-    was Send. The URP click already required the Record label. A real short
-    click is mouse press then release (``actionPerformed`` is swallowed when
-    that release already dispatched).
+    No-op unless the Send button label is Record. Dispatching
+    ``RECORD_CLICKED`` when the label is Send does not match the URP click,
+    which already requires the Record label. A real short click is mouse
+    press then release (``actionPerformed`` is swallowed when that release
+    already dispatched).
     """
     _require_debug()
     sl = listener if listener is not None else send_listener()

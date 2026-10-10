@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 
 
-from compute_service.executor import execute_code
+from compute_service.formula_worker import execute_code
 from compute_service.json_egress import to_dumb_json_value
 import pytest
 

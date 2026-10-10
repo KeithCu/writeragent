@@ -285,12 +285,13 @@ class HarperLSClient:
     def _collect_diagnostics(self, version: int, deadline: float) -> list[Any]:
         """Wait for ``publishDiagnostics`` for this document version.
 
-        What was wrong: ``_read_loop`` enqueues ``None`` on stdout EOF and on
-        a reader crash. This loop treated that falsy result as the end of
-        diagnostics and returned ``[]``. ``lint`` looked successful, and the
-        fast path cached the sentence with no errors so Writer did not walk
-        it again. A real publish with ``diagnostics: []`` is still a clean
-        sentence. The sentinel, a dead process, and a timeout are not.
+        ``_read_loop`` enqueues ``None`` on stdout EOF and on a reader
+        crash. Treating that falsy result as the end of diagnostics and
+        returning ``[]`` makes ``lint`` look successful, and the fast
+        path caches the sentence with no errors so Writer does not walk
+        it again. A real publish with ``diagnostics: []`` is still a
+        clean sentence. The sentinel, a dead process, and a timeout are
+        not.
         """
         while _deadline_remaining(deadline) > 0:
             # Death with nothing queued will not produce a publish. Waiting
@@ -404,11 +405,10 @@ class HarperLSClient:
 
 def lsp_range_to_offset(text: str, line: int, character: int) -> int:
     """Convert LSP 0-indexed line/character (UTF-16 code units) to a Python string offset."""
-    # What was wrong: str.splitlines() split on Unicode separators like \u2028, \x0b, \x0c,
-    # \x1c-\x1e, and \x85, causing character offsets to diverge from the LSP server.
-    # How it happened: Python's str.splitlines() splits on all Unicode line breaks, whereas
-    # LSP specifies that only \r\n, \r, and \n end lines.
-    # Why this change fixes it: splitting only on (\r\n|\r|\n) keeps line endings aligned with LSP.
+    # Line endings are (\r\n|\r|\n) only. str.splitlines() also
+    # splits on Unicode separators (\u2028, \x0b, \x0c, \x1c-\x1e,
+    # \x85), so character offsets diverge from the LSP server. LSP
+    # ends lines only on \r\n, \r, and \n.
     if "\n" not in text and "\r" not in text:
         lines = [text] if text else []
     else:
@@ -568,14 +568,13 @@ def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
         with _HARPER_LOCK:
             client = _get_or_create_client(harper_bin, user_config_dir, bcp47)
             if not client.is_alive():
-                # What was wrong: ``_get_or_create_client`` returned the cached
-                # client after harper-ls had exited. Raising here set FAILED
-                # for 30s, and the ensure after the cooldown got that same
-                # dead object, so Harper stayed silent until LibreOffice
-                # restarted. Close and drop it, then build a replacement
-                # (lock released during Popen, same as a lint restart). A
-                # missing binary still raises into the handler below and
-                # keeps the cooldown.
+                # ``_get_or_create_client`` must not return the cached client
+                # after harper-ls has exited. Raising here sets FAILED for 30s,
+                # and the ensure after the cooldown gets that same dead object,
+                # so Harper stays silent until LibreOffice restarts. Close and
+                # drop it, then build a replacement (lock released during Popen,
+                # same as a lint restart). A missing binary still raises into
+                # the handler below and keeps the cooldown.
                 try:
                     client.close()
                 except Exception:
@@ -588,12 +587,10 @@ def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
         _schedule_proofread_again()
     except Exception:
         log.exception("[harper] Background ensure failed")
-        # What was wrong: an ensure failure guarded state transition behind
-        # `if _HARPER_STATE is not HarperRuntimeState.RESOLVING`. Because
-        # harper_ensure_ready_async sets RESOLVING before submitting the job,
-        # the failure was never recorded and _can_start_ensure_locked() refused forever.
-        # How it happened: the condition attempted to preserve RESOLVING during concurrent checks.
-        # Why this change fixes it: always set state to FAILED with failed_at timestamp.
+        # An ensure failure always sets FAILED with failed_at. Guarding
+        # the transition on "state is not RESOLVING" never records it:
+        # harper_ensure_ready_async sets RESOLVING before submitting the
+        # job, so _can_start_ensure_locked() refuses forever.
         with _HARPER_LOCK:
             _set_state(HarperRuntimeState.FAILED, failed_at=time.monotonic())
 
@@ -715,10 +712,9 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     except Exception:
         # restart=False: do not Popen on the linguistic thread. The
         # walk returns empty; background ensure restarts harper-ls.
-        # What was wrong: setting FAILED triggered the 30s cooldown, causing the
-        # subsequent harper_ensure_ready_async call to no-op instead of restarting.
-        # How it happened: FAILED was erroneously used here instead of IDLE.
-        # Why this change fixes it: resetting state to IDLE allows harper_ensure_ready_async to restart immediately.
+        # Leave the state IDLE. FAILED starts the 30s cooldown, so the
+        # following harper_ensure_ready_async call no-ops instead of
+        # restarting.
         log.exception("[harper] lint failed on ready client; empty aErrors this walk")
         with _HARPER_LOCK:
             _set_state(HarperRuntimeState.IDLE)
@@ -874,11 +870,11 @@ def _run_lint_off_caller_thread(
         # every other Harper caller. Cancel unblocks the poll in ``_read``.
         cancel_event.set()
         handle.join(timeout=_HARPER_CANCEL_JOIN_SEC)
-        # What was wrong: if a worker was blocked on _write under _HARPER_LOCK,
-        # setting cancel_event and waiting for handle.join did not unblock the socket/pipe,
-        # leaving _HARPER_LOCK held and deadlocking subsequent Harper calls.
-        # How it happened: cancel_event was only checked in reader poll loops, not during blocked writes.
-        # Why this change fixes it: closing the client aborts pending I/O and process, unblocking the worker.
+        # A worker blocked on _write under _HARPER_LOCK is not released by
+        # cancel_event plus handle.join. The pipe stays blocked, the lock
+        # stays held, and later Harper calls deadlock. cancel_event is
+        # checked in reader poll loops, not during a blocked write.
+        # Closing the client aborts pending I/O and the process.
         if not done.is_set():
             try:
                 client.close()
@@ -972,10 +968,9 @@ def _lint_with_client(
                 raise
             restarted = _replace_harper_client(client, bcp47, heartbeat_fn)
             results = _call_lint(restarted)
-        # What was wrong: diagnostics from Harper LSP were mapped against original `text`
-        # instead of `lint_text` (which was the text actually sent to Harper).
-        # How it happened: `text` was passed to `_diagnostics_to_errors` instead of `lint_text`.
-        # Why this change fixes it: passing `lint_text` ensures offsets and line mappings align.
+        # Harper diagnostics map against `lint_text`, the text actually
+        # sent to Harper. Mapping against the original `text` misaligns
+        # offsets and line numbers.
         out = _diagnostics_to_errors(text, results, lint_text)
         error_count = len(out.get("errors") or [])
         return out

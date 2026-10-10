@@ -234,10 +234,9 @@ def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int 
     if base_cell and base_cell.strip():
         prefix, address = split_sheet_prefix(base_cell.strip())
         if prefix:
-            # What was wrong: an unknown sheet left sheet_idx at the default
-            # (usually 0), so a relative name was anchored on the wrong sheet.
-            # How: the scan broke only on a match and ignored a finished loop.
-            # Why: a prefix that names no sheet is an error, same as a bad cell.
+            # A prefix that names no sheet is an error, same as a bad cell.
+            # Leaving sheet_idx at the default (usually 0) when the scan
+            # never matches anchors a relative name on the wrong sheet.
             found = False
             if hasattr(doc, "getSheets"):
                 sheets = doc.getSheets()
@@ -490,9 +489,12 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
             if new_name is not None and new_name.strip() and new_name.strip() != name:
                 new_clean = new_name.strip()
-                # What was wrong: setName does not run IsNameValid, so A1 / Sales.2026 / 1abc / names with spaces were installed.
-                # How: only an existence check ran, and setContent/setType/setReferencePosition ran before setName, so a failed rename left a partial edit.
-                # Why: reject with the same messages as addNewByName, and do not touch the range until the new name and base cell are valid. Rename first and roll it back if a later setter fails.
+                # setName does not run IsNameValid, so reject A1, Sales.2026,
+                # 1abc, and names with spaces using the same messages as
+                # addNewByName. Do not touch the range until the new name and
+                # base cell are valid. Rename first and roll it back if a
+                # later setter fails. Setting content, type, and reference
+                # before setName leaves a partial edit when the rename fails.
                 invalid = _defined_name_error(new_clean)
                 if invalid:
                     return self._tool_error(invalid, code="INVALID_NAME")

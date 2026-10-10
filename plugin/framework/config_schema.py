@@ -191,10 +191,9 @@ def parse_int_robust(val: Any) -> int:
     except (ValueError, TypeError):
         pass
 
-    # What was wrong: every comma became a dot, so "1,234" parsed as 1.234
-    # and then int 1. A single comma is a thousands group only when the
-    # suffix is exactly three digits; otherwise it is a decimal comma
-    # ("8765,0", "1,5").
+    # A single comma is a thousands group only when the suffix is exactly
+    # three digits ("1,234"). Otherwise it is a decimal comma ("8765,0",
+    # "1,5"). Turning every comma into a dot parses "1,234" as 1.234, then 1.
     normalized = _normalize_comma_number(s)
     if normalized is not None:
         try:
@@ -220,13 +219,10 @@ def parse_int_robust(val: Any) -> int:
 def _float_or_value_error(val: Any) -> float:
     """``float(val)``, mapping overflow to ``ValueError``.
 
-    What was wrong: JSON accepts an integer of 309+ digits. ``float(val)``
-    then raises ``OverflowError``. ``clamp_schema_value`` and
-    ``_is_equal_to_default`` caught only ``ValueError``, so loading
-    ``writeragent.json`` crashed instead of degrading.
-    How: CPython's ``float()`` overflows past the IEEE range rather than
-    raising ``ValueError``.
-    Why: callers already treat ``ValueError`` as "not a usable number".
+    JSON accepts an integer of 309+ digits. CPython's ``float()`` then raises
+    ``OverflowError`` past the IEEE range, not ``ValueError``. Callers treat
+    ``ValueError`` as "not a usable number", so map the overflow or loading
+    ``writeragent.json`` crashes instead of degrading.
     """
     try:
         return float(val)
@@ -442,13 +438,11 @@ class WriterAgentConfig:
                     setattr(self, f.name, "")
 
         # Bounds live on the field metadata. Check them before coercion.
-        # What was wrong: those bounds were missing from the schema, so
-        # strict coerce accepted temperature 5.0 and chat_max_tokens -1.
-        # The schema now includes them, and non-strict coerce clamps to
-        # inclusive min/max. Running that clamp first would turn
-        # chat_max_tokens -1 into 0, and this check would neither raise
-        # nor apply the fallback 16384. calc_prompt_max_tokens < 100 is a
-        # separate one-time migration below, not a generic minimum.
+        # Strict coerce rejects temperature 5.0 and chat_max_tokens -1;
+        # non-strict coerce clamps to inclusive min/max. Clamping first
+        # would turn chat_max_tokens -1 into 0, and this check would neither
+        # raise nor apply the fallback 16384. calc_prompt_max_tokens < 100
+        # is a separate one-time migration below, not a generic minimum.
         for f in dataclasses.fields(self):
             meta = f.metadata
             if "kind" not in meta:

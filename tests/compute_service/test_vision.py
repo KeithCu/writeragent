@@ -19,13 +19,15 @@ import pytest
 
 from compute_service.config import ComputeSettings, read_allowlisted_file
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
-from compute_service.vision_pool import (
+from compute_service.vision import (
     VisionProcessPool,
+    _FILE_READ_MAX_BYTES,
+    _handle_request,
+    _read_allowed_image,
     get_vision_pool,
     shutdown_vision_pool,
 )
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.vision_worker import _FILE_READ_MAX_BYTES, _handle_request, _read_allowed_image
 
 
 from tests.compute_service.conftest import get_free_port
@@ -59,7 +61,7 @@ def test_vision_child_stdio_accepts_compute_frame_cap(monkeypatch) -> None:
     import io
 
     from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame, write_pickle_frame
-    from compute_service.vision_worker import main
+    from compute_service.vision import main
 
     blob = b"v" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)
     assert DEFAULT_MAX_PAYLOAD_BYTES < len(blob) < COMPUTE_MAX_PAYLOAD_BYTES
@@ -82,7 +84,7 @@ def test_vision_child_stdio_accepts_compute_frame_cap(monkeypatch) -> None:
         seen["n"] = len(req.get("blob") or b"")
         return {"status": "ok", "blob": req["blob"]}
 
-    monkeypatch.setattr("compute_service.vision_worker._handle_request", handle)
+    monkeypatch.setattr("compute_service.vision._handle_request", handle)
     assert main() == 0
     assert seen["n"] == len(blob)
 
@@ -155,6 +157,20 @@ class TestVisionPoolSupervisor:
         assert p3 is not p1
         shutdown_vision_pool()
 
+    def test_permanent_shutdown_refuses_new_pool(self) -> None:
+        """Server exit must not let a late get() spawn another pool.
+
+        A normal shutdown still returns a new pool. That is what tests use.
+        """
+        p1 = get_vision_pool()
+        shutdown_vision_pool(permanent=True)
+        with pytest.raises(RuntimeError, match="shut down"):
+            get_vision_pool()
+        shutdown_vision_pool()
+        p2 = get_vision_pool()
+        assert p2 is not p1
+        shutdown_vision_pool()
+
     def test_pool_rejects_malformed_base64(self) -> None:
         pool = VisionProcessPool(num_workers=1, default_timeout_sec=15)
         try:
@@ -165,6 +181,16 @@ class TestVisionPoolSupervisor:
             assert "Base64 decode failed" in res.get("error", "")
             # Worker was not leased, so tasks_executed remains 0
             assert pool.workers[0].tasks_executed == 0
+        finally:
+            pool.shutdown()
+
+    def test_zero_timeout_is_pool_busy(self) -> None:
+        """timeout_sec=0 expires immediately. It used to become the OCR default."""
+        pool = VisionProcessPool(num_workers=1, default_timeout_sec=30)
+        try:
+            res = pool.execute(helper="extract_text", image=b"\x89PNG", timeout_sec=0, req_id="zero")
+            assert res.get("id") == "zero"
+            assert res.get("code") == "VISION_POOL_BUSY"
         finally:
             pool.shutdown()
 
@@ -626,7 +652,7 @@ def test_vision_timeout_kills_when_late_frame_never_arrives(tmp_path) -> None:
 
 def test_vision_worker_rejects_both_sources() -> None:
     """file_path and a non-empty image buffer together is a client error."""
-    from compute_service.vision_worker import _handle_request
+    from compute_service.vision import _handle_request
 
     both = _handle_request({"id": "both", "file_path": "/tmp/x.png", "image_bytes": b"png"})
     assert both.get("code") == "INVALID_REQUEST"
@@ -638,7 +664,7 @@ def test_vision_worker_rejects_both_sources() -> None:
 
 def test_vision_worker_empty_bytes_not_missing_source() -> None:
     """An empty byte string must not be misclassified as a missing image source."""
-    from compute_service.vision_worker import _handle_request
+    from compute_service.vision import _handle_request
 
     res = _handle_request({"id": "empty-bytes", "image_bytes": b""})
     assert res.get("code") != "MISSING_IMAGE_SOURCE"
@@ -675,11 +701,31 @@ def test_vision_pool_execute_accepts_bytearray() -> None:
 
 
 def test_decode_image_b64_strips_whitespace_and_data_url() -> None:
-    from compute_service.vision_pool import _decode_image_b64
+    from compute_service.vision import _decode_image_b64
 
     raw = base64.b64encode(b"hi").decode("ascii")
     wrapped = "data:image/png;base64," + raw[:4] + "\n" + raw[4:]
     assert _decode_image_b64(wrapped) == b"hi"
+
+
+def test_decode_image_b64_accepts_urlsafe_and_missing_padding() -> None:
+    """URL-safe alphabets and omitted padding are real encoder output.
+
+    validate=True used to reject both and return INVALID_BASE64 for a valid image.
+    """
+    import binascii
+    from compute_service.vision import _decode_image_b64
+
+    raw = bytes(range(256))
+    standard = base64.b64encode(raw).decode("ascii")
+    url = base64.urlsafe_b64encode(raw).decode("ascii")
+    assert url != standard
+    assert _decode_image_b64(url) == raw
+    assert _decode_image_b64(url.rstrip("=")) == raw
+    assert _decode_image_b64(standard.rstrip("=")) == raw
+    assert _decode_image_b64("data:image/jpeg;base64," + url) == raw
+    with pytest.raises(binascii.Error):
+        _decode_image_b64(url[:4] + "*" + url[5:])
 
 
 def test_vision_expired_deadline_does_not_execute() -> None:

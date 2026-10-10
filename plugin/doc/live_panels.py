@@ -33,10 +33,11 @@ def register_live_panel(uid: str, panel: Any) -> None:
 def unregister_live_panel(uid: str, panel: Any = None) -> None:
     """Drop the map slot for *uid* when it still points at *panel*.
 
-    What was wrong: closing one window of a shared model popped the uid
-    even after another window had registered. Peer send then missed the
-    sidebar that was still open. *panel* None keeps the unconditional pop
-    for callers that are tearing down the only known owner.
+    Closing one window of a shared model must not pop the uid after
+    another window has registered. Peer send then misses the
+    sidebar that is still open. *panel* None keeps the
+    unconditional pop for callers that are tearing down the only
+    known owner.
     """
     if not uid:
         return

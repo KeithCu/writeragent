@@ -23,8 +23,11 @@ if is_release_build() or not (_SCRIPTS / "benchmark_compute_service.py").is_file
 try:
     from benchmark_compute_service import (  # noqa: E402
         BenchmarkResult,
+        HealthMonitor,
         ManagedBenchmarkServer,
+        StressResult,
         format_results_table,
+        format_stress_results,
         main,
     )
 except ImportError:
@@ -168,3 +171,67 @@ def test_managed_benchmark_server_workers_and_shutdown(
     mock_server.shutdown.assert_called_once()
     mock_server.server_close.assert_called_once()
     mock_shutdown_pool.assert_called_once()
+
+
+def test_stress_result_fields_and_formatting() -> None:
+    res = StressResult(
+        workers=2,
+        concurrency=32,
+        total_requests=640,
+        successful_requests=640,
+        failed_requests=0,
+        duration_sec=2.5,
+        rps=256.0,
+        invariants_passed=True,
+        invariant_details=[
+            "[PASS] Deterministic Math Accuracy",
+            "[PASS] Session stress-session-0: 80/80 sequential",
+        ],
+        health_probes=120,
+        health_failures=0,
+        health_p50_ms=1.1,
+        health_p95_ms=3.2,
+        health_max_ms=8.5,
+    )
+    formatted = format_stress_results(res)
+    assert "32 Clients / 2 Workers" in formatted
+    assert "256.0 RPS" in formatted
+    assert "ALL INVARIANTS PASSED [OK]" in formatted
+    assert "120 total, 0 failures" in formatted
+
+
+@patch("benchmark_compute_service.run_stress_suite")
+def test_main_stress_flag(mock_stress: MagicMock) -> None:
+    mock_stress.return_value = StressResult(
+        workers=2,
+        concurrency=32,
+        total_requests=640,
+        successful_requests=640,
+        failed_requests=0,
+        duration_sec=2.0,
+        rps=320.0,
+        invariants_passed=True,
+        invariant_details=["[PASS] Test invariant"],
+        health_probes=50,
+        health_failures=0,
+        health_p50_ms=1.0,
+        health_p95_ms=2.0,
+        health_max_ms=5.0,
+    )
+    code = main(["--stress", "--chaos", "hangs", "--requests", "15"])
+    assert code == 0
+    mock_stress.assert_called_once()
+    _, kwargs = mock_stress.call_args
+    assert kwargs["workers"] == 2
+    assert kwargs["concurrency"] == 32
+    assert kwargs["requests_per_worker"] == 15
+    assert kwargs["chaos"] == ["hangs"]
+
+
+def test_health_monitor_metrics() -> None:
+    monitor = HealthMonitor("http://127.0.0.1:9999", interval_sec=0.1)
+    monitor.latencies_ms = [2.0, 4.0, 6.0, 8.0, 10.0]
+    assert monitor.p50_ms == pytest.approx(6.0)
+    assert monitor.p95_ms == pytest.approx(10.0)
+    assert monitor.max_ms == pytest.approx(10.0)
+

@@ -35,10 +35,8 @@ _emit_lock = threading.Lock()
 
 
 def _emit(payload: dict[str, object]) -> None:
-    # What was wrong: child stdout was raw and unprotected, so stray library prints or ALSA logs
-    # corrupted line-delimited JSON IPC framing.
-    # How it happened: sys.stdout was used directly without fd redirection.
-    # Why this change fixes it: write exclusively to the private dup'd IPC channel.
+    # Write only on the private dup'd IPC channel. Library prints and ALSA
+    # logs on raw stdout break line-delimited JSON framing.
     stream = _ipc_stream or get_child_ipc_stream() or sys.stdout
     with _emit_lock:
         write_json_line(stream, payload)

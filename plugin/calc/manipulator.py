@@ -1297,11 +1297,10 @@ class CellManipulator:
             target = result_range(c1, r1, rows, cols)
 
         # Rewriting the same array formula in place is an update.
-        # What was wrong: the old array was cleared before this scan, so a
-        # refusal ("Nothing was written") had already deleted it.
-        # How: setArrayFormula("") ran, then an occupied target cell raised.
-        # Why: cells inside the array being replaced are not "occupied", and
-        # the clear runs only after the new target is accepted.
+        # Cells inside the array being replaced are not occupied, and the
+        # clear runs only after the new target is accepted. Clearing first
+        # with setArrayFormula("") deletes the old array before an occupied
+        # target cell can refuse the write.
         existing = self._array_block(sheet, c1, r1)
         replaced_box: tuple[int, int, int, int] | None = None
         if existing is not None and (existing.StartColumn, existing.StartRow) == (c1, r1):

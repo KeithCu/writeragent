@@ -250,13 +250,12 @@ class AudioRecorder:
     ) -> None:
         """Prefer an on-disk WAV over deleting it when stop's handshake fails.
 
-        What was wrong: a lost ``ok`` line raised here, ``_cleanup_failed_start``
-        deleted ``temp_filename``, and Stop Rec sent nothing.
-        How: the stdout monitor and ``stop_recording_process`` both read the
-        child pipe, and the monitor ignored ``ok``.
-        Why this keeps the file: the child has already been writing that path,
-        so a non-empty WAV is still the recording. ``auto_path`` is the same
-        idea for silence auto-stop, which publishes the path before ``ok``.
+        A lost ``ok`` must not delete the WAV. The stdout monitor and
+        ``stop_recording_process`` both read the child pipe, and the monitor
+        ignores ``ok``, so the handshake can fail after the child has already
+        written the path. A non-empty file is still the recording.
+        ``auto_path`` is the same idea for silence auto-stop, which publishes
+        the path before ``ok``.
         """
         if auto_path:
             self.temp_filename = auto_path
@@ -332,15 +331,13 @@ class AudioRecorder:
                     self._write_injected_wav()
                     # One-shot: G4 must not leave auto_stop for G5–G15.
                     write_stub_recorder_control(auto_stop=False)
-                    # What was wrong: the stub fired auto-stop right here, inside
-                    # Record's own start transition. Under WRITERAGENT_TESTING the
-                    # panel's post() runs inline, so STOP_REC_CLICKED and the whole
-                    # send drain ran nested in RECORD_CLICKED (re-entering this
-                    # recorder mid-start), inside the URP Record click. G4 wedged
-                    # soffice there and every later URP call hung.
-                    # Why a worker: the real silence detector reports from the
-                    # stdout monitor thread, so the panel post lands on a later
-                    # VCL tick after Record has returned. The stub does the same.
+                    # Report auto-stop from a worker, matching the real silence
+                    # detector's stdout monitor thread. Firing it inside Record's
+                    # start transition posts STOP_REC_CLICKED inline under
+                    # WRITERAGENT_TESTING, so the send drain re-enters this
+                    # recorder mid-start on the URP Record click and wedges
+                    # soffice. The worker post lands on a later VCL tick after
+                    # Record has returned.
                     from plugin.framework.worker_pool import run_in_background
 
                     run_in_background(
@@ -400,9 +397,9 @@ class AudioRecorder:
                             try:
                                 wav.writeframes(pcm)
                             except Exception:
-                                # What was wrong: writeframes ran after Stop had
-                                # closed the WAV. The exception aborted the
-                                # PortAudio thread, so later chunks never landed.
+                                # Stop may already have closed the WAV.
+                                # Swallow the write so the exception does not
+                                # abort the PortAudio thread and drop later chunks.
                                 log.debug("host recording writeframes failed", exc_info=True)
                                 return
                         detector = self._silence_detector
@@ -476,10 +473,10 @@ class AudioRecorder:
             if proc is not None and self.temp_filename and self.state.status != "error":
                 try:
                     if auto_path and proc.poll() is not None:
-                        # What was wrong: child process had already exited after auto-stop, but was never reaped,
-                        # leaving its stderr drain thread alive and leaking in _recording_stderr_drains.
-                        # How it happened: this branch only updated self.temp_filename without reaping.
-                        # Why this change fixes it: terminate_recording_process reaps the child and drops the drain.
+                        # The child has already exited after auto-stop.
+                        # Reap it and drop the stderr drain; updating
+                        # temp_filename alone leaves that thread in
+                        # _recording_stderr_drains.
                         terminate_recording_process(proc)
                         self.temp_filename = auto_path
                     elif proc.poll() is None:
@@ -521,11 +518,10 @@ class AudioRecorder:
     def _close_host_wav(self) -> None:
         """Close the host WAV after the capture callback has dropped it.
 
-        What was wrong: Stop set the recorder idle and then closed wav_file
-        while the PortAudio callback could already be inside writeframes.
-        cleanup's failure path never closed the file, so the mic handle
-        stayed open. This waits for _wav_lock, clears the attribute the
-        callback checks, then closes.
+        Stop must not close wav_file while the PortAudio callback can
+        still be inside writeframes, and cleanup's failure path must close
+        the file or the mic handle stays open. This waits for _wav_lock,
+        clears the attribute the callback checks, then closes.
         """
         with self._wav_lock:
             wav = self.wav_file
@@ -543,7 +539,7 @@ class AudioRecorder:
             try:
                 self._apply_event(StopRequestedEvent())
             except Exception:
-                # What was wrong: a failed Stop left the host WAV open. The
+                # A failed Stop must not leave the host WAV open. The
                 # callback can still be inside writeframes, so stop the
                 # stream first (that waits for the callback) and close after.
                 terminate_recording_process(self._proc)

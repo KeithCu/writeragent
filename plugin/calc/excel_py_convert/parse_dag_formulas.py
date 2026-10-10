@@ -37,9 +37,8 @@ def _shared_strings(zf: zipfile.ZipFile) -> list[str]:
 
 def _cell_string_value(c: ET.Element, shared: list[str]) -> str:
     """Read a cell's display/string value (shared string, inlineStr, or ``v``)."""
-    # Bugfix: what was wrong: t is lowercased but was compared to "inlineStr", which never matched.
-    # How it happened: case mismatch between .lower() and CamelCase string literal.
-    # Why this change fixes it: compare to "inlinestr" so inline-string bank cells are read.
+    # t is already lowercased. Compare to "inlinestr", or an inline-string
+    # bank cell never matches "inlineStr".
     t = (c.attrib.get("t") or "").lower()
     if t == "inlinestr":
         is_el = find_child(c, "is")
@@ -70,10 +69,9 @@ def _sheet_cell_map(ws_root: ET.Element, shared: list[str]) -> dict[str, tuple[s
         if not a1:
             continue
         f = find_child(c, "f")
-        # Bugfix: what was wrong: ET already decodes XML entities; calling _unescape_xml
-        # unescaped twice, corrupting Python code containing literal &lt; or &amp;.
-        # How it happened: redundant manual unescape on already-decoded ElementTree text.
-        # Why this change fixes it: use itertext() directly without second unescape.
+        # ElementTree already decodes entities. A second _unescape_xml
+        # corrupts Python that contains a literal &lt; or &amp;. Use
+        # itertext() as decoded.
         formula = "".join(f.itertext()).strip() if f is not None else ""
         if formula and not formula.startswith("="):
             formula = "=" + formula

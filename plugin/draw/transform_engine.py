@@ -75,14 +75,14 @@ def _parse_slide_index(val: Any, current: int, page_count: int, *, clamp: bool =
 def _current_after_move(current: int, from_idx: int, to_idx: int) -> int:
     """Index of the same logical slide after MoveSlide.
 
-    What was wrong: every successful move set ``current_slide`` to the
-    destination, so ``{"MoveSlide.0": 3}`` while sitting on slide 2 left
-    the cursor on the slide that was moved.
-    How it happened: LibreOffice moves page *objects* and the view follows
-    the page that was current. ``DrawViewShell::FuTemporary``
-    (``sd/source/ui/view/drviews2.cxx``, MoveSlide) only jumps to ``nMoveTo``
-    when that page *is* the current one; a page that crosses the current
-    index shifts the current index by one.
+    A successful move does not set ``current_slide`` to the
+    destination. ``{"MoveSlide.0": 3}`` while sitting on slide 2
+    would leave the cursor on the slide that was moved.
+    LibreOffice moves page *objects* and the view follows the page
+    that was current. ``DrawViewShell::FuTemporary``
+    (``sd/source/ui/view/drviews2.cxx``, MoveSlide) only jumps to
+    ``nMoveTo`` when that page *is* the current one; a page that
+    crosses the current index shifts the current index by one.
     """
     if current == from_idx:
         return to_idx
@@ -96,12 +96,13 @@ def _current_after_move(current: int, from_idx: int, to_idx: int) -> int:
 def _current_after_delete(current: int, deleted: int, page_count_after: int) -> int:
     """Index LibreOffice keeps selected after DeleteSlide.
 
-    What was wrong: deleting a slide at or before the current index left
-    ``current_slide`` unchanged, so it named the next physical slot.
-    How it happened: the engine only clamped when the index was past the
-    new end. ``DrawViewShell::FuTemporary`` (``sd/source/ui/view/drviews2.cxx``,
-    DeleteSlide) decrements whenever ``nPageIdToDel <= nActPageId``, then
-    the next command clamps onto a page that still exists.
+    Deleting a slide at or before the current index must decrement
+    ``current_slide``. Leaving it unchanged names the next physical
+    slot. Clamping only when the index is past the new end misses
+    that shift. ``DrawViewShell::FuTemporary``
+    (``sd/source/ui/view/drviews2.cxx``, DeleteSlide) decrements
+    whenever ``nPageIdToDel <= nActPageId``, then the next command
+    clamps onto a page that still exists.
     """
     if deleted <= current:
         current -= 1
@@ -233,12 +234,12 @@ def _set_text_prop(cursor: Any, name: str, value: Any) -> bool:
 def _apply_cursor_uno_format(cursor: Any, uno_name: str, arguments: dict[str, Any]) -> bool:
     """Write a formatting ``.uno`` command onto *cursor*'s selection.
 
-    What was wrong: ``_select_text`` moved an independent ``XTextCursor``,
-    then ``_dispatch_uno_string`` only ``select``ed the shape. Dispatch
-    therefore saw the whole object and Bold/Italic painted every character.
-    How it happened: Draw applies those commands to the text-edit selection
-    (``SdrBeginTextEdit`` + ``EditView::SetSelection`` in ``drviews2.cxx``).
-    The model cursor is not that view selection. Writing the same properties
+    Moving an independent ``XTextCursor`` and then only ``select``ing
+    the shape paints Bold/Italic on every character: the dispatch
+    sees the whole object. Draw applies those commands to the
+    text-edit selection (``SdrBeginTextEdit`` +
+    ``EditView::SetSelection`` in ``drviews2.cxx``). The model
+    cursor is not that view selection. Writing the same properties
     on the cursor formats the range the sub-command selected.
     """
     pairs = _cursor_format_pairs(uno_name, arguments)

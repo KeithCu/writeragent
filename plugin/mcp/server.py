@@ -35,22 +35,24 @@ from __future__ import annotations
 from plugin.framework.thread_guard import background
 import json
 import logging
-import os
 import socket
-import socketserver
-import sys
 import threading
 import weakref
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
+from plugin.framework.http_server import (
+    DualStackThreadPoolHTTPServer,
+    _PORT_IN_USE_GUIDANCE,
+    format_bind_failure,
+    is_port_in_use_error as is_port_in_use_error,
+)
 from plugin.mcp.cors import reject_forbidden_host, reject_forbidden_origin, send_cors_headers
 from plugin.mcp.http_trace import log_cors_preflight, log_http_request, log_no_route
 
 if TYPE_CHECKING:
-    import ssl
     from plugin.mcp.routes import HttpRouteRegistry
 
 log = logging.getLogger("writeragent.framework.http_server")
@@ -72,14 +74,6 @@ def mcp_endpoint_url(host: str, port: int, use_ssl: bool = False) -> str:
     """Full streamable-HTTP MCP URL for external clients (LM Studio, Cursor, etc.)."""
     scheme = "https" if use_ssl else "http"
     return f"{scheme}://{host}:{port}/mcp"
-
-
-# Shared with log.error on bind failure and the Toggle/Status/Settings msgbox so users
-# see the same actionable text that used to live only in writeragent_debug.log (#379).
-_PORT_IN_USE_GUIDANCE = "The port is in use by another process. Close whatever is holding it, or set mcp.mcp_port in Settings (or writeragent.json) to a free port, then try again. A local preview/viewer server may default to the same port."
-
-# errno.EADDRINUSE is 98 (Linux) / 48 (macOS); Windows uses winerror 10048 (WSAEADDRINUSE).
-_PORT_IN_USE_ERRNOS = frozenset({98, 48, 10048})
 
 
 def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = None, indent: int | None = None) -> None:
@@ -126,22 +120,19 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
         err = AgentParsingError("Invalid Content-Length in HTTP request", details={"length": raw_length})
         return None, (400, err)
     if content_length < 0:
-        # What was wrong: BaseHTTPRequestHandler / rfile.read treats a
-        # negative size as "read until EOF". A client sent Content-Length: -1
-        # and the worker blocked until the socket closed.
-        # Why: reject before any read. Same check as before this cap existed.
+        # BaseHTTPRequestHandler / rfile.read treats a negative size as "read
+        # until EOF". Content-Length: -1 would block the worker until the
+        # socket closed. Reject before any read.
         log.warning("Invalid negative Content-Length: %s", content_length)
         err = AgentParsingError("Invalid negative Content-Length in HTTP request", details={"length": content_length})
         return None, (400, err)
     if content_length == 0:
         return {}, None
     if content_length > MCP_HTTP_MAX_BODY_BYTES:
-        # What was wrong: the handler trusted Content-Length and called
-        # rfile.read(content_length) with no ceiling and no socket timeout.
-        # A huge length pinned the worker on the allocation, and a stalled
-        # body pinned it forever.
-        # Why: refuse the length before the read. The handler/server timeout
-        # covers a stall whose declared length is still under the cap.
+        # A trusted Content-Length with no ceiling pins the worker on the
+        # allocation, and a stalled body with no socket timeout pins it
+        # forever. Refuse the length before the read. The handler/server
+        # timeout covers a stall whose declared length is still under the cap.
         log.warning("Rejecting oversized Content-Length: %s", content_length)
         err = AgentParsingError("HTTP body exceeds %s bytes" % MCP_HTTP_MAX_BODY_BYTES, details={"length": content_length, "max": MCP_HTTP_MAX_BODY_BYTES})
         return None, (413, err)
@@ -247,11 +238,11 @@ def _shutdown_sse_socket(sock: Any) -> None:
 def stop_sse_keepalives(tcp_server: Any) -> None:
     """End SSE loops still running on *tcp_server* after the accept loop exits.
 
-    What was wrong: HttpServer.stop() only makes serve_forever() return.
-    Each GET /mcp and GET /sse keepalive stays on its request thread until
-    the client drops or the 15s select timeout, and a restart adds more.
-    Why: set this listener's flag and shut down its registered sockets so
-    those loops exit. The next HttpServer has its own flag.
+    HttpServer.stop() only makes serve_forever() return. Each GET /mcp and
+    GET /sse keepalive stays on its request thread until the client drops or
+    the 15s select timeout, and a restart adds more. Set this listener's flag
+    and shut down its registered sockets so those loops exit. The next
+    HttpServer has its own flag.
     """
     if tcp_server is None:
         return
@@ -265,66 +256,20 @@ def stop_sse_keepalives(tcp_server: Any) -> None:
         _shutdown_sse_socket(sock)
 
 
-def is_port_in_use_error(exc: BaseException) -> bool:
-    """True when *exc* is a bind failure because the TCP port is already taken."""
-    if isinstance(exc, OSError):
-        err = getattr(exc, "errno", None)
-        if err in _PORT_IN_USE_ERRNOS:
-            return True
-        winerr = getattr(exc, "winerror", None)
-        if winerr in _PORT_IN_USE_ERRNOS:
-            return True
-    msg = str(exc).lower()
-    return "address already in use" in msg or "only one usage of each socket address" in msg
-
-
 def format_mcp_start_failure(host: str, port: int | str, exc: BaseException) -> str:
     """Short user-facing body for MCP/HTTP start failures (no full traceback).
 
     Always includes host:port and the exception line. Port conflicts get the same
     guidance as the bind log so the dialog is actionable without opening the debug log.
     """
-    endpoint = f"{host}:{port}"
-    exc_line = f"{type(exc).__name__}: {exc}"
-    lines = [f"Could not bind {endpoint} — {exc_line}"]
-    if is_port_in_use_error(exc):
-        lines.append(_PORT_IN_USE_GUIDANCE)
-    return "\n".join(lines)
+    return format_bind_failure(host, port, exc, service_name="MCP")
 
 
-class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
-    """HTTP server that handles each request in its own thread."""
+class _ThreadedHTTPServer(DualStackThreadPoolHTTPServer):
+    """Dual-stack thread-pooled HTTP server for MCP and local routes."""
 
-    daemon_threads: bool = True
-    allow_reuse_address: bool = os.name != "nt"
     route_registry: HttpRouteRegistry | None = None
-    bind_host: str | None = None
-    ssl_ctx: ssl.SSLContext | None = None
 
-    def get_request(self) -> tuple[Any, Any]:
-        """Accept one connection and bound how long a later recv may block.
-
-        Handler.setup also applies GenericRequestHandler.timeout. Setting it
-        here covers the window before setup, including a client that connects
-        and never sends a request line.
-        """
-        conn, addr = super().get_request()
-        try:
-            conn.settimeout(MCP_HTTP_SOCKET_TIMEOUT_SEC)
-        except OSError:
-            pass
-        if self.ssl_ctx is not None:
-            conn = self.ssl_ctx.wrap_socket(conn, server_side=True, do_handshake_on_connect=False)
-        return conn, addr
-
-    def handle_error(self, request: Any, client_address: Any) -> None:
-        """A stalled read is a closed request, not a traceback on the console."""
-        _typ, exc, _tb = sys.exc_info()
-        if isinstance(exc, TimeoutError):
-            host = client_address[0] if isinstance(client_address, tuple) and client_address else client_address
-            log.info("HTTP read timed out from %s", host)
-            return
-        super().handle_error(request, client_address)
 
 
 class GenericRequestHandler(BaseHTTPRequestHandler):
@@ -451,7 +396,13 @@ class HttpServer:
         # menu for ~4s (5×1s). Stdio clients that start before LO are handled by mcp_bridge.py;
         # callers stash OSError and show _PORT_IN_USE_GUIDANCE in the UI.
         try:
-            self._server = _ThreadedHTTPServer((self.host, self.port), GenericRequestHandler)
+            self._server = _ThreadedHTTPServer(
+                (self.host, self.port),
+                GenericRequestHandler,
+                max_threads=32,
+                thread_name_prefix="mcp-worker",
+                socket_timeout=MCP_HTTP_SOCKET_TIMEOUT_SEC,
+            )
             self._server.route_registry = self.route_registry
             # The configured bind host (e.g. a LAN name) is an allowed Host header
             # alongside loopback and the tunnel host (DNS-rebinding check).
@@ -517,6 +468,13 @@ class HttpServer:
 
             # Join in-flight SSE keepalive threads. We give them a bit of time, shutdown() only shuts down new accept calls.
             for t in threads_to_join:
+                if self._server is not None:
+                    _sse_info = _sse_state(self._server)
+                    live_threads = _sse_info[2]
+                    lock = _sse_info[3]
+                    with lock:
+                        if t not in live_threads:
+                            continue
                 if t.is_alive() and t is not threading.current_thread():
                     t.join(timeout=2.0)
                     if t.is_alive():
@@ -533,13 +491,13 @@ class HttpServer:
                 log.exception("HTTP server error")
         finally:
             # stop() sets _running False before shutdown() and server_close().
-            # What was wrong: when serve_forever returned on its own, this
-            # finally cleared _running and stopped SSE keepalives but left
-            # the listen socket open. stop() then returned immediately, so
-            # server_close() never ran and the port stayed bound.
-            # Call server_close() only on that unexpected exit. The normal
-            # stop() path has already closed the listener, so this branch
-            # does not run and does not close it a second time.
+            # When serve_forever returns on its own, this finally clears
+            # _running and stops SSE keepalives but would leave the listen
+            # socket open. stop() then returns immediately, so server_close()
+            # never runs and the port stays bound. Call server_close() only on
+            # that unexpected exit. The normal stop() path has already closed
+            # the listener, so this branch does not run and does not close it
+            # a second time.
             unexpected = self._running and self._server is server
             self._running = False
             if unexpected:

@@ -72,11 +72,11 @@ def _direct_image_source_arg(model: Any) -> str | None:
 class _SendWorkerQueue:
     """Worker-facing queue bound to the turn that created it.
 
-    What was wrong: image, agent, and web workers called ``Queue.put`` on the
-    drain queue. After Stop or a newer send those items still arrived, and
-    the drain kept a second queue alive to filter them. ``put`` goes through
-    the controller. Once that turn is aborted, the item is dropped. The
-    worker does not assign the queue; the drain attached it.
+    ``put`` goes through the controller. Once that turn is aborted, the
+    item is dropped. Image, agent, and web workers that call ``Queue.put``
+    on the drain queue still deliver after Stop or a newer send, and the
+    drain then keeps a second queue alive to filter them. The worker does
+    not assign the queue; the drain attached it.
     """
 
     _turn: TurnController | None
@@ -127,12 +127,12 @@ def _turn_session_or_stop(host: Any) -> Any:
 def _specialized_tool_error_payload(note: str) -> dict[str, str]:
     """Assistant row for a specialized tool that returned status=error.
 
-    What was wrong: librarian, brainstorm, writing-plan, PPT, deep research,
-    and shallow research painted the error and finished with an empty
-    STREAM_DONE. on_stream_done stores a non-agent row only when
-    assistant_content is non-empty, so the user turn stayed unanswered
-    while the FSM ended Ready. The open transcript is not a history write.
-    Why: the painted note is the assistant message, same as a stream error.
+    The painted note is the assistant message, same as a stream error.
+    Librarian, brainstorm, writing-plan, PPT, deep research, and shallow
+    research that paint the error and finish with an empty STREAM_DONE
+    leave the user turn unanswered: on_stream_done stores a non-agent row
+    only when assistant_content is non-empty, and the FSM still ends Ready.
+    The open transcript is not a history write.
     """
     return {"assistant_content": note.strip()}
 
@@ -149,11 +149,10 @@ _ACTIVE_RUN_FLAGS = (
 def _reset_active_run_flags(host: Any) -> None:
     """Clear temporary active run markers so stale flags do not leak between sends.
 
-    Bugfix: what was wrong: specialized run flags were only deleted inside
-    _execute_web_research_effect. If an error occurred before effect execution,
-    the flag remained set on host and caused the next plain send to route to
-    the wrong specialized tool.
-    Why this change: reset flags at both the start and end of each run.
+    Reset flags at both the start and end of each run. Deleting them only
+    inside _execute_web_research_effect leaves the flag set when an error
+    happens before that effect, and the next plain send routes to the
+    wrong specialized tool.
     """
     for flag in _ACTIVE_RUN_FLAGS:
         setattr(host, flag, False)
@@ -266,14 +265,12 @@ class SendHandlersMixin:
     def _transcribe_audio(self: SendHandlerHost, wav_path: str, stt_model: str) -> str:
         """Transcribe audio synchronously using event pumping on the main thread.
 
-        What was wrong: this called ``transcribe`` with no stop checker.
-        ``run_blocking_in_thread`` pumps the UI, so Stop can cancel the send
-        scope, and a nested send can replace ``_send_cancellation``, while
-        Whisper's ``subprocess.run`` still waited out 900s. The transcript
-        was then posted anyway.
-
-        Why: ``capture_send_stop`` freezes the scope from this send, and the
-        checker is read once more after the transcript returns. Stop does
+        ``capture_send_stop`` freezes the scope from this send, and the
+        checker is read once more after the transcript returns. Without
+        that checker, ``run_blocking_in_thread`` pumps the UI, so Stop can
+        cancel the send scope and a nested send can replace
+        ``_send_cancellation``, while Whisper's ``subprocess.run`` still
+        waits out 900s and the transcript is posted anyway. Stop does
         not kill local Whisper or close the endpoint socket: transcription
         finishes and ``_do_send`` puts the words back in the Ask box instead
         of sending them (see the StopSendEffect invariant in ``panel``).
@@ -393,14 +390,12 @@ class SendHandlersMixin:
             # worker. They touch the mode combo (UNO). Librarian already
             # rides STREAM_DONE; these three do the same.
             #
-            # Bugfix: what was wrong: when a tool error cleared in_*_mode flags,
-            # this method only assigned the host attributes without calling the
-            # on_*_session_finished callbacks or syncing the mode combo box.
-            # How it happened: the error branches set in_*_mode=False in STREAM_DONE
-            # payload, but _finish_specialized_session only looked for success keys
-            # (e.g. librarian_switch_to_chat, brainstorming_finished).
-            # Why this change: when in_*_mode is False, run the same session finished
-            # callback as success, which resets the combo and applies Chat mode.
+            # When in_*_mode is False, run the same session-finished
+            # callback as success. That resets the combo and applies Chat
+            # mode. Error branches set in_*_mode=False in the STREAM_DONE
+            # payload; looking only for success keys
+            # (librarian_switch_to_chat, brainstorming_finished) assigns the
+            # host attributes and leaves the combo on the old mode.
             if payload.get("librarian_switch_to_chat") or payload.get("in_librarian_mode") is False:
                 finished_cb = getattr(self, "on_librarian_session_finished", None)
                 if callable(finished_cb):
@@ -461,11 +456,11 @@ class SendHandlersMixin:
             dispatch_event(StreamDoneEvent(payload))
 
         def on_stopped() -> None:
-            # What was wrong: only agent Stop stored a row. Web and image pass
-            # no on_stopped_callback, and finalize skips rerender after Stop,
-            # so the painted partial never landed in session.messages.
-            # Why: the turn commits the open row and writes the stop line.
+            # The turn commits the open row and writes the stop line.
             # Agent still prefers the non-thinking chunks it accumulated.
+            # Only agent Stop used to store a row. Web and image pass no
+            # on_stopped_callback, and finalize skips rerender after Stop,
+            # so the painted partial never lands in session.messages.
             turn = current_turn(self)
             partial = "".join(agent_parts).strip() if current_state.handler_type == "agent" else None
             if isinstance(turn, TurnController):
@@ -479,11 +474,11 @@ class SendHandlersMixin:
             if isinstance(live, TurnController) and not live.alive:
                 return
             dispatch_event(ErrorEvent(e))
-            # What was wrong: the banner was painted and the user row was
-            # already stored, so the next send had a hole where the assistant
-            # row should be. The tool loop stores that banner with
-            # persist_assistant_on_turn. Why: same write for web, agent, and
-            # image, using the lines handle_error already shows.
+            # Same write for web, agent, and image, using the lines
+            # handle_error already shows. The tool loop stores that banner
+            # with persist_assistant_on_turn. Painting the banner and storing
+            # the user row without this write leaves the next send a hole
+            # where the assistant row should be.
             err_msg = format_error_for_display(e)
             append_text = ui_lines_for_handler_error(current_state.handler_type, err_msg)[1]
             persist_assistant_on_turn(self, content=append_text.strip())
@@ -530,11 +525,11 @@ class SendHandlersMixin:
         current_state = SendHandlerState(handler_type="image", status="ready")
 
         turn_session = _turn_session_or_stop(self)
-        # What was wrong: Image mode painted 'You: <prompt>' twice. The StartEvent
-        # user append folded the prompt into the session, then the spawn effect
-        # called add_user_message again. Why: store it once here, before the
-        # append, like web research; the fold then sees it and only paints.
-        # An aborted turn (None) must not spawn the image worker.
+        # Store the user row once here, before the append, like web
+        # research; the fold then sees it and only paints. The StartEvent
+        # user append already folds the prompt into the session, and the
+        # spawn effect calling add_user_message again paints 'You: <prompt>'
+        # twice. An aborted turn (None) must not spawn the image worker.
         if turn_session is None:
             return
         turn_session.add_user_message(query_text)
@@ -610,11 +605,11 @@ class SendHandlersMixin:
                 else:
                     log.error("Failed to parse generate_image result in _do_send_direct_image")
                     note = "done"
-                # What was wrong: success (and a tool status=error) put
-                # STREAM_DONE {}. on_stream_done stores a non-agent row only
-                # when assistant_content is set, so the [image_generate: …]
-                # note never reached history. Stop and raised errors already
-                # store a row. Why: this note is the assistant message.
+                # This note is the assistant message. Success (and a tool
+                # status=error) that puts STREAM_DONE {} never reaches
+                # history: on_stream_done stores a non-agent row only when
+                # assistant_content is set. Stop and raised errors already
+                # store a row.
                 note_line = "[image_generate: %s]\n" % note
                 q.put((StreamQueueKind.CHUNK, note_line))
                 q.put((StreamQueueKind.STREAM_DONE, {"assistant_content": note_line.strip()}))
@@ -634,11 +629,11 @@ class SendHandlersMixin:
             # to the VCL loop at once, so code placed after the drain call would
             # run before the queued text and terminal slice are flushed.
             #
-            # What was wrong (master): Image-mode Stop showed no
-            # '[Stopped by user]' until a later repaint. Chat and web call
-            # finalize after their drain, which draws the stop line; the image
-            # path never did. Why here: the stop line must follow the final
-            # flush, so finalize runs inside this deferred callback.
+            # The stop line must follow the final flush, so finalize runs
+            # inside this deferred callback. Chat and web call finalize after
+            # their drain, which draws the stop line; the image path has to
+            # do the same or Image-mode Stop shows no '[Stopped by user]'
+            # until a later repaint.
             if self.stop_requested:
                 from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 
@@ -742,9 +737,10 @@ class SendHandlersMixin:
                 mcp_url = self._get_mcp_url()
 
                 # Check if MCP is enabled and running; if so, tell the agent about it.
-                # What was wrong: after "Stop MCP Server" or when stopped, the advertise check only
-                # inspected config (mcp.mcp_enabled), telling the agent the dead endpoint was live.
-                # Why this change: gate advertisement on the MCP server actually running.
+                # Gate advertisement on the MCP server actually running.
+                # After "Stop MCP Server", config (mcp.mcp_enabled) still
+                # says enabled and would tell the agent the dead endpoint
+                # is live.
                 mcp_instructions = ""
                 from plugin.mcp import is_mcp_server_running
 
@@ -777,10 +773,10 @@ class SendHandlersMixin:
                     log.exception("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]", backend_id, doc_type_str)
                     q.put((StreamQueueKind.ERROR, format_error_payload(e)))
             finally:
-                # Bugfix: what was wrong: worker unconditionally cleared _current_agent_backend = None.
-                # How it happened: if a newer send started before this worker finished, it installed its
-                # own backend into self._current_agent_backend, which this worker's finally clobbered.
-                # Why this change: only clear _current_agent_backend if it is still the backend this worker set.
+                # Clear _current_agent_backend only if it is still the
+                # backend this worker set. A newer send can install its own
+                # backend before this worker finishes; an unconditional
+                # clear in finally clobbers that one.
                 if getattr(self, "_current_agent_backend", None) is adapter:
                     self._current_agent_backend = None
 
@@ -1029,8 +1025,9 @@ class SendHandlersMixin:
                         q.put((StreamQueueKind.STOPPED,))
                     return (bool(getattr(event, "approved", False)), getattr(event, "query_override", None))
 
-                # BUGFIX: run_search runs on chatbot-send-handler worker; get_ctx() is main-thread-only.
-                # Panel bootstrap ctx matches tool_loop.execute_fn (async tools marshal UNO reads themselves).
+                # run_search runs on the chatbot-send-handler worker;
+                # get_ctx() is main-thread-only. Panel bootstrap ctx matches
+                # tool_loop.execute_fn (async tools marshal UNO reads themselves).
                 tctx = ToolContext(doc=model, ctx=self.ctx, stop_checker=stop_checker, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=status_cb, append_thinking_callback=thinking_cb, approval_callback=approval_cb, chat_append_callback=chat_append_cb, send_cancellation=cancel_scope, uno_services_supported=getattr(self, "cached_uno_services", None))
 
                 if is_librarian:

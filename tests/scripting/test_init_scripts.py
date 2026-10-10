@@ -182,6 +182,35 @@ def test_init_visible_in_shared_kernel():
     assert r["result"] == 15
 
 
+def test_isolated_init_function_shares_the_seed():
+    """An init helper closes over the init namespace, so its mutations leak.
+
+    Direct ``items.append`` in a cell does not (see
+    ``test_isolated_init_mutation_does_not_leak``). ``add`` is a smolagents
+    function whose state is the init executor, not the per-cell deepcopy.
+    Locked in on purpose.
+    """
+    init_sid = "calc:wb-iso-fn:init"
+    init_code = "items = []\ndef add(x):\n    items.append(x)"
+    h = init_script_hash(init_code)
+    kwargs = {
+        "session_id": None,
+        "init_script": init_code,
+        "init_session_id": init_sid,
+        "init_script_hash": h,
+    }
+    first = run_sandboxed_code("add(1)", **kwargs)
+    assert first["status"] == "ok", first.get("message")
+    second = run_sandboxed_code("result = list(items)", **kwargs)
+    assert second["status"] == "ok", second.get("message")
+    assert second["result"] == [1]
+    third = run_sandboxed_code("add(2)", **kwargs)
+    assert third["status"] == "ok", third.get("message")
+    fourth = run_sandboxed_code("result = list(items)", **kwargs)
+    assert fourth["status"] == "ok", fourth.get("message")
+    assert fourth["result"] == [1, 2]
+
+
 def test_isolated_init_mutation_does_not_leak():
     """A cell that mutates an init list must not change the next isolated cell."""
     init_sid = "calc:wb-iso-mut:init"

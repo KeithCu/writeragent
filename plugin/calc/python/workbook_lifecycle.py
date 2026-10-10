@@ -70,9 +70,9 @@ def _remember_doc_lifecycle_key(doc: Any, key: str) -> None:
                 _LIFECYCLE_KEYS[obj] = key
             except TypeError:
                 doc_id = id(obj)
-                # Bugfix: when PyUNO objects reject weakref, id(obj) was stored without
-                # a strong reference, allowing Python to reuse the id for a different document
-                # and cancel the wrong spill timer. Storing (key, obj) keeps obj alive.
+                # Store (key, obj) so obj stays alive. When a PyUNO object
+                # rejects weakref, id(obj) alone can be reused for a
+                # different document and cancel the wrong spill timer.
                 entry = _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id)
                 previous = entry[0] if entry is not None else None
                 if previous and previous != key:
@@ -184,9 +184,9 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
     def note_calc_identity(self, session_id: str, doc_url: str = "") -> None:
         """Remember a session id this workbook grew after Save.
 
-        Bugfix: an unsaved file's worker id is ``calc:{uuid}``. After Save it
-        becomes ``calc:{file URL}``. The listener kept only the first id, so
-        close reset the uuid session and left the file-URL kernel warm.
+        An unsaved file's worker id is ``calc:{uuid}``. After Save it
+        becomes ``calc:{file URL}``. Keeping only the first id resets the
+        uuid session on close and leaves the file-URL kernel warm.
 
         The session id and URL sets are also read from ``_teardown``, which
         can run on the main thread while this runs off-main. Both sides take
@@ -214,9 +214,8 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
 
     def _retry_reset(self, sid: str) -> None:
         """Retry resetting a worker session that returned WORKER_REENTRY."""
-        # Bugfix: do_retry previously slept up to 5s on the shared worker thread pool
-        # without dedicated=True, risking starvation of other background tasks. Running
-        # as a dedicated background worker avoids blocking the shared pool.
+        # do_retry sleeps up to 5s, so run it on a dedicated background
+        # worker. On the shared pool that sleep starves other tasks.
         last_res: Any = None
         for _ in range(10):
             time.sleep(0.5)
@@ -240,7 +239,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 if isinstance(res, dict) and res.get("status") == "error" and res.get("code") == "WORKER_REENTRY":
                     from plugin.framework.worker_pool import run_in_background
 
-                    # Bugfix: sleeping background jobs must use dedicated=True per AGENTS.md
+                    # A sleeping background job uses dedicated=True (AGENTS.md).
                     run_in_background(
                         lambda s=sid: self._retry_reset(s),
                         name="reset_python_session_retry",
@@ -285,10 +284,10 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             self._reset_sessions(session_ids)
 
     def _teardown(self) -> None:
-        # Bugfix: ``_teardown_done``, the session id, and the extra URL/session
-        # sets were read here while ``note_calc_identity`` wrote them off-main
-        # with no lock. ``tuple(set)`` can raise, and a Save during unload
-        # could leave the new kernel out of the reset list.
+        # Take the lock. _teardown_done, the session id, and the extra
+        # URL and session sets are written by note_calc_identity off the
+        # main thread. tuple(set) can raise, and a Save during unload
+        # can leave the new kernel out of the reset list.
         with _LOCK:
             if self._teardown_done:
                 return

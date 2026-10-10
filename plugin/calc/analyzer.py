@@ -126,10 +126,10 @@ class SheetAnalyzer:
 
             return result
         except Exception as e:
-            # What was wrong: wrapping DisposedException as ToolExecutionError
-            # hid disposal from get_calc_context_for_chat and from get_sheet_summary's
-            # tool path (execute_safe then reported TOOL_EXECUTION_ERROR).
-            # Re-raise so callers still see the original dispose exception.
+            # Re-raise disposal. Wrapping DisposedException as
+            # ToolExecutionError hides it from get_calc_context_for_chat and
+            # from get_sheet_summary (execute_safe then reports
+            # TOOL_EXECUTION_ERROR).
             if is_disposed_exception(e):
                 raise
             log.exception("Error creating sheet summary")

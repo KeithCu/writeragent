@@ -85,13 +85,11 @@ def parse_and_extract_namespaces(data: bytes) -> tuple[ET.Element, dict[str, str
 def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: dict[str, str] | None = None) -> bytes:
     """Serialize *root* to bytes, ensuring all ignorable prefixes are declared on the root element.
 
-    Bugfix:
-    - What was wrong: ElementTree omits xmlns declarations for prefixes not actively used in QNames,
-      causing mc:Ignorable attributes (e.g. mc:Ignorable="x14ac xr") to point at undeclared prefixes,
-      which triggers Excel repair errors.
-    - How it happened: ET only writes xmlns declarations for namespaces found in tags/attribute QNames.
-    - Why this change fixes it: detects prefixes specified in mc:Ignorable and injects missing
-      xmlns:prefix declarations directly into the opening root tag if omitted by ET.
+    ElementTree writes xmlns only for prefixes used in a tag or attribute
+    QName. A prefix listed in ``mc:Ignorable`` (for example ``x14ac xr``)
+    but unused in a QName is omitted, and Excel repairs the file. Detect
+    those prefixes and inject the missing xmlns declaration on the opening
+    root tag.
     """
     out = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     ns_map = dict(STANDARD_OOXML_NAMESPACES)
@@ -130,10 +128,9 @@ def serialize_xml_preserving_namespaces(root: ET.Element, original_namespaces: d
 def resolve_rel_target(rels_path: str, target: str) -> str:
     """Resolve a Relationship Target to a package-relative path (forward slashes).
 
-    Bugfix:
-    - What was wrong: treated leading '/' targets outside 'xl/' as relative to owning directory.
-    - How it happened: stripped leading slash and checked startswith('xl/').
-    - Why this change fixes it: in OPC, a leading slash denotes a package-absolute part path.
+    In OPC a leading slash is a package-absolute part path. Stripping it
+    and testing ``startswith('xl/')`` treats a target outside ``xl/`` as
+    relative to the owning directory.
     """
     norm = target.replace("\\", "/")
     if norm.startswith("/"):

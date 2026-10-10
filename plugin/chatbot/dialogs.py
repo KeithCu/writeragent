@@ -707,13 +707,12 @@ def _dialog_model_element_names(dlg: Any) -> tuple[str, ...]:
 def _translate_model_help_text(model: Any, name: str) -> None:
     """Translate UNO ``HelpText`` the same way labels are translated.
 
-    What was wrong: ``translate_dialog`` only walked type-specific captions
-    (Label, Text, Title, StringItemList). ``HelpText`` never reached ``_()``,
-    so Settings ``dlg:help-text`` stayed English even though those YAML helpers
-    are already in the pot.
+    ``translate_dialog`` walks type-specific captions (Label, Text, Title,
+    StringItemList) and never sees ``HelpText``, so Settings ``dlg:help-text``
+    stays English even though those YAML helpers are already in the pot.
 
     Edit and NumericField are not in ``control_types`` at all, so listing
-    HelpText only on that map would still miss text and number fields.
+    HelpText only on that map still misses text and number fields.
     """
     try:
         if model is None:

@@ -20,11 +20,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from compute_service.config import ComputeSettings, ConfigError, clamp_timeout_sec, load_settings
-from compute_service.executor import execute_code
+from compute_service.formula_worker import execute_code
 from compute_service.formula_pool import shutdown_formula_pool
 from compute_service.json_egress import normalize_execute_response, sanitize_for_strict_json, to_dumb_json_value
 from compute_service.server import create_wsgi_app
-from compute_service.vision_pool import shutdown_vision_pool
+from compute_service.vision import shutdown_vision_pool
 
 
 def _wsgi_post(
@@ -34,6 +34,7 @@ def _wsgi_post(
     path: str = "/v1/session/reset",
     query: str = "",
     headers: dict[str, str] | None = None,
+    send_host: bool = True,
 ) -> tuple[str, list[tuple[str, str]], dict]:
     status_holder: list[str] = []
     header_holder: list[tuple[str, str]] = []
@@ -60,6 +61,8 @@ def _wsgi_post(
                 environ["CONTENT_TYPE"] = value
             else:
                 environ[env_key] = value
+    if send_host and "HTTP_HOST" not in environ:
+        environ["HTTP_HOST"] = "127.0.0.1"
     out = b"".join(app(environ, start_response))
     parsed = json.loads(out.decode("utf-8")) if out else {}
     return status_holder[0], header_holder, parsed
@@ -366,12 +369,11 @@ class TestComputeHttp:
             thread.join(timeout=5)
 
     def test_health_never_starved_when_worker_semaphore_is_saturated(self) -> None:
-        """When calculation requests saturate the worker semaphore, /health must still respond immediately.
+        """When calculation requests wait on the worker semaphore, /health must still respond immediately.
 
-        The worker semaphore limits concurrent worker-waiting requests to worker count via
-        non-blocking admission before request bodies are read. Requests waiting for a worker
-        do not hold HTTP listener threads, guaranteeing that spare listener threads remain
-        strictly free for health probes even when incoming requests exceed pool thread capacity.
+        Admission waits until the request deadline instead of returning 503. A short
+        queue still leaves a listener thread for /health. The overflow calls return
+        200 once the in-flight calculation releases the permit.
         """
         from compute_service.server import WSGIDualStackServer
 
@@ -385,7 +387,7 @@ class TestComputeHttp:
             return {"status": "ok", "result_json": b'{"status":"ok","result":1,"stdout":""}'}
 
         # 1 worker, semaphore size 1. Explicit max_threads=1 is listener_thread_count:
-        # max(8, n + 4) = 8. A semaphore miss is a fast 503 and does not hold a thread.
+        # max(8, n + 4) = 8. Overflow waits on the permit instead of a fast 503.
         sem = threading.Semaphore(1)
         app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port, workers=1), execute_fn=execute_fn, worker_semaphore=sem)
         server = WSGIDualStackServer("127.0.0.1", port, max_threads=1)
@@ -412,9 +414,8 @@ class TestComputeHttp:
                     out_list.append((599, str(exc)))
 
             # Six posters, one worker permit. Listener threads are max(8, 1 + 4) = 8.
-            # The semaphore is non-blocking: a miss is a fast 503 and does not hold
-            # a listener. Health must still return, and the five executes that miss
-            # the permit must 503.
+            # Overflow waits. Health must still return, and every execute is 200
+            # once the permit is released.
             for idx in range(6):
                 p = threading.Thread(target=_post, args=(results[idx],))
                 p.start()
@@ -429,18 +430,10 @@ class TestComputeHttp:
                 assert json.loads(resp.read().decode())["status"] == "healthy"
                 assert t_elapsed < 0.5, f"/health took too long: {t_elapsed:.3f}s"
 
-            # The permit is taken inside the handler, before the body is read, and only
-            # by routes that wait on a worker. Releasing the in-flight execute first
-            # let accepts still sitting in the backlog or the listener queue take that
-            # permit and return 200 (CI: six 200s, no WORKER_POOL_BUSY). One of the six
-            # calls is inside execute and cannot finish until hold is set, so the other
-            # five responses have to arrive as 503s while the permit is still held.
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline and sum(1 for item in results if item) < 5:
-                time.sleep(0.01)
-            shed = [item[0] for item in results if item]
-            assert len(shed) >= 5, f"overflow was not rejected while the worker was held: {results!r}"
-            assert all(status == 503 and isinstance(body, dict) and body.get("code") == "WORKER_POOL_BUSY" for status, body in shed)
+            # The in-flight calculation still holds the permit. Overflow must be
+            # waiting, not already answered with 503.
+            time.sleep(0.05)
+            assert not any(item for item in results), f"overflow answered while the worker was held: {results!r}"
         finally:
             hold.set()
             for p in posters:
@@ -449,18 +442,15 @@ class TestComputeHttp:
             server.server_close()
             thread.join(timeout=5)
 
-        # 1 active calculation succeeded (200), and 5 excess requests received fast 503 WORKER_POOL_BUSY
         statuses = [r[0][0] for r in results if r]
-        assert statuses.count(200) == 1
-        assert statuses.count(503) == 5
-        busy_codes = [r[0][1].get("code") for r in results if r and r[0][0] == 503]
-        assert all(c == "WORKER_POOL_BUSY" for c in busy_codes)
+        assert statuses.count(200) == 6
+        assert statuses.count(503) == 0
 
-    def test_slow_upload_rejected_fast_when_workers_busy(self) -> None:
-        """When workers are busy, incoming requests are rejected before reading the body.
+    def test_slow_upload_waits_when_workers_busy(self) -> None:
+        """When workers are busy, a new request waits instead of returning 503.
 
-        A slow client streaming a large request body does not occupy an HTTP listener
-        thread or block /health when all workers are leased.
+        The body stays unread until a permit is held. /health still answers
+        during that short wait.
         """
         from compute_service.server import WSGIDualStackServer
 
@@ -500,9 +490,10 @@ class TestComputeHttp:
             assert started.wait(timeout=5)
 
             # Send headers with Content-Length: 1000000 but send no body data.
-            # Because semaphore is checked before body read, server responds 503 immediately.
+            # Admission waits for a permit before the body is read, so this
+            # does not get an immediate 503.
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(2.0)
+            sock.settimeout(0.4)
             sock.connect(("127.0.0.1", port))
             req_headers = (
                 b"POST /v1/execute HTTP/1.1\r\n"
@@ -511,25 +502,17 @@ class TestComputeHttp:
                 b"Content-Length: 1000000\r\n\r\n"
             )
             sock.sendall(req_headers)
-            chunks: list[bytes] = []
-            while True:
-                try:
-                    c = sock.recv(4096)
-                    if not c:
-                        break
-                    chunks.append(c)
-                except OSError:
-                    break
-            sock.close()
-            full_resp = b"".join(chunks)
-
-            assert b"503 Service Unavailable" in full_resp
-            assert b"WORKER_POOL_BUSY" in full_resp
+            try:
+                early = sock.recv(4096)
+            except OSError:
+                early = b""
+            assert b"503 Service Unavailable" not in early
 
             # /health remains immediately responsive
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as resp:
                 assert resp.status == 200
                 assert json.loads(resp.read().decode())["status"] == "healthy"
+            sock.close()
         finally:
             hold.set()
             if poster is not None:
@@ -537,6 +520,90 @@ class TestComputeHttp:
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
+
+    def test_brief_pool_wait_returns_200_not_503(self) -> None:
+        """A permit held for a few milliseconds queues the next call. It does not 503.
+
+        This service runs at 200-400 rps, so that wait is the steady state.
+        """
+        hold = threading.Event()
+        started = threading.Event()
+        release_seen = threading.Event()
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            if not started.is_set():
+                started.set()
+                assert hold.wait(timeout=5)
+                release_seen.set()
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
+
+        sem = threading.Semaphore(1)
+        entered_wait = threading.Event()
+        real_acquire = sem.acquire
+
+        def watching_acquire(*args: Any, **kwargs: Any) -> bool:
+            if started.is_set() and not release_seen.is_set():
+                entered_wait.set()
+            acquired = real_acquire(*args, **kwargs)
+            return bool(acquired)
+
+        sem.acquire = watching_acquire  # type: ignore[method-assign]
+        app = create_wsgi_app(ComputeSettings(workers=1), execute_fn=execute_fn, worker_semaphore=sem)
+        body = json.dumps({"code": "result = 1"}).encode("utf-8")
+        first = threading.Thread(target=lambda: _wsgi_post(app, body, path="/v1/execute"))
+        first.start()
+        assert started.wait(timeout=5)
+        answered = threading.Event()
+        outcome: dict[str, tuple[str, dict[str, Any]]] = {}
+
+        def second() -> None:
+            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+            outcome["out"] = (status, parsed)
+            answered.set()
+
+        waiter = threading.Thread(target=second)
+        waiter.start()
+        assert entered_wait.wait(timeout=5)
+        assert not answered.is_set()
+        hold.set()
+        assert answered.wait(timeout=5)
+        first.join(timeout=5)
+        waiter.join(timeout=5)
+        status, parsed = outcome["out"]
+        assert status.startswith("200")
+        assert parsed.get("code") != "WORKER_POOL_BUSY"
+
+    def test_pool_busy_until_deadline_returns_503(self) -> None:
+        """503 only after the admission deadline, not on a brief busy.
+
+        Production default_timeout_sec is 30s. This case is that timeout,
+        shortened so the suite does not sleep 30s. It is not the brief queue
+        at 200-400 rps.
+        """
+        hold = threading.Event()
+        started = threading.Event()
+
+        def execute_fn(**_kwargs: Any) -> dict[str, Any]:
+            started.set()
+            assert hold.wait(timeout=5)
+            return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
+
+        app = create_wsgi_app(
+            ComputeSettings(workers=1, default_timeout_sec=1),
+            execute_fn=execute_fn,
+        )
+        body = json.dumps({"code": "result = 1"}).encode("utf-8")
+        first = threading.Thread(target=lambda: _wsgi_post(app, body, path="/v1/execute"))
+        first.start()
+        assert started.wait(timeout=5)
+        t0 = time.perf_counter()
+        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+        elapsed = time.perf_counter() - t0
+        hold.set()
+        first.join(timeout=5)
+        assert elapsed >= 0.7
+        assert status.startswith("503")
+        assert parsed.get("code") == "WORKER_POOL_BUSY"
 
     def test_simple_execution(self, compute_url: str) -> None:
         body = _post_execute(compute_url, {"code": "result = 3 ** 4"})
@@ -761,10 +828,11 @@ class TestComputeSettings:
         status, headers, body = _wsgi_post(app, b"{}", headers={"Host": "127.0.0.1:8000"})
         assert status.startswith("400")
 
-        # No Origin and no Host gets 400 (allows absent Host)
-        status, headers, body = _wsgi_post(app, b"{}", headers={})
-        assert status.startswith("400")
-        assert body.get("code") != "CROSS_ORIGIN_REFUSED"
+        # No Origin and no Host is 403. HTTP/1.0 may omit Host; that used to
+        # skip the loopback check.
+        status, headers, body = _wsgi_post(app, b"{}", headers={}, send_host=False)
+        assert status.startswith("403")
+        assert body.get("code") == "CROSS_ORIGIN_REFUSED"
 
     def test_keyed_cors_and_dns_rebinding_allowed(self) -> None:
         app = create_wsgi_app(
@@ -781,6 +849,16 @@ class TestComputeSettings:
                 "Host": "evil.example:8000",
                 "Authorization": "Bearer secret"
             }
+        )
+        assert status.startswith("400")
+        assert body.get("code") != "CROSS_ORIGIN_REFUSED"
+
+        # A key allows a missing Host. The loopback check is keyless only.
+        status, headers, body = _wsgi_post(
+            app,
+            b"{}",
+            headers={"Authorization": "Bearer secret"},
+            send_host=False,
         )
         assert status.startswith("400")
         assert body.get("code") != "CROSS_ORIGIN_REFUSED"
@@ -1265,6 +1343,7 @@ class TestRequestBodyLimits:
             "PATH_INFO": "/v1/execute",
             "REQUEST_METHOD": "POST",
             "CONTENT_LENGTH": "-1",
+            "HTTP_HOST": "127.0.0.1",
             "wsgi.input": io.BytesIO(b'{"code":"result=1"}' * 5000),
         }
         body = b"".join(app(environ, start_response))
@@ -1290,6 +1369,7 @@ class TestRequestBodyLimits:
             "PATH_INFO": "/v1/execute",
             "REQUEST_METHOD": "POST",
             "CONTENT_LENGTH": str(len(real_body)),
+            "HTTP_HOST": "127.0.0.1",
             "wsgi.input": io.BytesIO(truncated),
         }
         body = b"".join(app(environ, start_response))
@@ -1312,9 +1392,10 @@ class TestRequestBodyLimits:
             "PATH_INFO": "/v1/vision",
             "REQUEST_METHOD": "POST",
             "CONTENT_LENGTH": str(len(payload)),
+            "HTTP_HOST": "127.0.0.1",
             "wsgi.input": io.BytesIO(payload),
         }
-        with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+        with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
             body = b"".join(app(environ, start_response))
         assert status_holder[0].startswith("500")
         parsed = json.loads(body)
@@ -1520,7 +1601,7 @@ class TestSessionResetHttp:
         }
         app = create_wsgi_app(ComputeSettings())
         payload = json.dumps({"id": "v-busy", "image_b64": "YQ=="}).encode("utf-8")
-        with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+        with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
             status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
         assert status.startswith("503")
         assert body.get("code") == "VISION_POOL_BUSY"
@@ -1543,7 +1624,7 @@ class TestSessionResetHttp:
             }
             app = create_wsgi_app(ComputeSettings())
             payload = json.dumps({"id": "v-file", "image_b64": "YQ=="}).encode("utf-8")
-            with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+            with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
                 status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
             assert status.startswith(expect), code
             assert body.get("code") == code
@@ -1559,7 +1640,7 @@ class TestSessionResetHttp:
         }
         app = create_wsgi_app(ComputeSettings())
         payload = json.dumps({"id": "v-missing", "image_b64": "YQ=="}).encode("utf-8")
-        with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+        with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
             status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
         assert status.startswith("503")
         assert body.get("code") == "VISION_UNAVAILABLE"
@@ -1605,17 +1686,11 @@ class TestSessionResetHttp:
             for thread in threads:
                 thread.start()
             assert both_in.wait(timeout=5)
-            deadline = time.monotonic() + 2.0
-            busy: list[tuple[str, str | None]] = []
-            while time.monotonic() < deadline:
-                with results_lock:
-                    busy = [item for item in results if item[0].startswith("503")]
-                if len(busy) >= 4:
-                    break
-                time.sleep(0.01)
-            assert busy == [("503 Service Unavailable", "WORKER_POOL_BUSY")] * 4
+            time.sleep(0.05)
+            with results_lock:
+                assert not any(item[0].startswith("503") for item in results)
             assert entered_count == 2
-            with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+            with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
                 vstatus, _vheaders, vbody = _wsgi_post(app, payload, path="/v1/vision")
             assert vstatus.startswith("200")
             assert vbody.get("code") != "VISION_POOL_BUSY"
@@ -1624,6 +1699,8 @@ class TestSessionResetHttp:
             hold.set()
             for thread in threads:
                 thread.join(timeout=5)
+        assert len(results) == 6
+        assert all(status.startswith("200") for status, _code in results)
 
     def test_vision_permits_do_not_starve_formula_admission(self) -> None:
         """The reverse of the shared-permit bug: a full vision pool must not 503 execute."""
@@ -1661,19 +1738,13 @@ class TestSessionResetHttp:
 
         threads = [threading.Thread(target=post) for _ in range(5)]
         try:
-            with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+            with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
                 for thread in threads:
                     thread.start()
                 assert all_in.wait(timeout=5)
-                deadline = time.monotonic() + 2.0
-                busy: list[tuple[str, str | None]] = []
-                while time.monotonic() < deadline:
-                    with results_lock:
-                        busy = [item for item in results if item[0].startswith("503")]
-                    if len(busy) >= 1:
-                        break
-                    time.sleep(0.01)
-                assert busy == [("503 Service Unavailable", "VISION_POOL_BUSY")]
+                time.sleep(0.05)
+                with results_lock:
+                    assert not any(item[0].startswith("503") for item in results)
                 assert entered_count == 4
                 estatus, _eheaders, ebody = _wsgi_post(
                     app,
@@ -1686,6 +1757,8 @@ class TestSessionResetHttp:
             hold.set()
             for thread in threads:
                 thread.join(timeout=5)
+        assert len(results) == 5
+        assert all(status.startswith("200") for status, _code in results)
 
     def test_non_ascii_bearer_and_key_file(self, tmp_path) -> None:
         """hmac.compare_digest on str raises TypeError for non-ASCII. That escaped the WSGI app."""
@@ -1818,7 +1891,7 @@ class TestSessionResetHttp:
     @pytest.mark.parametrize("raw_id", [b"1e9999", b"NaN", b"Infinity"])
     def test_vision_nonfinite_id_is_400(self, raw_id: bytes) -> None:
         """A non-finite vision id used to crash the response, then the 500 fallback."""
-        from compute_service.vision_pool import shutdown_vision_pool
+        from compute_service.vision import shutdown_vision_pool
 
         app = create_wsgi_app(ComputeSettings())
         try:
@@ -1834,7 +1907,7 @@ class TestSessionResetHttp:
             shutdown_vision_pool()
 
     def test_vision_overflow_timeout_is_json(self) -> None:
-        from compute_service.vision_pool import shutdown_vision_pool
+        from compute_service.vision import shutdown_vision_pool
 
         app = create_wsgi_app(ComputeSettings())
         try:
@@ -1904,6 +1977,7 @@ class TestSessionResetHttp:
             "QUERY_STRING": "",
             "CONTENT_TYPE": "application/json",
             "CONTENT_LENGTH": str(len(body)),
+            "HTTP_HOST": "127.0.0.1",
             "wsgi.input": io.BytesIO(body),
             "compute.accept_time": time.monotonic() - 5.0,
         }
@@ -1913,6 +1987,91 @@ class TestSessionResetHttp:
         assert parsed.get("code") == "QUEUE_TIMEOUT"
         assert parsed.get("id") == "late"
         assert parsed.get("status") == "error"
+
+    def test_execute_admission_waits_for_request_timeout(self) -> None:
+        """timeout_ms above the default is not cut off at default_timeout_sec.
+
+        What was wrong: the permit wait used default_timeout_sec before the
+        body was parsed, so a 600s cell got 503 after 30s of queueing.
+        """
+        # ocr_timeout_sec defaults to 60 and must stay <= max_timeout_sec.
+        settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
+        app = create_wsgi_app(
+            settings,
+            execute_fn=lambda **_kwargs: {"status": "ok"},
+            worker_semaphore=threading.Semaphore(0),
+        )
+        body = json.dumps({"id": "slow", "code": "result = 1", "timeout_ms": 1500}).encode("utf-8")
+        holder: list[tuple[str, dict]] = []
+
+        def run() -> None:
+            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+            holder.append((status, parsed))
+
+        started = time.monotonic()
+        thread = threading.Thread(target=run)
+        thread.start()
+        # Past the 1s default. 1500ms clamps to 2s.
+        thread.join(timeout=1.3)
+        assert thread.is_alive()
+        thread.join(timeout=2.0)
+        elapsed = time.monotonic() - started
+        assert not thread.is_alive()
+        assert elapsed >= 1.7
+        assert holder
+        status, parsed = holder[0]
+        assert status.startswith("503")
+        assert parsed.get("code") == "WORKER_POOL_BUSY"
+        assert parsed.get("id") == "slow"
+
+    def test_execute_admission_uses_default_when_timeout_omitted(self) -> None:
+        settings = ComputeSettings(default_timeout_sec=1, max_timeout_sec=30, ocr_timeout_sec=1, workers=1)
+        app = create_wsgi_app(
+            settings,
+            execute_fn=lambda **_kwargs: {"status": "ok"},
+            worker_semaphore=threading.Semaphore(0),
+        )
+        body = json.dumps({"id": "def", "code": "result = 1"}).encode("utf-8")
+        holder: list[tuple[str, dict]] = []
+
+        def run() -> None:
+            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute")
+            holder.append((status, parsed))
+
+        started = time.monotonic()
+        thread = threading.Thread(target=run)
+        thread.start()
+        thread.join(timeout=2.5)
+        elapsed = time.monotonic() - started
+        assert not thread.is_alive()
+        assert elapsed < 2.0
+        assert holder[0][0].startswith("503")
+        assert holder[0][1].get("code") == "WORKER_POOL_BUSY"
+
+    def test_vision_admission_waits_for_request_timeout(self) -> None:
+        settings = ComputeSettings(ocr_timeout_sec=1, max_timeout_sec=30, ocr_workers=0)
+        app = create_wsgi_app(settings, vision_semaphore=threading.Semaphore(0))
+        body = json.dumps({"id": "vslow", "image_b64": "abcd", "timeout_ms": 1500}).encode("utf-8")
+        holder: list[tuple[str, dict]] = []
+
+        def run() -> None:
+            status, _headers, parsed = _wsgi_post(app, body, path="/v1/vision")
+            holder.append((status, parsed))
+
+        started = time.monotonic()
+        thread = threading.Thread(target=run)
+        thread.start()
+        thread.join(timeout=1.3)
+        assert thread.is_alive()
+        thread.join(timeout=2.0)
+        elapsed = time.monotonic() - started
+        assert not thread.is_alive()
+        assert elapsed >= 1.7
+        assert holder
+        status, parsed = holder[0]
+        assert status.startswith("503")
+        assert parsed.get("code") == "VISION_POOL_BUSY"
+        assert parsed.get("id") == "vslow"
 
     def test_unknown_mode_is_400(self) -> None:
         def execute_fn(**_kwargs):
@@ -2129,10 +2288,9 @@ class TestListenerQueue:
         """A busy accept pool queues the connection. It does not 503 and close it.
 
         The executor queue is unbounded, so an extra accept waits for a thread.
-        A worker or vision semaphore miss is a different gate: non-blocking,
-        HTTP 503, and it does not hold a listener.
+        A worker or vision permit waits until the request deadline, then 503.
         """
-        from compute_service.server import DualStackThreadPoolHTTPServer
+        from compute_service.http_server import DualStackThreadPoolHTTPServer
 
         server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _AcceptedConnectionHandler, max_threads=1)
         hold = threading.Event()
@@ -2176,7 +2334,8 @@ def test_flatten_config_json_rejects_api_key() -> None:
 
 def test_sticky_slots_scale_with_formula_workers() -> None:
     """Four formula workers used to share one sticky listener slot."""
-    from compute_service.server import listener_thread_count, service_listener_threads, sticky_listener_slots
+    from compute_service.http_server import listener_thread_count
+    from compute_service.server import service_listener_threads, sticky_listener_slots
 
     wide = ComputeSettings(workers=4, ocr_workers=0)
     assert sticky_listener_slots(wide) == 4
@@ -2209,6 +2368,28 @@ def test_dict_worker_fault_is_http_500(code: str) -> None:
     assert status_holder[0].startswith("500")
     assert parsed.get("code") == code
     assert parsed.get("id") == "fault-1"
+
+
+def test_empty_result_json_is_500() -> None:
+    """Empty result_json used to fall through and json.dumps a dict of bytes."""
+    from compute_service.server import _send_execution_result
+
+    status_holder: list[str] = []
+
+    def start_response(status: str, resp_headers: list) -> None:
+        status_holder.append(status)
+        del resp_headers
+
+    out = _send_execution_result(
+        start_response,
+        {"status": "ok", "result_json": b""},
+        "empty-1",
+    )
+    parsed = json.loads(b"".join(out))
+    assert status_holder[0].startswith("500")
+    assert parsed.get("code") == "EMPTY_RESPONSE"
+    assert parsed.get("id") == "empty-1"
+    assert "result_json" not in parsed
 
 
 def test_result_json_worker_fault_bytes_are_forwarded_at_200() -> None:
@@ -2311,7 +2492,7 @@ def test_partial_bind_address_in_use_raises() -> None:
     """
     import errno
 
-    from compute_service.server import DualStackThreadPoolHTTPServer
+    from compute_service.http_server import DualStackThreadPoolHTTPServer
 
     holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     holder.bind(("127.0.0.1", 0))
@@ -2387,7 +2568,7 @@ def test_expect_100_continue_before_body() -> None:
 
 def test_dual_stack_closes_tcpserver_throwaway_socket(monkeypatch) -> None:
     """TCPServer.__init__ opens a socket even when bind_and_activate is False."""
-    from compute_service.server import DualStackThreadPoolHTTPServer
+    from compute_service.http_server import DualStackThreadPoolHTTPServer
 
     created: list[socket.socket] = []
     real_socket = socket.socket
@@ -2414,6 +2595,12 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr("compute_service.server.check_dependencies", lambda pool: None)
     monkeypatch.setattr("compute_service.formula_pool.get_formula_pool", lambda settings: MagicMock())
+    # Real shutdown(permanent=True) sets _closed even when no pool exists and
+    # would poison later tests in this process. Assert the calls instead.
+    formula_shutdown = MagicMock()
+    vision_shutdown = MagicMock()
+    monkeypatch.setattr("compute_service.formula_pool.shutdown_formula_pool", formula_shutdown)
+    monkeypatch.setattr("compute_service.vision.shutdown_vision_pool", vision_shutdown)
     import plugin.scripting.payload_codec as payload_codec
 
     monkeypatch.setattr(payload_codec, "load_cython_accelerator", lambda: None)
@@ -2430,12 +2617,16 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
     assert "Failed to bind 127.0.0.1:1" in err
     assert "Address already in use" in err
     assert "Traceback" not in err
+    formula_shutdown.assert_called_once_with(permanent=True)
+    vision_shutdown.assert_called_once_with(permanent=True)
 
     monkeypatch.setattr("compute_service.server.load_settings", lambda **_kwargs: settings)
     assert main([]) == 1
     err = capsys.readouterr().err
     assert "Traceback" not in err
     assert "Failed to bind 127.0.0.1:1" in err
+    assert formula_shutdown.call_count == 2
+    assert vision_shutdown.call_count == 2
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
@@ -2580,7 +2771,8 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
 
 def test_run_worker_stdio_loop_handles_non_dict_return(monkeypatch) -> None:
     """When a worker handler returns non-dict, run_worker_stdio_loop formats an error dict."""
-    from compute_service.worker_base import read_pickle_frame, run_worker_stdio_loop, write_pickle_frame
+    from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+    from compute_service.worker_base import run_worker_stdio_loop
 
     stdin_buf = io.BytesIO()
     stdout_buf = io.BytesIO()
@@ -2627,7 +2819,7 @@ def test_ocr_path_is_allowed_nonexistent_file(tmp_path) -> None:
 
 def test_clamp_timeout_sec_infinite_and_nan() -> None:
     """clamp_timeout_sec must handle OverflowError and non-finite floats gracefully."""
-    from compute_service.executor import clamp_timeout_sec
+    from compute_service.config import clamp_timeout_sec
 
     assert clamp_timeout_sec(float("inf"), default_timeout_sec=30) == 30
     assert clamp_timeout_sec(float("-inf"), default_timeout_sec=30) == 30
@@ -2661,7 +2853,7 @@ def test_address_string_avoids_reverse_dns() -> None:
 
 def test_clamp_timeout_sec_boolean() -> None:
     """clamp_timeout_sec must treat booleans as invalid and return default_timeout_sec."""
-    from compute_service.executor import clamp_timeout_sec
+    from compute_service.config import clamp_timeout_sec
 
     assert clamp_timeout_sec(True, default_timeout_sec=30) == 30
     assert clamp_timeout_sec(False, default_timeout_sec=30) == 30
@@ -2701,8 +2893,8 @@ def test_log_level_cli_arg() -> None:
         assert settings.log_level == "WARNING"
 
 
-def test_accept_time_tracked_on_server() -> None:
-    """_DeadlineRequestHandler must read accept time from the server's tracking dictionary."""
+def test_accept_time_tracked_on_connection() -> None:
+    """The accept map is keyed by the connection object, not id(conn)."""
     from compute_service.server import WSGIDualStackServer
 
     server = WSGIDualStackServer("127.0.0.1", 0, max_threads=1)
@@ -2712,7 +2904,7 @@ def test_accept_time_tracked_on_server() -> None:
         mock_conn = MagicMock()
         handler.connection = mock_conn
         handler.server = server.srv
-        handler.server._accept_times[id(mock_conn)] = 12345.678
+        handler.server._accept_times[mock_conn] = 12345.678
         handler.client_address = ("127.0.0.1", 54321)
         handler.request_version = "HTTP/1.1"
         handler.command = "GET"
@@ -2726,6 +2918,122 @@ def test_accept_time_tracked_on_server() -> None:
             assert environ.get("compute.accept_time") == 12345.678
     finally:
         server.server_close()
+        assert len(server.srv._accept_times) == 0
+
+
+def test_wsgi_app_uses_the_current_formula_pool() -> None:
+    """A replaced formula pool is used on the next execute and session reset.
+
+    What was wrong: create_wsgi_app cached pool.execute and reset_session on
+    first use. shutdown_formula_pool() plus a new pool left those bound methods
+    pointing at the dead pool.
+    """
+    first = MagicMock()
+    second = MagicMock()
+    first.execute.return_value = {"status": "ok", "result": 1}
+    second.execute.return_value = {"status": "ok", "result": 2}
+    first.reset_session.return_value = {"status": "ok"}
+    second.reset_session.return_value = {"status": "ok"}
+    current = {"pool": first}
+
+    def get_pool(_settings: object = None) -> MagicMock:
+        return current["pool"]
+
+    payload = json.dumps({"code": "result = 1"}).encode("utf-8")
+    with patch("compute_service.formula_pool.get_formula_pool", side_effect=get_pool) as get_mock:
+        app = create_wsgi_app(ComputeSettings())
+        status, _headers, body = _wsgi_post(
+            app,
+            payload,
+            path="/v1/execute",
+            headers={"Content-Type": "application/json"},
+        )
+        assert status.startswith("200")
+        assert body["result"] == 1
+        reset_status, _reset_headers, reset_body = _wsgi_post(app, b"{}", query="session_id=wb1")
+        assert reset_status.startswith("200")
+        assert reset_body["status"] == "ok"
+        first.execute.assert_called_once()
+        first.reset_session.assert_called_once()
+        assert first.reset_session.call_args.args[0] == "wb1"
+
+        current["pool"] = second
+        status, _headers, body = _wsgi_post(
+            app,
+            payload,
+            path="/v1/execute",
+            headers={"Content-Type": "application/json"},
+        )
+        assert status.startswith("200")
+        assert body["result"] == 2
+        reset_status, _reset_headers, reset_body = _wsgi_post(app, b"{}", query="session_id=wb1")
+        assert reset_status.startswith("200")
+        assert reset_body["status"] == "ok"
+        second.execute.assert_called_once()
+        second.reset_session.assert_called_once()
+        assert first.execute.call_count == 1
+        assert first.reset_session.call_count == 1
+        assert get_mock.call_count == 4
+
+
+def test_run_with_logging_deadline_skips_second_status_after_headers() -> None:
+    """A raise after start_response must not call start_response again.
+
+    What was wrong: _run_with_logging_and_deadline called _error after action
+    had already sent headers, and only swallowed wsgiref's AssertionError.
+    The exception now propagates so _gated can see that headers started.
+    """
+    from compute_service.server import _run_with_logging_and_deadline
+
+    calls: list[str] = []
+
+    def start_response(status: str, headers: list[tuple[str, str]], exc_info: object = None) -> None:
+        del headers, exc_info
+        if calls:
+            raise AssertionError("Headers already set!")
+        calls.append(status)
+
+    def action(start_t: float) -> list[bytes]:
+        del start_t
+        start_response("200 OK", [("Content-Type", "application/json")])
+        raise RuntimeError("late")
+
+    with pytest.raises(RuntimeError, match="late"):
+        _run_with_logging_and_deadline(
+            start_response,
+            label="/v1/execute",
+            req_id="late",
+            deadline=time.monotonic() + 5,
+            start_msg="exec",
+            action=action,
+        )
+    assert calls == ["200 OK"]
+
+
+def test_run_with_logging_deadline_errors_before_headers() -> None:
+    """A raise before headers propagates. _gated sends the JSON 500."""
+    from compute_service.server import _run_with_logging_and_deadline
+
+    calls: list[str] = []
+
+    def start_response(status: str, headers: list[tuple[str, str]], exc_info: object = None) -> None:
+        del headers, exc_info
+        calls.append(status)
+
+    def action(start_t: float) -> list[bytes]:
+        del start_t
+        raise RuntimeError("early")
+
+    with pytest.raises(RuntimeError, match="early"):
+        _run_with_logging_and_deadline(
+            start_response,
+            label="/v1/execute",
+            req_id="early",
+            deadline=time.monotonic() + 5,
+            start_msg="exec",
+            action=action,
+        )
+    assert calls == []
 
 
 def test_real_socket_queue_timeout() -> None:
@@ -2844,6 +3152,42 @@ def test_session_reset_passes_bounded_timeout() -> None:
     assert 0 < seen[0] <= 5.0
 
 
+def test_vision_unknown_helper_is_400() -> None:
+    """An unknown helper used to reach the worker and come back as 500."""
+
+    class _Pool:
+        def execute(self, **_kwargs: Any) -> dict[str, Any]:
+            raise AssertionError("unknown helper must not reach the pool")
+
+    app = create_wsgi_app(ComputeSettings())
+    payload = json.dumps({"id": "bad-h", "helper": "detect_objects", "image_b64": "YQ=="}).encode("utf-8")
+    with patch("compute_service.vision.get_vision_pool", return_value=_Pool()):
+        status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+    assert status.startswith("400")
+    assert body.get("code") == "INVALID_REQUEST"
+    assert body.get("id") == "bad-h"
+    assert "detect_objects" in str(body.get("error"))
+
+
+def test_vision_blank_helper_defaults_to_extract_text() -> None:
+    seen: list[str] = []
+
+    class _Pool:
+        def execute(self, **kwargs: Any) -> dict[str, Any]:
+            seen.append(str(kwargs.get("helper")))
+            return {"status": "ok", "id": kwargs.get("req_id")}
+
+    app = create_wsgi_app(ComputeSettings())
+    with patch("compute_service.vision.get_vision_pool", return_value=_Pool()):
+        absent = json.dumps({"id": "def-h", "image_b64": "YQ=="}).encode("utf-8")
+        blank = json.dumps({"id": "def-h", "helper": "  ", "image_b64": "YQ=="}).encode("utf-8")
+        for payload in (absent, blank):
+            status, _headers, parsed = _wsgi_post(app, payload, path="/v1/vision")
+            assert status.startswith("200")
+            assert parsed.get("status") == "ok"
+    assert seen == ["extract_text", "extract_text"]
+
+
 def test_vision_missing_image_is_400_with_code() -> None:
     """A vision request with no image used to be a generic 400 with no code."""
     app = create_wsgi_app(ComputeSettings())
@@ -2852,6 +3196,17 @@ def test_vision_missing_image_is_400_with_code() -> None:
     assert status.startswith("400")
     assert body.get("code") == "MISSING_IMAGE_SOURCE"
     assert body.get("id") == "no-image"
+
+
+def test_vision_blank_file_path_is_missing_image_source() -> None:
+    """A blank file_path is no path. The worker's INVALID_FILE_PATH is not this response."""
+    app = create_wsgi_app(ComputeSettings())
+    for raw_path in ("", "   "):
+        payload = json.dumps({"id": "blank-path", "helper": "extract_text", "file_path": raw_path}).encode("utf-8")
+        status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
+        assert status.startswith("400")
+        assert body.get("code") == "MISSING_IMAGE_SOURCE"
+        assert body.get("id") == "blank-path"
 
 
 def test_vision_rejects_image_and_file_path_together() -> None:
@@ -2985,8 +3340,8 @@ def test_isolated_mode_with_session_id_rejected() -> None:
 
 
 def test_header_deadline_fires_inside_handle() -> None:
-    """A request line that arrives after the accept deadline must not block for the per-recv timeout."""
-    from compute_service.server import DeadlineRequestHandler
+    """A request line that arrives after the accept deadline returns 408 instead of a traceback."""
+    from compute_service.http_server import DeadlineRequestHandler
 
     client, server_sock = socket.socketpair()
     try:
@@ -2999,11 +3354,14 @@ def test_header_deadline_fires_inside_handle() -> None:
         handler.wfile = wfile
         handler.client_address = ("127.0.0.1", 0)
         handler.close_connection = True
-        handler.server = type("Srv", (), {"_accept_times": {id(server_sock): time.monotonic() - 100.0}})()
+        handler.server = type("Srv", (), {"_accept_times": {server_sock: time.monotonic() - 100.0}})()
         started = time.monotonic()
-        with pytest.raises(socket.timeout):
-            handler.handle()
+        handler.handle()
         assert time.monotonic() - started < 2.0
+        client.settimeout(1.0)
+        raw = client.recv(4096)
+        assert b"408" in raw
+        assert b"Request read timeout" in raw
     finally:
         client.close()
         server_sock.close()
@@ -3041,26 +3399,102 @@ def test_slow_body_drip_is_408() -> None:
     assert statuses[0].startswith("408")
 
 
+def test_body_settimeout_failure_is_408() -> None:
+    """A failed settimeout must not leave the previous socket timeout in force."""
+    from compute_service.server import _read_request_body
+
+    class _Boom:
+        def settimeout(self, _value: float) -> None:
+            raise OSError("cannot arm deadline")
+
+    class _Drip:
+        def read1(self, n: int) -> bytes:
+            time.sleep(5)
+            return b"x" * n
+
+    statuses: list[str] = []
+
+    def start_response(status: str, _headers: list, _exc_info: Any = None) -> None:
+        statuses.append(status)
+
+    environ = {
+        "CONTENT_LENGTH": "1000",
+        "wsgi.input": _Drip(),
+        "compute.connection": _Boom(),
+        "compute.accept_time": time.monotonic(),
+    }
+    started = time.monotonic()
+    body, err = _read_request_body(environ, ComputeSettings(), start_response)
+    assert time.monotonic() - started < 1.0
+    assert body is None
+    assert err is not None
+    assert statuses[0].startswith("408")
+
+
+def test_string_accept_time_does_not_raise() -> None:
+    """A non-numeric accept timestamp starts the clock now instead of HTTP 500."""
+    from compute_service.server import _read_request_body
+
+    payload = b'{"code":"result = 1"}'
+    statuses: list[str] = []
+
+    def start_response(status: str, _headers: list, _exc_info: Any = None) -> None:
+        statuses.append(status)
+
+    environ = {
+        "CONTENT_LENGTH": str(len(payload)),
+        "wsgi.input": io.BytesIO(payload),
+        "compute.accept_time": "not-a-float",
+    }
+    body, err = _read_request_body(environ, ComputeSettings(), start_response)
+    assert err is None
+    assert body == payload
+    assert statuses == []
+
+
 def test_drain_restores_socket_timeout() -> None:
     from compute_service.server import _drain_body_before_error
 
     class _Conn:
-        def __init__(self) -> None:
-            self.timeout = 30.0
+        def __init__(self, timeout: float | None) -> None:
+            self.timeout = timeout
 
-        def gettimeout(self) -> float:
+        def gettimeout(self) -> float | None:
             return self.timeout
 
-        def settimeout(self, value: float) -> None:
+        def settimeout(self, value: float | None) -> None:
+            self.timeout = value
+
+    class _Unread:
+        def __init__(self) -> None:
+            self.timeout = 30.0
+            self.set_calls = 0
+
+        def gettimeout(self) -> float:
+            raise OSError("cannot read timeout")
+
+        def settimeout(self, value: float | None) -> None:
+            self.set_calls += 1
             self.timeout = value
 
     class _Body:
         def read(self, n: int) -> bytes:
             return b"x" * n
 
-    conn = _Conn()
-    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": conn, "wsgi.input": _Body()})
+    body = _Body()
+    conn = _Conn(30.0)
+    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": conn, "wsgi.input": body})
     assert conn.timeout == 30.0
+
+    # None is blocking. It must be restored, not left at the 1s drain budget.
+    blocking = _Conn(None)
+    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": blocking, "wsgi.input": body})
+    assert blocking.timeout is None
+
+    unread = _Unread()
+    _drain_body_before_error({"CONTENT_LENGTH": "10", "compute.connection": unread, "wsgi.input": body})
+    assert unread.set_calls == 0
+    assert unread.timeout == 30.0
 
 
 def test_gated_does_not_start_response_twice() -> None:
@@ -3090,6 +3524,7 @@ def test_gated_does_not_start_response_twice() -> None:
                     "REQUEST_METHOD": "POST",
                     "QUERY_STRING": "",
                     "CONTENT_LENGTH": "2",
+                    "HTTP_HOST": "127.0.0.1",
                     "wsgi.input": io.BytesIO(b"{}"),
                 },
                 start_response,
@@ -3099,11 +3534,46 @@ def test_gated_does_not_start_response_twice() -> None:
     assert out == b""
 
 
+def test_gated_prepare_exception_is_json_internal_error() -> None:
+    """An unexpected prepare failure stays on the JSON error path and takes no permit.
+
+    What was wrong: prepare ran before the try that maps route failures to
+    INTERNAL_ERROR, so a body-read bug escaped as an HTML 500.
+    """
+    from compute_service.server import _gated
+
+    statuses: list[str] = []
+
+    def start_response(status: str, headers: list[tuple[str, str]], exc_info: object = None) -> None:
+        del headers, exc_info
+        statuses.append(status)
+
+    def prepare(_start: Any) -> tuple[float, list[bytes] | None]:
+        raise RuntimeError("prepare blew up")
+
+    sem = threading.Semaphore(1)
+    body = _gated(
+        {"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"},
+        start_response,
+        ComputeSettings(),
+        sem,
+        admission_timeout_sec=1.0,
+        busy_code="WORKER_POOL_BUSY",
+        busy_message="busy",
+        route_fn=lambda _start: [],
+        prepare=prepare,
+    )
+    assert statuses == ["500 Internal Server Error"]
+    assert b"INTERNAL_ERROR" in b"".join(body)
+    assert sem.acquire(timeout=0)
+    assert not sem.acquire(timeout=0)
+
+
 def test_sticky_cap_leaves_isolated_execute_free() -> None:
     """Sticky permits do not consume the isolated-execute gate.
 
     workers=4 gets one sticky slot per formula worker. Filling those slots
-    returns 503 for another sticky call. An isolated call still runs.
+    queues another sticky call until a slot frees. An isolated call still runs.
     """
     from compute_service.server import sticky_listener_slots
 
@@ -3130,14 +3600,22 @@ def test_sticky_cap_leaves_isolated_execute_free() -> None:
             results.append((status, parsed.get("code") if isinstance(parsed, dict) else None))
 
     threads = [threading.Thread(target=post_sticky, args=(f"sticky-{i}",)) for i in range(slots)]
+    overflow_thread: threading.Thread | None = None
     for thread in threads:
         thread.start()
     try:
         for _unused in range(slots):
             assert entered.acquire(timeout=5)
-        status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query="session_id=sticky-overflow")
-        assert status.startswith("503")
-        assert parsed.get("code") == "WORKER_POOL_BUSY"
+        overflow: dict[str, tuple[str, dict[str, Any]]] = {}
+
+        def post_overflow() -> None:
+            status, _headers, parsed = _wsgi_post(app, body, path="/v1/execute", query="session_id=sticky-overflow")
+            overflow["out"] = (status, parsed)
+
+        overflow_thread = threading.Thread(target=post_overflow)
+        overflow_thread.start()
+        time.sleep(0.05)
+        assert "out" not in overflow
         isolated, _iheaders, ibody = _wsgi_post(
             app,
             json.dumps({"code": "result = 1"}).encode("utf-8"),
@@ -3149,6 +3627,11 @@ def test_sticky_cap_leaves_isolated_execute_free() -> None:
         hold.set()
         for thread in threads:
             thread.join(timeout=5)
+        if overflow_thread is not None:
+            overflow_thread.join(timeout=5)
+    overflow_status, overflow_body = overflow["out"]
+    assert overflow_status.startswith("200")
+    assert overflow_body.get("code") != "WORKER_POOL_BUSY"
     assert len(results) == slots
     assert all(status.startswith("200") for status, _code in results)
 
@@ -3158,7 +3641,7 @@ def test_invalid_base64_and_params_are_400() -> None:
     fake_pool.execute.return_value = {"id": "b64", "status": "error", "code": "INVALID_BASE64", "error": "bad"}
     app = create_wsgi_app(ComputeSettings(ocr_workers=1))
     payload = json.dumps({"id": "b64", "image_b64": "!!!!"}).encode("utf-8")
-    with patch("compute_service.vision_pool.get_vision_pool", return_value=fake_pool):
+    with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
         status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
     assert status.startswith("400")
     assert body.get("code") == "INVALID_BASE64"

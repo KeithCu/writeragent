@@ -663,3 +663,25 @@ def test_bind_and_reset_named_scripts_executor():
     reset_named_scripts_executor(token)
     assert _current_executor.get() is orig
 
+
+def test_bind_does_not_leak_context_when_attach_fails(monkeypatch: pytest.MonkeyPatch):
+    """A failed attach must not leave _current_executor set.
+
+    What was wrong: bind set the ContextVar and then attached. The token
+    is returned only on success, so _run_on_executor's finally never reset
+    it when attach raised.
+    """
+    from types import SimpleNamespace
+
+    from plugin.scripting.named_scripts import _current_executor, bind_named_scripts_executor
+
+    def boom(executor: object) -> None:
+        del executor
+        raise RuntimeError("attach failed")
+
+    monkeypatch.setattr("plugin.scripting.named_scripts.attach_named_script_libraries", boom)
+    orig = _current_executor.get()
+    with pytest.raises(RuntimeError, match="attach failed"):
+        bind_named_scripts_executor(SimpleNamespace())
+    assert _current_executor.get() is orig
+

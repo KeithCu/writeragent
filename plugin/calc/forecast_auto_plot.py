@@ -58,12 +58,11 @@ def merge_forecast_plot_data(history_data: Any, forecast_result: dict[str, Any],
 
         grid = history_data
         if is_calc_range_payload(history_data):
-            # What was wrong: the merged plot was a single cell containing the
-            # whole envelope, so Date/Value columns were missing and auto-plot
-            # dropped the history (or drew garbage).
-            # How: _resolve_python_data returns a calc_range dict, and
-            # coerce_to_dataframe wraps an unrecognized dict as a 1×1 cell.
-            # Why: materialize the envelope to its rectangular values first.
+            # Materialize the envelope to its rectangular values first.
+            # _resolve_python_data returns a calc_range dict, and
+            # coerce_to_dataframe wraps an unrecognized dict as a 1×1 cell,
+            # so the Date and Value columns disappear and auto-plot drops
+            # the history.
             from plugin.scripting.calc_range import materialize_calc_range
 
             grid = materialize_calc_range(history_data).values
@@ -162,10 +161,10 @@ def run_auto_plot_after_forecast(uno_ctx: Any, doc: Any, *, forecast_helper: str
     if viz_helper not in HELPER_NAMES:
         return None
 
-    # What was wrong: every auto-plot raised AttributeError after a successful forecast.
-    # How: this imported calc_tool_context from plugin.scripting.forecast, which
-    # does not define it (it lives on plugin.calc.analysis_runner).
-    # Why: use the same import as helper_domain / quant / viz / python_runner.
+    # calc_tool_context lives on plugin.calc.analysis_runner, the same
+    # import helper_domain, quant, viz, and python_runner use. Importing it
+    # from plugin.scripting.forecast raises AttributeError after a
+    # successful forecast.
     from plugin.calc.analysis_runner import calc_tool_context
     from plugin.calc.calc_addin_data import _resolve_python_data
     from plugin.framework.queue_executor import execute_on_main_thread

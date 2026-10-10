@@ -206,28 +206,25 @@ def _redact_secret_from_log_text(text: str, secret: str) -> str:
 def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[str, Any]:
     """Parse an HTTP 200 provider body as a JSON object.
 
-    What was wrong: callers used ``safe_json_loads`` without ``strict=True``.
-    That ladder repairs truncated model text, so a cut-off envelope such as
+    ``safe_json_loads`` without ``strict=True`` repairs truncated model text,
+    so a cut-off envelope such as
     ``{"choices":[{"message":{"content":"hel`` became a dict and looked like a
     finished reply. A JSON array was not ``None``, then ``.get`` ran outside
-    the request ``try``.
-    Why: provider envelopes are not model text. ``parse_strict_json`` is
-    ``json.loads`` only (the peel walker stays out of this path), and only a
-    dict is a response.
+    the request ``try``. Provider envelopes are not model text.
+    ``parse_strict_json`` is ``json.loads`` only, and only a dict is a response.
     """
     parsed = parse_strict_json(raw)
     if not isinstance(parsed, dict):
         raise NetworkError("LLM response was not JSON", code="BAD_RESPONSE", details={"url": path})
-    # What was wrong: the stream loop raises on {"error": ...} inside HTTP 200,
-    # but sync chat, images, and STT treated that body as a finished reply.
-    # chat_completion_sync then returned "". Why: same check as the stream loop.
-    # finish_reason=length with empty content is a different, documented case.
+    # The stream loop raises on {"error": ...} inside HTTP 200. Sync chat,
+    # images, and STT must do the same, or that body looks like a finished
+    # reply and chat_completion_sync returns "". finish_reason=length with
+    # empty content is a different, documented case.
     stream_err = _stream_error_message(parsed)
     if stream_err is not None:
-        # What was wrong: the stream loop redacted an echoed API key, but sync
-        # chat, images, and STT raised the raw provider string from HTTP 200.
-        # How: this helper had no credential. Why: the caller passes the key
-        # the same way the stream loop does. Do not retry a finished body.
+        # The stream loop redacts an echoed API key. Sync chat, images, and
+        # STT must do the same, or HTTP 200 raises the raw provider string.
+        # The caller passes the key. Do not retry a finished body.
         stream_err = _redact_secret_from_log_text(stream_err, api_key)
         raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
     return parsed
@@ -306,10 +303,10 @@ def _exit_code_from_provider_body(err_body: str) -> str | None:
 def _peek_live_ollama_num_ctx(client: Any) -> int | None:
     """Cached Ollama runtime num_ctx for crash copy / 500 logs. Never raises.
 
-    What was wrong: this called ``query_ollama_runtime_num_ctx``, which POSTs
-    ``/api/show`` (10s) while ``llm_request_lane`` is still held on the HTTP 500
-    path. Format the 500 from the body we already have. Read num_ctx only when
-    a previous probe filled the show cache. Do not start a new HTTP call here.
+    ``query_ollama_runtime_num_ctx`` POSTs ``/api/show`` (10s) while
+    ``llm_request_lane`` is still held on the HTTP 500 path. Format the 500
+    from the body we already have. Read num_ctx only when a previous probe
+    filled the show cache. Do not start a new HTTP call here.
     """
     try:
         if client._get_provider() != "ollama":
@@ -442,9 +439,8 @@ class LlmClient:
         api_key = str(self.config.get("api_key") or "").strip()
         # Keep the existing response-body ERROR line, but never echo the key if
         # a provider (or proxy) reflected it in the error text.
-        # What was wrong: logging raw path in Provider API Error printed query parameters, potentially exposing ?key=... API keys in the log.
-        # How it happened: path was passed directly to log.error without stripping query parameters.
-        # Why this change fixes it: strip the query string with _path_without_query(path) and redact any secret from the logged path.
+        # A leftover ``?key=`` on the path must not land in the log. Strip the
+        # query and redact any echoed secret before logging.
         safe_path = _redact_secret_from_log_text(_path_without_query(path), api_key)
         log.error("Provider API Error %d: %s (provider=%s path=%s request_model=%r)", response.status, _redact_secret_from_log_text(err_body, api_key), self._get_provider(), safe_path, request_model)
         n_ctx = _peek_live_ollama_num_ctx(self) if response.status == 500 else None
@@ -553,11 +549,9 @@ class LlmClient:
 
         # Legacy fallback for simple/manual endpoints: if an api_key exists and no
         # auth header was added (e.g. style='none' or unknown provider), add Bearer.
-        # What was wrong: an explicit null api_key (key present, value None)
-        # called str.strip on None and raised AttributeError. Other call sites
-        # already use ``str(... or "")``.
-        # How: .get returns None when the key is set to null, so the "" default
-        # never applied. Why: treat null like a missing key and omit Bearer.
+        # ``.get("api_key", "")`` still returns None when the key is present and
+        # null, and str.strip on None raises AttributeError. Treat null like a
+        # missing key and omit Bearer. Other call sites already use ``str(... or "")``.
         api_key = str(self.config.get("api_key") or "").strip()
         if api_key and "Authorization" not in h and "x-api-key" not in h:
             reject_control_chars_in_api_key(api_key)
@@ -625,12 +619,11 @@ class LlmClient:
             max_tokens = 512
 
         messages = prepare_chat_messages(messages, self._get_provider(), prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
-        # What was wrong: each provider shim received the model's tool call
-        # unchanged, and an empty properties object was not a schema until
-        # execute. Hallucinated kwargs on a no-arg tool were still in the
-        # request every shim built. How: one allow-list, including
-        # properties {}, runs here before build_chat_request. Why: OpenAI
-        # and Anthropic then format the same checked call.
+        # One allow-list, including properties {}, runs here before any shim
+        # builds the request. Otherwise each shim forwarded the model's tool
+        # call unchanged, and hallucinated kwargs on a no-arg tool stayed in
+        # the request until execute. OpenAI and Anthropic then format the
+        # same checked call.
         from plugin.framework.tool_schema import normalize_outbound_tool_calls
 
         messages = normalize_outbound_tool_calls(messages, tools)
@@ -663,13 +656,12 @@ class LlmClient:
         Returns ``("ok", parsed)`` or ``("stop", None)``. The stream loop stays
         separate: it tracks ``emitted_any`` and parses SSE.
 
-        What was wrong: ``_request_json`` and the sync half of
-        ``request_with_tools`` each owned this loop. Image and speech only
-        watched ``self._stopped``, so a caller's stop checker slept out a 429
-        and never got a retry status. A connection error after ``read()``
-        had already returned the body re-posted the request.
-        Why: one loop. Stop is a result the caller maps (raise vs stop dict).
-        Bytes already in hand are not sent again.
+        ``_request_json`` and the sync half of ``request_with_tools`` each
+        owned this loop. Image and speech only watched ``self._stopped``, so
+        a caller's stop checker slept out a 429 and never got a retry status.
+        A connection error after ``read()`` had already returned the body
+        re-posted the request. One loop: Stop is a result the caller maps
+        (raise vs stop dict). Bytes already in hand are not sent again.
         """
         abort_checker = self._abort_checker(stop_checker)
         if self._stopped or (stop_checker and stop_checker()):
@@ -750,9 +742,8 @@ class LlmClient:
                 from plugin.framework.client.base_provider_shim import adjust_image_body_for_rejection
                 new_body = adjust_image_body_for_rejection(body, str(e))
                 if new_body and (stop_checker is None or not stop_checker()):
-                    # What was wrong: logging the full adjusted request body at WARNING dumped multi-MB base64 image data into writeragent_debug.log.
-                    # How it happened: new_body.decode("utf-8") was passed directly to log.warning without truncation.
-                    # Why this change fixes it: truncate the body preview to 500 characters and include the total character count.
+                    # The adjusted body is multi-MB base64. Log a 500-character
+                    # preview plus the total length, not the whole payload.
                     body_text = new_body.decode("utf-8", errors="replace")
                     body_preview = f"{body_text[:500]}... [total {len(body_text)} chars]" if len(body_text) > 500 else body_text
                     log.warning("Image API rejected params, retrying with adjusted body: %s", body_preview)
@@ -809,16 +800,14 @@ class LlmClient:
             except NetworkError as e:
                 if self._stopped or getattr(e, "code", None) == "STOPPED":
                     raise
-                # What was wrong: a bare ``except Exception`` under this handler
-                # treated a parse error or a bug in the native-audio path as
-                # "this model cannot take input_audio" and POSTed
-                # /audio/transcriptions. How: chat_completion_sync raises
-                # ValueError, JSONDecodeError, or any other non-network error
-                # before an HTTP failure, and that handler logged and fell
-                # through. Why: only a transport failure is a reason to try the
-                # transcription endpoint. AuthError is re-raised above. Stop and
-                # USER_STOPPED are not NetworkError, so they propagate instead of
-                # being posted again. Any other exception propagates too.
+                # Only a transport failure is a reason to try
+                # /audio/transcriptions. chat_completion_sync raises ValueError,
+                # JSONDecodeError, or other non-network errors before an HTTP
+                # failure; treating those as "this model cannot take
+                # input_audio" would POST the transcription endpoint for a
+                # bug. AuthError is re-raised above. Stop and USER_STOPPED
+                # are not NetworkError, so they propagate. Any other exception
+                # propagates too.
                 log.exception("Multimodal transcription failed; falling back to stt endpoint")
 
         endpoint = self._endpoint()
@@ -857,8 +846,8 @@ class LlmClient:
         log.debug("STT Model: %s" % model_name)
 
         # Same transport as chat so Stop closes the socket and 429/503 retries.
-        # What was wrong: passing api_path drops the endpoint's own path prefix.
-        # Why: get_url_path_and_query keeps both the prefix and the API path.
+        # Passing api_path alone drops the endpoint's own path prefix.
+        # get_url_path_and_query keeps both.
         req_path = get_url_path_and_query(url)
         res = self._request_json("POST", req_path, body_bytes, headers, stop_checker=stop_checker, status_callback=status_callback)
         return res.get("text", "") if isinstance(res, dict) else str(res)
@@ -887,14 +876,13 @@ class LlmClient:
         wait_index = 0
         emitted_any = False
         while True:
-            # What was wrong: on_delta wrote role, usage, and a buffered
-            # "<think" prefix into the caller's snapshot before any callback
-            # ran. emitted_any stayed false, so an overload or connection
-            # retry called accumulate_delta again and added prompt_tokens /
-            # completion_tokens and concatenated that prefix. How: a usage-only
-            # chunk and a partial tag never call on_content. Why: drop only
-            # that attempt, and only while nothing has been shown. Once
-            # emitted_any is set this does not run, so shown text stays.
+            # on_delta writes role, usage, and a buffered "<think" prefix into
+            # the caller's snapshot before any callback runs. emitted_any stays
+            # false for a usage-only chunk and a partial tag, so an overload or
+            # connection retry would call accumulate_delta again and add
+            # prompt_tokens / completion_tokens and concatenate that prefix.
+            # Drop only that attempt, and only while nothing has been shown.
+            # Once emitted_any is set this does not run, so shown text stays.
             # The first call clears an empty snapshot; a later call drops the
             # failed attempt before the next send.
             if not emitted_any and reset_unemitted_attempt is not None:
@@ -965,12 +953,12 @@ class LlmClient:
                         if content_finished:
                             continue
 
-                        # What was wrong: this checked only the caller's stop_checker.
                         # stop() sets _stopped and closes the socket, but http.client
-                        # can already have buffered SSE lines, and those were still
-                        # parsed and passed to on_content when the caller passed no
-                        # checker. abort_checker includes the latch, same as the
-                        # pre-send and retry-sleep paths.
+                        # can already have buffered SSE lines. Checking only the
+                        # caller's stop_checker still parsed those and passed
+                        # them to on_content when the caller passed no checker.
+                        # abort_checker includes the latch, same as the pre-send
+                        # and retry-sleep paths.
                         if abort_checker():
                             log.debug("streaming_loop: Stop requested.")
                             last_finish_reason = "stop"
@@ -1033,11 +1021,9 @@ class LlmClient:
                             raise NetworkError(_("Stream ended with finish_reason=error"), code="STREAM_ERROR")
 
                         if thinking:
-                            # What was wrong: emitted_any flipped only when
-                            # on_thinking was set. A reasoning delta still
-                            # reached on_delta, and a socket drop retried that
-                            # text. Count the bytes even if the UI callback is
-                            # missing.
+                            # A reasoning delta still reaches on_delta even when
+                            # on_thinking is missing. Count those bytes, or a
+                            # socket drop retries text the UI already has.
                             emitted_any = True
                             if on_thinking:
                                 on_thinking(thinking)
@@ -1045,9 +1031,9 @@ class LlmClient:
                             pieces = think_tag_splitter.feed(content)
                             for is_think, text_piece in pieces:
                                 if is_think:
-                                    # What was wrong: <think> text called on_thinking
-                                    # without setting emitted_any. A drop during the
-                                    # reasoning block retried and duplicated it.
+                                    # <think> text must set emitted_any. A drop during
+                                    # the reasoning block would otherwise retry
+                                    # and duplicate it.
                                     if text_piece:
                                         emitted_any = True
                                         if on_thinking:
@@ -1064,14 +1050,14 @@ class LlmClient:
 
                                         raise NetworkError(_("The model is repeating the same chunk (infinite loop). Try again or use a different model."), code="INFINITE_LOOP")
                         if raw_tool_calls:
-                            # What was wrong: emitted_any flipped only for thinking or
-                            # content text. Tool-call deltas still called on_delta, and
-                            # accumulate_delta concatenates function.name and arguments
-                            # onto a snapshot created outside the retry loop. A socket
-                            # drop after those chunks retried and merged a second copy
-                            # of the call. Count tool-call bytes like emitted text so
-                            # the retry branch raises CONNECTION_LOST. Do not clear or
-                            # replay the snapshot; callbacks have already run.
+                            # Tool-call deltas still call on_delta, and
+                            # accumulate_delta concatenates function.name and
+                            # arguments onto a snapshot created outside the
+                            # retry loop. A socket drop after those chunks would
+                            # merge a second copy of the call. Count tool-call
+                            # bytes like emitted text so the retry branch raises
+                            # CONNECTION_LOST. Do not clear or replay the
+                            # snapshot; callbacks have already run.
                             emitted_any = True
                         outgoing: dict[str, Any] | None = delta if isinstance(delta, dict) else None
                         if usage_obj:
@@ -1091,25 +1077,22 @@ class LlmClient:
                         continue
 
                     if not content_finished and not last_finish_reason:
-                        # What was wrong: a socket that closed gracefully but early
-                        # (truncated stream) was treated as a successful answer.
-                        # How: iterate_sse finishes quietly on EOF, and this loop
-                        # returned whatever finish_reason was last seen (None).
-                        # Why: treat a missing [DONE] / finish_reason as a drop.
-                        # This raises a real connection error so the outer loop
-                        # can retry it (if nothing emitted) or surface CONNECTION_LOST.
+                        # iterate_sse finishes quietly on EOF, so a socket that
+                        # closed early looked like a successful answer with
+                        # finish_reason None. A missing [DONE] / finish_reason
+                        # is a drop. Raise a real connection error so the outer
+                        # loop can retry (if nothing was emitted) or surface
+                        # CONNECTION_LOST.
                         raise ConnectionResetError("Stream truncated without [DONE] or finish_reason")
 
                     log.info("LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s", self._get_provider(), requested_model, used_model or requested_model, last_finish_reason)
 
                     # Flush any trailing buffered text from the think tag splitter
                     # (trailing buffer contains small tag prefix remnants like '<' at EOF).
-                    # What was wrong: Stop broke out of the read and then this
-                    # flush still called on_content for a partial "<think" prefix.
-                    # How: the splitter holds at most the tag prefix, and the
-                    # flush runs after the loop whether the stream ended or Stop
-                    # closed the socket. Why: a completed stream still needs the
-                    # flush; Stop must not paint that prefix into the sidebar.
+                    # The splitter holds at most a tag prefix. Flushing after Stop
+                    # would still call on_content for a partial "<think". A
+                    # completed stream still needs the flush; Stop must not
+                    # paint that prefix into the sidebar.
                     if not self._stopped:
                         for is_think, text_piece in think_tag_splitter.flush():
                             if is_think and text_piece:
@@ -1122,15 +1105,13 @@ class LlmClient:
                                 on_content(text_piece)
                     clean_finish = not self._stopped
                 finally:
-                    # What was wrong: STREAM_ERROR, INFINITE_LOOP, finish_reason
-                    # error, and any other raised stream exception fell into
-                    # response.read() and waited out the rest of the generation
-                    # (up to request_timeout, holding llm_request_lane).
-                    # How: the finally drained whenever Stop had not latched,
-                    # including when the loop raised or retried.
-                    # Why: drain only after a clean finish so the keep-alive
-                    # socket can be reused. Every other exit closes. Stop still
-                    # skips the drain (B13).
+                    # STREAM_ERROR, INFINITE_LOOP, finish_reason error, and any
+                    # other raised stream exception must not fall into
+                    # response.read(). That waits out the rest of the generation
+                    # (up to request_timeout, holding llm_request_lane). Drain
+                    # only after a clean finish so the keep-alive socket can be
+                    # reused. Every other exit closes. Stop still skips the
+                    # drain (B13).
                     if clean_finish:
                         try:
                             remaining = response.read()
@@ -1147,12 +1128,11 @@ class LlmClient:
                             pass
 
             except CONNECTION_ERRORS as e:
-                # What was wrong: Stop after the first token was reported as
-                # CONNECTION_LOST. How: stop() closes the socket, so the blocked
-                # read raises here, and this branch only looked at emitted_any.
-                # Why: a latched Stop (or the abort checker) is a user cancel,
-                # same as the pre-token path. A real drop still refuses retry
-                # once any token reached the UI.
+                # stop() closes the socket, so the blocked read raises here.
+                # Looking only at emitted_any reported Stop after the first
+                # token as CONNECTION_LOST. A latched Stop (or the abort
+                # checker) is a user cancel, same as the pre-token path. A
+                # real drop still refuses retry once any token reached the UI.
                 if self._stopped or abort_checker():
                     self._stopped = True
                     self._close_connection()
@@ -1313,9 +1293,11 @@ class LlmClient:
             except NetworkError:
                 raise
             except Exception as e:
-                # What was wrong: malformed response envelopes (e.g. missing keys or wrong shape) raised raw KeyError/TypeError/AttributeError from the shim, bypassing caller NetworkError handling.
-                # How it happened: parse_sync_response(result) was called outside any try-except block on the sync path.
-                # Why this change fixes it: wrap extraction exceptions in NetworkError(code="BAD_RESPONSE") chained with `from e`.
+                # A malformed envelope (missing keys, wrong shape) raises
+                # KeyError/TypeError/AttributeError from the shim. Wrap those
+                # in NetworkError(code="BAD_RESPONSE") so callers that handle
+                # NetworkError see them. WriterAgentException and disposal
+                # still propagate.
                 if isinstance(e, WriterAgentException) or is_disposed_exception(e):
                     raise
                 err_msg = format_error_message(e)
@@ -1328,13 +1310,12 @@ class LlmClient:
             reasoning_replay = extract_reasoning_replay_from_response(sync_message=message)
 
         # Shared post-processing.
-        # What was wrong: every 'stop' that carried tool_calls was rewritten to
-        # 'tool_calls', including a Stop/abort that had already delivered a
-        # partial tool-call delta. The UI then tried to run that call. A model
-        # that actually finishes with stop plus a complete tool_calls list still
-        # remaps. Skip only when this client latched Stop (_stopped), which the
-        # in-loop abort checker and the streaming connection-error 'stop' path
-        # both set before returning.
+        # A model that finishes with stop plus a complete tool_calls list
+        # remaps to tool_calls. Skip that when this client latched Stop
+        # (_stopped): a Stop/abort that already delivered a partial tool-call
+        # delta must not look like a call the UI should run. The in-loop abort
+        # checker and the streaming connection-error 'stop' path both set
+        # _stopped before returning.
         if last_finish_reason == "stop" and tool_calls and not self._stopped:
             last_finish_reason = "tool_calls"
 

@@ -196,10 +196,9 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
             ret = fn(ctx, doc, result, **kwargs)
         else:
             ret = fn(ctx, doc, result)
-        # What was wrong: int(ret) raised when an inserter returned a non-integer or unexpected type
-        # after a successful insert, displaying "Failed to insert result".
-        # How it happened: int(ret) was called unconditionally when ret was not None.
-        # Why this change: Return ret only when it is already an int (and not a bool), else None.
+        # int(ret) raises when an inserter returns a non-integer after a
+        # successful insert, and the UI shows "Failed to insert result".
+        # Return ret only when it is already an int and not a bool, else None.
         if isinstance(ret, int) and not isinstance(ret, bool):
             return ret
         return None
@@ -258,11 +257,9 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
         try:
             fn = _resolve_fn(w.is_result)
         except ImportError as exc:
-            # What was wrong: In bundles where optional domain modules are omitted (e.g. LibrePy excludes duckdb_sql),
-            # resolving is_result raises ModuleNotFoundError / ImportError.
-            # How it happened: is_result resolved module attributes without handling ImportError, causing plain Calc results
-            # to abort result routing in _finish_rps_execution with an insert failure.
-            # Why this change: Treat an unresolvable is_result module as 'not this domain' (return False) and log at debug level.
+            # Bundles that omit a domain module (LibrePy drops duckdb_sql) raise
+            # ImportError when resolving is_result. That aborted routing of a
+            # plain Calc result. An unresolvable module means "not this domain".
             log.debug("Domain %s is_result module unavailable: %s", w.id, exc)
             return False
         return fn(value) if fn is not None else False
@@ -427,12 +424,10 @@ _IMPORT_DATA_BINDING: tuple[tuple[str, bool], ...] = (
 def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
     """True when *code* uses a trusted helper that may bind Calc sheet data.
 
-    What was wrong: Re-parsed AST for every module in _IMPORT_DATA_BINDING (6 times),
-    and missed 'import ... as' and 'from writeragent.scripting import analysis'.
-    How it happened: _imported_names_are_called was called in a loop and only checked
-    ImportFrom with exact module match and direct Name calls.
-    Why this change: Parse AST once, tracking direct function imports and module aliases,
-    and check whether any imported helper is called.
+    Parse the AST once. A per-module walk re-parsed the same source for every
+    entry in _IMPORT_DATA_BINDING and missed ``import ... as`` plus
+    ``from writeragent.scripting import analysis``. Track direct function
+    imports and module aliases, then check whether any imported helper is called.
     """
     if not code:
         return False

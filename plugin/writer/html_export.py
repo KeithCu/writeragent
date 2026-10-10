@@ -643,11 +643,11 @@ def _selection_cursor(model: Any) -> Any | None:
 def _apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
     """Apply *style* on the scratch paragraph when that style exists there.
 
-    What was wrong: selection and range export copy each paragraph into a blank
-    scratch document and set ``ParaStyleName`` with no check. A custom or
-    foreign style is not in that document, so ``setPropertyValue`` raises.
-    The broad handler then returned ``""`` and the whole selection disappeared.
-    Why this fixes it: skip the missing style (the scratch default stays) and
+    Selection and range export copy each paragraph into a blank
+    scratch document and set ``ParaStyleName`` with no check. A custom
+    or foreign style is not in that document, so ``setPropertyValue``
+    raises and the broad handler returns ``""``, discarding the whole
+    selection. Skip the missing style (the scratch default stays) and
     keep copying. One style miss must not discard the range.
     """
     if not style:
@@ -970,10 +970,11 @@ def document_to_content(
             )
             return _done(content, "starwriter")
     except Exception as e:
-        # What was wrong: when both exports failed this returned "" and get_document_content
-        # answered status ok with empty content (relato #63: document_length 57003, content ""),
-        # so neither the agent nor the log reader could tell why. Why this fixes it: the failure
-        # surfaces as a tool error that names both reasons (a full /tmp, a filter error, ...).
+        # When both exports fail, returning "" makes get_document_content
+        # answer status ok with empty content (relato #63: document_length
+        # 57003, content ""), so neither the agent nor the log reader can
+        # tell why. The failure surfaces as a tool error that names both
+        # reasons (a full /tmp, a filter error, ...).
         log.exception("document_to_content (full) failed")
         raise ToolExecutionError(
             "Could not read the document: the XHTML export failed (%s) and the HTML export "

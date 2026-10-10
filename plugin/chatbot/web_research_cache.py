@@ -60,9 +60,9 @@ def stem_word(snowball_lang: str, token: str) -> str:
     if stemmer is None:
         return token
     try:
-        # What was wrong: concurrent web_research workers shared one stemmer.
-        # stemWord writes cursor/limit on that object, so overlapping calls
-        # mixed stems. The cache stays; the lock covers that mutation.
+        # Concurrent web_research workers share one stemmer. stemWord
+        # writes cursor/limit on that object, so the lock covers the call.
+        # The cache itself stays shared.
         with _STEMMER_LOCK:
             return stemmer.stemWord(token)
     except Exception:
@@ -132,13 +132,11 @@ def resolve_research_locale(ctx: Any, doc: Any = None) -> tuple[str, str]:
         except TimeoutError:
             log.warning("research cache: document language detection timed out on main thread")
         except Exception as e:
-            # What was wrong: only a type name containing DisposedException
-            # left this function. DocumentDisposedError (thread-guard
-            # teardown) does not, so a disposed document fell through to
-            # en_US/english and the research cache could be keyed in the
-            # wrong language. How: the name test missed that type. Why:
-            # is_disposed_exception is the disposal predicate. Cancel and
-            # timeout still fall back; a missing name still does too.
+            # is_disposed_exception is the disposal predicate.
+            # DocumentDisposedError (thread-guard teardown) does not contain
+            # "DisposedException" in its type name; falling through keys the
+            # research cache as en_US/english. Cancel and timeout still fall
+            # back; a missing name still does too.
             if is_disposed_exception(e):
                 raise
             log.debug("research cache: document language detection failed: %s", e)

@@ -121,9 +121,9 @@ def _html_tag_name(buf: str) -> tuple[str, bool, bool]:
         return "", False, False
     name, is_close, rest = _tag_name_body(buf)
     # ``<script/>`` and ``<script />`` have no element body to discard.
-    # What was wrong: any buffer ending in ``/`` was empty, so an unquoted
-    # attribute such as ``<script src=https://cdn.example.com/>`` kept the
-    # script body. The slash closes the tag only when it is its own token.
+    # The slash closes the tag only when it is its own token. Any buffer
+    # ending in ``/`` is not empty: ``<script src=https://cdn.example.com/>``
+    # would keep the script body.
     stripped = rest.rstrip()
     is_empty = False
     if not is_close and stripped.endswith("/"):
@@ -135,14 +135,12 @@ def _html_tag_name(buf: str) -> tuple[str, bool, bool]:
 def _is_real_html_tag(buf: str) -> bool:
     """True when a tag buffer (no closing ``>``) should be removed, not shown.
 
-    What was wrong: the second character being a letter was enough, so
-    ``<String>``, ``<https://example.com>``, and ``<user@example.com>`` were
-    tags. The stream stripper and the committed paint both deleted them.
-    The name check still stopped there. ``_html_tag_name`` takes the leading
-    name run and stops at the first other character, and this function
-    returned true whenever that name was in ``_HTML_ELEMENTS``. ``<a@b.com>``
-    (name ``a``, next ``@``), ``<b, c>`` (next ``,``), and ``<em@x>`` (next
-    ``@``) were deleted with the brackets.
+    A letter in the second position is not enough: ``<String>``,
+    ``<https://example.com>``, and ``<user@example.com>`` are prose.
+    ``_html_tag_name`` takes the leading name run and stops at the first
+    other character. Returning true whenever that name is in
+    ``_HTML_ELEMENTS`` deletes ``<a@b.com>`` (name ``a``, next ``@``),
+    ``<b, c>`` (next ``,``), and ``<em@x>`` (next ``@``).
 
     A completed buffer is a real tag when it names a known element and the
     next character is a delimiter: end of the buffer (``<b>``, ``</em>``) or
@@ -316,10 +314,10 @@ class StreamingHTMLStripper:
     def _note_discarded_body(self, char: str, out: list[str]) -> None:
         """Hold script/style body until the close tag, then drop it.
 
-        What was wrong: body characters were deleted until ``</script>`` or
-        ``</style>``, so a reply that mentioned ``<script>`` lost everything
+        Body characters are not deleted until ``</script>`` or ``</style>``.
+        A reply that mentions ``<script>`` would otherwise lose everything
         after that tag. The 256-character cap only bounds an unclosed tag
-        name, not this body. Why this emits: a blank line or more than
+        name, not this body. A blank line or more than
         ``_DISCARD_BODY_LIMIT`` body characters means the close tag is not
         coming; show that text. A close tag inside the limit still drops it.
         """

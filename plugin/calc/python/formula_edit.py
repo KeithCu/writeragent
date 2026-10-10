@@ -136,8 +136,9 @@ def _parse_unquoted_code_arg(inner_body: str) -> str | None:
     return s
 
 
-# Bugfix: DEAL_MAX_TOKEN (64) caused @deal.pre to reject formulas with long multi-range
-# data suffixes (e.g. ; A1; B1; C1; D1...). Bounding by DEAL_MAX_SOURCE accommodates valid suffixes.
+# Bound by DEAL_MAX_SOURCE. DEAL_MAX_TOKEN (64) makes the precondition
+# reject a formula whose data suffix is a long multi-range list
+# (; A1; B1; C1; D1...).
 @deal.pre(lambda rest: str_bounded(rest, DEAL_MAX_SOURCE))
 def _is_data_arg_separator(rest: str) -> bool:
     """True when *rest* begins a PY/PYTHON data-argument suffix (``;`` or ``,``)."""
@@ -313,9 +314,8 @@ def sanitize_inline_py_code(code: str) -> str:
     if not code:
         return code
     sanitized = code.replace("dtype=float", "dtype=np.float64")
-    # Bugfix: .text( regex previously matched any attribute like ax.text(...) or
-    # plt.text(...), rewriting it to .fmt(...). Narrowed to calc.text( only so
-    # user methods like matplotlib's ax.text are preserved.
+    # Rewrite only calc.text(. ax.text(...) and plt.text(...) are
+    # matplotlib methods, and a bare .text( pattern turns them into .fmt(.
     sanitized = _LEXER_COLLISION_XL_TEXT_RE.sub("calc.fmt(", sanitized)
     sanitized = _rewrite_token_calls(sanitized, "float", lambda inner: f"({inner})+0.0")
     sanitized = _rewrite_token_calls(sanitized, "int", lambda inner: f"(({inner})//1)")
@@ -341,10 +341,10 @@ def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
     return hits
 
 
-# Bugfix: escape_code_for_formula previously called sanitize_inline_py_code,
-# corrupting hand-written code (e.g. float("3.5") became ("3.5")+0.0, ax.text
-# became .fmt, int(-3.7) became -4) during Monaco formula save. ASCII-quoted
-# Calc strings are opaque to the formula lexer, so only quote doubling is needed.
+# Only double quotes inside the formula string. An ASCII-quoted Calc
+# string is opaque to the formula lexer. sanitize_inline_py_code rewrites
+# hand-written code on a Monaco save (float("3.5") becomes ("3.5")+0.0,
+# ax.text becomes .fmt, int(-3.7) becomes -4).
 @deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE + 256))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda code, result: result == (code or "").replace('"', '""'))
@@ -364,9 +364,8 @@ def escape_code_for_excel_formula(code: str) -> str:
     return escape_code_for_formula(code)
 
 
-# Bugfix: rebuild previously hardcoded =PY( and ignored parts.prefix, rewriting
-# existing =PYTHON( or =py( cells to =PY(. Preserving parts.prefix keeps existing
-# cell tokens intact as intended.
+# Keep parts.prefix. Hardcoding =PY( rewrites an existing =PYTHON( or
+# =py( cell.
 @deal.pre(lambda parts, new_code: isinstance(parts, PythonFormulaParts) and str_bounded(new_code, DEAL_MAX_SOURCE + 256))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda parts, new_code, result: parts.data_suffix in result and result.startswith(f'{parts.prefix}"'))
@@ -551,9 +550,8 @@ def build_data_suffix(data_args: list[str], *, separator: str = ";", excel_range
 
 
 # code is Python source (Unicode-legal); ascii_bounded would reject café comments.
-# Bugfix: rebuild previously hardcoded =PY( and ignored parts.prefix, rewriting
-# existing =PYTHON( or =py( cells to =PY(. Preserving parts.prefix keeps existing
-# cell tokens intact as intended.
+# Keep parts.prefix. Hardcoding =PY( rewrites an existing =PYTHON( or
+# =py( cell.
 @deal.pre(lambda code, data_args, *_unused, **__: str_bounded(code, DEAL_MAX_SOURCE + 256) and _deal_data_args_ok(data_args))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda *args, result=None, **kwargs: isinstance(result, str) and result.endswith(")"))

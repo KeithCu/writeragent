@@ -147,9 +147,9 @@ def _xl_binding_expr(index: int, header_mode: str) -> str:
 
 def _header_mode_from_keywords(node: ast.Call) -> tuple[HeaderMode, str | None]:
     """Extract HeaderMode from call keywords or return an error issue if invalid."""
-    # Bugfix: what was wrong: non-constant headers (headers=flag, headers=1) and extra keywords were ignored, returning "omit".
-    # How it happened: loop looked only for headers and ignored other keywords, silently stripping them from rewritten calls.
-    # Why this change fixes it: reject non-constant boolean headers and any extra keywords as fatal conversion errors.
+    # A non-constant headers argument (headers=flag, headers=1) and any
+    # extra keyword are fatal. Looking only for a constant headers= and
+    # returning "omit" strips the rest of the call.
     header_mode: HeaderMode = "omit"
     for kw in node.keywords:
         if kw.arg is None:
@@ -171,9 +171,9 @@ def _skip_string(src: str, i: int) -> int:
     # Triple quotes
     if i + 1 < n and src[i] == quote and src[i + 1] == quote:
         i += 2
-        # Bugfix: what was wrong: triple-quoted strings ignored backslash escapes (\"), prematurely ending the string on an escaped quote.
-        # How it happened: loop only checked for three consecutive quotes without checking for preceding escape backslash.
-        # Why this change fixes it: skip escaped characters inside triple-quoted strings before checking for closing quotes.
+        # Skip an escaped character inside a triple-quoted string before
+        # looking for the closer. Three quotes after a backslash are not
+        # the end of the string.
         while i + 2 < n:
             if src[i] == "\\":
                 i += 2
@@ -296,9 +296,8 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
         if kw_err:
             issues.append(kw_err)
 
-        # Bugfix: what was wrong: extra positional arguments beyond the first (e.g. xl(%P2%, True)) were silently dropped.
-        # How it happened: code only inspected node.args[0] and ignored len(node.args) > 1.
-        # Why this change fixes it: fail closed when more than one positional argument is passed to xl().
+        # xl() takes one positional. xl(%P2%, True) fails the conversion.
+        # Inspecting only the first argument drops the rest.
         if len(node.args) > 1:
             issues.append("xl() does not accept positional arguments beyond the first")
 
@@ -311,9 +310,9 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
             p_num, literal, dynamic = _p_num_from_arg(node.args[0])
         calls.append(_XlCall(start=start, end=end, p_num=p_num, header_mode=header_mode, literal=literal, dynamic=dynamic, raw=src[start:end]))
 
-    # Bugfix: what was wrong: nested xl() calls (e.g. xl(%P2%, headers=xl(%P3%))) caused reverse-start string rewrites to corrupt code.
-    # How it happened: inner replacement changed source text length, making the outer replacement's end offset stale.
-    # Why this change fixes it: detect overlapping call spans [start, end) and fail closed with a fatal conversion error.
+    # Overlapping xl() spans fail the conversion. Rewriting the inner call
+    # first (xl(%P2%, headers=xl(%P3%))) changes the source length, so the
+    # outer end offset is stale.
     calls.sort(key=lambda c: (c.start, -c.end))
     for idx in range(len(calls) - 1):
         if calls[idx + 1].start < calls[idx].end:
@@ -339,20 +338,18 @@ def analyze_xl_calls(code: str, *, num_deps: int) -> _XlAnalysis:
             continue
         if call.p_num is None:
             continue
-        # Bugfix: what was wrong: placeholders %P0%, %P1%, and %P67+% raised PreconditionFailed under deal,
-        # or left invalid bare %Pn% in output without deal.
-        # How it happened: _placeholder_to_data_index has a @deal.pre(2 <= p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX)
-        # and code called it without checking bounds first.
-        # Why this change fixes it: validate p_num range before calling _placeholder_to_data_index, recording a fatal error.
+        # Check p_num before _placeholder_to_data_index. Its precondition
+        # requires 2 <= p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX, so %P0%,
+        # %P1%, and a too-large %Pn% raise PreconditionFailed under deal,
+        # or stay as a bare placeholder without it.
         if call.p_num < 2 or call.p_num > 2 + DEAL_MAX_PLACEHOLDER_INDEX:
             issues.append(f"invalid placeholder %P{call.p_num}% (must be %P2%..%P{2 + DEAL_MAX_PLACEHOLDER_INDEX}%)")
             fatal = True
             continue
         idx = _placeholder_to_data_index(call.p_num)
-        # Bugfix: what was wrong: missing formula deps for %Pn% was treated as a warning, and skipped when num_deps == 0.
-        # How it happened: condition 'if num_deps and idx >= num_deps' evaluated to False when num_deps == 0,
-        # and convert_cell_to_dag never marked this issue fatal.
-        # Why this change fixes it: check idx >= num_deps unconditionally and mark missing formula deps as a fatal conversion error.
+        # idx >= num_deps is fatal even when num_deps is 0. Guarding that
+        # test with ``if num_deps`` skipped the empty-deps case, and
+        # convert_cell_to_dag never marked a missing formula dep fatal.
         if idx >= num_deps:
             issues.append(f"%P{call.p_num}% has no matching formula dep (need {idx + 1} deps, have {num_deps})")
             fatal = True
@@ -549,10 +546,10 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
     fatal = analysis.fatal or unresolved
 
     # Second rewrite step with dedup index map when all deps resolved and no fatal issues.
-    # Bugfix: what was wrong: when deps were unresolved, issues from rewrite_excel_code (syntax errors,
-    # invalid placeholders) were dropped, and best_effort mode emitted bare %Pn% claiming "refusing to emit shifted data indices".
-    # How it happened: rewrite_issues0 was never merged when unresolved=True, and the warning message was hardcoded for both modes.
-    # Why this change fixes it: merge all analysis issues, and in best_effort mode accurately state that placeholder remapping was skipped.
+    # Merge every analysis issue. When deps are unresolved, dropping
+    # rewrite_excel_code issues hides syntax errors and bad placeholders.
+    # In best_effort mode say that placeholder remapping was skipped. The
+    # old warning claimed shifted data indices were refused in both modes.
     if unresolved:
         if best_effort:
             issues.append("unresolved or dropped dependency; skipped placeholder remapping in best-effort mode")
@@ -576,9 +573,9 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, prior_i
         issues.append("returnType=1 (Object): suppressed cell value egress (shared object kept in script)")
 
     if fatal and not best_effort:
-        # What was wrong: unconverted cells could produce partial formulas or fail open.
-        # How it happened: fatal flag was missing invalid placeholders, extra args, or dep mismatches.
-        # Why this change fixes it: fails closed cleanly, keeping converted=False and original code.
+        # Fail closed: converted stays False and the original code is kept.
+        # A missing fatal flag for a bad placeholder, an extra argument, or
+        # a dep mismatch writes a partial formula.
         return ConvertedCell(
             sheet=cell.sheet,
             cell=cell.cell,

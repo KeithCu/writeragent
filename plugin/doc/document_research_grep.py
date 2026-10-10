@@ -223,11 +223,11 @@ def _grep_text_in_draw(
             page = pages.getByIndex(page_idx)
         except Exception:
             continue
-        # What was wrong: match_count was larger than the matches returned.
-        # How: each page was searched with the full max_results. A later
-        # page could add another full batch; the list was sliced but
-        # match_count used the unsliced length. Why: pass the leftover
-        # budget per page (same as group recursion) and count that slice.
+        # match_count must not exceed the matches returned. Searching
+        # each page with the full max_results lets a later page add
+        # another full batch; slicing the list while counting the
+        # unsliced length inflates the count. Pass the leftover budget
+        # per page (same as group recursion) and count that slice.
         remaining = max_results - len(matches)
         page_matches, shapes_visited, partial = _grep_shapes_on_page(
             page,

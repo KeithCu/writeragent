@@ -54,12 +54,11 @@ _CANCELLED_TOOL = "Cancelled by user. The call may have completed."
 class TurnController:
     """One sidebar send. Stop or the next send aborts it and drops the reference.
 
-    What was wrong: a generation counter, a pinned ``_apply_turn``, and each
-    worker's queue were three copies of "which send is this". Stop bumped the
-    counter and left the old object alive so the banner could still paint.
-    A newer send did the same. Callbacks kept enqueueing onto those queues.
-
-    This object is the turn. The queue, the HTML stripper, and the document
+    This object is the turn. A generation counter, a pinned ``_apply_turn``,
+    and a separate worker queue would be three copies of "which send is
+    this": Stop and a newer send would leave the old object alive so the
+    banner could still paint, and callbacks would keep enqueueing onto
+    those queues. The queue, the HTML stripper, and the document
     model captured at spawn live here. The host does not keep a second copy.
     Workers enqueue on this object and do not append to ``session.messages``.
     ``abort`` makes later ``put`` calls no-ops and drops any text still in
@@ -310,7 +309,7 @@ def spawn_queue(turn: TurnController) -> Any:
 def stopped_assistant_text(host: Any, partial: str | None) -> str:
     """Text already on the open row, else the worker partial.
 
-    What was wrong: Stop stored ``No response.`` after the sidebar had already
+    Stop must not store ``No response.`` after the sidebar has already
     shown streamed tokens. Those tokens are the open row. The open row wins;
     the partial is only used when nothing was folded yet.
     """
@@ -337,13 +336,11 @@ def _append_cancelled_tool_rows(messages: list[Any]) -> int:
     The row is inserted with that assistant message's other tool rows so
     the pair stays adjacent. ``tool_calls`` on the assistant message stay.
 
-    What was wrong: ``answered`` was computed globally across the entire transcript.
-    When a provider reused a tool call id across turns (e.g. 'call_0'), the second
-    turn's unanswered tool call was treated as already answered. How: the global set
-    contained 'call_0' from the earlier turn, skipping synthetic cancelled row creation
-    and causing the provider to return 400 Bad Request on the next request.
-    Why this change: Scope ``answered`` per assistant message by scanning only the
-    contiguous tool rows immediately following that assistant message.
+    ``answered`` is scoped to one assistant message. A global set treats a
+    reused tool-call id (providers emit ``call_0`` again on the next turn)
+    as already answered, skips the synthetic cancelled row, and the next
+    request comes back 400. Scan only the contiguous tool rows that follow
+    that assistant message.
     """
     added = 0
     index = 0
@@ -390,8 +387,8 @@ def emit_for_host(host: Any, item: Any) -> bool:
 def put_for_turn(turn: Any, item: Any) -> bool:
     """Workers enqueue on the controller they captured. They do not touch the transcript.
 
-    What was wrong: host and q were unused parameters kept in the signature.
-    Why this change: Removed host and q parameters so callers enqueue directly on turn.
+    Callers enqueue on the turn they captured. There is no ``host`` or
+    ``q`` parameter to write through.
     A worker must not assign ``turn.queue``; the drain attached the queue before spawn.
     After abort, ``put`` is a no-op.
     """
@@ -415,19 +412,17 @@ def persist_assistant_on_turn(
 def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: Any = None, q: Any = None, *, model: Any) -> None:
     """Queue a tool failure. A disposed document ends the loop.
 
-    What was wrong: both workers turned every exception into a JSON tool
-    payload and queued ``TOOL_DONE``, so a closed document looked like a
-    normal tool error and the loop continued. ``is_tool_document_disposed``
-    is the tool-boundary check; ``is_disposed_exception`` also matches a
-    bare ``RuntimeException`` from a live document.
+    A closed document is not a normal tool error. Turning every exception
+    into a JSON payload and queuing ``TOOL_DONE`` lets the loop continue.
+    ``is_tool_document_disposed`` is the tool-boundary check;
+    ``is_disposed_exception`` also matches a bare ``RuntimeException``
+    from a live document.
 
-    What was wrong: the check read ``host._active_model`` when the worker
-    finished. A later send had already stored the new turn's document
-    there, so a disposed-document failure from the tool that already
-    started was scored against that live model. How: a bare
-    ``RuntimeException`` then failed ``is_tool_document_disposed`` and was
-    queued as ``TOOL_DONE``. Why: ``model`` is the document closed over at
-    spawn, the same capture that keeps the tool from running on the new send.
+    Classify against ``model``, the document closed over at spawn. Reading
+    ``host._active_model`` when the worker finishes scores the failure
+    against a later send's live document, so a bare ``RuntimeException``
+    fails ``is_tool_document_disposed`` and is queued as ``TOOL_DONE``.
+    The same capture keeps the tool from running on the new send.
     """
     if turn is None:
         turn = current_turn(host)
@@ -517,11 +512,11 @@ def build_tool_execute_fn(
         if needs_web_research_ui or needs_document_research_ui:
 
             def _subagent_target() -> TurnController | None:
-                # What was wrong: chat lines and the approval dialog were put
-                # on the host queue when the callback ran. Stop or a new send
-                # had replaced that queue, so the text or the dialog landed
-                # on the next turn. Why: the tool worker already captured
-                # this turn at spawn. A dead turn drops the item.
+                # Enqueue on the turn this worker captured at spawn.
+                # Putting chat lines or the approval dialog on the host queue
+                # when the callback runs lands them on the next turn after
+                # Stop or a new send replaces that queue. A dead turn drops
+                # the item.
                 if isinstance(captured_turn, TurnController):
                     return captured_turn
                 return None
@@ -563,10 +558,10 @@ def build_tool_execute_fn(
 
                     approval_cb = _web_approval
             except Exception as ex:
-                # What was wrong: this logged and left approval_cb as None.
-                # web_research prompts only when both the config flag and the
-                # callback are set, so a config error skipped Accept/Change/Reject
-                # and the search ran. Fail closed instead.
+                # Fail closed. Leaving approval_cb as None after a config
+                # error skips Accept/Change/Reject: web_research prompts only
+                # when both the config flag and the callback are set, so the
+                # search would run without approval.
                 log.warning("tool_loop: web_research approval setup failed: %s", ex)
                 err = ToolExecutionError(
                     "Web research approval could not be shown. The search was not started.",
@@ -587,11 +582,11 @@ def build_tool_execute_fn(
             except Exception:
                 log.debug("execute_fn: failed to get active page index for %s", doc_type_str)
 
-        # What was wrong: this read host._send_cancellation when the tool
-        # ran. Stop had cleared the field and the next send had stored a
-        # new scope, so this call registered on the next send.
-        # Why: the spawn passes the scope it captured. Omitted means a
-        # direct caller, not a delayed worker, and there is no scope.
+        # The spawn passes the scope it captured. Reading
+        # host._send_cancellation when the tool runs registers on the next
+        # send: Stop clears the field and the next send stores a new scope.
+        # Omitted means a direct caller, not a delayed worker, and there
+        # is no scope.
         cancel_scope = None if send_cancellation is _SEND_SCOPE_UNSET else send_cancellation
 
         tctx = ToolContext(
@@ -612,21 +607,21 @@ def build_tool_execute_fn(
             send_cancellation=cancel_scope,
             uno_services_supported=getattr(host, "cached_uno_services", None),
         )
-        # What was wrong: ToolRegistry.execute binds keyword-only
-        # bypass_thread_guard (and ctx/tool_name) from **safe_args, so a model
-        # argument could skip execute_safe or collide with those parameters.
-        # Why: copy so the stored tool-call dict stays intact, drop the keys,
-        # and pass False. A chat argument must not set the eval-harness switch.
+        # ToolRegistry.execute binds keyword-only bypass_thread_guard (and
+        # ctx/tool_name) from **safe_args, so a model argument can skip
+        # execute_safe or collide with those parameters. Copy so the stored
+        # tool-call dict stays intact, drop the keys, and pass False. A
+        # chat argument must not set the eval-harness switch.
         call_args = safe_args
         if "bypass_thread_guard" in call_args or "ctx" in call_args or "tool_name" in call_args:
             call_args = {key: value for key, value in call_args.items() if key not in ("bypass_thread_guard", "ctx", "tool_name")}
         try:
             res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
-            # What was wrong: execute_safe turns a disposed document into a
-            # DOCUMENT_DISPOSED dict. This returned JSON, the worker queued
-            # TOOL_DONE, and the loop kept going on a dead document. The
-            # raise below is classified with this same ``doc`` (the document
-            # passed in at spawn) in ``_queue_tool_failure``.
+            # execute_safe turns a disposed document into a DOCUMENT_DISPOSED
+            # dict. Returning that JSON queues TOOL_DONE and the loop keeps
+            # going on a dead document. Raise instead. The raise below is
+            # classified with this same ``doc`` (the document passed in at
+            # spawn) in ``_queue_tool_failure``.
             if isinstance(res, dict) and res.get("code") == "DOCUMENT_DISPOSED":
                 message = res.get("message")
                 text = message.strip() if isinstance(message, str) and message.strip() else "Document was closed or disposed by LibreOffice"
@@ -768,12 +763,10 @@ class ToolLoopEffectInterpreter:
     def _cleanup_audio(self) -> None:
         """Clean up recording file and record audio support for the captured model.
 
-        What was wrong: _cleanup_audio called get_text_model() and get_current_endpoint()
-        at cleanup time. If the user changed the model in the UI mid-send, the new model was
-        erroneously marked as supporting native audio instead of the model that was
-        active when the work was spawned. How: global combobox state was re-read rather than
-        using the turn's spawn-time capture. Why this change: Read model and endpoint from
-        the turn captured when the work was spawned.
+        Read model and endpoint from the turn captured at spawn.
+        ``get_text_model()`` and ``get_current_endpoint()`` at cleanup time
+        follow the combobox, so a mid-send model change marks the new model
+        as supporting native audio.
         """
         host = self.host
         turn = current_turn(host)
@@ -806,11 +799,11 @@ class ToolLoopEffectInterpreter:
         def emit(item: Any) -> None:
             put_for_turn(turn, item)
 
-        # What was wrong: the async body read the execute function and the
-        # document when the thread ran. A new send replaced both while this
-        # tool was still in flight, so the old call ran against the new send.
-        # The failure path had the same hole. Why: close over the values this
-        # spawn already had.
+        # Close over the execute function and the document this spawn
+        # already had. Reading them when the thread runs lets a new send
+        # replace both while this tool is still in flight, so the old call
+        # runs against the new send. The failure path closes over the same
+        # values.
         execute_tool_fn = host._active_execute_tool_fn
         # Same object execute_fn receives as ``doc``. It was captured on the
         # turn at spawn. A later send must not retarget this call or the
@@ -865,11 +858,11 @@ class ToolLoopEffectInterpreter:
                     log.debug("sync tool failed name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
                 _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, worker_q, model=spawn_doc)
 
-        # What was wrong: the sync branch called the tool on the drain thread.
-        # pump_ui_idle did not run, so Stop was not delivered until the tool
-        # returned, and the next round could start. Why: use the same dedicated
-        # worker as async tools. Sync UNO still runs on the main thread —
-        # ToolRegistry.execute marshals it, and the drain pumps that queue.
+        # Use the same dedicated worker as async tools. Calling the tool
+        # on the drain thread skips pump_ui_idle, so Stop is not delivered
+        # until the tool returns and the next round can start. Sync UNO
+        # still runs on the main thread: ToolRegistry.execute marshals it,
+        # and the drain pumps that queue.
         worker_name = f"tool-async-{func_name}" if effect.is_async else f"tool-sync-{func_name}"
         run_in_background(run_tool, name=worker_name, dedicated=True)
         return False

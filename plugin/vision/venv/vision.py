@@ -68,10 +68,9 @@ def _apply_paddle_fallback(
     if detect_vision_input_format(image, params) == "pdf":
         return docling_result
     code = docling_result.get("code")
-    # What was wrong: fallback detection matched brittle substrings ('get_engine_config' / 'LayoutModelConfig')
-    # in the error message string, and unhandled exceptions in _run_paddle_helper lost the Docling error.
-    # Why this change: Docling backend emits a dedicated DOCLING_API_MISMATCH code, and Paddle fallback
-    # exceptions are caught and logged while preserving docling_result.
+    # Docling emits DOCLING_API_MISMATCH instead of matching brittle substrings
+    # ('get_engine_config' / 'LayoutModelConfig'). Paddle fallback exceptions
+    # are caught and logged so the Docling error in docling_result is kept.
     if not _is_docling_fallback_candidate(code):
         return docling_result
     if not fallback_engine_enabled(params):

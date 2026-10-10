@@ -114,12 +114,10 @@ def _is_plot_shape_name(name: str) -> bool:
 def _is_reusable_plot_shape(shape: Any, target_cell: Any) -> bool:
     """Graphic we previously inserted at *target_cell*, not a user image or other shape.
 
-    What was wrong: any shape whose anchor matched the formula cell had
-    GraphicURL replaced, including rectangles and photos the user placed there.
-    How: reuse checked the anchor and nothing else.
-    Why: require GraphicObjectShape plus the WriterAgentPlot name prefix.
-    Plots from before the prefix are left in place (one extra shape) rather
-    than guessing which graphic is ours.
+    Require GraphicObjectShape plus the WriterAgentPlot name prefix. An
+    anchor match alone replaces GraphicURL on a rectangle or a photo the
+    user placed on the formula cell. Plots from before the prefix stay in
+    place (one extra shape) rather than guessing which graphic is ours.
     """
     if not _supports_draw_graphic(shape):
         return False
@@ -196,28 +194,26 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
     import uno
     from com.sun.star.awt import Size
 
-    # Bugfix (#385): Previously, insert_image_result_on_sheet always used the active sheet and active
-    # selection from the controller. During workbook recalc (Ctrl+Shift+F9 or file open), the active sheet
-    # may be Sheet 0 (e.g. Overview) while formula cells are on another sheet (e.g. Viz_Gallery).
-    # Furthermore, if Sheet 0 had a 1-row merged hero banner selected, charts were crushed to ~12.7mm height.
-    # Fix: Resolve the target sheet and cell by locating the formula cell via code if available;
-    # otherwise fallback gracefully to active sheet/selection, and enforce minimum dimensions for merged sizing.
+    # Resolve the target sheet and cell from the formula when the code is
+    # known. During a workbook recalc (Ctrl+Shift+F9, or file open) the
+    # active sheet can be sheet 0 while the formula is on another sheet, and
+    # a one-row merged selection there crushes the chart to about 12.7mm.
+    # Fall back to the active sheet and selection, and keep a minimum size
+    # when the anchor is a merged range.
     #
-    # What was wrong: missing doc/sheet/draw page and a thrown UNO error returned
-    # normally, so =PY(), venv, and plot_data reported the picture as inserted.
-    # How: every failure path logged and returned. Why: raise ImageEgressError.
+    # Raise ImageEgressError when the document, sheet, or draw page is
+    # missing, or when UNO throws. Logging and returning made =PY(), the
+    # venv, and plot_data report the picture as inserted.
     tmp_path: str | None = None
     try:
         from plugin.framework.thread_guard import on_main_thread
 
         if not on_main_thread():
-            # What was wrong: this check called _egress_fail, which raises at
-            # runtime but is only a Call in the AST. The thread-safety linter
-            # treats an early exit as Return or Raise, so it still flagged the
-            # document access below as unguarded UNO access.
-            # How: the off-main path ended in a helper call. Why: a literal
-            # raise is the exit the linter recognizes, and it still refuses to
-            # touch the document off the main thread.
+            # A literal raise is the exit the thread-safety linter
+            # recognizes. _egress_fail raises at runtime but is only a Call
+            # in the AST, so the linter still flags the document access
+            # below as unguarded. This raise still refuses to touch the
+            # document off the main thread.
             log.debug(
                 "insert_image_result_on_sheet: image insertion must run on the main thread"
             )

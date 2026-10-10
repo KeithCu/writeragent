@@ -493,12 +493,13 @@ class TreeService(ServiceBase):
     def _paragraph_for_bookmark(self, doc: Any, bookmark_name: str, bookmark: Any) -> int:
         """Paragraph index for a bookmark that still has a name.
 
-        What was wrong: ``find_paragraph_for_range`` returns 0 when the anchor
-        cannot be placed. A stale ``_mcp_`` mark after save/reopen or
-        ``bookmark_cleanup`` still has a name, so this returned paragraph 0
-        and navigation edited the first paragraph.
-        Why: ``confirm_paragraph_index`` keeps 0 only when the anchor start
-        is inside that paragraph. Anything else is an error, not a location.
+        ``find_paragraph_for_range`` returns 0 when the anchor cannot be
+        placed. A stale ``_mcp_`` mark after save/reopen or
+        ``bookmark_cleanup`` still has a name, so returning that 0
+        navigates to the first paragraph.
+        ``confirm_paragraph_index`` keeps 0 only when the anchor start
+        is inside that paragraph. Anything else is an error, not a
+        location.
         """
         try:
             anchor = bookmark.getAnchor()
