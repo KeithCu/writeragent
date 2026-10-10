@@ -259,12 +259,19 @@ def write_pickle_frame(
     _write_all(stream, pack_pickle_frame(message, max_payload_bytes=max_payload_bytes))
 
 
-def _write_bytes_until_joined(stream: IO[bytes], payload: bytes, timeout_sec: float) -> None:
+def _write_bytes_until_joined(
+    stream: IO[bytes],
+    payload: bytes,
+    timeout_sec: float,
+    *,
+    is_alive: Callable[[], bool] | None = None,
+) -> None:
     """Bound a blocking write by joining a daemon thread.
 
     Windows pipes are not selectable. ``TimeoutExpired`` leaves this thread
     blocked in ``write`` until the caller kills the child and the pipe breaks.
-    The helper does not kill.
+    The helper does not kill. A dead child raises ``BrokenPipeError`` instead
+    of waiting out *timeout_sec*; the caller's kill unblocks the write.
     """
     errors: list[Exception] = []
 
@@ -276,9 +283,14 @@ def _write_bytes_until_joined(stream: IO[bytes], payload: bytes, timeout_sec: fl
 
     writer = threading.Thread(target=_writer, name="ipc-stdin-write", daemon=True)
     writer.start()
-    writer.join(timeout=max(0.01, timeout_sec))
-    if writer.is_alive():
-        raise subprocess.TimeoutExpired(cmd="IPC frame", timeout=timeout_sec)
+    deadline = time.monotonic() + max(0.0, timeout_sec)
+    while writer.is_alive():
+        if is_alive is not None and not is_alive():
+            raise BrokenPipeError("IPC frame write aborted: child exited")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(cmd="IPC frame", timeout=timeout_sec)
+        writer.join(timeout=min(0.05, remaining))
     if errors:
         raise errors[0]
 
@@ -354,15 +366,16 @@ def write_packed_frame_with_timeout(
 ) -> None:
     """Write an already-packed frame, bounding the pipe write with *timeout_sec*.
 
-    POSIX uses non-blocking ``os.write`` plus ``select`` (``is_alive`` is
-    consulted on that loop only). Windows pipes are not selectable, so a
-    daemon thread is joined for the deadline. ``TimeoutExpired`` can mean a
-    partial frame is already in the pipe; the caller kills that child.
+    POSIX uses non-blocking ``os.write`` plus ``select``. Windows pipes are
+    not selectable, so a daemon thread is joined for the deadline. Both paths
+    consult ``is_alive`` and raise ``BrokenPipeError`` when the child is
+    already dead. ``TimeoutExpired`` can mean a partial frame is already in
+    the pipe; the caller kills that child.
     A stream with no real fileno (``BytesIO``) is written without a deadline.
     """
     timeout_sec = max(0.0, float(timeout_sec))
     if sys.platform == "win32":
-        _write_bytes_until_joined(stream, frame, timeout_sec)
+        _write_bytes_until_joined(stream, frame, timeout_sec, is_alive=is_alive)
         return
     try:
         fd = stream.fileno()

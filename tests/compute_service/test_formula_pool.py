@@ -2140,6 +2140,31 @@ def test_bad_result_json_is_worker_crashed_without_kill(monkeypatch: pytest.Monk
         assert lost.get("code") == "WORKER_CRASHED"
         assert lost.get("id") == "bad-utf8"
         assert lost.get("session_reset") is True
+
+        # json.loads raises RecursionError past the nesting limit. That used
+        # to escape execute and become a 500. The C parser's limit is above
+        # sys.getrecursionlimit(), so the depth is the first one that fails.
+        nested: bytes | None = None
+        for depth in (1000, 5000, 10000, 50000):
+            candidate = b"[" * depth + b"]" * depth
+            try:
+                json.loads(candidate.decode("utf-8"))
+            except RecursionError:
+                nested = candidate
+                break
+        assert nested is not None
+        blob["raw"] = nested
+        deep = pool._run_execution(worker, {}, clock, False, "deep-json", True)
+        assert deep.get("code") == "WORKER_CRASHED"
+        assert deep.get("id") == "deep-json"
+
+        def _oom(_res: dict[str, Any]) -> dict[str, Any]:
+            raise MemoryError("result_json")
+
+        monkeypatch.setattr("compute_service.formula_pool.decode_worker_result", _oom)
+        oom = pool._run_execution(worker, {}, clock, False, "oom-json", True)
+        assert oom.get("code") == "WORKER_CRASHED"
+        assert oom.get("id") == "oom-json"
         assert killed == []
     finally:
         pool.shutdown()

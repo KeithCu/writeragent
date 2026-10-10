@@ -935,6 +935,35 @@ def test_json_line_timeout_falls_back_when_fileno_not_int():
     stream.readline.assert_called_once()
 
 
+def test_joined_write_aborts_when_child_is_dead() -> None:
+    """A dead child on the joined write path does not wait out the timeout.
+
+    POSIX select checks is_alive. The Windows path joins a thread and used
+    to ignore is_alive, so a dead child blocked for the full deadline.
+    """
+    import threading
+
+    from plugin.scripting.ipc import _write_bytes_until_joined
+
+    release = threading.Event()
+
+    class _Slow:
+        def write(self, data: bytes) -> int:
+            release.wait(timeout=5.0)
+            return len(data)
+
+        def flush(self) -> None:
+            return None
+
+    started = time.monotonic()
+    try:
+        with pytest.raises(BrokenPipeError, match="child exited"):
+            _write_bytes_until_joined(_Slow(), b"abcdef", 30.0, is_alive=lambda: False)  # type: ignore[arg-type]
+    finally:
+        release.set()
+    assert time.monotonic() - started < 2.0
+
+
 def test_packed_frame_write_without_int_fileno_logs_and_writes(caplog: pytest.LogCaptureFixture) -> None:
     """A stream whose fileno is not an int is written with no deadline.
 

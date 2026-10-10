@@ -35,7 +35,7 @@ from compute_service.json_forward import (
     require_execute_wire,
     validate_session_id,
 )
-from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, _Deadline, _MIN_REQUEST_SEC, error_dict, resolve_override
+from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, Deadline, MIN_REQUEST_SEC, PoolSingleton, error_dict, resolve_override
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 log = logging.getLogger("compute_service.formula")
@@ -195,8 +195,9 @@ class FormulaProcessPool(BaseProcessPool):
 
         ``worker.process`` is read without ``_lifecycle_lock``. Reap holds
         that lock across ``on_process_exit``, which takes this pool's
-        condition, and this method already holds the condition. Taking the
-        lifecycle lock here would deadlock. A respawn clears ``process``
+        condition, and this method already holds the condition. The callback
+        may take this condition. It must not take ``_lifecycle_lock`` or call
+        back into the worker: that lock is not re-entrant. A respawn clears ``process``
         before the new child is adopted; the old kernel is gone, so dropping
         the session (``session_reset``) is the right outcome.
         """
@@ -405,7 +406,7 @@ class FormulaProcessPool(BaseProcessPool):
         Under one second left, do not reset. That request cannot run a cell,
         and destroying an idle kernel for it would spend the slot.
         """
-        if deadline - time.monotonic() < _MIN_REQUEST_SEC:
+        if deadline - time.monotonic() < MIN_REQUEST_SEC:
             return False
         with self._cond:
             self._reap_dead_sessions_unlocked()
@@ -427,7 +428,7 @@ class FormulaProcessPool(BaseProcessPool):
                 return victim_id not in self._sessions
             sid_to_reset = victim_id
         remaining = deadline - time.monotonic()
-        if remaining < _MIN_REQUEST_SEC:
+        if remaining < MIN_REQUEST_SEC:
             return False
         leased = self.lease_specific(worker, timeout_sec=0.0)
         if leased is None:
@@ -438,7 +439,7 @@ class FormulaProcessPool(BaseProcessPool):
                 if current is None or current.worker is not leased:
                     return True
             reset_budget = min(5.0, deadline - time.monotonic())
-            if reset_budget < _MIN_REQUEST_SEC:
+            if reset_budget < MIN_REQUEST_SEC:
                 return False
             res = self._reset_session_on_worker(leased, sid_to_reset, timeout_sec=reset_budget, lost=True)
             return res.get("status") == "ok"
@@ -541,7 +542,7 @@ class FormulaProcessPool(BaseProcessPool):
         self,
         leased: BaseProcessWorker,
         payload: dict[str, Any],
-        clock: _Deadline,
+        clock: Deadline,
         session_was_lost: bool,
         req_id: str | None,
         decode_result: bool,
@@ -570,8 +571,10 @@ class FormulaProcessPool(BaseProcessPool):
         if decode_result and isinstance(res, dict):
             try:
                 decoded = decode_worker_result(res)
-            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, MemoryError) as exc:
                 # What was wrong: json.loads on result_json escaped execute.
+                # Deeply nested JSON raises RecursionError, and a huge value
+                # can raise MemoryError. Either one became an unhandled 500.
                 # The pickle frame was already consumed and tasks_executed
                 # already counted, so killing the child would drop shared
                 # sessions for a bad inner JSON blob.
@@ -662,7 +665,7 @@ class FormulaProcessPool(BaseProcessPool):
         except ExecuteRequestError as exc:
             return error_dict("INVALID_REQUEST", str(exc), req_id=req_id)
 
-        clock = _Deadline.from_absolute(eff_timeout, deadline)
+        clock = Deadline.from_absolute(eff_timeout, deadline)
         # A budget under one second, or a longer one that has already fallen
         # under one second, does not lease. A 0.01s floor used to lease
         # anyway and then give the child a 1s alarm. A one-second request

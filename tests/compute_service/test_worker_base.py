@@ -255,6 +255,147 @@ def test_singleton_retries_after_non_permanent_shutdown_during_build() -> None:
     pool.shutdown()
 
 
+def test_singleton_does_not_return_pool_shut_down_after_publish() -> None:
+    """Permanent shutdown after publish does not hand that pool back.
+
+    What was wrong: get() returned the pool it had just published even when
+    shutdown(permanent=True) had already nulled _pool and called
+    pool.shutdown(). Callers relied on execute checking _is_shutdown.
+    """
+    from compute_service.worker_base import PoolSingleton
+
+    singleton: PoolSingleton[BaseProcessPool] = PoolSingleton()
+    entered = threading.Event()
+    release = threading.Event()
+    built: list[BaseProcessPool] = []
+
+    def factory() -> BaseProcessPool:
+        pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
+        built.append(pool)
+        return pool
+
+    def _before_handout(pool: BaseProcessPool) -> None:
+        del pool
+        entered.set()
+        assert release.wait(timeout=2.0)
+
+    singleton._before_handout = _before_handout  # type: ignore[method-assign]
+    outcome: list[BaseProcessPool | BaseException] = []
+
+    def _get() -> None:
+        try:
+            outcome.append(singleton.get(factory))
+        except BaseException as exc:
+            outcome.append(exc)
+
+    getter = threading.Thread(target=_get, daemon=True)
+    getter.start()
+    assert entered.wait(timeout=2.0)
+    stopper = threading.Thread(target=lambda: singleton.shutdown(permanent=True), daemon=True)
+    stopper.start()
+    stopper.join(timeout=2.0)
+    assert not stopper.is_alive()
+    release.set()
+    getter.join(timeout=2.0)
+    assert not getter.is_alive()
+    assert len(built) == 1
+    assert built[0]._is_shutdown
+    assert singleton._pool is None
+    assert len(outcome) == 1
+    assert isinstance(outcome[0], RuntimeError)
+    assert "shut down" in str(outcome[0])
+
+
+def test_singleton_rebuilds_after_non_permanent_shutdown_following_publish() -> None:
+    """A non-permanent shutdown after publish makes get() build a replacement.
+
+    The published pool is already being torn down. Returning it would hand
+    the caller a pool whose workers shutdown() is reaping.
+    """
+    from compute_service.worker_base import PoolSingleton
+
+    singleton: PoolSingleton[BaseProcessPool] = PoolSingleton()
+    entered = threading.Event()
+    release = threading.Event()
+    built: list[BaseProcessPool] = []
+    handouts = {"n": 0}
+
+    def factory() -> BaseProcessPool:
+        pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
+        built.append(pool)
+        return pool
+
+    def _before_handout(pool: BaseProcessPool) -> None:
+        del pool
+        handouts["n"] += 1
+        if handouts["n"] == 1:
+            entered.set()
+            assert release.wait(timeout=2.0)
+
+    singleton._before_handout = _before_handout  # type: ignore[method-assign]
+    outcome: list[BaseProcessPool | BaseException] = []
+
+    def _get() -> None:
+        try:
+            outcome.append(singleton.get(factory))
+        except BaseException as exc:
+            outcome.append(exc)
+
+    getter = threading.Thread(target=_get, daemon=True)
+    getter.start()
+    assert entered.wait(timeout=2.0)
+    stopper = threading.Thread(target=lambda: singleton.shutdown(permanent=False), daemon=True)
+    stopper.start()
+    stopper.join(timeout=2.0)
+    assert not stopper.is_alive()
+    release.set()
+    getter.join(timeout=2.0)
+    assert not getter.is_alive()
+    assert len(built) == 2
+    assert built[0]._is_shutdown
+    assert len(outcome) == 1
+    pool = outcome[0]
+    assert isinstance(pool, BaseProcessPool)
+    assert pool is built[1]
+    assert pool is singleton._pool
+    assert not pool._is_shutdown
+    pool.shutdown()
+
+
+def test_pool_init_kills_workers_when_a_later_spawn_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A constructor that fails mid-loop reaps the children already started.
+
+    What was wrong: the exception left __init__ with live Popen objects
+    that no pool reference kept.
+    """
+    from compute_service.worker_base import BaseProcessWorker
+
+    made: list[BaseProcessWorker] = []
+    killed: list[int] = []
+    real_init = BaseProcessWorker.__init__
+
+    def _init(self: BaseProcessWorker, *args: object, **kwargs: object) -> None:
+        if made:
+            raise RuntimeError("second worker failed")
+        real_init(self, *args, **kwargs)  # type: ignore[arg-type]
+        original = self.kill
+
+        def _kill() -> None:
+            killed.append(self.worker_id)
+            original()
+
+        self.kill = _kill  # type: ignore[method-assign]
+        made.append(self)
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=15.0, deadline=None: None)
+    monkeypatch.setattr(BaseProcessWorker, "__init__", _init)
+    with pytest.raises(RuntimeError, match="second worker failed"):
+        BaseProcessPool(script_path="unused.py", num_workers=2, idle_worker_ttl_sec=None)
+    assert len(made) == 1
+    assert killed == [1]
+    assert made[0]._shutting_down
+
+
 def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
     import pickle
     import pytest
@@ -697,7 +838,9 @@ def test_expired_budget_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
     res = worker.execute({"code": "result = 1"}, timeout_sec=0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
     assert spawned == []
-    assert worker.tasks_executed == 1
+    # Nothing was dispatched. Counting this used to move a live worker
+    # toward max_tasks.
+    assert worker.tasks_executed == 0
 
     # A positive budget under one second is the same refusal. It must not
     # spawn for a handshake that cannot finish.
@@ -705,7 +848,7 @@ def test_expired_budget_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
     assert short.get("code") == "EXECUTION_TIMEOUT"
     assert "at least 1 second" in str(short.get("error"))
     assert spawned == []
-    assert worker.tasks_executed == 2
+    assert worker.tasks_executed == 0
 
     # The dead-child branch has its own check. execute() returns before
     # that branch when the budget is already spent at entry.
@@ -716,7 +859,40 @@ def test_expired_budget_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(ensured_short, dict)
     assert ensured_short.get("code") == "EXECUTION_TIMEOUT"
     assert spawned == []
-    assert worker.tasks_executed == 4
+    assert worker.tasks_executed == 0
+
+
+def test_expired_deadline_does_not_write_or_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A clock that expires after the child is live is not written and not killed.
+
+    What was wrong: left() floors a spent deadline at 0.01s, so the write
+    started, timed out, and SIGKILL'd a child that had not received a byte.
+    """
+    from unittest.mock import MagicMock
+
+    from compute_service.worker_base import BaseProcessWorker, _Deadline
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    worker.process = MagicMock()
+    worker.process.poll.return_value = None
+    worker.process.pid = 4
+    worker.process.stdin = MagicMock()
+    worker.process.stdout = MagicMock()
+    killed: list[bool] = []
+    worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+    writes: list[object] = []
+    monkeypatch.setattr("compute_service.worker_base.write_packed_frame_with_timeout", lambda *args, **kwargs: writes.append(args))
+    # too_late_to_spawn uses remaining(), not expired(). A 30s budget is
+    # still allowed to use the live child; the write is what must stop.
+    monkeypatch.setattr(_Deadline, "expired", lambda self: True)
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=30.0)
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert killed == []
+    assert writes == []
+    assert worker.tasks_executed == 0
+    assert worker.process is not None
 
 
 def test_reaper_survives_tick_exception() -> None:
@@ -1208,7 +1384,11 @@ def test_reap_timeout_keeps_live_pid(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_reap_reports_exit_after_wait(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The exit callback runs once wait() has reaped the pid."""
+    """The exit callback runs once wait() has reaped the pid, still holding the lifecycle lock.
+
+    The callback must not call kill, respawn, or request_shutdown. That lock
+    is not re-entrant, and dropping it would let the callback start a second child.
+    """
     worker = _worker_without_spawn(monkeypatch)
 
     class _Exited:
@@ -1229,10 +1409,18 @@ def test_reap_reports_exit_after_wait(monkeypatch: pytest.MonkeyPatch) -> None:
 
     child = _Exited()
     exited: list[tuple[int, int]] = []
-    worker.on_process_exit = lambda slot, pid: exited.append((slot.worker_id, pid))
+    held: list[bool] = []
+
+    def _on_exit(slot: object, pid: int) -> None:
+        del slot
+        held.append(worker._lifecycle_lock.locked())
+        exited.append((worker.worker_id, pid))
+
+    worker.on_process_exit = _on_exit
     worker.process = child  # type: ignore[assignment]
     assert worker._reap_previous_process() is True
     assert exited == [(worker.worker_id, 7)]
+    assert held == [True]
     assert worker.process is None
 
 

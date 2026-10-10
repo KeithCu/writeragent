@@ -49,6 +49,8 @@ from plugin.scripting.sandbox import optimize_popen_pipes, scrub_subprocess_env
 __all__ = [
     "BaseProcessPool",
     "BaseProcessWorker",
+    "Deadline",
+    "MIN_REQUEST_SEC",
     "PoolSingleton",
     "RestrictedUnpickler",
     "error_dict",
@@ -72,6 +74,8 @@ _REAP_WAIT_SEC = 1.0
 # A new spawn or lease is refused below _MIN_REQUEST_SEC instead.
 _PIPE_WAIT_FLOOR = 0.01
 _MIN_REQUEST_SEC = 1.0
+# formula_pool and vision import this floor by its public name.
+MIN_REQUEST_SEC = _MIN_REQUEST_SEC
 
 _PoolT = TypeVar("_PoolT", bound="BaseProcessPool")
 _ValT = TypeVar("_ValT")
@@ -106,9 +110,12 @@ def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, message: str | 
 
 
 # count_task, mirror_message. ``kill`` stays a call-site choice:
-# EXECUTION_TIMEOUT is kill=False when no child was started, and kill=True
-# after a desynchronized pipe. Unknown codes count the task and do not
-# copy the text onto ``message``.
+# EXECUTION_TIMEOUT is kill=False when no child was dispatched, and kill=True
+# after a desynchronized pipe. A kill=False timeout does not count: the
+# child is still the same process, and the count would retire it early.
+# A successful handshake resets the count, so killing failures do not add
+# up across processes. Unknown codes count the task and do not copy the
+# text onto ``message``.
 _FAIL_POLICY: dict[str, tuple[bool, bool]] = {
     "SERVICE_SHUTDOWN": (False, False),
     "EXECUTION_TIMEOUT": (True, True),
@@ -150,6 +157,8 @@ class PoolSingleton(Generic[_PoolT]):
         A shutdown that lands during the build discards that pool instead
         of installing it. A non-permanent shutdown used to fail this caller
         with "shut down" even though the next ``get`` built a replacement.
+        A shutdown that lands after publish and before this returns used to
+        hand back the pool ``shutdown`` was already tearing down.
         """
         while True:
             with self._cv:
@@ -185,13 +194,35 @@ class PoolSingleton(Generic[_PoolT]):
                     self._building = False
                     self._cv.notify_all()
             if not stale and created is not None:
-                return created
+                # Shutdown can null ``_pool`` in the gap after publish.
+                # ``_before_handout`` is where a test opens that gap.
+                self._before_handout(created)
+                with self._cv:
+                    # Permanent shutdown sets ``_closed``. A non-permanent
+                    # one only drops ``_pool``. Either way this object is
+                    # the one ``shutdown`` is reaping, so it is not returned.
+                    handed_out = self._pool is created and not self._closed
+                    permanent = self._closed
+                if handed_out:
+                    return created
+                if permanent:
+                    raise RuntimeError("Compute pool is shut down.")
+                continue
             if published is not None and not closed:
                 return published
             if closed:
                 raise RuntimeError("Compute pool is shut down.")
             # Non-permanent shutdown discarded this build. A waiter may
             # publish the replacement; otherwise this caller builds again.
+
+    def _before_handout(self, pool: _PoolT) -> None:
+        """Run after publish and before the closed re-check. Tests override this.
+
+        Production returns. The pool is already installed. ``shutdown`` can
+        drop it before ``get`` returns, and the re-check after this method
+        refuses to hand that pool out.
+        """
+        del pool
 
     def shutdown(self, *, permanent: bool = False) -> None:
         """Drop the pool. *permanent* makes a later ``get`` raise.
@@ -305,8 +336,20 @@ class _Deadline:
         return max(_PIPE_WAIT_FLOOR, self.remaining())
 
 
+# formula_pool and vision import the clock by its public name.
+Deadline = _Deadline
+
+
 class BaseProcessWorker:
-    """Wrapper around one persistent child subprocess communicating via Pickle 5 frames."""
+    """Wrapper around one persistent child subprocess communicating via Pickle 5 frames.
+
+    ``on_process_exit`` runs from ``_reap_previous_process`` while
+    ``_lifecycle_lock`` is held. That lock is not re-entrant. The callback
+    must not call ``kill``, ``respawn``, ``request_shutdown``, or take
+    ``_lifecycle_lock``. It may take the pool condition. Dropping the lock
+    before the callback is not safe: ``respawn`` is the caller of the reap,
+    so a callback that then respawned would start a second child.
+    """
 
     worker_id: int
     script_path: str
@@ -325,8 +368,9 @@ class BaseProcessWorker:
         self.max_payload_bytes = max_payload_bytes
         # The callback receives this wrapper and the reaped pid. It runs
         # only after wait() has reaped the child, so a pid that is still
-        # alive is not reported as exited. Formula matches the wrapper:
-        # is_alive()'s poll() can free the pid before this runs, and
+        # alive is not reported as exited. It runs while ``_lifecycle_lock``
+        # is held and must not re-enter this worker. Formula matches the
+        # wrapper: is_alive()'s poll() can free the pid before this runs, and
         # another slot may already be using that number.
         self.on_process_exit = on_process_exit
         self.process: subprocess.Popen[bytes] | None = None
@@ -492,6 +536,7 @@ class BaseProcessWorker:
             # After wait(), the pid is reaped. Report this wrapper with it.
             # Matching the pid alone dropped another slot's session when
             # poll() had already freed this pid and the kernel reused it.
+            # The callback runs under this lock. See BaseProcessWorker.
             if pid is not None and self.on_process_exit is not None:
                 try:
                     self.on_process_exit(self, pid)
@@ -717,10 +762,13 @@ class BaseProcessWorker:
         never gets here.
         """
         count_task, mirror_message = _fail_policy(code)
-        if count_task:
-            # Timeouts and failed attempts count so a slot that keeps dying
-            # still reaches max_tasks. Shutdown is not a task. An oversized
-            # frame never gets here: no bytes were written, and the child stays.
+        # A killing failure counts so this release can retire the process
+        # before the next handshake. That handshake sets the count back to
+        # 0, so deaths do not add up across processes. A timeout that never
+        # dispatched (kill=False) must not move a live worker toward
+        # max_tasks. Shutdown is not a task. An oversized frame never gets
+        # here: no bytes were written, and the child stays.
+        if count_task and (kill or code != "EXECUTION_TIMEOUT"):
             self.tasks_executed += 1
         snippet = self._stderr_snippet()
         if snippet:
@@ -846,6 +894,12 @@ class BaseProcessWorker:
                 # MemoryError is not included: the process may be out of memory.
                 return error_dict("REQUEST_NOT_SERIALIZABLE", str(exc))
 
+            if deadline.expired():
+                # Spawn or packing spent the clock. left() would floor the
+                # write at _PIPE_WAIT_FLOOR, the write would time out, and
+                # the child would be killed even though no byte was sent.
+                return self._fail_timeout(deadline, pid, kill=False)
+
             try:
                 # The write shares the request deadline. It holds self.lock, so a
                 # child that stopped reading stdin would never return and the
@@ -943,26 +997,57 @@ class BaseProcessPool:
         self._cond = threading.Condition(self._lock)
         self._reaper_stop_event = threading.Event()
 
-        if self.num_workers > 0:
-            # Workers spawn one at a time, each waiting on its ready handshake
-            # (up to _SPAWN_READY_TIMEOUT_SEC). Spawning them in parallel would
-            # cut startup roughly with the worker count. Left for later.
-            for i in range(self.num_workers):
-                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, on_process_exit=on_process_exit)
-                self.workers.append(w)
-                # Idle only after the ready handshake. A failed spawn stays
-                # out of the idle set; the next lease respawns that slot.
-                if w.is_alive():
-                    # Stamp after spawn. A timestamp taken before this loop made a
-                    # slow handshake look already idle, so a short idle TTL killed
-                    # the child as soon as the reaper ran.
-                    self._idle[w] = time.monotonic()
+        try:
+            if self.num_workers > 0:
+                # Workers spawn one at a time, each waiting on its ready handshake
+                # (up to _SPAWN_READY_TIMEOUT_SEC). Spawning them in parallel would
+                # cut startup roughly with the worker count. Left for later.
+                for i in range(self.num_workers):
+                    w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name, max_payload_bytes=max_payload_bytes, on_process_exit=on_process_exit)
+                    self.workers.append(w)
+                    # Idle only after the ready handshake. A failed spawn stays
+                    # out of the idle set; the next lease respawns that slot.
+                    if w.is_alive():
+                        # Stamp after spawn. A timestamp taken before this loop made a
+                        # slow handshake look already idle, so a short idle TTL killed
+                        # the child as soon as the reaper ran.
+                        self._idle[w] = time.monotonic()
 
-        # 0 and None mean this pool does not evict for idle time. A subclass
-        # can still start the thread for its own TTL (shared session expiry).
-        period = self._reaper_period_sec()
-        if period is not None:
-            self._start_idle_reaper(period)
+            # 0 and None mean this pool does not evict for idle time. A subclass
+            # can still start the thread for its own TTL (shared session expiry).
+            period = self._reaper_period_sec()
+            if period is not None:
+                self._start_idle_reaper(period)
+        except Exception:
+            # A later worker, or the reaper start, failed after earlier
+            # children were already up. Nothing outside __init__ holds those
+            # Popen objects, so they have to be reaped here.
+            self._discard_partial_pool()
+            raise
+
+    def _discard_partial_pool(self) -> None:
+        """Reap children already started when ``__init__`` fails.
+
+        ``shutdown`` returns immediately once ``_is_shutdown`` is set, so a
+        failed constructor cannot use it: the flag would skip the kill and
+        the live children would have no reference.
+        """
+        self._reaper_stop_event.set()
+        workers = list(self.workers)
+        self._is_shutdown = True
+        self.workers.clear()
+        self._idle.clear()
+        self._leased.clear()
+        for worker in workers:
+            try:
+                worker.request_shutdown()
+            except Exception:
+                log.exception("Failed to mark %s #%d shutting down during init abort", self.worker_name, worker.worker_id)
+        for worker in workers:
+            try:
+                worker.kill()
+            except Exception:
+                log.exception("Failed to reap %s #%d during init abort", self.worker_name, worker.worker_id)
 
     def _start_reaper(self, name: str, interval: float, fn: Callable[[], None]) -> None:
         def _loop() -> None:

@@ -27,7 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, PoolSingleton, _Deadline, error_dict, resolve_override, run_compute_worker
+from compute_service.worker_base import BaseProcessPool, Deadline, PoolSingleton, error_dict, resolve_override, run_compute_worker
 
 log = logging.getLogger("compute_service.vision")
 
@@ -135,7 +135,7 @@ class VisionProcessPool(BaseProcessPool):
         # fallen under one second, do not lease. A 0.01s floor used to start
         # OCR on a deadline that had already passed. A one-second request
         # still leases: the clock moves before this check.
-        clock = _Deadline.from_absolute(eff_timeout, deadline)
+        clock = Deadline.from_absolute(eff_timeout, deadline)
         if clock.too_late_to_spawn():
             return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
         lease_budget = max(deadline - time.monotonic(), 0.0)
