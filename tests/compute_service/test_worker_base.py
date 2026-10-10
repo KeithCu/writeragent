@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -410,6 +411,14 @@ def test_execute_timeout_increments_tasks_executed(monkeypatch: pytest.MonkeyPat
     # _write_all rejects a write() that does not return a positive byte count.
     worker.process.stdin.write.side_effect = lambda data: len(data)
     worker.process.stdout = MagicMock()
+
+    def _wait(timeout: float | None = None) -> int:
+        del timeout
+        # A real Popen sets returncode in wait(); poll() then sees the exit.
+        worker.process.poll.return_value = -9
+        return -9
+
+    worker.process.wait.side_effect = _wait
     assert worker.tasks_executed == 0
 
     monkeypatch.setattr(
@@ -762,14 +771,18 @@ def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatc
         stdout = object()
         stderr = None
 
-        def poll(self) -> None:
-            return None
+        def __init__(self) -> None:
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
 
         def kill(self) -> None:
             return None
 
         def wait(self, timeout: float | None = None) -> int:
             del timeout
+            self.returncode = 0
             return 0
 
     def _popen(*_args: object, **_kwargs: object) -> _Proc:
@@ -816,15 +829,17 @@ def test_popen_past_deadline_skips_handshake(monkeypatch: pytest.MonkeyPatch) ->
             self.stdout = object()
             self.stderr = None
             self.killed = False
+            self.returncode: int | None = None
 
-        def poll(self) -> None:
-            return None
+        def poll(self) -> int | None:
+            return self.returncode
 
         def kill(self) -> None:
             self.killed = True
 
         def wait(self, timeout: float | None = None) -> int:
             del timeout
+            self.returncode = -9
             return -9
 
     proc = _Proc()
@@ -865,15 +880,17 @@ def test_partial_handshake_timeout_logs_timeout(monkeypatch: pytest.MonkeyPatch,
             self.stdin = object()
             self.stdout = object()
             self.stderr = None
+            self.returncode: int | None = None
 
-        def poll(self) -> None:
-            return None
+        def poll(self) -> int | None:
+            return self.returncode
 
         def kill(self) -> None:
             return None
 
         def wait(self, timeout: float | None = None) -> int:
             del timeout
+            self.returncode = -9
             return -9
 
     def _read(*_args: object, **_kwargs: object) -> dict[str, object]:
@@ -918,6 +935,142 @@ def test_run_compute_worker_sets_identity_and_payload_cap(monkeypatch: pytest.Mo
     assert seen["cap"] == COMPUTE_MAX_PAYLOAD_BYTES
     assert seen["is_worker"] == "1"
     assert seen["compute"] == "1"
+
+
+def test_reap_timeout_keeps_live_pid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A child still alive after the reap wait is not reported as exited.
+
+    What was wrong: wait()'s timeout was swallowed, the slot was cleared, and
+    on_process_exit dropped every session on a pid SIGKILL had not reaped.
+    """
+    import subprocess
+
+    from compute_service import worker_base
+
+    class _Stuck:
+        def __init__(self) -> None:
+            self.pid = 42
+            self.killed = False
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            self.killed = True
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            raise subprocess.TimeoutExpired(cmd="stuck", timeout=1)
+
+    worker = _worker_without_spawn(monkeypatch)
+    child = _Stuck()
+    exited: list[int] = []
+    worker.on_process_exit = exited.append
+    worker.process = child  # type: ignore[assignment]
+    popped: list[object] = []
+
+    def _popen(*_args: object, **_kwargs: object) -> object:
+        popped.append(_args)
+        raise AssertionError("Popen while the previous pid is still alive")
+
+    monkeypatch.setattr(worker_base.subprocess, "Popen", _popen)
+    worker.respawn()
+    assert exited == []
+    assert worker.process is child
+    assert child.killed
+    assert popped == []
+
+
+def test_reap_reports_exit_after_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The exit callback runs once wait() has reaped the pid."""
+    worker = _worker_without_spawn(monkeypatch)
+
+    class _Exited:
+        def __init__(self) -> None:
+            self.pid = 7
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.returncode = 0
+            return 0
+
+    child = _Exited()
+    exited: list[int] = []
+    worker.on_process_exit = exited.append
+    worker.process = child  # type: ignore[assignment]
+    assert worker._reap_previous_process() is True
+    assert exited == [7]
+    assert worker.process is None
+
+
+def test_stderr_log_keeps_tail(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A chatty child does not grow the stderr file without a bound.
+
+    Opening the file ``wb`` at spawn does not help: the child appends for
+    its whole life. The host keeps the last ``_STDERR_LOG_CAP`` bytes.
+    """
+    from compute_service.worker_base import _STDERR_LOG_CAP
+
+    worker = _worker_without_spawn(monkeypatch)
+    path = tmp_path / "w.stderr"
+    path.write_bytes(b"x" * (_STDERR_LOG_CAP + 50) + b"END")
+    worker._stderr_path = str(path)
+    worker._cap_stderr_log()
+    data = path.read_bytes()
+    assert len(data) == _STDERR_LOG_CAP
+    assert data.endswith(b"END")
+    assert worker._stderr_snippet().endswith("END")
+
+
+def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pickle error before any byte is written leaves the child up.
+
+    What was wrong: PicklingError escaped execute instead of an error dict.
+    pack_pickle_frame runs before the first write, so the pipe stays aligned.
+    """
+    import pickle
+    from unittest.mock import MagicMock
+
+    from compute_service.worker_base import BaseProcessWorker
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.pid = 11
+    proc.stdin = MagicMock()
+    proc.stdout = MagicMock()
+    worker.process = proc
+    killed: list[bool] = []
+    worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "compute_service.worker_base.write_pickle_frame_with_timeout",
+        MagicMock(side_effect=pickle.PicklingError("cannot pickle")),
+    )
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert res.get("code") == "REQUEST_NOT_SERIALIZABLE"
+    assert killed == []
+    assert worker.tasks_executed == 0
+    assert worker.process is proc
+
+
+def test_timeout_message_keeps_fractional_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 1.9s budget is not reported as 1 second. Whole seconds stay integers."""
+    from compute_service.worker_base import _Deadline
+
+    worker = _worker_without_spawn(monkeypatch)
+    fractional = worker._timeout_message(_Deadline(1.9))
+    assert "1.9" in fractional
+    assert "1 seconds" not in fractional
+    assert worker._timeout_message(_Deadline(2.0)) == "Execution exceeded maximum timeout of 2 seconds."
 
 
 def test_formula_worker_script_handshake() -> None:
