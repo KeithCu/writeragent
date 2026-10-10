@@ -888,6 +888,112 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
+    def test_session_cap_resets_oldest_idle_session(self) -> None:
+        """A new id past the cap resets the oldest idle kernel and keeps the newer one."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            pool._max_sessions = 2
+            older = pool.execute(code="x = 7\nresult = x", session_id="sess-a", mode="shared")
+            assert older.get("status") == "ok"
+            assert older.get("result") == 7
+            newer = pool.execute(code="y = 8\nresult = y", session_id="sess-b", mode="shared")
+            assert newer.get("status") == "ok"
+            assert newer.get("result") == 8
+            admitted = pool.execute(code="result = 1", session_id="sess-c", mode="shared")
+            assert admitted.get("status") == "ok"
+            assert admitted.get("session_reset") is not True
+            assert "sess-a" not in pool._sessions
+            assert "sess-a" in pool._lost_sessions
+            assert "sess-b" in pool._sessions
+            assert "sess-c" in pool._sessions
+            kept = pool.execute(code="result = y", session_id="sess-b", mode="shared")
+            assert kept.get("status") == "ok"
+            assert kept.get("result") == 8
+            assert kept.get("session_reset") is not True
+            wiped = pool.execute(code="result = x", session_id="sess-a", mode="shared")
+            assert wiped.get("session_reset") is True
+            assert wiped.get("result") != 7
+        finally:
+            pool.shutdown()
+
+    def test_session_cap_keeps_existing_id(self) -> None:
+        """An id already in a full map still runs and is not evicted to make room."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            pool._max_sessions = 1
+            first = pool.execute(code="x = 7\nresult = x", session_id="sess-a", mode="shared")
+            assert first.get("status") == "ok"
+            again = pool.execute(code="result = x", session_id="sess-a", mode="shared")
+            assert again.get("status") == "ok"
+            assert again.get("result") == 7
+            assert again.get("session_reset") is not True
+            assert list(pool._sessions) == ["sess-a"]
+        finally:
+            pool.shutdown()
+
+    def test_session_cap_keeps_map_when_reset_fails(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A failed reset must not drop the kernel or admit the new id."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            pool._max_sessions = 1
+            ok = pool.execute(code="x = 9\nresult = x", session_id="sess-a", mode="shared")
+            assert ok.get("status") == "ok"
+            worker = pool._sessions["sess-a"].worker
+            real_execute = worker.execute
+
+            def fail_reset(payload: dict[str, Any], timeout_sec: float = 5.0, *, req_id: Any = None) -> dict[str, Any]:
+                if payload.get("action") == "reset_session":
+                    return {"status": "error", "error": "namespace still held"}
+                return real_execute(payload, timeout_sec, req_id=req_id)
+
+            setattr(worker, "execute", fail_reset)
+            with caplog.at_level(logging.ERROR, logger="compute_service.formula"):
+                blocked = pool.execute(code="result = 1", session_id="sess-b", mode="shared", req_id="cap-fail")
+            assert blocked.get("code") == "SESSION_LIMIT"
+            assert blocked.get("id") == "cap-fail"
+            assert "sess-b" not in pool._sessions
+            assert pool.live_session_worker("sess-a") is worker
+            assert "keeping session map" in caplog.text
+            still = pool.execute(code="result = x", session_id="sess-a", mode="shared")
+            assert still.get("status") == "ok"
+            assert still.get("result") == 9
+        finally:
+            pool.shutdown()
+
+    def test_session_cap_refuses_when_workers_are_leased(self) -> None:
+        """A full map with no idle victim refuses the new id and leaves the kernel."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            pool._max_sessions = 1
+            ok = pool.execute(code="x = 3\nresult = x", session_id="sess-a", mode="shared")
+            assert ok.get("status") == "ok"
+            worker = pool._sessions["sess-a"].worker
+            held = pool.lease_specific(worker, timeout_sec=1)
+            assert held is worker
+            try:
+                blocked = pool.execute(code="result = 1", session_id="sess-b", mode="shared", req_id="cap-busy")
+                assert blocked.get("code") == "SESSION_LIMIT"
+                assert "sess-a" in pool._sessions
+                assert "sess-a" not in pool._lost_sessions
+                assert "sess-b" not in pool._sessions
+            finally:
+                pool.release_worker(held)
+        finally:
+            pool.shutdown()
+
+    def test_session_cap_does_not_evict_on_short_deadline(self) -> None:
+        """Under one second left, the cap does not reset an idle kernel."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            pool._max_sessions = 1
+            ok = pool.execute(code="x = 4\nresult = x", session_id="sess-a", mode="shared")
+            assert ok.get("status") == "ok"
+            assert pool._evict_oldest_idle_session(time.monotonic() + 0.2) is False
+            assert "sess-a" in pool._sessions
+            assert "sess-a" not in pool._lost_sessions
+        finally:
+            pool.shutdown()
+
     def test_reset_keeps_map_when_worker_reset_fails(self, caplog: pytest.LogCaptureFixture) -> None:
         """A non-ok reset must not forget a namespace the worker still holds."""
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)

@@ -1562,6 +1562,15 @@ class TestSessionResetHttp:
         assert status.startswith("503")
         assert body.get("code") == "WORKER_POOL_BUSY"
 
+    def test_execute_session_limit_is_503(self) -> None:
+        def limited(**_kwargs):
+            return {"id": "ex-cap", "status": "error", "code": "SESSION_LIMIT", "error": "Shared session limit reached."}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=limited)
+        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("503")
+        assert body.get("code") == "SESSION_LIMIT"
+
     def test_execute_worker_death_is_500(self) -> None:
         """A crash or empty frame may have run the cell, so it is not a retryable 503."""
         def dead(**_kwargs):

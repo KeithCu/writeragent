@@ -281,19 +281,43 @@ class BaseProcessWorker:
         self.respawn()
 
     def _open_stderr_log(self) -> IO[bytes]:
-        """Open this slot's stderr file for the child about to be spawned.
+        """Open a stderr file for the child about to be spawned.
 
         A pipe would need a drain thread so the kernel buffer cannot fill
         and stall the handshake. The file is read only when spawn or a
         request fails, then unlinked when the child is reaped. ``_cap_stderr_log``
         keeps the last ``_STDERR_LOG_CAP`` bytes after a request, on each
         idle-reaper scan, and when a reap leaves the child alive.
+
+        Does not publish ``_stderr_path``. ``kill()`` unlinks only that
+        published path, so a shutdown during ``Popen`` cannot delete this
+        file before the child inherits the fd. ``respawn`` publishes it
+        after ``Popen`` returns.
         """
-        if self._stderr_path is None:
+        path = self._stderr_path
+        if path is None:
             fd, path = tempfile.mkstemp(prefix=f"wa-compute-w{self.worker_id}-", suffix=".stderr")
             os.close(fd)
+        return open(path, "ab", buffering=0)
+
+    def _publish_stderr_path(self, path: str) -> bool:
+        """Publish *path* unless shutdown already won.
+
+        Call after ``Popen`` has inherited the fd. False means the caller
+        still owns *path* and must unlink it.
+        """
+        with self._lifecycle_lock:
+            if self._shutting_down:
+                return False
             self._stderr_path = path
-        return open(self._stderr_path, "ab", buffering=0)
+            return True
+
+    def _unlink_stderr_file(self, path: str) -> None:
+        """Remove a stderr file that was never published on ``_stderr_path``."""
+        try:
+            os.unlink(path)
+        except OSError:
+            log.debug("%s #%d could not remove stderr log %s", self.worker_name, self.worker_id, path, exc_info=True)
 
     def _close_stderr_log(self) -> None:
         """Unlink the current stderr file. Caller holds ``_lifecycle_lock``."""
@@ -430,12 +454,14 @@ class BaseProcessWorker:
             return
         cmd = [sys.executable, self.script_path]
         stderr_log: IO[bytes] | None = None
+        published_stderr = False
         try:
             # Scrub matches the venv host: drop PYTHONHOME / credential-like
             # names so the child does not inherit the parent's secret env.
             # **creationflags kwargs make the type checker treat this as Popen[str].
-            # stderr is a file, not a pipe: nothing has to drain it, and a
-            # kill during Popen unlinks that file when it reaps.
+            # stderr is a file, not a pipe: nothing has to drain it.
+            # The path stays unpublished until Popen returns, so kill() during
+            # Popen cannot unlink it before the child inherits the fd.
             # A grandchild that inherits this stdout pipe holds the host read
             # open until the request deadline; that timeout kills the child.
             stderr_log = self._open_stderr_log()
@@ -452,8 +478,15 @@ class BaseProcessWorker:
                     **get_subprocess_creationflags(),
                 ),
             )
-            # Do not hold _lifecycle_lock across the handshake read: kill()
-            # takes that lock, and the read can block for the spawn budget.
+            # Do not hold _lifecycle_lock across Popen or the handshake read.
+            # kill() takes that lock, and the handshake can block for the
+            # spawn budget. Publishing here is after the inherit.
+            if not self._publish_stderr_path(stderr_log.name):
+                self._discard_unadopted_process(proc)
+                if self._stderr_path != stderr_log.name:
+                    self._unlink_stderr_file(stderr_log.name)
+                return
+            published_stderr = True
             if not self._adopt_spawned_process(proc):
                 self._discard_unadopted_process(proc)
                 # Reap already holds this lock. This path does not.
@@ -500,6 +533,10 @@ class BaseProcessWorker:
             self.kill()
         except Exception as exc:
             self._log_spawn_failure(f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}")
+            # Popen failed before the path was published. kill() only
+            # unlinks _stderr_path, so this file would otherwise leak.
+            if stderr_log is not None and not published_stderr and self._stderr_path != stderr_log.name:
+                self._unlink_stderr_file(stderr_log.name)
             self.kill()
         finally:
             if stderr_log is not None:
@@ -552,6 +589,10 @@ class BaseProcessWorker:
         # REQUEST_NOT_SERIALIZABLE. Snapshot once. Do not take
         # _lifecycle_lock here: kill() holds it across wait().
         proc = self.process
+        # poll() reaps a zombie and does not run on_process_exit. Idle prune
+        # and session finalize call this while holding the pool condition;
+        # the callback takes that condition, so it cannot run here. Formula
+        # drops those sessions in _reap_dead_sessions_unlocked.
         return proc is not None and proc.poll() is None
 
     def request_shutdown(self) -> None:
@@ -743,6 +784,17 @@ class BaseProcessWorker:
             except Exception as exc:
                 return self._fail_request("WORKER_CRASHED", f"{self.worker_name} error: {exc}", pid=pid)
             if resp is None or not isinstance(resp, dict):
+                # Shutdown kills the child while this read is in flight. EOF
+                # used to be EMPTY_RESPONSE, which counts a task and looks
+                # like a crash. The pool is stopping, so this is
+                # SERVICE_SHUTDOWN and the child is already being reaped.
+                if self._shutting_down:
+                    return self._fail_request(
+                        "SERVICE_SHUTDOWN",
+                        f"{self.worker_name} #{self.worker_id} is shutting down.",
+                        pid=pid,
+                        kill=False,
+                    )
                 return self._fail_request("EMPTY_RESPONSE", f"No response returned from {self.worker_name}.", pid=pid)
             self.tasks_executed += 1
             self._cap_stderr_log()
@@ -936,6 +988,9 @@ class BaseProcessPool:
         A dead pid is not idle. The next lease claims that slot as cold
         and respawns it. The last-active stamp goes with the idle entry;
         the next successful idle writes a new one.
+
+        ``is_alive`` may reap the pid without ``on_process_exit``. Formula
+        session rows are dropped by ``_reap_dead_sessions_unlocked``.
         """
         for worker in list(self._idle):
             if not worker.is_alive():

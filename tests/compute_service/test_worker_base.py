@@ -256,12 +256,20 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
 
     proc = _Proc()
 
-    def _popen(*_args: object, **_kwargs: object) -> _Proc:
+    seen: list[str] = []
+
+    def _popen(*_args: object, **kwargs: object) -> _Proc:
         # The window after the unlocked check: shutdown sets the flag and
-        # kill() reaps whatever is published. Nothing is, yet. The stderr
-        # file opened for this spawn is unlinked with that reap.
+        # kill() reaps whatever is published. The stderr path is not
+        # published until Popen returns, so this kill must not unlink it.
+        handle = kwargs["stderr"]
+        path = getattr(handle, "name", None)
+        assert isinstance(path, str)
+        assert Path(path).exists()
+        seen.append(path)
         worker._shutting_down = True
         worker.kill()
+        assert Path(path).exists()
         return proc
 
     monkeypatch.setattr("compute_service.worker_base.subprocess.Popen", _popen)
@@ -269,6 +277,8 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
     assert worker.process is None
     assert proc.killed
     assert worker._stderr_path is None
+    assert seen
+    assert not Path(seen[0]).exists()
 
 
 def test_execute_respawn_respects_request_deadline() -> None:
@@ -678,6 +688,31 @@ def test_failed_request_increments_tasks_executed(monkeypatch: pytest.MonkeyPatc
     assert res.get("code") == code
     assert worker.tasks_executed == 1
     assert killed == [True]
+
+
+def test_empty_read_during_shutdown_is_service_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """EOF while the pool is stopping is SERVICE_SHUTDOWN, not a counted crash."""
+    from unittest.mock import MagicMock
+
+    from compute_service.worker_base import BaseProcessWorker
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    worker.process = MagicMock()
+    worker.process.poll.return_value = None
+    worker.process.pid = 3
+    worker.process.stdin = MagicMock()
+    worker.process.stdout = MagicMock()
+    worker._shutting_down = True
+    killed: list[bool] = []
+    worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+    monkeypatch.setattr("compute_service.worker_base.write_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert res.get("code") == "SERVICE_SHUTDOWN"
+    assert worker.tasks_executed == 0
+    assert killed == []
 
 
 def test_subsecond_timeout_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:

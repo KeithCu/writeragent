@@ -85,6 +85,7 @@ def check_dependencies(pool: Any) -> None:
 # FILE_TOO_LARGE matches the execute 413s (RESULT_TOO_LARGE / PAYLOAD_TOO_LARGE).
 _HTTP_STATUS_BY_CODE = {
     "WORKER_POOL_BUSY": "503 Service Unavailable",
+    "SESSION_LIMIT": "503 Service Unavailable",
     "SERVICE_SHUTDOWN": "503 Service Unavailable",
     "WORKER_SPAWN_FAILED": "503 Service Unavailable",
     "WORKER_PIPE_BROKEN": "503 Service Unavailable",
