@@ -331,9 +331,7 @@ class FormulaProcessPool(BaseProcessPool):
         if not self._idle:
             return None
         self._reap_dead_sessions_unlocked()
-        for worker in list(self._idle):
-            if not worker.is_alive():
-                self._idle.pop(worker, None)
+        self._prune_dead_idle_unlocked()
         if not self._idle:
             return None
         # Iteration order is oldest-idle first.

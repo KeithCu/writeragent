@@ -99,6 +99,9 @@ class _RecyclingSlot:
         self._alive = False
         self._pause("kill")
 
+    def request_shutdown(self) -> None:
+        return None
+
     def respawn(self) -> None:
         self._alive = False
         self._pause("respawn")
@@ -343,6 +346,58 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
     assert worker.process is None
     assert proc.killed
     assert drains == []
+
+
+def test_respawn_does_not_install_stderr_drain_after_reap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A kill between adopt and drain install must not keep the dead child's drain.
+
+    _adopt_spawned_process drops _lifecycle_lock before the drain starts.
+    kill() in that window reaps the child and clears _stderr_drain. The
+    spawn thread must not store a new drain for that process.
+    """
+    from compute_service.worker_base import BaseProcessWorker
+
+    original_respawn = BaseProcessWorker.respawn
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    monkeypatch.setattr(BaseProcessWorker, "respawn", original_respawn)
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 5151
+            self.stdin = None
+            self.stdout = None
+            self.stderr = None
+            self.killed = False
+
+        def kill(self) -> None:
+            self.killed = True
+
+        def poll(self) -> int | None:
+            return 0 if self.killed else None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            return 0
+
+    proc = _Proc()
+    drains: list[object] = []
+
+    def _optimize(popen: object) -> None:
+        del popen
+        worker.kill()
+
+    monkeypatch.setattr("compute_service.worker_base.subprocess.Popen", lambda *_args, **_kwargs: proc)
+    monkeypatch.setattr("compute_service.worker_base.optimize_popen_pipes", _optimize)
+    monkeypatch.setattr(
+        "compute_service.worker_base.start_stderr_drain",
+        lambda *_args, **_kwargs: drains.append(object()) or drains[-1],
+    )
+    worker.respawn()
+    assert worker.process is None
+    assert proc.killed
+    assert drains == []
+    assert worker._stderr_drain is None
 
 
 def test_execute_respawn_respects_request_deadline() -> None:
@@ -787,6 +842,42 @@ def test_kill_during_late_drain_releases_once(monkeypatch: pytest.MonkeyPatch) -
     finally:
         unblock.set()
         pool.shutdown()
+
+
+def test_late_drain_base_exception_still_releases(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An interrupt during the late read must not leave the slot leased.
+
+    _complete_drain runs on the way out, including BaseException. The
+    interrupted read may be a partial frame, so the child is killed before
+    the RELEASE_WAIT callback runs. The interrupt still propagates so the
+    drain thread unwinds.
+    """
+    from compute_service.worker_base import _DrainState
+
+    worker, proc = _draining_worker(monkeypatch)
+    called: list[object] = []
+
+    def _callback() -> None:
+        called.append("released")
+
+    def _read(*_args: object, **_kwargs: object) -> dict[str, str]:
+        assert worker.defer_release(_callback) is True
+        assert worker._drain_state == _DrainState.RELEASE_WAIT
+        raise KeyboardInterrupt
+
+    def _inline(func: object, *args: object, **_kwargs: object) -> None:
+        assert callable(func)
+        try:
+            func(*args)
+        except KeyboardInterrupt:
+            called.append("unwound")
+
+    monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr("compute_service.worker_base.run_in_background", _inline)
+    worker._start_late_drain(1.0)
+    assert called == ["released", "unwound"]
+    assert worker._drain_state == _DrainState.IDLE
+    assert proc.killed == 1
 
 
 def test_subsecond_timeout_message_keeps_fraction(monkeypatch: pytest.MonkeyPatch) -> None:

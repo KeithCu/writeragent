@@ -122,7 +122,9 @@ FormulaProcessPool / get_formula_pool
   → BaseProcessWorker.__init__ → _spawn
       Popen([sys.executable, formula_worker.py], stdin/stdout/stderr=PIPE, bufsize=0)
       optimize_popen_pipes (Linux F_SETPIPE_SZ)
-      start_stderr_drain (dedicated thread, worker_pool.run_in_background)
+      start_stderr_drain under _lifecycle_lock, only if that Popen is still
+        self.process and shutdown has not won (a kill after adopt must not
+        leave a drain attached to the reaped child)
       read_pickle_frame_with_timeout(stdout, 15s, is_alive=self.is_alive)
         POSIX: select() + stream.read(); TimeoutExpired on deadline
 
@@ -273,5 +275,6 @@ Fill this in as you go. Do not delete failed experiments.
 | 2026-09-03 | after #548 | Windows pytest | CI 33697174793 `test_spawn_stdout_garbage_fails_fast` | `#548` skip returns `b""` on win32 pipes, so `if rest:` omitted `stdout_rest=` from `IpcFrameError`. Fail-fast still worked (`header=b'Erro'`, no 15s timeout). Always attach `stdout_rest=` (empty when peek skipped). Do not re-enable `set_blocking` on Windows. |
 | 2026-09-02 | after #545 | H1 | leftover stdout on full `make test` | Same 37 fails. `stdout_rest` reconstructs: `Error importing huggingface_hub.hf_api: No module named 'envwrap' (or 'envwrap.envwrap' is unknown)`. Cause: `smolagents/__init__.py` star-imported `tools` → `huggingface_hub` on every `plugin.contrib.smolagents.*` import, including compute-worker `sandbox.py`. |
 | 2026-09-03 | after #546 | hunt-log strip | leftover peek / `stdout_rest` stay; drop Windows `log.info` peek-skip and stderr hang breadcrumbs | Invalid frames keep `stdout_rest=` on `IpcFrameError` (empty when POSIX peek is skipped) and log at error. No `print(..., file=sys.stderr)` hunt line. Do not reopen Hub/smolagents. |
+| 2026-10-10 | CI 38068964656 | Windows ty | `ty check --python-platform win32 plugin/scripting/ipc.py` | `_nonblocking(fd)` helper lacked win32 guard; `os.get_blocking` and `os.set_blocking` are POSIX-only. Guarded `_nonblocking` with `sys.platform == "win32" or not hasattr(os, "set_blocking")`. |
 
 Invalid length prefix still raises `IpcFrameError` with `stdout_rest=` (empty `b''` when the POSIX leftover peek is skipped on win32). POSIX peek uses `os.set_blocking`; skip on win32. That is the error contract, not debug.
