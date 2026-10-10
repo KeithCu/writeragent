@@ -679,6 +679,41 @@ def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch
     assert worker.tasks_executed == 0
 
 
+def test_expired_budget_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A spent budget must not Popen a child for a 0.01s handshake.
+
+    What was wrong: execute floored timeout_sec at _MIN_BUDGET_SEC before
+    the deadline existed, so timeout_sec <= 0 still spawned and then
+    SIGKILL'd the child when the handshake could not finish.
+    """
+    from compute_service.worker_base import BaseProcessWorker, _Deadline
+
+    spawned: list[float] = []
+
+    def _respawn(self: BaseProcessWorker, timeout_sec: float = 0.0) -> None:
+        del self
+        spawned.append(timeout_sec)
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", _respawn)
+    worker = BaseProcessWorker(1, "unused.py", worker_name="Budget")
+    worker.process = None
+    # __init__ calls respawn once. Only a later execute/ensure must not.
+    spawned.clear()
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=0)
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert spawned == []
+    assert worker.tasks_executed == 1
+
+    # The dead-child branch has its own check. execute() returns before
+    # that branch when the budget is already spent at entry.
+    ensured = worker._ensure_live_process(_Deadline(0))
+    assert isinstance(ensured, dict)
+    assert ensured.get("code") == "EXECUTION_TIMEOUT"
+    assert spawned == []
+    assert worker.tasks_executed == 2
+
+
 def test_reaper_survives_tick_exception() -> None:
     """One bad eviction tick must not kill the reaper.
 
@@ -931,6 +966,29 @@ def test_late_drain_thread_start_interrupt_still_releases(monkeypatch: pytest.Mo
     assert proc.killed == 1
     assert worker.defer_release(lambda: None) is False
     assert worker._drain_state == _DrainState.IDLE
+
+
+def test_abandon_unstarted_drain_runs_release_wait_callback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Abandoning a drain that release already parked on must return the slot.
+
+    What was wrong: _abandon_unstarted_drain only finished DRAINING.
+    RELEASE_WAIT kept _release_cb, so the worker stayed leased. execute
+    holds self.lock across the start, so defer_release cannot win that
+    race today; a later caller can.
+    """
+    from compute_service.worker_base import _DrainState
+
+    worker, proc = _draining_worker(monkeypatch)
+    called: list[int] = []
+    with worker._drain_lock:
+        worker._drain_state = _DrainState.RELEASE_WAIT
+        worker._release_cb = lambda: called.append(1)
+
+    worker._abandon_unstarted_drain(proc)  # type: ignore[arg-type]
+    assert called == [1]
+    assert worker._drain_state == _DrainState.IDLE
+    assert worker._release_cb is None
+    assert proc.killed == 1
 
 
 def test_late_drain_does_not_kill_replacement(monkeypatch: pytest.MonkeyPatch) -> None:

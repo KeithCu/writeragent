@@ -1558,7 +1558,8 @@ class TestFormulaHttpEndpoint:
         """New shared sessions must be assigned to the worker holding the fewest active sessions."""
         pool = FormulaProcessPool(num_workers=2, default_timeout_sec=15)
         try:
-            # First session lands on worker 0 or 1
+            # First session lands on the least-loaded live worker. On a tie
+            # that is the lowest worker_id (hash() used to depend on PYTHONHASHSEED).
             res1 = pool.execute(code="result = 1", session_id="sess-1", mode="shared")
             assert res1.get("status") == "ok"
             w1 = pool.live_session_worker("sess-1")
@@ -1568,6 +1569,9 @@ class TestFormulaHttpEndpoint:
             assert res2.get("status") == "ok"
             w2 = pool.live_session_worker("sess-2")
 
+            assert w1 is not None and w2 is not None
+            live = [w for w in pool.workers if w.is_alive()]
+            assert w1.worker_id == min(w.worker_id for w in live)
             assert w1 is not w2, "Sessions must balance across distinct workers when both are available"
         finally:
             pool.shutdown()

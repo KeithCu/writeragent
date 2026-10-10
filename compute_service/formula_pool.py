@@ -248,6 +248,13 @@ class FormulaProcessPool(BaseProcessPool):
 
         ``pid is None`` is only a reservation that has not been leased yet.
         Dropping it here let a second request bind the same id to another worker.
+
+        ``worker.process`` is read without ``_lifecycle_lock``. Reap holds
+        that lock across ``on_process_exit``, which takes this pool's
+        condition, and this method already holds the condition. Taking the
+        lifecycle lock here would deadlock. A respawn clears ``process``
+        before the new child is adopted; the old kernel is gone, so dropping
+        the session (``session_reset``) is the right outcome.
         """
         for sid, s in list(self._sessions.items()):
             if s.pid is None:
@@ -438,7 +445,8 @@ class FormulaProcessPool(BaseProcessPool):
             elif self.workers:
                 # Distribute new shared sessions across workers by choosing the worker
                 # currently hosting the fewest active sessions. Prefer idle workers
-                # among ties to distribute load evenly, using hash as final tie-breaker.
+                # among ties. worker_id is the last key so a restart does not
+                # reshuffle ties: hash() depends on PYTHONHASHSEED.
                 # Dead workers sort last so a new reservation gets a live pid
                 # when any process is up. A dead-only pool still reserves one
                 # slot; execute respawns it.
@@ -448,10 +456,13 @@ class FormulaProcessPool(BaseProcessPool):
                         0 if w.is_alive() else 1,
                         self._worker_session_count(w),
                         0 if w in self._idle else 1,
-                        abs(hash((session_id, w.worker_id))),
+                        w.worker_id,
                     ),
                 )
                 # Reserve session->worker at pick time inside the same with self._cond!
+                # Unlocked process read: see _reap_dead_sessions_unlocked. This
+                # holds _cond, and reap's on_process_exit takes _cond under
+                # _lifecycle_lock.
                 proc = target_worker.process
                 pid = proc.pid if (proc is not None and proc.poll() is None) else None
                 self._sessions[session_id] = _Session(
@@ -500,6 +511,8 @@ class FormulaProcessPool(BaseProcessPool):
         """Update session mapping and release leased worker."""
         try:
             with self._cond:
+                # Unlocked process read: see _reap_dead_sessions_unlocked.
+                # A respawn in this window means the kernel is already gone.
                 proc = leased.process
                 if mode == "shared" and session_id and leased.is_alive() and proc is not None and proc.poll() is None:
                     sess = self._sessions.get(session_id)
