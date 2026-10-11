@@ -1291,12 +1291,12 @@ class TestFormulaPoolSupervisor:
             )
 
     def test_deadline_left_is_negative_when_spent(self) -> None:
-        from compute_service.worker_base import _Deadline
+        from compute_service.worker_base import Deadline
 
-        future = _Deadline.from_absolute(10.0, time.monotonic() + 10.0)
+        future = Deadline.from_absolute(10.0, time.monotonic() + 10.0)
         assert future.left() > 0.0
         assert future.usable() is not None
-        spent = _Deadline.from_absolute(10.0, time.monotonic() - 10.0)
+        spent = Deadline.from_absolute(10.0, time.monotonic() - 10.0)
         assert spent.left() < 0
         assert spent.usable() is None
 
@@ -2115,7 +2115,7 @@ def test_bad_result_json_is_worker_crashed_without_kill(monkeypatch: pytest.Monk
     The pickle frame was already consumed, so killing the child would drop
     shared sessions for a bad inner blob.
     """
-    from compute_service.worker_base import BaseProcessWorker, _Deadline
+    from compute_service.worker_base import BaseProcessWorker, Deadline
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
@@ -2130,7 +2130,7 @@ def test_bad_result_json_is_worker_crashed_without_kill(monkeypatch: pytest.Monk
     worker.execute = _return_blob  # type: ignore[method-assign]
     pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=0, shared_kernel_ttl_sec=0)
     try:
-        clock = _Deadline(30.0)
+        clock = Deadline(30.0)
         res = pool._run_execution(worker, {}, clock, False, "bad-json", True)
         assert res.get("code") == "WORKER_CRASHED"
         assert res.get("id") == "bad-json"

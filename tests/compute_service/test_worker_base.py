@@ -587,7 +587,7 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
 
 
 def test_execute_respawn_respects_request_deadline() -> None:
-    from compute_service.worker_base import BaseProcessWorker, _Deadline
+    from compute_service.worker_base import BaseProcessWorker, Deadline
 
     worker = BaseProcessWorker(1, "unused.py")
     # Simulate dead process
@@ -596,7 +596,7 @@ def test_execute_respawn_respects_request_deadline() -> None:
 
     respawn_left: list[float] = []
 
-    def mock_respawn(timeout_sec: float = 15.0, deadline: _Deadline | None = None) -> None:
+    def mock_respawn(timeout_sec: float = 15.0, deadline: Deadline | None = None) -> None:
         # timeout_sec is the 15s startup default. execute passes the request
         # clock, and respawn takes the handshake budget from that clock
         # after Popen. Leave the child dead so execute returns
@@ -848,7 +848,7 @@ def test_expired_budget_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
     the deadline existed, so timeout_sec <= 0 still spawned and then
     SIGKILL'd the child when the handshake could not finish.
     """
-    from compute_service.worker_base import BaseProcessWorker, _Deadline
+    from compute_service.worker_base import BaseProcessWorker, Deadline
 
     spawned: list[float] = []
 
@@ -879,10 +879,10 @@ def test_expired_budget_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # The dead-child branch has its own check. execute() returns before
     # that branch when the budget is already spent at entry.
-    ensured = worker._ensure_live_process(_Deadline(0))
+    ensured = worker._ensure_live_process(Deadline(0))
     assert isinstance(ensured, dict)
     assert ensured.get("code") == "EXECUTION_TIMEOUT"
-    ensured_short = worker._ensure_live_process(_Deadline(0.5))
+    ensured_short = worker._ensure_live_process(Deadline(0.5))
     assert isinstance(ensured_short, dict)
     assert ensured_short.get("code") == "EXECUTION_TIMEOUT"
     assert spawned == []
@@ -897,7 +897,7 @@ def test_expired_deadline_does_not_write_or_kill(monkeypatch: pytest.MonkeyPatch
     """
     from unittest.mock import MagicMock
 
-    from compute_service.worker_base import BaseProcessWorker, _Deadline
+    from compute_service.worker_base import BaseProcessWorker, Deadline
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
@@ -913,7 +913,7 @@ def test_expired_deadline_does_not_write_or_kill(monkeypatch: pytest.MonkeyPatch
     # The entry check still sees time left, so the live child is kept.
     # The check before the write is the one that must stop.
     answers = iter((30.0, None))
-    monkeypatch.setattr(_Deadline, "usable", lambda self: next(answers))
+    monkeypatch.setattr(Deadline, "usable", lambda self: next(answers))
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=30.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
@@ -1176,7 +1176,7 @@ def test_reap_past_deadline_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> N
 def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatch) -> None:
     """The ready-frame read uses the time left after the previous child is reaped."""
     from plugin.framework import process_worker as worker_base
-    from compute_service.worker_base import _Deadline
+    from compute_service.worker_base import Deadline
 
     clock = {"t": 1000.0}
     monkeypatch.setattr(worker_base.time, "monotonic", lambda: clock["t"])
@@ -1218,7 +1218,7 @@ def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatc
         clock["t"] += 0.4
 
     worker.process = _DeadChild(_spend)  # type: ignore[assignment]
-    deadline = _Deadline(5.0)
+    deadline = Deadline(5.0)
     try:
         worker.respawn(deadline=deadline)
         assert len(seen) == 1
@@ -1234,7 +1234,7 @@ def test_respawn_rejects_timeout_and_deadline(monkeypatch: pytest.MonkeyPatch) -
     caller that passed both thought the cap was in force.
     """
     from plugin.framework import process_worker as worker_base
-    from compute_service.worker_base import _Deadline
+    from compute_service.worker_base import Deadline
 
     popen_calls: list[object] = []
 
@@ -1245,7 +1245,7 @@ def test_respawn_rejects_timeout_and_deadline(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(worker_base.subprocess, "Popen", _popen)
     worker = worker_base.BaseProcessWorker(1, "unused.py", worker_name="Budget", start=False)
     with pytest.raises(ValueError, match="not both"):
-        worker.respawn(timeout_sec=1.0, deadline=_Deadline(5.0))
+        worker.respawn(timeout_sec=1.0, deadline=Deadline(5.0))
     assert popen_calls == []
 
 
@@ -1562,6 +1562,182 @@ def test_reap_reports_exit_after_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     assert not worker.reap_incomplete()
 
 
+class _PipeEnd:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_kill_closes_pipes_only_after_reap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Parent stdin and stdout close once wait() has reaped the child.
+
+    What was wrong: kill() and wait() left those fds on the Popen. They
+    closed only when the object was collected, so a held reference leaked
+    them. On Windows that also keeps the child's ends open. An incomplete
+    reap must leave the pipes: the reader may still be blocked on them.
+    """
+    import subprocess
+
+    worker = _worker_without_spawn(monkeypatch)
+
+    class _Reaped:
+        def __init__(self) -> None:
+            self.pid = 3
+            self.stdin = _PipeEnd()
+            self.stdout = _PipeEnd()
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.returncode = 0
+            return 0
+
+    reaped = _Reaped()
+    worker.process = reaped  # type: ignore[assignment]
+    assert worker.kill() is True
+    assert reaped.stdin.closed
+    assert reaped.stdout.closed
+    assert not worker.reap_incomplete()
+
+    class _Stuck:
+        def __init__(self) -> None:
+            self.pid = 4
+            self.stdin = _PipeEnd()
+            self.stdout = _PipeEnd()
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            raise subprocess.TimeoutExpired(cmd="stuck", timeout=1)
+
+    stuck = _Stuck()
+    worker.process = stuck  # type: ignore[assignment]
+    assert worker.kill() is False
+    assert not stuck.stdin.closed
+    assert not stuck.stdout.closed
+    assert worker.reap_incomplete()
+
+
+def test_short_one_second_remainder_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 1s budget with ~20ms left does not Popen. usable() still returns it.
+
+    What was wrong: usable() lets a one-second budget start after the clock
+    has moved, so the pool can lift that remainder. respawn used the same
+    check, spawned, and the handshake was given the leftover.
+    """
+    from plugin.framework import process_worker as worker_mod
+
+    monkeypatch.setattr(worker_mod.time, "monotonic", lambda: 1000.0)
+    popen_calls: list[object] = []
+
+    def _popen(*_args: object, **_kwargs: object) -> object:
+        popen_calls.append(_args)
+        raise AssertionError("Popen with nothing left for the handshake")
+
+    monkeypatch.setattr(worker_mod.subprocess, "Popen", _popen)
+    worker = _worker_without_spawn(monkeypatch)
+    clock = worker_mod.Deadline.from_absolute(1.0, 1000.02)
+    assert clock.usable() == pytest.approx(0.02)
+    worker.respawn(deadline=clock)
+    assert popen_calls == []
+
+    calls = {"n": 0}
+
+    def _moved() -> float:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return 1000.0
+        return 1000.98
+
+    monkeypatch.setattr(worker_mod.time, "monotonic", _moved)
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert res.get("code") == "EXECUTION_TIMEOUT"
+    assert popen_calls == []
+    assert worker.tasks_executed == 0
+
+
+def test_one_second_budget_above_spawn_floor_still_spawns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 1s budget with 0.5s left still reaches Popen. That case stays usable."""
+    from plugin.framework import process_worker as worker_mod
+
+    calls = {"n": 0}
+
+    def _moved() -> float:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return 1000.0
+        return 1000.5
+
+    monkeypatch.setattr(worker_mod.time, "monotonic", _moved)
+    popen_calls: list[object] = []
+
+    def _popen(*_args: object, **_kwargs: object) -> object:
+        popen_calls.append(_args)
+        raise OSError("stop after Popen")
+
+    monkeypatch.setattr(worker_mod.subprocess, "Popen", _popen)
+    worker = _worker_without_spawn(monkeypatch)
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert popen_calls
+    assert res.get("code") == "WORKER_SPAWN_FAILED"
+
+
+def test_popen_failure_closes_stderr_once_and_unlinks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failed Popen closes the stderr fd once, then unlinks the unpublished file.
+
+    What was wrong: the handle was closed after Popen, again in the except
+    so Windows could delete the file, and again in the finally. The except
+    close had to happen before the unlink. One close in the Popen finally
+    is that moment.
+    """
+    from plugin.framework import process_worker as worker_mod
+
+    worker = _worker_without_spawn(monkeypatch)
+    closes = {"n": 0}
+    held: dict[str, str] = {}
+    real_open = worker._open_stderr_log
+
+    class _Handle:
+        def __init__(self, raw: Any, path: str) -> None:
+            self._raw = raw
+            self.path = path
+
+        def fileno(self) -> int:
+            return int(self._raw.fileno())
+
+        def close(self) -> None:
+            closes["n"] += 1
+            self._raw.close()
+
+    def _open() -> tuple[_Handle, str]:
+        raw, path = real_open()
+        held["path"] = path
+        return _Handle(raw, path), path
+
+    def _popen(*_args: object, **_kwargs: object) -> object:
+        raise OSError("spawn failed")
+
+    monkeypatch.setattr(worker, "_open_stderr_log", _open)
+    monkeypatch.setattr(worker_mod.subprocess, "Popen", _popen)
+    worker.respawn()
+    assert closes["n"] == 1
+    assert held["path"]
+    assert not Path(held["path"]).exists()
+
+
 def test_stderr_log_fd_is_append_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """The spawn log is the exclusive-create fd, opened append-only.
 
@@ -1619,7 +1795,7 @@ def test_stderr_log_keeps_tail(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     Opening the file ``wb`` at spawn does not help: the child appends for
     its whole life. The host keeps the last ``_STDERR_LOG_CAP`` bytes.
     """
-    from compute_service.worker_base import _STDERR_LOG_CAP
+    from plugin.framework.process_worker import _STDERR_LOG_CAP
 
     worker = _worker_without_spawn(monkeypatch)
     path = tmp_path / "w.stderr"
@@ -1632,13 +1808,37 @@ def test_stderr_log_keeps_tail(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     assert worker._stderr_snippet().endswith("END")
 
 
+def test_stderr_snippet_does_not_reread_after_cap(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An over-cap snippet uses the tail cap_stderr_log already read.
+
+    What was wrong: cap rewrote the file from one read, then the snippet
+    opened it again for the last characters.
+    """
+    from plugin.framework.process_worker import _STDERR_LOG_CAP
+
+    worker = _worker_without_spawn(monkeypatch)
+    path = tmp_path / "once.stderr"
+    path.write_bytes(b"x" * (_STDERR_LOG_CAP + 50) + b"END")
+    worker._stderr_path = str(path)
+    opens: list[str] = []
+    real_open = open
+
+    def _open(file: Any, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        opens.append(mode)
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", _open)
+    assert worker._stderr_snippet().endswith("END")
+    assert opens == ["rb", "r+b"]
+
+
 def test_cap_stderr_log_retries_a_short_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A short FileIO.write still leaves the last cap bytes.
 
     What was wrong: the rewrite ignored write()'s count. os.write may
     return early after the file was already truncated to empty.
     """
-    from compute_service.worker_base import _STDERR_LOG_CAP
+    from plugin.framework.process_worker import _STDERR_LOG_CAP
 
     worker = _worker_without_spawn(monkeypatch)
     path = tmp_path / "w.stderr"
@@ -1765,7 +1965,7 @@ def test_reap_timeout_caps_stderr(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     """
     import subprocess
 
-    from compute_service.worker_base import _STDERR_LOG_CAP
+    from plugin.framework.process_worker import _STDERR_LOG_CAP
 
     class _Stuck:
         def __init__(self) -> None:
@@ -1798,7 +1998,8 @@ def test_idle_scan_caps_stderr_without_evicting(monkeypatch: pytest.MonkeyPatch,
     """An idle-reaper scan caps a live child's log before idle TTL elapses."""
     import time
 
-    from compute_service.worker_base import BaseProcessPool, _STDERR_LOG_CAP
+    from compute_service.worker_base import BaseProcessPool
+    from plugin.framework.process_worker import _STDERR_LOG_CAP
 
     worker = _worker_without_spawn(monkeypatch)
 
@@ -1861,14 +2062,14 @@ def test_usable_budget_truth_table(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_timeout_message_keeps_fractional_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
     """A 1.9s budget is not reported as 1 second. Whole seconds stay integers."""
-    from compute_service.worker_base import _Deadline
+    from compute_service.worker_base import Deadline
 
     worker = _worker_without_spawn(monkeypatch)
-    fractional = worker._timeout_message(_Deadline(1.9))
+    fractional = worker._timeout_message(Deadline(1.9))
     assert "1.9" in fractional
     assert "1 seconds" not in fractional
-    assert worker._timeout_message(_Deadline(1.0)) == "Execution exceeded maximum timeout of 1 second."
-    assert worker._timeout_message(_Deadline(2.0)) == "Execution exceeded maximum timeout of 2 seconds."
+    assert worker._timeout_message(Deadline(1.0)) == "Execution exceeded maximum timeout of 1 second."
+    assert worker._timeout_message(Deadline(2.0)) == "Execution exceeded maximum timeout of 2 seconds."
 
 
 def test_is_alive_snapshots_process(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2046,11 +2247,11 @@ def test_deadline_budget_table(
     left_sec: float,
 ) -> None:
     """usable() is the only start gate. left() is the true remainder."""
-    from compute_service.worker_base import _Deadline
+    from compute_service.worker_base import Deadline
 
     now = 1_000.0
     monkeypatch.setattr("plugin.framework.process_worker.time.monotonic", lambda: now)
-    clock = _Deadline.__new__(_Deadline)
+    clock = Deadline.__new__(Deadline)
     clock.budget_sec = budget
     clock._end = now + remaining
     assert clock.usable() == usable_sec
@@ -2109,7 +2310,7 @@ def test_retry_reap_reports_exit_when_the_child_dies(monkeypatch: pytest.MonkeyP
     exited: list[int] = []
     worker.on_process_exit = lambda _slot, pid: exited.append(pid)
     worker.process = child  # type: ignore[assignment]
-    assert worker.kill() is None
+    assert worker.kill() is False
     assert worker.reap_incomplete()
     assert exited == []
     worker.retry_reap(threading.Event())
