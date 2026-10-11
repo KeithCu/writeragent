@@ -10,8 +10,9 @@ Maintains a bounded pool of warm subprocesses. Provides:
 - Multi-core linear CPU scaling (bypasses single-interpreter GIL)
 - Sticky session affinity for stateful sessions (mode="shared")
 - Clean workers preferred for isolated work; falls back to fewest-sessions if all idle workers hold sessions
-- A shared session dies with its process; SIGKILL drops every session on that pid
+- A shared session dies with its worker; SIGKILL drops that worker's sessions on the exited pid
 - After max_tasks the slot is killed and left dead; the next lease respawns it
+- Active shared sessions are capped; a new id resets the oldest idle kernel or returns SESSION_LIMIT
 """
 
 from __future__ import annotations
@@ -25,28 +26,15 @@ import time
 from typing import Any
 
 from compute_service.config import ComputeSettings
-from compute_service.json_forward import (
-    COMPUTE_MAX_PAYLOAD_BYTES,
-    WIRE_JSON_FORWARD,
-    ExecuteRequestError,
-    canonical_execute_mode,
-    decode_worker_result,
-    require_execute_wire,
-    validate_session_id,
-)
-from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, _Deadline, resolve_override
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, decode_worker_result, require_execute_wire, validate_session_id
+from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, Deadline, MIN_REQUEST_SEC, PoolSingleton, error_dict, resolve_override
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 log = logging.getLogger("compute_service.formula")
 
 # The child never ran the cell. Dropping the lost-session marker on these
 # codes would hide a reset kernel from the next sticky call.
-_UNRUN_RESULT_CODES = frozenset({
-    "QUEUE_TIMEOUT",
-    "PAYLOAD_TOO_LARGE",
-    "WORKER_SPAWN_FAILED",
-    "WORKER_PIPE_BROKEN",
-})
+_UNRUN_RESULT_CODES = frozenset({"QUEUE_TIMEOUT", "PAYLOAD_TOO_LARGE", "WORKER_SPAWN_FAILED", "WORKER_PIPE_BROKEN"})
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "formula_worker.py")
@@ -63,6 +51,7 @@ class FormulaProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for formula calculations."""
 
     shared_kernel_ttl_sec: float
+    _max_sessions: int
 
     def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, shared_kernel_ttl_sec: float | None = None, idle_worker_ttl_sec: float | None = None) -> None:
         cfg = settings or ComputeSettings()
@@ -79,16 +68,45 @@ class FormulaProcessPool(BaseProcessPool):
         # long-lived process does not keep every workbook it has ever reset.
         self._lost_sessions: OrderedDict[str, float] = OrderedDict()
         self._max_lost_sessions: int = 1000
+        # Each entry is a live kernel plus its ``:init`` companion. A client
+        # that cycled session ids used to grow this map, and the child
+        # namespace map, without bound. 256 is far above a real workbook count.
+        self._max_sessions = 256
         self.shared_kernel_ttl_sec = eff_shared_ttl
         super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES, on_process_exit=self._on_process_exit)
+
+    def _clear_pool_state_unlocked(self) -> None:
+        # Base shutdown drops workers and idle slots. These maps used to
+        # survive, so a pool object kept after shutdown still advertised sessions.
+        self._sessions.clear()
+        self._lost_sessions.clear()
+
+    def _reaper_period_sec(self) -> float | None:
+        """Idle TTL, session TTL, or the shorter of the two. Both 0 stays off.
+
+        The idle reaper is the only pass that kills a worker whose sessions
+        are all past ``shared_kernel_ttl_sec``. Gating that thread on idle
+        TTL alone left those kernels up when idle eviction was disabled.
+        ``shared_kernel_ttl_sec`` is set before ``BaseProcessPool.__init__``
+        asks for this period.
+        """
+        periods: list[float] = []
+        idle = super()._reaper_period_sec()
+        if idle is not None:
+            periods.append(idle)
+        if self.shared_kernel_ttl_sec > 0:
+            periods.append(float(self.shared_kernel_ttl_sec))
+        if not periods:
+            return None
+        return min(periods)
 
     def _mark_session_lost_unlocked(self, session_id: str) -> None:
         """Remember that *session_id* lost its kernel. Caller holds ``self._cond``.
 
         ``session_reset`` is once, for the next sticky call that observes
         this set. A caller already blocked on the lease when the marker is
-        set can run one cell without the flag. Worker death drops every
-        session on that pid, and this set still reports once.
+        set can run one cell without the flag. Worker death drops that
+        worker's sessions on the exited pid, and this set still reports once.
         """
         # Reinsert so dict order is recency. The cap drops the oldest id.
         self._lost_sessions.pop(session_id, None)
@@ -96,13 +114,7 @@ class FormulaProcessPool(BaseProcessPool):
         while len(self._lost_sessions) > self._max_lost_sessions:
             self._lost_sessions.popitem(last=False)
 
-    def _drop_session(
-        self,
-        session_id: str,
-        *,
-        only_if_worker: BaseProcessWorker | None = None,
-        lost: bool = True,
-    ) -> None:
+    def _drop_session(self, session_id: str, *, only_if_worker: BaseProcessWorker | None = None, lost: bool = True) -> None:
         """Drop *session_id* from the active map.
 
         The pool lock is re-entrant, so callers that already hold ``self._cond``
@@ -128,37 +140,45 @@ class FormulaProcessPool(BaseProcessPool):
     def _worker_sessions_for(self, worker: BaseProcessWorker) -> list[str]:
         return [sid for sid, s in self._sessions.items() if s.worker is worker]
 
-    def _on_process_exit(self, pid: int) -> None:
-        """Drop every shared session that named this pid.
+    def _on_process_exit(self, worker: BaseProcessWorker, pid: int) -> None:
+        """Drop shared sessions this worker still had on *pid*.
 
         SIGKILL and crash both come through the worker reap. The drop is
         under the pool lock so a lookup cannot observe the session on a
         process that has already exited.
+
+        What was wrong: the drop matched *pid* alone. ``is_alive`` reaps
+        with ``poll()`` and does not run this callback, so the kernel can
+        reuse that pid for another slot before reap reports it. The late
+        callback then dropped the live session.
         """
         with self._cond:
-            self._drop_pid_unlocked(pid)
+            self._drop_worker_pid_unlocked(worker, pid)
 
-    def _drop_pid_unlocked(self, pid: int) -> None:
-        stale = [sid for sid, s in self._sessions.items() if s.pid == pid]
+    def _drop_worker_pid_unlocked(self, worker: BaseProcessWorker, pid: int) -> None:
+        stale = [sid for sid, s in self._sessions.items() if s.worker is worker and s.pid == pid]
         for sid in stale:
             self._drop_session(sid)
         if stale:
-            log.info("Dropped %d shared session(s) with exited pid=%s", len(stale), pid)
+            log.info("Dropped %d shared session(s) with exited worker #%s pid=%s", len(stale), worker.worker_id, pid)
 
     def _reap_dead_sessions_unlocked(self) -> None:
         """Invalidate the session cache against the live pid.
 
-        An external SIGKILL does not enter kill(); poll() reaps that pid
-        and every session that named it is dropped. A wrapper that respawned
-        under a new pid is not the old session.
+        An external SIGKILL does not enter kill(); poll() reaps that pid.
+        A session whose worker is dead, or whose recorded pid is not that
+        worker's current pid, is dropped. Another slot that reused the
+        number is left alone. A wrapper that respawned under a new pid is
+        not the old session.
 
         ``pid is None`` is only a reservation that has not been leased yet.
         Dropping it here let a second request bind the same id to another worker.
 
         ``worker.process`` is read without ``_lifecycle_lock``. Reap holds
         that lock across ``on_process_exit``, which takes this pool's
-        condition, and this method already holds the condition. Taking the
-        lifecycle lock here would deadlock. A respawn clears ``process``
+        condition, and this method already holds the condition. The callback
+        may take this condition. It must not take ``_lifecycle_lock`` or call
+        back into the worker: that lock is not re-entrant. A respawn clears ``process``
         before the new child is adopted; the old kernel is gone, so dropping
         the session (``session_reset``) is the right outcome.
         """
@@ -198,27 +218,28 @@ class FormulaProcessPool(BaseProcessPool):
         current = time.monotonic() if now is None else now
         return any(s.worker is worker and not self._session_past_ttl(s, current) for s in self._sessions.values())
 
-    def _skip_idle_evict(self, worker: BaseProcessWorker) -> bool:
+    def _skip_idle_evict(self, _worker: BaseProcessWorker) -> bool:
         """Keep a shared kernel that is still inside the session TTL.
 
         Idle TTL and session TTL are independent and both default to 3600s.
         Killing a worker that still holds a live session drops that workbook.
         A session TTL of 0 never expires, so any session pins the process.
         """
-        return self._worker_has_fresh_session(worker)
+        return self._worker_has_fresh_session(_worker)
 
-    def _abandoned_sessions(self, worker: BaseProcessWorker) -> bool:
-        """True when every session on *worker* is past the session TTL.
+    def _abandoned_sessions(self, _worker: BaseProcessWorker) -> bool:
+        """True when every session on *_worker* is past the session TTL.
 
         The idle reaper kills that process without waiting for
-        ``idle_worker_ttl_sec``. Process exit marks the ids lost. A TTL of
-        0 disables this. Caller holds ``self._cond``.
+        ``idle_worker_ttl_sec``. That thread still starts when this TTL is
+        positive and idle eviction is off. Process exit marks the ids lost.
+        A TTL of 0 disables this. Caller holds ``self._cond``.
         """
         if self.shared_kernel_ttl_sec <= 0:
             return False
         saw = False
         for sess in self._sessions.values():
-            if sess.worker is not worker:
+            if sess.worker is not _worker:
                 continue
             saw = True
             if not self._session_past_ttl(sess):
@@ -354,18 +375,69 @@ class FormulaProcessPool(BaseProcessPool):
             err = res.get("error") or "Unknown error during worker dependency check."
             return False, str(err)
 
-    def _select_shared_worker(self, session_id: str) -> tuple[BaseProcessWorker | None, bool, bool]:
+    def _evict_oldest_idle_session(self, deadline: float) -> bool:
+        """Free one map slot, or report that the map is already under the cap.
+
+        The oldest session whose worker is not leased is the victim. A dead
+        worker is dropped here: its namespace died with the process, and
+        ``execute`` would respawn it. A live worker is reset outside
+        ``self._cond`` and the entry is removed only when that reset returns
+        ``ok``. False leaves the map unchanged.
+
+        Under one second left, do not reset. That request cannot run a cell,
+        and destroying an idle kernel for it would spend the slot.
+        """
+        if deadline - time.monotonic() < MIN_REQUEST_SEC:
+            return False
+        with self._cond:
+            self._reap_dead_sessions_unlocked()
+            if len(self._sessions) < self._max_sessions:
+                return True
+            victim_id: str | None = None
+            victim: _Session | None = None
+            for sid, sess in self._sessions.items():
+                if sess.worker in self._leased:
+                    continue
+                if victim is None or sess.last_active < victim.last_active:
+                    victim_id = sid
+                    victim = sess
+            if victim_id is None or victim is None:
+                return False
+            worker = victim.worker
+            if not worker.is_alive():
+                self._drop_session(victim_id, only_if_worker=worker, lost=True)
+                return victim_id not in self._sessions
+            sid_to_reset = victim_id
+        remaining = deadline - time.monotonic()
+        if remaining < MIN_REQUEST_SEC:
+            return False
+        leased = self.lease_specific(worker, timeout_sec=0.0)
+        if leased is None:
+            return False
+        try:
+            with self._cond:
+                current = self._sessions.get(sid_to_reset)
+                if current is None or current.worker is not leased:
+                    return True
+            reset_budget = min(5.0, deadline - time.monotonic())
+            if reset_budget < MIN_REQUEST_SEC:
+                return False
+            res = self._reset_session_on_worker(leased, sid_to_reset, timeout_sec=reset_budget, lost=True)
+            return res.get("status") == "ok"
+        finally:
+            self.release_worker(leased)
+
+    def _select_shared_worker(self, session_id: str) -> tuple[BaseProcessWorker | None, bool, bool, bool]:
         """Select or reserve target worker for a shared session under self._cond.
 
-        Returns (target_worker, session_was_lost, is_new_session).
-        ``session_was_lost`` is consumed here. A loss that lands while
+        Returns (target_worker, session_was_lost, is_new_session, at_capacity).
+        ``session_was_lost`` is consumed here, except when ``at_capacity`` is
+        set: the map is full, nothing was inserted, and the lost marker stays
+        for the caller that retries after an eviction. A loss that lands while
         this caller is already blocked on the lease is not seen.
         """
         with self._cond:
             self._reap_dead_sessions_unlocked()
-            session_was_lost = session_id in self._lost_sessions
-            if session_was_lost:
-                self._lost_sessions.pop(session_id, None)
             sess = self._sessions.get(session_id)
             if sess is not None and sess.worker not in self.workers:
                 # execute() checks self.workers outside _cond. shutdown()
@@ -376,7 +448,17 @@ class FormulaProcessPool(BaseProcessPool):
                 self._drop_session(session_id, lost=False)
                 sess = None
 
-            is_new_session = (sess is None)
+            # Recheck under the lock. Two new ids can both pass a check
+            # outside it and both insert. An id already in the map is not
+            # evicted to make room.
+            if sess is None and self.workers and len(self._sessions) >= self._max_sessions:
+                return None, False, True, True
+
+            session_was_lost = session_id in self._lost_sessions
+            if session_was_lost:
+                self._lost_sessions.pop(session_id, None)
+
+            is_new_session = sess is None
             if sess is not None:
                 target_worker = sess.worker
             elif self.workers:
@@ -387,30 +469,18 @@ class FormulaProcessPool(BaseProcessPool):
                 # Dead workers sort last so a new reservation gets a live pid
                 # when any process is up. A dead-only pool still reserves one
                 # slot; execute respawns it.
-                target_worker = min(
-                    self.workers,
-                    key=lambda w: (
-                        0 if w.is_alive() else 1,
-                        self._worker_session_count(w),
-                        0 if w in self._idle else 1,
-                        w.worker_id,
-                    ),
-                )
+                target_worker = min(self.workers, key=lambda w: (0 if w.is_alive() else 1, self._worker_session_count(w), 0 if w in self._idle else 1, w.worker_id))
                 # Reserve session->worker at pick time inside the same with self._cond!
                 # Unlocked process read: see _reap_dead_sessions_unlocked. This
                 # holds _cond, and reap's on_process_exit takes _cond under
                 # _lifecycle_lock.
                 proc = target_worker.process
                 pid = proc.pid if (proc is not None and proc.poll() is None) else None
-                self._sessions[session_id] = _Session(
-                    worker=target_worker,
-                    pid=pid,
-                    last_active=time.monotonic(),
-                )
+                self._sessions[session_id] = _Session(worker=target_worker, pid=pid, last_active=time.monotonic())
             else:
                 target_worker = None
 
-            return target_worker, session_was_lost, is_new_session
+            return target_worker, session_was_lost, is_new_session, False
 
     def _expire_leased_session(self, worker: BaseProcessWorker, session_id: str, deadline: float) -> bool:
         """Reset *session_id* when it has been idle past the session TTL.
@@ -437,40 +507,43 @@ class FormulaProcessPool(BaseProcessPool):
             return False
         return True
 
-    def _run_execution(
-        self,
-        leased: BaseProcessWorker,
-        payload: dict[str, Any],
-        clock: _Deadline,
-        session_was_lost: bool,
-        req_id: str | None,
-        decode_result: bool,
-    ) -> dict[str, Any]:
+    def _run_execution(self, leased: BaseProcessWorker, payload: dict[str, Any], clock: Deadline, session_was_lost: bool, req_id: str | None, decode_result: bool) -> dict[str, Any]:
         """Send execution payload to leased worker and format response."""
         # Give the child the remaining budget, and wait at least alarm +
         # grace. The original full timeout would let signal.alarm lose to
         # this read, so a normal sleep became SIGKILL and dropped every
         # shared session on that process.
-        # child_run_seconds lifts a 1s request that has already slipped
-        # under a second. int() of that remainder is 0, and alarm(0)
-        # cancels the child's alarm. A deadline that is already spent
-        # does not run. The host wait is that floored budget: a raw
-        # remainder under a second used to be shorter than the alarm, so
-        # the host SIGKILLed a cell that was about to answer.
-        run_for = clock.child_run_seconds()
-        if run_for <= 0:
-            return {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+        # usable() is the true remainder, or None when the request must
+        # not start. A one-second request can already be under a second.
+        # int() of that remainder is 0, and alarm(0) cancels the child's
+        # alarm. The lift to one second is here, next to the alarm, so the
+        # host wait is not shorter than the alarm.
+        run_for = clock.usable()
+        if run_for is None:
+            return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
+        if run_for < MIN_REQUEST_SEC:
+            run_for = MIN_REQUEST_SEC
         child_alarm = int(run_for)
         payload["timeout_sec"] = child_alarm
         payload["session_reset"] = session_was_lost
         host_timeout = run_for + HOST_IPC_READ_GRACE_SEC
-        res = leased.execute(payload, timeout_sec=host_timeout)
+        res = leased.execute(payload, timeout_sec=host_timeout, req_id=req_id)
         if session_was_lost and isinstance(res, dict):
             res["session_reset"] = True
-        if req_id is not None and isinstance(res, dict):
-            res["id"] = req_id
         if decode_result and isinstance(res, dict):
-            decoded = decode_worker_result(res)
+            try:
+                decoded = decode_worker_result(res)
+            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, MemoryError) as exc:
+                # What was wrong: json.loads on result_json escaped execute.
+                # Deeply nested JSON raises RecursionError, and a huge value
+                # can raise MemoryError. Either one became an unhandled 500.
+                # The pickle frame was already consumed and tasks_executed
+                # already counted, so killing the child would drop shared
+                # sessions for a bad inner JSON blob.
+                failed = error_dict("WORKER_CRASHED", f"Worker result_json could not be decoded: {exc}", req_id=req_id)
+                if session_was_lost:
+                    failed["session_reset"] = True
+                return failed
             if session_was_lost and isinstance(decoded, dict):
                 decoded["session_reset"] = True
             return decoded
@@ -489,11 +562,7 @@ class FormulaProcessPool(BaseProcessPool):
                         sess.pid = proc.pid
                         sess.last_active = time.monotonic()
                     else:
-                        self._sessions[session_id] = _Session(
-                            worker=leased,
-                            pid=proc.pid,
-                            last_active=time.monotonic(),
-                        )
+                        self._sessions[session_id] = _Session(worker=leased, pid=proc.pid, last_active=time.monotonic())
                     # Do not clear _lost_sessions here. Select already consumed
                     # a marker it observed. A reset that lands while this call
                     # is blocked on the lease sets the marker after that, and
@@ -508,7 +577,19 @@ class FormulaProcessPool(BaseProcessPool):
             self.release_worker(leased)
 
     def execute(
-        self, code: str, data: Any = None, session_id: str | None = None, timeout_sec: int | None = None, *, mode: str = "isolated", init_script: str | None = None, req_id: str | None = None, data_json: bytes | None = None, wire: str = WIRE_JSON_FORWARD, decode_result: bool = True, deadline: float | None = None
+        self,
+        code: str,
+        data: Any = None,
+        session_id: str | None = None,
+        timeout_sec: int | None = None,
+        *,
+        mode: str = "isolated",
+        init_script: str | None = None,
+        req_id: str | None = None,
+        data_json: bytes | None = None,
+        wire: str = WIRE_JSON_FORWARD,
+        decode_result: bool = True,
+        deadline: float | None = None,
     ) -> dict[str, Any]:
         """Execute formula code on an appropriate worker subprocess.
 
@@ -519,7 +600,7 @@ class FormulaProcessPool(BaseProcessPool):
         ``data_json`` here, not packed as a second wire.
         """
         if self._is_shutdown or not self.workers:
-            return {"id": req_id, "status": "error", "code": "SERVICE_SHUTDOWN", "error": "Formula compute pool is shutting down."}
+            return error_dict("SERVICE_SHUTDOWN", "Formula compute pool is shutting down.", req_id=req_id)
 
         # One schema. A mode or wire the HTTP layer missed must not be
         # rewritten and run: that returned 200 for a kernel that kept no state.
@@ -533,7 +614,7 @@ class FormulaProcessPool(BaseProcessPool):
             if session_id:
                 validate_session_id(session_id)
         except ExecuteRequestError as exc:
-            return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
+            return error_dict("INVALID_REQUEST", str(exc), req_id=req_id)
 
         # Only None means "use the default". Zero is an explicit timeout.
         eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
@@ -543,33 +624,47 @@ class FormulaProcessPool(BaseProcessPool):
         if deadline is None:
             deadline = time.monotonic() + eff_timeout
         if time.monotonic() >= deadline:
-            return {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+            return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
 
         try:
             payload = self._build_execute_payload(code=code, data=data, data_json=data_json, session_id=session_id, mode=mode, init_script=init_script, req_id=req_id, wire=wire)
         except ExecuteRequestError as exc:
-            return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc)}
+            return error_dict("INVALID_REQUEST", str(exc), req_id=req_id)
 
-        clock = _Deadline.from_absolute(eff_timeout, deadline)
+        clock = Deadline.from_absolute(eff_timeout, deadline)
         # A budget under one second, or a longer one that has already fallen
         # under one second, does not lease. A 0.01s floor used to lease
         # anyway and then give the child a 1s alarm. A one-second request
         # still leases: the clock moves before this check. This is before
         # select so a miss does not reserve a session or consume the
         # lost-session marker.
-        if clock.too_late_to_spawn():
-            return {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+        if clock.usable() is None:
+            return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
 
         leased: BaseProcessWorker | None = None
         session_was_lost = False
         is_new_session = False
         if mode == "shared" and session_id:
-            target_worker, session_was_lost, is_new_session = self._select_shared_worker(session_id)
+            admitted = False
+            target_worker: BaseProcessWorker | None = None
+            # Each pass either reserves the id or resets one idle kernel.
+            # The bound stops a race that frees a slot and fills it again.
+            attempts_left = self._max_sessions + 1
+            while attempts_left > 0:
+                attempts_left -= 1
+                target_worker, session_was_lost, is_new_session, at_cap = self._select_shared_worker(session_id)
+                if not at_cap:
+                    admitted = True
+                    break
+                if not self._evict_oldest_idle_session(deadline):
+                    return error_dict("SESSION_LIMIT", "Shared session limit reached.", req_id=req_id)
+            if not admitted:
+                return error_dict("SESSION_LIMIT", "Shared session limit reached.", req_id=req_id)
             if target_worker is None:
                 if session_was_lost:
                     with self._cond:
                         self._mark_session_lost_unlocked(session_id)
-                return {"id": req_id, "status": "error", "code": "SERVICE_SHUTDOWN", "error": "Formula compute pool is shutting down."}
+                return error_dict("SERVICE_SHUTDOWN", "Formula compute pool is shutting down.", req_id=req_id)
             lease_budget = max(deadline - time.monotonic(), 0.0)
             leased = self.lease_specific(target_worker, timeout_sec=lease_budget)
             busy_err = "Sticky session worker is busy and request timed out waiting for worker lease."
@@ -587,36 +682,24 @@ class FormulaProcessPool(BaseProcessPool):
                         self._drop_session(session_id, lost=False)
                     if session_was_lost:
                         self._mark_session_lost_unlocked(session_id)
-            return {"id": req_id, "status": "error", "code": "WORKER_POOL_BUSY", "error": busy_err}
+            return error_dict("WORKER_POOL_BUSY", busy_err, req_id=req_id)
 
         result: dict[str, Any] | None = None
         try:
             # Time passes while waiting for the lease. Recheck the same clock.
-            if clock.too_late_to_spawn():
-                result = {"id": req_id, "status": "error", "code": "QUEUE_TIMEOUT", "error": "Request deadline expired before a worker lease."}
+            if clock.usable() is None:
+                result = error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
                 return result
             if mode == "shared" and session_id and self._expire_leased_session(leased, session_id, deadline):
                 session_was_lost = True
-            result = self._run_execution(
-                leased,
-                payload=payload,
-                clock=clock,
-                session_was_lost=session_was_lost,
-                req_id=req_id,
-                decode_result=decode_result,
-            )
+            result = self._run_execution(leased, payload=payload, clock=clock, session_was_lost=session_was_lost, req_id=req_id, decode_result=decode_result)
             return result
         finally:
             self._finalize_session(leased, session_id, mode)
             # Put the lost-session marker back when the cell did not run.
             # Select already consumed it. A payload that never reached the
             # child would otherwise look like a live kernel.
-            if (
-                session_was_lost
-                and session_id
-                and isinstance(result, dict)
-                and result.get("code") in _UNRUN_RESULT_CODES
-            ):
+            if session_was_lost and session_id and isinstance(result, dict) and result.get("code") in _UNRUN_RESULT_CODES:
                 with self._cond:
                     self._mark_session_lost_unlocked(session_id)
 

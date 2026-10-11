@@ -1562,6 +1562,15 @@ class TestSessionResetHttp:
         assert status.startswith("503")
         assert body.get("code") == "WORKER_POOL_BUSY"
 
+    def test_execute_session_limit_is_503(self) -> None:
+        def limited(**_kwargs):
+            return {"id": "ex-cap", "status": "error", "code": "SESSION_LIMIT", "error": "Shared session limit reached."}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=limited)
+        status, _headers, body = _wsgi_post(app, json.dumps({"code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("503")
+        assert body.get("code") == "SESSION_LIMIT"
+
     def test_execute_worker_death_is_500(self) -> None:
         """A crash or empty frame may have run the cell, so it is not a retryable 503."""
         def dead(**_kwargs):
@@ -2753,7 +2762,7 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
             shutil.copy2(source, target)
 
     framework = app / "plugin" / "framework"
-    for name in ("worker_pool.py", "errors.py", "i18n.py", "json_utils.py", "thread_guard.py", "constants.py", "deal_shim.py"):
+    for name in ("worker_pool.py", "errors.py", "i18n.py", "json_utils.py", "process_worker.py", "thread_guard.py", "constants.py", "deal_shim.py"):
         assert (framework / name).is_file(), name
     for name in ("queue_executor.py", "uno_context.py", "logging.py"):
         assert not (framework / name).exists(), name

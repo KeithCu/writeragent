@@ -26,24 +26,8 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service import __version__
 from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_sec, load_settings, ocr_path_is_allowed
-from compute_service.http_server import (
-    _HTTP_DRAIN_SEC,
-    _REQUEST_READ_TIMEOUT_SEC,
-    _REQUEST_WRITE_TIMEOUT_SEC,
-    _accept_clock,
-    _request_deadline,
-    WSGIDualStackServer,
-    service_listener_threads,
-    sticky_listener_slots,
-)
-from compute_service.json_forward import (
-    WIRE_JSON_FORWARD,
-    ExecuteRequestError,
-    canonical_execute_mode,
-    is_multipart_content_type,
-    parse_execute_request,
-    validate_session_id,
-)
+from compute_service.http_server import _HTTP_DRAIN_SEC, _REQUEST_READ_TIMEOUT_SEC, _REQUEST_WRITE_TIMEOUT_SEC, _accept_clock, _request_deadline, WSGIDualStackServer, service_listener_threads, sticky_listener_slots
+from compute_service.json_forward import WIRE_JSON_FORWARD, ExecuteRequestError, canonical_execute_mode, is_multipart_content_type, parse_execute_request, validate_session_id
 from plugin.vision.vision_common import IMPLEMENTED_HELPERS
 
 log = logging.getLogger("compute_service")
@@ -60,11 +44,7 @@ def check_dependencies(pool: Any) -> None:
     """Verify required dependencies are importable in worker; exit if missing."""
     ok, err = pool.check_dependencies(["numpy", "sympy"])
     if not ok:
-        print(
-            err or "Error: Required dependencies are not installed in the worker Python environment.\n"
-            "Please start the server using './compute_service/start.sh' or activate the correct virtual environment.",
-            file=sys.stderr,
-        )
+        print(err or "Error: Required dependencies are not installed in the worker Python environment.\nPlease start the server using './compute_service/start.sh' or activate the correct virtual environment.", file=sys.stderr)
         from compute_service.formula_pool import shutdown_formula_pool
 
         shutdown_formula_pool()
@@ -85,6 +65,7 @@ def check_dependencies(pool: Any) -> None:
 # FILE_TOO_LARGE matches the execute 413s (RESULT_TOO_LARGE / PAYLOAD_TOO_LARGE).
 _HTTP_STATUS_BY_CODE = {
     "WORKER_POOL_BUSY": "503 Service Unavailable",
+    "SESSION_LIMIT": "503 Service Unavailable",
     "SERVICE_SHUTDOWN": "503 Service Unavailable",
     "WORKER_SPAWN_FAILED": "503 Service Unavailable",
     "WORKER_PIPE_BROKEN": "503 Service Unavailable",
@@ -115,6 +96,7 @@ _HTTP_STATUS_BY_CODE = {
 # Response & Error Helpers
 # =============================================================================
 
+
 def _inject_req_id(body: dict[str, Any], req_id: Any) -> dict[str, Any]:
     """Attach correlation id to response body dict if present."""
     if req_id is not None:
@@ -122,13 +104,7 @@ def _inject_req_id(body: dict[str, Any], req_id: Any) -> dict[str, Any]:
     return body
 
 
-def _start_raw_json(
-    start_response: Any,
-    status: str,
-    body: bytes,
-    *,
-    extra_headers: list[tuple[str, str]] | None = None,
-) -> list[bytes]:
+def _start_raw_json(start_response: Any, status: str, body: bytes, *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
     """Send already-encoded JSON bytes (worker result_json) without re-dumps."""
     headers = [("Content-Type", "application/json"), ("Content-Length", str(len(body)))]
     if extra_headers:
@@ -137,43 +113,19 @@ def _start_raw_json(
     return [body]
 
 
-def _start_json(
-    start_response: Any,
-    status: str,
-    payload: dict[str, Any],
-    *,
-    extra_headers: list[tuple[str, str]] | None = None,
-) -> list[bytes]:
+def _start_json(start_response: Any, status: str, payload: dict[str, Any], *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
     """Serialize and send a JSON payload dict."""
-    return _start_raw_json(
-        start_response,
-        status,
-        json.dumps(payload, allow_nan=False).encode("utf-8"),
-        extra_headers=extra_headers,
-    )
+    return _start_raw_json(start_response, status, json.dumps(payload, allow_nan=False).encode("utf-8"), extra_headers=extra_headers)
 
 
-def _error(
-    start_response: Any,
-    status: str,
-    msg: str,
-    code: str | None = None,
-    req_id: Any = None,
-    *,
-    extra_headers: list[tuple[str, str]] | None = None,
-) -> list[bytes]:
+def _error(start_response: Any, status: str, msg: str, code: str | None = None, req_id: Any = None, *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
     """Shared helper to construct and send a JSON error response."""
     payload: dict[str, Any] = {"status": "error", "error": msg}
     if code is not None:
         payload["code"] = code
     if req_id is not None:
         payload["id"] = req_id
-    return _start_json(
-        start_response,
-        status,
-        payload,
-        extra_headers=extra_headers,
-    )
+    return _start_json(start_response, status, payload, extra_headers=extra_headers)
 
 
 def _payload_status(payload: Any) -> Any:
@@ -200,13 +152,7 @@ def _infrastructure_status(payload: dict[str, Any]) -> str | None:
     return _HTTP_STATUS_BY_CODE.get(code)
 
 
-def _send_execution_result(
-    start_response: Any,
-    result_payload: Any,
-    req_id: Any,
-    *,
-    error_status: str = "200 OK",
-) -> list[bytes]:
+def _send_execution_result(start_response: Any, result_payload: Any, req_id: Any, *, error_status: str = "200 OK") -> list[bytes]:
     """Send worker result (raw JSON bytes, pool error status, or serialized dict).
 
     Eval errors stay HTTP 200 so the sheet shows them. Pass *error_status*
@@ -227,13 +173,7 @@ def _send_execution_result(
             if raw_out:
                 return _start_raw_json(start_response, "200 OK", bytes(raw_out))
             # Empty bytes are falsy. An empty frame is EMPTY_RESPONSE, not a second encode.
-            return _error(
-                start_response,
-                "500 Internal Server Error",
-                "Worker returned an empty result.",
-                code="EMPTY_RESPONSE",
-                req_id=req_id,
-            )
+            return _error(start_response, "500 Internal Server Error", "Worker returned an empty result.", code="EMPTY_RESPONSE", req_id=req_id)
         infra = _infrastructure_status(result_payload)
         _inject_req_id(result_payload, req_id)
         if infra is not None:
@@ -255,12 +195,7 @@ def _send_execution_result(
             return _start_json(start_response, "500 Internal Server Error", err_body)
 
 
-_ROUTE_ALLOW = {
-    "/health": "GET",
-    "/v1/execute": "POST",
-    "/v1/session/reset": "POST",
-    "/v1/vision": "POST",
-}
+_ROUTE_ALLOW = {"/health": "GET", "/v1/execute": "POST", "/v1/session/reset": "POST", "/v1/vision": "POST"}
 
 ExecuteFn = Callable[..., dict[str, Any]]
 ResetFn = Callable[..., dict[str, Any]]
@@ -268,6 +203,7 @@ ResetFn = Callable[..., dict[str, Any]]
 # =============================================================================
 # Request Parsing & Validation Helpers
 # =============================================================================
+
 
 def _drain_body_before_error(environ: dict[str, Any], max_bytes: int = 1024 * 1024) -> None:
     """Best-effort drain of remaining request body so client does not receive TCP RST."""
@@ -339,14 +275,7 @@ def _set_write_deadline(environ: dict[str, Any]) -> None:
             pass
 
 
-def _validate_source_text(
-    raw: Any,
-    *,
-    limit: int,
-    label: str,
-    required: bool,
-    max_bytes: int | None = None,
-) -> str | None:
+def _validate_source_text(raw: Any, *, limit: int, label: str, required: bool, max_bytes: int | None = None) -> str | None:
     """Validate and return text from part, or raise ExecuteRequestError.
 
     Character length is checked after UTF-8 decode. *max_bytes* rejects a
@@ -404,11 +333,7 @@ def _reject_chunked(environ: dict[str, Any], start_response: Any) -> list[bytes]
     return _error(start_response, "400 Bad Request", "Chunked transfer encoding is not supported")
 
 
-def _read_request_body(
-    environ: dict[str, Any],
-    settings: ComputeSettings,
-    start_response: Any,
-) -> tuple[bytes | None, list[bytes] | None]:
+def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[bytes | None, list[bytes] | None]:
     """Read a bounded POST body with total read deadline enforcement. Returns ``(body, None)`` or ``(None, error_body)``."""
     cached = environ.get("compute.raw_body")
     if isinstance(cached, (bytes, bytearray)):
@@ -487,11 +412,7 @@ def _read_request_body(
     return body, None
 
 
-def _read_request_json(
-    environ: dict[str, Any],
-    settings: ComputeSettings,
-    start_response: Any,
-) -> tuple[dict[str, Any] | None, list[bytes] | None]:
+def _read_request_json(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[dict[str, Any] | None, list[bytes] | None]:
     """Read request body and parse as top-level JSON dict."""
     cached_json = environ.get("compute.json_object")
     if isinstance(cached_json, dict):
@@ -520,11 +441,7 @@ def _read_request_json(
     return data, None
 
 
-def _read_optional_request_json(
-    environ: dict[str, Any],
-    settings: ComputeSettings,
-    start_response: Any,
-) -> tuple[dict[str, Any] | None, list[bytes] | None]:
+def _read_optional_request_json(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[dict[str, Any] | None, list[bytes] | None]:
     """Parse an optional POST JSON object. Missing or empty body is ``{}``.
 
     ``/v1/session/reset`` allows an empty body (correlation ``id`` only).
@@ -579,23 +496,13 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
         return None
 
     if environ.get("HTTP_ORIGIN"):
-        return _error(
-            start_response,
-            "403 Forbidden",
-            "Cross-origin requests are forbidden in keyless mode.",
-            code="CROSS_ORIGIN_REFUSED",
-        )
+        return _error(start_response, "403 Forbidden", "Cross-origin requests are forbidden in keyless mode.", code="CROSS_ORIGIN_REFUSED")
 
     # HTTP/1.0 may omit Host. No Host is not a loopback Host, so keyless
     # mode still refuses it.
     raw_host_value = environ.get("HTTP_HOST")
     if not isinstance(raw_host_value, str) or not raw_host_value.strip():
-        return _error(
-            start_response,
-            "403 Forbidden",
-            "Only loopback hosts are allowed in keyless mode.",
-            code="CROSS_ORIGIN_REFUSED",
-        )
+        return _error(start_response, "403 Forbidden", "Only loopback hosts are allowed in keyless mode.", code="CROSS_ORIGIN_REFUSED")
     raw_host = raw_host_value.lower()
     if raw_host.startswith("["):
         host = raw_host.split("]")[0] + "]"
@@ -603,30 +510,16 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
         host = raw_host.split(":")[0]
 
     if host not in ("localhost", "127.0.0.1", "[::1]"):
-        return _error(
-            start_response,
-            "403 Forbidden",
-            "Only loopback hosts are allowed in keyless mode.",
-            code="CROSS_ORIGIN_REFUSED",
-        )
+        return _error(start_response, "403 Forbidden", "Only loopback hosts are allowed in keyless mode.", code="CROSS_ORIGIN_REFUSED")
     return None
 
 
-def _authenticate_or_401(
-    environ: dict[str, Any],
-    settings: ComputeSettings,
-    start_response: Any,
-) -> list[bytes] | None:
+def _authenticate_or_401(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> list[bytes] | None:
     """Authenticate request; return 401 response on failure or None on success."""
     _principal, auth_err = authenticate_request(environ, settings)
     if auth_err is not None:
         _drain_body_before_error(environ)
-        return _error(
-            start_response,
-            "401 Unauthorized",
-            "Unauthorized",
-            extra_headers=[("WWW-Authenticate", "Bearer")],
-        )
+        return _error(start_response, "401 Unauthorized", "Unauthorized", extra_headers=[("WWW-Authenticate", "Bearer")])
     return _check_keyless_cors(environ, settings, start_response)
 
 
@@ -644,17 +537,18 @@ def _parse_session_id(environ: dict[str, Any]) -> str | None:
 # Route Handlers & WSGI Application Router
 # =============================================================================
 
+
 def _gated(
     environ: dict[str, Any],
     start_response: Any,
     settings: ComputeSettings,
     semaphore: threading.Semaphore | None,
     *,
-    admission_timeout_sec: float,
     busy_code: str,
     busy_message: str,
     route_fn: Callable[[Any], list[bytes]],
     prepare: Callable[[Any], tuple[float, list[bytes] | None]] | None = None,
+    admission_timeout_sec: float | None = None,
 ) -> list[bytes]:
     """Execute route_fn guarded by auth, optional concurrency permit, try/finally, and 500 fallback.
 
@@ -663,8 +557,10 @@ def _gated(
     returns an empty body instead of another status line.
 
     ``prepare`` runs after auth and before the permit. It reads the body
-    (cached for ``route_fn``) and returns the clamped request timeout.
-    An error response from ``prepare`` does not take a permit.
+    (cached for ``route_fn``) and returns the clamped request timeout, which
+    replaces *admission_timeout_sec*. Reset has no body timeout and passes
+    *admission_timeout_sec* itself. An error response from ``prepare`` does
+    not take a permit.
     """
     started = False
 
@@ -691,13 +587,7 @@ def _gated(
             log.exception("fail %s prepare: %s", path, e)
             if started:
                 return []
-            return _error(
-                _start,
-                "500 Internal Server Error",
-                "Internal server execution failure",
-                code="INTERNAL_ERROR",
-                req_id=environ.get("compute.req_id"),
-            )
+            return _error(_start, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR", req_id=environ.get("compute.req_id"))
         if prep_err is not None:
             return prep_err
 
@@ -706,32 +596,20 @@ def _gated(
         # counts against the request; the lease does not start another timeout.
         # Execute and vision pass the clamped timeout_ms from prepare. Reset
         # has no timeout_ms and keeps default_timeout_sec.
+        if admission_timeout_sec is None:
+            raise RuntimeError("admission_timeout_sec is required when prepare is omitted")
         deadline = _request_deadline(environ.get("compute.accept_time"), admission_timeout_sec)
         remaining = deadline - time.monotonic()
         req_id = environ.get("compute.req_id")
         if remaining <= 0:
             _drain_body_before_error(environ)
-            return _error(
-                _start,
-                "503 Service Unavailable",
-                "Request deadline expired before execution.",
-                code="QUEUE_TIMEOUT",
-                req_id=req_id,
-                extra_headers=[("Retry-After", "1")],
-            )
+            return _error(_start, "503 Service Unavailable", "Request deadline expired before execution.", code="QUEUE_TIMEOUT", req_id=req_id, extra_headers=[("Retry-After", "1")])
         # This service runs at 200-400 rps. A worker busy for a few
         # milliseconds is the steady state and must queue. 503 means the
         # pool stayed busy until this request's deadline.
         if not semaphore.acquire(timeout=remaining):
             _drain_body_before_error(environ)
-            return _error(
-                _start,
-                "503 Service Unavailable",
-                busy_message,
-                code=busy_code,
-                req_id=req_id,
-                extra_headers=[("Retry-After", "1")],
-            )
+            return _error(_start, "503 Service Unavailable", busy_message, code=busy_code, req_id=req_id, extra_headers=[("Retry-After", "1")])
 
     try:
         try:
@@ -741,40 +619,20 @@ def _gated(
             log.exception("fail %s: %s", path, e)
             if started:
                 return []
-            return _error(
-                _start,
-                "500 Internal Server Error",
-                "Internal server execution failure",
-                code="INTERNAL_ERROR",
-                req_id=environ.get("compute.req_id"),
-            )
+            return _error(_start, "500 Internal Server Error", "Internal server execution failure", code="INTERNAL_ERROR", req_id=environ.get("compute.req_id"))
     finally:
         if semaphore is not None:
             semaphore.release()
 
 
-def _run_with_logging_and_deadline(
-    start_response: Any,
-    label: str,
-    req_id: Any,
-    deadline: float,
-    start_msg: str,
-    action: Callable[[float], list[bytes]],
-) -> list[bytes]:
+def _run_with_logging_and_deadline(start_response: Any, label: str, req_id: Any, deadline: float, start_msg: str, action: Callable[[float], list[bytes]]) -> list[bytes]:
     """Run *action* after the deadline check. Failures propagate to ``_gated``.
 
     ``_gated`` sends the JSON 500, or an empty body when headers are already
     out. This helper does not call ``start_response`` on the failure path.
     """
     if time.monotonic() >= deadline:
-        return _error(
-            start_response,
-            "503 Service Unavailable",
-            "Request deadline expired before execution.",
-            code="QUEUE_TIMEOUT",
-            req_id=req_id,
-            extra_headers=[("Retry-After", "1")],
-        )
+        return _error(start_response, "503 Service Unavailable", "Request deadline expired before execution.", code="QUEUE_TIMEOUT", req_id=req_id, extra_headers=[("Retry-After", "1")])
     log.info("%s", start_msg)
     start_t = time.perf_counter()
     try:
@@ -788,11 +646,7 @@ def _run_with_logging_and_deadline(
         raise
 
 
-def _load_execute_request(
-    environ: dict[str, Any],
-    settings: ComputeSettings,
-    start_response: Any,
-) -> tuple[Any, list[bytes] | None]:
+def _load_execute_request(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[Any, list[bytes] | None]:
     """Read and peel an execute body. A second call returns the cached parts.
 
     Admission peels ``timeout_ms`` before taking a permit. The handler peels
@@ -816,11 +670,7 @@ def _load_execute_request(
     return parts, None
 
 
-def _execute_admission_timeout(
-    environ: dict[str, Any],
-    settings: ComputeSettings,
-    start_response: Any,
-) -> tuple[float, list[bytes] | None]:
+def _execute_admission_timeout(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[float, list[bytes] | None]:
     """Clamped execute timeout from the body, or an error response."""
     parts, err_resp = _load_execute_request(environ, settings, start_response)
     if err_resp is not None:
@@ -828,20 +678,11 @@ def _execute_admission_timeout(
     assert parts is not None
     if parts.req_id is not None:
         environ["compute.req_id"] = parts.req_id
-    timeout_sec = clamp_timeout_sec(
-        parts.timeout_ms,
-        is_ms=True,
-        default_timeout_sec=settings.default_timeout_sec,
-        max_timeout_sec=settings.max_timeout_sec,
-    )
+    timeout_sec = clamp_timeout_sec(parts.timeout_ms, is_ms=True, default_timeout_sec=settings.default_timeout_sec, max_timeout_sec=settings.max_timeout_sec)
     return float(timeout_sec), None
 
 
-def _vision_admission_timeout(
-    environ: dict[str, Any],
-    settings: ComputeSettings,
-    start_response: Any,
-) -> tuple[float, list[bytes] | None]:
+def _vision_admission_timeout(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[float, list[bytes] | None]:
     """Clamped vision timeout from the body, or an error response."""
     req_data, err_resp = _read_request_json(environ, settings, start_response)
     if err_resp is not None:
@@ -850,21 +691,14 @@ def _vision_admission_timeout(
     req_id = req_data.get("id")
     if req_id is not None:
         environ["compute.req_id"] = req_id
-    timeout_sec = clamp_timeout_sec(
-        req_data.get("timeout_ms"),
-        is_ms=True,
-        default_timeout_sec=settings.ocr_timeout_sec,
-        max_timeout_sec=settings.max_timeout_sec,
-    )
-    return float(timeout_sec), None
+    timeout_sec = clamp_timeout_sec(req_data.get("timeout_ms"), is_ms=True, default_timeout_sec=settings.ocr_timeout_sec, max_timeout_sec=settings.max_timeout_sec)
+    clamped = float(timeout_sec)
+    # _handle_vision reads this instead of clamping timeout_ms again.
+    environ["compute.admission_timeout_sec"] = clamped
+    return clamped, None
 
 
-def _handle_execute(
-    environ: dict[str, Any],
-    start_response: Any,
-    settings: ComputeSettings,
-    run_execute: ExecuteFn,
-) -> list[bytes]:
+def _handle_execute(environ: dict[str, Any], start_response: Any, settings: ComputeSettings, run_execute: ExecuteFn) -> list[bytes]:
     parts, err_resp = _load_execute_request(environ, settings, start_response)
     if err_resp is not None:
         return err_resp
@@ -898,39 +732,16 @@ def _handle_execute(
     sid = session_id if mode == "shared" else None
 
     def _execute(start_t: float) -> list[bytes]:
-        result_payload = run_execute(
-            code=code,
-            data_json=parts.data_json,
-            session_id=sid,
-            timeout_sec=timeout_sec,
-            mode=mode,
-            init_script=init_script,
-            req_id=req_id,
-            wire=WIRE_JSON_FORWARD,
-            decode_result=False,
-            deadline=deadline,
-        )
+        result_payload = run_execute(code=code, data_json=parts.data_json, session_id=sid, timeout_sec=timeout_sec, mode=mode, init_script=init_script, req_id=req_id, wire=WIRE_JSON_FORWARD, decode_result=False, deadline=deadline)
         duration_ms = (time.perf_counter() - start_t) * 1000.0
         status = _payload_status(result_payload)
         log.info("done /v1/execute id=%r status=%r duration=%.2fms", req_id, status, duration_ms)
         return _send_execution_result(start_response, result_payload, req_id)
 
-    return _run_with_logging_and_deadline(
-        start_response,
-        label="/v1/execute",
-        req_id=req_id,
-        deadline=deadline,
-        start_msg=f"exec /v1/execute id={req_id!r} mode={mode} session={sid!r} code_len={len(code)} timeout={timeout_sec}s",
-        action=_execute,
-    )
+    return _run_with_logging_and_deadline(start_response, label="/v1/execute", req_id=req_id, deadline=deadline, start_msg=f"exec /v1/execute id={req_id!r} mode={mode} session={sid!r} code_len={len(code)} timeout={timeout_sec}s", action=_execute)
 
 
-def _handle_session_reset(
-    environ: dict[str, Any],
-    start_response: Any,
-    settings: ComputeSettings,
-    run_reset: ResetFn,
-) -> list[bytes]:
+def _handle_session_reset(environ: dict[str, Any], start_response: Any, settings: ComputeSettings, run_reset: ResetFn) -> list[bytes]:
     req_data, err_resp = _read_optional_request_json(environ, settings, start_response)
     if err_resp is not None:
         return err_resp
@@ -969,31 +780,15 @@ def _handle_session_reset(
         if isinstance(result_payload, dict) and result_payload.get("status") == "error":
             # Unmapped reset failures are a server fault (500). Mapped codes
             # (503, 413, 400) stay on the shared table.
-            return _send_execution_result(
-                start_response,
-                result_payload,
-                req_id,
-                error_status="500 Internal Server Error",
-            )
+            return _send_execution_result(start_response, result_payload, req_id, error_status="500 Internal Server Error")
 
         ok_resp: dict[str, Any] = {"status": "ok"}
         return _start_json(start_response, "200 OK", _inject_req_id(ok_resp, req_id))
 
-    return _run_with_logging_and_deadline(
-        start_response,
-        label="/v1/session/reset",
-        req_id=req_id,
-        deadline=deadline,
-        start_msg=f"reset /v1/session/reset id={req_id!r} session={session_id!r}",
-        action=_reset,
-    )
+    return _run_with_logging_and_deadline(start_response, label="/v1/session/reset", req_id=req_id, deadline=deadline, start_msg=f"reset /v1/session/reset id={req_id!r} session={session_id!r}", action=_reset)
 
 
-def _handle_vision(
-    environ: dict[str, Any],
-    start_response: Any,
-    settings: ComputeSettings,
-) -> list[bytes]:
+def _handle_vision(environ: dict[str, Any], start_response: Any, settings: ComputeSettings) -> list[bytes]:
     req_data, err_resp = _read_request_json(environ, settings, start_response)
     if err_resp is not None:
         return err_resp
@@ -1006,13 +801,7 @@ def _handle_vision(
     if not helper:
         helper = "extract_text"
     elif helper not in IMPLEMENTED_HELPERS:
-        return _error(
-            start_response,
-            "400 Bad Request",
-            f"Unknown vision helper: {helper!r}.",
-            code="INVALID_REQUEST",
-            req_id=req_id,
-        )
+        return _error(start_response, "400 Bad Request", f"Unknown vision helper: {helper!r}.", code="INVALID_REQUEST", req_id=req_id)
     # Missing or empty image_b64, including numeric 0, falls through to image.
     image_input = req_data.get("image_b64") or req_data.get("image")
     file_path = req_data.get("file_path")
@@ -1036,7 +825,10 @@ def _handle_vision(
         params = raw_params
     else:
         return _error(start_response, "400 Bad Request", "params must be an object.", code="INVALID_REQUEST", req_id=req_id)
-    vision_budget = float(clamp_timeout_sec(req_data.get("timeout_ms"), is_ms=True, default_timeout_sec=settings.ocr_timeout_sec, max_timeout_sec=settings.max_timeout_sec))
+    raw_budget = environ.get("compute.admission_timeout_sec")
+    if isinstance(raw_budget, bool) or not isinstance(raw_budget, (int, float)):
+        raise RuntimeError("vision admission timeout was not prepared")
+    vision_budget = float(raw_budget)
     vision_deadline = _request_deadline(environ.get("compute.accept_time"), vision_budget)
 
     from compute_service.vision import get_vision_pool
@@ -1044,39 +836,16 @@ def _handle_vision(
     vision_pool = get_vision_pool(settings)
 
     def _vision(start_t: float) -> list[bytes]:
-        result_payload = vision_pool.execute(
-            helper=helper,
-            image=image_str,
-            file_path=path_str,
-            params=params,
-            timeout_sec=int(vision_budget),
-            req_id=req_id,
-            allow_paths=settings.ocr_allow_paths,
-            deadline=vision_deadline,
-        )
+        result_payload = vision_pool.execute(helper=helper, image=image_str, file_path=path_str, params=params, timeout_sec=int(vision_budget), req_id=req_id, allow_paths=settings.ocr_allow_paths, deadline=vision_deadline)
         duration_ms = (time.perf_counter() - start_t) * 1000.0
         status = _payload_status(result_payload)
         log.info("done /v1/vision id=%r status=%r duration=%.2fms", req_id, status, duration_ms)
         return _send_execution_result(start_response, result_payload, req_id)
 
-    return _run_with_logging_and_deadline(
-        start_response,
-        label="/v1/vision",
-        req_id=req_id,
-        deadline=vision_deadline,
-        start_msg=f"vision /v1/vision id={req_id!r} helper={helper!r}",
-        action=_vision,
-    )
+    return _run_with_logging_and_deadline(start_response, label="/v1/vision", req_id=req_id, deadline=vision_deadline, start_msg=f"vision /v1/vision id={req_id!r} helper={helper!r}", action=_vision)
 
 
-def create_wsgi_app(
-    settings: ComputeSettings,
-    *,
-    execute_fn: ExecuteFn | None = None,
-    reset_fn: ResetFn | None = None,
-    worker_semaphore: threading.Semaphore | None = None,
-    vision_semaphore: threading.Semaphore | None = None,
-) -> Callable[[dict[str, Any], Any], list[bytes]]:
+def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None = None, reset_fn: ResetFn | None = None, worker_semaphore: threading.Semaphore | None = None, vision_semaphore: threading.Semaphore | None = None) -> Callable[[dict[str, Any], Any], list[bytes]]:
     """Build a WSGI app bound to *settings* (and optional test hooks).
 
     The formula pool is imported on the request path so config/auth startup
@@ -1138,7 +907,6 @@ def create_wsgi_app(
                 start_response,
                 settings,
                 route_sem,
-                admission_timeout_sec=float(settings.default_timeout_sec),
                 busy_code="WORKER_POOL_BUSY",
                 busy_message="All compute workers are currently busy.",
                 route_fn=lambda start: _handle_execute(environ, start, settings, _get_execute()),
@@ -1149,27 +917,12 @@ def create_wsgi_app(
             # Resets wait on one session. Same listener cap as sticky execute,
             # not the isolated-worker permit.
             return _gated(
-                environ,
-                start_response,
-                settings,
-                sticky_semaphore,
-                admission_timeout_sec=float(settings.default_timeout_sec),
-                busy_code="WORKER_POOL_BUSY",
-                busy_message="All compute workers are currently busy.",
-                route_fn=lambda start: _handle_session_reset(environ, start, settings, _get_reset()),
+                environ, start_response, settings, sticky_semaphore, admission_timeout_sec=float(settings.default_timeout_sec), busy_code="WORKER_POOL_BUSY", busy_message="All compute workers are currently busy.", route_fn=lambda start: _handle_session_reset(environ, start, settings, _get_reset())
             )
 
         if path == "/v1/vision" and method == "POST":
             return _gated(
-                environ,
-                start_response,
-                settings,
-                vision_semaphore,
-                admission_timeout_sec=float(settings.ocr_timeout_sec),
-                busy_code="VISION_POOL_BUSY",
-                busy_message="All vision workers are currently busy.",
-                route_fn=lambda start: _handle_vision(environ, start, settings),
-                prepare=lambda start: _vision_admission_timeout(environ, settings, start),
+                environ, start_response, settings, vision_semaphore, busy_code="VISION_POOL_BUSY", busy_message="All vision workers are currently busy.", route_fn=lambda start: _handle_vision(environ, start, settings), prepare=lambda start: _vision_admission_timeout(environ, settings, start)
             )
 
         allow = _ROUTE_ALLOW.get(path)
@@ -1177,10 +930,7 @@ def create_wsgi_app(
             # A known path with the wrong verb is 405, with Allow, so clients
             # are not told the route does not exist.
             body = b"Method Not Allowed"
-            start_response(
-                "405 Method Not Allowed",
-                [("Content-Type", "text/plain"), ("Content-Length", str(len(body))), ("Allow", allow)],
-            )
+            start_response("405 Method Not Allowed", [("Content-Type", "text/plain"), ("Content-Length", str(len(body))), ("Allow", allow)])
             return [body]
 
         start_response("404 Not Found", [("Content-Type", "text/plain"), ("Content-Length", "9")])
@@ -1188,9 +938,11 @@ def create_wsgi_app(
 
     return wsgi_app
 
+
 # =============================================================================
 # Server Execution & CLI
 # =============================================================================
+
 
 def run_server(settings: ComputeSettings) -> None:
     setup_logging(settings.log_level)
@@ -1273,16 +1025,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         settings = load_settings(
-            config_path=args.config_path,
-            host=args.host,
-            port=args.port,
-            workers=args.workers,
-            worker_max_tasks=args.worker_max_tasks,
-            ocr_workers=args.ocr_workers,
-            ocr_timeout_sec=args.ocr_timeout_sec,
-            ocr_max_tasks=args.ocr_max_tasks,
-            api_key_file=args.api_key_file,
-            log_level=args.log_level,
+            config_path=args.config_path, host=args.host, port=args.port, workers=args.workers, worker_max_tasks=args.worker_max_tasks, ocr_workers=args.ocr_workers, ocr_timeout_sec=args.ocr_timeout_sec, ocr_max_tasks=args.ocr_max_tasks, api_key_file=args.api_key_file, log_level=args.log_level
         )
     except ConfigError as exc:
         print(f"Configuration error: {exc}", file=sys.stderr)

@@ -85,6 +85,49 @@ def test_pool_cancel_inflight_kills_child_and_next_job_respawns(tmp_path):
         pool.shutdown()
 
 
+def test_idle_reaper_caps_stderr_before_ttl():
+    """A warm child is capped on a tick that does not yet evict.
+
+    What was wrong: the reaper returned as soon as the TTL had not
+    elapsed, so stderr grew for the whole idle gap. An in-flight job
+    is left alone; execute may be reading that tail.
+    """
+
+    class _Warm:
+        def __init__(self) -> None:
+            self.caps = 0
+
+        def is_alive(self) -> bool:
+            return True
+
+        def cap_stderr_log(self) -> None:
+            self.caps += 1
+
+        def request_shutdown(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+    # None keeps the background reaper off. The TTL is set after init so
+    # this call is the only tick.
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    pool.idle_worker_ttl_sec = 300.0
+    warm = _Warm()
+    pool._worker = warm  # type: ignore[assignment]
+    pool._last_active = time.monotonic()
+    try:
+        pool._evict_idle_worker()
+        assert warm.caps == 1
+        assert pool._worker is warm
+        pool._inflight = True
+        pool._evict_idle_worker()
+        assert warm.caps == 1
+        assert pool._worker is warm
+    finally:
+        pool.shutdown()
+
+
 def test_pool_idle_reaper_drops_warm_worker(tmp_path):
     script = _fake_worker_script(tmp_path)
     pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=0)
@@ -178,5 +221,95 @@ def test_pool_missing_script_is_spawn_failed_not_cancelled(tmp_path):
         result = pool.execute({"text": "Hi.", "out_path": str(tmp_path / "missing.wav")})
         assert result["status"] == "error"
         assert result["code"] == "WORKER_SPAWN_FAILED"
+    finally:
+        pool.shutdown()
+
+
+def test_cancel_keeps_a_child_kill_did_not_reap(monkeypatch):
+    """A cancel whose kill leaves the child alive keeps the handle.
+
+    The next job does not start a second process. Once the retry reap
+    finishes, a new worker can spawn.
+    """
+    deferred: list = []
+
+    def _defer(func, *_args, **_kwargs):
+        deferred.append(func)
+
+    monkeypatch.setattr("plugin.audio.kokoro_pool.run_in_background", _defer)
+
+    class _Stuck:
+        def __init__(self) -> None:
+            self.kills = 0
+            self._stuck = True
+
+        def request_shutdown(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            self.kills += 1
+
+        def reap_incomplete(self) -> bool:
+            return self._stuck
+
+        def is_alive(self) -> bool:
+            return self._stuck
+
+        def is_shutting_down(self) -> bool:
+            return False
+
+        def retry_reap(self, stop) -> None:
+            del stop
+            self._stuck = False
+
+    class _Replacement:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def is_alive(self) -> bool:
+            return True
+
+        def is_shutting_down(self) -> bool:
+            return False
+
+        def respawn(self) -> None:
+            return None
+
+        def execute(self, payload, timeout_sec):
+            del timeout_sec
+            return {"status": "ok", "echo": payload.get("text")}
+
+        def request_shutdown(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+        def reap_incomplete(self) -> bool:
+            return False
+
+    monkeypatch.setattr("plugin.audio.kokoro_pool.BaseProcessWorker", _Replacement)
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    stuck = _Stuck()
+    token = object()
+    pool._worker = stuck
+    pool._inflight = True
+    pool._exec_token = token
+    try:
+        pool.cancel_inflight(token)
+        assert pool._worker is None
+        assert pool._unreaped is stuck
+        assert stuck.kills == 1
+        refused = pool.execute({"text": "next"})
+        assert refused["code"] == "WORKER_SPAWN_FAILED"
+        assert pool._worker is None
+        assert len(deferred) == 1
+        deferred[0]()
+        assert pool._unreaped is None
+        assert not stuck.reap_incomplete()
+        recovered = pool.execute({"text": "after"})
+        assert recovered["status"] == "ok"
+        assert recovered["echo"] == "after"
+        assert isinstance(pool._worker, _Replacement)
     finally:
         pool.shutdown()

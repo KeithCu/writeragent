@@ -2,7 +2,7 @@
 
 **Status:** Leftover-stdout cause fixed in #546 (`smolagents` `__init__` no longer imports `huggingface_hub` on worker spawn). Hunt-only IPC breadcrumbs stripped after that. Do not reopen Hub/smolagents.
 
-**Also landed:** compute spawn requires a dict with `status == "ready"` (H6); `formula_worker` writes that frame before importing the sandbox (H3); `_worker_last_active` is stamped after each spawn (H7); compute `Popen` passes `scrub_subprocess_env`; handshake timeout logs a stderr snippet; a non-ready frame is spawn failure. `worker_harness` still imports before its first stdin read and does not send `ready`.
+**Also landed:** compute spawn requires a dict with `status == "ready"` (H6); `formula_worker` writes that frame before importing the sandbox (H3); `_idle` stores the spawn time after each handshake (H7); compute `Popen` passes `scrub_subprocess_env`; handshake timeout logs a stderr snippet; a non-ready frame is spawn failure. `worker_harness` still imports before its first stdin read and does not send `ready`.
 
 The call-path section below used to describe the pre-fix child (Cython load before `ready`, no stderr on timeout, non-ready counted as success). That is historical. Do not re-implement it. Current compute child: `formula_worker.py` writes `{status: ready}` in `run_worker_stdio_loop` before the sandbox import.  
 **Severity:** Unit-test flake that can fail ~30–40 tests at once; production spawn path is the same code  
@@ -21,7 +21,7 @@ A full `make pytest` (xdist, `PYTEST_WORKERS=auto` or `6`) can fail with **dozen
 | Area | Typical tests | Log / assertion |
 |------|----------------|-----------------|
 | Compute formula pool | `tests/compute_service/test_formula_pool.py`, `test_compute_service.py` HTTP execute | `Formula worker #1 spawn handshake timed out` then execute status ≠ `ok` |
-| Vision pool | `tests/compute_service/test_vision.py` | same handshake path (`worker_base.py`) |
+| Vision pool | `tests/compute_service/test_vision.py` | same handshake path (`plugin/framework/process_worker.py`) |
 | Venv worker | `test_venv_worker.py::test_harness_main_loop_integration`, `test_warm_venv_worker_resolves_and_warms`, `test_serialization_ab.py::test_venv_transform_parity[…_subprocess]`, `test_writeragent_alias.py::test_venv_worker_bidirectional_tool_call` | first IPC read times out / `None` / error status |
 | Compute HTTP bench | `tests/scripts/test_benchmark_compute_service.py` | `failed_requests != 0`; stderr shows handshake timeouts ~15s apart |
 
@@ -33,7 +33,7 @@ POST /v1/execute  200
 ERROR compute_service.worker: Formula worker #1 spawn handshake timed out
 ```
 
-The 15s gap is `_SPAWN_READY_TIMEOUT_SEC` in [`compute_service/worker_base.py`](../../compute_service/worker_base.py), not CPU saturation.
+The 15s gap is `_SPAWN_READY_TIMEOUT_SEC` in [`plugin/framework/process_worker.py`](../../plugin/framework/process_worker.py), not CPU saturation.
 
 UNO (`make test-uno`) is **out of scope** unless you prove the same spawn path runs there.
 
@@ -125,18 +125,18 @@ FormulaProcessPool / get_formula_pool
       read_pickle_frame_with_timeout(stdout, 15s, is_alive=self.is_alive)
         POSIX: select() + stream.read(); TimeoutExpired on deadline
 
-formula_worker.py (child), current:
-  main() sets WRITERAGENT_IS_WORKER and WRITERAGENT_COMPUTE_WORKER
+formula_worker.py and vision.py (child), current:
   sys.path insert repo root
-  import run_worker_stdio_loop (not the sandbox, not the Cython accelerator)
-  main() → run_worker_stdio_loop
+  main() → run_compute_worker
+      sets WRITERAGENT_IS_WORKER and WRITERAGENT_COMPUTE_WORKER
+      run_worker_stdio_loop(max_payload_bytes=33 MiB)
       write_pickle_frame({status: ready, pid})   # before the sandbox import
       loop: read request, handler, write response
 ```
 
 Venv path is different: [`plugin/scripting/venv/worker_harness.py`](../../plugin/scripting/venv/worker_harness.py) **never sends ready**. Parent writes a request immediately; child only reads after importing `venv_sandbox` / payload_codec / alias importer. Warm timeout is `WARM_WORKER_TIMEOUT_SEC` (30s) plus grace — still fails in a full run when the child is stuck or stdout is not pickle.
 
-Handshake read passes `max_payload_bytes`. On `TimeoutExpired` or a frame whose `status` is not `"ready"`, `_spawn` logs a stderr snippet and `kill()`s. That path is fail-closed.
+Handshake read passes `max_payload_bytes`. On `TimeoutExpired`, `IpcPartialFrameTimeout`, or a frame whose `status` is not `"ready"`, the spawn logs a stderr snippet and `kill()`s. That path is fail-closed.
 
 ---
 

@@ -4,7 +4,7 @@
 """Child stdio loop and the compute restricted unpickler.
 
 The parent pool lives in ``worker_base``, which re-exports the names here.
-A worker process still imports ``run_worker_stdio_loop`` from ``worker_base``.
+Formula and vision children call ``run_compute_worker`` from ``worker_base``.
 """
 
 from __future__ import annotations
@@ -19,33 +19,14 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.scripting.ipc import (
-    DEFAULT_MAX_PAYLOAD_BYTES,
-    AllowlistUnpickler,
-    IpcFrameError,
-    _PICKLE_LOAD_ERRORS,
-    claim_ipc_channel,
-    read_pickle_frame,
-    write_pickle_frame,
-)
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
+from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, AllowlistUnpickler, IpcFrameError, _PICKLE_LOAD_ERRORS, claim_ipc_channel, read_pickle_frame, write_pickle_frame
 
 log = logging.getLogger("compute_service.worker")
 
 # Allowed builtins for child->host and child stdin compute frames (strictly primitives/scalars/containers).
-_RESTRICTED_PICKLE_BUILTINS = frozenset({
-    "dict",
-    "list",
-    "tuple",
-    "set",
-    "frozenset",
-    "bytes",
-    "bytearray",
-    "str",
-    "int",
-    "float",
-    "complex",
-    "bool",
-})
+_RESTRICTED_PICKLE_BUILTINS = frozenset({"dict", "list", "tuple", "set", "frozenset", "bytes", "bytearray", "str", "int", "float", "complex", "bool"})
+
 
 class RestrictedUnpickler(AllowlistUnpickler):
     """Restricted unpickler for child->host IPC frames.
@@ -110,6 +91,24 @@ def set_pdeathsig(sig: int | None = None) -> bool:
         return False
     except Exception:
         return False
+
+
+def run_compute_worker(handler: Callable[[dict[str, Any]], dict[str, Any]]) -> int:
+    """Stdio loop for a formula or vision child.
+
+    Before the loop. writeragent_api treats a missing ``WRITERAGENT_IS_WORKER``
+    as the LibreOffice host and calls ``execute_tool`` → ``get_ctx()``. This
+    process has no office and no tool-call pipe. ``WRITERAGENT_COMPUTE_WORKER``
+    makes that call fail before either path.
+
+    The parent pool reads and writes ``COMPUTE_MAX_PAYLOAD_BYTES`` (33 MiB).
+    The stdio default is 16 MiB, so a request the parent had accepted failed
+    in the child, and a result over 16 MiB broke this loop (host saw
+    ``EMPTY_RESPONSE``).
+    """
+    os.environ["WRITERAGENT_IS_WORKER"] = "1"
+    os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
+    return run_worker_stdio_loop(handler, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
 
 
 def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> int:
@@ -181,12 +180,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
             write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
         except IpcFrameError as exc:
             req_id = req.get("id") if isinstance(req, dict) else None
-            err_frame = {
-                "id": req_id,
-                "status": "error",
-                "code": "RESULT_TOO_LARGE",
-                "error": f"Result exceeds maximum payload size: {exc}",
-            }
+            err_frame = {"id": req_id, "status": "error", "code": "RESULT_TOO_LARGE", "error": f"Result exceeds maximum payload size: {exc}"}
             try:
                 write_pickle_frame(stdout_bin, err_frame, max_payload_bytes=max_payload_bytes)
             except Exception:

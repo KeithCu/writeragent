@@ -49,6 +49,7 @@ COPY plugin/framework/errors.py /app/plugin/framework/errors.py
 COPY plugin/framework/http_server.py /app/plugin/framework/http_server.py
 COPY plugin/framework/i18n.py /app/plugin/framework/i18n.py
 COPY plugin/framework/json_utils.py /app/plugin/framework/json_utils.py
+COPY plugin/framework/process_worker.py /app/plugin/framework/process_worker.py
 COPY plugin/framework/thread_guard.py /app/plugin/framework/thread_guard.py
 COPY plugin/contrib/smolagents /app/plugin/contrib/smolagents
 COPY plugin/contrib/__init__.py /app/plugin/contrib/__init__.py

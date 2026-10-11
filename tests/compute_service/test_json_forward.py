@@ -753,11 +753,11 @@ class TestFormulaPoolWire:
         try:
             real_write = pool.workers[0].execute
 
-            def spy(payload, timeout_sec):
+            def spy(payload, timeout_sec, **kwargs):
                 if isinstance(payload, dict) and "data_json" in payload:
                     captured["data_json"] = payload["data_json"]
                     captured["has_data"] = "data" in payload
-                return real_write(payload, timeout_sec)
+                return real_write(payload, timeout_sec, **kwargs)
 
             with patch.object(pool.workers[0], "execute", side_effect=spy):
                 res = pool.execute(

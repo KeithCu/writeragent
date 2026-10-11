@@ -147,7 +147,6 @@ def _request_deadline(accept_time: Any, timeout_sec: float) -> float:
 from plugin.framework.http_server import DualStackThreadPoolHTTPServer
 
 
-
 class DeadlineRequestHandler(WSGIRequestHandler):
     """WSGI request handler with total header read deadline and compute context logging."""
 
@@ -196,13 +195,7 @@ class DeadlineRequestHandler(WSGIRequestHandler):
         # A return above leaves this function after the finally. Reaching
         # here means the request line and headers parsed.
         self._send_100_continue_if_expected()
-        handler = ServerHandler(
-            self.rfile,
-            cast("Any", self.wfile),
-            self.get_stderr(),
-            self.get_environ(),
-            multithread=False,
-        )
+        handler = ServerHandler(self.rfile, cast("Any", self.wfile), self.get_stderr(), self.get_environ(), multithread=False)
         # request_handler is assigned by wsgiref at runtime; the stub omits it.
         # get_app lives on WSGIServer, which this handler is only mounted on.
         cast("Any", handler).request_handler = self
@@ -314,16 +307,9 @@ class WSGIDualStackServer(DualStackThreadPoolHTTPServer, WSGIServer):
         # listener_threads is the final pool size. Passing that number through
         # max_threads would add four again.
         effective_threads = listener_threads if listener_threads is not None else listener_thread_count(max_threads)
-        DualStackThreadPoolHTTPServer.__init__(
-            self,
-            (host, port),
-            DeadlineRequestHandler,
-            bind_and_activate=True,
-            max_threads=effective_threads,
-        )
+        DualStackThreadPoolHTTPServer.__init__(self, (host, port), DeadlineRequestHandler, bind_and_activate=True, max_threads=effective_threads)
         raw_host = str(self.server_address[0])
         self.server_name = raw_host if raw_host and raw_host not in ("", "0.0.0.0", "::") else "localhost"
         self.server_port = self.server_address[1]
         self.setup_environ()
         self.srv = self
-

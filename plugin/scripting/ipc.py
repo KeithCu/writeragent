@@ -29,6 +29,16 @@ from weakref import WeakKeyDictionary
 
 log = logging.getLogger("writeragent.scripting.ipc")
 
+# select(0) returns immediately. Callers refuse a spent deadline before
+# they reach these waits, so this only lifts a remainder that is already
+# positive off zero.
+_SELECT_WAIT_FLOOR = 0.01
+
+
+def _select_slice(remaining: float, cap: float) -> float:
+    """Wait slice for a positive remainder, never zero and never above *cap*."""
+    return min(cap, max(_SELECT_WAIT_FLOOR, remaining))
+
 PICKLE_PROTOCOL = 5
 FRAME_HEADER_SIZE = 4
 
@@ -259,12 +269,19 @@ def write_pickle_frame(
     _write_all(stream, pack_pickle_frame(message, max_payload_bytes=max_payload_bytes))
 
 
-def _write_bytes_until_joined(stream: IO[bytes], payload: bytes, timeout_sec: float) -> None:
+def _write_bytes_until_joined(
+    stream: IO[bytes],
+    payload: bytes,
+    timeout_sec: float,
+    *,
+    is_alive: Callable[[], bool] | None = None,
+) -> None:
     """Bound a blocking write by joining a daemon thread.
 
     Windows pipes are not selectable. ``TimeoutExpired`` leaves this thread
     blocked in ``write`` until the caller kills the child and the pipe breaks.
-    The helper does not kill.
+    The helper does not kill. A dead child raises ``BrokenPipeError`` instead
+    of waiting out *timeout_sec*; the caller's kill unblocks the write.
     """
     errors: list[Exception] = []
 
@@ -276,9 +293,14 @@ def _write_bytes_until_joined(stream: IO[bytes], payload: bytes, timeout_sec: fl
 
     writer = threading.Thread(target=_writer, name="ipc-stdin-write", daemon=True)
     writer.start()
-    writer.join(timeout=max(0.01, timeout_sec))
-    if writer.is_alive():
-        raise subprocess.TimeoutExpired(cmd="IPC frame", timeout=timeout_sec)
+    deadline = time.monotonic() + max(0.0, timeout_sec)
+    while writer.is_alive():
+        if is_alive is not None and not is_alive():
+            raise BrokenPipeError("IPC frame write aborted: child exited")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(cmd="IPC frame", timeout=timeout_sec)
+        writer.join(timeout=_select_slice(remaining, 0.05))
     if errors:
         raise errors[0]
 
@@ -292,8 +314,11 @@ def _write_fd_with_timeout(
 ) -> None:
     """Write *payload* to a POSIX pipe fd, or raise ``TimeoutExpired``.
 
-    A short count already in the pipe desynchronizes the next frame. This
-    raises instead of resuming the rest later. The caller kills the child.
+    A short ``os.write`` resumes in this loop (``offset += written``).
+    The function raises on timeout, a non-positive count, or a dead child.
+    It does not return a partial write for the caller to finish later.
+    ``TimeoutExpired`` can mean a partial frame is already in the pipe;
+    the caller kills that child.
     """
     deadline = time.monotonic() + max(0.0, timeout_sec)
     view = memoryview(payload)
@@ -306,7 +331,7 @@ def _write_fd_with_timeout(
             if remaining <= 0:
                 raise subprocess.TimeoutExpired(cmd="IPC frame", timeout=timeout_sec)
             try:
-                _ready_read, writable, _ready_err = select.select([], [fd], [], min(1.0, remaining))
+                _ready_read, writable, _ready_err = select.select([], [fd], [], _select_slice(remaining, 1.0))
             except InterruptedError:
                 continue
             if not writable:
@@ -335,23 +360,42 @@ def write_pickle_frame_with_timeout(
     """Write one Pickle5 frame, bounding the pipe write with *timeout_sec*.
 
     The frame is packed first. ``IpcFrameError`` means no byte was written and
-    the child is still aligned. POSIX uses non-blocking ``os.write`` plus
-    ``select`` (``is_alive`` is consulted on that loop only). Windows pipes are
-    not selectable, so a daemon thread is joined for the deadline.
-    ``TimeoutExpired`` can mean a partial frame is already in the pipe; the
-    caller kills that child. A stream with no real fileno (``BytesIO``) is
-    written without a deadline.
+    the child is still aligned. The packed bytes go through
+    ``write_packed_frame_with_timeout``.
     """
     frame = pack_pickle_frame(message, max_payload_bytes=max_payload_bytes)
+    write_packed_frame_with_timeout(stream, frame, timeout_sec, is_alive=is_alive)
+
+
+def write_packed_frame_with_timeout(
+    stream: IO[bytes],
+    frame: bytes,
+    timeout_sec: float,
+    *,
+    is_alive: Callable[[], bool] | None = None,
+) -> None:
+    """Write an already-packed frame, bounding the pipe write with *timeout_sec*.
+
+    POSIX uses non-blocking ``os.write`` plus ``select``. Windows pipes are
+    not selectable, so a daemon thread is joined for the deadline. Both paths
+    consult ``is_alive`` and raise ``BrokenPipeError`` when the child is
+    already dead. ``TimeoutExpired`` can mean a partial frame is already in
+    the pipe; the caller kills that child.
+    A stream with no real fileno (``BytesIO``) is written without a deadline.
+    """
     timeout_sec = max(0.0, float(timeout_sec))
     if sys.platform == "win32":
-        _write_bytes_until_joined(stream, frame, timeout_sec)
+        _write_bytes_until_joined(stream, frame, timeout_sec, is_alive=is_alive)
         return
     try:
         fd = stream.fileno()
     except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
         fd = None
     if not isinstance(fd, int):
+        # Popen pipes always have an int fileno. This is BytesIO and mocks.
+        # _write_all has no deadline, so a real pipe that landed here would
+        # wedge the caller that holds the worker lock.
+        log.debug("write_packed_frame_with_timeout: no int fileno; writing without a deadline")
         _write_all(stream, frame)
         return
     _write_fd_with_timeout(fd, frame, timeout_sec, is_alive=is_alive)
@@ -763,7 +807,7 @@ def read_pickle_frame_with_timeout(
                 if len(buf) > 0:
                     raise IpcPartialFrameTimeout(f"{frame_label} stream desynchronized: timeout mid-frame")
                 raise subprocess.TimeoutExpired(cmd=frame_label, timeout=timeout_sec)
-            ready, _unused, _unused2 = select.select([stream], [], [], min(1.0, remaining))
+            ready, _unused, _unused2 = select.select([stream], [], [], _select_slice(remaining, 1.0))
             if ready:
                 chunk = stream.read(n - len(buf))
                 if not chunk:
@@ -1062,7 +1106,7 @@ def _readline_with_timeout_posix(stream: IO[str], fd: int, timeout_sec: float, m
             # of this stream should still see those bytes.
             _save_json_line_pending(stream, pending)
             raise subprocess.TimeoutExpired(cmd="IPC JSON line", timeout=timeout_sec)
-        ready, _unused, _unused2 = select.select([fd], [], [], min(1.0, remaining))
+        ready, _unused, _unused2 = select.select([fd], [], [], _select_slice(remaining, 1.0))
         if not ready:
             continue
         piece = _read_available_line_bytes(fd)

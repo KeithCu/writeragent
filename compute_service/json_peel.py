@@ -14,12 +14,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from compute_service.json_forward import (
-    ExecuteRequestError,
-    ExecuteRequestParts,
-    _reject_json_constant,
-    _reject_nonfinite_number,
-)
+from compute_service.json_forward import ExecuteRequestError, ExecuteRequestParts, _reject_json_constant, _reject_nonfinite_number
 
 _WS = frozenset({0x09, 0x0A, 0x0D, 0x20})
 _MAX_JSON_DEPTH = 256
@@ -113,15 +108,7 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
     if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
         raise ExecuteRequestError("timeout_ms must be a scalar")
 
-    return ExecuteRequestParts(
-        req_id=req_id,
-        code=fields.get("code"),
-        mode=fields.get("mode"),
-        timeout_ms=timeout_ms,
-        init_script=fields.get("init_script"),
-        data_json=data_json,
-        has_session_id=has_session_id,
-    )
+    return ExecuteRequestParts(req_id=req_id, code=fields.get("code"), mode=fields.get("mode"), timeout_ms=timeout_ms, init_script=fields.get("init_script"), data_json=data_json, has_session_id=has_session_id)
 
 
 def _coerce_data_json_field(value_slice: bytes) -> bytes:

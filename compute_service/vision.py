@@ -27,7 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, PoolSingleton, _Deadline, resolve_override, run_worker_stdio_loop
+from compute_service.worker_base import MIN_REQUEST_SEC, BaseProcessPool, Deadline, PoolSingleton, error_dict, resolve_override, run_compute_worker
 
 log = logging.getLogger("compute_service.vision")
 
@@ -59,14 +59,7 @@ def _decode_image_b64(image_input: str) -> bytes:
 class VisionProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for Vision/OCR."""
 
-    def __init__(
-        self,
-        settings: ComputeSettings | None = None,
-        num_workers: int | None = None,
-        default_timeout_sec: int | None = None,
-        max_tasks: int | None = None,
-        idle_worker_ttl_sec: float | None = None,
-    ) -> None:
+    def __init__(self, settings: ComputeSettings | None = None, num_workers: int | None = None, default_timeout_sec: int | None = None, max_tasks: int | None = None, idle_worker_ttl_sec: float | None = None) -> None:
         cfg = settings or ComputeSettings()
         eff_num_workers = resolve_override(num_workers, cfg.ocr_workers)
         eff_timeout = resolve_override(default_timeout_sec, cfg.ocr_timeout_sec)
@@ -76,15 +69,7 @@ class VisionProcessPool(BaseProcessPool):
         # Formula workers already pass this. The 16 MiB IPC default rejected a
         # body the HTTP layer had accepted (32 MiB) as an uncaught ValueError.
         # A read timeout kills the child. The next lease respawns it.
-        super().__init__(
-            script_path=_WORKER_SCRIPT,
-            num_workers=eff_num_workers,
-            default_timeout_sec=eff_timeout,
-            max_tasks=eff_max_tasks,
-            worker_name="Vision worker",
-            idle_worker_ttl_sec=eff_idle_ttl,
-            max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES,
-        )
+        super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Vision worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
 
     def execute(
         self,
@@ -105,7 +90,7 @@ class VisionProcessPool(BaseProcessPool):
         again before ``open``, so this layer does not add a third answer.
         """
         if not self.is_enabled():
-            return {"id": req_id, "status": "error", "code": "VISION_SERVICE_DISABLED", "error": "Vision / OCR service is not enabled on this instance (ocr_workers=0)."}
+            return error_dict("VISION_SERVICE_DISABLED", "Vision / OCR service is not enabled on this instance (ocr_workers=0).", req_id=req_id)
 
         # Only None means "use the default". Zero is an explicit timeout.
         eff_timeout = float(self.default_timeout_sec if timeout_sec is None else timeout_sec)
@@ -118,9 +103,9 @@ class VisionProcessPool(BaseProcessPool):
                 try:
                     image_bytes = _decode_image_b64(image_input)
                 except Exception as exc:
-                    return {"id": req_id, "status": "error", "code": "INVALID_BASE64", "error": f"Base64 decode failed: {exc}"}
+                    return error_dict("INVALID_BASE64", f"Base64 decode failed: {exc}", req_id=req_id)
             else:
-                return {"id": req_id, "status": "error", "code": "INVALID_IMAGE", "error": "image must be base64 string or raw bytes"}
+                return error_dict("INVALID_IMAGE", "image must be base64 string or raw bytes", req_id=req_id)
 
         prefixes = () if allow_paths is None else tuple(str(p) for p in allow_paths)
         payload = {"id": req_id, "helper": helper, "image_bytes": image_bytes, "file_path": file_path, "params": params or {}, "allow_paths": prefixes}
@@ -135,21 +120,21 @@ class VisionProcessPool(BaseProcessPool):
         # fallen under one second, do not lease. A 0.01s floor used to start
         # OCR on a deadline that had already passed. A one-second request
         # still leases: the clock moves before this check.
-        clock = _Deadline.from_absolute(eff_timeout, deadline)
-        if clock.too_late_to_spawn():
-            return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
+        clock = Deadline.from_absolute(eff_timeout, deadline)
+        if clock.usable() is None:
+            return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
         lease_budget = max(deadline - time.monotonic(), 0.0)
         with self.leased(timeout_sec=lease_budget) as worker:
             # Time passes while waiting for the lease. Recheck the same clock.
-            if worker is None or clock.too_late_to_spawn():
-                return {"id": req_id, "status": "error", "code": "VISION_POOL_BUSY", "error": "All vision workers are currently busy and request timed out waiting for worker lease."}
+            run_for = None if worker is None else clock.usable()
+            if worker is None or run_for is None:
+                return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
 
-            # execute() refuses a budget under one second. The minimum
-            # request is already slightly under that after the lease returns.
-            res = worker.execute(payload, timeout_sec=clock.child_run_seconds())
-            if req_id is not None and isinstance(res, dict):
-                res["id"] = req_id
-            return res
+            # A one-second OCR request can already be under a second.
+            # execute builds a new clock from this timeout, and a budget
+            # under one second is refused. The lift stays here.
+            execute_for = run_for if run_for >= MIN_REQUEST_SEC else MIN_REQUEST_SEC
+            return worker.execute(payload, timeout_sec=execute_for, req_id=req_id)
 
 
 # Global singleton per server process
@@ -204,12 +189,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     image_bytes: bytes
     has_bytes = isinstance(image_bytes_raw, (bytes, bytearray)) and len(image_bytes_raw) > 0
     if file_path and has_bytes:
-        return {
-            "id": req_id,
-            "status": "error",
-            "code": "INVALID_REQUEST",
-            "error": "Provide image bytes or file_path, not both.",
-        }
+        return {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": "Provide image bytes or file_path, not both."}
     if file_path:
         image_bytes_opt, err_body = _read_allowed_image(file_path, req.get("allow_paths"), req_id)
         if err_body is not None:
@@ -237,18 +217,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    # Before any plugin import. writeragent_api treats a missing
-    # WRITERAGENT_IS_WORKER as the LibreOffice host and calls execute_tool
-    # → get_ctx(). This process has no office and no tool-call pipe.
-    # WRITERAGENT_COMPUTE_WORKER makes that call fail before either path.
-    os.environ["WRITERAGENT_IS_WORKER"] = "1"
-    os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
-
-    # The parent pool reads and writes COMPUTE_MAX_PAYLOAD_BYTES (33 MiB).
-    # The stdio default is 16 MiB, so a request the parent had accepted
-    # failed in the child, and a result over 16 MiB broke this loop
-    # (host saw EMPTY_RESPONSE). formula_worker already passes the cap.
-    return run_worker_stdio_loop(_handle_request, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
+    return run_compute_worker(_handle_request)
 
 
 if __name__ == "__main__":
