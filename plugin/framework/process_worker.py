@@ -25,7 +25,9 @@ The slot holds at most one :class:`Child`. Adopt is one pointer swap.
 Another thread may only signal that child. The thread inside the ready
 read or the request closes stdin and stdout, then waits. A child still
 alive after ``_REAP_WAIT_SEC`` is handed to one module-level reaper and
-the slot can spawn again. Stderr is a pipe drained into a bounded tail.
+the slot can spawn again. The reaper retries that child
+``_REAPER_MAX_PASSES`` times, then stops. Stderr is a pipe drained into
+a bounded tail.
 
 ``tasks_executed`` counts a response dict that was consumed. A timeout, a
 crash, or a spawn failure does not. A ready handshake resets the count.
@@ -68,6 +70,9 @@ _STDERR_SNIPPET = 500
 _STDERR_LOG_CAP = 64 * 1024
 # The child is already SIGKILL'd. wait() must not stall shutdown.
 _REAP_WAIT_SEC = 1.0
+# One D-state child must not occupy the module reaper for the session.
+# The slot has already dropped it. Each pass waits _REAP_WAIT_SEC.
+_REAPER_MAX_PASSES = 5
 # A write, and a pool's decision to lift, is refused below one second.
 # The 0.01s select floor lives in plugin.scripting.ipc, and only for a
 # remainder that is already positive. formula_pool and vision import this.
@@ -211,14 +216,15 @@ def _enqueue_abandoned(child: Child) -> None:
             return
         _reaper_started = True
     # dedicated: this loop waits on children and must not take a pooled slot.
-    run_in_background(_reap_abandoned, name="process-worker-reaper", dedicated=True)
+    # daemon: a child that never exits must not keep LibreOffice alive.
+    run_in_background(_reap_abandoned, name="process-worker-reaper", dedicated=True, daemon=True)
 
 
 def _reap_abandoned() -> None:
     """Wait out children that survived the slot's one-second reap.
 
-    One D-state child must not block the others, so a pass that is still
-    alive goes back on the queue after a short pause.
+    A pass that is still alive goes back on the queue after a short pause,
+    up to ``_REAPER_MAX_PASSES``. Then that child is left for the OS.
     """
     while True:
         child = _abandoned.get()
@@ -236,6 +242,10 @@ class Child:
     it only sends SIGKILL. Stdin and stdout close on the thread that was
     inside the read or write, or on the caller when nobody is. Stderr stays
     open for the drain thread, which closes it at EOF.
+
+    ``_signaled`` and ``_io_owner`` are plain attributes. The handshake is
+    correct while those reads and writes stay sequentially consistent,
+    which CPython's GIL provides. A free-threaded build would need a lock.
     """
 
     proc: Any
@@ -247,6 +257,7 @@ class Child:
     _stdio_closed: bool
     _settled: bool
     _abandoned: bool
+    _reaper_passes: int
     _once: threading.Lock
 
     def __init__(self, proc: Any, tail: StderrTail | None, *, worker_name: str, worker_id: int) -> None:
@@ -259,6 +270,7 @@ class Child:
         self._stdio_closed = False
         self._settled = False
         self._abandoned = False
+        self._reaper_passes = 0
         self._once = threading.Lock()
 
     def begin_io(self) -> None:
@@ -289,15 +301,25 @@ class Child:
         self._signaled = True
         self._signal_proc()
         me = threading.get_ident()
-        # Recheck after the signal. The owner may have cleared the mark
-        # and would not see the flag if we returned on the first look.
-        if self._io_owner not in (None, me):
-            if self._io_owner not in (None, me):
+        # Two loads of _io_owner. The flag is already set, and end_io reads
+        # it after clearing the mark, so the owner still finishes if we
+        # return on the first look. The second load is a new read: the
+        # owner may have cleared between them, and this thread then reaps.
+        # _once keeps the two _finish calls to one.
+        owner = self._io_owner
+        if owner not in (None, me):
+            owner = self._io_owner
+            if owner not in (None, me):
                 return False
         return self._finish()
 
     def reaper_pass(self) -> None:
-        """One wait from the module reaper. Requeue when the child is still alive."""
+        """One wait from the module reaper. Requeue until ``_REAPER_MAX_PASSES``.
+
+        The slot has already dropped this child. A child that is still alive
+        after the cap is left for the OS. Logging every pass would repeat
+        the abandon warning for the rest of the session.
+        """
         if self._io_owner is None:
             self._close_stdio()
         try:
@@ -317,6 +339,11 @@ class Child:
                 return
         except Exception:
             log.debug("%s #%s abandoned pid poll failed", self.worker_name, self.worker_id, exc_info=True)
+            return
+        self._reaper_passes += 1
+        if self._reaper_passes >= _REAPER_MAX_PASSES:
+            pid = getattr(self.proc, "pid", None)
+            log.warning("%s #%s pid=%s still alive; reaper giving up", self.worker_name, self.worker_id, pid)
             return
         time.sleep(0.1)
         _enqueue_abandoned(self)
@@ -388,6 +415,13 @@ class Child:
             return False
 
     def _join_drain(self) -> None:
+        """Join the stderr drain after this child has exited.
+
+        A grandchild that inherited the stderr pipe never delivers EOF.
+        ``finish_text`` gives up after one second, and the drain thread
+        stays in ``read`` until that pipe closes. The thread is a daemon,
+        so it does not hold the process open.
+        """
         tail = self.tail
         if tail is None:
             return

@@ -1144,6 +1144,72 @@ def test_other_thread_kill_leaves_pipes_until_the_owner_leaves(monkeypatch: pyte
     assert worker.process is None
 
 
+def test_signal_from_rereads_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The second ``_io_owner`` load is a new read.
+
+    The first look can still see another thread. The owner clears before
+    the second look, and this thread reaps. Two looks that both see
+    another thread leave the pipes open for that thread's ``end_io``.
+    """
+    from plugin.framework.process_worker import Child
+
+    other = threading.get_ident() + 1
+
+    class _Loads:
+        def __init__(self) -> None:
+            self.values: list[int | None] = []
+            self.seen: list[int | None] = []
+
+        def __set__(self, obj: object, value: object) -> None:
+            del obj, value
+
+        def __get__(self, obj: object, objtype: type | None = None) -> int | None:
+            if obj is None:
+                return None
+            value = self.values[min(len(self.seen), len(self.values) - 1)]
+            self.seen.append(value)
+            return value
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 7
+            self.stdin = _PipeEnd()
+            self.stdout = _PipeEnd()
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.returncode = 0
+            return 0
+
+    loads = _Loads()
+    # _io_owner is set on the instance. The descriptor has to live on the
+    # class, and it is not there until this test installs it.
+    monkeypatch.setattr(Child, "_io_owner", loads, raising=False)
+    loads.values = [other, None]
+    reaped = _Proc()
+    child = Child(reaped, None, worker_name="Worker", worker_id=1)
+    assert child.signal_from() is True
+    assert loads.seen[:2] == [other, None]
+    assert reaped.stdin.closed is True
+    assert reaped.stdout.closed is True
+
+    loads.values = [other, other]
+    loads.seen.clear()
+    held = _Proc()
+    owner = Child(held, None, worker_name="Worker", worker_id=1)
+    assert owner.signal_from() is False
+    assert loads.seen == [other, other]
+    assert held.stdin.closed is False
+    assert held.stdout.closed is False
+
+
 def test_abandoned_child_is_not_written_and_a_later_spawn_may_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """A child that survives the reap is not sent a request, and the slot may spawn.
 
@@ -2260,6 +2326,72 @@ def test_abandoned_reaper_pauses_before_requeue(monkeypatch: pytest.MonkeyPatch)
     assert enqueued == [child]
 
 
+def test_reaper_stops_after_max_passes(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """A child that never exits is dropped after ``_REAPER_MAX_PASSES``.
+
+    What was wrong: every failed wait slept and requeued. One D-state
+    child occupied the single reaper for the rest of the process and
+    delayed every later abandon.
+    """
+    import logging
+    import subprocess
+
+    from plugin.framework import process_worker as worker_mod
+    from plugin.framework.process_worker import Child, _REAPER_MAX_PASSES
+
+    sleeps: list[float] = []
+    enqueued: list[object] = []
+    monkeypatch.setattr(worker_mod.time, "sleep", lambda sec: sleeps.append(sec))
+    monkeypatch.setattr(worker_mod, "_enqueue_abandoned", lambda child: enqueued.append(child))
+
+    class _Stuck:
+        pid = 41
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            raise subprocess.TimeoutExpired(cmd="stuck", timeout=1)
+
+    child = Child(_Stuck(), None, worker_name="Worker", worker_id=1)
+    with caplog.at_level(logging.WARNING, logger="compute_service.worker"):
+        for _idx in range(_REAPER_MAX_PASSES):
+            child.reaper_pass()
+    assert sleeps == [0.1] * (_REAPER_MAX_PASSES - 1)
+    assert enqueued == [child] * (_REAPER_MAX_PASSES - 1)
+    giving_up = [record for record in caplog.records if "reaper giving up" in record.getMessage()]
+    assert len(giving_up) == 1
+    assert "pid=41" in giving_up[0].getMessage()
+
+
+def test_abandoned_reaper_thread_is_a_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The module reaper is a daemon, so a stuck child cannot hold process exit."""
+    import queue
+
+    from plugin.framework import process_worker as worker_mod
+    from plugin.framework.process_worker import Child
+
+    calls: list[dict[str, object]] = []
+
+    def _spy(*_args: object, **kwargs: object) -> None:
+        calls.append(dict(kwargs))
+
+    monkeypatch.setattr(worker_mod, "_reaper_started", False)
+    monkeypatch.setattr(worker_mod, "run_in_background", _spy)
+    child = Child(object(), None, worker_name="Worker", worker_id=1)
+    try:
+        worker_mod._enqueue_abandoned(child)
+        worker_mod._enqueue_abandoned(child)
+        assert calls == [{"name": "process-worker-reaper", "dedicated": True, "daemon": True}]
+    finally:
+        while True:
+            try:
+                worker_mod._abandoned.get_nowait()
+            except queue.Empty:
+                break
+
+
 def test_fail_request_skips_stderr_when_it_does_not_kill(monkeypatch: pytest.MonkeyPatch) -> None:
     """A failure that leaves the child must not attach another child's tail.
 
@@ -2321,6 +2453,29 @@ def test_stderr_drain_keeps_a_bounded_tail(monkeypatch: pytest.MonkeyPatch) -> N
     snippet = child.diagnostic_tail()
     assert snippet.endswith("END")
     assert len(snippet) <= _STDERR_SNIPPET
+
+
+def test_stderr_drain_stays_alive_while_the_write_end_is_open() -> None:
+    """A pipe with no EOF keeps the drain thread after finish_text gives up.
+
+    A grandchild that inherited stderr is that pipe. The join is bounded.
+    Closing the write end lets the daemon thread leave.
+    """
+    import os
+
+    from plugin.framework.worker_pool import start_stderr_drain
+
+    read_fd, write_fd = os.pipe()
+    stream = os.fdopen(read_fd, "rb", buffering=0)
+    tail = start_stderr_drain(stream, name="wa-test-w1-stderr")
+    assert tail is not None
+    try:
+        assert tail.finish_text(timeout=0.05) == ""
+        assert tail.is_alive is True
+    finally:
+        os.close(write_fd)
+        tail.join(timeout=2.0)
+    assert tail.is_alive is False
 
 
 @pytest.mark.parametrize(
