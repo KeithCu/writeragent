@@ -60,14 +60,32 @@ def test_shared_mode_without_session_id_does_not_run(monkeypatch: pytest.MonkeyP
         pool.shutdown()
 
 
-def test_process_exit_drops_only_that_workers_pid(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A reused pid on another slot stays. Only the exited worker's row is lost.
+def test_replaced_child_drops_only_that_workers_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A replaced child drops that slot's session. Another slot's child stays.
 
     What was wrong: process exit dropped every session whose pid matched.
-    is_alive() reaps with poll() and does not run the callback, so that
-    number can belong to a live slot by the time reap reports it.
+    A reused pid can belong to a live slot by the time the scan runs.
+    Sessions store the Child. A reservation has no child yet and stays.
     """
     from compute_service.formula_pool import _Session
+    from plugin.framework.process_worker import Child
+
+    class _Running:
+        def __init__(self) -> None:
+            self.returncode: int | None = None
+            self.stdin = None
+            self.stdout = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.returncode = 0
+            return 0
 
     monkeypatch.setattr(
         "compute_service.worker_base.BaseProcessWorker.respawn",
@@ -76,19 +94,23 @@ def test_process_exit_drops_only_that_workers_pid(monkeypatch: pytest.MonkeyPatc
     pool = FormulaProcessPool(num_workers=2, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
     try:
         owner, other = pool.workers
+        replaced = Child(_Running(), None, worker_name=owner.worker_name, worker_id=owner.worker_id)
+        current = Child(_Running(), None, worker_name=owner.worker_name, worker_id=owner.worker_id)
+        kept = Child(_Running(), None, worker_name=other.worker_name, worker_id=other.worker_id)
+        owner.child = current
+        other.child = kept
         now = time.monotonic()
         with pool._cond:
-            pool._sessions["owned"] = _Session(worker=owner, pid=4242, last_active=now)
-            pool._sessions["reused"] = _Session(worker=other, pid=4242, last_active=now)
-            pool._sessions["reserved"] = _Session(worker=owner, pid=None, last_active=now)
-        pool._on_process_exit(owner, 4242)
-        with pool._cond:
+            pool._sessions["owned"] = _Session(worker=owner, child=replaced, last_active=now)
+            pool._sessions["reused"] = _Session(worker=other, child=kept, last_active=now)
+            pool._sessions["reserved"] = _Session(worker=owner, child=None, last_active=now)
+            pool._reap_dead_sessions_unlocked()
             assert "owned" not in pool._sessions
             assert "owned" in pool._lost_sessions
             assert pool._sessions["reused"].worker is other
-            assert pool._sessions["reused"].pid == 4242
+            assert pool._sessions["reused"].child is kept
             assert "reused" not in pool._lost_sessions
-            assert pool._sessions["reserved"].pid is None
+            assert pool._sessions["reserved"].child is None
             assert "reserved" not in pool._lost_sessions
     finally:
         pool.shutdown()
@@ -110,7 +132,7 @@ def test_shutdown_clears_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
     pool = FormulaProcessPool(num_workers=1, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
     worker = pool.workers[0]
     with pool._cond:
-        pool._sessions["live"] = _Session(worker=worker, pid=1, last_active=time.monotonic())
+        pool._sessions["live"] = _Session(worker=worker, child=object(), last_active=time.monotonic())
         pool._lost_sessions["gone"] = time.monotonic()
     pool.shutdown()
     assert not pool._sessions
@@ -1206,13 +1228,13 @@ class TestFormulaPoolSupervisor:
         pool = FormulaProcessPool(num_workers=3, default_timeout_sec=15)
         try:
             sid = "affinity-direct"
-            # Map session to worker #2 explicitly, including the owning pid.
-            # A map entry without that pid is a stale cache and is dropped.
+            # Map session to worker #2 explicitly, including that worker's child.
+            # A map entry for a different child is a stale kernel and is dropped.
             target_worker = pool.workers[2]
             with pool._cond:
                 from compute_service.formula_pool import _Session
-                assert target_worker.process is not None
-                pool._sessions[sid] = _Session(worker=target_worker, pid=target_worker.process.pid, last_active=time.monotonic())
+                assert target_worker.child is not None
+                pool._sessions[sid] = _Session(worker=target_worker, child=target_worker.child, last_active=time.monotonic())
 
             res = pool.execute(code="state = 42\nresult = state", session_id=sid, mode="shared")
             assert res.get("status") == "ok"
@@ -1910,9 +1932,9 @@ class TestFormulaHttpEndpoint:
             assert pool._worker_sessions_for(w1) == []
 
             with pool._cond:
-                pool._sessions["s1"] = _Session(worker=w1, pid=111, last_active=time.monotonic())
-                pool._sessions["s2"] = _Session(worker=w1, pid=111, last_active=time.monotonic())
-                pool._sessions["s3"] = _Session(worker=w2, pid=222, last_active=time.monotonic())
+                pool._sessions["s1"] = _Session(worker=w1, child=object(), last_active=time.monotonic())
+                pool._sessions["s2"] = _Session(worker=w1, child=object(), last_active=time.monotonic())
+                pool._sessions["s3"] = _Session(worker=w2, child=object(), last_active=time.monotonic())
 
             assert pool._worker_session_count(w1) == 2
             assert pool._worker_has_sessions(w1)
@@ -1928,7 +1950,7 @@ class TestFormulaHttpEndpoint:
 
             # Reassigning session to different worker updates both sets
             with pool._cond:
-                pool._sessions["s2"] = _Session(worker=w2, pid=222, last_active=time.monotonic())
+                pool._sessions["s2"] = _Session(worker=w2, child=object(), last_active=time.monotonic())
 
             assert pool._worker_session_count(w1) == 0
             assert not pool._worker_has_sessions(w1)
@@ -1944,8 +1966,8 @@ class TestFormulaHttpEndpoint:
             w = pool.workers[0]
             from compute_service.formula_pool import _Session
             with pool._cond:
-                pool._sessions["drop-lost"] = _Session(worker=w, pid=100, last_active=time.monotonic())
-                pool._sessions["drop-clean"] = _Session(worker=w, pid=100, last_active=time.monotonic())
+                pool._sessions["drop-lost"] = _Session(worker=w, child=object(), last_active=time.monotonic())
+                pool._sessions["drop-clean"] = _Session(worker=w, child=object(), last_active=time.monotonic())
 
             pool._drop_session("drop-lost", lost=True)
             with pool._cond:
@@ -1973,7 +1995,7 @@ class TestFormulaHttpEndpoint:
             pool.shutdown()
 
     def test_reap_keeps_unbound_reservation(self) -> None:
-        """A new session with pid None is not lost while its worker is still dead."""
+        """A new session with child None is not lost while its worker is still dead."""
         from compute_service.formula_pool import _Session
 
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=5)
@@ -1981,8 +2003,8 @@ class TestFormulaHttpEndpoint:
             worker = pool.workers[0]
             worker.kill()
             with pool._cond:
-                pool._sessions["pending"] = _Session(worker=worker, pid=None, last_active=time.monotonic())
-                pool._sessions["dead"] = _Session(worker=worker, pid=999999, last_active=time.monotonic())
+                pool._sessions["pending"] = _Session(worker=worker, child=None, last_active=time.monotonic())
+                pool._sessions["dead"] = _Session(worker=worker, child=object(), last_active=time.monotonic())
                 pool._reap_dead_sessions_unlocked()
                 assert "pending" in pool._sessions
                 assert "pending" not in pool._lost_sessions
@@ -2083,9 +2105,6 @@ def test_idle_ttl_zero_reaps_abandoned_sessions_only(caplog: pytest.LogCaptureFi
         def kill(self) -> None:
             self.killed += 1
 
-        def cap_stderr_log(self) -> None:
-            return None
-
     pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=0, shared_kernel_ttl_sec=3600.0)
     fresh = _StandIn()
     stale = _StandIn()
@@ -2094,8 +2113,8 @@ def test_idle_ttl_zero_reaps_abandoned_sessions_only(caplog: pytest.LogCaptureFi
         with pool._cond:
             pool._idle[fresh] = now  # type: ignore[index]
             pool._idle[stale] = now  # type: ignore[index]
-            pool._sessions["fresh"] = _Session(worker=fresh, pid=1, last_active=now)  # type: ignore[arg-type]
-            pool._sessions["stale"] = _Session(worker=stale, pid=2, last_active=now - 4000.0)  # type: ignore[arg-type]
+            pool._sessions["fresh"] = _Session(worker=fresh, child=object(), last_active=now)  # type: ignore[arg-type]
+            pool._sessions["stale"] = _Session(worker=stale, child=object(), last_active=now - 4000.0)  # type: ignore[arg-type]
         with caplog.at_level(logging.INFO, logger="compute_service.worker"):
             pool._evict_idle_workers()
         assert fresh.killed == 0

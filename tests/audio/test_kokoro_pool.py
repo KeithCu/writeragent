@@ -85,29 +85,25 @@ def test_pool_cancel_inflight_kills_child_and_next_job_respawns(tmp_path):
         pool.shutdown()
 
 
-def test_idle_reaper_caps_stderr_before_ttl():
-    """A warm child is capped on a tick that does not yet evict.
+def test_idle_reaper_leaves_a_warm_child_before_ttl():
+    """A tick before the TTL does not kill. An in-flight job is left alone.
 
-    What was wrong: the reaper returned as soon as the TTL had not
-    elapsed, so stderr grew for the whole idle gap. An in-flight job
-    is left alone; execute may be reading that tail.
+    Stderr is a bounded drain. The idle reaper does not visit it.
     """
 
     class _Warm:
         def __init__(self) -> None:
-            self.caps = 0
+            self.kills = 0
 
         def is_alive(self) -> bool:
             return True
 
-        def cap_stderr_log(self) -> None:
-            self.caps += 1
-
         def request_shutdown(self) -> None:
             return None
 
-        def kill(self) -> None:
-            return None
+        def kill(self) -> bool:
+            self.kills += 1
+            return True
 
     # None keeps the background reaper off. The TTL is set after init so
     # this call is the only tick.
@@ -118,11 +114,12 @@ def test_idle_reaper_caps_stderr_before_ttl():
     pool._last_active = time.monotonic()
     try:
         pool._evict_idle_worker()
-        assert warm.caps == 1
+        assert warm.kills == 0
         assert pool._worker is warm
         pool._inflight = True
+        pool._last_active = 0.0
         pool._evict_idle_worker()
-        assert warm.caps == 1
+        assert warm.kills == 0
         assert pool._worker is warm
     finally:
         pool.shutdown()
@@ -225,42 +222,30 @@ def test_pool_missing_script_is_spawn_failed_not_cancelled(tmp_path):
         pool.shutdown()
 
 
-def test_cancel_keeps_a_child_kill_did_not_reap(monkeypatch):
-    """A cancel whose kill leaves the child alive keeps the handle.
+def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
+    """Cancel retires the child. The next job may spawn.
 
-    The next job does not start a second process. Once the retry reap
-    finishes, a new worker can spawn.
+    A child that survives SIGKILL is abandoned inside kill(). The slot
+    is empty, so this job does not wait for that process.
     """
-    deferred: list = []
-
-    def _defer(func, *_args, **_kwargs):
-        deferred.append(func)
-
-    monkeypatch.setattr("plugin.audio.kokoro_pool.run_in_background", _defer)
 
     class _Stuck:
         def __init__(self) -> None:
             self.kills = 0
-            self._stuck = True
+            self.shutdowns = 0
 
         def request_shutdown(self) -> None:
-            return None
+            self.shutdowns += 1
 
-        def kill(self) -> None:
+        def kill(self) -> bool:
             self.kills += 1
-
-        def reap_incomplete(self) -> bool:
-            return self._stuck
+            return True
 
         def is_alive(self) -> bool:
-            return self._stuck
+            return False
 
         def is_shutting_down(self) -> bool:
             return False
-
-        def retry_reap(self, stop) -> None:
-            del stop
-            self._stuck = False
 
     class _Replacement:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -282,11 +267,8 @@ def test_cancel_keeps_a_child_kill_did_not_reap(monkeypatch):
         def request_shutdown(self) -> None:
             return None
 
-        def kill(self) -> None:
-            return None
-
-        def reap_incomplete(self) -> bool:
-            return False
+        def kill(self) -> bool:
+            return True
 
     monkeypatch.setattr("plugin.audio.kokoro_pool.BaseProcessWorker", _Replacement)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
@@ -298,15 +280,8 @@ def test_cancel_keeps_a_child_kill_did_not_reap(monkeypatch):
     try:
         pool.cancel_inflight(token)
         assert pool._worker is None
-        assert pool._unreaped is stuck
         assert stuck.kills == 1
-        refused = pool.execute({"text": "next"})
-        assert refused["code"] == "WORKER_SPAWN_FAILED"
-        assert pool._worker is None
-        assert len(deferred) == 1
-        deferred[0]()
-        assert pool._unreaped is None
-        assert not stuck.reap_incomplete()
+        assert stuck.shutdowns == 1
         recovered = pool.execute({"text": "after"})
         assert recovered["status"] == "ok"
         assert recovered["echo"] == "after"
@@ -315,31 +290,26 @@ def test_cancel_keeps_a_child_kill_did_not_reap(monkeypatch):
         pool.shutdown()
 
 
-def test_unreaped_handshake_is_not_executed(monkeypatch) -> None:
-    """A handshake whose kill leaves the child alive is a failed spawn.
+def test_failed_handshake_is_not_executed_and_a_later_job_may_spawn(monkeypatch) -> None:
+    """A handshake that leaves the worker not alive is a failed spawn.
 
-    What was wrong: is_alive() was still true, so the pool called execute
-    on a child that never said ready, and the next job reused it.
+    What was wrong: is_alive() was still true after a kill that could not
+    reap, so the pool called execute on a child that never said ready.
+    That child is dropped. The next job may construct a new worker, and
+    neither one is executed while spawn stays failed.
     """
-    deferred: list = []
+    made: list = []
 
-    def _defer(func, *_args, **_kwargs) -> None:
-        deferred.append(func)
-
-    monkeypatch.setattr("plugin.audio.kokoro_pool.run_in_background", _defer)
-
-    class _StuckSpawn:
+    class _DeadSpawn:
         def __init__(self, *_args, **_kwargs) -> None:
             self.executes = 0
+            made.append(self)
 
         def is_alive(self) -> bool:
-            return True
+            return False
 
         def is_shutting_down(self) -> bool:
             return False
-
-        def reap_incomplete(self) -> bool:
-            return True
 
         def respawn(self) -> None:
             return None
@@ -352,48 +322,44 @@ def test_unreaped_handshake_is_not_executed(monkeypatch) -> None:
         def request_shutdown(self) -> None:
             return None
 
-        def kill(self) -> None:
-            return None
+        def kill(self) -> bool:
+            return True
 
-    monkeypatch.setattr("plugin.audio.kokoro_pool.BaseProcessWorker", _StuckSpawn)
+    monkeypatch.setattr("plugin.audio.kokoro_pool.BaseProcessWorker", _DeadSpawn)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     try:
         result = pool.execute({"text": "hi"})
         assert result["code"] == "WORKER_SPAWN_FAILED"
-        worker = pool._unreaped
-        assert isinstance(worker, _StuckSpawn)
-        assert worker.executes == 0
         assert pool._worker is None
-        assert len(deferred) == 1
+        assert len(made) == 1
+        assert made[0].executes == 0
         again = pool.execute({"text": "next"})
         assert again["code"] == "WORKER_SPAWN_FAILED"
-        assert worker.executes == 0
+        assert len(made) == 2
+        assert made[0] is not made[1]
+        assert made[0].executes == 0
+        assert made[1].executes == 0
     finally:
         pool.shutdown()
 
 
-def test_stuck_warm_child_is_retired_not_reused(monkeypatch) -> None:
-    """A warm child whose last kill did not reap is retired, not written to."""
-    deferred: list = []
+def test_dead_warm_child_is_retired_and_replaced(monkeypatch) -> None:
+    """A warm child that is not alive is retired. The replacement runs the job.
 
-    def _defer(func, *_args, **_kwargs) -> None:
-        deferred.append(func)
+    is_alive True is a healthy reuse. This stand-in is dead, so execute
+    must not write to it.
+    """
 
-    monkeypatch.setattr("plugin.audio.kokoro_pool.run_in_background", _defer)
-
-    class _Stuck:
+    class _Dead:
         def __init__(self) -> None:
             self.executes = 0
             self.kills = 0
 
         def is_alive(self) -> bool:
-            return True
+            return False
 
         def is_shutting_down(self) -> bool:
             return False
-
-        def reap_incomplete(self) -> bool:
-            return True
 
         def execute(self, payload, timeout_sec):
             del payload, timeout_sec
@@ -403,18 +369,44 @@ def test_stuck_warm_child_is_retired_not_reused(monkeypatch) -> None:
         def request_shutdown(self) -> None:
             return None
 
-        def kill(self) -> None:
+        def kill(self) -> bool:
             self.kills += 1
+            return True
 
+    class _Replacement:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def is_alive(self) -> bool:
+            return True
+
+        def is_shutting_down(self) -> bool:
+            return False
+
+        def respawn(self) -> None:
+            return None
+
+        def execute(self, payload, timeout_sec):
+            del timeout_sec
+            return {"status": "ok", "echo": payload.get("text")}
+
+        def request_shutdown(self) -> None:
+            return None
+
+        def kill(self) -> bool:
+            return True
+
+    monkeypatch.setattr("plugin.audio.kokoro_pool.BaseProcessWorker", _Replacement)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
-    stuck = _Stuck()
+    stuck = _Dead()
     pool._worker = stuck  # type: ignore[assignment]
     try:
         result = pool.execute({"text": "hi"})
-        assert result["code"] == "WORKER_SPAWN_FAILED"
+        assert result["status"] == "ok"
+        assert result["echo"] == "hi"
         assert stuck.executes == 0
         assert stuck.kills == 1
-        assert pool._worker is None
-        assert pool._unreaped is stuck
+        assert isinstance(pool._worker, _Replacement)
+        assert pool._worker is not stuck
     finally:
         pool.shutdown()

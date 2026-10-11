@@ -10,7 +10,7 @@ Maintains a bounded pool of warm subprocesses. Provides:
 - Multi-core linear CPU scaling (bypasses single-interpreter GIL)
 - Sticky session affinity for stateful sessions (mode="shared")
 - Clean workers preferred for isolated work; falls back to fewest-sessions if all idle workers hold sessions
-- A shared session dies with its worker; SIGKILL drops that worker's sessions on the exited pid
+- A shared session dies with its child; a replaced or exited child drops that session
 - After max_tasks the slot is killed and left dead; the next lease respawns it
 - Active shared sessions are capped; a new id resets the oldest idle kernel or returns SESSION_LIMIT
 """
@@ -42,8 +42,15 @@ _WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "formula_worker.py")
 
 @dataclass
 class _Session:
+    """One shared kernel.
+
+    ``child`` is the process that owned the namespace. None is a reservation
+    that has not been leased yet. Identity replaces the old pid: a respawn
+    installs a different ``Child`` even when the kernel has not exited.
+    """
+
     worker: BaseProcessWorker
-    pid: int | None
+    child: object | None
     last_active: float
 
 
@@ -73,7 +80,7 @@ class FormulaProcessPool(BaseProcessPool):
         # namespace map, without bound. 256 is far above a real workbook count.
         self._max_sessions = 256
         self.shared_kernel_ttl_sec = eff_shared_ttl
-        super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES, on_process_exit=self._on_process_exit)
+        super().__init__(script_path=_WORKER_SCRIPT, num_workers=eff_num_workers, default_timeout_sec=eff_timeout, max_tasks=eff_max_tasks, worker_name="Formula worker", idle_worker_ttl_sec=eff_idle_ttl, max_payload_bytes=COMPUTE_MAX_PAYLOAD_BYTES)
 
     def _clear_pool_state_unlocked(self) -> None:
         # Base shutdown drops workers and idle slots. These maps used to
@@ -106,7 +113,7 @@ class FormulaProcessPool(BaseProcessPool):
         ``session_reset`` is once, for the next sticky call that observes
         this set. A caller already blocked on the lease when the marker is
         set can run one cell without the flag. Worker death drops that
-        worker's sessions on the exited pid, and this set still reports once.
+        worker's sessions on the exited child, and this set still reports once.
         """
         # Reinsert so dict order is recency. The cap drops the oldest id.
         self._lost_sessions.pop(session_id, None)
@@ -140,60 +147,48 @@ class FormulaProcessPool(BaseProcessPool):
     def _worker_sessions_for(self, worker: BaseProcessWorker) -> list[str]:
         return [sid for sid, s in self._sessions.items() if s.worker is worker]
 
-    def _on_process_exit(self, worker: BaseProcessWorker, pid: int) -> None:
-        """Drop shared sessions this worker still had on *pid*.
+    def _session_child_live(self, child: object) -> bool:
+        """True when *child* still has a running process.
 
-        SIGKILL and crash both come through the worker reap. The drop is
-        under the pool lock so a lookup cannot observe the session on a
-        process that has already exited.
-
-        What was wrong: the drop matched *pid* alone. ``is_alive`` reaps
-        with ``poll()`` and does not run this callback, so the kernel can
-        reuse that pid for another slot before reap reports it. The late
-        callback then dropped the live session.
+        A stand-in with no ``proc`` stays live until the slot's ``child``
+        pointer changes. ``poll()`` reaps a zombie; that is a dead kernel.
         """
-        with self._cond:
-            self._drop_worker_pid_unlocked(worker, pid)
-
-    def _drop_worker_pid_unlocked(self, worker: BaseProcessWorker, pid: int) -> None:
-        stale = [sid for sid, s in self._sessions.items() if s.worker is worker and s.pid == pid]
-        for sid in stale:
-            self._drop_session(sid)
-        if stale:
-            log.info("Dropped %d shared session(s) with exited worker #%s pid=%s", len(stale), worker.worker_id, pid)
+        proc = getattr(child, "proc", None)
+        if proc is None:
+            return True
+        poll = getattr(proc, "poll", None)
+        if not callable(poll):
+            return True
+        try:
+            return poll() is None
+        except Exception:
+            log.debug("session child poll failed", exc_info=True)
+            return False
 
     def _reap_dead_sessions_unlocked(self) -> None:
-        """Invalidate the session cache against the live pid.
+        """Drop sessions whose process is gone or has been replaced.
 
-        An external SIGKILL does not enter kill(); poll() reaps that pid.
-        A session whose worker is dead, or whose recorded pid is not that
-        worker's current pid, is dropped. Another slot that reused the
-        number is left alone. A wrapper that respawned under a new pid is
-        not the old session.
+        An external SIGKILL does not enter ``kill()``. ``poll()`` reaps that
+        process. A session whose stored child is not the slot's current
+        child has lost its kernel, including a child handed to the module
+        reaper that has not exited yet.
 
-        ``pid is None`` is only a reservation that has not been leased yet.
+        ``child is None`` is only a reservation that has not been leased yet.
         Dropping it here let a second request bind the same id to another worker.
 
-        ``worker.process`` is read without ``_lifecycle_lock``. Reap holds
-        that lock across ``on_process_exit``, which takes this pool's
-        condition, and this method already holds the condition. The callback
-        may take this condition. It must not take ``_lifecycle_lock`` or call
-        back into the worker: that lock is not re-entrant. A respawn clears ``process``
-        before the new child is adopted; the old kernel is gone, so dropping
-        the session (``session_reset``) is the right outcome.
+        The child pointer is read without ``_lifecycle_lock``. This method
+        already holds the pool condition. It must not take ``_lifecycle_lock``
+        or call back into the worker.
         """
         for sid, s in list(self._sessions.items()):
-            if s.pid is None:
+            if s.child is None:
                 continue
             worker = s.worker
-            proc = worker.process
-            if proc is None or proc.poll() is not None:
-                self._drop_session(sid)
-            elif s.pid != proc.pid:
+            if s.child is not getattr(worker, "child", None) or not self._session_child_live(s.child):
                 self._drop_session(sid)
 
     def live_session_worker(self, session_id: str) -> BaseProcessWorker | None:
-        """The process that still owns *session_id*, or None once that pid has exited.
+        """The process that still owns *session_id*, or None once that child is gone.
 
         Test helper. Production code does not call this.
         """
@@ -466,17 +461,17 @@ class FormulaProcessPool(BaseProcessPool):
                 # currently hosting the fewest active sessions. Prefer idle workers
                 # among ties. worker_id is the last key so a restart does not
                 # reshuffle ties: hash() depends on PYTHONHASHSEED.
-                # Dead workers sort last so a new reservation gets a live pid
+                # Dead workers sort last so a new reservation gets a live child
                 # when any process is up. A dead-only pool still reserves one
                 # slot; execute respawns it.
                 target_worker = min(self.workers, key=lambda w: (0 if w.is_alive() else 1, self._worker_session_count(w), 0 if w in self._idle else 1, w.worker_id))
-                # Reserve session->worker at pick time inside the same with self._cond!
-                # Unlocked process read: see _reap_dead_sessions_unlocked. This
-                # holds _cond, and reap's on_process_exit takes _cond under
-                # _lifecycle_lock.
-                proc = target_worker.process
-                pid = proc.pid if (proc is not None and proc.poll() is None) else None
-                self._sessions[session_id] = _Session(worker=target_worker, pid=pid, last_active=time.monotonic())
+                # Reserve session->worker at pick time inside the same with self._cond.
+                # The child pointer is read without _lifecycle_lock. See
+                # _reap_dead_sessions_unlocked. A dead process reserves with
+                # child None so a later spawn is not mistaken for this kernel.
+                current = target_worker.child
+                reserved = current if current is not None and self._session_child_live(current) else None
+                self._sessions[session_id] = _Session(worker=target_worker, child=reserved, last_active=time.monotonic())
             else:
                 target_worker = None
 
@@ -553,23 +548,23 @@ class FormulaProcessPool(BaseProcessPool):
         """Update session mapping and release leased worker."""
         try:
             with self._cond:
-                # Unlocked process read: see _reap_dead_sessions_unlocked.
+                # Unlocked child read: see _reap_dead_sessions_unlocked.
                 # A respawn in this window means the kernel is already gone.
-                proc = leased.process
-                if mode == "shared" and session_id and leased.is_alive() and proc is not None and proc.poll() is None:
+                current = leased.child
+                if mode == "shared" and session_id and leased.is_alive() and current is not None and self._session_child_live(current):
                     sess = self._sessions.get(session_id)
                     if sess is not None and sess.worker is leased:
-                        sess.pid = proc.pid
+                        sess.child = current
                         sess.last_active = time.monotonic()
                     else:
-                        self._sessions[session_id] = _Session(worker=leased, pid=proc.pid, last_active=time.monotonic())
+                        self._sessions[session_id] = _Session(worker=leased, child=current, last_active=time.monotonic())
                     # Do not clear _lost_sessions here. Select already consumed
                     # a marker it observed. A reset that lands while this call
                     # is blocked on the lease sets the marker after that, and
                     # the next sticky call is the one that reports it.
                 self._reap_dead_sessions_unlocked()
-                # A reservation whose pid is still None (spawn failed before a
-                # pid was recorded) is kept by _reap_dead_sessions_unlocked.
+                # A reservation whose child is still None (spawn failed before
+                # a process was recorded) is kept by _reap_dead_sessions_unlocked.
                 # Drop it here when this lease's process is not alive.
                 if mode == "shared" and session_id and not leased.is_alive():
                     self._drop_session(session_id, only_if_worker=leased)
