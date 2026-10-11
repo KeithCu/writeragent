@@ -322,7 +322,7 @@ class BaseProcessPool:
         # the pool lock; the next request also caps, but may not arrive
         # before the file has grown.
         for worker in idle_now:
-            worker._cap_stderr_log()
+            worker.cap_stderr_log()
         now = time.monotonic()
         # Split the reason. One "idle for" line blamed the idle timer when
         # the kill was a worker whose sessions were already past session TTL.

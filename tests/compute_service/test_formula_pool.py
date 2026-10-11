@@ -2083,7 +2083,7 @@ def test_idle_ttl_zero_reaps_abandoned_sessions_only(caplog: pytest.LogCaptureFi
         def kill(self) -> None:
             self.killed += 1
 
-        def _cap_stderr_log(self) -> None:
+        def cap_stderr_log(self) -> None:
             return None
 
     pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=0, shared_kernel_ttl_sec=3600.0)

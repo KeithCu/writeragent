@@ -31,7 +31,7 @@ class _Slot:
         self.killed += 1
         self._on_kill()
 
-    def _cap_stderr_log(self) -> None:
+    def cap_stderr_log(self) -> None:
         """Idle eviction caps real workers. This stand-in has no log file."""
         return None
 
@@ -506,8 +506,12 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
 
     What was wrong: kill() landed after the second _shutting_down check and
     before self.process = proc. Reap saw None, and the new interpreter
-    survived until the parent exited.
+    survived until the parent exited. Unlink also ran while the parent
+    stderr handle was still open. Windows will not delete that file, and
+    the error was swallowed.
     """
+    import os
+
     from compute_service.worker_base import BaseProcessWorker
 
     original_respawn = BaseProcessWorker.respawn
@@ -536,14 +540,27 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
     proc = _Proc()
 
     seen: list[str] = []
+    opened: list[tuple[object, str]] = []
+    real_open = worker._open_stderr_log
+
+    def _open() -> tuple[object, str]:
+        handle, path = real_open()
+        opened.append((handle, path))
+        return handle, path
+
+    worker._open_stderr_log = _open  # type: ignore[method-assign]
 
     def _popen(*_args: object, **kwargs: object) -> _Proc:
         # The window after the unlocked check: shutdown sets the flag and
         # kill() reaps whatever is published. The stderr path is not
         # published until Popen returns, so this kill must not unlink it.
+        # The parent handle stays open until Popen returns: the child has
+        # to inherit it.
         handle = kwargs["stderr"]
-        path = getattr(handle, "name", None)
-        assert isinstance(path, str)
+        assert opened
+        logged, path = opened[-1]
+        assert handle is logged
+        assert getattr(handle, "closed", True) is False
         assert Path(path).exists()
         seen.append(path)
         worker._shutting_down = True
@@ -551,6 +568,14 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
         assert Path(path).exists()
         return proc
 
+    real_unlink = os.unlink
+
+    def _unlink(path: str) -> None:
+        assert opened
+        assert getattr(opened[-1][0], "closed", False) is True
+        real_unlink(path)
+
+    monkeypatch.setattr("plugin.framework.process_worker.os.unlink", _unlink)
     monkeypatch.setattr("plugin.framework.process_worker.subprocess.Popen", _popen)
     worker.respawn()
     assert worker.process is None
@@ -1442,7 +1467,6 @@ def test_stderr_log_fd_is_append_only(monkeypatch: pytest.MonkeyPatch) -> None:
     worker = _worker_without_spawn(monkeypatch)
     handle, path = worker._open_stderr_log()
     try:
-        assert handle.name == path
         fd_stat = os.fstat(handle.fileno())
         path_stat = os.stat(path)
         assert fd_stat.st_ino == path_stat.st_ino
@@ -1493,7 +1517,7 @@ def test_stderr_log_keeps_tail(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     path = tmp_path / "w.stderr"
     path.write_bytes(b"x" * (_STDERR_LOG_CAP + 50) + b"END")
     worker._stderr_path = str(path)
-    worker._cap_stderr_log()
+    worker.cap_stderr_log()
     data = path.read_bytes()
     assert len(data) == _STDERR_LOG_CAP
     assert data.endswith(b"END")
