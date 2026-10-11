@@ -1220,11 +1220,64 @@ def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatc
     worker.process = _DeadChild(_spend)  # type: ignore[assignment]
     deadline = _Deadline(5.0)
     try:
-        worker.respawn(timeout_sec=5.0, deadline=deadline)
+        worker.respawn(deadline=deadline)
         assert len(seen) == 1
         assert seen[0] == pytest.approx(4.6, abs=0.05)
     finally:
         worker.kill()
+
+
+def test_respawn_rejects_timeout_and_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicit handshake cap and a request clock cannot both apply.
+
+    What was wrong: deadline replaced timeout_sec with no error, so a
+    caller that passed both thought the cap was in force.
+    """
+    from plugin.framework import process_worker as worker_base
+    from compute_service.worker_base import _Deadline
+
+    popen_calls: list[object] = []
+
+    def _popen(*_args: object, **_kwargs: object) -> object:
+        popen_calls.append(_args)
+        raise AssertionError("Popen when both budgets were passed")
+
+    monkeypatch.setattr(worker_base.subprocess, "Popen", _popen)
+    worker = worker_base.BaseProcessWorker(1, "unused.py", worker_name="Budget", start=False)
+    with pytest.raises(ValueError, match="not both"):
+        worker.respawn(timeout_sec=1.0, deadline=_Deadline(5.0))
+    assert popen_calls == []
+
+
+def test_stderr_log_name_uses_worker_name() -> None:
+    """The temp file names the pool, not a generic compute worker.
+
+    What was wrong: Kokoro and vision used ``wa-compute-w{id}-``, so a
+    leaked file in ``/tmp`` looked like a formula worker.
+    """
+    import os
+    from typing import IO
+
+    from plugin.framework.process_worker import BaseProcessWorker
+
+    cases = (
+        ("Kokoro", 1, "wa-kokoro-w1-"),
+        ("Formula worker", 2, "wa-formula-worker-w2-"),
+        ("---", 3, "wa-worker-w3-"),
+    )
+    opened: list[tuple[IO[bytes], str]] = []
+    try:
+        for name, worker_id, prefix in cases:
+            worker = BaseProcessWorker(worker_id, "unused.py", worker_name=name, start=False)
+            handle, path = worker._open_stderr_log()
+            opened.append((handle, path))
+            base = os.path.basename(path)
+            assert base.startswith(prefix), base
+            assert base.endswith(".stderr")
+    finally:
+        for handle, path in opened:
+            handle.close()
+            os.unlink(path)
 
 
 def test_popen_past_deadline_skips_handshake(monkeypatch: pytest.MonkeyPatch) -> None:

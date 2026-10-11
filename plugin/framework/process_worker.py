@@ -252,6 +252,19 @@ class BaseProcessWorker:
         if start:
             self.respawn()
 
+    def _stderr_log_prefix(self) -> str:
+        """Temp-file prefix so ``/tmp`` shows which pool owns the log.
+
+        What was wrong: every child used ``wa-compute-w{id}-``, including
+        Kokoro and vision. A leaked file could not be told apart from a
+        formula worker.
+        """
+        parts = "".join(ch if ch.isalnum() else "-" for ch in self.worker_name.lower()).split("-")
+        cleaned = "-".join(part for part in parts if part)
+        if not cleaned:
+            cleaned = "worker"
+        return f"wa-{cleaned}-w{self.worker_id}-"
+
     def _open_stderr_log(self) -> tuple[IO[bytes], str]:
         """Open a stderr file for the child about to be spawned.
 
@@ -277,7 +290,7 @@ class BaseProcessWorker:
         """
         directory = tempfile.gettempdir()
         flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND
-        prefix = f"wa-compute-w{self.worker_id}-"
+        prefix = self._stderr_log_prefix()
         for _attempt in range(100):
             path = os.path.join(directory, f"{prefix}{os.urandom(8).hex()}.stderr")
             try:
@@ -474,10 +487,16 @@ class BaseProcessWorker:
         *deadline* is the caller's request clock. The reap wait is inside that
         clock: budgeting the handshake from the time left before
         ``_reap_previous_process`` let a call run about a second past its
-        timeout. ``None`` is startup, which has no request clock. When
-        *deadline* is passed, *timeout_sec* is ignored: the handshake budget
-        is ``deadline.usable()`` after ``Popen``.
+        timeout. ``None`` is startup, which has no request clock. Pass
+        *timeout_sec* or *deadline*, not both: the handshake budget is
+        ``deadline.usable()`` after ``Popen``, so an explicit *timeout_sec*
+        would be discarded.
         """
+        # What was wrong: both arguments were accepted and deadline silently
+        # replaced timeout_sec. A caller that set a handshake cap next to a
+        # request clock thought the cap applied.
+        if deadline is not None and timeout_sec is not None:
+            raise ValueError("respawn accepts timeout_sec or deadline, not both")
         if timeout_sec is None:
             timeout_sec = self._ready_timeout_sec
         self._refuse_reentry()
@@ -649,7 +668,7 @@ class BaseProcessWorker:
         if proc.poll() is None:
             return True
         # What was wrong: poll() reaped an idle child and left _stderr_path.
-        # A slot that was never leased again kept its /tmp/wa-compute-* file
+        # A slot that was never leased again kept its /tmp/wa-<name>-w<id>-* file
         # until the pool shut down. Unlink only when no request holds
         # self.lock — execute still reads the tail into the error dict —
         # and reap does not already hold _lifecycle_lock. Both acquires are
