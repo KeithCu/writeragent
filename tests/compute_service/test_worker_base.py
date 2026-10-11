@@ -1719,6 +1719,91 @@ def test_is_alive_snapshots_process(monkeypatch: pytest.MonkeyPatch) -> None:
     assert loads["n"] == 1
 
 
+class _PolledDead:
+    """Child whose poll() already reaped it. is_alive must not clear process."""
+
+    def __init__(self) -> None:
+        self.pid = 4
+
+    def poll(self) -> int:
+        return 1
+
+
+def _dead_slot_with_stderr(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """A dead published child and the stderr file poll() used to leave behind."""
+    worker = _worker_without_spawn(monkeypatch)
+    path = tmp_path / "idle.stderr"
+    path.write_bytes(b"crash tail")
+    child = _PolledDead()
+    worker.process = child  # type: ignore[assignment]
+    worker._stderr_path = str(path)
+    return worker, child, path
+
+
+def test_is_alive_unlinks_stderr_when_poll_reaps(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An idle poll() drops the stderr file and leaves the dead Popen in place.
+
+    What was wrong: poll() reaped the zombie and did not unlink _stderr_path.
+    A slot that died idle and was never leased again kept the temp file until
+    the pool shut down. The process stays so a later kill still reports exit.
+    """
+    worker, child, path = _dead_slot_with_stderr(monkeypatch, tmp_path)
+    assert worker.is_alive() is False
+    assert not path.exists()
+    assert worker._stderr_path is None
+    assert worker.process is child
+
+
+def test_is_alive_keeps_stderr_while_execute_holds_the_lock(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A request that already holds self.lock still gets the crash tail.
+
+    The IPC loop calls is_alive from execute. Unlinking there would empty
+    the snippet _fail_request reads before kill(). The lock is not
+    re-entrant, so this acquire must not block.
+    """
+    worker, child, path = _dead_slot_with_stderr(monkeypatch, tmp_path)
+    worker.lock.acquire()
+    try:
+        assert worker.is_alive() is False
+    finally:
+        worker.lock.release()
+    assert path.read_bytes() == b"crash tail"
+    assert worker._stderr_path == str(path)
+    assert worker.process is child
+
+
+def test_is_alive_does_not_wait_on_the_lifecycle_lock(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """poll() returns while another thread holds _lifecycle_lock.
+
+    Idle prune calls is_alive while holding the pool condition. kill() holds
+    the lifecycle lock across wait() and the exit callback takes that
+    condition. A blocking acquire here is the inverse order.
+    """
+    worker, _child, path = _dead_slot_with_stderr(monkeypatch, tmp_path)
+    held = threading.Event()
+    release = threading.Event()
+
+    def _hold() -> None:
+        worker._lifecycle_lock.acquire()
+        held.set()
+        assert release.wait(timeout=2)
+        worker._lifecycle_lock.release()
+
+    holder = threading.Thread(target=_hold)
+    holder.start()
+    assert held.wait(timeout=2)
+    try:
+        started = time.monotonic()
+        assert worker.is_alive() is False
+        assert time.monotonic() - started < 0.5
+    finally:
+        release.set()
+        holder.join(timeout=2)
+    assert path.read_bytes() == b"crash tail"
+    assert worker._stderr_path == str(path)
+    assert not holder.is_alive()
+
+
 def test_write_attribute_error_is_not_not_serializable(monkeypatch: pytest.MonkeyPatch) -> None:
     """AttributeError from the write is not REQUEST_NOT_SERIALIZABLE.
 
@@ -1877,9 +1962,15 @@ def test_exit_callback_cannot_reenter(monkeypatch: pytest.MonkeyPatch) -> None:
             self.returncode = 0
             return 0
 
+    seen: list[bool] = []
+
     def _on_exit(slot: object, pid: int) -> None:
         del pid
         assert slot is worker
+        # The callback holds _lifecycle_lock. Reading the flag used to
+        # acquire it again and deadlock. kill, respawn, and request_shutdown
+        # still refuse that re-entry.
+        seen.append(worker.is_shutting_down())
         with pytest.raises(RuntimeError, match="re-entered"):
             worker.kill()
         with pytest.raises(RuntimeError, match="re-entered"):
@@ -1890,6 +1981,7 @@ def test_exit_callback_cannot_reenter(monkeypatch: pytest.MonkeyPatch) -> None:
     worker.on_process_exit = _on_exit
     worker.process = _Exited()  # type: ignore[assignment]
     worker.kill()
+    assert seen == [False]
     assert worker.process is None
     assert not worker.is_shutting_down()
 

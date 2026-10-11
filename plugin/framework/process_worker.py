@@ -232,9 +232,12 @@ class BaseProcessWorker:
         # the cell finished. The write is under _lifecycle_lock so adopt either
         # sees shutdown or publishes a child that kill() still reaps.
         # CPython's GIL publishes this bool. A free-threaded build would need
-        # the read under _lifecycle_lock. ``_reap_incomplete`` is the same
-        # kind of read: the pool may hold its condition, and on_process_exit
-        # holds this lock while taking that condition.
+        # the read under _lifecycle_lock. ``is_shutting_down`` and
+        # ``_reap_incomplete`` are the same kind of read: the pool may hold
+        # its condition, and on_process_exit holds this lock while taking
+        # that condition. Taking the lock in ``is_shutting_down`` deadlocked
+        # that callback; kill, respawn, and request_shutdown already refuse
+        # re-entry instead.
         self._shutting_down = False
         # True when kill() left the child alive. Release must not idle that slot.
         self._reap_incomplete = False
@@ -613,9 +616,10 @@ class BaseProcessWorker:
         # kill() assigns None under _lifecycle_lock while execute's select
         # loop calls this. A second read of self.process could be None and
         # raise AttributeError, which the write handler reported as
-        # REQUEST_NOT_SERIALIZABLE. Snapshot once. Do not take
-        # _lifecycle_lock here: kill() holds it across wait().
+        # REQUEST_NOT_SERIALIZABLE. Snapshot once before poll().
         proc = self.process
+        if proc is None:
+            return False
         # poll() reaps a zombie and does not run on_process_exit. A later
         # reap still reports that pid, which the kernel may already have
         # reused; the callback carries this wrapper so the formula pool
@@ -623,16 +627,39 @@ class BaseProcessWorker:
         # finalize call this while holding the pool condition; the callback
         # takes that condition, so it cannot run here. Formula drops those
         # sessions in _reap_dead_sessions_unlocked.
-        return proc is not None and proc.poll() is None
+        if proc.poll() is None:
+            return True
+        # What was wrong: poll() reaped an idle child and left _stderr_path.
+        # A slot that was never leased again kept its /tmp/wa-compute-* file
+        # until the pool shut down. Unlink only when no request holds
+        # self.lock — execute still reads the tail into the error dict —
+        # and reap does not already hold _lifecycle_lock. Both acquires are
+        # non-blocking. This thread may already hold self.lock (the IPC
+        # loop calls is_alive from execute), and a caller may hold the pool
+        # condition while kill() holds the lifecycle lock across wait().
+        # Leave self.process set so a later kill still runs on_process_exit.
+        if not self.lock.acquire(blocking=False):
+            return False
+        try:
+            if not self._lifecycle_lock.acquire(blocking=False):
+                return False
+            try:
+                if self.process is proc:
+                    self._close_stderr_log()
+            finally:
+                self._lifecycle_lock.release()
+        finally:
+            self.lock.release()
+        return False
 
     def is_shutting_down(self) -> bool:
         """Whether ``request_shutdown`` has published that this slot must not start work.
 
-        The flag shares ``_lifecycle_lock`` with process publish. Callers
-        outside this class read it here instead of the private attribute.
+        Read unlocked, same as ``respawn`` and ``execute``. ``on_process_exit``
+        holds ``_lifecycle_lock``; taking it here deadlocked that callback.
+        CPython's GIL publishes the bool.
         """
-        with self._lifecycle_lock:
-            return self._shutting_down
+        return self._shutting_down
 
     def request_shutdown(self) -> None:
         """Publish shutdown so execute and respawn will not start a child.
