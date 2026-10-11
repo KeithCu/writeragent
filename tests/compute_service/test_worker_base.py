@@ -959,7 +959,7 @@ def test_evict_idle_workers_drops_last_active() -> None:
     worker = _Slot()
     try:
         with pool._cond:
-            pool._idle[worker] = 0.0  # type: ignore[index]
+            pool._idle[worker] = time.monotonic() - (pool.idle_worker_ttl_sec + 10.0)  # type: ignore[index]
         pool._evict_idle_workers()
         assert worker.killed == 1
         assert worker not in pool._idle
