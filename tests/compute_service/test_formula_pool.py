@@ -302,10 +302,10 @@ class TestFormulaPoolSupervisor:
 
     def test_spawn_timeout_logs_stderr_snippet(self, tmp_path, caplog, monkeypatch) -> None:
         """Handshake TimeoutExpired must log child stderr (H2), not a bare one-liner."""
-        from compute_service import worker_base
+        from plugin.framework import process_worker
         from compute_service.worker_base import BaseProcessWorker
 
-        monkeypatch.setattr(worker_base, "_SPAWN_READY_TIMEOUT_SEC", 0.5)
+        monkeypatch.setattr(process_worker, "_SPAWN_READY_TIMEOUT_SEC", 0.5)
         script = tmp_path / "hang_worker.py"
         script.write_text(
             "\n".join(
@@ -1290,13 +1290,15 @@ class TestFormulaPoolSupervisor:
                 wire="bogus_wire",
             )
 
-    def test_deadline_left_floors_spent_clock(self) -> None:
-        from compute_service.worker_base import _PIPE_WAIT_FLOOR, _Deadline
+    def test_deadline_left_is_negative_when_spent(self) -> None:
+        from compute_service.worker_base import _Deadline
 
         future = _Deadline.from_absolute(10.0, time.monotonic() + 10.0)
         assert future.left() > 0.0
+        assert future.usable() is not None
         spent = _Deadline.from_absolute(10.0, time.monotonic() - 10.0)
-        assert spent.left() == _PIPE_WAIT_FLOOR
+        assert spent.left() < 0
+        assert spent.usable() is None
 
     @pytest.mark.skipif(sys.platform == "win32", reason="uses SIGKILL")
     def test_shared_session_dies_with_its_process(self) -> None:

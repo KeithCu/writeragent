@@ -29,6 +29,16 @@ from weakref import WeakKeyDictionary
 
 log = logging.getLogger("writeragent.scripting.ipc")
 
+# select(0) returns immediately. Callers refuse a spent deadline before
+# they reach these waits, so this only lifts a remainder that is already
+# positive off zero.
+_SELECT_WAIT_FLOOR = 0.01
+
+
+def _select_slice(remaining: float, cap: float) -> float:
+    """Wait slice for a positive remainder, never zero and never above *cap*."""
+    return min(cap, max(_SELECT_WAIT_FLOOR, remaining))
+
 PICKLE_PROTOCOL = 5
 FRAME_HEADER_SIZE = 4
 
@@ -290,7 +300,7 @@ def _write_bytes_until_joined(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise subprocess.TimeoutExpired(cmd="IPC frame", timeout=timeout_sec)
-        writer.join(timeout=min(0.05, remaining))
+        writer.join(timeout=_select_slice(remaining, 0.05))
     if errors:
         raise errors[0]
 
@@ -321,7 +331,7 @@ def _write_fd_with_timeout(
             if remaining <= 0:
                 raise subprocess.TimeoutExpired(cmd="IPC frame", timeout=timeout_sec)
             try:
-                _ready_read, writable, _ready_err = select.select([], [fd], [], min(1.0, remaining))
+                _ready_read, writable, _ready_err = select.select([], [fd], [], _select_slice(remaining, 1.0))
             except InterruptedError:
                 continue
             if not writable:
@@ -797,7 +807,7 @@ def read_pickle_frame_with_timeout(
                 if len(buf) > 0:
                     raise IpcPartialFrameTimeout(f"{frame_label} stream desynchronized: timeout mid-frame")
                 raise subprocess.TimeoutExpired(cmd=frame_label, timeout=timeout_sec)
-            ready, _unused, _unused2 = select.select([stream], [], [], min(1.0, remaining))
+            ready, _unused, _unused2 = select.select([stream], [], [], _select_slice(remaining, 1.0))
             if ready:
                 chunk = stream.read(n - len(buf))
                 if not chunk:
@@ -1096,7 +1106,7 @@ def _readline_with_timeout_posix(stream: IO[str], fd: int, timeout_sec: float, m
             # of this stream should still see those bytes.
             _save_json_line_pending(stream, pending)
             raise subprocess.TimeoutExpired(cmd="IPC JSON line", timeout=timeout_sec)
-        ready, _unused, _unused2 = select.select([fd], [], [], min(1.0, remaining))
+        ready, _unused, _unused2 = select.select([fd], [], [], _select_slice(remaining, 1.0))
         if not ready:
             continue
         piece = _read_available_line_bytes(fd)

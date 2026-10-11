@@ -513,15 +513,16 @@ class FormulaProcessPool(BaseProcessPool):
         # grace. The original full timeout would let signal.alarm lose to
         # this read, so a normal sleep became SIGKILL and dropped every
         # shared session on that process.
-        # child_run_seconds lifts a 1s request that has already slipped
-        # under a second. int() of that remainder is 0, and alarm(0)
-        # cancels the child's alarm. A deadline that is already spent
-        # does not run. The host wait is that floored budget: a raw
-        # remainder under a second used to be shorter than the alarm, so
-        # the host SIGKILLed a cell that was about to answer.
-        run_for = clock.child_run_seconds()
-        if run_for <= 0:
+        # usable() is the true remainder, or None when the request must
+        # not start. A one-second request can already be under a second.
+        # int() of that remainder is 0, and alarm(0) cancels the child's
+        # alarm. The lift to one second is here, next to the alarm, so the
+        # host wait is not shorter than the alarm.
+        run_for = clock.usable()
+        if run_for is None:
             return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
+        if run_for < MIN_REQUEST_SEC:
+            run_for = MIN_REQUEST_SEC
         child_alarm = int(run_for)
         payload["timeout_sec"] = child_alarm
         payload["session_reset"] = session_was_lost
@@ -637,7 +638,7 @@ class FormulaProcessPool(BaseProcessPool):
         # still leases: the clock moves before this check. This is before
         # select so a miss does not reserve a session or consume the
         # lost-session marker.
-        if clock.too_late_to_spawn():
+        if clock.usable() is None:
             return error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
 
         leased: BaseProcessWorker | None = None
@@ -686,7 +687,7 @@ class FormulaProcessPool(BaseProcessPool):
         result: dict[str, Any] | None = None
         try:
             # Time passes while waiting for the lease. Recheck the same clock.
-            if clock.too_late_to_spawn():
+            if clock.usable() is None:
                 result = error_dict("QUEUE_TIMEOUT", "Request deadline expired before a worker lease.", req_id=req_id)
                 return result
             if mode == "shared" and session_id and self._expire_leased_session(leased, session_id, deadline):

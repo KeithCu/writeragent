@@ -21,7 +21,7 @@ A full `make pytest` (xdist, `PYTEST_WORKERS=auto` or `6`) can fail with **dozen
 | Area | Typical tests | Log / assertion |
 |------|----------------|-----------------|
 | Compute formula pool | `tests/compute_service/test_formula_pool.py`, `test_compute_service.py` HTTP execute | `Formula worker #1 spawn handshake timed out` then execute status ≠ `ok` |
-| Vision pool | `tests/compute_service/test_vision.py` | same handshake path (`worker_base.py`) |
+| Vision pool | `tests/compute_service/test_vision.py` | same handshake path (`plugin/framework/process_worker.py`) |
 | Venv worker | `test_venv_worker.py::test_harness_main_loop_integration`, `test_warm_venv_worker_resolves_and_warms`, `test_serialization_ab.py::test_venv_transform_parity[…_subprocess]`, `test_writeragent_alias.py::test_venv_worker_bidirectional_tool_call` | first IPC read times out / `None` / error status |
 | Compute HTTP bench | `tests/scripts/test_benchmark_compute_service.py` | `failed_requests != 0`; stderr shows handshake timeouts ~15s apart |
 
@@ -33,7 +33,7 @@ POST /v1/execute  200
 ERROR compute_service.worker: Formula worker #1 spawn handshake timed out
 ```
 
-The 15s gap is `_SPAWN_READY_TIMEOUT_SEC` in [`compute_service/worker_base.py`](../../compute_service/worker_base.py), not CPU saturation.
+The 15s gap is `_SPAWN_READY_TIMEOUT_SEC` in [`plugin/framework/process_worker.py`](../../plugin/framework/process_worker.py), not CPU saturation.
 
 UNO (`make test-uno`) is **out of scope** unless you prove the same spawn path runs there.
 

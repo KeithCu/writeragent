@@ -719,8 +719,8 @@ def test_vision_expired_deadline_does_not_execute() -> None:
 def test_one_second_budget_with_time_left_still_runs() -> None:
     """A 1s request with 0.4s left still runs. That is not VISION_POOL_BUSY.
 
-    too_late_to_spawn stays false for a one-second budget. child_run_seconds
-    lifts the remainder to 1s so the worker is not given a sub-second read.
+    usable() stays set for a one-second budget. The pool lifts that
+    remainder to 1s so execute is not given a sub-second clock.
     """
     from unittest.mock import MagicMock
 

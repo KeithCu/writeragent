@@ -27,7 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, Deadline, PoolSingleton, error_dict, resolve_override, run_compute_worker
+from compute_service.worker_base import MIN_REQUEST_SEC, BaseProcessPool, Deadline, PoolSingleton, error_dict, resolve_override, run_compute_worker
 
 log = logging.getLogger("compute_service.vision")
 
@@ -121,20 +121,20 @@ class VisionProcessPool(BaseProcessPool):
         # OCR on a deadline that had already passed. A one-second request
         # still leases: the clock moves before this check.
         clock = Deadline.from_absolute(eff_timeout, deadline)
-        if clock.too_late_to_spawn():
+        if clock.usable() is None:
             return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
         lease_budget = max(deadline - time.monotonic(), 0.0)
         with self.leased(timeout_sec=lease_budget) as worker:
             # Time passes while waiting for the lease. Recheck the same clock.
-            if worker is None or clock.too_late_to_spawn():
+            run_for = None if worker is None else clock.usable()
+            if worker is None or run_for is None:
                 return error_dict("VISION_POOL_BUSY", "All vision workers are currently busy and request timed out waiting for worker lease.", req_id=req_id)
 
-            # child_run_seconds floors a positive remainder under one second
-            # up to one second. A one-second OCR request still runs after the
-            # lease. too_late_to_spawn already returned VISION_POOL_BUSY when
-            # the clock is spent. Passing the raw remainder would make
-            # execute answer EXECUTION_TIMEOUT.
-            return worker.execute(payload, timeout_sec=clock.child_run_seconds(), req_id=req_id)
+            # A one-second OCR request can already be under a second.
+            # execute builds a new clock from this timeout, and a budget
+            # under one second is refused. The lift stays here.
+            execute_for = run_for if run_for >= MIN_REQUEST_SEC else MIN_REQUEST_SEC
+            return worker.execute(payload, timeout_sec=execute_for, req_id=req_id)
 
 
 # Global singleton per server process

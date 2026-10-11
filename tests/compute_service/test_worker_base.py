@@ -394,6 +394,7 @@ def test_pool_init_kills_workers_when_a_later_spawn_fails(monkeypatch: pytest.Mo
     assert len(made) == 1
     assert killed == [1]
     assert made[0]._shutting_down
+    assert made[0].is_shutting_down()
 
 
 def test_restricted_unpickler_blocks_arbitrary_globals() -> None:
@@ -550,7 +551,7 @@ def test_respawn_discards_child_when_shutdown_wins_during_popen(monkeypatch: pyt
         assert Path(path).exists()
         return proc
 
-    monkeypatch.setattr("compute_service.worker_base.subprocess.Popen", _popen)
+    monkeypatch.setattr("plugin.framework.process_worker.subprocess.Popen", _popen)
     worker.respawn()
     assert worker.process is None
     assert proc.killed
@@ -693,8 +694,8 @@ def test_run_worker_stdio_loop_catches_base_exception(monkeypatch: pytest.Monkey
     assert res2["id"] == "req-normal"
 
 
-def test_execute_timeout_increments_tasks_executed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Worker timeouts increment tasks_executed so workers recycle at max_tasks."""
+def test_execute_timeout_does_not_increment_tasks_executed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A timeout does not count. Only a consumed response moves tasks_executed."""
     import subprocess
     from unittest.mock import MagicMock
     from compute_service.worker_base import BaseProcessWorker
@@ -719,13 +720,13 @@ def test_execute_timeout_increments_tasks_executed(monkeypatch: pytest.MonkeyPat
     assert worker.tasks_executed == 0
 
     monkeypatch.setattr(
-        "compute_service.worker_base.read_pickle_frame_with_timeout",
+        "plugin.framework.process_worker.read_pickle_frame_with_timeout",
         MagicMock(side_effect=subprocess.TimeoutExpired(cmd="worker", timeout=1.0)),
     )
 
     res = worker.execute({"code": "time.sleep(10)"}, timeout_sec=1.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
-    assert worker.tasks_executed == 1
+    assert worker.tasks_executed == 0
     assert worker.process is None
 
 
@@ -748,14 +749,14 @@ def test_execute_stdin_write_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> N
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
-        "compute_service.worker_base.write_packed_frame_with_timeout",
+        "plugin.framework.process_worker.write_packed_frame_with_timeout",
         MagicMock(side_effect=subprocess.TimeoutExpired(cmd="IPC frame", timeout=1.0)),
     )
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
     assert killed == [True]
-    assert worker.tasks_executed == 1
+    assert worker.tasks_executed == 0
 
 
 def test_partial_frame_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -779,14 +780,14 @@ def test_partial_frame_timeout_kills(monkeypatch: pytest.MonkeyPatch) -> None:
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
-        "compute_service.worker_base.read_pickle_frame_with_timeout",
+        "plugin.framework.process_worker.read_pickle_frame_with_timeout",
         MagicMock(side_effect=IpcPartialFrameTimeout("IPC frame stream desynchronized: timeout mid-frame")),
     )
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
     assert killed == [True]
-    assert worker.tasks_executed == 1
+    assert worker.tasks_executed == 0
 
 
 def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -804,7 +805,7 @@ def test_execute_payload_too_large_does_not_kill(monkeypatch: pytest.MonkeyPatch
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
-        "compute_service.worker_base.pack_pickle_frame",
+        "plugin.framework.process_worker.pack_pickle_frame",
         MagicMock(side_effect=IpcPayloadSizeError("too big")),
     )
 
@@ -882,10 +883,11 @@ def test_expired_deadline_does_not_write_or_kill(monkeypatch: pytest.MonkeyPatch
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     writes: list[object] = []
-    monkeypatch.setattr("compute_service.worker_base.write_packed_frame_with_timeout", lambda *args, **kwargs: writes.append(args))
-    # too_late_to_spawn uses remaining(), not expired(). A 30s budget is
-    # still allowed to use the live child; the write is what must stop.
-    monkeypatch.setattr(_Deadline, "expired", lambda self: True)
+    monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *args, **kwargs: writes.append(args))
+    # The entry check still sees time left, so the live child is kept.
+    # The check before the write is the one that must stop.
+    answers = iter((30.0, None))
+    monkeypatch.setattr(_Deadline, "usable", lambda self: next(answers))
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=30.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
@@ -939,8 +941,11 @@ def test_evict_idle_workers_drops_last_active() -> None:
         pool.shutdown()
 
 
-def test_spawn_failure_increments_tasks_executed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A slot that never becomes live still counts toward max_tasks."""
+def test_spawn_failure_does_not_increment_tasks_executed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A slot that never becomes live does not move toward max_tasks.
+
+    The next handshake resets the count, and this failure never ran a cell.
+    """
     from compute_service.worker_base import BaseProcessWorker
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
@@ -948,7 +953,7 @@ def test_spawn_failure_increments_tasks_executed(monkeypatch: pytest.MonkeyPatch
     worker.process = None
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "WORKER_SPAWN_FAILED"
-    assert worker.tasks_executed == 1
+    assert worker.tasks_executed == 0
 
 
 @pytest.mark.parametrize(
@@ -959,11 +964,11 @@ def test_spawn_failure_increments_tasks_executed(monkeypatch: pytest.MonkeyPatch
         ("crash", "WORKER_CRASHED"),
     ],
 )
-def test_failed_request_increments_tasks_executed(monkeypatch: pytest.MonkeyPatch, kind: str, code: str) -> None:
-    """Pipe, empty, and crash failures count toward max_tasks.
+def test_failed_request_does_not_increment_tasks_executed(monkeypatch: pytest.MonkeyPatch, kind: str, code: str) -> None:
+    """Pipe, empty, and crash failures do not count toward max_tasks.
 
-    What was wrong: only timeouts incremented tasks_executed, so a slot
-    that kept crashing never reached recycle.
+    A killing failure already reaps the child. Counting it cannot retire
+    that process, and the next handshake starts the count at 0.
     """
     from unittest.mock import MagicMock
 
@@ -982,22 +987,22 @@ def test_failed_request_increments_tasks_executed(monkeypatch: pytest.MonkeyPatc
 
     if kind == "pipe":
         monkeypatch.setattr(
-            "compute_service.worker_base.write_packed_frame_with_timeout",
+            "plugin.framework.process_worker.write_packed_frame_with_timeout",
             MagicMock(side_effect=BrokenPipeError("closed")),
         )
     elif kind == "empty":
-        monkeypatch.setattr("compute_service.worker_base.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
-        monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("plugin.framework.process_worker.read_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
     else:
-        monkeypatch.setattr("compute_service.worker_base.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
         monkeypatch.setattr(
-            "compute_service.worker_base.read_pickle_frame_with_timeout",
+            "plugin.framework.process_worker.read_pickle_frame_with_timeout",
             MagicMock(side_effect=RuntimeError("died")),
         )
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == code
-    assert worker.tasks_executed == 1
+    assert worker.tasks_executed == 0
     assert killed == [True]
 
 
@@ -1017,8 +1022,8 @@ def test_empty_read_during_shutdown_is_service_shutdown(monkeypatch: pytest.Monk
     worker._shutting_down = True
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
-    monkeypatch.setattr("compute_service.worker_base.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr("compute_service.worker_base.read_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("plugin.framework.process_worker.read_pickle_frame_with_timeout", lambda *_args, **_kwargs: None)
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "SERVICE_SHUTDOWN"
@@ -1088,7 +1093,7 @@ def test_reap_past_deadline_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> N
     ``_reap_previous_process``, and that wait can block for a second.
     A longer request still called Popen after its deadline was gone.
     """
-    from compute_service import worker_base
+    from plugin.framework import process_worker as worker_base
 
     clock = {"t": 1000.0}
     monkeypatch.setattr(worker_base.time, "monotonic", lambda: clock["t"])
@@ -1113,7 +1118,7 @@ def test_reap_past_deadline_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatch) -> None:
     """The ready-frame read uses the time left after the previous child is reaped."""
-    from compute_service import worker_base
+    from plugin.framework import process_worker as worker_base
     from compute_service.worker_base import _Deadline
 
     clock = {"t": 1000.0}
@@ -1171,7 +1176,7 @@ def test_popen_past_deadline_skips_handshake(monkeypatch: pytest.MonkeyPatch) ->
     Popen is not on the clock. A handshake after that would use the 0.01s
     pipe-wait floor and then SIGKILL.
     """
-    from compute_service import worker_base
+    from plugin.framework import process_worker as worker_base
 
     clock = {"t": 1000.0}
     monkeypatch.setattr(worker_base.time, "monotonic", lambda: clock["t"])
@@ -1226,7 +1231,7 @@ def test_partial_handshake_timeout_logs_timeout(monkeypatch: pytest.MonkeyPatch,
     """
     import logging
 
-    from compute_service import worker_base
+    from plugin.framework import process_worker as worker_base
     from plugin.scripting.ipc import IpcPartialFrameTimeout
 
     class _Proc:
@@ -1270,7 +1275,7 @@ def test_shutdown_handshake_is_not_a_spawn_error(monkeypatch: pytest.MonkeyPatch
     """
     import logging
 
-    from compute_service import worker_base
+    from plugin.framework import process_worker as worker_base
 
     class _Proc:
         def __init__(self) -> None:
@@ -1347,7 +1352,7 @@ def test_reap_timeout_keeps_live_pid(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     import subprocess
 
-    from compute_service import worker_base
+    from plugin.framework import process_worker as worker_base
 
     class _Stuck:
         def __init__(self) -> None:
@@ -1474,7 +1479,7 @@ def test_execute_unpicklable_request_does_not_kill(monkeypatch: pytest.MonkeyPat
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
-        "compute_service.worker_base.pack_pickle_frame",
+        "plugin.framework.process_worker.pack_pickle_frame",
         MagicMock(side_effect=exc),
     )
 
@@ -1507,14 +1512,14 @@ def test_pipe_value_error_kills(monkeypatch: pytest.MonkeyPatch) -> None:
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
-        "compute_service.worker_base.write_packed_frame_with_timeout",
+        "plugin.framework.process_worker.write_packed_frame_with_timeout",
         MagicMock(side_effect=ValueError("short write")),
     )
 
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "WORKER_PIPE_BROKEN"
     assert killed == [True]
-    assert worker.tasks_executed == 1
+    assert worker.tasks_executed == 0
 
 
 def test_reap_timeout_caps_stderr(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -1655,7 +1660,7 @@ def test_write_attribute_error_is_not_not_serializable(monkeypatch: pytest.Monke
     killed: list[bool] = []
     worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
     monkeypatch.setattr(
-        "compute_service.worker_base.write_packed_frame_with_timeout",
+        "plugin.framework.process_worker.write_packed_frame_with_timeout",
         MagicMock(side_effect=AttributeError("process")),
     )
 
@@ -1677,36 +1682,34 @@ def test_execute_stamps_req_id_on_error(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.mark.parametrize(
-    ("budget", "remaining", "too_late", "child_run", "left_sec"),
+    ("budget", "remaining", "usable_sec", "left_sec"),
     [
-        (0.0, 0.0, True, 0.0, 0.01),
-        (0.5, 0.5, True, 1.0, 0.5),
-        (1.0, 0.0, True, 0.0, 0.01),
-        (1.0, 0.5, False, 1.0, 0.5),
-        (1.0, 1.0, False, 1.0, 1.0),
-        (5.0, -0.25, True, 0.0, 0.01),
-        (5.0, 0.5, True, 1.0, 0.5),
-        (5.0, 2.5, False, 2.5, 2.5),
+        (0.0, 0.0, None, 0.0),
+        (0.5, 0.5, None, 0.5),
+        (1.0, 0.0, None, 0.0),
+        (1.0, 0.5, 0.5, 0.5),
+        (1.0, 1.0, 1.0, 1.0),
+        (5.0, -0.25, None, -0.25),
+        (5.0, 0.5, None, 0.5),
+        (5.0, 2.5, 2.5, 2.5),
     ],
 )
 def test_deadline_budget_table(
     monkeypatch: pytest.MonkeyPatch,
     budget: float,
     remaining: float,
-    too_late: bool,
-    child_run: float,
+    usable_sec: float | None,
     left_sec: float,
 ) -> None:
-    """Lock the spawn / child-run / pipe-wait table. A 1s budget still starts."""
+    """usable() is the only start gate. left() is the true remainder."""
     from compute_service.worker_base import _Deadline
 
     now = 1_000.0
-    monkeypatch.setattr("compute_service.worker_base.time.monotonic", lambda: now)
+    monkeypatch.setattr("plugin.framework.process_worker.time.monotonic", lambda: now)
     clock = _Deadline.__new__(_Deadline)
     clock.budget_sec = budget
     clock._end = now + remaining
-    assert clock.too_late_to_spawn() is too_late
-    assert clock.child_run_seconds() == child_run
+    assert clock.usable() == usable_sec
     assert clock.left() == left_sec
 
 
