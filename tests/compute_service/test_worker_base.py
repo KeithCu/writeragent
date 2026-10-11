@@ -9,6 +9,7 @@ import pickle
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -1056,6 +1057,37 @@ def test_empty_read_during_shutdown_is_service_shutdown(monkeypatch: pytest.Monk
     assert killed == []
 
 
+def test_write_broken_during_shutdown_is_service_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pipe error while the pool is stopping is SERVICE_SHUTDOWN, not a kill.
+
+    What was wrong: kill() landing mid-write was WORKER_PIPE_BROKEN. The
+    child is already being reaped, so this must not kill again.
+    """
+    from unittest.mock import MagicMock
+
+    from compute_service.worker_base import BaseProcessWorker
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    worker.process = MagicMock()
+    worker.process.poll.return_value = None
+    worker.process.pid = 3
+    worker.process.stdin = MagicMock()
+    worker.process.stdout = MagicMock()
+    worker._shutting_down = True
+    killed: list[bool] = []
+    worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "plugin.framework.process_worker.write_packed_frame_with_timeout",
+        MagicMock(side_effect=BrokenPipeError("closed")),
+    )
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert res.get("code") == "SERVICE_SHUTDOWN"
+    assert worker.tasks_executed == 0
+    assert killed == []
+
+
 def test_subsecond_timeout_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     """A budget under one second is refused and is not reported as 0 seconds."""
     from unittest.mock import MagicMock
@@ -1526,6 +1558,58 @@ def test_stderr_log_keeps_tail(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     assert worker._stderr_snippet().endswith("END")
 
 
+def test_cap_stderr_log_retries_a_short_write(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A short FileIO.write still leaves the last cap bytes.
+
+    What was wrong: the rewrite ignored write()'s count. os.write may
+    return early after the file was already truncated to empty.
+    """
+    from compute_service.worker_base import _STDERR_LOG_CAP
+
+    worker = _worker_without_spawn(monkeypatch)
+    path = tmp_path / "w.stderr"
+    path.write_bytes(b"x" * (_STDERR_LOG_CAP + 50) + b"END")
+    worker._stderr_path = str(path)
+    real_open = open
+
+    class _ShortOnce:
+        def __init__(self, raw: Any) -> None:
+            self._raw = raw
+            self._shorted = False
+
+        def __enter__(self) -> _ShortOnce:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            self._raw.close()
+
+        def seek(self, *args: Any, **kwargs: Any) -> Any:
+            return self._raw.seek(*args, **kwargs)
+
+        def truncate(self, *args: Any, **kwargs: Any) -> Any:
+            return self._raw.truncate(*args, **kwargs)
+
+        def write(self, data: Any) -> int:
+            blob = bytes(data)
+            if not self._shorted and len(blob) > 1:
+                self._shorted = True
+                self._raw.write(blob[:1])
+                return 1
+            return int(self._raw.write(blob))
+
+    def _open(file: Any, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        handle = real_open(file, mode, *args, **kwargs)
+        if "r+" in mode:
+            return _ShortOnce(handle)
+        return handle
+
+    monkeypatch.setattr("builtins.open", _open)
+    worker.cap_stderr_log()
+    data = path.read_bytes()
+    assert len(data) == _STDERR_LOG_CAP
+    assert data.endswith(b"END")
+
+
 @pytest.mark.parametrize(
     "exc",
     [
@@ -1687,6 +1771,7 @@ def test_timeout_message_keeps_fractional_seconds(monkeypatch: pytest.MonkeyPatc
     fractional = worker._timeout_message(_Deadline(1.9))
     assert "1.9" in fractional
     assert "1 seconds" not in fractional
+    assert worker._timeout_message(_Deadline(1.0)) == "Execution exceeded maximum timeout of 1 second."
     assert worker._timeout_message(_Deadline(2.0)) == "Execution exceeded maximum timeout of 2 seconds."
 
 

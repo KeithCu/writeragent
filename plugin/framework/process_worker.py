@@ -355,10 +355,18 @@ class BaseProcessWorker:
                 tail = handle.read(_STDERR_LOG_CAP)
             # r+b is not O_APPEND. Truncate, then write the tail at offset 0.
             # The child's separate append fd writes at the new end.
+            # What was wrong: FileIO.write is os.write and may return a short
+            # count. Ignoring it left the file truncated and dropped the tail.
             with open(path, "r+b", buffering=0) as handle:
                 handle.seek(0)
                 handle.truncate(0)
-                handle.write(tail)
+                view = memoryview(tail)
+                written = 0
+                while written < len(view):
+                    n = handle.write(view[written:])
+                    if not isinstance(n, int) or n <= 0:
+                        raise OSError("zero bytes written to stderr log")
+                    written += n
         except OSError:
             log.debug("%s #%d could not cap stderr log %s", self.worker_name, self.worker_id, path, exc_info=True)
 
@@ -453,11 +461,12 @@ class BaseProcessWorker:
 
         Returns without a child when the pool is stopping, when the previous
         child is still alive after the reap wait, or when *deadline* is
-        already too late to start one. Recycle calls this after kill(); the
-        flag is what stops that spawn. The check after reap covers a shutdown
-        that arrives while the previous child is reaped. The new ``Popen`` is
-        published under ``_lifecycle_lock``, which ``kill()`` also holds, so a
-        shutdown during spawn still reaps it.
+        already too late to start one. Recycle only ``kill()``s and leaves the
+        slot dead. The next lease's ``execute`` is what calls this.
+        ``_shutting_down`` stops that spawn. The check after reap covers a
+        shutdown that arrives while the previous child is reaped. The new
+        ``Popen`` is published under ``_lifecycle_lock``, which ``kill()``
+        also holds, so a shutdown during spawn still reaps it.
 
         *deadline* is the caller's request clock. The reap wait is inside that
         clock: budgeting the handshake from the time left before
@@ -733,14 +742,16 @@ class BaseProcessWorker:
     def _timeout_message(self, deadline: _Deadline) -> str:
         """Error text for a spent budget. Sub-second budgets are refused, not reported as 0.
 
-        ``int`` of a 1.9s budget used to report "1 seconds".
+        ``int`` of a 1.9s budget used to report "1 seconds". A whole 1s
+        budget used to say "1 seconds" as well.
         """
         seconds = deadline.budget_sec
         if seconds < 1:
             return "Execution timeout must be at least 1 second."
         whole = int(seconds)
         shown: int | float = whole if seconds == whole else seconds
-        return f"Execution exceeded maximum timeout of {shown} seconds."
+        unit = "second" if shown == 1 else "seconds"
+        return f"Execution exceeded maximum timeout of {shown} {unit}."
 
     def _fail_timeout(self, deadline: _Deadline, pid: int | None, *, kill: bool = True) -> dict[str, Any]:
         """``EXECUTION_TIMEOUT`` for *deadline*. ``kill`` is false when no child should die."""
@@ -866,11 +877,14 @@ class BaseProcessWorker:
                 write_packed_frame_with_timeout(stdin, frame, ready, is_alive=self.is_alive)
             except subprocess.TimeoutExpired:
                 return self._fail_timeout(deadline, pid)
-            except OSError as exc:
-                return self._fail_request("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}", pid=pid)
-            except (TypeError, ValueError) as exc:
-                # These are no longer pickle failures. A pipe that raises them
-                # may already have written part of the frame.
+            except (OSError, TypeError, ValueError) as exc:
+                # TypeError and ValueError are no longer pickle failures. A
+                # pipe that raises them may already have written part of the
+                # frame. What was wrong: a cleanup kill() that landed mid-write
+                # was WORKER_PIPE_BROKEN. The read path already maps EOF during
+                # shutdown to SERVICE_SHUTDOWN. The child is already being reaped.
+                if self._shutting_down:
+                    return self._fail_request("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.", pid=pid, kill=False)
                 return self._fail_request("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}", pid=pid)
 
             remaining = deadline.left()
