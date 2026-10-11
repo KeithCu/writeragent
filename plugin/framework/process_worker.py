@@ -154,11 +154,14 @@ class _Deadline:
         ``left()``.
         """
         remaining = self.left()
-        # A one-second budget may start after the clock has moved. A longer
-        # budget with under one second left must not. A spent clock must not.
-        if remaining <= 0 or self.budget_sec < _MIN_REQUEST_SEC:
+        if remaining <= 0:
             return None
-        if remaining < _MIN_REQUEST_SEC < self.budget_sec:
+        if self.budget_sec < _MIN_REQUEST_SEC:
+            return None
+        # A one-second budget is the minimum and may start with less than
+        # that left. A longer budget with under one second left must not:
+        # the handshake would kill the child.
+        if self.budget_sec > _MIN_REQUEST_SEC and remaining < _MIN_REQUEST_SEC:
             return None
         return remaining
 
@@ -622,6 +625,13 @@ class BaseProcessWorker:
         self._unlink_unpublished_stderr(stderr_name)
 
     def is_alive(self) -> bool:
+        """True only while ``poll()`` is None.
+
+        False means there is no process, or ``poll()`` has already reaped
+        it. A non-blocking lock miss on that dead path still returns False:
+        it only skips unlinking the stderr file. Callers that drop an idle
+        slot or its sessions on False are reading a dead child.
+        """
         # kill() assigns None under _lifecycle_lock while execute's select
         # loop calls this. A second read of self.process could be None and
         # raise AttributeError, which the write handler reported as

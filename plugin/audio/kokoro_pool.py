@@ -261,10 +261,15 @@ class KokoroProcessPool:
         with self._lock:
             if self._inflight or self._worker is None or not self._worker.is_alive():
                 return
-            if time.monotonic() - self._last_active < ttl:
-                return
             worker = self._worker
-            self._worker = None
+            expired = time.monotonic() - self._last_active >= ttl
+            if expired:
+                self._worker = None
+        # Cap outside the lock. The child can append for the whole idle
+        # gap; the next request also caps, but may not arrive first.
+        worker.cap_stderr_log()
+        if not expired:
+            return
         log.info("Kokoro worker idle for >%.0fs; releasing the ONNX model", ttl)
         self._retire_worker(worker)
 

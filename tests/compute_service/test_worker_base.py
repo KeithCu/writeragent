@@ -1763,6 +1763,28 @@ def test_error_dict_keeps_optional_id_and_message() -> None:
     assert "id" not in with_message
 
 
+def test_usable_budget_truth_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 1s budget may start with under a second left. A longer one may not.
+
+    The chained compare hid that. A 2s request with 0.5s left must refuse;
+    a 1s request with the same remainder must start.
+    """
+    from plugin.framework import process_worker as worker_mod
+
+    now = 1000.0
+    monkeypatch.setattr(worker_mod.time, "monotonic", lambda: now)
+    cases = (
+        (1.0, 0.5, 0.5),
+        (2.0, 0.5, None),
+        (0.5, 0.5, None),
+        (1.0, 0.0, None),
+        (2.0, 1.0, 1.0),
+    )
+    for budget, remaining, expected in cases:
+        clock = worker_mod.Deadline.from_absolute(budget, now + remaining)
+        assert clock.usable() == expected, (budget, remaining)
+
+
 def test_timeout_message_keeps_fractional_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
     """A 1.9s budget is not reported as 1 second. Whole seconds stay integers."""
     from compute_service.worker_base import _Deadline
