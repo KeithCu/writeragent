@@ -1429,6 +1429,58 @@ def test_reap_reports_exit_after_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     assert worker.process is None
 
 
+def test_stderr_log_fd_is_append_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The spawn log is the exclusive-create fd, opened append-only.
+
+    What was wrong: mkstemp's fd was closed and the path reopened. A name
+    swap could replace the file, and only the second open set O_APPEND.
+    Capping truncates; the child has to inherit append mode.
+    """
+    import os
+    import sys
+
+    worker = _worker_without_spawn(monkeypatch)
+    handle, path = worker._open_stderr_log()
+    try:
+        assert handle.name == path
+        fd_stat = os.fstat(handle.fileno())
+        path_stat = os.stat(path)
+        assert fd_stat.st_ino == path_stat.st_ino
+        assert fd_stat.st_dev == path_stat.st_dev
+        if sys.platform != "win32":
+            import fcntl
+
+            flags = fcntl.fcntl(handle.fileno(), fcntl.F_GETFL)
+            assert flags & os.O_APPEND
+    finally:
+        handle.close()
+        os.unlink(path)
+
+
+def test_adopt_publishes_process_and_stderr_together(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A child and its stderr file become visible in one lock hold.
+
+    What was wrong: the path was published first. kill() in that gap
+    reaped no process, unlinked the file, then adopt stored a live child
+    whose diagnostics read as empty.
+    """
+    worker = _worker_without_spawn(monkeypatch)
+    proc = object()
+    assert worker._adopt_spawned_process(proc, "/tmp/wa-stderr") is True  # type: ignore[arg-type]
+    assert worker.process is proc
+    assert worker._stderr_path == "/tmp/wa-stderr"
+
+
+def test_adopt_refuses_process_and_stderr_when_shutting_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Shutdown stores neither the child nor its stderr path."""
+    worker = _worker_without_spawn(monkeypatch)
+    worker.request_shutdown()
+    proc = object()
+    assert worker._adopt_spawned_process(proc, "/tmp/wa-stderr") is False  # type: ignore[arg-type]
+    assert worker.process is None
+    assert worker._stderr_path is None
+
+
 def test_stderr_log_keeps_tail(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A chatty child does not grow the stderr file without a bound.
 

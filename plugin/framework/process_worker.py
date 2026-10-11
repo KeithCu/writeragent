@@ -234,7 +234,7 @@ class BaseProcessWorker:
         if start:
             self.respawn()
 
-    def _open_stderr_log(self) -> IO[bytes]:
+    def _open_stderr_log(self) -> tuple[IO[bytes], str]:
         """Open a stderr file for the child about to be spawned.
 
         A pipe would need a drain thread so the kernel buffer cannot fill
@@ -247,23 +247,36 @@ class BaseProcessWorker:
         so there is no live path to reuse. Does not publish ``_stderr_path``.
         ``kill()`` unlinks only that published path, so a shutdown during
         ``Popen`` cannot delete this file before the child inherits the fd.
-        ``respawn`` publishes it after ``Popen`` returns.
-        """
-        fd, path = tempfile.mkstemp(prefix=f"wa-compute-w{self.worker_id}-", suffix=".stderr")
-        os.close(fd)
-        return open(path, "ab", buffering=0)
+        ``respawn`` publishes the path and the ``Popen`` together after
+        ``Popen`` returns.
 
-    def _publish_stderr_path(self, path: str) -> bool:
-        """Publish *path* unless shutdown already won.
-
-        Call after ``Popen`` has inherited the fd. False means the caller
-        still owns *path* and must unlink it.
+        What was wrong: ``mkstemp`` was closed and the path reopened. That
+        drops the exclusive fd, so a name swap in ``/tmp`` could replace
+        the file, and only the second ``open(..., "ab")`` set ``O_APPEND``.
+        ``_cap_stderr_log`` truncates; the child must inherit append mode
+        or its next write lands in the middle of the kept tail. The fd
+        returned here is the ``O_EXCL`` create.
         """
-        with self._lifecycle_lock:
-            if self._shutting_down:
-                return False
-            self._stderr_path = path
-            return True
+        directory = tempfile.gettempdir()
+        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND
+        prefix = f"wa-compute-w{self.worker_id}-"
+        for _attempt in range(100):
+            path = os.path.join(directory, f"{prefix}{os.urandom(8).hex()}.stderr")
+            try:
+                fd = os.open(path, flags, 0o600)
+            except FileExistsError:
+                continue
+            try:
+                handle = os.fdopen(fd, "ab", buffering=0)
+            except Exception:
+                os.close(fd)
+                raise
+            # fdopen records the integer fd. The path returned with this
+            # handle is the unlink key. ``.name`` stays that path so the
+            # object handed to Popen still identifies the file.
+            handle.name = path
+            return handle, path
+        raise OSError(f"could not create a stderr log for {self.worker_name} #{self.worker_id}")
 
     def _safe_unlink(self, path: str) -> None:
         """Remove *path*. A missing file is normal when shutdown already unlinked it."""
@@ -424,6 +437,7 @@ class BaseProcessWorker:
         cmd = [self.executable, self.script_path]
         child_env = self._child_env if self._child_env is not None else scrub_subprocess_env(dict(os.environ))
         stderr_log: IO[bytes] | None = None
+        stderr_path: str | None = None
         published_stderr = False
         try:
             # Scrub matches the venv host: drop PYTHONHOME / credential-like
@@ -434,18 +448,16 @@ class BaseProcessWorker:
             # Popen cannot unlink it before the child inherits the fd.
             # A grandchild that inherits this stdout pipe holds the host read
             # open until the request deadline; that timeout kills the child.
-            stderr_log = self._open_stderr_log()
+            stderr_log, stderr_path = self._open_stderr_log()
             proc = cast("subprocess.Popen[bytes]", subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_log, bufsize=0, text=False, env=child_env, **get_subprocess_creationflags()))
             # Do not hold _lifecycle_lock across Popen or the handshake read.
             # kill() takes that lock, and the handshake can block for the
-            # spawn budget. Publishing here is after the inherit.
-            if not self._publish_stderr_path(stderr_log.name):
-                self._drop_unadopted_spawn(proc, stderr_log.name, published=False)
+            # spawn budget. Process and stderr path publish together, after
+            # the child has inherited the fd.
+            if not self._adopt_spawned_process(proc, stderr_path):
+                self._drop_unadopted_spawn(proc, stderr_path)
                 return
             published_stderr = True
-            if not self._adopt_spawned_process(proc):
-                self._drop_unadopted_spawn(proc, stderr_log.name, published=True)
-                return
             optimize_popen_pipes(proc)
             # Popen itself is not on the clock. If it ran past the deadline,
             # kill the child here. A handshake read of a spent clock used to
@@ -482,24 +494,29 @@ class BaseProcessWorker:
             self._log_spawn_outcome(f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}")
             # Popen failed before the path was published. kill() only
             # unlinks _stderr_path, so this file would otherwise leak.
-            if stderr_log is not None and not published_stderr:
-                self._unlink_unpublished_stderr(stderr_log.name)
+            if stderr_path is not None and not published_stderr:
+                self._unlink_unpublished_stderr(stderr_path)
             self.kill()
         finally:
             if stderr_log is not None:
                 stderr_log.close()
 
-    def _adopt_spawned_process(self, proc: subprocess.Popen[bytes]) -> bool:
-        """Publish *proc*, or refuse when shutdown already won.
+    def _adopt_spawned_process(self, proc: subprocess.Popen[bytes], stderr_path: str) -> bool:
+        """Publish *proc* and its stderr file, or refuse when shutdown already won.
 
-        Assignment and ``_shutting_down`` share ``_lifecycle_lock``, which
-        ``kill()`` holds. Shutdown either sees this child, or this method
-        refuses and the caller kills the unpublished ``Popen``.
+        Both assignments share one ``_lifecycle_lock`` hold with
+        ``_shutting_down``, which ``kill()`` holds across reap. Publishing
+        the path in an earlier hold let ``kill()`` unlink it while
+        ``self.process`` was still None, then adopt a live child whose
+        diagnostics read as empty. Shutdown either sees this child and its
+        file, or this method refuses and the caller kills the unpublished
+        ``Popen`` and unlinks the file.
         """
         with self._lifecycle_lock:
             if self._shutting_down:
                 return False
             self.process = proc
+            self._stderr_path = stderr_path
             return True
 
     def _kill_and_wait(self, proc: subprocess.Popen[bytes], pid: int | None, *, context: str) -> bool:
@@ -528,19 +545,13 @@ class BaseProcessWorker:
         """Kill a child that was never assigned to ``self.process``."""
         self._kill_and_wait(proc, proc.pid, context="unadopted ")
 
-    def _drop_unadopted_spawn(self, proc: subprocess.Popen[bytes], stderr_name: str, *, published: bool) -> None:
+    def _drop_unadopted_spawn(self, proc: subprocess.Popen[bytes], stderr_name: str) -> None:
         """Kill a child shutdown refused, and drop the stderr file it inherited.
 
-        *published* means ``_stderr_path`` already names *stderr_name*, so
-        ``_close_stderr_log`` is the unlink. Otherwise the file was never
-        installed and ``kill`` will not remove it.
+        Adopt publishes the process and the path together, so a refusal
+        never stored *stderr_name*. ``kill`` only unlinks ``_stderr_path``.
         """
         self._discard_unadopted_process(proc)
-        if published:
-            # Reap already holds this lock. This path does not.
-            with self._lifecycle_lock:
-                self._close_stderr_log()
-            return
         self._unlink_unpublished_stderr(stderr_name)
 
     def is_alive(self) -> bool:
