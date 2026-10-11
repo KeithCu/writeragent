@@ -1789,6 +1789,196 @@ def test_adopt_refuses_process_and_stderr_when_shutting_down(monkeypatch: pytest
     assert worker._stderr_path is None
 
 
+def test_adopt_refuses_when_a_child_is_already_live(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second publish must not replace the child already in the slot.
+
+    What was wrong: two respawn calls could both pass the reap and both
+    Popen. The second adopt overwrote self.process, and the first child
+    was never killed.
+    """
+    worker = _worker_without_spawn(monkeypatch)
+    first = object()
+    worker.process = first  # type: ignore[assignment]
+    worker._stderr_path = "/tmp/wa-first"
+    second = object()
+    assert worker._adopt_spawned_process(second, "/tmp/wa-second") is False  # type: ignore[arg-type]
+    assert worker.process is first
+    assert worker._stderr_path == "/tmp/wa-first"
+
+
+def test_concurrent_respawn_keeps_one_child(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two overlapping respawns publish one child and kill the other.
+
+    What was wrong: both threads passed the reap before either adopt, so
+    the second assignment leaked the first Popen.
+    """
+    from plugin.framework import process_worker as worker_mod
+
+    worker = _worker_without_spawn(monkeypatch)
+    both_in_popen = threading.Event()
+    release = threading.Event()
+    children: list[object] = []
+    children_lock = threading.Lock()
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = id(self) & 0x7FFFFFFF
+            self.stdin = None
+            self.stdout = object()
+            self.stderr = None
+            self.killed = False
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            if self.returncode is None:
+                self.returncode = -9
+            return self.returncode
+
+    def _popen(*_args: object, **_kwargs: object) -> _Proc:
+        proc = _Proc()
+        with children_lock:
+            children.append(proc)
+            if len(children) == 2:
+                both_in_popen.set()
+        assert both_in_popen.wait(timeout=2)
+        assert release.wait(timeout=2)
+        return proc
+
+    def _read(_stdout: object, _timeout_sec: float, **_kwargs: object) -> dict[str, object]:
+        return {"status": "ready", "pid": 1}
+
+    monkeypatch.setattr(worker_mod.subprocess, "Popen", _popen)
+    monkeypatch.setattr(worker_mod, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_mod, "optimize_popen_pipes", lambda _proc: None)
+    errors: list[BaseException] = []
+
+    def _run() -> None:
+        try:
+            worker.respawn()
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_run) for _idx in range(2)]
+    for thread in threads:
+        thread.start()
+    assert both_in_popen.wait(timeout=2)
+    release.set()
+    try:
+        for thread in threads:
+            thread.join(timeout=5)
+            assert not thread.is_alive()
+        assert errors == []
+        assert len(children) == 2
+        published = worker.process
+        assert published in children
+        losers = [child for child in children if child is not published]
+        assert len(losers) == 1
+        assert losers[0].killed  # type: ignore[attr-defined]
+        assert published.killed is False  # type: ignore[attr-defined]
+    finally:
+        worker.kill()
+
+
+def test_unadopted_child_that_survives_kill_is_logged(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """A child adopt refused and could not reap is logged. It is not retried.
+
+    What was wrong: a failed wait returned False and the method returned.
+    The child was neither stored nor mentioned above debug.
+    """
+    import logging
+    import subprocess
+
+    worker = _worker_without_spawn(monkeypatch)
+
+    class _Stuck:
+        def __init__(self) -> None:
+            self.pid = 99
+            self.stdin = None
+            self.stdout = None
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            raise subprocess.TimeoutExpired(cmd="stuck", timeout=1)
+
+    path = tmp_path / "lost.stderr"
+    path.write_bytes(b"tail")
+    with caplog.at_level(logging.WARNING, logger="compute_service.worker"):
+        worker._drop_unadopted_spawn(_Stuck(), str(path))  # type: ignore[arg-type]
+    assert any("not tracked" in record.getMessage() for record in caplog.records)
+    assert not path.exists()
+    assert worker.process is None
+
+
+def test_retry_reap_waits_between_failed_kills(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wait() that returns immediately must not hot-spin kill().
+
+    What was wrong: retry_reap called kill() again as soon as the previous
+    wait raised. Each pass logged a warning and burned a core until stop.
+    """
+    worker = _worker_without_spawn(monkeypatch)
+    worker._reap_incomplete = True
+    calls: list[float] = []
+
+    def _kill() -> bool:
+        calls.append(time.monotonic())
+        return False
+
+    worker.kill = _kill  # type: ignore[method-assign]
+    stop = threading.Event()
+    thread = threading.Thread(target=worker.retry_reap, args=(stop,))
+    thread.start()
+    deadline = time.monotonic() + 2.0
+    while not calls and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert calls
+    time.sleep(0.35)
+    stop.set()
+    thread.join(timeout=2.0)
+    assert not thread.is_alive()
+    assert len(calls) < 10
+
+
+def test_fail_request_skips_stderr_when_it_does_not_kill(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A failure that leaves the child must not attach another child's tail.
+
+    What was wrong: _fail_request always read the stderr file. kill=False
+    is shutdown, a clock spent before the frame was sent, or a spawn that
+    already logged its own tail.
+    """
+    worker = _worker_without_spawn(monkeypatch)
+    path = tmp_path / "old.stderr"
+    path.write_bytes(b"previous-child-tail\n")
+    worker._stderr_path = str(path)
+    killed: list[bool] = []
+
+    def _kill() -> bool:
+        killed.append(True)
+        return True
+
+    worker.kill = _kill  # type: ignore[method-assign]
+    quiet = worker._fail_request("SERVICE_SHUTDOWN", "stopping", pid=None, kill=False)
+    assert "previous-child-tail" not in str(quiet.get("error"))
+    assert killed == []
+    assert path.exists()
+    loud = worker._fail_request("WORKER_CRASHED", "died", pid=3, kill=True)
+    assert "previous-child-tail" in str(loud.get("error"))
+    assert killed == [True]
+
+
 def test_stderr_log_keeps_tail(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A chatty child does not grow the stderr file without a bound.
 

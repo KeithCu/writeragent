@@ -101,10 +101,10 @@ _MIRROR_MESSAGE = frozenset({"EXECUTION_TIMEOUT", "WORKER_CRASHED"})
 class Deadline:
     """Accept-time budget for a pool, or the worker clock started under its lock.
 
-    ``__init__`` starts at now. ``BaseProcessWorker.execute`` builds that
-    under ``self.lock`` so the wait for the lock is not part of the budget.
-    ``from_absolute`` keeps the original requested seconds and an end the
-    HTTP handler already chose. Formula and vision use that one.
+    ``__init__`` starts at now unless ``end`` is passed. ``execute`` builds
+    that under ``self.lock`` so the wait for the lock is not part of the
+    budget. ``from_absolute`` keeps the original requested seconds and an
+    end the HTTP handler already chose. Formula and vision use that one.
 
     ``left()`` is the true remainder and may be negative. ``usable()``
     is the gate before a write, and before a pool lifts a short remainder:
@@ -120,9 +120,14 @@ class Deadline:
     budget_sec: float
     _end: float
 
-    def __init__(self, timeout_sec: float) -> None:
+    def __init__(self, timeout_sec: float, *, end: float | None = None) -> None:
+        """Start a clock of *timeout_sec* seconds, or one that already ends at *end*.
+
+        *end* is keyword-only so ``Deadline(5)`` still starts at now.
+        The budget stays *timeout_sec*, not ``end - now``.
+        """
         self.budget_sec = float(timeout_sec)
-        self._end = time.monotonic() + self.budget_sec
+        self._end = float(end) if end is not None else time.monotonic() + self.budget_sec
 
     @classmethod
     def from_absolute(cls, requested_sec: float, end: float) -> Deadline:
@@ -132,10 +137,7 @@ class Deadline:
         clock has already moved still starts; rebuilding the budget from
         the time left would refuse it.
         """
-        clock = cls.__new__(cls)
-        clock.budget_sec = float(requested_sec)
-        clock._end = float(end)
-        return clock
+        return cls(requested_sec, end=end)
 
     def left(self) -> float:
         """Seconds until ``_end``. Negative once the clock has passed it.
@@ -155,9 +157,7 @@ class Deadline:
         ``left()``.
         """
         remaining = self.left()
-        if remaining <= 0:
-            return None
-        if self.budget_sec < MIN_REQUEST_SEC:
+        if remaining <= 0 or self.budget_sec < MIN_REQUEST_SEC:
             return None
         # A one-second budget is the minimum and may start with less than
         # that left. A longer budget with under one second left must not.
@@ -306,7 +306,9 @@ class BaseProcessWorker:
         directory = tempfile.gettempdir()
         flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_APPEND
         prefix = self._stderr_log_prefix()
-        for _attempt in range(100):
+        attempts_left = 100
+        while attempts_left:
+            attempts_left -= 1
             path = os.path.join(directory, f"{prefix}{os.urandom(8).hex()}.stderr")
             try:
                 fd = os.open(path, flags, 0o600)
@@ -373,8 +375,12 @@ class BaseProcessWorker:
         open the file again.
 
         The child inherited an ``O_APPEND`` fd, so the next write goes to the
-        new end after a truncate. A write that lands during the rewrite can
-        drop a few bytes; this file is only a failure tail.
+        new end after a truncate. On POSIX that flag is atomic in the kernel.
+        On Windows the C runtime emulates append with an lseek before each
+        write, so a child that inherited the handle can write at the old
+        offset after this truncate and tear the diagnostic tail. That is
+        not a crash. A write that lands during the rewrite can also drop
+        a few bytes; this file is only a failure tail.
 
         The idle reaper calls this outside the pool condition, and a lease
         may cap or unlink the same path at the same time. That race can tear
@@ -440,18 +446,18 @@ class BaseProcessWorker:
             return ""
         return text[-_STDERR_SNIPPET:]
 
-    def _log_spawn_failure(self, message: str) -> None:
-        """Log *message* with the child's stderr tail."""
-        snippet = self._stderr_snippet()
-        extra = f" stderr={snippet!r}" if snippet else " stderr=<empty>"
-        log.error("%s%s", message, extra)
-
     def _log_spawn_outcome(self, message: str) -> None:
-        """Log *message*. A shutdown-interrupted handshake is not a failed spawn."""
+        """Log *message*. A shutdown-interrupted handshake is not a failed spawn.
+
+        Anything else is a failed spawn and includes the child's stderr
+        tail, or ``stderr=<empty>`` when the file has none.
+        """
         if self._shutting_down:
             log.info("%s", message)
             return
-        self._log_spawn_failure(message)
+        snippet = self._stderr_snippet()
+        extra = f" stderr={snippet!r}" if snippet else " stderr=<empty>"
+        log.error("%s%s", message, extra)
 
     def _reap_previous_process(self) -> bool:
         """Wait on the Popen ``respawn`` is about to replace.
@@ -625,12 +631,9 @@ class BaseProcessWorker:
             if stderr_path is not None and not published_stderr:
                 self._unlink_unpublished_stderr(stderr_path)
             self.kill()
-        finally:
-            if stderr_log is not None:
-                stderr_log.close()
 
     def _adopt_spawned_process(self, proc: subprocess.Popen[bytes], stderr_path: str) -> bool:
-        """Publish *proc* and its stderr file, or refuse when shutdown already won.
+        """Publish *proc* and its stderr file, or refuse.
 
         Both assignments share one ``_lifecycle_lock`` hold with
         ``_shutting_down``, which ``kill()`` holds across reap. Publishing
@@ -639,9 +642,22 @@ class BaseProcessWorker:
         diagnostics read as empty. Shutdown either sees this child and its
         file, or this method refuses and the caller kills the unpublished
         ``Popen`` and unlinks the file.
+
+        A live ``self.process`` is the same refusal. ``execute`` holds
+        ``self.lock`` across ``respawn``, but ``__init__(start=True)`` and
+        Kokoro call ``respawn`` without that lock, and the lock is not
+        re-entrant, so ``respawn`` cannot take it. Two calls can both pass
+        the reap and both ``Popen``. Overwriting ``self.process`` leaked
+        the first child: nothing stored it, so nothing reaped it.
         """
         with self._lifecycle_lock:
             if self._shutting_down:
+                return False
+            # What was wrong: the second adopt assigned over a child the
+            # first call had already published. That Popen was dropped
+            # with no kill. Refusing here leaves the first child in place.
+            # The caller kills the unpublished one.
+            if self.process is not None:
                 return False
             self.process = proc
             self._stderr_path = stderr_path
@@ -656,7 +672,7 @@ class BaseProcessWorker:
 
         After ``wait()`` the pid can be reused and must not be signaled.
         *context* is ``""`` for a published child and ``"unadopted "`` for
-        one shutdown refused before ``self.process`` was assigned.
+        one adopt refused before ``self.process`` was assigned.
         """
         if proc.poll() is None:
             try:
@@ -693,12 +709,18 @@ class BaseProcessWorker:
                 log.debug("%s #%d could not close a reaped pipe", self.worker_name, self.worker_id, exc_info=True)
 
     def _drop_unadopted_spawn(self, proc: subprocess.Popen[bytes], stderr_name: str) -> None:
-        """Kill a child shutdown refused, and drop the stderr file it inherited.
+        """Kill a child adopt refused, and drop the stderr file it inherited.
 
         Adopt publishes the process and the path together, so a refusal
         never stored *stderr_name*. ``kill`` only unlinks ``_stderr_path``.
+        A child that survives this wait is neither tracked nor retried.
         """
-        self._kill_and_wait(proc, proc.pid, context="unadopted ")
+        # What was wrong: a failed wait returned False and this method
+        # continued as if the child were gone. Shutdown, or a second
+        # respawn, had no handle left and never tried again. The published
+        # reap already warns; this path only debug-logged the wait.
+        if not self._kill_and_wait(proc, proc.pid, context="unadopted "):
+            log.warning("%s #%d unadopted pid=%s still alive after reap; not tracked", self.worker_name, self.worker_id, proc.pid)
         self._unlink_unpublished_stderr(stderr_name)
 
     def is_alive(self) -> bool:
@@ -806,9 +828,18 @@ class BaseProcessWorker:
         this slot from idle and leased. Cold claim skips a live process, so
         ``on_process_exit`` would not run again. Each ``kill`` already waits
         up to ``_REAP_WAIT_SEC``.
+
+        What was wrong: a ``wait`` that raises immediately makes ``kill``
+        return at once. The loop called it again with no pause and logged
+        a warning on every pass. ``stop.wait`` is that pause, and it
+        returns as soon as shutdown sets the event. A reap that finishes
+        does not wait.
         """
         while not stop.is_set() and self.reap_incomplete():
             self.kill()
+            if not self.reap_incomplete():
+                return
+            stop.wait(0.1)
 
     def _fail_request(self, code: str, msg: str, *, pid: int | None, kill: bool = True) -> dict[str, Any]:
         """Build an error dict, then kill the child or leave it.
@@ -823,10 +854,15 @@ class BaseProcessWorker:
         # back to 0, so counting the failure cannot retire a dying slot
         # across processes. Counting a timeout that never ran can retire
         # a healthy one. ``kill`` stays a call-site choice.
-        snippet = self._stderr_snippet()
-        if snippet:
-            msg = f"{msg}\n{snippet}"
+        # What was wrong: kill=False still read the stderr file. That is
+        # shutdown, a clock spent before the frame was sent, or a spawn
+        # that already logged its own tail. The read could attach a
+        # previous child's text to an unrelated error. The tail belongs
+        # on the failure that is about to kill the child that wrote it.
         if kill:
+            snippet = self._stderr_snippet()
+            if snippet:
+                msg = f"{msg}\n{snippet}"
             log.warning("%s request failed (%s) on worker #%d; terminating pid=%s", self.worker_name, code, self.worker_id, pid)
             self.kill()
         message = msg if code in _MIRROR_MESSAGE else None
