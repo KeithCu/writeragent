@@ -313,3 +313,108 @@ def test_cancel_keeps_a_child_kill_did_not_reap(monkeypatch):
         assert isinstance(pool._worker, _Replacement)
     finally:
         pool.shutdown()
+
+
+def test_unreaped_handshake_is_not_executed(monkeypatch) -> None:
+    """A handshake whose kill leaves the child alive is a failed spawn.
+
+    What was wrong: is_alive() was still true, so the pool called execute
+    on a child that never said ready, and the next job reused it.
+    """
+    deferred: list = []
+
+    def _defer(func, *_args, **_kwargs) -> None:
+        deferred.append(func)
+
+    monkeypatch.setattr("plugin.audio.kokoro_pool.run_in_background", _defer)
+
+    class _StuckSpawn:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.executes = 0
+
+        def is_alive(self) -> bool:
+            return True
+
+        def is_shutting_down(self) -> bool:
+            return False
+
+        def reap_incomplete(self) -> bool:
+            return True
+
+        def respawn(self) -> None:
+            return None
+
+        def execute(self, payload, timeout_sec):
+            del payload, timeout_sec
+            self.executes += 1
+            return {"status": "ok"}
+
+        def request_shutdown(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            return None
+
+    monkeypatch.setattr("plugin.audio.kokoro_pool.BaseProcessWorker", _StuckSpawn)
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    try:
+        result = pool.execute({"text": "hi"})
+        assert result["code"] == "WORKER_SPAWN_FAILED"
+        worker = pool._unreaped
+        assert isinstance(worker, _StuckSpawn)
+        assert worker.executes == 0
+        assert pool._worker is None
+        assert len(deferred) == 1
+        again = pool.execute({"text": "next"})
+        assert again["code"] == "WORKER_SPAWN_FAILED"
+        assert worker.executes == 0
+    finally:
+        pool.shutdown()
+
+
+def test_stuck_warm_child_is_retired_not_reused(monkeypatch) -> None:
+    """A warm child whose last kill did not reap is retired, not written to."""
+    deferred: list = []
+
+    def _defer(func, *_args, **_kwargs) -> None:
+        deferred.append(func)
+
+    monkeypatch.setattr("plugin.audio.kokoro_pool.run_in_background", _defer)
+
+    class _Stuck:
+        def __init__(self) -> None:
+            self.executes = 0
+            self.kills = 0
+
+        def is_alive(self) -> bool:
+            return True
+
+        def is_shutting_down(self) -> bool:
+            return False
+
+        def reap_incomplete(self) -> bool:
+            return True
+
+        def execute(self, payload, timeout_sec):
+            del payload, timeout_sec
+            self.executes += 1
+            return {"status": "ok"}
+
+        def request_shutdown(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            self.kills += 1
+
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    stuck = _Stuck()
+    pool._worker = stuck  # type: ignore[assignment]
+    try:
+        result = pool.execute({"text": "hi"})
+        assert result["code"] == "WORKER_SPAWN_FAILED"
+        assert stuck.executes == 0
+        assert stuck.kills == 1
+        assert pool._worker is None
+        assert pool._unreaped is stuck
+    finally:
+        pool.shutdown()

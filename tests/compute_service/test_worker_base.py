@@ -1088,6 +1088,169 @@ def test_write_broken_during_shutdown_is_service_shutdown(monkeypatch: pytest.Mo
     assert killed == []
 
 
+@pytest.mark.parametrize("kind", ["value", "reset", "timeout"])
+def test_read_error_during_shutdown_is_service_shutdown(monkeypatch: pytest.MonkeyPatch, kind: str) -> None:
+    """A read failure while the pool is stopping is SERVICE_SHUTDOWN, not a crash.
+
+    What was wrong: ValueError was WORKER_IPC_ERROR, ConnectionResetError
+    was WORKER_CRASHED, and TimeoutExpired was EXECUTION_TIMEOUT. Windows
+    raises that timeout from is_alive before the read sees EOF. The child
+    is already being reaped, so this must not kill again.
+    """
+    import subprocess
+    from unittest.mock import MagicMock
+
+    from compute_service.worker_base import BaseProcessWorker
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    worker.process = MagicMock()
+    worker.process.poll.return_value = None
+    worker.process.pid = 3
+    worker.process.stdin = MagicMock()
+    worker.process.stdout = MagicMock()
+    worker._shutting_down = True
+    killed: list[bool] = []
+    worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+    monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
+    if kind == "value":
+        exc: BaseException = ValueError("I/O operation on closed file")
+    elif kind == "reset":
+        exc = ConnectionResetError("reset")
+    else:
+        exc = subprocess.TimeoutExpired(cmd="IPC frame", timeout=1)
+    monkeypatch.setattr("plugin.framework.process_worker.read_pickle_frame_with_timeout", MagicMock(side_effect=exc))
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert res.get("code") == "SERVICE_SHUTDOWN"
+    assert worker.tasks_executed == 0
+    assert killed == []
+
+
+def test_close_reaped_pipes_defers_for_the_other_reader(monkeypatch: pytest.MonkeyPatch) -> None:
+    """kill() does not close pipes another thread is still reading.
+
+    What was wrong: the shutdown thread closed stdin and stdout while
+    execute was between select and read, or while it held the integer
+    fd. The read then raised, or could hit a reused fd number. The
+    request thread closes them when it leaves. An unadopted child is
+    not that process and still closes immediately.
+    """
+    from unittest.mock import MagicMock
+
+    worker = _worker_without_spawn(monkeypatch)
+
+    def _pipes() -> MagicMock:
+        proc = MagicMock()
+        proc.stdin = MagicMock()
+        proc.stdout = MagicMock()
+        return proc
+
+    proc = _pipes()
+    worker.process = proc
+    worker._request_thread_id = 10**9
+    worker._close_reaped_pipes(proc)
+    proc.stdin.close.assert_not_called()
+    proc.stdout.close.assert_not_called()
+    assert worker._deferred_pipes is proc
+    worker._request_thread_id = None
+    worker._close_deferred_pipes()
+    proc.stdin.close.assert_called_once()
+    proc.stdout.close.assert_called_once()
+
+    own = _pipes()
+    worker.process = own
+    worker._deferred_pipes = None
+    worker._request_thread_id = threading.get_ident()
+    worker._close_reaped_pipes(own)
+    own.stdin.close.assert_called_once()
+    own.stdout.close.assert_called_once()
+    assert worker._deferred_pipes is None
+
+    spawning = _pipes()
+    worker.process = spawning
+    worker._request_thread_id = None
+    worker._deferred_pipes = None
+    worker._spawning = True
+    worker._spawn_thread_id = 10**9
+    worker._close_reaped_pipes(spawning)
+    spawning.stdin.close.assert_not_called()
+    worker._spawning = False
+    worker._spawn_thread_id = None
+    worker._close_deferred_pipes()
+    spawning.stdin.close.assert_called_once()
+
+    published = _pipes()
+    other = _pipes()
+    worker.process = published
+    worker._request_thread_id = 10**9
+    worker._deferred_pipes = None
+    worker._close_reaped_pipes(other)
+    other.stdin.close.assert_called_once()
+    other.stdout.close.assert_called_once()
+    published.stdin.close.assert_not_called()
+    assert worker._deferred_pipes is None
+
+
+def test_unreaped_handshake_is_not_written(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A child whose handshake could not be reaped is not sent a request.
+
+    What was wrong: poll() was still None, so execute wrote to a process
+    that had never said ready.
+    """
+    from unittest.mock import MagicMock
+
+    worker = _worker_without_spawn(monkeypatch)
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.pid = 4
+    proc.stdin = MagicMock()
+    proc.stdout = MagicMock()
+    written: list[bool] = []
+
+    def _respawn(timeout_sec: float | None = None, deadline: object | None = None) -> None:
+        del timeout_sec, deadline
+        worker.process = proc
+        worker._reap_incomplete = True
+
+    worker.respawn = _respawn  # type: ignore[method-assign]
+    monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *_args, **_kwargs: written.append(True))
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert res.get("code") == "WORKER_SPAWN_FAILED"
+    assert written == []
+    assert worker.process is proc
+
+
+def test_already_unreaped_child_does_not_respawn_or_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A slot still marked unreaped is refused before another spawn."""
+    from unittest.mock import MagicMock
+
+    worker = _worker_without_spawn(monkeypatch)
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.pid = 5
+    proc.stdin = MagicMock()
+    proc.stdout = MagicMock()
+    worker.process = proc
+    worker._reap_incomplete = True
+    spawned: list[bool] = []
+    written: list[bool] = []
+
+    def _respawn(timeout_sec: float | None = None, deadline: object | None = None) -> None:
+        del timeout_sec, deadline
+        spawned.append(True)
+
+    worker.respawn = _respawn  # type: ignore[method-assign]
+    monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *_args, **_kwargs: written.append(True))
+
+    res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+    assert res.get("code") == "WORKER_SPAWN_FAILED"
+    assert spawned == []
+    assert written == []
+    assert worker.process is proc
+
+
 def test_subsecond_timeout_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     """A budget under one second is refused and is not reported as 0 seconds."""
     from unittest.mock import MagicMock

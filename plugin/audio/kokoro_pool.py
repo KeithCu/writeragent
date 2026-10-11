@@ -56,6 +56,18 @@ def _child_env() -> dict[str, str]:
     return env
 
 
+def _reap_still_running(worker: object) -> bool:
+    """True when the last kill left the child alive.
+
+    A test double with no ``reap_incomplete`` counts as reaped, matching
+    the compute pool's stand-ins.
+    """
+    reap = getattr(worker, "reap_incomplete", None)
+    if not callable(reap):
+        return False
+    return bool(reap())
+
+
 class KokoroProcessPool:
     """Single warm worker plus an idle reaper. ``num_workers`` is always 1."""
 
@@ -143,7 +155,10 @@ class KokoroProcessPool:
             self._exec_token = token
             self._last_active = time.monotonic()
             existing = self._worker
-            reuse = existing is not None and existing.is_alive() and not existing.is_shutting_down()
+            # A child kill() could not reap is not warm. Reusing it would
+            # write to a pipe that never finished the handshake, or to one
+            # a timed-out request already desynced. Retire it instead.
+            reuse = existing is not None and existing.is_alive() and not existing.is_shutting_down() and not _reap_still_running(existing)
 
         if cancel_check and cancel_check():
             self.cancel_inflight(token)
@@ -153,6 +168,11 @@ class KokoroProcessPool:
             self._retire_worker(existing)
             if existing.reap_incomplete():
                 with self._lock:
+                    # Same as a failed spawn: the handle lives in _unreaped
+                    # until retry_reap finishes. Leaving it here made the
+                    # idle reaper treat a child kill() could not reap as warm.
+                    if self._worker is existing:
+                        self._worker = None
                     if self._exec_token is token:
                         self._inflight = False
                         self._exec_token = None
@@ -186,7 +206,10 @@ class KokoroProcessPool:
                 # that flag is not "cancelled": a real spawn failure must
                 # stay WORKER_SPAWN_FAILED and fall back to the one-shot clip.
                 spawn_cancelled = self._shutdown or self._exec_token is not token
-                failed = spawn_cancelled or not spawned.is_alive()
+                # is_alive() is still true when the handshake's kill could
+                # not reap. That child never said ready. Count it as failed
+                # so _retire_worker starts retry_reap instead of execute.
+                failed = spawn_cancelled or not spawned.is_alive() or _reap_still_running(spawned)
                 if failed and self._worker is spawned:
                     self._worker = None
                 if failed and self._exec_token is token:
