@@ -1581,6 +1581,17 @@ class TestSessionResetHttp:
         assert status.startswith("500")
         assert body.get("code") == "WORKER_CRASHED"
 
+    def test_execute_rejected_frame_is_500(self) -> None:
+        """A bad response frame killed the child. It is not a retryable 503."""
+
+        def rejected(**_kwargs):
+            return {"status": "error", "code": "WORKER_IPC_ERROR", "error": "forbidden"}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=rejected)
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "ex-ipc", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("500")
+        assert body.get("code") == "WORKER_IPC_ERROR"
+
     def test_execute_empty_response_is_500(self) -> None:
         def empty(**_kwargs):
             return {"status": "error", "code": "EMPTY_RESPONSE", "error": "no frame"}

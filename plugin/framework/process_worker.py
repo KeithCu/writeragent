@@ -208,6 +208,7 @@ class BaseProcessWorker:
     on_process_exit: Callable[[BaseProcessWorker, int], None] | None
     _shutting_down: bool
     _reap_incomplete: bool
+    _spawning: bool
     _reap_thread_id: int | None
     _child_env: dict[str, str] | None
     _ready_timeout_sec: float
@@ -222,8 +223,8 @@ class BaseProcessWorker:
         # process's Python and a scrubbed copy of the parent environment.
         self.executable = sys.executable if executable is None else executable
         self._child_env = env
-        # Kokoro's model load is this argument (20s). None reads the module
-        # constant at call time, so a test can shorten the handshake.
+        # Kokoro passes 20s. None copies the module constant here, in
+        # __init__. Patching it after this returns does not change the handshake.
         self._ready_timeout_sec = _SPAWN_READY_TIMEOUT_SEC if ready_timeout_sec is None else ready_timeout_sec
         # Compute passes the restricted unpickler. None is stock pickle,
         # which is what Kokoro's plain dict frames use.
@@ -259,6 +260,8 @@ class BaseProcessWorker:
         self._shutting_down = False
         # True when kill() left the child alive. Release must not idle that slot.
         self._reap_incomplete = False
+        # True during the ready read. is_alive must not unlink the log yet.
+        self._spawning = False
         # Ident of the thread inside on_process_exit. Checked before the
         # lifecycle lock so a callback cannot deadlock on it.
         self._reap_thread_id = None
@@ -600,37 +603,55 @@ class BaseProcessWorker:
                     self.kill()
                     return
                 timeout_sec = min(self._ready_timeout_sec, spawn_for)
-            ready_data: Any = None
-            if proc.stdout is not None:
-                ready_data = read_pickle_frame_with_timeout(proc.stdout, timeout_sec, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, require_dict=True, unpacker=self._unpacker)
-            # Only status "ready" counts. EOF or any other dict would mark the
-            # worker idle, and the next execute would wait out the full
-            # timeout before EMPTY_RESPONSE.
-            if not isinstance(ready_data, dict) or ready_data.get("status") != "ready":
-                status = ready_data.get("status") if isinstance(ready_data, dict) else None
-                self._log_spawn_outcome(f"{self.worker_name} #{self.worker_id} spawn handshake was not ready (status={status!r})")
+            # What was wrong: the handshake passes is_alive, and on Windows
+            # that runs before the read sees EOF. __init__ and Kokoro do not
+            # hold self.lock, so a dead child unlinked the log and the
+            # failure was stderr=<empty>. POSIX calls is_alive only when
+            # select times out. The flag stays set until the outcome is logged.
+            self._spawning = True
+            try:
+                ready_data: Any = None
+                if proc.stdout is not None:
+                    ready_data = read_pickle_frame_with_timeout(proc.stdout, timeout_sec, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, require_dict=True, unpacker=self._unpacker)
+                # Only status "ready" counts. EOF or any other dict would mark the
+                # worker idle, and the next execute would wait out the full
+                # timeout before EMPTY_RESPONSE.
+                if not isinstance(ready_data, dict) or ready_data.get("status") != "ready":
+                    status = ready_data.get("status") if isinstance(ready_data, dict) else None
+                    self._log_spawn_outcome(f"{self.worker_name} #{self.worker_id} spawn handshake was not ready (status={status!r})")
+                    self.kill()
+                    return
+                log.info("%s #%d spawned (pid=%s, status=%s)", self.worker_name, self.worker_id, ready_data.get("pid", proc.pid), ready_data.get("status"))
+                self.tasks_executed = 0
+            except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
+                # No-byte hang is TimeoutExpired. A deadline after the first
+                # handshake byte is IpcPartialFrameTimeout (a ConnectionError).
+                # That used to be logged as "Failed to spawn". The child is
+                # killed either way; the next lease respawns the slot.
+                spawned = self.process
+                rc = spawned.poll() if spawned is not None else None
+                self._log_spawn_outcome(f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})")
                 self.kill()
-                return
-            log.info("%s #%d spawned (pid=%s, status=%s)", self.worker_name, self.worker_id, ready_data.get("pid", proc.pid), ready_data.get("status"))
-            self.tasks_executed = 0
-        except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
-            # No-byte hang is TimeoutExpired. A deadline after the first
-            # handshake byte is IpcPartialFrameTimeout (a ConnectionError).
-            # That used to be logged as "Failed to spawn". The child is
-            # killed either way; the next lease respawns the slot.
-            spawned = self.process
-            rc = spawned.poll() if spawned is not None else None
-            self._log_spawn_outcome(f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})")
-            self.kill()
+            finally:
+                self._spawning = False
         except Exception as exc:
-            self._log_spawn_outcome(f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}")
-            # Popen failed before the path was published. kill() only
-            # unlinks _stderr_path, so this file would otherwise leak.
-            # The inner finally already closed the parent fd. An unlink
-            # while that fd was still open failed on Windows and was swallowed.
-            if stderr_path is not None and not published_stderr:
-                self._unlink_unpublished_stderr(stderr_path)
-            self.kill()
+            message = f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}"
+            # What was wrong: this kill() reaped self.process. A second
+            # respawn can raise before adopt while the first call's child
+            # is already published, and that child was healthy. The
+            # unpublished file is still removed. kill() only unlinks
+            # _stderr_path, so this path would leak it. The parent fd is
+            # already closed; an unlink while it was open failed on Windows.
+            if not published_stderr:
+                if self._shutting_down:
+                    log.info("%s", message)
+                else:
+                    log.error("%s", message)
+                if stderr_path is not None:
+                    self._unlink_unpublished_stderr(stderr_path)
+            else:
+                self._log_spawn_outcome(message)
+                self.kill()
 
     def _adopt_spawned_process(self, proc: subprocess.Popen[bytes], stderr_path: str) -> bool:
         """Publish *proc* and its stderr file, or refuse.
@@ -747,6 +768,12 @@ class BaseProcessWorker:
         # sessions in _reap_dead_sessions_unlocked.
         if proc.poll() is None:
             return True
+        # What was wrong: a startup crash called this before the handshake
+        # logged. The lock is free for __init__ and Kokoro, so the unlink
+        # ran and the failure reported stderr=<empty>. The request path
+        # holds self.lock and already skips the unlink below.
+        if self._spawning:
+            return False
         # What was wrong: poll() reaped an idle child and left _stderr_path.
         # A slot that was never leased again kept its /tmp/wa-<name>-w<id>-* file
         # until the pool shut down. Unlink only when no request holds
@@ -1008,11 +1035,9 @@ class BaseProcessWorker:
             # _ensure_live_process, where the slot may still be empty.
             pid = proc.pid
 
-            spent = self._fail_if_unusable(deadline, proc)
-            if spent is not None:
-                # Spawn or packing spent the clock. Writing the floored 0.01s
-                # used to time out and kill a child that was sent nothing.
-                return spent
+            # Spawn or packing spent the clock. Writing the floored 0.01s
+            # used to time out and kill a child that was sent nothing.
+            # One usable() call: the float is the write budget.
             ready = deadline.usable()
             if ready is None:
                 return self._fail_timeout(deadline, pid, kill=False)
@@ -1050,6 +1075,16 @@ class BaseProcessWorker:
                 # The next read would consume the rest of this frame as a
                 # new response, so the child is killed.
                 return self._fail_timeout(deadline, pid)
+            except IpcFrameError as exc:
+                # What was wrong: an invalid or oversized response frame was
+                # WORKER_CRASHED. The child is still killed: the pipe is not
+                # on a frame the next request can read. IpcFrameError is a
+                # ValueError, so it has to be caught before that handler.
+                return self._fail_request("WORKER_IPC_ERROR", f"{self.worker_name} rejected a response frame: {exc}", pid=pid)
+            except ValueError as exc:
+                # The restricted unpickler rejects the payload after those
+                # bytes were consumed. Same kill, and not a process crash.
+                return self._fail_request("WORKER_IPC_ERROR", f"{self.worker_name} rejected a response frame: {exc}", pid=pid)
             except Exception as exc:
                 return self._fail_request("WORKER_CRASHED", f"{self.worker_name} error: {exc}", pid=pid)
             if resp is None or not isinstance(resp, dict):

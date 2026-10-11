@@ -53,8 +53,9 @@ def check_dependencies(pool: Any) -> None:
 
 # The cell never ran for the 503 codes: a proxy can retry. Eval errors and
 # EXECUTION_TIMEOUT stay HTTP 200 so the sheet shows the error instead of #N/A.
-# WORKER_CRASHED and EMPTY_RESPONSE are 500: the cell may have run (OOM,
-# segfault, missing frame). 503 would invite a retry that kills another worker.
+# WORKER_CRASHED, WORKER_IPC_ERROR, and EMPTY_RESPONSE are 500: the cell
+# may have run (OOM, segfault, a rejected response frame, missing frame).
+# 503 would invite a retry that kills another worker.
 # VISION_WORKER_ERROR and a dict-shaped WORKER_EXECUTION_ERROR are the same
 # class: the fault is the response body, not a forwarded cell. A formula
 # WORKER_EXECUTION_ERROR inside result_json stays 200; see
@@ -73,6 +74,7 @@ _HTTP_STATUS_BY_CODE = {
     "VISION_POOL_BUSY": "503 Service Unavailable",
     "VISION_UNAVAILABLE": "503 Service Unavailable",
     "WORKER_CRASHED": "500 Internal Server Error",
+    "WORKER_IPC_ERROR": "500 Internal Server Error",
     "EMPTY_RESPONSE": "500 Internal Server Error",
     "WORKER_EXECUTION_ERROR": "500 Internal Server Error",
     "VISION_WORKER_ERROR": "500 Internal Server Error",

@@ -1887,6 +1887,215 @@ def test_concurrent_respawn_keeps_one_child(monkeypatch: pytest.MonkeyPatch) -> 
         worker.kill()
 
 
+def test_handshake_is_alive_keeps_stderr_for_the_failure_log(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """A dead child during the ready read must not delete the log first.
+
+    What was wrong: respawn passes is_alive into the handshake. On Windows
+    that runs before EOF. __init__ and Kokoro do not hold self.lock, so
+    the unlink ran and the failure logged stderr=<empty>. POSIX calls
+    is_alive only when select times out.
+    """
+    import logging
+
+    from plugin.framework import process_worker as worker_mod
+
+    worker = _worker_without_spawn(monkeypatch)
+    saw: dict[str, bool] = {}
+
+    class _Dead:
+        def __init__(self) -> None:
+            self.pid = 41
+            self.stdin = None
+            self.stdout = object()
+            self.stderr = None
+            self.returncode: int | None = 1
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            if self.returncode is None:
+                self.returncode = -9
+            return self.returncode
+
+    def _popen(*_args: object, **_kwargs: object) -> _Dead:
+        return _Dead()
+
+    def _read(_stdout: object, _timeout_sec: float, **kwargs: object) -> None:
+        path = worker._stderr_path
+        assert path
+        with open(path, "ab") as handle:
+            handle.write(b"startup-crash-traceback\n")
+        alive = kwargs["is_alive"]
+        assert callable(alive)
+        alive()
+        saw["exists"] = Path(path).exists()
+        return None
+
+    monkeypatch.setattr(worker_mod.subprocess, "Popen", _popen)
+    monkeypatch.setattr(worker_mod, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_mod, "optimize_popen_pipes", lambda _proc: None)
+    with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+        worker.respawn()
+    joined = "\n".join(record.getMessage() for record in caplog.records)
+    assert saw.get("exists") is True
+    assert "startup-crash-traceback" in joined
+    assert "stderr=<empty>" not in joined
+    assert worker._stderr_path is None
+
+
+def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    """A respawn that raises before adopt must not kill the published child.
+
+    What was wrong: the except path always called kill(). Two unlocked
+    callers can overlap. The one that fails before adopt reaped the
+    other call's healthy child.
+    """
+    import logging
+
+    from plugin.framework import process_worker as worker_mod
+
+    worker = _worker_without_spawn(monkeypatch)
+    both_in_popen = threading.Event()
+    adopted = threading.Event()
+    hold = threading.Event()
+    calls = {"n": 0}
+    calls_lock = threading.Lock()
+    winner: dict[str, Any] = {}
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.pid = 77
+            self.stdin = None
+            self.stdout = object()
+            self.stderr = None
+            self.killed = False
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            if self.returncode is None:
+                self.returncode = -9
+            return self.returncode
+
+    def _popen(*_args: object, **_kwargs: object) -> _Proc:
+        with calls_lock:
+            calls["n"] += 1
+            mine = calls["n"]
+            if calls["n"] == 2:
+                both_in_popen.set()
+        assert both_in_popen.wait(timeout=2)
+        if mine == 1:
+            proc = _Proc()
+            winner["proc"] = proc
+            return proc
+        deadline = time.monotonic() + 2.0
+        while worker.process is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        raise OSError("second spawn failed")
+
+    def _read(_stdout: object, _timeout_sec: float, **_kwargs: object) -> dict[str, object]:
+        path = worker._stderr_path
+        assert path
+        with open(path, "ab") as handle:
+            handle.write(b"winner-still-healthy\n")
+        adopted.set()
+        hold.wait(timeout=2)
+        return {"status": "ready", "pid": 77}
+
+    monkeypatch.setattr(worker_mod.subprocess, "Popen", _popen)
+    monkeypatch.setattr(worker_mod, "read_pickle_frame_with_timeout", _read)
+    monkeypatch.setattr(worker_mod, "optimize_popen_pipes", lambda _proc: None)
+    errors: list[BaseException] = []
+
+    def _run() -> None:
+        try:
+            worker.respawn()
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_run) for _idx in range(2)]
+    with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+        for thread in threads:
+            thread.start()
+        try:
+            assert adopted.wait(timeout=2)
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline and sum(not thread.is_alive() for thread in threads) < 1:
+                time.sleep(0.01)
+            assert sum(not thread.is_alive() for thread in threads) == 1
+            published = winner["proc"]
+            assert worker.process is published
+            assert published.killed is False
+            hold.set()
+            for thread in threads:
+                thread.join(timeout=2)
+                assert not thread.is_alive()
+            assert errors == []
+            joined = "\n".join(record.getMessage() for record in caplog.records)
+            assert "second spawn failed" in joined
+            assert "winner-still-healthy" not in joined
+            assert worker.process is published
+            assert published.killed is False
+        finally:
+            hold.set()
+            for thread in threads:
+                thread.join(timeout=2)
+            worker.kill()
+
+
+def test_response_frame_error_is_ipc_not_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bad response frame is WORKER_IPC_ERROR and still kills the child.
+
+    What was wrong: IpcFrameError and a restricted-unpickler ValueError
+    fell through to WORKER_CRASHED. The pipe is not reusable, so the
+    kill stays. The code was the part that lied.
+    """
+    from unittest.mock import MagicMock
+
+    from compute_service.worker_base import BaseProcessWorker
+    from plugin.scripting.ipc import IpcFrameReadError
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    monkeypatch.setattr("plugin.framework.process_worker.write_packed_frame_with_timeout", lambda *_args, **_kwargs: None)
+
+    def _run(exc: BaseException) -> dict[str, Any]:
+        worker = BaseProcessWorker(1, "unused.py")
+        worker.process = MagicMock()
+        worker.process.poll.return_value = None
+        worker.process.pid = 3
+        worker.process.stdin = MagicMock()
+        worker.process.stdout = MagicMock()
+        killed: list[bool] = []
+        worker.kill = lambda: killed.append(True)  # type: ignore[method-assign]
+        monkeypatch.setattr(
+            "plugin.framework.process_worker.read_pickle_frame_with_timeout",
+            MagicMock(side_effect=exc),
+        )
+        res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
+        assert killed == [True]
+        assert worker.tasks_executed == 0
+        return res
+
+    oversized = _run(IpcFrameReadError("Invalid IPC frame size: 99"))
+    assert oversized.get("code") == "WORKER_IPC_ERROR"
+    assert "WORKER_CRASHED" not in str(oversized.get("code"))
+    rejected = _run(ValueError("builtin is forbidden"))
+    assert rejected.get("code") == "WORKER_IPC_ERROR"
+    assert "forbidden" in str(rejected.get("error"))
+
+
 def test_unadopted_child_that_survives_kill_is_logged(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """A child adopt refused and could not reap is logged. It is not retried.
 
