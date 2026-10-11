@@ -69,6 +69,7 @@ class KokoroProcessPool:
     _shutdown: bool
     _last_active: float
     _reaper_stop: threading.Event
+    _unreaped: BaseProcessWorker | None
 
     def __init__(
         self,
@@ -93,6 +94,9 @@ class KokoroProcessPool:
         self._shutdown = False
         self._last_active = time.monotonic()
         self._reaper_stop = threading.Event()
+        # A child kill() did not reap. The next job must not start a second
+        # ONNX process beside it. None once retry_reap finishes.
+        self._unreaped = None
         if idle_worker_ttl_sec is not None and idle_worker_ttl_sec > 0:
             self._start_reaper()
 
@@ -126,6 +130,13 @@ class KokoroProcessPool:
         with self._lock:
             if self._shutdown:
                 return {"status": "error", "code": "WORKER_SHUTDOWN", "error": "Kokoro pool is shut down."}
+            stuck = self._unreaped
+            if stuck is not None and stuck.reap_incomplete():
+                return {
+                    "status": "error",
+                    "code": "WORKER_SPAWN_FAILED",
+                    "error": "Kokoro worker has not exited yet.",
+                }
             if cancel_check and cancel_check():
                 return {"status": "error", "code": "WORKER_CANCELLED", "error": "Kokoro worker was cancelled."}
             self._inflight = True
@@ -139,8 +150,17 @@ class KokoroProcessPool:
             return {"status": "error", "code": "WORKER_CANCELLED", "error": "Kokoro worker was cancelled."}
 
         if existing is not None and not reuse:
-            existing.request_shutdown()
-            existing.kill()
+            self._retire_worker(existing)
+            if existing.reap_incomplete():
+                with self._lock:
+                    if self._exec_token is token:
+                        self._inflight = False
+                        self._exec_token = None
+                return {
+                    "status": "error",
+                    "code": "WORKER_SPAWN_FAILED",
+                    "error": "Kokoro worker has not exited yet.",
+                }
         worker = existing if reuse else None
         if worker is None:
             spawned = BaseProcessWorker(1, self.script_path, worker_name="Kokoro", executable=self.python_executable, env=_child_env(), ready_timeout_sec=_SPAWN_READY_TIMEOUT_SEC, start=False)
@@ -173,8 +193,7 @@ class KokoroProcessPool:
                     self._inflight = False
                     self._exec_token = None
             if failed:
-                spawned.request_shutdown()
-                spawned.kill()
+                self._retire_worker(spawned)
                 if spawn_cancelled:
                     return {
                         "status": "error",
@@ -233,8 +252,7 @@ class KokoroProcessPool:
             self._inflight = False
         if worker is not None:
             log.info("Cancelling in-flight Kokoro synthesis")
-            worker.request_shutdown()
-            worker.kill()
+            self._retire_worker(worker)
 
     def _evict_idle_worker(self) -> None:
         ttl = self.idle_worker_ttl_sec
@@ -248,22 +266,52 @@ class KokoroProcessPool:
             worker = self._worker
             self._worker = None
         log.info("Kokoro worker idle for >%.0fs; releasing the ONNX model", ttl)
+        self._retire_worker(worker)
+
+    def _retire_worker(self, worker: BaseProcessWorker) -> None:
+        """Kill *worker*. If it survives, keep the handle and block a new spawn.
+
+        Dropping the only reference after a failed reap orphaned the ONNX
+        process. The next job would start a second one beside it.
+        """
         worker.request_shutdown()
         worker.kill()
+        if not worker.reap_incomplete():
+            return
+        with self._lock:
+            if self._shutdown or self._unreaped is worker:
+                return
+            self._unreaped = worker
+        run_in_background(lambda: self._watch_unreaped(worker), name="kokoro-reap", dedicated=True)
+
+    def _watch_unreaped(self, worker: BaseProcessWorker) -> None:
+        try:
+            worker.retry_reap(self._reaper_stop)
+        except Exception:
+            log.exception("Kokoro retry reap failed")
+        with self._lock:
+            if self._unreaped is worker and (not worker.reap_incomplete() or self._shutdown):
+                self._unreaped = None
 
     def shutdown(self) -> None:
         self._reaper_stop.set()
         with self._lock:
             self._shutdown = True
             worker = self._worker
+            stuck = self._unreaped
             self._worker = None
+            self._unreaped = None
             self._inflight = False
             # In-flight execute treats a dropped token as cancel, so shutdown
             # does not fall through to a one-shot Kokoro clip.
             self._exec_token = None
-        if worker is not None:
-            worker.request_shutdown()
-            worker.kill()
+        seen: list[BaseProcessWorker] = []
+        for item in (worker, stuck):
+            if item is None or item in seen:
+                continue
+            seen.append(item)
+            item.request_shutdown()
+            item.kill()
 
 
 _POOL: KokoroProcessPool | None = None

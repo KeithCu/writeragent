@@ -187,6 +187,7 @@ class BaseProcessPool:
     _lock: threading.RLock
     _cond: threading.Condition
     _reaper_stop_event: threading.Event
+    _unreaped: set[BaseProcessWorker]
 
     def __init__(
         self,
@@ -220,6 +221,9 @@ class BaseProcessPool:
         # Leased or cold-claimed. A dead pid nobody holds is not idle;
         # the next lease respawns it.
         self._leased: set[BaseProcessWorker] = set()
+        # kill() returned while the child was still alive. Not idle, not
+        # leased, and not cold-claimable until a retry reap finishes.
+        self._unreaped = set()
         self._cond = threading.Condition(self._lock)
         self._reaper_stop_event = threading.Event()
 
@@ -264,6 +268,7 @@ class BaseProcessPool:
         self.workers.clear()
         self._idle.clear()
         self._leased.clear()
+        self._unreaped.clear()
         for worker in workers:
             try:
                 worker.request_shutdown()
@@ -353,6 +358,9 @@ class BaseProcessPool:
                 self._drop_evicted_unlocked(w)
         for w in to_kill:
             w.kill()
+            # A child that survived SIGKILL is not idle and not leased.
+            # Cold claim skips a live process, so park it for another reap.
+            self._park_unreaped(w)
         # Do not put the killed process back in idle. Idle is a successful
         # handshake or a consumed response frame. lease_any claims the cold
         # slot and respawns it.
@@ -423,7 +431,7 @@ class BaseProcessPool:
         successful handshake or a consumed response frame.
         """
         for worker in self.workers:
-            if worker in self._idle or worker in self._leased:
+            if worker in self._idle or worker in self._leased or worker in self._unreaped:
                 continue
             if not worker.is_alive():
                 return worker
@@ -464,7 +472,10 @@ class BaseProcessPool:
                     self._leased.add(worker)
                     return worker
                 # Process exit: not idle, but the slot can be respawned by execute.
-                if not worker.is_alive() and worker not in self._leased:
+                # An unreaped child stays out until retry_reap finishes, even
+                # after poll() would say it has died. Claiming it here would
+                # respawn while that reap is still in kill().
+                if not worker.is_alive() and worker not in self._leased and worker not in self._unreaped:
                     self._leased.add(worker)
                     return worker
                 remaining = deadline - time.monotonic()
@@ -513,6 +524,44 @@ class BaseProcessPool:
             self._leased.discard(worker)
             self._cond.notify_all()
 
+    def _worker_reap_incomplete(self, worker: BaseProcessWorker) -> bool:
+        """True when *worker* survived ``kill``. Stand-ins omit the method.
+
+        Test slots implement ``kill`` and ``is_alive`` only. Missing means
+        the reap finished, which is what those tests already model.
+        """
+        flag = getattr(worker, "reap_incomplete", None)
+        if not callable(flag):
+            return False
+        return bool(flag())
+
+    def _park_unreaped(self, worker: BaseProcessWorker) -> None:
+        """Retry ``kill`` for a child that is still alive, off the pool lock.
+
+        The watcher calls ``retry_reap`` and does not hold ``_cond`` across
+        it: ``on_process_exit`` takes ``_cond`` while the lifecycle lock is
+        held. Cold claim skips ``_unreaped`` until that reap finishes, so it
+        cannot respawn the slot underneath the watcher.
+        """
+        if not self._worker_reap_incomplete(worker):
+            return
+        with self._cond:
+            if self._is_shutdown or worker in self._unreaped:
+                return
+            self._unreaped.add(worker)
+
+        def _watch() -> None:
+            try:
+                worker.retry_reap(self._reaper_stop_event)
+            except Exception:
+                log.exception("Retry reap failed for %s #%s", self.worker_name, worker.worker_id)
+            with self._cond:
+                if not self._worker_reap_incomplete(worker) or self._is_shutdown:
+                    self._unreaped.discard(worker)
+                    self._cond.notify_all()
+
+        run_in_background(_watch, name=f"{self.worker_name}-reap-{worker.worker_id}", dedicated=True)
+
     def _finish_release(self, worker: BaseProcessWorker) -> None:
         if self._is_shutdown:
             self._drop_lease(worker)
@@ -531,7 +580,9 @@ class BaseProcessPool:
                 pass
             else:
                 self._leased.discard(worker)
-                if worker.is_alive():
+                # A failed reap leaves the child alive on a desynced pipe.
+                # Idling it would hand the next lease that process.
+                if worker.is_alive() and not self._worker_reap_incomplete(worker):
                     # The response frame was consumed and worker is alive: return to idle.
                     self._idle[worker] = time.monotonic()
                     self._idle.move_to_end(worker)
@@ -546,6 +597,9 @@ class BaseProcessPool:
             log.info("Retiring %s #%d after %d tasks", self.worker_name, worker.worker_id, worker.tasks_executed)
             worker.kill()
             self._drop_lease(worker)
+        # Shutdown returned above. A child that survived kill stays out of
+        # idle and leased until a retry reap. A finished reap is a no-op.
+        self._park_unreaped(worker)
 
     def _clear_pool_state_unlocked(self) -> None:
         """Drop subclass maps. Caller holds ``_cond`` and has set ``_is_shutdown``.
@@ -571,6 +625,7 @@ class BaseProcessPool:
             self.workers.clear()
             self._idle.clear()
             self._leased.clear()
+            self._unreaped.clear()
             self._cond.notify_all()
         # request_shutdown takes _lifecycle_lock. Reap's on_process_exit
         # takes _cond while that lock is held, so this stays outside _cond.

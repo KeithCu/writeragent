@@ -171,11 +171,12 @@ class BaseProcessWorker:
     """Wrapper around one persistent child subprocess communicating via Pickle 5 frames.
 
     ``on_process_exit`` runs from ``_reap_previous_process`` while
-    ``_lifecycle_lock`` is held. That lock is not re-entrant. The callback
-    must not call ``kill``, ``respawn``, ``request_shutdown``, or take
-    ``_lifecycle_lock``. It may take the pool condition. Dropping the lock
-    before the callback is not safe: ``respawn`` is the caller of the reap,
-    so a callback that then respawned would start a second child.
+    ``_lifecycle_lock`` is held. That lock is not re-entrant. ``kill``,
+    ``respawn``, and ``request_shutdown`` raise ``RuntimeError`` when the
+    caller is that callback's thread, before taking the lock. The callback
+    may take the pool condition. Dropping the lock before the callback is
+    not safe: ``respawn`` is the caller of the reap, so a callback that
+    then respawned would start a second child.
     """
 
     worker_id: int
@@ -188,6 +189,8 @@ class BaseProcessWorker:
     tasks_executed: int
     on_process_exit: Callable[[BaseProcessWorker, int], None] | None
     _shutting_down: bool
+    _reap_incomplete: bool
+    _reap_thread_id: int | None
     _child_env: dict[str, str] | None
     _ready_timeout_sec: float
     _unpacker: Callable[[bytes], Any] | None
@@ -228,7 +231,16 @@ class BaseProcessWorker:
         # execute lock, so a flag under self.lock would stay invisible until
         # the cell finished. The write is under _lifecycle_lock so adopt either
         # sees shutdown or publishes a child that kill() still reaps.
+        # CPython's GIL publishes this bool. A free-threaded build would need
+        # the read under _lifecycle_lock. ``_reap_incomplete`` is the same
+        # kind of read: the pool may hold its condition, and on_process_exit
+        # holds this lock while taking that condition.
         self._shutting_down = False
+        # True when kill() left the child alive. Release must not idle that slot.
+        self._reap_incomplete = False
+        # Ident of the thread inside on_process_exit. Checked before the
+        # lifecycle lock so a callback cannot deadlock on it.
+        self._reap_thread_id = None
         # Kokoro publishes the object before the handshake so Stop can kill
         # it. Compute and direct callers spawn here.
         if start:
@@ -386,15 +398,19 @@ class BaseProcessWorker:
 
         Returns True when the slot is empty or ``wait()`` reaped the child.
         Returns False when the child is still alive after the wait: the slot
-        stays on that ``Popen``, and ``on_process_exit`` does not run.
+        stays on that ``Popen``, ``_reap_incomplete`` stays set, and
+        ``on_process_exit`` does not run. The pool parks that slot and
+        calls ``retry_reap``.
 
         ``poll()`` reaps an already-dead child so the next ``respawn`` does
         not leave a zombie. Kill first only when it is still running, so a
         reused pid is not signaled.
         """
+        self._refuse_reentry()
         with self._lifecycle_lock:
             previous = self.process
             if previous is None:
+                self._reap_incomplete = False
                 self._close_stderr_log()
                 return True
             pid = previous.pid
@@ -404,20 +420,26 @@ class BaseProcessWorker:
             # effect (uninterruptible sleep).
             if not self._kill_and_wait(previous, pid, context=""):
                 log.warning("%s #%d pid=%s still alive after reap; not reporting exit", self.worker_name, self.worker_id, pid)
-                # The file stays with this child. The idle reaper does not
-                # see a slot that is neither idle nor leased.
+                # The file stays with this child. Callers park the slot:
+                # it is neither idle nor leased, and cold claim skips a
+                # live process, so nothing else would call kill() again.
+                self._reap_incomplete = True
                 self.cap_stderr_log()
                 return False
             self.process = None
+            self._reap_incomplete = False
             # After wait(), the pid is reaped. Report this wrapper with it.
             # Matching the pid alone dropped another slot's session when
             # poll() had already freed this pid and the kernel reused it.
             # The callback runs under this lock. See BaseProcessWorker.
             if pid is not None and self.on_process_exit is not None:
+                self._reap_thread_id = threading.get_ident()
                 try:
                     self.on_process_exit(self, pid)
                 except Exception:
                     log.exception("%s #%d process-exit callback failed for pid=%s", self.worker_name, self.worker_id, pid)
+                finally:
+                    self._reap_thread_id = None
             # Snippet readers run before kill(). Unlink only after the child
             # is reaped so a failure log still sees the tail.
             self._close_stderr_log()
@@ -443,6 +465,7 @@ class BaseProcessWorker:
         """
         if timeout_sec is None:
             timeout_sec = self._ready_timeout_sec
+        self._refuse_reentry()
         if self._shutting_down:
             return
         if not self._reap_previous_process():
@@ -618,12 +641,45 @@ class BaseProcessWorker:
         must not hold the pool condition: reap's ``on_process_exit`` takes
         that condition while this lock is held.
         """
+        self._refuse_reentry()
         with self._lifecycle_lock:
             self._shutting_down = True
+
+    def _refuse_reentry(self) -> None:
+        """Raise when this thread is inside ``on_process_exit``.
+
+        ``_lifecycle_lock`` is not re-entrant. A check after acquiring it
+        never runs: the callback's thread already holds the lock, so
+        ``kill`` would deadlock first. Another thread's ident does not
+        match, and that thread waits on the lock.
+        """
+        if self._reap_thread_id == threading.get_ident():
+            raise RuntimeError(f"{self.worker_name} #{self.worker_id} re-entered from on_process_exit")
+
+    def reap_incomplete(self) -> bool:
+        """True when the last reap left the child alive.
+
+        Read unlocked, same as ``_shutting_down``. The pool may hold its
+        condition here, and ``on_process_exit`` holds ``_lifecycle_lock``
+        while taking that condition.
+        """
+        return self._reap_incomplete
 
     def kill(self) -> None:
         """Terminate the child using the same rules as spawn's reap."""
         self._reap_previous_process()
+
+    def retry_reap(self, stop: threading.Event) -> None:
+        """Call ``kill`` until the child is gone or *stop* is set.
+
+        One ``kill`` can return while the pid is still alive (uninterruptible
+        sleep, or a signal that did not land). The caller has already dropped
+        this slot from idle and leased. Cold claim skips a live process, so
+        ``on_process_exit`` would not run again. Each ``kill`` already waits
+        up to ``_REAP_WAIT_SEC``.
+        """
+        while not stop.is_set() and self.reap_incomplete():
+            self.kill()
 
     def _fail_request(self, code: str, msg: str, *, pid: int | None, kill: bool = True) -> dict[str, Any]:
         """Build an error dict, then kill the child or leave it.
@@ -735,24 +791,18 @@ class BaseProcessWorker:
             if deadline.usable() is None:
                 current = self.process
                 return self._fail_timeout(deadline, current.pid if current is not None else None, kill=False)
-            ensured = self._ensure_live_process(deadline)
-            if isinstance(ensured, dict):
-                return ensured
-            proc, stdin, stdout = ensured
-            # proc is live here. The nullable pid helper stays in
-            # _ensure_live_process, where the slot may still be empty.
-            pid = proc.pid
-
             try:
-                # Pack before any pipe write. IpcFrameError and pickle errors
-                # mean no byte was written, so the child stays aligned.
+                # Pack before spawn and before any pipe write. An oversized or
+                # unpicklable payload used to start a child and then return.
+                # IpcFrameError and pickle errors mean no byte was written.
                 # What was wrong: ValueError and TypeError were caught around
                 # the whole write. A pipe that raised them was reported as
                 # REQUEST_NOT_SERIALIZABLE and left alive on a desynced frame.
                 frame = pack_pickle_frame(payload, max_payload_bytes=self.max_payload_bytes)
             except IpcFrameError as exc:
-                # Raised before any byte is written. The child is still the
-                # same kernel; killing it would drop every shared session.
+                # Raised before any byte is written. No child was started for
+                # this payload. An already-live child stays: killing it would
+                # drop every shared session.
                 return error_dict("PAYLOAD_TOO_LARGE", str(exc))
             except (pickle.PicklingError, TypeError, ValueError, RecursionError) as exc:
                 # pickle.dumps used to escape execute. ValueError and
@@ -762,6 +812,18 @@ class BaseProcessWorker:
                 # self.process used to land here and skip the kill.
                 # MemoryError is not included: the process may be out of memory.
                 return error_dict("REQUEST_NOT_SERIALIZABLE", str(exc))
+            if deadline.usable() is None:
+                # Packing spent the clock. Do not spawn, and do not kill a
+                # child that was sent nothing.
+                current = self.process
+                return self._fail_timeout(deadline, current.pid if current is not None else None, kill=False)
+            ensured = self._ensure_live_process(deadline)
+            if isinstance(ensured, dict):
+                return ensured
+            proc, stdin, stdout = ensured
+            # proc is live here. The nullable pid helper stays in
+            # _ensure_live_process, where the slot may still be empty.
+            pid = proc.pid
 
             ready = deadline.usable()
             if ready is None:

@@ -1409,6 +1409,7 @@ def test_reap_timeout_keeps_live_pid(monkeypatch: pytest.MonkeyPatch) -> None:
     worker.respawn()
     assert exited == []
     assert worker.process is child
+    assert worker.reap_incomplete()
     assert child.killed
     assert popped == []
 
@@ -1452,6 +1453,7 @@ def test_reap_reports_exit_after_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     assert exited == [(worker.worker_id, 7)]
     assert held == [True]
     assert worker.process is None
+    assert not worker.reap_incomplete()
 
 
 def test_stderr_log_fd_is_append_only(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1807,6 +1809,177 @@ def test_formula_worker_script_handshake() -> None:
         assert json.loads(raw).get("result") == 1
     finally:
         worker.kill()
+
+
+def test_retry_reap_reports_exit_when_the_child_dies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second reap reports the pid the first wait could not.
+
+    What was wrong: one timed-out SIGKILL left the slot alive, and nothing
+    called kill() again, so on_process_exit never ran for that pid.
+    """
+    import subprocess
+
+    class _DiesOnSecond:
+        def __init__(self) -> None:
+            self.pid = 42
+            self.kills = 0
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            self.kills += 1
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            if self.kills < 2:
+                raise subprocess.TimeoutExpired(cmd="stuck", timeout=1)
+            self.returncode = -9
+            return -9
+
+    worker = _worker_without_spawn(monkeypatch)
+    child = _DiesOnSecond()
+    exited: list[int] = []
+    worker.on_process_exit = lambda _slot, pid: exited.append(pid)
+    worker.process = child  # type: ignore[assignment]
+    assert worker.kill() is None
+    assert worker.reap_incomplete()
+    assert exited == []
+    worker.retry_reap(threading.Event())
+    assert child.kills == 2
+    assert exited == [42]
+    assert worker.process is None
+    assert not worker.reap_incomplete()
+
+
+def test_exit_callback_cannot_reenter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """kill, respawn, and request_shutdown raise instead of taking the lifecycle lock.
+
+    The callback already holds that lock. Acquiring it again on the same
+    thread deadlocks; the ident check runs first.
+    """
+    worker = _worker_without_spawn(monkeypatch)
+
+    class _Exited:
+        def __init__(self) -> None:
+            self.pid = 7
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            del timeout
+            self.returncode = 0
+            return 0
+
+    def _on_exit(slot: object, pid: int) -> None:
+        del pid
+        assert slot is worker
+        with pytest.raises(RuntimeError, match="re-entered"):
+            worker.kill()
+        with pytest.raises(RuntimeError, match="re-entered"):
+            worker.request_shutdown()
+        with pytest.raises(RuntimeError, match="re-entered"):
+            worker.respawn()
+
+    worker.on_process_exit = _on_exit
+    worker.process = _Exited()  # type: ignore[assignment]
+    worker.kill()
+    assert worker.process is None
+    assert not worker.is_shutting_down()
+
+
+def test_release_does_not_idle_unreaped_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A child that survived kill stays out of idle until the retry reap.
+
+    What was wrong: release idled any live worker. A timeout whose SIGKILL
+    had not landed was handed to the next lease on a desynced pipe, and a
+    recycle or idle eviction dropped the slot with no second kill.
+    """
+    deferred: list[object] = []
+
+    def _defer(func: object, *_args: object, **_kwargs: object) -> None:
+        deferred.append(func)
+
+    monkeypatch.setattr("compute_service.worker_base.run_in_background", _defer)
+    pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
+
+    class _SurvivesKill:
+        def __init__(self) -> None:
+            self.tasks_executed = 0
+            self.worker_id = 3
+            self.killed = 0
+            self._alive = True
+            self._incomplete = False
+
+        def is_alive(self) -> bool:
+            return self._alive
+
+        def request_shutdown(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            self.killed += 1
+            self._incomplete = True
+
+        def reap_incomplete(self) -> bool:
+            return self._incomplete
+
+        def retry_reap(self, stop: threading.Event) -> None:
+            del stop
+            self.killed += 1
+            self._alive = False
+            self._incomplete = False
+
+    worker = _SurvivesKill()
+    try:
+        worker.kill()
+        pool.workers.append(worker)  # type: ignore[arg-type]
+        pool._leased.add(worker)  # type: ignore[arg-type]
+        pool.release_worker(worker)  # type: ignore[arg-type]
+        assert worker not in pool._idle
+        assert worker not in pool._leased
+        assert worker in pool._unreaped
+        assert pool.lease_any(timeout_sec=0) is None
+        assert len(deferred) == 1
+        watch = deferred[0]
+        assert callable(watch)
+        watch()
+        assert worker not in pool._unreaped
+        assert not worker.reap_incomplete()
+        assert pool.lease_any(timeout_sec=0) is worker
+    finally:
+        pool.shutdown()
+
+
+def test_unpicklable_payload_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pack runs before spawn. A pickle error must not start a child."""
+    import pickle
+    from unittest.mock import MagicMock
+
+    from compute_service.worker_base import BaseProcessWorker
+
+    worker = _worker_without_spawn(monkeypatch)
+    spawned: list[bool] = []
+
+    def _spawn(self: BaseProcessWorker, timeout_sec: float | None = None, deadline: object | None = None) -> None:
+        del self, timeout_sec, deadline
+        spawned.append(True)
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", _spawn)
+    monkeypatch.setattr(
+        "plugin.framework.process_worker.pack_pickle_frame",
+        MagicMock(side_effect=pickle.PicklingError("no")),
+    )
+    worker.process = None
+    res = worker.execute({"code": "result = 1"}, timeout_sec=5)
+    assert res.get("code") == "REQUEST_NOT_SERIALIZABLE"
+    assert spawned == []
 
 
 
