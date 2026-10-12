@@ -35,7 +35,7 @@ class GrokBackend(ACPBackend):
 
     def get_display_name(self) -> str:
         """Return display name for UI."""
-        return "Grok Build (ACP)"
+        return "Grok Build"
 
     def get_agent_name(self) -> str:
         """Return ACP agent name."""

@@ -25,7 +25,7 @@ class TestClaudeBinaryDiscovery:
     def test_display_name_is_correct(self):
         """Test that the backend returns the correct display name."""
         backend = ClaudeBackend()
-        assert (backend.get_display_name()) == ("Claude Code (ACP)")
+        assert (backend.get_display_name()) == ("Claude Code")
 
 
 class TestClaudeBackendInit:
@@ -34,7 +34,7 @@ class TestClaudeBackendInit:
     def test_backend_id(self):
         backend = ClaudeBackend()
         assert (backend.backend_id) == ("claude")
-        assert (backend.get_display_name()) == ("Claude Code (ACP)")
+        assert (backend.get_display_name()) == ("Claude Code")
 
 
 class TestIsAvailable:

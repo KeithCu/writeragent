@@ -30,7 +30,7 @@ from plugin.acp.vibe_simple import VibeBackend
 from plugin.acp.grok_simple import GrokBackend
 from plugin.acp.opencode_simple import OpenCodeBackend
 
-AGENT_BACKEND_REGISTRY = {"builtin": ("Built-in", BuiltinBackend), "hermes": ("Hermes", HermesBackend), "claude": ("Claude Code (ACP)", ClaudeBackend), "vibe": ("Mistral Vibe (ACP)", VibeBackend), "grok": ("Grok Build (ACP)", GrokBackend), "opencode": ("OpenCode (ACP)", OpenCodeBackend)}
+AGENT_BACKEND_REGISTRY = {"builtin": ("Built-in", BuiltinBackend), "hermes": ("Hermes", HermesBackend), "claude": ("Claude Code", ClaudeBackend), "vibe": ("Mistral Vibe", VibeBackend), "grok": ("Grok Build", GrokBackend), "opencode": ("OpenCode", OpenCodeBackend)}
 
 
 def list_backend_ids() -> list[str]:

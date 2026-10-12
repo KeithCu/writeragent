@@ -37,7 +37,7 @@ class ClaudeBackend(ACPBackend):
 
     def get_display_name(self) -> str:
         """Return display name for UI."""
-        return "Claude Code (ACP)"
+        return "Claude Code"
 
     def get_agent_name(self) -> str:
         """Return ACP agent name."""

@@ -22,7 +22,7 @@ class TestGrokBinaryDiscovery:
 
     def test_display_name(self):
         backend = GrokBackend()
-        assert (backend.get_display_name()) == ("Grok Build (ACP)")
+        assert (backend.get_display_name()) == ("Grok Build")
 
     def test_agent_name(self):
         backend = GrokBackend()
@@ -35,7 +35,7 @@ class TestGrokBackendInit:
     def test_backend_id(self):
         backend = GrokBackend()
         assert (backend.backend_id) == ("grok")
-        assert (backend.get_display_name()) == ("Grok Build (ACP)")
+        assert (backend.get_display_name()) == ("Grok Build")
 
 
 class TestIsAvailable:
@@ -79,6 +79,6 @@ class TestAgentBackendDisplayLabel:
     """Error messages must use get_display_name(), not inherited display_name."""
 
     def test_label_grok(self):
-        assert (_agent_backend_label(GrokBackend(), "grok")) == ("Grok Build (ACP)")
+        assert (_agent_backend_label(GrokBackend(), "grok")) == ("Grok Build")
 
 

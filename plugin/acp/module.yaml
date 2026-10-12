@@ -17,13 +17,13 @@ config:
       - value: hermes
         label: Hermes
       - value: claude
-        label: Claude Code (ACP)
+        label: Claude Code
       - value: vibe
-        label: Mistral Vibe (ACP)
+        label: Mistral Vibe
       - value: grok
-        label: Grok Build (ACP)
+        label: Grok Build
       - value: opencode
-        label: OpenCode (ACP)
+        label: OpenCode
       # - value: openhands
       #   label: OpenHands
 

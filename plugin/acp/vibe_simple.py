@@ -40,7 +40,7 @@ class VibeBackend(ACPBackend):
 
     def get_display_name(self) -> str:
         """Return display name for UI."""
-        return "Mistral Vibe (ACP)"
+        return "Mistral Vibe"
 
     def get_agent_name(self) -> str:
         """Return ACP agent name."""
