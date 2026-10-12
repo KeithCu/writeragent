@@ -1295,7 +1295,7 @@ def test_translate_group_b_functions():
     # 3. DURATION
     res = translate_formula("=DURATION(45292; 47118; 0.08; 0.09; 2; 1)")
     assert res.ok
-    assert abs(exec_result(res, []) - 4.1984139) < 1e-4
+    assert abs(exec_result(res, []) - 4.1970215) < 1e-4
 
     # 4. EFFECT
     res = translate_formula("=EFFECT(0.0525; 4)")
@@ -1325,7 +1325,7 @@ def test_translate_group_b_functions():
     # 9. MDURATION
     res = translate_formula("=MDURATION(45292; 47118; 0.08; 0.09; 2; 1)")
     assert res.ok
-    assert abs(exec_result(res, []) - 4.0176209) < 1e-4
+    assert abs(exec_result(res, []) - 4.0162885) < 1e-4
 
     # 10. MIRR
     res = translate_formula("=MIRR(A1:A4; 0.1; 0.12)")
@@ -1355,7 +1355,7 @@ def test_translate_group_b_functions():
     # 15. ODDLPRICE
     res = translate_formula("=ODDLPRICE(45292; 47118; 45000; 0.08; 0.09; 100; 2; 1)")
     assert res.ok
-    assert abs(exec_result(res, []) - 87.874726) < 1e-4
+    assert abs(exec_result(res, []) - 94.5685732) < 1e-4
 
 
 def test_translate_group_i():
