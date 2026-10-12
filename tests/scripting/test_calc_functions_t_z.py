@@ -16,6 +16,7 @@ error: ``t``, ``text``, ``textjoin``, ``type``, ``unicode``, ``unique``, ``xor``
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 
 import numpy as np
@@ -285,4 +286,84 @@ def test_trend_const_and_multivariate():
     x = [1, 2, 3, 4]
     pred = calc.trend(y, x, [5, 6])
     assert np.allclose(pred, [10.0, 12.0], atol=1e-6)
+
+
+def _serial(year: int, month: int, day: int) -> int:
+    return dt.date(year, month, day).toordinal() - 693594
+
+
+def test_text_percent_scales_in_decimal():
+    # 0.285 * 100 is 28.499999999999996, which rounded to 28%.
+    assert calc.text(0.285, "0%") == "29%"
+    assert calc.text(0.145, "0%") == "15%"
+    assert calc.text(0.125, "0%") == "13%"
+    assert calc.text(0.125, "0.0%") == "12.5%"
+    assert calc.text(float("inf"), "0%") == "inf"
+
+
+def test_yearfrac_basis1_is_actual_actual():
+    # GetYearFrac basis 1. A flat /365.25 made a full 2023 about 0.99932.
+    assert calc.yearfrac(_serial(2023, 1, 1), _serial(2024, 1, 1), 1) == 1.0
+    assert calc.yearfrac(_serial(2024, 1, 1), _serial(2023, 1, 1), 1) == 1.0
+    assert calc.yearfrac(_serial(2024, 1, 1), _serial(2025, 1, 1), 1) == 1.0
+    # Same leap year uses 366 even when the slice misses 29 February.
+    assert calc.yearfrac(_serial(2024, 3, 1), _serial(2024, 4, 1), 1) == 31 / 366
+
+
+def test_yield_rejects_reversed_dates():
+    assert math.isnan(calc.yielddisc(45365, 45000, 95, 100))
+    assert math.isnan(calc.yieldmat(45000, 46000, 45100, 0.05, 98, 0))
+    # Issue equal to settlement is allowed.
+    same_issue = calc.yieldmat(45000, 46000, 45000, 0.05, 98, 0)
+    assert isinstance(same_issue, float) and math.isfinite(same_issue)
+
+
+def test_xlookup_default_miss_is_not_available():
+    assert calc.xlookup("z", ["a"], [1]) == "#N/A"
+    assert calc.xlookup("z", ["a"], [1], None) is None
+    assert calc.xlookup("z", ["a"], [1], "missing") == "missing"
+
+
+def test_textjoin_whole_numbers_drop_decimal():
+    assert calc.textjoin(",", True, [1.0, 2.0, 3.0]) == "1,2,3"
+    assert calc.textjoin(",", True, [1.5, 2.0]) == "1.5,2"
+    assert calc.textjoin(",", True, [True, 1.0]) == "True,1"
+
+
+def test_unique_casefold_bool_and_nan():
+    assert calc.unique(["A", "a"]) == ["A"]
+    assert calc.unique(["A", "a"], unique_only=True) == []
+    assert calc.unique([True, 1, 1.0]) == [True, 1]
+    assert calc.unique([1, "1", 2]) == [1, "1", 2]
+    assert calc.unique([["A"], ["a"]]) == [["A"]]
+    got = calc.unique([float("nan"), float("nan"), 1.0])
+    assert len(got) == 2
+    assert isinstance(got[0], float) and math.isnan(got[0])
+    assert got[1] == 1.0
+
+
+def test_tinv_weibull_ztest_overflow():
+    # float(10**400) raises OverflowError inside the helper. Evaluating it
+    # here would raise before the call.
+    huge = 10**400
+    assert math.isnan(calc.tinv(huge, 10))
+    assert math.isnan(calc.weibull(huge, 1, 1))
+    assert math.isnan(calc.ztest([1, 2, 3], 2, float("inf")))
+
+
+def test_xirr_rejects_rate_at_or_below_minus_one():
+    assert math.isnan(calc.xirr([-100, 110], [0, 365], -1))
+    rate = calc.xirr([-10000, 2750, 4250, 3250, 2750], [44197, 44562, 44927, 45292, 45658])
+    assert isinstance(rate, float) and math.isfinite(rate)
+
+
+def test_weeknum_december_54_is_week_1():
+    # 2012-12-31 with a Monday week start is week 54 before the clamp.
+    # Date::GetWeekOfYear sets 54 to 1. Return type 2 is that Monday start.
+    assert calc.weeknum(_serial(2012, 12, 31), 2) == 1.0
+
+
+def test_textsplit_non_one_match_mode_stays_sensitive():
+    assert math.isnan(calc.textsplit("a-b", ""))
+    assert calc.textsplit("Hello World", "world", match_mode=2) == [["Hello World"]]
 
