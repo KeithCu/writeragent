@@ -811,22 +811,34 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
     return matching_vals
 
 
-def _multi_criteria_mask(pairs: Sequence[tuple[Any, Any]], base_len: int | None = None) -> np.ndarray | None:
-    """Evaluate multiple (criteria_range, criterion) pairs, ensuring all ranges have matching lengths.
+def _multi_criteria_mask(
+    pairs: Sequence[tuple[Any, Any]],
+    base_len: int | None = None,
+    base_shape: tuple[int, ...] | None = None,
+) -> np.ndarray | None:
+    """Evaluate multiple (criteria_range, criterion) pairs.
 
-    Returns a 1D boolean numpy array mask, or None if lengths mismatch or pairs are empty.
+    Returns a 1D boolean mask, or None when a range differs in shape or
+    length. Excel COUNTIFS / AVERAGEIFS / SUMIFS need the same number of
+    rows and columns. Ravelling first made a 2x3 range and a 3x2 range look
+    equal. None tells the caller to return #VALUE! instead of truncating.
     """
-    # Every criteria range must match the base length. None tells the caller
-    # to return #VALUE! instead of truncating.
     if not pairs:
         return np.ones(base_len, dtype=bool) if base_len is not None else np.array([], dtype=bool)
 
     cond_ranges: list[np.ndarray] = []
     criteria: list[Any] = []
+    shapes: list[tuple[int, ...]] = []
     for r, c in pairs:
-        r_flat = np.asarray(r, dtype=object).ravel()
-        cond_ranges.append(r_flat)
+        arr = np.asarray(r, dtype=object)
+        shapes.append(arr.shape)
+        cond_ranges.append(arr.ravel())
         criteria.append(c)
+
+    if base_shape is not None and any(shape != base_shape for shape in shapes):
+        return None
+    if any(shape != shapes[0] for shape in shapes):
+        return None
 
     expected_len = base_len if base_len is not None else len(cond_ranges[0])
     for cr in cond_ranges:

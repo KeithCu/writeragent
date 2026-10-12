@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 
+from .calc_functions_t_z import yearfrac
 from .calc_functions_util import (
     _bessel_iv_jv,
     _bessel_kn_yn,
@@ -33,8 +34,8 @@ from .calc_functions_util import (
     _npf_result,
     _round_half_up,
     _serial_to_date,
-    _to_float_a as _to_float_a,
     match_criteria,
+    nan_on_error,
 )
 from .coerce import is_missing_value
 
@@ -97,6 +98,41 @@ __all__ = [
 ]
 
 
+def _accrued(
+    issue: Any,
+    settlement: Any,
+    rate: Any,
+    par: Any,
+    basis: Any,
+    frequency: Any | None = None,
+) -> float:
+    """par * rate * yearfrac(issue, settlement), or NaN when the inputs are illegal.
+
+    AnalysisAddIn::getAccrint and getAccrintm (financial.cxx) are this product.
+    getAccrint also requires frequency in (1, 2, 4). Pass frequency only for that
+    function. basis in (0..4), rate > 0, par > 0, issue < settlement.
+    """
+    try:
+        f_rate = float(rate)
+        f_par = float(par) if par is not None else 1000.0
+        b = int(float(basis))
+        iss = float(issue)
+        settle = float(settlement)
+        freq = int(float(frequency)) if frequency is not None else None
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+
+    if f_rate <= 0.0 or f_par <= 0.0 or b not in (0, 1, 2, 3, 4) or iss >= settle:
+        return float("nan")
+    if freq is not None and freq not in (1, 2, 4):
+        return float("nan")
+
+    yf = yearfrac(iss, settle, b)
+    if math.isnan(yf):
+        return float("nan")
+    return float(f_par * f_rate * yf)
+
+
 def accrint(
     issue: Any,
     first_interest: Any,
@@ -107,71 +143,28 @@ def accrint(
     basis: Any = 0,
     calc_method: Any = True,
 ) -> float:
-    # LibreOffice AnalysisAddIn::getAccrint (financial.cxx) ignores
-    # first_interest (the parameter is /*nFirstInter*/) and has no
-    # calc_method argument. Accrued interest is par * rate *
-    # yearfrac(issue, settlement). frequency in (1, 2, 4), basis in
-    # (0..4), rate > 0, par > 0, issue < settlement. first_interest and
-    # calc_method stay in the signature so Excel-shaped callers still parse.
-    from .calc_functions_t_z import yearfrac
-
-    try:
-        f_rate = float(rate)
-        f_par = float(par) if par is not None else 1000.0
-        freq = int(float(frequency))
-        b = int(float(basis))
-        iss = float(issue)
-        settle = float(settlement)
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
-
-    if f_rate <= 0.0 or f_par <= 0.0 or freq not in (1, 2, 4) or b not in (0, 1, 2, 3, 4) or iss >= settle:
-        return float("nan")
-
-    yf = yearfrac(iss, settle, b)
-    if math.isnan(yf):
-        return float("nan")
-    return float(f_par * f_rate * yf)
+    # getAccrint ignores first_interest (the parameter is /*nFirstInter*/) and
+    # has no calc_method argument. Both stay in the signature so Excel-shaped
+    # callers still parse.
+    return _accrued(issue, settlement, rate, par, basis, frequency)
 
 
 def accrintm(issue: Any, settlement: Any, rate: Any, par: Any = 1000.0, basis: Any = 0) -> float:
-    # rate > 0, par > 0, basis in (0..4), issue < settlement. Otherwise #NUM!.
-    from .calc_functions_t_z import yearfrac
-
-    try:
-        f_rate = float(rate)
-        f_par = float(par) if par is not None else 1000.0
-        b = int(float(basis))
-        iss = float(issue)
-        settle = float(settlement)
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
-
-    if f_rate <= 0.0 or f_par <= 0.0 or b not in (0, 1, 2, 3, 4) or iss >= settle:
-        return float("nan")
-
-    yf = yearfrac(iss, settle, b)
-    if math.isnan(yf):
-        return float("nan")
-    return float(f_par * f_rate * yf)
+    return _accrued(issue, settlement, rate, par, basis)
 
 
+@nan_on_error(ValueError, TypeError)
 def acot(x: Any) -> float:
-    try:
-        xv = float(x)
-        return float(math.pi / 2 - math.atan(xv))
-    except (ValueError, TypeError):
-        return float("nan")
+    xv = float(x)
+    return float(math.pi / 2 - math.atan(xv))
 
 
+@nan_on_error(ValueError, TypeError, ZeroDivisionError)
 def acoth(x: Any) -> float:
-    try:
-        xv = float(x)
-        if abs(xv) <= 1:
-            return float("nan")
-        return float(0.5 * math.log((xv + 1) / (xv - 1)))
-    except (ValueError, TypeError, ZeroDivisionError):
+    xv = float(x)
+    if abs(xv) <= 1:
         return float("nan")
+    return float(0.5 * math.log((xv + 1) / (xv - 1)))
 
 
 def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = None) -> str:
@@ -296,6 +289,40 @@ def _round_amor(value: float) -> float:
     return float(_round_half_up(value, 0))
 
 
+def _parse_amor(
+    cost: Any,
+    date_purchased: Any,
+    first_period: Any,
+    salvage: Any,
+    period: Any,
+    rate: Any,
+    basis: Any,
+) -> tuple[float, float, float, float, int, float, int] | None:
+    """Shared AMORDEGRC / AMORLINC argument check. None means #NUM!."""
+    try:
+        f_cost = float(cost)
+        d_purch = float(date_purchased)
+        d_first = float(first_period)
+        f_salv = float(salvage)
+        n_per = int(float(period))
+        f_rate = float(rate)
+        b = int(float(basis))
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+    if (
+        d_purch > d_first
+        or f_rate <= 0.0
+        or f_salv > f_cost
+        or f_cost <= 0.0
+        or f_salv < 0
+        or n_per < 0
+        or b not in (0, 1, 2, 3, 4)
+    ):
+        return None
+    return f_cost, d_purch, d_first, f_salv, n_per, f_rate, b
+
+
 def amordegrc(
     cost: Any,
     date_purchased: Any,
@@ -307,29 +334,10 @@ def amordegrc(
 ) -> float:
     # French declining-balance schedule from LibreOffice
     # ScInterpreter AnalysisAddIn::getAmordegrc.
-    from .calc_functions_t_z import yearfrac
-
-    try:
-        f_cost = float(cost)
-        d_purch = float(date_purchased)
-        d_first = float(first_period)
-        f_salv = float(salvage)
-        n_per = int(float(period))
-        f_rate = float(rate)
-        b = int(float(basis))
-    except (ValueError, TypeError, OverflowError):
+    parsed = _parse_amor(cost, date_purchased, first_period, salvage, period, rate, basis)
+    if parsed is None:
         return float("nan")
-
-    if (
-        d_purch > d_first
-        or f_rate <= 0.0
-        or f_salv > f_cost
-        or f_cost <= 0.0
-        or f_salv < 0
-        or n_per < 0
-        or b not in (0, 1, 2, 3, 4)
-    ):
-        return float("nan")
+    f_cost, d_purch, d_first, f_salv, n_per, f_rate, b = parsed
 
     use_per = 1.0 / f_rate
     if use_per < 3.0:
@@ -374,29 +382,10 @@ def amorlinc(
 ) -> float:
     # French linear schedule from LibreOffice
     # ScInterpreter AnalysisAddIn::getAmorlinc.
-    from .calc_functions_t_z import yearfrac
-
-    try:
-        f_cost = float(cost)
-        d_purch = float(date_purchased)
-        d_first = float(first_period)
-        f_salv = float(salvage)
-        n_per = int(float(period))
-        f_rate = float(rate)
-        b = int(float(basis))
-    except (ValueError, TypeError, OverflowError):
+    parsed = _parse_amor(cost, date_purchased, first_period, salvage, period, rate, basis)
+    if parsed is None:
         return float("nan")
-
-    if (
-        d_purch > d_first
-        or f_rate <= 0.0
-        or f_salv > f_cost
-        or f_cost <= 0.0
-        or f_salv < 0
-        or n_per < 0
-        or b not in (0, 1, 2, 3, 4)
-    ):
-        return float("nan")
+    f_cost, d_purch, d_first, f_salv, n_per, f_rate, b = parsed
 
     f_one_rate = f_cost * f_rate
     f_cost_delta = f_cost - f_salv
@@ -422,18 +411,60 @@ def amorlinc(
     return float(res) if res > 0.0 else 0.0
 
 
+def _arabic_digit(ch: str) -> tuple[int, bool] | None:
+    """ScArabic's lcl_GetArabicValue. The bool is true for a power of ten."""
+    table = {
+        "M": (1000, True),
+        "D": (500, False),
+        "C": (100, True),
+        "L": (50, False),
+        "X": (10, True),
+        "V": (5, False),
+        "I": (1, True),
+    }
+    return table.get(ch)
+
+
 def arabic(text: Any) -> float:
+    # ScArabic (interpr2.cxx) walks the numeral with nValidRest starting at
+    # 3999. A digit followed by exactly twice itself (VX, LC, DM) is illegal,
+    # and so is a value past 3999 (MMMM). The old loop accepted those: VX
+    # became 5 and MMMM became 4000. Simplified forms that ROMAN modes emit
+    # stay valid (IIII is 4, IC is 99, XMIX is 999). The help page says
+    # ARABIC("") is 0. "-" is not a roman digit, so "-IV" is NaN.
     roman = str(text).upper().strip()
-    roman_values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
-    res = 0
-    for i in range(len(roman)):
-        if roman[i] not in roman_values:
+    value = 0
+    valid_rest = 3999
+    index = 0
+    length = len(roman)
+    while index < length:
+        first = _arabic_digit(roman[index])
+        if first is None:
             return float("nan")
-        if i + 1 < len(roman) and roman_values[roman[i]] < roman_values[roman[i + 1]]:
-            res -= roman_values[roman[i]]
+        digit, is_ten_power = first
+        next_digit = 0
+        if index + 1 < length:
+            second = _arabic_digit(roman[index + 1])
+            if second is None:
+                return float("nan")
+            next_digit = second[0]
+        if digit >= next_digit:
+            value += digit
+            valid_rest %= digit * (5 if is_ten_power else 2)
+            if valid_rest < digit:
+                return float("nan")
+            valid_rest -= digit
+            index += 1
+        elif digit * 2 != next_digit:
+            diff = next_digit - digit
+            value += diff
+            if valid_rest < diff:
+                return float("nan")
+            valid_rest = digit - 1
+            index += 2
         else:
-            res += roman_values[roman[i]]
-    return float(res)
+            return float("nan")
+    return float(value)
 
 
 def areas(r: Any) -> float:
@@ -468,7 +499,7 @@ def asc(text: Any) -> str:
             else:
                 res.append(ch)
         return "".join(res)
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return "#VALUE!"
 
 
@@ -499,14 +530,15 @@ def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
 
 
 def averageifs(ar: Any, *args: Any) -> float | str:
-    # Criteria ranges must match the average range. A shorter range is #VALUE!,
-    # not a silent truncate. Calc also requires at least one pair; no pairs
-    # used to average the whole range.
+    # Criteria ranges must match the average range in shape, not just in cell
+    # count. A 2x3 range and a 3x2 range both ravel to 6 and used to be
+    # averaged. Calc returns #VALUE!. No pairs used to average the whole range.
     if len(args) % 2 != 0 or not args:
         return "#VALUE!"
-    ar_flat = np.asarray(ar, dtype=object).ravel()
+    ar_arr = np.asarray(ar, dtype=object)
+    ar_flat = ar_arr.ravel()
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
-    mask = _multi_criteria_mask(pairs, base_len=len(ar_flat))
+    mask = _multi_criteria_mask(pairs, base_len=len(ar_flat), base_shape=ar_arr.shape)
     if mask is None:
         return "#VALUE!"
     vals: list[float] = []
@@ -552,44 +584,37 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
             res = digits[n % r] + res
             n //= r
         return res.zfill(m)
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return "#NUM!"
 
 
-def besseli(x: Any, n: Any) -> float:
+def _bessel_call(name: str, impl: Any, x: Any, n: Any) -> float:
+    """One scipy.special Bessel, or NaN when scipy is missing or the input is illegal.
+
+    A missing install is the same NaN as _npf_result, not a raised ImportError.
+    """
     try:
         import scipy.special  # type: ignore[import-untyped]
 
-        return _bessel_iv_jv(scipy.special.iv, x, n)
+        return impl(getattr(scipy.special, name), x, n)
     except Exception:
         return float("nan")
+
+
+def besseli(x: Any, n: Any) -> float:
+    return _bessel_call("iv", _bessel_iv_jv, x, n)
 
 
 def besselj(x: Any, n: Any) -> float:
-    try:
-        import scipy.special
-
-        return _bessel_iv_jv(scipy.special.jv, x, n)
-    except Exception:
-        return float("nan")
+    return _bessel_call("jv", _bessel_iv_jv, x, n)
 
 
 def besselk(x: Any, n: Any) -> float:
-    try:
-        from scipy.special import kn
-
-        return _bessel_kn_yn(kn, x, n)
-    except Exception:
-        return float("nan")
+    return _bessel_call("kn", _bessel_kn_yn, x, n)
 
 
 def bessely(x: Any, n: Any) -> float:
-    try:
-        from scipy.special import yn
-
-        return _bessel_kn_yn(yn, x, n)
-    except Exception:
-        return float("nan")
+    return _bessel_call("yn", _bessel_kn_yn, x, n)
 
 
 def betadist(*args: Any) -> float:
@@ -804,6 +829,7 @@ def combina(n: Any, k: Any) -> float:
 
 
 def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
+    # The Calc name shadows the builtin. The body uses builtins.complex.
     # Suffix is i or j (either case). Anything else is #VALUE!.
     try:
         r = float(real_num)
@@ -831,18 +857,14 @@ def confidence(alpha: Any, stddev: Any, size: Any) -> float:
         return float("nan")
 
 
+@nan_on_error(ValueError, TypeError, ZeroDivisionError)
 def cot(x: Any) -> float:
-    try:
-        return float(1.0 / math.tan(float(x)))
-    except (ValueError, TypeError, ZeroDivisionError):
-        return float("nan")
+    return float(1.0 / math.tan(float(x)))
 
 
+@nan_on_error(ValueError, TypeError, ZeroDivisionError)
 def coth(x: Any) -> float:
-    try:
-        return float(1.0 / math.tanh(float(x)))
-    except (ValueError, TypeError, ZeroDivisionError):
-        return float("nan")
+    return float(1.0 / math.tanh(float(x)))
 
 
 def countif(r: Any, crit: Any) -> float:
@@ -855,9 +877,9 @@ def countif(r: Any, crit: Any) -> float:
 
 
 def countifs(*args: Any) -> float | str:
-    # Every criteria range must be the same length. zip() would drop the tail
-    # and return a count instead of #VALUE!. No pairs used to sum an empty
-    # mask and return 0. Calc requires one range/criterion pair.
+    # Every criteria range must be the same shape. A 2x3 and a 3x2 both have
+    # 6 cells; comparing raveled lengths counted them. Calc returns #VALUE!.
+    # No pairs used to sum an empty mask and return 0.
     if len(args) % 2 != 0 or not args:
         return "#VALUE!"
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
@@ -949,11 +971,9 @@ def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
         return float("nan")
 
 
+@nan_on_error(ValueError, TypeError, ZeroDivisionError)
 def csc(x: Any) -> float:
-    try:
-        return float(1.0 / math.sin(float(x)))
-    except (ValueError, TypeError, ZeroDivisionError):
-        return float("nan")
+    return float(1.0 / math.sin(float(x)))
 
 
 def csch(x: Any) -> float:
@@ -979,7 +999,10 @@ def _cum_payment(
     # rate must be > 0. Zero is #NUM!, same as a negative rate.
     try:
         r = float(rate)
-        n = float(nper)
+        # getCumipmt takes sal_Int32 nNumPeriods (financial.cxx). Leaving nper
+        # as a float made numpy-financial price a different loan: nper 12.2
+        # is not the 12-period schedule. start and end were already truncated.
+        n = int(float(nper))
         p = float(pv)
         s = int(float(start_period))
         e = int(float(end_period))

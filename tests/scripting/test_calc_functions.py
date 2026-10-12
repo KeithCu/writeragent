@@ -53,6 +53,11 @@ def test_conditional_aggregates():
     assert calc.averageifs([True, 4.0], [1.0, 2.0], ">0") == 4.0
     assert calc.sumifs(["5", 4.0], [1.0, 2.0], ">0") == 4.0
     assert calc.sumifs([True, 4.0], [1.0, 2.0], ">0") == 4.0
+    # Omitted average range falls back to the criteria range. Text and bools
+    # are not numbers there: True matches "<>0", and coercing it would make
+    # the mean 2.5.
+    assert calc.averageif([1.0, "x", True, 4.0], ">0") == 2.5
+    assert calc.averageif([True, 4.0], "<>0") == 4.0
 
 
 def test_lookup_text_date():
@@ -274,6 +279,11 @@ def test_financial_group_a():
 
     assert abs(calc.cumipmt(0.09 / 12, 360, 125000, 1, 12, 0) - (-11215.34288)) < 1e-2
     assert abs(calc.cumprinc(0.09 / 12, 360, 125000, 1, 12, 0) - (-853.99637)) < 1e-2
+    # nper is truncated. 12.2 used to price a different loan than 12.
+    whole = calc.cumipmt(0.09 / 12, 12, 125000, 1, 12, 0)
+    assert calc.cumipmt(0.09 / 12, 12.2, 125000, 1, 12, 0) == whole
+    assert math.isnan(calc.cumipmt(0.09 / 12, 12.2, 125000, 1, 13, 0))
+    assert calc.cumprinc(0.09 / 12, 12.2, 125000, 1, 12, 0) == calc.cumprinc(0.09 / 12, 12, 125000, 1, 12, 0)
     # XNPV: cash flows at dates
     assert abs(calc.xnpv(0.1, [-10000, 2750, 4250, 3250, 2750], [43831, 43900, 44000, 44100, 44200]) - 2294.3573) < 1e-2
 
@@ -1173,6 +1183,37 @@ def test_sumifs_unpaired_criteria_is_nan():
     assert math.isnan(calc.sumifs([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]))
     assert math.isnan(calc.sumifs([1.0, 2.0], [1.0, 2.0], ">0", [1.0, 2.0]))
     assert calc.sumifs([1.0, 2.0], [1.0, 2.0], ">1") == 2.0
+    assert calc.sumifs([1.0, 2.0]) == 0.0
+    # A shorter criteria range used to add the overlapping prefix.
+    assert math.isnan(calc.sumifs([1.0, 2.0, 3.0], [1.0, 2.0], ">0"))
+
+
+def test_arabic_follows_sc_arabic():
+    # Help examples, including the empty string.
+    assert calc.arabic("") == 0.0
+    assert calc.arabic("MXIV") == 1014.0
+    assert calc.arabic("MMII") == 2002.0
+    assert calc.arabic("  IV") == 4.0
+    # Simplified ROMAN forms stay valid. IIII is 4, IC is 99, XMIX is 999.
+    assert calc.arabic("IIII") == 4.0
+    assert calc.arabic("IC") == 99.0
+    assert calc.arabic("XMIX") == 999.0
+    # VX became 5, VV became 10, MMMM became 4000. ScArabic rejects them.
+    # "-" is not a roman digit, so "-IV" is NaN.
+    assert math.isnan(calc.arabic("VX"))
+    assert math.isnan(calc.arabic("VV"))
+    assert math.isnan(calc.arabic("MMMM"))
+    assert math.isnan(calc.arabic("-IV"))
+
+
+def test_criteria_ranges_must_match_shape():
+    wide = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+    tall = [[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]]
+    assert calc.countifs(wide, ">0", tall, ">0") == "#VALUE!"
+    assert calc.averageifs(wide, tall, ">0") == "#VALUE!"
+    assert math.isnan(calc.sumifs(wide, tall, ">0"))
+    # Same 2x3 twice: values 4, 5, 6 are > 3.
+    assert calc.countifs(wide, ">0", wide, ">3") == 3.0
 
 
 def test_irr_subtotal_workday_iseven_bad_input_does_not_raise():

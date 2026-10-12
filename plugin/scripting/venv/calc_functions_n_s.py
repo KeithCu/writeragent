@@ -938,17 +938,22 @@ def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
 
 
 def sumifs(sr: Any, *args: Any) -> float:
-    # Criteria ranges must match the sum range. A shorter range is #VALUE!,
-    # not a silent truncate.
+    # Criteria ranges must match the sum range in shape. A shorter range, or a
+    # 2x3 next to a 3x2, used to truncate or line up after ravel. That is NaN
+    # here, same as an odd argument count. No pairs still sums nothing:
+    # passing base_len to an empty pair list would sum the whole range.
     if len(args) % 2 != 0:
         return float("nan")
-    sr_flat = np.asarray(sr, dtype=object).ravel()
+    if not args:
+        return 0.0
+    sr_arr = np.asarray(sr, dtype=object)
+    sr_flat = sr_arr.ravel()
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
-    mask = _multi_criteria_mask(pairs)
+    mask = _multi_criteria_mask(pairs, base_len=len(sr_flat), base_shape=sr_arr.shape)
     if mask is None:
         return float("nan")
     total = 0.0
-    for idx in range(min(len(sr_flat), len(mask))):
+    for idx in range(len(sr_flat)):
         if mask[idx]:
             # Same rule as AVERAGEIFS: text and bools in the sum range
             # are ignored. float("5") and float(True) used to add them.

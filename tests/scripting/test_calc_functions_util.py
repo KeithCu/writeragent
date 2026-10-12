@@ -127,11 +127,6 @@ def test_extract_numeric_array():
 
 
 def test_to_float_a():
-    from plugin.scripting.venv.calc_functions_a_c import _to_float_a as _to_float_a_ac
-
-    # Ensure re-export from a_c matches util
-    assert _to_float_a is _to_float_a_ac
-
     assert _to_float_a(42) == 42.0
     assert _to_float_a(3.14) == 3.14
     assert _to_float_a(True) == 1.0
@@ -501,6 +496,15 @@ def test_multi_criteria_mask():
     pairs_bad = [([1, 2], ">0"), ([1, 2, 3], ">0")]
     assert _multi_criteria_mask(pairs_bad) is None
     assert _multi_criteria_mask(pairs, base_len=2) is None
+
+    # Same cell count, different shape. 2x3 and 3x2 both ravel to 6.
+    wide = [[1, 2, 3], [4, 5, 6]]
+    tall = [[1, 4], [2, 5], [3, 6]]
+    assert _multi_criteria_mask([(wide, ">0"), (tall, ">0")]) is None
+    assert _multi_criteria_mask([(wide, ">0")], base_shape=(3, 2)) is None
+    same = _multi_criteria_mask([(wide, ">3")], base_shape=(2, 3))
+    assert same is not None
+    assert list(same) == [False, False, False, True, True, True]
 
 
 def test_get_coupon_dates_calendar_stepping():
