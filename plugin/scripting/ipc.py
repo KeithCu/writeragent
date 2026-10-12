@@ -175,6 +175,22 @@ def _numpy_reconstruct_nbytes(shape: object, dtype: object) -> int:
     return n * itemsize
 
 
+def _is_numpy_ndarray(obj: object) -> bool:
+    """True for the real ``numpy.ndarray`` class, not a lookalike."""
+    return getattr(obj, "__name__", "") == "ndarray" and getattr(obj, "__module__", "") == "numpy"
+
+
+def _reject_ndarray_constructor(obj: object) -> None:
+    """Refuse a call that would run ``numpy.ndarray`` as a constructor.
+
+    Views pass this class to ``_reconstruct`` as the subtype. That is a
+    GLOBAL, not a call. Calling it allocates the shape, and the shape is
+    only a few pickle bytes.
+    """
+    if _is_numpy_ndarray(obj):
+        raise pickle.UnpicklingError("numpy.ndarray constructor is not allowed")
+
+
 def _reject_unbounded_numpy_reduce(func: object, args: object) -> None:
     """Refuse NumPy REDUCE targets that allocate past the frame cap.
 
@@ -190,10 +206,9 @@ def _reject_unbounded_numpy_reduce(func: object, args: object) -> None:
     whose nbytes exceed ``DEFAULT_MAX_PAYLOAD_BYTES`` is rejected.
     ``_frombuffer`` only reshapes the buffer already in the frame.
     """
+    _reject_ndarray_constructor(func)
     name = getattr(func, "__name__", "")
     module = getattr(func, "__module__", "") or ""
-    if name == "ndarray" and module == "numpy":
-        raise pickle.UnpicklingError("numpy.ndarray constructor is not allowed")
     if name != "_reconstruct" or not module.endswith("multiarray"):
         return
     if not isinstance(args, tuple) or len(args) < 3:
@@ -214,7 +229,9 @@ class AllowlistUnpickler(pickle._Unpickler):
     The base is ``pickle._Unpickler``, not the C ``pickle.Unpickler``. The
     C class only runs ``find_class``. ``_guarded_load_reduce`` has to see
     ``ndarray`` and ``_reconstruct`` before they allocate. ``dispatch`` is
-    copied below so that function is the REDUCE opcode.
+    copied below so that function is the REDUCE opcode. NEWOBJ and
+    NEWOBJ_EX are replaced the same way. OBJ and INST call
+    ``_instantiate``, which this class overrides.
     """
 
     _builtins_allow: frozenset[str] = frozenset()
@@ -244,6 +261,23 @@ class AllowlistUnpickler(pickle._Unpickler):
                 raise
             raise EOFError("Ran out of input") from exc
 
+    def _instantiate(self, klass: Any, args: Any) -> None:
+        """OBJ and INST. ``ndarray(shape)`` never reaches the REDUCE guard.
+
+        What was wrong: protocol 0 builds the array with OBJ or INST after
+        GLOBAL of the allowlisted class. Those opcodes call
+        ``_instantiate``, not REDUCE, so ``ndarray((n,))`` allocated.
+        How it happened: views need that class on the allowlist so
+        ``_reconstruct`` can take it as the subtype. GLOBAL succeeds, and
+        OBJ/INST then call the class.
+        Why this change: reject ``numpy.ndarray`` before the original
+        ``_instantiate``. NumPy's own pickles use REDUCE and BUILD, not
+        OBJ or INST. Any other class still uses the original.
+        """
+        _reject_ndarray_constructor(klass)
+        instantiate = getattr(pickle._Unpickler, "_instantiate")
+        instantiate(self, klass, args)
+
 
 def _guarded_load_reduce(unpickler: pickle.Unpickler, /) -> None:
     """REDUCE opcode. Refuse NumPy calls that allocate past the frame cap.
@@ -263,11 +297,51 @@ def _guarded_load_reduce(unpickler: pickle.Unpickler, /) -> None:
     stack[-1] = func(*args)
 
 
+def _guarded_load_newobj(unpickler: pickle.Unpickler, /) -> None:
+    """NEWOBJ opcode. ``ndarray.__new__`` is the same allocation as REDUCE.
+
+    What was wrong: the guard only replaced REDUCE. GLOBAL of the
+    allowlisted ``numpy.ndarray`` plus NEWOBJ calls ``__new__`` and skips
+    it. A few bytes then allocate the shape.
+    How it happened: views need the class on the stack so ``_reconstruct``
+    can take it as the subtype. NumPy's own pickles never NEWOBJ it.
+    Why this change: reject that class before ``load_newobj``. Other
+    classes still use the original opcode.
+    """
+    stack = cast("list[Any]", getattr(unpickler, "stack"))
+    # load_newobj pops the args tuple, then the class under it.
+    if len(stack) >= 2:
+        _reject_ndarray_constructor(stack[-2])
+    load_newobj = getattr(pickle._Unpickler, "load_newobj")
+    load_newobj(unpickler)
+
+
+def _guarded_load_newobj_ex(unpickler: pickle.Unpickler, /) -> None:
+    """NEWOBJ_EX opcode. Same ``ndarray.__new__`` hole, with kwargs.
+
+    What was wrong: NEWOBJ_EX also calls ``cls.__new__(cls, *args, **kwargs)``
+    and never entered ``_guarded_load_reduce``.
+    How it happened: the class is allowlisted for views, and this opcode
+    is a separate slot in ``dispatch``.
+    Why this change: reject ``numpy.ndarray`` before ``load_newobj_ex``.
+    The class sits under the args tuple and the kwargs dict.
+    """
+    stack = cast("list[Any]", getattr(unpickler, "stack"))
+    # load_newobj_ex pops kwargs, then args, then the class.
+    if len(stack) >= 3:
+        _reject_ndarray_constructor(stack[-3])
+    load_newobj_ex = getattr(pickle._Unpickler, "load_newobj_ex")
+    load_newobj_ex(unpickler)
+
+
 # The opcode table is filled on pickle._Unpickler. A subclass method does
-# not replace it. Copy, then point REDUCE at the guard. RestrictedUnpickler
-# does not define dispatch, so it uses this table too.
+# not replace it. Copy, then point REDUCE, NEWOBJ, and NEWOBJ_EX at the
+# guards. OBJ and INST call _instantiate, which the class overrides.
+# RestrictedUnpickler does not define dispatch, so it uses this table too.
 AllowlistUnpickler.dispatch = pickle._Unpickler.dispatch.copy()
 AllowlistUnpickler.dispatch[pickle.REDUCE[0]] = _guarded_load_reduce
+AllowlistUnpickler.dispatch[pickle.NEWOBJ[0]] = _guarded_load_newobj
+AllowlistUnpickler.dispatch[pickle.NEWOBJ_EX[0]] = _guarded_load_newobj_ex
 
 
 class _SafeUnpickler(AllowlistUnpickler):
@@ -619,7 +693,13 @@ def read_frame_payload(
 
 
 def unpack_pickle_frame(payload: bytes) -> Any:
-    """Decode one Pickle5 payload; only builtin containers/scalars (defense in depth)."""
+    """Decode one Pickle5 payload from a child or the editor.
+
+    Allows builtin containers and scalars, ``complex``, and the NumPy
+    reconstruct entry points a real array pickle calls. A direct
+    ``numpy.ndarray`` constructor is rejected. A name off that list never
+    becomes ``getattr`` on an arbitrary module.
+    """
     try:
         return _SafeUnpickler(io.BytesIO(payload)).load()
     except _PICKLE_LOAD_ERRORS as exc:
@@ -850,6 +930,8 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     request = {"type": "tool_call", "id": call_id, "tool": tool_name, "args": args}
     paused = _pause_script_alarm()
     overdue = False
+    response = None
+    mismatched = False
     try:
         with _tool_call_lock:
             # exchange_tool_call must write the claimed IPC stream.
@@ -869,7 +951,11 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
             # Drain while _tool_call_lock is still held. Releasing it first
             # lets the next exchange read the tail this call already pulled.
             # A drain failure must not replace the id mismatch error.
-            if isinstance(response, dict) and response.get("id") != call_id:
+            # The same flag is what the raise below checks. A spent alarm
+            # budget is still raised first: the reply was consumed, and the
+            # cell's timeout is the result the script already had coming.
+            mismatched = isinstance(response, dict) and response.get("id") != call_id
+            if mismatched:
                 try:
                     _drain_queued_pipe_bytes(sys.stdin.buffer)
                 except Exception:
@@ -882,7 +968,7 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         )
     if response is None:
         raise ConnectionError("Lost connection to LibreOffice host during tool call")
-    if response.get("id") != call_id:
+    if mismatched:
         raise RuntimeError(
             f"tool_call response id {response.get('id')!r} does not match request {call_id!r}"
         )
@@ -917,9 +1003,16 @@ def read_pickle_frame_with_timeout(
     """Read one pickle frame, bounding the whole header+payload with *timeout_sec*.
 
     POSIX uses ``select`` in a deadline loop so a partial frame cannot hang the
-    parent after the first byte. Windows uses a daemon reader thread (pipes are
-    not selectable). Raises ``subprocess.TimeoutExpired`` on deadline.
+    parent after the first byte. Windows uses PeekNamedPipe (pipes are not
+    selectable). Raises ``subprocess.TimeoutExpired`` on deadline.
     Returns None on clean EOF or truncation.
+
+    The stream must be unbuffered (``bufsize=0``). ``select`` then
+    ``stream.read`` is correct on raw ``FileIO``: ``read`` returns the bytes
+    already available. A ``BufferedReader`` waits until ``n`` bytes arrive,
+    and ``select`` cannot see bytes already sitting in that userspace buffer.
+    ``process_worker``, ``editor_host``, and ``venv_worker`` open the pipe
+    with ``bufsize=0``.
     """
     timeout_sec = max(0.0, float(timeout_sec))
     deadline = time.monotonic() + timeout_sec
@@ -1119,19 +1212,59 @@ def _line_from_pending(stream: IO[str], pending: bytearray, max_bytes: int) -> s
     return line
 
 
+def _read_json_tail_from_fd(stream: IO[str], fd: int, pending: bytearray, max_bytes: int) -> str:
+    """Append fd bytes onto *pending* until a newline, then decode once.
+
+    What was wrong: the handoff decoded *pending* with ``errors="replace"``
+    and then appended ``readline()`` text. A timed ``os.read`` can stop on
+    the first byte of a UTF-8 character. That byte became U+FFFD, and the
+    text wrapper decoded the continuation as a second character.
+    How it happened: the timed reader keeps a bytearray. This path turned
+    it into text before the tail was attached.
+    Why this change: read the tail with ``os.read`` into the same
+    bytearray and decode the line once. The timed loop already does that
+    for a line that finishes before the deadline.
+    """
+    while True:
+        if len(pending) > max_bytes:
+            # The line is already over the cap. Saving it makes the next
+            # read raise again instead of starting mid-line. The caller
+            # drops the child, the same as an oversize pickle frame.
+            _save_json_line_pending(stream, pending)
+            raise ValueError(f"JSON line exceeds {max_bytes} bytes")
+        nl = pending.find(b"\n")
+        if nl >= 0:
+            line_b = bytes(pending[: nl + 1])
+            rest = bytearray(pending[nl + 1 :])
+            _save_json_line_pending(stream, rest)
+            return line_b.decode("utf-8", errors="replace")
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError:
+            _save_json_line_pending(stream, pending)
+            raise
+        if not chunk:
+            return pending.decode("utf-8", errors="replace")
+        pending.extend(chunk)
+
+
 def _finish_saved_json_line(stream: IO[str], pending: bytearray, max_bytes: int) -> str:
     """Blocking read of the tail after a timed read saved *pending*.
 
-    The partial was already taken off the pipe. ``readline`` returns only the
-    rest. An untimed ``read_json_line`` used to ignore this buffer and parse
-    from the middle of the line.
+    The partial was already taken off the pipe. An untimed
+    ``read_json_line`` used to ignore this buffer and parse from the
+    middle of the line.
 
-    ``readline``'s size is a character count. ``max_bytes`` is a byte count.
-    The encode check below is what enforces the cap. A line longer than the
-    character limit leaves the rest in the stream, and this saves the
-    oversize prefix. The next read raises again. The pipe is mid-line.
-    The caller drops the child, the same as an oversize pickle frame.
+    An fd is read as bytes. ``readline`` is only the no-fd path
+    (``StringIO``). Its size is a character count and ``max_bytes`` is a
+    byte count. The encode check is what enforces the cap there. A line
+    longer than the character limit leaves the rest in the stream, and
+    this saves the oversize prefix. The next read raises again. The pipe
+    is mid-line. The caller drops the child.
     """
+    fd = _stream_fileno(stream)
+    if fd is not None:
+        return _read_json_tail_from_fd(stream, fd, pending, max_bytes)
     tail = stream.readline(max_bytes + 1)
     if not isinstance(tail, str):
         tail = ""
@@ -1308,7 +1441,14 @@ def read_json_line(
     timeout_sec: float | None = None,
     max_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
 ) -> dict[str, Any] | None:
-    """Read one newline-delimited JSON object. Return None on clean EOF."""
+    """Read one newline-delimited JSON object. Return None on clean EOF.
+
+    Use one mode on a stream. A timed read takes bytes with ``os.read``
+    on the fd. An untimed read uses ``readline`` on the text wrapper,
+    which may already hold later lines. Switching modes skips those
+    lines. The pending buffer is only a partial line saved by a timed
+    read, not that wrapper buffer.
+    """
     line = _readline_with_timeout(stream, timeout_sec, max_bytes)
     if not line:
         return None

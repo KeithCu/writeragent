@@ -631,7 +631,11 @@ def test_oversize_pending_json_line_is_restored(monkeypatch):
 
 
 def test_untimed_read_json_line_uses_saved_partial(monkeypatch):
-    """timeout_sec=None must not skip a partial saved by a timed read."""
+    """timeout_sec=None must not skip a partial saved by a timed read.
+
+    The tail is the next ``os.read``. ``readline()`` would decode a saved
+    prefix that ends mid-character before the continuation bytes arrive.
+    """
     from plugin.scripting import ipc
 
     partial = b'{"a": 1'
@@ -641,15 +645,20 @@ def test_untimed_read_json_line_uses_saved_partial(monkeypatch):
         return len(partial) if stage["phase"] == "partial" else 0
 
     def fake_read(fd: int, n: int) -> bytes:
-        stage["phase"] = "wait"
-        return partial
+        if stage["phase"] == "partial":
+            stage["phase"] = "tail"
+            return partial
+        if stage["phase"] == "tail":
+            stage["phase"] = "done"
+            return b"}\n"
+        return b""
 
     class Stream:
         def fileno(self) -> int:
             return 7
 
         def readline(self, limit: int = -1) -> str:
-            return "}\n"
+            raise AssertionError("readline")
 
     stream = Stream()
     clock = {"t": 0.0}
@@ -1004,6 +1013,27 @@ def test_json_line_truncated_at_eof_names_the_cause():
         read_json_line(io.StringIO("{"))
 
 
+def test_finish_saved_json_line_keeps_a_split_utf8_character():
+    """A timed read can stop between the two bytes of U+00E9.
+
+    Decoding that saved prefix before readline() turned the first byte
+    into U+FFFD and decoded the continuation as a second character.
+    """
+    import json
+
+    from plugin.scripting.ipc import _finish_saved_json_line
+
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b'\xa9"}\n')
+    os.close(write_fd)
+    stream = io.TextIOWrapper(io.FileIO(read_fd, closefd=True), encoding="utf-8")
+    try:
+        line = _finish_saved_json_line(stream, bytearray(b'{"a": "\xc3'), 1024)
+    finally:
+        stream.close()
+    assert json.loads(line) == {"a": "é"}
+
+
 def test_joined_write_aborts_when_child_is_dead() -> None:
     """A dead child on the joined write path does not wait out the timeout.
 
@@ -1083,6 +1113,44 @@ def test_roundtrip_ndarray_complex_containers():
     assert np.array_equal(res4, obj4)
 
     assert unpack_pickle_frame(pickle.dumps(obj3, protocol=5)) == obj3
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(b"\x80\x02cnumpy\nndarray\nK\x02\x85\x85\x81.", id="newobj"),
+        pytest.param(b"\x80\x02cnumpy\nndarray\nK\x02\x85\x85}\x92.", id="newobj_ex"),
+        pytest.param(b"(cnumpy\nndarray\n(I2\nto.", id="obj"),
+        pytest.param(b"((I2\ntinumpy\nndarray\n.", id="inst"),
+    ],
+)
+def test_unpack_rejects_ndarray_constructor_opcodes(payload: bytes):
+    """NEWOBJ, NEWOBJ_EX, OBJ, and INST call ndarray without going through REDUCE.
+
+    The shape is (2,). A missing guard allocates 16 bytes, not a huge array.
+    The class stays allowlisted because a view passes it to _reconstruct.
+    """
+    with pytest.raises(ValueError, match="ndarray"):
+        unpack_pickle_frame(payload)
+
+
+def test_allowlist_unpickler_pins_private_pickle_dispatch():
+    """Guards live on pickle._Unpickler. A Python that moves that class or the opcode bytes fails here."""
+    from plugin.scripting.ipc import (
+        AllowlistUnpickler,
+        _guarded_load_newobj,
+        _guarded_load_newobj_ex,
+        _guarded_load_reduce,
+    )
+
+    assert issubclass(AllowlistUnpickler, pickle._Unpickler)
+    assert pickle.REDUCE[0] in pickle._Unpickler.dispatch
+    assert pickle.NEWOBJ[0] in pickle._Unpickler.dispatch
+    assert pickle.NEWOBJ_EX[0] in pickle._Unpickler.dispatch
+    assert AllowlistUnpickler.dispatch[pickle.REDUCE[0]] is _guarded_load_reduce
+    assert AllowlistUnpickler.dispatch[pickle.NEWOBJ[0]] is _guarded_load_newobj
+    assert AllowlistUnpickler.dispatch[pickle.NEWOBJ_EX[0]] is _guarded_load_newobj_ex
+    assert AllowlistUnpickler._instantiate is not pickle._Unpickler._instantiate
+
 
 def test_unpack_rejects_direct_ndarray_allocation():
     """ndarray(shape) allocates from a few pickle bytes. Views do not call it."""
