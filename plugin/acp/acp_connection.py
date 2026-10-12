@@ -28,8 +28,10 @@ import logging
 import os
 import queue
 import subprocess
+import sys
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any, cast
 
 from plugin.framework.errors import ToolExecutionError, safe_json_loads
@@ -54,6 +56,61 @@ def _is_jsonrpc_id(value: Any) -> bool:
     return isinstance(value, (int, float))
 
 
+@dataclass
+class _Pending:
+    """One in-flight JSON-RPC request."""
+
+    event: threading.Event
+    response: Any = None
+
+
+def _accept_message(line: str) -> dict[str, Any] | None:
+    """Return a JSON-RPC object, or None for stray stdout.
+
+    A line that is valid JSON but not an object (a number, boolean, string,
+    or array) used to reach ``msg.get`` and raise. The reader then stopped,
+    and the finally sweep failed the in-flight ``session/prompt`` while the
+    child was still alive. An ``id`` that is an array, object, or JSON
+    boolean is the same stray line: ``pending.get`` would raise ``TypeError``
+    on an unhashable key, or ``true`` would hash equal to request id ``1``.
+    """
+    idx = line.find("{")
+    if idx >= 0:
+        line = line[idx:]
+    msg = safe_json_loads(line)
+    if msg is None:
+        log.debug("Non-JSON output: %s", line[:200])
+        return None
+    if not isinstance(msg, dict):
+        log.debug("Non-object JSON output: %s", line[:200])
+        return None
+    if "id" in msg and not _is_jsonrpc_id(msg["id"]):
+        log.debug("Non-JSON-RPC id output: %s", line[:200])
+        return None
+    return msg
+
+
+def _kill_acp_tree(proc: subprocess.Popen[bytes]) -> None:
+    """Kill ``proc`` and its descendants.
+
+    ``terminate()`` and ``kill()`` signal only the direct child. A wrapper
+    (node, npx, a shell script) can exit and leave a grandchild holding
+    stdout, so ``readline`` never sees EOF. ``BufferedReader.close()`` does
+    not unblock that read: it waits on the same lock ``readline`` holds.
+    """
+    from plugin.scripting.venv_worker import _kill_process_tree
+
+    try:
+        _kill_process_tree(proc)
+    except Exception:
+        log.debug("ACP process tree kill failed", exc_info=True)
+        try:
+            if proc.poll() is None:
+                proc.kill()
+        except Exception:
+            log.debug("ACP process kill failed", exc_info=True)
+
+
 class ACPConnection:
     """Manages a JSON-RPC stdio connection to an ACP subprocess."""
 
@@ -74,7 +131,7 @@ class ACPConnection:
         self._proc: subprocess.Popen[bytes] | None = None
         self._lock = threading.Lock()
         self._request_id = 0
-        self._pending: dict[Any, Any] = {}  # id -> threading.Event, response dict
+        self._pending: dict[Any, _Pending] = {}
         self._reader_thread: BackgroundHandle | None = None
         self._stderr_drain: StderrTail | None = None
         self._running = False
@@ -92,7 +149,16 @@ class ACPConnection:
 
         from plugin.scripting.sandbox import wrap_command_for_sandbox
 
-        self._proc = cast("subprocess.Popen[bytes]", subprocess.Popen(wrap_command_for_sandbox(self._cmd_line), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd, **get_subprocess_creationflags()))
+        # preexec_fn=os.setsid runs Python between fork and exec. Another
+        # LibreOffice thread can hold a lock the child inherits, so the spawn
+        # deadlocks before exec. start_new_session asks the C spawn path to
+        # call setsid. The child is its own session, so killing that group
+        # does not signal LibreOffice. Windows has no start_new_session;
+        # taskkill /T covers the tree there.
+        popen_kw = get_subprocess_creationflags()
+        if sys.platform != "win32":
+            popen_kw["start_new_session"] = True
+        self._proc = cast("subprocess.Popen[bytes]", subprocess.Popen(wrap_command_for_sandbox(self._cmd_line), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd, **popen_kw))
         self._stderr_drain = start_stderr_drain(self._proc.stderr, name=f"acp-stderr-{self._proc.pid}")
         self._running = True
         self._reader_thread = run_in_background(self._reader_loop, daemon=True, name="acp-reader", dedicated=True)
@@ -107,11 +173,33 @@ class ACPConnection:
         with self._lock:
             self._running = False
             for entry in self._pending.values():
-                if entry.get("response") is None:
-                    entry["response"] = {"error": {"message": message}}
-                event = entry.get("event")
-                if event is not None:
-                    event.set()
+                if entry.response is None:
+                    entry.response = {"error": {"message": message}}
+                entry.event.set()
+
+    def _complete_null_id(self, msg: dict[str, Any]) -> None:
+        """Deliver a JSON-RPC error whose id is null.
+
+        A parse error cannot echo the request id, so the id is null. That
+        used to take the notification path (``callback("", {}, None)``) and
+        leave ``session/prompt`` waiting out its 600s timeout. ACP has one
+        request in flight. If several are waiting, each one gets this error.
+        """
+        error = msg.get("error")
+        if error is None:
+            log.debug("ACP response with null id and no error")
+            return
+        text = error.get("message", str(error)) if isinstance(error, dict) else str(error)
+        with self._lock:
+            waiting = [entry for entry in self._pending.values() if entry.response is None]
+            if not waiting:
+                log.debug("ACP null-id error with no waiter: %s", text)
+                return
+            if len(waiting) > 1:
+                log.warning("ACP null-id error applied to %s in-flight requests", len(waiting))
+            for entry in waiting:
+                entry.response = {"error": {"message": text}}
+                entry.event.set()
 
     def stop(self) -> None:
         """Terminate the subprocess and unblock in-flight ``send_request`` calls.
@@ -152,12 +240,7 @@ class ACPConnection:
             time.sleep(0.5)
             try:
                 if proc and proc.poll() is None:
-                    proc.terminate()
-            except Exception:
-                pass
-            try:
-                if proc and proc.stdout:
-                    proc.stdout.close()
+                    _kill_acp_tree(proc)
             except Exception:
                 pass
 
@@ -199,27 +282,18 @@ class ACPConnection:
                         proc.stdin.close()
                 except Exception:
                     pass
-                try:
-                    if proc:
-                        proc.terminate()
-                except Exception:
-                    pass
-                if proc:
+                # What was wrong: terminate()/kill() hit only this process, and
+                # closing stdout was supposed to unblock readline. close()
+                # takes the buffer lock readline already holds, so both
+                # threads wait forever when a grandchild still has the pipe.
+                # Why: kill the process group. The child's death closes the
+                # write end, and readline returns EOF.
+                if proc is not None:
+                    _kill_acp_tree(proc)
                     try:
                         proc.wait(timeout=3)
                     except Exception:
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
-                # A child that exits while stdout is still held open, or during
-                # stop(), leaves readline() blocked. Closing proc.stdout here
-                # unblocks the reader without polling the pipe.
-                try:
-                    if proc and proc.stdout:
-                        proc.stdout.close()
-                except Exception:
-                    pass
+                        pass
                 with self._lock:
                     self._writer_started = False
                 break
@@ -268,7 +342,7 @@ class ACPConnection:
             # raises ValueError ("I/O operation on closed file"), which is the
             # same failed write.
             proc = self._proc
-            self._pending[req_id] = {"event": event, "response": None}
+            self._pending[req_id] = _Pending(event)
 
         line = json.dumps(msg) + "\n"
         log.debug(f"→ {method} (id={req_id})")
@@ -289,9 +363,9 @@ class ACPConnection:
             raise TimeoutError(f"ACP request {method} timed out after {timeout}s")
 
         with self._lock:
-            entry = self._pending.pop(req_id, {})
+            entry = self._pending.pop(req_id, None)
 
-        resp = entry.get("response")
+        resp = entry.response if entry is not None else None
         if resp and "error" in resp:
             err = resp["error"]
             msg_str = err.get("message", str(err)) if isinstance(err, dict) else str(err)
@@ -354,41 +428,18 @@ class ACPConnection:
                     raw = proc.stdout.readline()
                     if not raw:
                         break
-                    # Popen is binary. Reusing `line` for the decoded str leaves
-                    # mypy on bytes, so find("{") and the debug f-string still see bytes.
+                    # Popen is binary. `raw` stays bytes; `line` is the decoded text
+                    # `_accept_message` parses. Reusing one name left mypy on bytes.
                     line = raw.decode("utf-8", errors="replace").strip()
                     if not line:
                         continue
 
-                    idx = line.find("{")
-                    if idx >= 0:
-                        line = line[idx:]
-
-                    msg = safe_json_loads(line)
+                    msg = _accept_message(line)
                     if msg is None:
-                        log.debug(f"Non-JSON output: {line[:200]}")
                         continue
-                    # JSON-RPC messages are objects. A stdout line that is valid
-                    # JSON but not an object (bare number, true/false, quoted
-                    # string, or a JSON array) reaches `"id" in msg` or
-                    # msg.get and raises TypeError or AttributeError. The
-                    # inner except then breaks the reader, and the finally
-                    # sweep fails the in-flight session/prompt with "ACP
-                    # process terminated" while the child is still alive.
-                    # Log stray stdout and keep reading. Do not gate this
-                    # loop on Popen.poll() — that drops a response already
-                    # buffered when the child exits.
-                    if not isinstance(msg, dict):
-                        log.debug(f"Non-object JSON output: {line[:200]}")
-                        continue
-                    # JSON-RPC ids are string, number, or null. An array or object
-                    # id passes the dict guard, then pending.get(req_id) raises
-                    # TypeError (unhashable type). The inner except breaks the
-                    # reader, and the finally sweep fails the in-flight
-                    # session/prompt while the child is still alive. Log it
-                    # and keep reading.
-                    if "id" in msg and not _is_jsonrpc_id(msg["id"]):
-                        log.debug(f"Non-JSON-RPC id output: {line[:200]}")
+
+                    if "id" in msg and msg["id"] is None and "method" not in msg:
+                        self._complete_null_id(msg)
                         continue
 
                     if "id" in msg and msg["id"] is not None and "method" not in msg:
@@ -399,10 +450,10 @@ class ACPConnection:
                         with self._lock:
                             entry = self._pending.get(req_id)
                             if entry:
-                                entry["response"] = msg
-                                entry["event"].set()
+                                entry.response = msg
+                                entry.event.set()
                             else:
-                                log.warning(f"Response for unknown id={req_id}")
+                                log.warning("Response for unknown id=%s", req_id)
                     else:
                         # Notification or Request from the agent
                         method = msg.get("method", "")

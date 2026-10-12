@@ -17,7 +17,7 @@ from plugin.framework.worker_pool import run_in_background
 from plugin.chatbot.send_handlers import _agent_backend_label
 
 from plugin.framework.async_stream import StreamQueueKind
-from plugin.acp.acp_connection import ACPConnection
+from plugin.acp.acp_connection import ACPConnection, _Pending
 from plugin.acp.builtin import BuiltinBackend
 from plugin.acp.hermes_simple import HermesBackend
 
@@ -99,7 +99,7 @@ class TestACPConnection:
 
         # Set up pending request
         event = threading.Event()
-        conn._pending[1] = {"event": event, "response": None}
+        conn._pending[1] = _Pending(event)
         conn._running = True
 
         # Create a mock proc with stdout
@@ -120,7 +120,7 @@ class TestACPConnection:
         reader.join(timeout=2)
 
         # Check the response was stored
-        assert (conn._pending.get(1, {}).get("response")) == (response)
+        assert (conn._pending[1].response) == (response)
 
     def test_reader_dispatches_notifications(self):
         """Reader loop dispatches notifications to callback."""

@@ -11,6 +11,7 @@ A response still buffered on stdout after the child exits must be
 delivered, not replaced by the reader-exit sweep.
 """
 
+import json
 import subprocess
 import sys
 import threading
@@ -19,7 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.acp.acp_connection import ACPConnection
+from plugin.acp.acp_connection import ACPConnection, _Pending
 from plugin.framework.errors import ToolExecutionError
 
 
@@ -72,27 +73,31 @@ class TestACPConnectionStop:
         conn._proc = _live_proc()
         conn._running = True
         event = threading.Event()
-        conn._pending[1] = {"event": event, "response": {"result": {"stopReason": "end_turn"}}}
+        conn._pending[1] = _Pending(event, {"result": {"stopReason": "end_turn"}})
         conn.stop()
         assert event.is_set()
-        assert conn._pending[1]["response"]["result"]["stopReason"] == "end_turn"
+        assert conn._pending[1].response["result"]["stopReason"] == "end_turn"
 
     def test_second_stop_is_safe(self):
         conn = ACPConnection(cmd_line=["agent"])
         proc = _live_proc()
         conn._proc = proc
         conn._running = True
-        conn.stop()
-        conn.stop()
-        # What was wrong: stop() delegates termination to the background writer drain
-        # thread (_writer_drain_loop). Checking proc.terminate synchronously right after
-        # stop() raced with the background worker, intermittently failing in CI when the
-        # background thread had not yet executed proc.terminate().
-        # Why this change: poll with a short deadline before asserting called_once.
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline and not proc.terminate.called:
-            time.sleep(0.01)
-        proc.terminate.assert_called_once()
+        # What was wrong: stop() delegates the kill to the background writer.
+        # Checking it synchronously raced that thread.
+        killed: list[object] = []
+
+        def _kill(proc_arg: object) -> None:
+            killed.append(proc_arg)
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("plugin.scripting.venv_worker._kill_process_tree", _kill)
+            conn.stop()
+            conn.stop()
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and proc not in killed:
+                time.sleep(0.01)
+        assert proc in killed
 
 
 def _assert_prompt_unblocked(errors: list[BaseException], worker: threading.Thread) -> None:
@@ -480,15 +485,16 @@ sys.stdout.buffer.flush()
         # Register a pending request manually
         event = threading.Event()
         with conn._lock:
-            conn._pending[1] = {"event": event, "response": None}
+            conn._pending[1] = _Pending(event)
 
         # Run reader loop (simulating subprocess termination)
         conn._reader_loop()
 
         # The pending request must have been unblocked immediately
         assert event.is_set()
-        entry = conn._pending.get(1) or {}
-        assert "error" in entry.get("response", {})
+        entry = conn._pending.get(1)
+        assert entry is not None
+        assert "error" in entry.response
 
 
 def _proc_nulled_on_bool(conn: ACPConnection, stdin: object):
@@ -696,7 +702,47 @@ def test_stderr_text_reads_live_tail_without_finishing():
     drain.finish_text.assert_not_called()
 
 
-def test_stop_flushes_before_terminate():
+def test_null_id_error_completes_the_pending_request():
+    """A JSON-RPC parse error uses id null. It is not a notification."""
+    conn = ACPConnection(["agent"])
+    event = threading.Event()
+    conn._pending[1] = _Pending(event)
+    called: list[tuple[object, ...]] = []
+    conn.set_notification_callback(lambda *args: called.append(args))
+    conn._running = True
+    line = json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}) + "\n"
+    proc = _live_proc()
+    proc.stdout.readline.side_effect = [line.encode(), b""]
+    conn._proc = proc
+    conn._reader_loop()
+    assert event.is_set()
+    assert conn._pending[1].response["error"]["message"] == "Parse error"
+    assert called == []
+
+
+def test_posix_start_uses_a_new_session(monkeypatch):
+    if sys.platform == "win32":
+        pytest.skip("POSIX session")
+    captured: dict[str, object] = {}
+
+    def fake_popen(_cmd, **kwargs):
+        captured["kwargs"] = kwargs
+        proc = MagicMock()
+        proc.stderr = MagicMock()
+        proc.pid = 1
+        return proc
+
+    monkeypatch.setattr("plugin.acp.acp_connection.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("plugin.acp.acp_connection.start_stderr_drain", lambda *_a, **_k: MagicMock())
+    monkeypatch.setattr("plugin.acp.acp_connection.run_in_background", lambda *_a, **_k: MagicMock())
+    conn = ACPConnection(["agent"])
+    conn.start()
+    kwargs = captured["kwargs"]
+    assert isinstance(kwargs, dict)
+    assert kwargs["start_new_session"] is True
+
+
+def test_stop_flushes_before_tree_kill():
     from unittest.mock import MagicMock
 
     conn = ACPConnection(["dummy"])
@@ -709,25 +755,26 @@ def test_stop_flushes_before_terminate():
     def mock_write(_data):
         events.append("write")
 
-    def mock_terminate():
-        events.append("terminate")
+    def mock_kill(_proc):
+        events.append("kill")
 
     mock_stdin.write.side_effect = mock_write
-    mock_proc.terminate.side_effect = mock_terminate
 
     conn._proc = mock_proc
     conn._running = True
     mock_proc.poll.return_value = None
 
-    conn.send_notification("session/cancel", {})
-    conn.stop()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("plugin.scripting.venv_worker._kill_process_tree", mock_kill)
+        conn.send_notification("session/cancel", {})
+        conn.stop()
 
-    import time
-    for _ in range(50):
-        if "terminate" in events:
-            break
-        time.sleep(0.01)
+        for _ in range(50):
+            if "kill" in events:
+                break
+            time.sleep(0.01)
 
     assert "write" in events, "write was never called"
-    assert "terminate" in events, "terminate was never called"
-    assert events.index("write") < events.index("terminate")
+    assert "kill" in events, "process tree kill was never called"
+    assert events.index("write") < events.index("kill")
+    mock_proc.stdout.close.assert_not_called()

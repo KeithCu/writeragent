@@ -10,11 +10,12 @@
 import os
 import queue
 import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.acp.acp_backend import ACPBackend, _STARTUP_POLL_S, _STARTUP_POLLS
+from plugin.acp.acp_backend import ACPBackend, _STARTUP_POLL_S, _STARTUP_POLLS, _split_cli_args
 from plugin.acp.claude_simple import ClaudeBackend
 from plugin.acp.grok_simple import GrokBackend
 from plugin.acp.hermes_simple import HermesBackend
@@ -66,6 +67,17 @@ class TestDefaultExtraArgs:
         assert (len(backend._extra_args)) == (2)
         assert (backend._extra_args[0]) == ("--config")
         assert ("my file.json") in (backend._extra_args[1])
+
+    def test_windows_split_strips_quotes_and_keeps_backslashes(self):
+        """posix=False keeps \\ , then one wrapping quote pair is removed.
+
+        posix=True would turn C:\\new\\tmp into C:newtmp. Popen must not see
+        the quote characters either.
+        """
+        assert _split_cli_args('"C:\\Program Files\\x"', posix=False) == ["C:\\Program Files\\x"]
+        assert _split_cli_args("C:\\new\\tmp", posix=False) == ["C:\\new\\tmp"]
+        assert _split_cli_args('--config "C:\\Program Files\\x"', posix=False) == ["--config", "C:\\Program Files\\x"]
+        assert _split_cli_args("C:\\new\\tmp", posix=True) == ["C:newtmp"]
 
     def test_config_error_drops_stale_extra_args(self, caplog):
         caplog.set_level("ERROR", logger="plugin.acp.acp_backend")
@@ -329,8 +341,7 @@ class TestPromptResultContentBlocks:
 
         backend = ACPBackend.__new__(ACPBackend)
         backend._stop_requested = False
-        backend._prompt_done = __import__("threading").Event()
-        backend._permission_lock = threading.Lock()
+        backend._state_lock = threading.Lock()
         backend._pending_permissions = {}
         backend._session_id = "sess-1"
         backend._ensure_connection = MagicMock()
@@ -367,10 +378,9 @@ def _bare_backend():
     """ACPBackend without config or a live process."""
     backend = ACPBackend.__new__(ACPBackend)
     backend._stop_requested = False
-    backend._prompt_done = threading.Event()
     backend._session_id = None
     backend._conn = None
-    backend._permission_lock = threading.Lock()
+    backend._state_lock = threading.Lock()
     backend._pending_permissions = {}
     backend.get_display_name = lambda: "Test"
     backend.get_binary_name = lambda: "test-agent"
@@ -650,7 +660,10 @@ class TestStopAndShutdown:
         def send_request(method, params=None, timeout=120):
             if method == "session/prompt":
                 started.set()
-                if not backend._prompt_done.wait(timeout=2):
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline and not backend._stop_requested:
+                    time.sleep(0.01)
+                if not backend._stop_requested:
                     raise TimeoutError("prompt still blocked")
                 raise RuntimeError("ACP process stopped")
             return {"sessionId": "sess-9"}
@@ -858,6 +871,21 @@ class TestUnknownAcpRequest:
         conn.send_response.assert_not_called()
         assert (_drain(q)) == ([(StreamQueueKind.CHUNK, "hi")])
 
+    def test_session_update_with_id_is_acknowledged(self):
+        """A request-shaped session/update must be answered or the agent blocks."""
+        backend = _bare_backend()
+        conn = MagicMock()
+        backend._conn = conn
+        q = queue.Queue()
+        backend._dispatch_notification(
+            "session/update",
+            {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hi"}}},
+            9,
+            q,
+        )
+        conn.send_response.assert_called_once_with(9, result={})
+        assert ((StreamQueueKind.CHUNK, "hi")) in (_drain(q))
+
     def test_unknown_method_while_stopped_is_still_rejected(self):
         backend = _bare_backend()
         backend._stop_requested = True
@@ -925,4 +953,84 @@ class TestEnsureSessionMcp:
         params = backend._conn.send_request.call_args[0][1]
         assert len(params["mcpServers"]) == 1
         assert params["mcpServers"][0]["url"] == "http://localhost:8765/mcp"
+
+
+def _prompt_events(result: object):
+    backend = _bare_backend()
+    backend._session_id = "sess-1"
+    conn = MagicMock()
+    conn.is_alive = True
+    conn.send_request.return_value = result
+    backend._conn = conn
+    backend._ensure_connection = lambda stop_checker=None: None
+    backend._ensure_session = lambda **kwargs: None
+    q = queue.Queue()
+    backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+    return _drain(q)
+
+
+class TestStopReason:
+    def test_refusal_is_an_error(self):
+        events = _prompt_events({"stopReason": "refusal"})
+        assert (StreamQueueKind.ERROR) in ([event[0] for event in events])
+        assert (StreamQueueKind.STREAM_DONE) not in ([event[0] for event in events])
+
+    def test_max_tokens_keeps_the_partial_answer(self):
+        events = _prompt_events({"stopReason": "max_tokens"})
+        kinds = [event[0] for event in events]
+        assert (StreamQueueKind.STATUS) in (kinds)
+        assert (StreamQueueKind.STREAM_DONE) in (kinds)
+        assert (StreamQueueKind.ERROR) not in (kinds)
+        status = next(event[1] for event in events if event[0] == StreamQueueKind.STATUS and "token" in str(event[1]).lower())
+        assert "token" in status.lower()
+
+    def test_max_turn_requests_keeps_the_partial_answer(self):
+        events = _prompt_events({"stopReason": "max_turn_requests"})
+        kinds = [event[0] for event in events]
+        assert any(event[0] == StreamQueueKind.STATUS and "request" in str(event[1]).lower() for event in events)
+        assert (StreamQueueKind.STREAM_DONE) in (kinds)
+        assert (StreamQueueKind.ERROR) not in (kinds)
+
+    def test_end_turn_is_stream_done(self):
+        kinds = [event[0] for event in _prompt_events({"stopReason": "end_turn"})]
+        assert (StreamQueueKind.STREAM_DONE) in (kinds)
+        assert (StreamQueueKind.ERROR) not in (kinds)
+
+    def test_cancelled_is_stopped(self):
+        kinds = [event[0] for event in _prompt_events({"stopReason": "cancelled"})]
+        assert (StreamQueueKind.STOPPED) in (kinds)
+        assert (StreamQueueKind.STREAM_DONE) not in (kinds)
+
+    def test_non_dict_result_is_an_error(self):
+        kinds = [event[0] for event in _prompt_events(["not-a-result"])]
+        assert (StreamQueueKind.ERROR) in (kinds)
+        assert (StreamQueueKind.STREAM_DONE) not in (kinds)
+
+    def test_missing_result_is_stream_done(self):
+        kinds = [event[0] for event in _prompt_events(None)]
+        assert (StreamQueueKind.STREAM_DONE) in (kinds)
+
+
+class TestSessionCwd:
+    def test_file_url_uses_the_document_directory(self, tmp_path):
+        doc = tmp_path / "note.odt"
+        doc.write_text("x", encoding="utf-8")
+        backend = _bare_backend()
+        conn = MagicMock()
+        conn.send_request.return_value = {"sessionId": "s"}
+        backend._conn = conn
+        backend._ensure_session(document_url=doc.as_uri())
+        params = conn.send_request.call_args[0][1]
+        assert params["cwd"] == str(tmp_path)
+
+    def test_unsaved_document_uses_home(self, monkeypatch):
+        monkeypatch.setattr("plugin.acp.acp_backend.os.path.expanduser", lambda path: "/home/sentinel" if path == "~" else path)
+        monkeypatch.setattr("plugin.acp.acp_backend.os.getcwd", lambda: "/launched/from/here")
+        backend = _bare_backend()
+        conn = MagicMock()
+        conn.send_request.return_value = {"sessionId": "s"}
+        backend._conn = conn
+        backend._ensure_session(document_url="private:factory/swriter")
+        params = conn.send_request.call_args[0][1]
+        assert params["cwd"] == "/home/sentinel"
 

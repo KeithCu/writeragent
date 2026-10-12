@@ -2807,6 +2807,41 @@ def test_kill_process_tree_host_pgid_protection(monkeypatch):
     proc.kill.assert_called_once()
 
 
+def test_kill_process_tree_refuses_process_group_one(monkeypatch):
+    """killpg(1) is kill(-1, SIGKILL) and tears down the login session.
+
+    unittest.mock.MagicMock converts to int 1, and os.getpgid() accepts that.
+    A test double passed to ACPConnection.stop() used to log the desktop out.
+    """
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX process groups")
+    killpg = MagicMock()
+    monkeypatch.setattr(venv_worker_module.os, "killpg", killpg)
+
+    unset = MagicMock()
+    venv_worker_module._kill_process_tree(unset)
+    killpg.assert_not_called()
+    unset.kill.assert_not_called()
+
+    init_pid = MagicMock()
+    init_pid.pid = 1
+    init_pid.poll.return_value = None
+    venv_worker_module._kill_process_tree(init_pid)
+    killpg.assert_not_called()
+    init_pid.kill.assert_called_once()
+
+    reused = MagicMock()
+    reused.pid = 4242
+    reused.poll.return_value = None
+    monkeypatch.setattr(venv_worker_module.os, "getpgid", lambda _pid: 1)
+    monkeypatch.setattr(venv_worker_module.os, "getpgrp", lambda: 9999)
+    venv_worker_module._kill_process_tree(reused)
+    killpg.assert_not_called()
+    reused.kill.assert_called_once()
+
+
 class _FakeStdStream:
     def __init__(self, buf):
         self.buffer = buf

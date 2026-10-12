@@ -242,7 +242,11 @@ def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
     # but grandchildren can still be in that group. killpg(pid) reaches them.
     # ProcessLookupError means the group is gone.
     pid = proc.pid
-    if not pid:
+    # A MagicMock pid is truthy, and int(MagicMock()) is 1. os.getpgid()
+    # accepts that, so getpgid(1) is process group 1. killpg(1) is
+    # kill(-1, SIGKILL): every process this user can signal, which ends
+    # the desktop session. Only a real pid above 1 is safe to look up.
+    if type(pid) is not int or pid <= 1:
         if proc.poll() is None:
             proc.kill()
         return
@@ -256,9 +260,10 @@ def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
     try:
         if fallback and proc.poll() is None:
             proc.kill()
-        elif pgid == os.getpgrp():
+        elif type(pgid) is not int or pgid <= 1 or pgid == os.getpgrp():
             # killpg on the host's own group (a reused pid, or a child without
-            # its own session) would kill LibreOffice. Kill only proc.
+            # its own session) would kill LibreOffice. killpg(0) signals that
+            # same group. killpg(1) is kill(-1, SIGKILL). Kill only proc.
             if proc.poll() is None:
                 proc.kill()
         else:
