@@ -32,11 +32,13 @@ def _openai_reasoning_model(model_name: str | None) -> bool:
         parts = name.split(":")
         if len(parts) > 1 and parts[1]:
             name = parts[1]
-    # gpt-5-chat-latest is the non-reasoning ChatGPT snapshot. It accepts
-    # max_tokens and a non-default temperature. The gpt-5 prefix used to
-    # rewrite it anyway, which dropped the user's temperature.
-    # https://developers.openai.com/api/docs/models/gpt-5-chat-latest
-    if name.startswith("gpt-5-chat"):
+    # ChatGPT snapshots (gpt-5-chat-latest, gpt-5.1-chat-latest,
+    # gpt-5.2-chat-latest) accept max_tokens and a non-default temperature.
+    # Their model pages do not list reasoning-token support; gpt-5.1 does.
+    # startswith("gpt-5-chat") missed gpt-5.1-chat-latest, so that id was
+    # rewritten and the user's temperature was dropped.
+    # https://developers.openai.com/api/docs/models/gpt-5.1-chat-latest
+    if name.startswith("gpt-5") and "-chat" in name:
         return False
     return name.startswith(_OPENAI_REASONING_PREFIXES)
 
@@ -243,15 +245,11 @@ class TogetherShim(BaseProviderShim):
         # Together's default image model (black-forest-labs/FLUX.2-dev) and
         # other non-Kontext models only accept reference_images[]. A top-level
         # image_url is ignored or rejected — the same silent create-instead-of-edit
-        # as OpenRouter's old image_url field. Kontext uses image_url.
+        # as OpenRouter's old image_url field. Kontext keeps the image_url
+        # ``_image_payload`` already set.
         # https://docs.together.ai/docs/inference/images/reference-images
-        ref = coerce_image_data_url(image_url, source_image)
-        if ref:
-            data.pop("image_url", None)
-            if is_kontext:
-                data["image_url"] = ref
-            else:
-                data["reference_images"] = [ref]
+        if not is_kontext and data.get("image_url"):
+            data["reference_images"] = [data.pop("image_url")]
         return self._post(url, data)
 
 

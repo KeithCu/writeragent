@@ -12,7 +12,7 @@ from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canoni
 
 
 class GrokShim(BaseProviderShim):
-    """Shim for xAI Grok API (OpenAI-compatible with Aurora image generation)."""
+    """Shim for xAI Grok API (OpenAI-compatible chat, Imagine image generation)."""
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         ref = coerce_image_data_url(image_url, source_image)
@@ -21,7 +21,11 @@ class GrokShim(BaseProviderShim):
         # https://docs.x.ai/developers/model-capabilities/images/editing
         url = self._url("/images/edits" if ref else "/images/generations")
 
-        data: dict[str, Any] = {"prompt": prompt, "n": 1, "response_format": "b64_json", "model": model or "aurora"}
+        # ``aurora`` is not an xAI model id. An omitted image model used to send
+        # that name and 400. grok-imagine-image is the documented 1.0 model.
+        # A caller-supplied id, including a saved ``aurora``, is sent unchanged.
+        # https://docs.x.ai/docs/models/grok-imagine-image
+        data: dict[str, Any] = {"prompt": prompt, "n": 1, "response_format": "b64_json", "model": str(model or "").strip() or "grok-imagine-image"}
         # xAI documents aspect_ratio (default auto) and resolution (1k/2k), not
         # OpenAI size. Write width and height as those fields, or Square / 2048
         # in the sidebar never reach the model.

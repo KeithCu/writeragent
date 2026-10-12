@@ -58,6 +58,12 @@ def test_parse_sync_response_null_usage():
     _, _, _, usage, _, _ = shim.parse_sync_response(resp_with_usage)
     assert usage == {"prompt_tokens": 10, "completion_tokens": 20}
 
+    # A string images value used to be returned as-is and iterated per character.
+    content, _finish, _tools, _usage, images, _message = shim.parse_sync_response({"choices": [{"message": {"role": "assistant", "content": "hi", "images": "http://x"}}]})
+    assert content == "hi"
+    assert images == []
+    assert shim.parse_image_responses(["nope"]) == []
+
 
 def test_coerce_image_data_url_keeps_any_data_url():
     # A non-image data URL used to get a second data:image/png prefix.

@@ -11,6 +11,8 @@ import json
 import re
 from typing import Any
 
+from plugin.framework.errors import NetworkError
+from plugin.framework.i18n import _
 from plugin.framework.url_utils import get_url_path_and_query
 
 # Named UI / tool values → OpenRouter / Gemini aspect_ratio strings.
@@ -65,10 +67,12 @@ def canonical_aspect_ratio(width: int | None = None, height: int | None = None, 
 def canonical_resolution(width: int | None = None, height: int | None = None, *, family: str = "standard") -> str | None:
     """Map max(width, height) to a vendor resolution tier.
 
-    Standard (OpenRouter ``/images`` resolution, Google native): ``512``, ``1K``,
-    ``2K``, ``4K``. OpenRouter chat ``image_config.image_size`` uses ``0.5K`` for
-    the low tier (``family="openrouter_chat"``). Grok only documents ``1k`` /
-    ``2k``. Imagen only documents ``1K`` / ``2K``.
+    The tier follows the longest edge, so 1536×1024 is ``1K`` (1536, and the
+    ``1K`` bucket runs through 1536). Standard (OpenRouter ``/images``
+    resolution, Google native): ``512``, ``1K``, ``2K``, ``4K``. OpenRouter
+    chat ``image_config.image_size`` uses ``0.5K`` for the low tier
+    (``family="openrouter_chat"``). Grok only documents ``1k`` / ``2k``.
+    Imagen only documents ``1K`` / ``2K``.
     """
     if not width or not height or width < 1 or height < 1:
         return None
@@ -271,7 +275,9 @@ class BaseProviderShim:
         # Returning that list made ThinkTagStreamSplitter.feed concatenate
         # str + list, which raised TypeError and aborted the stream. Sync
         # parse already flattens parts with this helper.
-        raw_content = delta.get("content") if delta else None
+        # ``delta`` is always a dict here. ``if delta`` never failed: an empty
+        # dict is truthy, so the else branch was dead.
+        raw_content = delta.get("content")
         content = _normalize_message_content(raw_content) or ""
         thinking = _extract_thinking_from_delta(chunk)
         return content, finish_reason, thinking, delta
@@ -291,9 +297,6 @@ class BaseProviderShim:
         finish_reason = choice.get("finish_reason") or response_data.get("finish_reason") or response_data.get("done_reason")
         err_obj = choice.get("error") or response_data.get("error")
         if finish_reason == "error" or err_obj:
-            from plugin.framework.errors import NetworkError
-            from plugin.framework.i18n import _
-
             err_msg = ""
             if isinstance(err_obj, dict):
                 err_msg = str(err_obj.get("message") or err_obj.get("type") or "").strip()
@@ -308,7 +311,11 @@ class BaseProviderShim:
 
         raw_content = message.get("content")
         content = _normalize_message_content(raw_content) or ""
-        images = message.get("images") or []
+        # A string ``images`` used to be returned as-is. ``image_utils`` iterates
+        # that value, so each character was treated as an image URL.
+        images = message.get("images")
+        if not isinstance(images, list):
+            images = []
         tool_calls = message.get("tool_calls")
         # JSON "usage": null makes .get("usage", {}) return None, because the
         # key is present. ``or {}`` normalizes that to a dict.
@@ -341,6 +348,10 @@ class BaseProviderShim:
 
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
         """Extract list of base64 image data from response (standard OpenAI format)."""
+        # ``image_completion`` already rejects a non-dict HTTP body. A direct
+        # caller passing a list used to raise AttributeError on ``.get``.
+        if not isinstance(response_data, dict):
+            return []
         items = response_data.get("data", [])
         # A null or non-object entry used to raise AttributeError on .get.
         if not isinstance(items, list):

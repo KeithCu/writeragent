@@ -212,9 +212,12 @@ def test_openai_reasoning_models_send_max_completion_tokens(model):
     assert "temperature" not in data
 
 
-@pytest.mark.parametrize("model", ["gpt-5-chat-latest", "openai/gpt-5-chat-latest", "ft:gpt-5-chat-latest:org:name:id"])
+@pytest.mark.parametrize(
+    "model",
+    ["gpt-5-chat-latest", "openai/gpt-5-chat-latest", "ft:gpt-5-chat-latest:org:name:id", "gpt-5.1-chat-latest", "gpt-5.2-chat-latest", "openai/gpt-5.1-chat-latest"],
+)
 def test_gpt5_chat_latest_keeps_max_tokens_and_temperature(model):
-    """gpt-5-chat-latest accepts max_tokens and temperature. The gpt-5 prefix used to rewrite both."""
+    """ChatGPT gpt-5* snapshots accept max_tokens and temperature. startswith('gpt-5-chat') missed gpt-5.1-chat-latest."""
     client = LlmClient(
         {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": model, "temperature": 0.2},
         MockContext(),
@@ -1086,7 +1089,13 @@ def test_grok_shim(client):
         mock_auth.return_value = {"provider": "xai"}
         mock_sync.return_value = {"data": []}
 
-        # Test image request for Grok (should omit size and steps)
+        # An omitted model used to send "aurora", which is not an xAI model id.
+        client.image_completion("Draw a cat", model=None, width=1024, height=1024)
+        _path, body = _posted_json(mock_sync)
+        assert body["model"] == "grok-imagine-image"
+
+        # Test image request for Grok (should omit size and steps). A saved
+        # aurora id is still sent as the caller wrote it.
         client.image_completion("Draw a cat", model="aurora", width=1024, height=1024, steps=30)
 
         path, body = _posted_json(mock_sync)
