@@ -315,3 +315,121 @@ def test_endpoint_audio_suffix_from_content_type():
             assert content.startswith(b"RIFF")
         finally:
             _release_temp(path)
+
+
+@patch("plugin.audio.tts_endpoint._default_endpoint_format", new=lambda: "mp3")
+def test_endpoint_retry_remembers_format_without_content_type():
+    """A successful retry with a generic Content-Type must stick for the next clip."""
+    model = "vendor/wav-generic"
+    cfg._tts_response_format.clear()
+    calls: list[dict] = []
+    wav_bytes = b"RIFF" + b"\x00\x00\x00\x00" + b"WAVE" + b"\x00" * 16
+
+    def fake_sync(url, data=None, headers=None, parse_json=True, method=None, **kwargs):
+        del url, headers, parse_json, method, kwargs
+        assert data is not None
+        payload = json.loads(data.decode("utf-8"))
+        calls.append(payload)
+        if payload["response_format"] == "mp3":
+            raise _speech_http_error(400, "unsupported response_format mp3; use wav")
+        return _speech_meta(wav_bytes, "application/octet-stream")
+
+    path = None
+    path2 = None
+    try:
+        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
+            path = _download_endpoint_speech(
+                "Hello", "https://api.example", "k", model=model, voice="cedar",
+            )
+        assert path is not None
+        assert [item["response_format"] for item in calls] == ["mp3", "wav"]
+        assert cfg.cached_tts_response_format(model) == "wav"
+
+        calls.clear()
+        with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
+            path2 = _download_endpoint_speech(
+                "Again", "https://api.example", "k", model=model, voice="cedar",
+            )
+        assert path2 is not None
+        assert [item["response_format"] for item in calls] == ["wav"]
+    finally:
+        _release_temp(path)
+        _release_temp(path2)
+        cfg._tts_response_format.clear()
+
+
+def test_speak_endpoint_chunks_long_text():
+    downloads: list[str] = []
+
+    def fake_download(chunk, *args, **kwargs):
+        del args, kwargs
+        downloads.append(chunk)
+        return f"/tmp/clip{len(downloads)}.wav"
+
+    with patch("plugin.audio.tts_endpoint._download_endpoint_speech", side_effect=fake_download), \
+         patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
+         patch("plugin.audio.tts_service._release_temp"), \
+         patch("plugin.audio.tts_service._speak_system") as system, \
+         patch("plugin.audio.tts_service._playback_blocked", return_value=False):
+        _speak_endpoint("A" * 4500, "https://api.openai.com/v1", "k", model="tts-1", voice="alloy")
+    assert [len(chunk) for chunk in downloads] == [4000, 500]
+    assert play.call_count == 2
+    system.assert_not_called()
+
+
+def test_speak_endpoint_falls_back_with_unplayed_tail():
+    downloads: list[str] = []
+
+    def fake_download(chunk, *args, **kwargs):
+        del args, kwargs
+        downloads.append(chunk)
+        if len(downloads) == 1:
+            return "/tmp/a.wav"
+        return None
+
+    with patch("plugin.audio.tts_endpoint._download_endpoint_speech", side_effect=fake_download), \
+         patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
+         patch("plugin.audio.tts_service._release_temp"), \
+         patch("plugin.audio.tts_service._speak_system") as system, \
+         patch("plugin.audio.tts_service._playback_blocked", return_value=False):
+        _speak_endpoint(("A" * 4000) + " tail stays", "https://api.openai.com/v1", "k", model="tts-1", voice="alloy")
+    assert len(downloads) == 2
+    play.assert_called_once()
+    system.assert_called_once()
+    assert system.call_args.args[0] == downloads[1]
+    assert "tail stays" in system.call_args.args[0]
+
+
+def test_speak_endpoint_playback_failure_uses_system_speech():
+    with patch("plugin.audio.tts_endpoint._download_endpoint_speech", return_value="/tmp/x.wav"), \
+         patch("plugin.audio.tts_service._play_audio_file", return_value=False), \
+         patch("plugin.audio.tts_service._release_temp"), \
+         patch("plugin.audio.tts_service._speak_system") as system, \
+         patch("plugin.audio.tts_service._playback_blocked", return_value=False):
+        _speak_endpoint("Hello", "https://api.openai.com/v1", "k", model="tts-1", voice="alloy")
+    system.assert_called_once()
+    assert system.call_args.args[0] == "Hello"
+
+
+def test_speak_endpoint_stopped_during_playback_skips_system():
+    import plugin.audio.tts_service as tts
+
+    generation = tts._begin_utterance()
+
+    def play(path, generation=None):
+        del path, generation
+        tts.stop_speech()
+        return False
+
+    try:
+        with patch("plugin.audio.tts_endpoint._download_endpoint_speech", return_value="/tmp/x.wav"), \
+             patch("plugin.audio.tts_service._play_audio_file", side_effect=play), \
+             patch("plugin.audio.tts_service._release_temp"), \
+             patch("plugin.audio.tts_service._speak_system") as system:
+            _speak_endpoint(
+                "Hello", "https://api.openai.com/v1", "k", model="tts-1", voice="alloy",
+                generation=generation,
+            )
+        system.assert_not_called()
+    finally:
+        tts.stop_speech()

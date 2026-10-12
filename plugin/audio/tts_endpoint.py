@@ -166,7 +166,6 @@ def _post_audio_speech(
     """Execute the HTTP request, returning (audio_bytes, content_type, code, error_body)."""
     import json
 
-    from plugin.framework.client.http_transport import public_target
     from plugin.framework.client.requests import sync_request
     from plugin.framework.errors import NetworkError
 
@@ -215,6 +214,8 @@ def _download_endpoint_speech(
     Remote TTS does not use the warm Kokoro worker. The caller plays the file
     and then ``_release_temp``. Returns None on failure or cancel.
     """
+    # tts_service imports _speak_endpoint at module level. These stay inside
+    # the function so the two modules can load.
     from plugin.audio.tts_service import (
         _new_speech_temp,
         _playback_blocked,
@@ -256,6 +257,7 @@ def _download_endpoint_speech(
     content_type = ""
     code = 0
     err_body = ""
+    retried = False
 
     for attempt in range(2):
         payload = {
@@ -282,6 +284,7 @@ def _download_endpoint_speech(
                     response_format, model, alt,
                 )
                 response_format = alt
+                retried = True
                 if _playback_blocked(generation):
                     return None
                 continue
@@ -305,8 +308,12 @@ def _download_endpoint_speech(
     else:
         actual_format = "mp3"
 
-    if err_body:
-        remember_tts_response_format(model, response_format)
+    # The old `if err_body: remember(...)` never ran: a non-empty error already
+    # returned above. A retry that succeeded with a generic Content-Type was
+    # forgotten, so the next clip asked for mp3 and failed again. Remember the
+    # format the bytes actually were, not the format we asked for.
+    if retried and actual_format in ("mp3", "pcm", "wav"):
+        remember_tts_response_format(model, actual_format)
     elif _content_type_is_pcm(content_type) and actual_format == "pcm":
         remember_tts_response_format(model, "pcm")
     elif _content_type_is_wav(content_type) and actual_format == "wav":
@@ -350,7 +357,9 @@ def _speak_endpoint(
     on_status: Callable[[str], None] | None = None,
 ) -> None:
     """Download audio from an OpenAI-compatible speech endpoint and play it."""
+    # Same import cycle as _download_endpoint_speech.
     from plugin.audio.tts_service import (
+        _chunk_text,
         _play_audio_file,
         _playback_blocked,
         _release_temp,
@@ -361,19 +370,26 @@ def _speak_endpoint(
     if _playback_blocked(generation):
         return
 
-    wav_path = _download_endpoint_speech(
-        text, endpoint_url, api_key, model, voice, speed=speed, generation=generation,
-        on_status=on_status,
-    )
-    if wav_path:
-        try:
-            _play_audio_file(wav_path, generation=generation)
-        finally:
-            _release_temp(wav_path)
-        return
-
-    if _playback_blocked(generation):
-        return
-
-    log.warning("Endpoint TTS download failed; falling back to OS system speech.")
-    _speak_system(text, speed=speed, generation=generation)
+    # Hosted /audio/speech rejects inputs around 4096 characters. One POST of
+    # a long reply used to 400 and fall back to OS speech for the whole thing.
+    chunks = _chunk_text(text, 4000)
+    for index, chunk in enumerate(chunks):
+        if _playback_blocked(generation):
+            return
+        wav_path = _download_endpoint_speech(
+            chunk, endpoint_url, api_key, model, voice, speed=speed, generation=generation,
+            on_status=on_status if index == 0 else None,
+        )
+        played = False
+        if wav_path:
+            try:
+                played = _play_audio_file(wav_path, generation=generation)
+            finally:
+                _release_temp(wav_path)
+        if _playback_blocked(generation):
+            return
+        if played is False:
+            rest = " ".join(chunks[index:])
+            log.warning("Endpoint TTS failed; falling back to OS system speech.")
+            _speak_system(rest, speed=speed, generation=generation)
+            return
