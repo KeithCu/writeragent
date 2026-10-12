@@ -23,8 +23,13 @@ from dataclasses import dataclass
 from typing import Any, Callable, IO, Iterator, NoReturn
 
 from plugin.framework.config import get_config_str
-from plugin.framework.thread_guard import background
-from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_EMBEDDINGS
+from plugin.framework.thread_guard import background, on_main_thread
+from plugin.framework.constants import (
+    EMBEDDINGS_HEARTBEAT_GRACE_S,
+    HEARTBEAT_ABSOLUTE_CAP_SEC,
+    WORKER_POOL_DEFAULT,
+    WORKER_POOL_EMBEDDINGS,
+)
 from plugin.framework.worker_pool import (
     BackgroundHandle,
     StderrTail,
@@ -464,8 +469,6 @@ class PythonWorkerManager:
 
     def _reentry_error(self) -> dict[str, Any] | None:
         """Refuse a nested execute that would deadlock this worker's pipe."""
-        from plugin.framework.thread_guard import on_main_thread
-
         me = threading.get_ident()
         # Any other thread used to call Lock.acquire() with no timeout. The
         # holder can be inside a tool RPC that is waiting on the thread stuck
@@ -473,8 +476,13 @@ class PythonWorkerManager:
         # callback), so the wait never ends and the UI stays frozen. Refuse
         # the owner, anyone while a tool call is in progress, and the UI
         # thread while the pipe lock is held.
-        if self._io_owner == me or self._serving_tool_call:
+        # _serving_tool_call is per manager. =PY() during a chat script is a
+        # different thread, not a callback into the same worker. The reentry
+        # sentence is only true when this thread already holds the pipe.
+        if self._io_owner == me:
             return _worker_error("WORKER_REENTRY", _WORKER_REENTRY_MESSAGE)
+        if self._serving_tool_call:
+            return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         if on_main_thread() and self._io_lock.locked():
             return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         return None
@@ -483,8 +491,6 @@ class PythonWorkerManager:
         err = self._reentry_error()
         if err is not None:
             return err
-        from plugin.framework.thread_guard import on_main_thread
-
         # The locked() check above can pass, then another thread takes the
         # pipe and blocks on the UI thread. A non-blocking acquire closes
         # that race. Other threads wait, but leave if a tool RPC starts.
@@ -497,7 +503,7 @@ class PythonWorkerManager:
         deadline = time.monotonic() + _IO_LOCK_ACQUIRE_TIMEOUT_SEC
         while True:
             if self._serving_tool_call:
-                return _worker_error("WORKER_REENTRY", _WORKER_REENTRY_MESSAGE)
+                return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
@@ -511,13 +517,11 @@ class PythonWorkerManager:
         self._io_lock.release()
 
     def _ensure_warmed(self) -> dict[str, Any] | None:
-        err = self._acquire_io()
-        if err is not None:
-            return err
         try:
-            return self._ensure_warmed_unlocked()
-        finally:
-            self._release_io()
+            with self._io_session():
+                return None
+        except _IoSessionUnavailable as exc:
+            return exc.args[0]
 
     def warm(self) -> None:
         """Spawn the worker and trigger auto-imports (numpy etc.) so the next real execute is instant."""
@@ -625,6 +629,10 @@ class PythonWorkerManager:
         _clear_host_state_after_worker_death()
         return _worker_error(code, message, details=details if details is not None else {"exe": self.exe})
 
+    def _fail_ipc_no_replay(self, exc: BaseException) -> dict[str, Any]:
+        """Terminal IPC failure after the request may have run. Same text at each site."""
+        return self._fail_no_replay("WORKER_IPC_ERROR", f"Python worker failed: {exc}{_SHARED_WORKER_RESTART_HINT}")
+
     def _read_until_terminal(
         self,
         stdout: IO[bytes],
@@ -677,8 +685,6 @@ class PythonWorkerManager:
 
         while True:
             if allow_heartbeat:
-                from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_GRACE_S
-
                 grace = int(heartbeat_grace_sec if heartbeat_grace_sec is not None else EMBEDDINGS_HEARTBEAT_GRACE_S)
                 # Already unpickled. A second unpack of a multi-megabyte
                 # result frame was pure CPU on this path.
@@ -706,6 +712,12 @@ class PythonWorkerManager:
                     return response
                 continue
 
+            # A tool_call (or ppt llm_request / worker_event) can mutate the
+            # document and then raise. The flag used to flip only after
+            # dispatch returned, so a RuntimeError with no exec_started left
+            # may_have_run false and the attempt loop sent the request again.
+            if response.get("type") in ("tool_call", "llm_request", "worker_event"):
+                state.dispatched_intermediate = True
             self._serving_tool_call = True
             try:
                 is_intermediate = _maybe_dispatch_intermediate_response(
@@ -822,7 +834,7 @@ class PythonWorkerManager:
                     # update) would run twice. Id mismatch already refuses that
                     # replay; unpickle does too.
                     log.warning("Python worker frame rejected (not replaying): %s", e)
-                    return self._fail_no_replay("WORKER_IPC_ERROR", f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}")
+                    return self._fail_ipc_no_replay(e)
                 except (OSError, RuntimeError) as e:
                     # RuntimeError must not look only at dispatched_intermediate. A
                     # later RuntimeError (bad frame, closed pipe) after
@@ -835,7 +847,7 @@ class PythonWorkerManager:
                     if not state.may_have_run:
                         raise
                     log.warning("Python worker failed after execution started (not replaying): %s", e)
-                    return self._fail_no_replay("WORKER_IPC_ERROR", f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}")
+                    return self._fail_ipc_no_replay(e)
                 req_id = request.get("id")
                 if response.get("id") != req_id:
                     # exchange_tool_call already checks ids. A mismatched terminal
@@ -861,7 +873,7 @@ class PythonWorkerManager:
                     return self._normalize_response(response)
                 except _HOST_UNPACK_ERRORS as e:
                     log.warning("Python worker result rejected (not replaying): %s", e)
-                    return self._fail_no_replay("WORKER_IPC_ERROR", f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}")
+                    return self._fail_ipc_no_replay(e)
             except _StopRequested:
                 # Stop while waiting on the pipe: the child may be mid-script, so
                 # it is killed (never replayed) and the caller sees CANCELLED.
@@ -869,7 +881,7 @@ class PythonWorkerManager:
                 return self._fail_no_replay("CANCELLED", "Python worker stopped by user")
             except (_NoTerminalFrame, _NonReplayableIpcWriteTimeout) as e:
                 log.warning("Python worker failed without replay: %s", e)
-                return self._fail_no_replay("WORKER_IPC_ERROR", f"Python worker failed: {e}{_SHARED_WORKER_RESTART_HINT}")
+                return self._fail_ipc_no_replay(e)
             except _WorkerRetired as e:
                 # The registry already dropped this manager. The generic handler
                 # below would terminate it and clear the Calc add-in cache twice
@@ -907,7 +919,6 @@ class PythonWorkerManager:
                     details={"exe": self.exe, "attempt": attempt + 1},
                 )
         raise AssertionError("worker attempt loop exited without a result")
-
 
     def execute(
         self,
@@ -1097,7 +1108,6 @@ class PythonWorkerManager:
         out["traceback"] = str(tb or "")
         return out
 
-
     def _ensure_running(self) -> None:
         if self._retired:
             raise _WorkerRetired(
@@ -1193,15 +1203,7 @@ class PythonWorkerManager:
                 raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
             return self._read_exact_win32(stdout, n, remaining, timeout_sec, stop_checker)
 
-        return (
-            read_frame_payload(
-                stdout,
-                read_exact=_read_exact,
-                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-                frame_label="venv worker frame",
-            )
-            or b""
-        )
+        return self._read_frame_bytes(stdout, _read_exact)
 
     def _read_exact_win32(self, stdout: IO[bytes], nbytes: int, remaining: float, timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
         """One exact read on Windows: peek a real pipe, else a join-timeout thread."""
@@ -1278,35 +1280,37 @@ class PythonWorkerManager:
         stop_checker: Callable[[], bool] | None = None,
         absolute_cap_sec: float | None = None,
     ) -> dict[str, Any] | None:
-        from plugin.framework.constants import HEARTBEAT_ABSOLUTE_CAP_SEC
         from plugin.scripting.venv.worker_heartbeat import FRAME_HEARTBEAT, FRAME_RESULT, parse_frame
 
         # Each heartbeat used to set the deadline to now+grace with no end.
         # Trusted actions do not use the sandbox alarm, so a loop that kept
         # emitting held _io_lock until something else killed the child.
         # Heartbeats may move the short deadline forward, but never past an
-        # absolute ceiling from the start of this read.
+        # absolute ceiling from the start of this call. They do not reset it.
+        # _read_until_terminal starts a new ceiling after a non-heartbeat
+        # frame. Trusted actions emit heartbeats until one result, so for
+        # them this call is the whole job.
         cap = float(HEARTBEAT_ABSOLUTE_CAP_SEC if absolute_cap_sec is None else absolute_cap_sec)
         start = time.monotonic()
         ceiling = start + cap
         window = float(max(timeout_sec, grace_sec))
-        first = start + window
-        if first > ceiling:
-            first = ceiling
-            label = cap
+        deadline = start + window
+        if deadline > ceiling:
+            deadline = ceiling
+            timeout_label = cap
         else:
-            label = window
-        deadline_holder = [first, label]
+            timeout_label = window
 
         def _read_exact(n: int) -> bytes:
+            nonlocal deadline, timeout_label
             if _stop_requested(stop_checker):
                 raise _StopRequested()
-            return self._read_exact_before_deadline(stdout, n, deadline_holder[0], stop_checker, timeout_label=deadline_holder[1])
+            return self._read_exact_before_deadline(stdout, n, deadline, stop_checker, timeout_label=timeout_label)
 
         while True:
             now = time.monotonic()
-            if now >= deadline_holder[0]:
-                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=deadline_holder[1])
+            if now >= deadline:
+                raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_label)
             frame_bytes = self._read_frame_bytes(stdout, _read_exact)
             if not frame_bytes:
                 return None
@@ -1321,11 +1325,11 @@ class PythonWorkerManager:
                         log.exception("Heartbeat callback failed (ignoring)")
                 extended = time.monotonic() + float(grace_sec)
                 if extended > ceiling:
-                    deadline_holder[0] = ceiling
-                    deadline_holder[1] = cap
+                    deadline = ceiling
+                    timeout_label = cap
                 else:
-                    deadline_holder[0] = extended
-                    deadline_holder[1] = float(grace_sec)
+                    deadline = extended
+                    timeout_label = float(grace_sec)
                 continue
             if frame_type == FRAME_RESULT or frame_type is None:
                 if not data:
@@ -1375,8 +1379,6 @@ class PythonWorkerManager:
             self._proc = None
             self._primed = False
             self._stderr_drain = None
-            if not hasattr(self, "_reap_handles"):
-                self._reap_handles = []
         if proc is None and stderr_drain is None:
             if wait:
                 self._join_reaps()
@@ -1396,8 +1398,6 @@ class PythonWorkerManager:
     def _join_reaps(self) -> None:
         """Wait until every reap started for this manager has finished."""
         with self._proc_lock:
-            if not hasattr(self, "_reap_handles"):
-                self._reap_handles = []
             handles = list(self._reap_handles)
         for handle in handles:
             handle.join()
@@ -1407,8 +1407,6 @@ class PythonWorkerManager:
     def _take_reap_handles(self) -> list[BackgroundHandle]:
         """Hand in-flight reaps to another manager. The caller must join them."""
         with self._proc_lock:
-            if not hasattr(self, "_reap_handles"):
-                self._reap_handles = []
             handles = self._reap_handles
             self._reap_handles = []
             return handles
@@ -1417,8 +1415,6 @@ class PythonWorkerManager:
         if not handles:
             return
         with self._proc_lock:
-            if not hasattr(self, "_reap_handles"):
-                self._reap_handles = []
             self._reap_handles.extend(handles)
 
 
@@ -1435,31 +1431,27 @@ def _resolve_worker_python(
     UNO context pass it to ``run_code_in_user_venv``, not here.
     """
     venv_dir = get_config_str("scripting.python_venv_path").strip()
-
-    if pool == WORKER_POOL_EMBEDDINGS:
-        if not venv_dir:
-            return None, _worker_error(
-                "VENV_NOT_FOUND",
-                "Embeddings require a configured Python venv (Settings → Python). "
-                "LibreOffice embedded Python cannot run sentence-transformers or langgraph.",
-            )
-        exe = resolve_venv_python(venv_dir)
-        if not exe:
-            return None, _worker_error(
-                "VENV_NOT_FOUND",
-                f"Embeddings venv not configured or invalid: {venv_dir!r}",
-            )
-        log.debug("run_venv_code: using embeddings venv interpreter under %s", venv_dir)
-        return exe, None
-
+    embeddings = pool == WORKER_POOL_EMBEDDINGS
+    # Embeddings cannot fall through to LibreOffice's Python. An empty path
+    # is its own error; a configured path shares the venv lookup below.
+    if embeddings and not venv_dir:
+        return None, _worker_error(
+            "VENV_NOT_FOUND",
+            "Embeddings require a configured Python venv (Settings → Python). "
+            "LibreOffice embedded Python cannot run sentence-transformers or langgraph.",
+        )
     if venv_dir:
         exe = resolve_venv_python(venv_dir)
         if not exe:
-            return None, _worker_error(
-                "VENV_NOT_FOUND",
-                f"No python executable found under configured venv: {venv_dir!r}",
-            )
-        log.debug("run_venv_code: using venv interpreter under %s", venv_dir)
+            if embeddings:
+                message = f"Embeddings venv not configured or invalid: {venv_dir!r}"
+            else:
+                message = f"No python executable found under configured venv: {venv_dir!r}"
+            return None, _worker_error("VENV_NOT_FOUND", message)
+        if embeddings:
+            log.debug("run_venv_code: using embeddings venv interpreter under %s", venv_dir)
+        else:
+            log.debug("run_venv_code: using venv interpreter under %s", venv_dir)
         return exe, None
     exe = resolve_libreoffice_python()
     if not exe:
@@ -1473,14 +1465,19 @@ def _resolve_worker_python(
     return exe, None
 
 
-def _worker_manager_for_ctx(
+def _get_worker_manager(
     *,
     pool: str = WORKER_POOL_DEFAULT,
 ) -> tuple[PythonWorkerManager | None, dict[str, Any] | None]:
+    """Return the warm manager for *pool*, or ``(None, error)``.
+
+    No UNO context: config is process-global. ``assert`` is not the guard.
+    ``python -O`` strips asserts, and a missing interpreter must still return
+    the error dict.
+    """
     exe, err = _resolve_worker_python(pool=pool)
-    if err is not None:
-        return None, err
-    assert exe is not None
+    if exe is None:
+        return None, err or _worker_error("VENV_NOT_FOUND", "Could not resolve a Python interpreter.")
     child_env = scrub_subprocess_env(dict(os.environ))
     return PythonWorkerManager.get(exe, child_env, pool=pool), None
 
@@ -1527,10 +1524,9 @@ def run_code_in_user_venv(
     if not action and not (code or "").strip():
         return _worker_error("WORKER_IPC_ERROR", "No code provided.")
 
-    manager, err = _worker_manager_for_ctx(pool=worker_pool)
-    if err is not None:
-        return err
-    assert manager is not None
+    manager, err = _get_worker_manager(pool=worker_pool)
+    if manager is None:
+        return err or _worker_error("WORKER_IPC_ERROR", "Python worker is unavailable.")
 
     configured = configured_python_exec_timeout()
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
@@ -1564,10 +1560,9 @@ def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | No
     if not (session_id or "").strip():
         return _worker_error("WORKER_IPC_ERROR", "No session_id provided.")
 
-    manager, err = _worker_manager_for_ctx()
-    if err is not None:
-        return err
-    assert manager is not None
+    manager, err = _get_worker_manager()
+    if manager is None:
+        return err or _worker_error("WORKER_IPC_ERROR", "Python worker is unavailable.")
 
     configured = configured_python_exec_timeout()
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
@@ -1587,11 +1582,10 @@ def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
     *uno_ctx* is unused. Config is process-global; the argument stays so
     existing callers can keep passing a context.
     """
-    manager, err = _worker_manager_for_ctx(pool=pool)
-    if err is not None:
-        log.warning("warm_venv_worker skipped for pool %s: %s", pool, err.get("message"))
+    manager, err = _get_worker_manager(pool=pool)
+    if manager is None:
+        log.warning("warm_venv_worker skipped for pool %s: %s", pool, (err or {}).get("message"))
         return
-    assert manager is not None
     manager.warm()
 
     # Pre-load the active embedding model inside the embeddings pool worker so first query executes instantly

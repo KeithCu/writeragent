@@ -12,7 +12,7 @@ from typing import Any, Callable
 from plugin.framework.config import get_config_int
 from plugin.ppt_master.paths import apply_data_root_env
 from plugin.scripting.config_limits import configured_python_exec_timeout, resolve_python_exec_timeout
-from plugin.scripting.venv_worker import _worker_manager_for_ctx
+from plugin.scripting.venv_worker import _get_worker_manager, _worker_error
 
 log = logging.getLogger(__name__)
 
@@ -41,10 +41,9 @@ def run_ppt_master_venv_turn(
     """Dispatch one sidebar turn to the venv ppt-master runner."""
     apply_data_root_env(uno_ctx)
 
-    manager, err = _worker_manager_for_ctx()
-    if err is not None:
-        return err
-    assert manager is not None
+    manager, err = _get_worker_manager()
+    if manager is None:
+        return err or _worker_error("WORKER_IPC_ERROR", "Python worker is unavailable.")
 
     configured = configured_python_exec_timeout()
     timeout_sec = max(resolve_python_exec_timeout(None, configured=configured), _PPT_MASTER_TURN_TIMEOUT_SEC)

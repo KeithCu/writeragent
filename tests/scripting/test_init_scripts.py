@@ -332,7 +332,7 @@ def test_run_code_forwards_init_kwargs():
     doc = _DocWithUserDefinedProperties(props)
     set_calc_init_script(doc, "x = 1")
     with (
-        patch("plugin.scripting.venv_worker._worker_manager_for_ctx") as mock_mgr,
+        patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr,
         patch("plugin.scripting.session_manager._workbook_session_key", return_value="k"),
     ):
         manager = MagicMock()

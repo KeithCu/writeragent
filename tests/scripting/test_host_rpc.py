@@ -474,7 +474,7 @@ def test_run_code_in_user_venv_forwards_python_tool_domain():
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
     ctx = MagicMock()
-    with patch("plugin.scripting.venv_worker._worker_manager_for_ctx") as mock_mgr:
+    with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr:
         manager = MagicMock()
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}

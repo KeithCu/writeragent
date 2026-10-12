@@ -130,7 +130,7 @@ def test_execute_request_does_not_inject_inputs():
 
 def test_run_code_in_user_venv_passes_stop_checker():
     """run_code_in_user_venv must pass stop_checker to the manager's execute method."""
-    with patch("plugin.scripting.venv_worker._worker_manager_for_ctx") as mock_mgr_ctx:
+    with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr_ctx:
         mock_mgr = MagicMock()
         mock_mgr.execute.return_value = {"status": "ok"}
         mock_mgr_ctx.return_value = (mock_mgr, None)
@@ -464,6 +464,7 @@ def test_execute_refuses_reentry_while_this_thread_owns_the_pipe():
     result = mgr.execute("result = 1", timeout_sec=1)
     assert result["status"] == "error"
     assert result["code"] == "WORKER_REENTRY"
+    assert "called back" in result["message"]
     assert not mgr._io_lock.locked()
 
 
@@ -602,6 +603,46 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1, caller="ppt_master_venv")
 
     assert result["status"] == "error"
+    assert mgr._write_frame_with_timeout.call_count == 1
+    assert mgr._terminate_worker.call_count == 1
+
+
+def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch):
+    """A tool_call that raises mid-dispatch must not be sent again.
+
+    The flag used to be set only after dispatch returned. A RuntimeError
+    from the handler, with no exec_started frame, left may_have_run false
+    and the attempt loop wrote the same request to a new child.
+    """
+    import plugin.scripting.venv_worker as venv_worker_module
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
+    mgr._read_response_bytes = MagicMock(  # type: ignore[method-assign]
+        return_value=pickle.dumps(
+            {"type": "tool_call", "id": "t1", "tool": "apply_document_content", "args": {}},
+            protocol=5,
+        )
+    )
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    def dispatch(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("tool mutated then failed")
+
+    monkeypatch.setattr(venv_worker_module, "_maybe_dispatch_intermediate_response", dispatch)
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "tool mutated then failed" in result["message"]
     assert mgr._write_frame_with_timeout.call_count == 1
     assert mgr._terminate_worker.call_count == 1
 
@@ -1965,6 +2006,8 @@ def test_acquire_io_refuses_other_thread_during_tool_rpc():
     assert time.monotonic() - started < 1.0
     assert result is not None
     assert result["code"] == "WORKER_REENTRY"
+    assert "busy" in result["message"]
+    assert "called back" not in result["message"]
     assert not mgr._io_lock.locked()
 
 
@@ -1992,6 +2035,8 @@ def test_acquire_io_stops_waiting_when_holder_enters_tool_rpc(monkeypatch):
     try:
         assert not waiter.is_alive()
         assert outcome["result"]["code"] == "WORKER_REENTRY"
+        assert "busy" in outcome["result"]["message"]
+        assert "called back" not in outcome["result"]["message"]
     finally:
         mgr._serving_tool_call = False
         mgr._io_owner = None
@@ -2390,6 +2435,8 @@ def test_terminate_worker_race_condition(monkeypatch):
     mgr.exe = "dummy"
     mgr._proc_lock = threading.Lock()
     mgr._retired = False
+    # __new__ skips __init__. _terminate_worker appends the reap handle.
+    mgr._reap_handles = []
 
     class DummyProc:
         def __init__(self):
