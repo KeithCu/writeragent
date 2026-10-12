@@ -42,7 +42,10 @@ if [[ ! "$PORT" =~ ^[0-9]+$ ]] || (( 10#$PORT < 1 || 10#$PORT > 65535 )); then
   exit 1
 fi
 
-MEMORY="${PYTHON_COMPUTE_MEMORY:-512m}"
+# 1g: --memory-swap equals --memory, so there is no extra swap. The first
+# cell imports numpy, pandas, sympy, scipy.stats, and matplotlib into the
+# worker. 512m only covers the startup check (numpy and sympy).
+MEMORY="${PYTHON_COMPUTE_MEMORY:-1g}"
 docker build -f compute_service/Dockerfile -t "$IMAGE" .
 
 # Env key wins over a key file, same as load_settings. -e PYTHON_COMPUTE_API_KEY

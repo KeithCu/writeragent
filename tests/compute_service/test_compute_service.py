@@ -1143,6 +1143,32 @@ class TestComputeSettings:
             load_settings(config_path=cfg, environ={})
         assert isinstance(exc_info.value.__cause__, UnicodeDecodeError)
 
+    def test_unreadable_key_file_reports_uid_and_mode(self, tmp_path) -> None:
+        """Permission denied used to name only the path.
+
+        A mode-600 mount read as another uid looks like a bad filename.
+        The error includes the process uid and the file mode and owner.
+        Root ignores mode bits, so this only runs unprivileged. Mode 000
+        is put back so the tmp directory can be deleted.
+        """
+        import os
+
+        if not hasattr(os, "geteuid") or os.geteuid() == 0:
+            pytest.skip("mode 000 is still readable as root")
+        key_path = tmp_path / "key"
+        key_path.write_text("secret", encoding="utf-8")
+        key_path.chmod(0)
+        try:
+            with pytest.raises(ConfigError, match="Cannot read api_key_file") as exc_info:
+                load_settings(api_key_file=key_path, environ={"PYTHON_COMPUTE_HOST": "127.0.0.1"})
+            message = str(exc_info.value)
+        finally:
+            key_path.chmod(0o600)
+        assert f"process uid={os.geteuid()}" in message
+        assert "file mode=0" in message
+        assert f"owner={os.getuid()}" in message
+        assert isinstance(exc_info.value.__cause__, PermissionError)
+
     def test_compute_settings_none_worker_counts(self) -> None:
         """Verify ComputeSettings handles None for workers and ocr_workers gracefully."""
         kwargs: dict[str, Any] = {"workers": None, "ocr_workers": None}
@@ -2799,6 +2825,29 @@ def test_start_docker_rejects_bad_port(tmp_path, port: str) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
+def test_start_docker_memory_default_and_override(tmp_path) -> None:
+    """Default memory is 1g, and swap is pinned to the same value.
+
+    --memory-swap equal to --memory disables extra swap. The first cell
+    loads numpy, pandas, sympy, scipy, and matplotlib, which 512m did not
+    budget for. PYTHON_COMPUTE_MEMORY replaces both flags together.
+    """
+    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": "k"})
+    assert proc.returncode == 0, proc.stderr
+    assert "--memory=1g" in lines
+    assert "--memory-swap=1g" in lines
+
+    proc, lines, _uid, _gid = _run_start_docker(
+        tmp_path,
+        {"PYTHON_COMPUTE_API_KEY": "k", "PYTHON_COMPUTE_MEMORY": "256m"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "--memory=256m" in lines
+    assert "--memory-swap=256m" in lines
+    assert "--memory=1g" not in lines
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
 def test_start_docker_publishes_python_compute_port(tmp_path) -> None:
     """PYTHON_COMPUTE_PORT is both the published port and the listener."""
     proc, lines, _uid, _gid = _run_start_docker(
@@ -2845,6 +2894,28 @@ def _runner_stage_copies(dockerfile_text: str) -> list[tuple[str, str]]:
             raise AssertionError(f"unexpected COPY form: {line}")
         pairs.append((parts[1], parts[2]))
     return pairs
+
+
+def test_dockerfile_runner_hygiene() -> None:
+    """The image installs wheels only and checks /health with the stdlib.
+
+    A compiler in the builder can link against libraries the runner never
+    copies. Recursing ownership over /app duplicates the wheel tree and
+    still does not match the host uid the launcher runs as. HOME and
+    MPLCONFIGDIR sit on the /tmp tmpfs because the root is read-only.
+    """
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    text = (repo / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
+    assert "--only-binary=:all:" in text
+    assert "MPLCONFIGDIR=/tmp/mpl" in text
+    assert "ENV HOME=/tmp" in text
+    assert "HEALTHCHECK" in text
+    assert "/health" in text
+    assert "useradd --no-create-home" in text
+    assert "build-essential" not in text
+    assert "chown" not in text
 
 
 def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:

@@ -323,10 +323,33 @@ def _as_float(value: Any, *, field: str) -> float:
     return number
 
 
+def _key_file_access_detail(key_path: Path) -> str:
+    """Uid and mode suffix for a PermissionError on the key file.
+
+    What was wrong: the message was only the path plus ``Permission denied``.
+    A mode-600 mount read as another uid (rootless remap, or ``--user`` that
+    does not own the file) looks like a bad path. The process ids and the
+    file owner show the mismatch. ``geteuid`` is absent on Windows.
+    """
+    geteuid = getattr(os, "geteuid", None)
+    getegid = getattr(os, "getegid", None)
+    if geteuid is None or getegid is None:
+        return ""
+    try:
+        st = key_path.stat()
+    except OSError:
+        return ""
+    mode = stat.S_IMODE(st.st_mode)
+    return f" (process uid={geteuid()} gid={getegid()}, file mode={mode:o} owner={st.st_uid})"
+
+
 def _read_key_file(path: str | Path) -> str:
     key_path = Path(path).expanduser()
     try:
         text = key_path.read_text(encoding="utf-8")
+    except PermissionError as exc:
+        detail = _key_file_access_detail(key_path)
+        raise ConfigError(f"Cannot read api_key_file {key_path}: {exc}{detail}") from exc
     except (OSError, UnicodeDecodeError) as exc:
         # UnicodeDecodeError subclasses ValueError, not OSError. A binary
         # or non-UTF-8 key file is a config error, not a traceback.
