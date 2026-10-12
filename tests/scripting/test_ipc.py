@@ -682,7 +682,7 @@ def test_exchange_tool_call_returns_result_when_id_matches(monkeypatch):
     assert ipc.exchange_tool_call("get_named_python_script", {"name": "a"}) == {"n": 1}
 
 
-@pytest.mark.skipif(not hasattr(signal, "alarm"), reason="signal.alarm is POSIX")
+@pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="setitimer is POSIX")
 def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
     """SIGALRM during the tool read used to desync the next cell. Consume the reply first."""
     import signal
@@ -692,10 +692,10 @@ def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
     written: dict[str, object] = {}
     reads = {"n": 0}
 
-    def _alarm(seconds: int) -> int:
-        if seconds == 0:
-            return 1
-        return 0
+    def _setitimer(which: int, seconds: float, interval: float = 0.0) -> tuple[float, float]:
+        if seconds == 0.0:
+            return (1.0, 0.0)
+        return (0.0, 0.0)
 
     clock = {"t": 0.0}
 
@@ -712,7 +712,7 @@ def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
         assert isinstance(message, dict)
         return {"status": "ok", "id": message["id"], "result": {"n": 1}}
 
-    monkeypatch.setattr(signal, "alarm", _alarm)
+    monkeypatch.setattr(signal, "setitimer", _setitimer)
     monkeypatch.setattr(ipc.time, "monotonic", _monotonic)
     monkeypatch.setattr(ipc, "write_pickle_frame", _write)
     monkeypatch.setattr(ipc, "read_pickle_frame", _read)
@@ -721,18 +721,42 @@ def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
     assert reads["n"] == 1
 
 
-@pytest.mark.skipif(not hasattr(signal, "alarm"), reason="signal.alarm is POSIX")
+@pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="setitimer is POSIX")
 def test_resume_script_alarm_rearms_only_when_time_remains(monkeypatch):
     import signal
 
     from plugin.scripting.ipc import _resume_script_alarm
 
-    armed: list[int] = []
-    monkeypatch.setattr(signal, "alarm", lambda seconds: armed.append(seconds) or 0)
-    assert _resume_script_alarm((5, __import__("time").monotonic())) is False
-    assert armed and armed[0] >= 1
-    assert _resume_script_alarm((1, __import__("time").monotonic() - 10)) is True
+    armed: list[float] = []
+
+    def _setitimer(which: int, seconds: float, interval: float = 0.0) -> tuple[float, float]:
+        armed.append(seconds)
+        return (0.0, 0.0)
+
+    monkeypatch.setattr(signal, "setitimer", _setitimer)
+    assert _resume_script_alarm((5.0, 0.0, time.monotonic())) is False
+    assert armed and armed[0] == pytest.approx(5.0, abs=0.05)
+    assert _resume_script_alarm((1.0, 0.0, time.monotonic() - 10)) is True
     assert len(armed) == 1
+
+
+@pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="setitimer is POSIX")
+def test_resume_script_alarm_keeps_fractional_remainder(monkeypatch):
+    """alarm() used to round a leftover fraction up to the next whole second."""
+    import signal
+
+    from plugin.scripting.ipc import _resume_script_alarm
+
+    armed: list[float] = []
+
+    def _setitimer(which: int, seconds: float, interval: float = 0.0) -> tuple[float, float]:
+        armed.append(seconds)
+        return (0.0, 0.0)
+
+    monkeypatch.setattr(signal, "setitimer", _setitimer)
+    assert _resume_script_alarm((0.4, 0.0, time.monotonic())) is False
+    assert armed
+    assert 0 < armed[0] <= 0.4
 
 
 def test_json_line_burst_returns_each_line():
@@ -955,6 +979,31 @@ def test_json_line_timeout_falls_back_when_fileno_not_int():
     stream.readline.assert_called_once()
 
 
+def test_timed_json_read_without_fd_uses_saved_pending():
+    """A timed read with no real fd must not drop a partial line saved earlier."""
+    from plugin.scripting import ipc
+
+    class Stream:
+        def fileno(self) -> object:
+            return MagicMock()
+
+        def readline(self, limit: int = -1) -> str:
+            return "1}\n"
+
+    stream = Stream()
+    ipc._save_json_line_pending(stream, bytearray(b'{"a": '))
+    assert read_json_line(stream, timeout_sec=0.01) == {"a": 1}
+
+
+def test_json_line_without_newline_at_eof_parses():
+    assert read_json_line(io.StringIO('{"a": 1}')) == {"a": 1}
+
+
+def test_json_line_truncated_at_eof_names_the_cause():
+    with pytest.raises(ValueError, match="truncated at EOF"):
+        read_json_line(io.StringIO("{"))
+
+
 def test_joined_write_aborts_when_child_is_dead() -> None:
     """A dead child on the joined write path does not wait out the timeout.
 
@@ -1035,6 +1084,33 @@ def test_roundtrip_ndarray_complex_containers():
 
     assert unpack_pickle_frame(pickle.dumps(obj3, protocol=5)) == obj3
 
+def test_unpack_rejects_direct_ndarray_allocation():
+    """ndarray(shape) allocates from a few pickle bytes. Views do not call it."""
+    import numpy as np
+
+    class Bomb:
+        def __reduce__(self):
+            return (np.ndarray, ((DEFAULT_MAX_PAYLOAD_BYTES + 1,), np.dtype("u1")))
+
+    payload = pickle.dumps(Bomb(), protocol=5)
+    with pytest.raises(ValueError, match="ndarray"):
+        unpack_pickle_frame(payload)
+
+
+def test_unpack_rejects_huge_numpy_reconstruct():
+    """_reconstruct(ndarray, huge_shape, dtype) is the same allocation, via the view path."""
+    import numpy as np
+    from numpy._core.multiarray import _reconstruct
+
+    class Bomb:
+        def __reduce__(self):
+            return (_reconstruct, (np.ndarray, (DEFAULT_MAX_PAYLOAD_BYTES + 1,), np.dtype("u1")))
+
+    payload = pickle.dumps(Bomb(), protocol=5)
+    with pytest.raises(ValueError, match="reconstruct allocates"):
+        unpack_pickle_frame(payload)
+
+
 def test_numpy_arbitrary_submodule_import_fails():
     import pickle
     import numpy as np
@@ -1071,6 +1147,39 @@ def test_read_pickle_frame_with_timeout_win32_is_alive_honored(monkeypatch):
     stream.read.side_effect = [b"\x00\x00\x00\x04", b"\x00\x00\x00\x00"]
     assert ipc.read_pickle_frame_with_timeout(stream, 1.0, is_alive=lambda: False) is None
 
+
+
+def test_get_child_ipc_stream_prefers_claim_over_replaced_stdout(monkeypatch):
+    """A replaced sys.stdout must not hide the pipe claim_ipc_channel already took."""
+    from plugin.scripting import ipc
+
+    claimed = io.BytesIO()
+    monkeypatch.setattr(ipc, "_child_ipc_stream", claimed)
+
+    class Replaced:
+        def fileno(self) -> int:
+            return 7
+
+        buffer = io.BytesIO()
+
+    monkeypatch.setattr(sys, "stdout", Replaced())
+    assert ipc.get_child_ipc_stream() is claimed
+
+
+def test_get_child_ipc_stream_uses_stdout_buffer_when_unclaimed(monkeypatch):
+    from plugin.scripting import ipc
+
+    monkeypatch.setattr(ipc, "_child_ipc_stream", None)
+    buf = io.BytesIO()
+
+    class Stdout:
+        buffer = buf
+
+        def fileno(self) -> int:
+            return 1
+
+    monkeypatch.setattr(sys, "stdout", Stdout())
+    assert ipc.get_child_ipc_stream() is buf
 
 
 def test_claim_ipc_channel_redirects_stdout_and_preserves_framing():

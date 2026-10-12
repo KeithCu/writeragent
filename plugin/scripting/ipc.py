@@ -89,14 +89,18 @@ def claim_ipc_channel() -> BinaryIO:
 
 
 def get_child_ipc_stream() -> BinaryIO:
-    """Return the private child IPC stream if claimed, else sys.stdout.buffer."""
-    global _child_ipc_stream
-    try:
-        fileno = sys.stdout.fileno()
-    except (AttributeError, io.UnsupportedOperation, OSError):
-        fileno = None
-    if fileno != 1:
-        return cast("BinaryIO", getattr(sys.stdout, "buffer", sys.stdout))
+    """Return the claimed child IPC stream, or sys.stdout's buffer.
+
+    What was wrong: a fileno check ran before the claim. After
+    ``claim_ipc_channel``, fd 1 is dup2'd onto stderr, but ``sys.stdout``
+    still reports fileno 1, so that check did not see the claim. It only
+    fired when something else had replaced ``sys.stdout``, and then the
+    claimed pipe was ignored.
+    How it happened: the check was copied from ``claim_ipc_channel``, where
+    fileno != 1 means "do not dup". Here it means the opposite.
+    Why this change: return the claim first. Tool writes, the audio
+    recorder, and the heartbeat all go through this function.
+    """
     if _child_ipc_stream is not None:
         return _child_ipc_stream
     return cast("BinaryIO", getattr(sys.stdout, "buffer", sys.stdout))
@@ -113,6 +117,11 @@ _SAFE_PICKLE_BUILTINS = frozenset({
 
 # Names a NumPy pickle REDUCE actually invokes (ndarray via _frombuffer,
 # dtype, scalar). Not load, save, or ctypeslib.
+# ("numpy", "ndarray") stays. A contiguous array uses _frombuffer and does
+# not GLOBAL ndarray. A view ([:, ::2], [::-1]) passes numpy.ndarray to
+# _reconstruct as the subtype. Dropping the pair breaks those frames.
+# payload_codec also requires type(obj).__module__ == "numpy", so a
+# stand-in subclass cannot replace the real class.
 _NUMPY_RECONSTRUCT_PAIRS = frozenset({
     ("numpy._core.numeric", "_frombuffer"),
     ("numpy.core.numeric", "_frombuffer"),
@@ -125,7 +134,74 @@ _NUMPY_RECONSTRUCT_PAIRS = frozenset({
 })
 
 
-class AllowlistUnpickler(pickle.Unpickler):
+def _numpy_reconstruct_nbytes(shape: object, dtype: object) -> int:
+    """Bytes a ``_reconstruct(subtype, shape, dtype)`` would allocate.
+
+    NumPy's own pickles call this with shape ``(0,)`` and then BUILD the
+    buffer that is already inside the frame. A hostile shape is a few
+    pickle bytes and still allocates ``product(shape) * itemsize``.
+    """
+    if not isinstance(shape, tuple):
+        raise pickle.UnpicklingError("numpy reconstruct shape is not a tuple")
+    n = 1
+    cap = DEFAULT_MAX_PAYLOAD_BYTES
+    for dim in shape:
+        if isinstance(dim, bool) or not isinstance(dim, int) or dim < 0:
+            raise pickle.UnpicklingError("numpy reconstruct shape is not a tuple of sizes")
+        if dim > cap or (dim != 0 and n > cap // dim):
+            raise pickle.UnpicklingError(
+                f"numpy reconstruct allocates more than {cap} bytes"
+            )
+        n *= dim
+    if n == 0:
+        # shape (0,) is what NumPy's own view pickles pass. The bytes arrive
+        # later, inside the frame, via BUILD.
+        return 0
+    if isinstance(dtype, (bytes, bytearray)):
+        # Legitimate empty reconstruct passes the format code b"b", not a dtype.
+        itemsize = 1
+    else:
+        raw_itemsize = getattr(dtype, "itemsize", 1)
+        try:
+            itemsize = int(raw_itemsize)
+        except (TypeError, ValueError):
+            itemsize = 1
+        if itemsize < 1:
+            itemsize = 1
+    if itemsize > cap or n > cap // itemsize:
+        raise pickle.UnpicklingError(
+            f"numpy reconstruct allocates more than {cap} bytes"
+        )
+    return n * itemsize
+
+
+def _reject_unbounded_numpy_reduce(func: object, args: object) -> None:
+    """Refuse NumPy REDUCE targets that allocate past the frame cap.
+
+    What was wrong: find_class returned the real ``numpy.ndarray`` class,
+    which views need as a subtype. REDUCE then called ``ndarray(shape)``
+    or ``_reconstruct(ndarray, huge_shape, dtype)``. The frame cap never
+    saw that allocation. The shape is a few bytes.
+    How it happened: the allowlist is a name list. GLOBAL and REDUCE share
+    find_class, and the C unpickler has no other hook.
+    Why this change: ``load_reduce`` runs before the call. NumPy's own
+    pickles never REDUCE ``ndarray``. They do REDUCE ``_reconstruct`` with
+    an empty shape. A direct ``ndarray`` call is rejected. A reconstruct
+    whose nbytes exceed ``DEFAULT_MAX_PAYLOAD_BYTES`` is rejected.
+    ``_frombuffer`` only reshapes the buffer already in the frame.
+    """
+    name = getattr(func, "__name__", "")
+    module = getattr(func, "__module__", "") or ""
+    if name == "ndarray" and module == "numpy":
+        raise pickle.UnpicklingError("numpy.ndarray constructor is not allowed")
+    if name != "_reconstruct" or not module.endswith("multiarray"):
+        return
+    if not isinstance(args, tuple) or len(args) < 3:
+        raise pickle.UnpicklingError("numpy _reconstruct arguments are not a shape and a dtype")
+    _numpy_reconstruct_nbytes(args[1], args[2])
+
+
+class AllowlistUnpickler(pickle._Unpickler):
     """Host unpickler: REDUCE may only call names listed on the subclass.
 
     Two policies share this check. ``_SafeUnpickler`` (scripting / editor
@@ -134,6 +210,11 @@ class AllowlistUnpickler(pickle.Unpickler):
     ``RestrictedUnpickler`` allows builtin containers and scalars only, and
     never imports. A name off the list never becomes ``getattr`` on an
     arbitrary module, so a child cannot REDUCE into ``os.system``.
+
+    The base is ``pickle._Unpickler``, not the C ``pickle.Unpickler``. The
+    C class only runs ``find_class``. ``_guarded_load_reduce`` has to see
+    ``ndarray`` and ``_reconstruct`` before they allocate. ``dispatch`` is
+    copied below so that function is the REDUCE opcode.
     """
 
     _builtins_allow: frozenset[str] = frozenset()
@@ -151,6 +232,42 @@ class AllowlistUnpickler(pickle.Unpickler):
             if self._import_missing_modules:
                 return super().find_class(module, name)
         raise pickle.UnpicklingError(f"global {module}.{name} {self._deny_tail}")
+
+    def load(self) -> Any:
+        try:
+            return super().load()
+        except EOFError as exc:
+            # pickle._Unpickler raises EOFError() with no text. The C
+            # unpickler says "Ran out of input". unpack_pickle_frame
+            # stringifies this. A truncated frame used to carry that text.
+            if exc.args:
+                raise
+            raise EOFError("Ran out of input") from exc
+
+
+def _guarded_load_reduce(unpickler: pickle.Unpickler, /) -> None:
+    """REDUCE opcode. Refuse NumPy calls that allocate past the frame cap.
+
+    A method on AllowlistUnpickler does not match the opcode table, which
+    stores ``(Unpickler) -> None``. The pure-Python unpickler's ``stack``
+    is not on the C type the checkers know about.
+    """
+    stack = cast("list[Any]", getattr(unpickler, "stack"))
+    args = stack.pop()
+    func = stack[-1]
+    _reject_unbounded_numpy_reduce(func, args)
+    if not isinstance(args, tuple):
+        raise pickle.UnpicklingError("REDUCE arguments are not a tuple")
+    if not callable(func):
+        raise pickle.UnpicklingError("REDUCE target is not callable")
+    stack[-1] = func(*args)
+
+
+# The opcode table is filled on pickle._Unpickler. A subclass method does
+# not replace it. Copy, then point REDUCE at the guard. RestrictedUnpickler
+# does not define dispatch, so it uses this table too.
+AllowlistUnpickler.dispatch = pickle._Unpickler.dispatch.copy()
+AllowlistUnpickler.dispatch[pickle.REDUCE[0]] = _guarded_load_reduce
 
 
 class _SafeUnpickler(AllowlistUnpickler):
@@ -193,6 +310,9 @@ class UserStopped(BaseException):
 # load() failures that are not already ValueError. A protocol header with no
 # body raises EOFError from the C unpickler; UnpicklingError is not a
 # ValueError. Callers (venv worker, editor) only treat ValueError as a bad frame.
+# MemoryError stays in this tuple. A REDUCE that still allocates (the host is
+# already short on memory) is not a ValueError. Mapping it is what lets the
+# worker kill the child instead of dying inside the LibreOffice process.
 _PICKLE_LOAD_ERRORS = (
     pickle.UnpicklingError,
     EOFError,
@@ -262,9 +382,7 @@ def write_pickle_frame(
 ) -> None:
     """Write one Pickle5 length-prefixed message to a binary pipe.
 
-    The default used to be None, so an omitted write was uncapped while the
-    matching read is capped and leaves extra bytes on the pipe. Pass None only
-    to opt out.
+    The cap lives on ``pack_pickle_frame``. Pass None only to opt out.
     """
     _write_all(stream, pack_pickle_frame(message, max_payload_bytes=max_payload_bytes))
 
@@ -384,11 +502,8 @@ def write_packed_frame_with_timeout(
     A stream with no real fileno (``BytesIO``) is written without a deadline.
     """
     timeout_sec = max(0.0, float(timeout_sec))
-    try:
-        fd = stream.fileno()
-    except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
-        fd = None
-    if not isinstance(fd, int):
+    fd = _stream_fileno(stream)
+    if fd is None:
         # Popen pipes always have an int fileno. This is BytesIO and mocks.
         # _write_all has no deadline, so a real pipe that landed here would
         # wedge the caller that holds the worker lock.
@@ -437,11 +552,8 @@ def _nonblocking(fd: int) -> Iterator[None]:
 
 def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
     """Best-effort leftover bytes after a bad length prefix (non-blocking on real pipes)."""
-    try:
-        fd = stream.fileno()
-    except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
-        fd = None
-    if isinstance(fd, int):
+    fd = _stream_fileno(stream)
+    if fd is not None:
         # os.set_blocking is POSIX-only; skip the non-blocking peek on win32.
         # BytesIO/mocks still fall through to stream.read (no real fileno).
         if sys.platform == "win32" or not hasattr(os, "set_blocking"):
@@ -553,24 +665,41 @@ def read_pickle_frame(
 _tool_call_lock = threading.Lock()
 
 
-def _pause_script_alarm() -> tuple[int, float] | None:
-    """Turn off SIGALRM for the tool_call read. Return (seconds left, monotonic start).
+def _pause_script_alarm() -> tuple[float, float, float] | None:
+    """Turn off SIGALRM for the tool_call read. Return (delay, interval, start).
 
     The script alarm used to fire inside this stdin read. The harness then wrote
     an error frame while the host was still writing the tool reply, and the next
     cell read that reply as a request.
+
+    What was wrong: ``signal.alarm(0)`` returns whole seconds, and resume
+    rounded up with ``int(left + 0.999)`` and a floor of 1. A tool call gave
+    the cell up to about a second it had already spent.
+    How it happened: the executor arms the timer with ``signal.alarm``, which
+    only has second resolution on the way in. The pause threw away the
+    fraction that was still left.
+    Why this change: ``setitimer(ITIMER_REAL, 0)`` is the same timer and
+    returns the fraction. Resume puts that fraction back. Platforms without
+    ``setitimer`` keep ``alarm``. The timer is process-wide, so this still
+    disarms a timer armed on the main thread.
     """
     if sys.platform == "win32":
         return None
     try:
         import signal
 
-        remaining = signal.alarm(0)
+        if hasattr(signal, "setitimer"):
+            delay, interval = signal.setitimer(signal.ITIMER_REAL, 0.0)
+            delay_sec = float(delay)
+            interval_sec = float(interval)
+        else:
+            delay_sec = float(signal.alarm(0))
+            interval_sec = 0.0
     except (AttributeError, ValueError, OSError):
         return None
-    if not remaining:
+    if delay_sec <= 0 and interval_sec <= 0:
         return None
-    return int(remaining), time.monotonic()
+    return delay_sec, interval_sec, time.monotonic()
 
 
 # Upper bound for discarding a desynced tool_call tail. Queued bytes return
@@ -578,9 +707,14 @@ def _pause_script_alarm() -> tuple[int, float] | None:
 _TOOL_CALL_MISMATCH_DRAIN_SEC = 0.05
 
 
-def _stream_fileno(stream: IO[bytes]) -> int | None:
+def _stream_fileno(stream: object) -> int | None:
+    """Real pipe fd, or None for BytesIO, a closed fd, and MagicMock.
+
+    Text and binary streams both have fileno. ``IO[bytes]`` and ``IO[str]``
+    are invariant, so the parameter is the object that was passed in.
+    """
     try:
-        fd = stream.fileno()
+        fd = cast("Any", stream).fileno()
     except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
         return None
     if isinstance(fd, int):
@@ -640,6 +774,11 @@ def _drain_nonblocking_stream(stream: IO[bytes], fd: int, deadline: float) -> bo
                 # is empty (not only b""). Stop; do not spin until the deadline.
                 if not chunk:
                     return True
+            # The deadline expired while the peer was still writing. True
+            # means this fd was handled. Leftover bytes stay queued. Do not
+            # fall through to PeekNamedPipe. This function already returns
+            # False on Windows before the loop, and on POSIX that peek
+            # helper returns immediately.
             return True
     except (OSError, AttributeError):
         # set_blocking failed before the fd changed. Caller uses PeekNamedPipe.
@@ -667,24 +806,33 @@ def _drain_peek_available(stream: IO[bytes], fd: int, deadline: float) -> None:
             return
 
 
-def _resume_script_alarm(paused: tuple[int, float] | None) -> bool:
+def _resume_script_alarm(paused: tuple[float, float, float] | None) -> bool:
     """Restore the script alarm. Return True when the budget was already spent.
 
     The tool reply has been consumed by then, so the timeout is a normal script
-    error instead of a desynced pipe.
+    error instead of a desynced pipe. The fraction from ``setitimer`` is put
+    back as-is. A one-second floor would hand the cell time it had spent
+    inside the tool call.
     """
     if paused is None:
         return False
-    remaining, started = paused
-    left = remaining - (time.monotonic() - started)
-    if left <= 0:
-        return True
+    delay, interval, started = paused
+    left = delay - (time.monotonic() - started)
     if sys.platform == "win32":
-        return False
+        return left <= 0
     try:
         import signal
 
-        signal.alarm(max(1, int(left + 0.999)))
+        if left <= 0:
+            # This shot is spent. A repeating interval, if one was set, is
+            # not the script budget. Put it back so pause did not clear it.
+            if interval > 0 and hasattr(signal, "setitimer"):
+                signal.setitimer(signal.ITIMER_REAL, interval, interval)
+            return True
+        if hasattr(signal, "setitimer"):
+            signal.setitimer(signal.ITIMER_REAL, left, interval)
+        else:
+            signal.alarm(max(1, int(left + 0.999)))
     except (AttributeError, ValueError, OSError):
         return False
     return False
@@ -879,11 +1027,8 @@ def _read_bytes_with_timeout_win32(
     """
     if is_alive is not None and not is_alive():
         return b""
-    try:
-        fd = stream.fileno()
-    except (AttributeError, OSError, ValueError):
-        return stream.read(n)
-    if not isinstance(fd, int):
+    fd = _stream_fileno(stream)
+    if fd is None:
         return stream.read(n)
 
     buf = bytearray()
@@ -917,6 +1062,11 @@ def _read_bytes_with_timeout_win32(
     return bytes(buf)
 
 
+# PeekNamedPipe is rebuilt on every poll (up to once a millisecond) if this
+# stays inside the function. One WinDLL is enough for the process.
+_peek_named_pipe: Any = None
+
+
 def _peek_pipe_bytes_available(fd: int) -> int | None:
     """Return queued byte count for a Windows pipe fd, or None when the pipe is closed."""
     if sys.platform != "win32":
@@ -925,17 +1075,21 @@ def _peek_pipe_bytes_available(fd: int) -> int | None:
     import msvcrt
     from ctypes import wintypes
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    peek_named_pipe = kernel32.PeekNamedPipe
-    peek_named_pipe.argtypes = [
-        wintypes.HANDLE,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-        ctypes.POINTER(wintypes.DWORD),
-        ctypes.POINTER(wintypes.DWORD),
-        ctypes.POINTER(wintypes.DWORD),
-    ]
-    peek_named_pipe.restype = wintypes.BOOL
+    global _peek_named_pipe
+    peek_named_pipe = _peek_named_pipe
+    if peek_named_pipe is None:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        peek_named_pipe = kernel32.PeekNamedPipe
+        peek_named_pipe.argtypes = [
+            wintypes.HANDLE,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        peek_named_pipe.restype = wintypes.BOOL
+        _peek_named_pipe = peek_named_pipe
 
     avail = wintypes.DWORD(0)
     handle = msvcrt.get_osfhandle(fd)
@@ -971,6 +1125,12 @@ def _finish_saved_json_line(stream: IO[str], pending: bytearray, max_bytes: int)
     The partial was already taken off the pipe. ``readline`` returns only the
     rest. An untimed ``read_json_line`` used to ignore this buffer and parse
     from the middle of the line.
+
+    ``readline``'s size is a character count. ``max_bytes`` is a byte count.
+    The encode check below is what enforces the cap. A line longer than the
+    character limit leaves the rest in the stream, and this saves the
+    oversize prefix. The next read raises again. The pipe is mid-line.
+    The caller drops the child, the same as an oversize pickle frame.
     """
     tail = stream.readline(max_bytes + 1)
     if not isinstance(tail, str):
@@ -1001,13 +1161,10 @@ def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, max_bytes:
     partial and raises ``TimeoutExpired``. ``readline`` is only the fallback
     when this stream has no real pipe fd (``BytesIO`` / mocks).
     """
-    try:
-        fd = stream.fileno()
-    except (AttributeError, OSError, ValueError):
-        fd = None
     # MagicMock.fileno() returns another mock that coerces to int; PeekNamedPipe then
-    # hits the console FD and raises errno 1. Match the POSIX isinstance(fd, int) gate.
-    if not isinstance(fd, int):
+    # hits the console FD and raises errno 1. _stream_fileno only accepts a real int.
+    fd = _stream_fileno(stream)
+    if fd is None:
         return _readline_blocking_with_pending(stream, max_bytes)
 
     deadline = time.monotonic() + max(0.0, timeout_sec)
@@ -1022,10 +1179,9 @@ def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, max_bytes:
         avail = _peek_pipe_bytes_available(fd)
         if avail is None:
             # Pipe closed. Return bytes already pulled; do not block in readline.
-            try:
-                _json_line_pending.pop(stream, None)
-            except TypeError:
-                pass
+            # pending was popped at the start of this read. Another pop of the
+            # map does not touch it, and it used to look like the buffer was
+            # discarded here.
             return pending.decode("utf-8", errors="replace")
         if avail > 0:
             try:
@@ -1039,10 +1195,7 @@ def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, max_bytes:
                 raise
             if not piece:
                 # Empty read after a successful peek is a closed pipe.
-                try:
-                    _json_line_pending.pop(stream, None)
-                except TypeError:
-                    pass
+                # pending is the local buffer already taken off the map.
                 return pending.decode("utf-8", errors="replace")
             pending.extend(piece)
             continue
@@ -1124,10 +1277,7 @@ def _readline_with_timeout_posix(stream: IO[str], fd: int, timeout_sec: float, m
         if piece is None:
             continue
         if piece == b"":
-            try:
-                _json_line_pending.pop(stream, None)
-            except TypeError:
-                pass
+            # EOF. pending is the local buffer already taken off the map.
             return pending.decode("utf-8", errors="replace")
         pending.extend(piece)
 
@@ -1142,14 +1292,14 @@ def _readline_with_timeout(stream: IO[str], timeout_sec: float | None, max_bytes
     if sys.platform == "win32":
         return _readline_with_timeout_win32(stream, timeout_sec, max_bytes)
 
-    try:
-        fd = stream.fileno()
-    except (AttributeError, OSError, ValueError):
-        fd = None
-    if isinstance(fd, int):
+    fd = _stream_fileno(stream)
+    if fd is not None:
         return _readline_with_timeout_posix(stream, fd, timeout_sec, max_bytes)
 
-    return stream.readline(max_bytes + 1)
+    # No real fd, so there is no select deadline. A timed read may already
+    # have saved a partial line on this stream. readline() alone starts
+    # from the middle of that line.
+    return _readline_blocking_with_pending(stream, max_bytes)
 
 
 def read_json_line(
@@ -1168,6 +1318,11 @@ def read_json_line(
     try:
         payload = json.loads(line.strip())
     except json.JSONDecodeError as exc:
+        # A finished line that is not JSON says so. A partial with no newline
+        # is the pipe closing mid-object. Calling that "Invalid JSON" hid the
+        # truncation. A final object with no newline still parses above.
+        if not line.endswith("\n"):
+            raise ValueError(f"JSON line truncated at EOF: {line!r}") from exc
         raise ValueError(f"Invalid JSON line: {line!r}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"JSON line must contain an object: {payload!r}")
