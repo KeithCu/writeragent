@@ -557,7 +557,9 @@ def _find_text_cut(
     """Shared delimiter search for textbefore and textafter.
 
     Returns (text_str, delim_str, instance_int, cut_idx, match_end_miss).
-    When the instance is within bounds, cut_idx is an integer index and match_end_miss is False.
+    When the instance is within bounds, cut_idx is an index into the original
+    text and match_end_miss is False. ``after=False`` is the start of that
+    delimiter. ``after=True`` is the end, where the remainder starts.
     When the instance lands on the boundary, cut_idx is None and match_end_miss is True.
     On a real miss, cut_idx is None and match_end_miss is False.
     Raises ValueError or TypeError if instance_num is invalid or zero.
@@ -567,36 +569,42 @@ def _find_text_cut(
     inst = int(float(instance_num))
     if inst == 0:
         raise ValueError("instance_num cannot be 0")
+    # "".split("") raises. re.finditer("") matches at every position, so a
+    # blank delimiter would look like a hit. TEXTBEFORE / TEXTAFTER turn
+    # this ValueError into NaN.
+    if not delim:
+        raise ValueError("empty separator")
 
+    # ScTextBeforeOrAfter (interpr1.cxx) walks left to right and steps
+    # past each delimiter. lower() of İ is i + combining dot, so an index
+    # into the lowered string no longer lines up with s: textbefore of
+    # "aİb" on "b" included the b. rfind also sees overlapping matches
+    # ("aaa" / "aa" at 1) that the split count above it did not.
     if match_mode == 1:
-        s_search = s.lower()
-        delim_search = delim.lower()
+        spans = [(m.start(), m.end()) for m in re.finditer(re.escape(delim), s, flags=re.IGNORECASE)]
     else:
-        s_search = s
-        delim_search = delim
+        spans = []
+        start = 0
+        while True:
+            found = s.find(delim, start)
+            if found < 0:
+                break
+            spans.append((found, found + len(delim)))
+            start = found + len(delim)
 
+    n_matches = len(spans)
     abs_inst = abs(inst)
-    parts = s_search.split(delim_search)
-    if len(parts) <= abs_inst:
-        match_end_miss = len(parts) == abs_inst
-        return s, delim, inst, None, match_end_miss
+    # One past the last real match is the match_end boundary.
+    if abs_inst > n_matches:
+        return s, delim, inst, None, abs_inst == n_matches + 1
 
-    if inst > 0:
-        idx = 0
-        if after:
-            for _unused in range(inst):
-                idx = s_search.find(delim_search, idx) + len(delim_search)
-        else:
-            for i in range(inst):
-                idx = s_search.find(delim_search, idx)
-                if i < inst - 1:
-                    idx += len(delim_search)
-        return s, delim, inst, idx, False
-    else:
-        idx = len(s)
-        for _unused in range(abs_inst):
-            idx = s_search.rfind(delim_search, 0, idx)
-        return s, delim, inst, idx, False
+    # A negative instance counts from the end of that same list.
+    chosen = spans[inst - 1] if inst > 0 else spans[inst]
+    # after=True used to return the start for a negative instance and let
+    # TEXTAFTER add len(delim). A case-folded match can be a different
+    # length than the delimiter, so the cut is the span's own end.
+    idx = chosen[1] if after else chosen[0]
+    return s, delim, inst, idx, False
 
 
 _MAX_BIT_VALUE: int = (1 << 48) - 1

@@ -153,7 +153,7 @@ def _cli_basename_matches(path: str, binary_name: str) -> bool:
 def _binary_candidates(binary_name: str) -> list[str]:
     """Executable paths outside a short desktop PATH, in search order."""
     home = os.path.expanduser("~")
-    names = (binary_name,)
+    names: tuple[str, ...] = (binary_name,)
     if os.name == "nt":
         names = (binary_name, f"{binary_name}.cmd", f"{binary_name}.exe", f"{binary_name}.bat")
     directories = [

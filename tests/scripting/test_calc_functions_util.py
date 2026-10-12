@@ -227,7 +227,9 @@ def test_find_text_cut():
     s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=False)
     assert (idx, at_end) == (3, False)
     s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", -1, after=True)
-    assert (idx, at_end) == (3, False)
+    # End of the last hyphen. The remainder starts at 4, not at the
+    # hyphen itself: TEXTAFTER used to add len(delim) to a start index.
+    assert (idx, at_end) == (4, False)
 
     # Match mode 1 (case insensitive)
     s, delim, inst, idx, at_end = _find_text_cut("FooBARbaz", "bar", 1, match_mode=1, after=False)
@@ -242,6 +244,13 @@ def test_find_text_cut():
     # Real miss (beyond boundary)
     s, delim, inst, idx, at_end = _find_text_cut("a-b-c", "-", 4)
     assert idx is None and at_end is False
+
+    # lower() of İ grows, so an index into the lowered string included "b".
+    s, delim, inst, idx, at_end = _find_text_cut("aİb", "b", 1, match_mode=1, after=False)
+    assert idx == 2
+    # rfind saw an overlapping second "aa". The walk is non-overlapping.
+    s, delim, inst, idx, at_end = _find_text_cut("aaa", "aa", -1, after=False)
+    assert idx == 0
 
     # Instance 0 raises ValueError
     with pytest.raises(ValueError):

@@ -214,13 +214,17 @@ fmt = text
 
 def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
     try:
-        s, _delim, _inst, idx, match_end_miss = _find_text_cut(
+        s, _delim, inst, idx, match_end_miss = _find_text_cut(
             text, delimiter, instance_num, match_mode, after=False
         )
         if idx is not None:
             return s[:idx]
         if match_end and match_end_miss:
-            return s
+            # ScTextBeforeOrAfter inserts the virtual delimiter at 0
+            # when the instance is negative, and at the end otherwise.
+            # Text before offset 0 is empty. This branch used to return
+            # the whole string for both signs.
+            return "" if inst < 0 else s
         return if_not_found
     except (ValueError, TypeError, OverflowError):
         # _find_text_cut does int(float(instance_num)). An infinite instance
@@ -255,14 +259,33 @@ def _textjoin_piece(val: Any) -> str:
     return str(val)
 
 
+def _as_nonzero(val: Any) -> bool:
+    """Calc ``GetDouble() != 0`` for a flag.
+
+    ``bool("0")`` and ``bool("FALSE")`` are true. GetDouble of ``"0"`` is
+    0, and a non-numeric string is ``#VALUE!``. The words TRUE and FALSE
+    are not booleans here; that map is LINEST's ``_as_bool_flag``. A blank
+    cell is 0.
+    """
+    if val is None or val == "":
+        return False
+    return bool(float(val))
+
+
 def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str:
+    # bool("0") and bool("FALSE") are true, so a zero or text flag skipped
+    # empty cells. ScTextJoin_MS uses GetDouble() != 0.
+    try:
+        skip_empty = _as_nonzero(ignore_empty)
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
     parts = []
     for arg in args:
         # dtype=object. A mixed list would otherwise become strings, and the
         # general-format spelling above would never see the number.
         for val in np.asarray(arg, dtype=object).ravel():
             if is_missing_value(val):
-                if not ignore_empty:
+                if not skip_empty:
                     parts.append("")
             else:
                 parts.append(_textjoin_piece(val))
@@ -283,13 +306,16 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
     try:
         s = str(text)
         ci = (match_mode == 1)
+        # bool("0") is true, so a zero flag dropped empty pieces.
+        # ScTextSplit uses GetBool(), which is GetDouble() != 0.
+        skip_empty = _as_nonzero(ignore_empty)
 
         if col_delimiter is None and row_delimiter is None:
             return float("nan")
 
         if row_delimiter is not None:
             rows = _split_text(s, str(row_delimiter), ci)
-            if ignore_empty:
+            if skip_empty:
                 rows = [r for r in rows if r]
             res = []
             for r in rows:
@@ -297,7 +323,7 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
                     cols = _split_text(r, str(col_delimiter), ci)
                 else:
                     cols = [r]
-                if ignore_empty:
+                if skip_empty:
                     cols = [c for c in cols if c]
                 res.append(cols)
             # pad with pad_with to make rectangle
@@ -308,7 +334,7 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
             return res
         else:
             cols = _split_text(s, str(col_delimiter), ci)
-            if ignore_empty:
+            if skip_empty:
                 cols = [c for c in cols if c]
             return [cols]
     except (ValueError, TypeError, OverflowError, re.error):
@@ -362,8 +388,11 @@ def tinv(prob: Any, df: Any) -> float:
         if st is None:
             return float("nan")
 
-        # TINV is the 2-tailed inverse
-        return float(st.t.ppf(1 - p / 2, d))
+        # TINV is the 2-tailed inverse. ppf(1 - p/2) rounds the
+        # probability to 1 once p is about 1e-16, so the result was inf.
+        # ScTInv inverts the t distribution; isf(p/2) is that upper tail.
+        # isf(0.5) is a tiny negative, and TINV is a non-negative critical value.
+        return float(abs(st.t.isf(p / 2, d)))
     except (ValueError, TypeError, OverflowError):
         # float(10**400) raises OverflowError. The handler only caught
         # ValueError and TypeError, so TINV of a huge probability raised.
@@ -441,7 +470,9 @@ def trimmean(r: Any, percent: Any) -> float:
             return float(np.mean(arr))
         arr.sort()
         return float(np.mean(arr[k:-k]))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # float(10**400) raises OverflowError. The handler only caught
+        # ValueError and TypeError, so TRIMMEAN of a huge percent raised.
         return float("nan")
 
 
@@ -565,15 +596,22 @@ def _unique_items(items: list[Any], exactly_once: bool) -> list[Any]:
     return list(first.values())
 
 
-def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[Any]:
+def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[Any] | str:
+    # bool("FALSE") is true, so a text flag selected columns or the
+    # exactly-once filter. ScUnique uses GetDouble() != 0, and a
+    # non-numeric string is #VALUE!.
+    try:
+        by_column = _as_nonzero(by_col)
+        once = _as_nonzero(unique_only)
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
     # dtype=object. A bare asarray makes 1 and '1' the same string.
     data = np.asarray(arr, dtype=object)
     if data.size == 0:
         return []
-    once = bool(unique_only)
     if data.ndim < 2:
         return _unique_items(data.reshape(-1).tolist(), once)
-    if not bool(by_col):
+    if not by_column:
         rows = [tuple(row) for row in data.tolist()]
         return [list(row) for row in _unique_items(rows, once)]
     cols = [tuple(data[:, i].tolist()) for i in range(data.shape[1])]
@@ -651,10 +689,14 @@ def _system1_week_number(day: dt.date, week_start: int) -> int:
     if week == 54:
         return 1
     if week == 53:
-        leap = day.year % 4 == 0 and (day.year % 100 != 0 or day.year % 400 == 0)
-        days_in_year = 366 if leap else 365
-        next_jan1 = dt.date(day.year + 1, 1, 1)
-        next_first = (next_jan1.weekday() + (7 - week_start)) % 7
+        # date(year + 1, 1, 1) raises ValueError for year 9999, and that
+        # call sat outside weeknum's try, so WEEKNUM of 9999-12-31 raised.
+        # Date::GetWeekOfYear uses Date(1, 1, GetNextYear()), and year
+        # 10000 is legal there. Next 1 January is days_in_year weekdays
+        # after this 1 January.
+        days_in_year = 366 if calendar.isleap(day.year) else 365
+        next_weekday = (jan1.weekday() + days_in_year) % 7
+        next_first = (next_weekday + (7 - week_start)) % 7
         if day_of_year > (days_in_year - next_first - 1):
             return 1
     return week
@@ -691,10 +733,11 @@ def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
             return float("nan")
 
         # In scipy, c=alpha (shape), scale=beta. Note: Calc calls alpha shape and beta scale.
-        if cumulative:
+        # bool("0") is true, so a zero flag returned the CDF.
+        # ScWeibull uses GetDouble() == 0 for the density.
+        if _as_nonzero(cumulative):
             return float(st.weibull_min.cdf(val, a, scale=b))
-        else:
-            return float(st.weibull_min.pdf(val, a, scale=b))
+        return float(st.weibull_min.pdf(val, a, scale=b))
     except (ValueError, TypeError, OverflowError):
         # float(10**400) raises OverflowError, which this handler missed.
         return float("nan")
@@ -849,7 +892,10 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
         # ScXLookup pushes #N/A when the 4th argument is omitted. None
         # became a blank cell. An explicit None is still returned.
         return if_not_found
-    r_flat = np.asarray(return_arr)
+    # dtype=object. A mixed return such as ["x", 5] became strings,
+    # so the hit was "5" instead of the number 5. The lookup path
+    # already keeps numbers as numbers.
+    r_flat = np.asarray(return_arr, dtype=object)
     # A return array shorter than the matched index used to raise IndexError
     # (xlookup("b", ["a", "b"], [1])). The match succeeded, so this is not
     # if_not_found; it is a bad range. Report #VALUE!, same as other shape

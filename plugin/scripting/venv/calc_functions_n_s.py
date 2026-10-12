@@ -1164,13 +1164,20 @@ def py_str(val: Any) -> str:
 
 def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
     try:
-        s, delim, inst, idx, match_end_miss = _find_text_cut(
+        s, _delim, inst, idx, match_end_miss = _find_text_cut(
             text, delimiter, instance_num, match_mode, after=True
         )
         if idx is not None:
-            return s[idx + len(delim) :] if inst < 0 else s[idx:]
+            # The cut is already the end of the delimiter, including a
+            # negative instance. Adding len(delim) again skipped a second
+            # copy when the matched span was longer than the delimiter.
+            return s[idx:]
         if match_end and match_end_miss:
-            return ""
+            # ScTextBeforeOrAfter inserts the virtual delimiter at 0
+            # when the instance is negative. Text after that is the whole
+            # string. A positive instance's virtual delimiter is the end,
+            # so the remainder is empty. Both signs used to return "".
+            return s if inst < 0 else ""
         return if_not_found
     except (ValueError, TypeError, OverflowError):
         # _find_text_cut does int(float(instance_num)). An infinite instance

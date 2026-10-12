@@ -427,9 +427,11 @@ def test_textafter():
     assert calc.textafter("a-b-c", "-", -1) == "c"
     assert calc.textafter("a-b-c", "-", -2) == "b-c"
     assert calc.textafter("Foo-Bar-Baz", "bar", 1, match_mode=1) == "-Baz"
-    # match_end when landing on the end returns ""
+    # match_end: a positive instance past the last delimiter is the end
+    # (nothing after it). A negative instance is a virtual delimiter at
+    # the start, so the text after that is the whole string.
     assert calc.textafter("a-b-c", "-", 3, match_end=1) == ""
-    assert calc.textafter("a-b-c", "-", -3, match_end=1) == ""
+    assert calc.textafter("a-b-c", "-", -3, match_end=1) == "a-b-c"
     # Miss returns if_not_found
     assert calc.textafter("a-b-c", "-", 3, match_end=0, if_not_found="NF") == "NF"
     assert calc.textafter("a-b-c", "-", 4, match_end=1, if_not_found="NF") == "NF"
@@ -443,9 +445,11 @@ def test_textbefore():
     assert calc.textbefore("a-b-c", "-", -1) == "a-b"
     assert calc.textbefore("a-b-c", "-", -2) == "a"
     assert calc.textbefore("Foo-Bar-Baz", "bar", 1, match_mode=1) == "Foo-"
-    # match_end when landing on the end returns the original string
+    # match_end: a positive instance past the last delimiter is the end,
+    # so the text before it is the whole string. A negative instance is
+    # a virtual delimiter at the start, so the text before that is empty.
     assert calc.textbefore("a-b-c", "-", 3, match_end=1) == "a-b-c"
-    assert calc.textbefore("a-b-c", "-", -3, match_end=1) == "a-b-c"
+    assert calc.textbefore("a-b-c", "-", -3, match_end=1) == ""
     # Miss returns if_not_found
     assert calc.textbefore("a-b-c", "-", 3, match_end=0, if_not_found="NF") == "NF"
     assert calc.textbefore("a-b-c", "-", 4, match_end=1, if_not_found="NF") == "NF"

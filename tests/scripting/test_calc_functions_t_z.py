@@ -429,3 +429,56 @@ def test_xlookup_one_d_returns_python_int():
     assert found == 200
     assert calc.xlookup("z", ["a"], [1]) == "#N/A"
 
+
+def test_xlookup_mixed_return_keeps_numbers():
+    # asarray without dtype turned 5 into the string "5".
+    found = calc.xlookup(5, ["x", 5], ["x", 5])
+    assert isinstance(found, int)
+    assert found == 5
+    row = calc.xlookup("b", ["a", "b"], [["a", 1], ["b", 2]])
+    assert row == ["b", 2]
+    assert isinstance(row[1], int)
+
+
+def test_tinv_tiny_probability_stays_finite():
+    # ppf(1 - p/2) rounds to 1 and returns inf once p is about 1e-16.
+    tiny = calc.tinv(1e-16, 10)
+    assert math.isfinite(tiny)
+    assert math.isclose(tiny, 109.38147004761092, rel_tol=1e-6)
+    assert math.isclose(calc.tinv(0.05, 10), 2.2281388519649385, rel_tol=1e-9)
+    assert math.isclose(calc.tinv(1, 10), 0.0, abs_tol=1e-9)
+
+
+def test_weeknum_year_9999_does_not_raise():
+    # date(10000, 1, 1) used to escape weeknum's try.
+    serial = _serial(9999, 12, 31)
+    assert calc.weeknum(serial, 1) == 1.0
+    assert calc.weeknum(serial, 16) == 53.0
+
+
+def test_textbefore_negative_match_end_is_empty():
+    # The virtual delimiter for a negative instance sits at offset 0.
+    assert calc.textbefore("a-b-c", "-", -3, match_end=1) == ""
+    assert calc.textbefore("a-b-c", "-", 3, match_end=1) == "a-b-c"
+    # lower() of İ changed the length, so the cut included the delimiter.
+    assert calc.textbefore("aİb", "b", match_mode=1) == "aİ"
+    # rfind counted an overlapping second "aa".
+    assert calc.textbefore("aaa", "aa", -1) == ""
+
+
+def test_trimmean_huge_percent_is_nan():
+    assert math.isnan(calc.trimmean([1, 2, 3, 4], 10**400))
+
+
+def test_flag_strings_follow_getdouble():
+    # "0" is false. "FALSE" is not a boolean on these functions.
+    assert calc.textjoin(",", "0", ["a", "", "b"]) == "a,,b"
+    assert calc.textjoin(",", "FALSE", ["a", ""]) == "#VALUE!"
+    assert calc.textjoin(",", False, ["a", "", "b"]) == "a,,b"
+    assert calc.unique([[1, 2], [3, 4]], "0") == [[1, 2], [3, 4]]
+    assert calc.unique([[1, 2]], "FALSE") == "#VALUE!"
+    assert math.isclose(calc.weibull(1, 1, 1, "0"), calc.weibull(1, 1, 1, False))
+    assert math.isnan(calc.weibull(1, 1, 1, "FALSE"))
+    assert calc.textsplit("a,,b", ",", ignore_empty="0") == [["a", "", "b"]]
+    assert math.isnan(calc.textsplit("a-b", "-", ignore_empty="FALSE"))
+
