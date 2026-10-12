@@ -32,6 +32,7 @@ def test_run_units_convert_quantity():
     assert result["helper"] == "convert_quantity"
     assert result["magnitude"] == pytest.approx(36.0)
     assert result["formatted"] == "36 km/h"
+    assert result["units"] == "kilometer / hour"
 
 
 def test_direct_convert_quantity_scalar():
@@ -111,14 +112,16 @@ def test_direct_parse_quantity_scalar_and_vector():
 
 
 def test_direct_format_quantity_scalar_and_vector():
-    # Scalar
-    assert "3.5" in format_quantity(magnitude=3.5, units="m")
+    # Compact unit text. The long name used to be "3.5 meter".
+    assert format_quantity(magnitude=3.5, units="m") == "3.5 m"
+    assert format_quantity(magnitude=0, units="m") == "0 m"
+    # Sheet blanks stay empty. map_over_range skips them before formatting.
+    assert format_quantity(magnitude="", units="m") == ""
+    assert format_quantity(magnitude=None, units="m") == ""
 
     # 1D list
     res = format_quantity(magnitude=[1, 2], units="m")
-    assert isinstance(res, list)
-    assert len(res) == 2
-    assert "1" in res[0] and "2" in res[1]
+    assert res == ["1 m", "2 m"]
 
 
 def test_resolve_output_style_defaults():
@@ -164,6 +167,9 @@ def test_run_units_parse_quantity():
     result = run_units({"helper": "parse_quantity", "params": {"quantity": "5 km/h"}}, None, {})
     assert result["status"] == "ok"
     assert result["magnitude"] == pytest.approx(5.0)
+    # Pint's compact form inserts spaces. convert_quantity keeps the caller's "km/h".
+    assert result["formatted"] == "5 km / h"
+    assert result["units"] == "kilometer / hour"
 
 
 def test_run_units_format_quantity():
@@ -173,7 +179,8 @@ def test_run_units_format_quantity():
         {},
     )
     assert result["status"] == "ok"
-    assert "3.5" in result["formatted"]
+    assert result["formatted"] == "3.5 m"
+    assert result["units"] == "meter"
 
 
 @pytest.mark.parametrize(
@@ -206,3 +213,129 @@ def test_run_units_parse_error():
     result = run_units({"helper": "parse_quantity", "params": {"quantity": "not-a-quantity"}}, None, {})
     assert result["status"] == "error"
     assert result["code"] == "PARSE_ERROR"
+
+
+@pytest.mark.parametrize("value", ["", None])
+def test_run_units_blank_value_is_parse_error(value):
+    # Empty used to become a successful 0 km/h via `float(text or "0")`.
+    result = run_units(
+        {"helper": "convert_quantity", "params": {"value": value, "from": "m/s", "to": "km/h"}},
+        None,
+        {},
+    )
+    assert result["status"] == "error"
+    assert result["code"] == "PARSE_ERROR"
+    assert result["message"] == "empty value"
+    # Direct sheet calls still leave a blank cell blank.
+    assert convert_quantity(value, "m/s", "km/h") == ""
+
+
+def test_run_units_zero_magnitude_is_zero():
+    result = run_units(
+        {"helper": "convert_quantity", "params": {"value": 0, "from": "m/s", "to": "km/h"}},
+        None,
+        {},
+    )
+    assert result["status"] == "ok"
+    assert result["magnitude"] == pytest.approx(0.0)
+    assert result["formatted"] == "0 km/h"
+
+
+def test_run_units_blank_format_magnitude_is_parse_error():
+    result = run_units(
+        {"helper": "format_quantity", "params": {"magnitude": "", "units": "m"}},
+        None,
+        {},
+    )
+    assert result["status"] == "error"
+    assert result["code"] == "PARSE_ERROR"
+    assert result["message"] == "empty magnitude"
+
+
+def test_unknown_unit_is_parse_error_and_mismatch_is_units_error():
+    # UndefinedUnitError subclasses AttributeError, so it used to be UNITS_ERROR.
+    bad = run_units(
+        {"helper": "convert_quantity", "params": {"value": "10", "from": "m", "to": "not_a_unit"}},
+        None,
+        {},
+    )
+    assert bad["status"] == "error"
+    assert bad["code"] == "PARSE_ERROR"
+
+    mismatch = run_units(
+        {"helper": "convert_quantity", "params": {"value": "10", "from": "m", "to": "kg"}},
+        None,
+        {},
+    )
+    assert mismatch["status"] == "error"
+    assert mismatch["code"] == "UNITS_ERROR"
+
+    # A shape mismatch must stay UNITS_ERROR. It is not a quantity parse failure.
+    shape = run_units(
+        {"helper": "convert_quantity", "params": {"value": [1, 2], "from": ["m", "cm", "km"], "to": "m"}},
+        None,
+        {},
+    )
+    assert shape["status"] == "error"
+    assert shape["code"] == "UNITS_ERROR"
+    assert "mismatch" in shape["message"]
+
+
+def test_run_units_rejects_non_dict_params():
+    result = run_units({"helper": "convert_quantity", "params": ["nope"]}, None, {})
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_SPEC"
+    assert "dict" in result["message"]
+
+
+def test_convert_quantity_none_unit_is_missing_param():
+    # None used to pass `!= ""` and come back as #VALUE!.
+    result = convert_quantity(10, None, "m")
+    assert isinstance(result, dict)
+    assert result["status"] == "error"
+    assert result["code"] == "MISSING_PARAM"
+
+
+def test_convert_quantity_from_alias_and_power_units():
+    assert convert_quantity(10, **{"from": "m/s", "to": "km/h"}) == pytest.approx(36.0)
+    assert convert_quantity(1, "km/s**2", "m/s**2") == pytest.approx(1000.0)
+    assert convert_quantity(60, "1/s", "1/min") == pytest.approx(3600.0)
+
+
+def test_convert_quantity_numpy_values_and_nonfinite():
+    np = pytest.importorskip("numpy")
+    assert convert_quantity(np.float64(10), "m/s", "km/h") == pytest.approx(36.0)
+    assert convert_quantity([10, 100], np.array(["m/s", "cm"]), np.array(["km/h", "m"])) == pytest.approx([36.0, 1.0])
+    # NaN is a blank cell on the direct path. inf is not, and must not become "inf km".
+    assert convert_quantity(float("nan"), "m", "km") == ""
+    assert convert_quantity(float("inf"), "m", "km") == "#VALUE!"
+    nan_rpc = run_units(
+        {"helper": "convert_quantity", "params": {"value": float("nan"), "from": "m", "to": "km"}},
+        None,
+        {},
+    )
+    assert nan_rpc["status"] == "error"
+    assert nan_rpc["code"] == "PARSE_ERROR"
+    assert "finite" in nan_rpc["message"]
+
+
+def test_run_units_strips_output_style_and_copies_task_hint():
+    result = run_units(
+        {
+            "helper": "convert_quantity",
+            "params": {"value": "10", "from": "m/s", "to": "km/h", "output_style": "detailed"},
+        },
+        None,
+        {"task_hint": "lab"},
+    )
+    assert result["status"] == "ok"
+    assert result["formatted"] == "36 km/h"
+    assert "output_style" not in result
+    assert result["task_hint"] == "lab"
+
+
+def test_dispatch_matches_helper_names():
+    from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES
+    from plugin.scripting.venv.units import _DISPATCH
+
+    assert set(_DISPATCH) == set(UNITS_HELPER_NAMES)

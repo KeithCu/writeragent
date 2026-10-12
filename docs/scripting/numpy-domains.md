@@ -548,7 +548,8 @@ Units helpers (`convert_quantity`, `parse_quantity`, `format_quantity`) accept e
 ```
 
 - **Shape preservation:** $N \times 1$ column in $\to$ $N \times 1$ column out; $1 \times N$ row in $\to$ $1 \times N$ row out; 1×1 single cell $\to$ scalar float.
-- **Blanks & Errors:** Missing/blank cells produce empty cells; individual invalid units emit `"#VALUE!"` without aborting the rest of the column.
+- **Blanks & Errors:** Missing/blank cells produce empty cells; individual invalid units emit `"#VALUE!"` without aborting the rest of the column. An RPC blank value or magnitude is `PARSE_ERROR`, not a successful `0`. Numeric `0` is zero. Direct `NaN` stays blank; a non-finite magnitude is an error.
+- **Display:** `format_quantity` and `parse_quantity` use Pint's compact unit (`m`, `km / h`). `convert_quantity` keeps the caller's `to` text (`km/h`). The `units` field stays the long name (`meter`, `kilometer / hour`). Unknown unit text is `PARSE_ERROR`. A dimension mismatch or a range shape mismatch is `UNITS_ERROR`. A non-dict `params` is `INVALID_SPEC`.
 - **Dual returns:** Direct `=PY()` calls return numeric magnitudes/lists for native Calc matrix spilling; RPC calls (`run_units`) return a single compact vector payload.
 
 **Tests:** [`test_units.py`](../../tests/scripting/test_units.py), [`test_units_templates.py`](../../tests/scripting/test_units_templates.py), [`test_python_runner_units.py`](../../tests/scripting/test_python_runner_units.py), [`test_map_range.py`](../../tests/scripting/test_map_range.py).
