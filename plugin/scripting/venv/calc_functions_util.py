@@ -45,6 +45,7 @@ __all__ = [
     "_is_calc_error",
     "_multi_criteria_mask",
     "_npf_result",
+    "_parse_complex",
     "_parse_weekend",
     "_round_half_up",
     "_scipy_stats",
@@ -709,7 +710,16 @@ def _complex_coeff(n: float) -> str:
 
 
 def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
-    """Convert Python complex to Calc string."""
+    """Convert Python complex to Calc string.
+
+    ``Complex::GetString`` (``analysishelper.cxx``) calls ``finiteOrThrow``
+    on both parts. A non-finite value used to be printed (``"inf"``,
+    ``"nannani"``). macOS libm returns a non-finite complex for
+    ``(1+1j)**inf`` and does not raise. Linux raises ``OverflowError``.
+    Callers map this ``ValueError`` to ``#VALUE!``.
+    """
+    if not (math.isfinite(c.real) and math.isfinite(c.imag)):
+        raise ValueError("non-finite complex")
     real = c.real
     imag = c.imag
     if imag == 0:
@@ -732,15 +742,37 @@ def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
     return res
 
 
-def _to_complex(val: Any) -> builtins.complex:
-    """Convert Calc complex string (e.g. '1+2i') to Python complex."""
+def _parse_complex(val: Any) -> tuple[builtins.complex, str]:
+    """Parse a Calc complex into ``(number, suffix)``.
+
+    ``suffix`` is ``"i"``, ``"j"``, or ``""`` when the text has no imaginary
+    unit. ``Complex::Add`` / ``Mult`` (``analysishelper.hxx``) keep the first
+    non-empty unit: a real number stores ``c == '\\0'`` and does not override
+    a later ``j``. Rewriting every ``i`` to ``j`` before parsing used to drop
+    that unit, so ``IMSUM("1+2j","3+j")`` came back as ``"4+3i"``.
+
+    A bool is a number. It is an ``int`` subclass, and ``str(True)`` is not
+    a complex literal.
+    """
+    if isinstance(val, (bool, np.bool_)):
+        return builtins.complex(float(val)), ""
     if isinstance(val, (int, float, builtins.complex)):
-        return builtins.complex(val)
-    s = str(val).replace("i", "j").replace("I", "j").replace(" ", "")
+        return builtins.complex(val), ""
+    text = str(val).replace(" ", "")
+    suffix = ""
+    if text and text[-1] in "ijIJ":
+        suffix = "j" if text[-1] in "jJ" else "i"
+    py_text = text.replace("i", "j").replace("I", "j").replace("J", "j")
     try:
-        return builtins.complex(s)
+        return builtins.complex(py_text), suffix
     except ValueError:
         raise TypeError("Invalid complex string")
+
+
+def _to_complex(val: Any) -> builtins.complex:
+    """Convert Calc complex string (e.g. '1+2i') to Python complex."""
+    number, _suffix = _parse_complex(val)
+    return number
 
 
 def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) -> list[Any] | None:

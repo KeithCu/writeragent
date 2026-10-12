@@ -70,24 +70,24 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("imabs-text", "imabs", ("text",), _NAN),
     ("imabs-blank", "imabs", (None,), _NAN),
     ("imabs-zero", "imabs", (0,), 0.0),
-    ("imabs-inf", "imabs", (_INF,), _INF),
+    ("imabs-inf", "imabs", (_INF,), _NAN),
     ("imaginary-text", "imaginary", ("text",), _NAN),
     ("imaginary-blank", "imaginary", (None,), _NAN),
     ("imaginary-zero", "imaginary", (0,), 0.0),
     ("imaginary-inf", "imaginary", (_INF,), 0.0),
     ("imargument-text", "imargument", ("text",), _NAN),
     ("imargument-blank", "imargument", (None,), _NAN),
-    ("imargument-zero", "imargument", (0,), 0.0),
+    ("imargument-zero", "imargument", (0,), _NAN),
     ("imargument-inf", "imargument", (_INF,), 0.0),
     ("imreal-text", "imreal", ("text",), _NAN),
     ("imreal-blank", "imreal", (None,), _NAN),
     ("imreal-zero", "imreal", (0,), 0.0),
-    ("imreal-inf", "imreal", (_INF,), _INF),
+    ("imreal-inf", "imreal", (_INF,), _NAN),
     # Complex string helpers return #VALUE! when the text is not a complex number.
     ("imconjugate-text", "imconjugate", ("text",), "#VALUE!"),
     ("imconjugate-blank", "imconjugate", (None,), "#VALUE!"),
     ("imconjugate-zero", "imconjugate", (0,), 0.0),
-    ("imconjugate-inf", "imconjugate", (_INF,), "inf"),
+    ("imconjugate-inf", "imconjugate", (_INF,), "#VALUE!"),
     ("imcos-text", "imcos", ("text",), "#VALUE!"),
     ("imcos-blank", "imcos", (None,), "#VALUE!"),
     ("imcos-zero", "imcos", (0,), 1.0),
@@ -95,7 +95,7 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("imcosh-text", "imcosh", ("text",), "#VALUE!"),
     ("imcosh-blank", "imcosh", (None,), "#VALUE!"),
     ("imcosh-zero", "imcosh", (0,), 1.0),
-    ("imcosh-inf", "imcosh", (_INF,), "inf"),
+    ("imcosh-inf", "imcosh", (_INF,), "#VALUE!"),
     ("imcot-text", "imcot", ("text",), "#VALUE!"),
     ("imcot-blank", "imcot", (None,), "#VALUE!"),
     ("imcot-zero", "imcot", (0,), "#VALUE!"),
@@ -110,13 +110,13 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("imcsch-inf", "imcsch", (_INF,), 0.0),
     ("imexp-text", "imexp", ("text",), "#VALUE!"),
     ("imexp-blank", "imexp", (None,), "#VALUE!"),
-    ("imexp-inf", "imexp", (_INF,), "inf"),
+    ("imexp-inf", "imexp", (_INF,), "#VALUE!"),
     ("imln-text", "imln", ("text",), "#VALUE!"),
     ("imln-blank", "imln", (None,), "#VALUE!"),
-    ("imln-inf", "imln", (_INF,), "inf"),
+    ("imln-inf", "imln", (_INF,), "#VALUE!"),
     ("imlog10-text", "imlog10", ("text",), "#VALUE!"),
     ("imlog10-blank", "imlog10", (None,), "#VALUE!"),
-    ("imlog10-inf", "imlog10", (_INF,), "inf"),
+    ("imlog10-inf", "imlog10", (_INF,), "#VALUE!"),
     ("imlog2-text", "imlog2", ("text",), "#VALUE!"),
     ("imlog2-blank", "imlog2", (None,), "#VALUE!"),
     ("imlog2-inf", "imlog2", (_INF,), "#VALUE!"),
@@ -134,11 +134,11 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("imsinh-text", "imsinh", ("text",), "#VALUE!"),
     ("imsinh-blank", "imsinh", (None,), "#VALUE!"),
     ("imsinh-zero", "imsinh", (0,), 0.0),
-    ("imsinh-inf", "imsinh", (_INF,), "inf"),
+    ("imsinh-inf", "imsinh", (_INF,), "#VALUE!"),
     ("imsqrt-text", "imsqrt", ("text",), "#VALUE!"),
     ("imsqrt-blank", "imsqrt", (None,), "#VALUE!"),
     ("imsqrt-zero", "imsqrt", (0,), 0.0),
-    ("imsqrt-inf", "imsqrt", (_INF,), "inf"),
+    ("imsqrt-inf", "imsqrt", (_INF,), "#VALUE!"),
     ("imtan-text", "imtan", ("text",), "#VALUE!"),
     ("imtan-blank", "imtan", (None,), "#VALUE!"),
     ("imtan-zero", "imtan", (0,), 0.0),
@@ -154,21 +154,21 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("imsub-text", "imsub", ("text", "1"), "#VALUE!"),
     ("imsub-blank", "imsub", (None, "1"), "#VALUE!"),
     ("imsub-zero", "imsub", ("1", 0), 1.0),
-    ("imsub-inf", "imsub", ("1", _INF), "-inf"),
+    ("imsub-inf", "imsub", ("1", _INF), "#VALUE!"),
     # 0**negative and a finite base to inf used to raise ZeroDivisionError.
     ("impower-text", "impower", ("text", 2), "#VALUE!"),
     ("impower-blank", "impower", (None, 2), "#VALUE!"),
     ("impower-zero-neg", "impower", (0, -1), "#VALUE!"),
     ("impower-inf", "impower", ("1+i", _INF), "#VALUE!"),
     ("improduct-text", "improduct", ("text",), "#VALUE!"),
-    ("improduct-blank", "improduct", (None,), "#VALUE!"),
+    # An empty ComplexList is Complex(0) for both the sum and the product.
+    ("improduct-blank", "improduct", (None,), 0.0),
     ("improduct-zero", "improduct", (0,), 0.0),
-    # A non-finite product does not raise. _from_complex stringifies it.
-    ("improduct-inf", "improduct", (_INF,), "infnani"),
+    ("improduct-inf", "improduct", (_INF,), "#VALUE!"),
     ("imsum-text", "imsum", ("text",), "#VALUE!"),
-    ("imsum-blank", "imsum", (None,), "#VALUE!"),
+    ("imsum-blank", "imsum", (None,), 0.0),
     ("imsum-zero", "imsum", (0,), 0.0),
-    ("imsum-inf", "imsum", (_INF,), "inf"),
+    ("imsum-inf", "imsum", (_INF,), "#VALUE!"),
     ("intercept-text", "intercept", (["text", "b"], [1.0, 2.0]), _NAN),
     ("intercept-blank", "intercept", ([None, None], [1.0, 2.0]), _NAN),
     ("intercept-zero", "intercept", ([0.0, 0.0], [0.0, 0.0]), _NAN),
@@ -261,18 +261,18 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("logest-inf", "logest", ([_INF, 1],), [_NAN, _NAN]),
     ("loginv-text", "loginv", ("text", 0, 1), _NAN),
     ("loginv-blank", "loginv", (None, 0, 1), _NAN),
-    ("loginv-zero", "loginv", (0, 0, 1), 0.0),
+    ("loginv-zero", "loginv", (0, 0, 1), _NAN),
     ("loginv-inf", "loginv", (_INF, 0, 1), _NAN),
     ("loginv-sd-zero", "loginv", (0.5, 0, 0), _NAN),
     ("lognormdist-text", "lognormdist", ("text", 0, 1), _NAN),
     ("lognormdist-blank", "lognormdist", (None, 0, 1), _NAN),
-    ("lognormdist-zero", "lognormdist", (0, 0, 1), _NAN),
+    ("lognormdist-zero", "lognormdist", (0, 0, 1), 0.0),
     ("lognormdist-inf", "lognormdist", (_INF, 0, 1), 1.0),
     ("lognormdist-sd-zero", "lognormdist", (1, 0, 0), _NAN),
-    ("lookup-text", "lookup", ("text", [1, 2, 3]), 3),
-    ("lookup-blank", "lookup", (None, [1, 2, 3]), 3),
+    ("lookup-text", "lookup", ("text", [1, 2, 3]), "#N/A"),
+    ("lookup-blank", "lookup", (None, [1, 2, 3]), "#N/A"),
     ("lookup-oor", "lookup", (99, [1, 2, 3]), 3),
-    ("lookup-vector-blank", "lookup", (1, [None, None]), None),
+    ("lookup-vector-blank", "lookup", (1, [None, None]), "#N/A"),
     ("match-text", "match_criteria", ("text", ">0"), False),
     ("match-blank", "match_criteria", (None, ">0"), False),
     ("match-zero", "match_criteria", (0, ">0"), False),
@@ -307,7 +307,7 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("mmult-zero", "mmult", ([[0]], [[0]]), [[0.0]]),
     ("mmult-inf", "mmult", ([[_INF]], [[1]]), [[_INF]]),
     ("mmult-shape", "mmult", ([[1, 2]], [[1, 2]]), "#VALUE!"),
-    ("mode-text", "mode", (["text", "text"],), "text"),
+    ("mode-text", "mode", (["text", "text"],), _NAN),
     ("mode-blank", "mode", ([None, None],), _NAN),
     ("mode-zero", "mode", ([0, 0, 1],), 0),
     ("mode-inf", "mode", ([_INF, _INF, 1],), _INF),
@@ -440,6 +440,93 @@ def test_linest_order_and_const():
 
 
 def test_mode_mixed_types():
-    # Bug Z2: mode with mixed types does not coerce numbers to strings
+    # Bug Z2: mode with mixed types does not coerce numbers to strings.
+    # Text is not a candidate. A bool is the number 1, so it merges with 1.
     assert calc.mode([1, 1, 2, "a"]) == 1.0
+    assert calc.mode(1, 2, 2) == 2.0
+    assert calc.mode([1, True, True]) == 1.0
+    assert math.isnan(calc.mode(["text", "text"]))
+
+
+def test_irr_guess_minus_one_and_overflow():
+    # ScIRR starts Newton at 0.1 when the guess is -1. [-1, 1] solves at 0.
+    assert calc.irr([-1, 1], -1) == pytest.approx(0.0, abs=1e-6)
+    assert math.isnan(calc.irr([-1, 1], 1e308))
+    assert math.isnan(calc.irr([-100] + [0] * 40 + [110], 1e6))
+
+
+def test_loginv_bounds_and_lognormdist_nonpositive():
+    assert math.isnan(calc.loginv(0, 0, 1))
+    assert math.isnan(calc.loginv(1, 0, 1))
+    assert math.isnan(calc.loginv(0.5, 1e308, 1))
+    assert calc.loginv(0.5, 0, 1) == pytest.approx(1.0)
+    # Cumulative x <= 0 is 0. The density is NaN. A huge mean does not raise.
+    assert calc.lognormdist(0, 0, 1) == 0.0
+    assert calc.lognormdist(-1, 0, 1) == 0.0
+    assert math.isnan(calc.lognormdist(0, 0, 1, False))
+    assert math.isnan(calc.lognormdist(1, 1e308, 1))
+
+
+def test_im_suffix_blanks_and_nonfinite():
+    assert calc.imsum("1+2j", "3+j") == "4+3j"
+    # First imaginary unit wins. Mixed i then j is not #VALUE!.
+    assert calc.imsum("1+2i", "3+j") == "4+3i"
+    assert calc.imsum([None, "1+i", ""]) == "1+i"
+    assert calc.improduct([None, "2+j"]) == "2+j"
+    assert calc.improduct("j") == "j"
+    assert calc.imargument(0) is not None and math.isnan(calc.imargument(0))
+    assert math.isnan(calc.imargument("0+0i"))
+    assert calc.improduct("1e308", "1e308") == "#VALUE!"
+    assert calc.imsum("nan") == "#VALUE!"
+
+
+def test_isnontext_matches_istext():
+    assert calc.isnontext("#hashtag") is False
+    assert calc.isnontext("") is False
+    assert calc.istext("#hashtag") is True
+    assert calc.istext("") is True
+    assert calc.isnontext("#VALUE!") is True
+    assert calc.isnontext(None) is True
+
+
+def test_lookup_rejects_cross_type_and_miss_is_na():
+    assert calc.lookup(20, ["10x"]) == "#N/A"
+    assert calc.lookup("text", [1, 2, 3]) == "#N/A"
+    assert calc.lookup("b", ["a", "b", "c"]) == "b"
+    assert calc.lookup(2, [1, 2, 3]) == 2
+
+
+def test_linest_const_text_and_blank_known_x():
+    y = [6, 7, 8]
+    x = [1, 2, 3]
+    # "0" and "FALSE" used to stay truthy, so the intercept stayed 5.
+    assert np.allclose(calc.linest(y, x, "0"), [3.1428571428571423, 0.0], atol=1e-9)
+    assert np.allclose(calc.linest(y, x, "FALSE"), [3.1428571428571423, 0.0], atol=1e-9)
+    assert np.allclose(calc.linest(y, x, "TRUE"), [1.0, 5.0], atol=1e-9)
+    # Same const coercion on LOGEST. "FALSE" forces the multiplicative intercept to 1.
+    through_origin = calc.logest([1, 2, 4], x, "FALSE")
+    assert isinstance(through_origin, list)
+    assert through_origin[-1] == pytest.approx(1.0)
+    # A present blank known_x is not the omitted argument.
+    assert calc.linest(y, None) == "#VALUE!"
+    omitted = calc.linest([1, 2, 3])
+    assert isinstance(omitted, list)
+    assert np.allclose(omitted, [1.0, 0.0], atol=1e-9)
+
+
+def test_mround_zero_and_negative_multiple_is_positive_zero():
+    result = calc.mround(0, -1)
+    assert result == 0.0
+    assert math.copysign(1.0, result) == 1.0
+
+
+def test_intercept_drops_text_pairs():
+    # slope keeps (1, 1) and (5, 3). The old dtype=float parse raised.
+    assert calc.intercept([1.0, "text", 5.0], [1.0, 2.0, 3.0]) == pytest.approx(-1.0)
+
+
+def test_jis_integral_float_has_no_decimal():
+    assert calc.jis(1.0) == "1"
+    assert calc.jis(1.5) == "1.5"
+    assert calc.jis(None) == ""
 

@@ -786,7 +786,7 @@ def test_lookup_short_result_vector_is_na():
     # Index 2 into a length-2 result vector used to raise IndexError.
     assert calc.lookup(3, [1, 2, 3], [10, 20]) == "#N/A"
     assert calc.lookup(2, [1, 2, 3], [10, 20]) == 20
-    assert calc.lookup(0, [1, 2, 3], [10, 20]) is None
+    assert calc.lookup(0, [1, 2, 3], [10, 20]) == "#N/A"
 
 
 def test_ipmt_beginning_of_period_matches_calc():

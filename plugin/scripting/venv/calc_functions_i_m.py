@@ -18,11 +18,13 @@ from typing import Any, Callable
 import numpy as np
 
 from .calc_functions_util import (
+    _clean_paired_arrays,
     _collect_a_values,
     _extract_numeric_array,
     _from_complex,
     _is_calc_error,
     _npf_result,
+    _parse_complex,
     _to_complex,
     match_criteria,
 )
@@ -122,12 +124,21 @@ def ifna(f: Callable[[], Any], alt: Any) -> Any:
         return alt
 
 
+def _im_suffix(first: str, second: str = "") -> str:
+    """First imaginary unit wins. A real number has an empty suffix.
+
+    ``Complex::Add`` and ``Mult`` (``analysishelper.hxx``) do
+    ``if (!c) c = other.c``. ``GetString`` writes ``j`` only when the
+    stored unit is ``j``; otherwise it writes ``i``.
+    """
+    return first or second or "i"
+
+
 def _im_unary(fn: Callable[[complex], complex]) -> Callable[[Any], str]:
     def wrapper(inumber: Any) -> str:
         try:
-            c = _to_complex(inumber)
-            res = fn(c)
-            return _from_complex(res)
+            number, suffix = _parse_complex(inumber)
+            return _from_complex(fn(number), _im_suffix(suffix))
         except (ValueError, TypeError, OverflowError, ZeroDivisionError):
             return "#VALUE!"
 
@@ -137,9 +148,9 @@ def _im_unary(fn: Callable[[complex], complex]) -> Callable[[Any], str]:
 def _im_binary(fn: Callable[[complex, complex], complex]) -> Callable[[Any, Any], str]:
     def wrapper(inumber1: Any, inumber2: Any) -> str:
         try:
-            c1 = _to_complex(inumber1)
-            c2 = _to_complex(inumber2)
-            return _from_complex(fn(c1, c2))
+            left, left_suffix = _parse_complex(inumber1)
+            right, right_suffix = _parse_complex(inumber2)
+            return _from_complex(fn(left, right), _im_suffix(left_suffix, right_suffix))
         except (ValueError, TypeError, OverflowError, ZeroDivisionError):
             return "#VALUE!"
 
@@ -149,7 +160,13 @@ def _im_binary(fn: Callable[[complex, complex], complex]) -> Callable[[Any, Any]
 def _im_float(fn: Callable[[complex], float]) -> Callable[[Any], float]:
     def wrapper(inumber: Any) -> float:
         try:
-            return float(fn(_to_complex(inumber)))
+            # getImabs / getImargument return finiteOrThrow(result). A
+            # non-finite magnitude is NaN here. String IM functions raise
+            # from _from_complex and become "#VALUE!" instead.
+            result = float(fn(_to_complex(inumber)))
+            if not math.isfinite(result):
+                return float("nan")
+            return result
         except (ValueError, TypeError, OverflowError, ZeroDivisionError):
             return float("nan")
 
@@ -168,6 +185,10 @@ def imaginary(c: complex) -> float:
 
 @_im_float
 def imargument(c: complex) -> float:
+    # Complex::Arg (analysishelper.cxx) throws when both parts are 0.
+    # cmath.phase(0) is 0. The note in that function calls arg(0) undefined.
+    if c.real == 0.0 and c.imag == 0.0:
+        raise ValueError("arg of zero")
     return cmath.phase(c)
 
 
@@ -223,40 +244,51 @@ def imlog10(c: complex) -> complex:
 
 @_im_unary
 def imlog2(c: complex) -> complex:
-    if c == 0:
-        raise ValueError("log of zero")
-    logged = cmath.log(c, 2)
-    if not (math.isfinite(logged.real) and math.isfinite(logged.imag)):
-        raise ValueError("non-finite log2")
-    return logged
+    # cmath.log(0) raises. _from_complex rejects a non-finite log.
+    return cmath.log(c, 2)
 
 
 def impower(inumber: Any, number: Any) -> str:
     try:
-        c = _to_complex(inumber)
-        p = float(number)
-        result = c**p
-        # macOS libm returns a non-finite complex for (1+1j)**inf and does
-        # not raise. _from_complex would then print "nannani" (nan
-        # concatenated, because nan > 0 is false). Linux raises
-        # OverflowError, which this except already maps to #VALUE!. A
-        # non-finite power is the same failure.
-        if not (math.isfinite(result.real) and math.isfinite(result.imag)):
-            return "#VALUE!"
-        return _from_complex(result)
+        number_c, suffix = _parse_complex(inumber)
+        power = float(number)
+        return _from_complex(number_c**power, _im_suffix(suffix))
+    except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+        return "#VALUE!"
+
+
+def _im_fold(args: tuple[Any, ...], op: Callable[[complex, complex], complex]) -> str:
+    """IMSUM and IMPRODUCT.
+
+    ``ComplexList::Append`` (``analysishelper.cxx``) skips a blank and an
+    empty string. ``getImsum`` and ``getImproduct`` both return
+    ``Complex(0)`` when nothing remains, so an empty product is 0, not 1.
+    The fold starts at the first value so a single ``"j"`` keeps that unit.
+    """
+    try:
+        acc: complex | None = None
+        suffix = ""
+        for arg in args:
+            for value in np.asarray(arg, dtype=object).ravel():
+                if value is None or value == "":
+                    continue
+                number, unit = _parse_complex(value)
+                if acc is None:
+                    acc = number
+                    suffix = unit
+                else:
+                    acc = op(acc, number)
+                    if not suffix:
+                        suffix = unit
+        if acc is None:
+            acc = complex(0)
+        return _from_complex(acc, _im_suffix(suffix))
     except (ValueError, TypeError, OverflowError, ZeroDivisionError):
         return "#VALUE!"
 
 
 def improduct(*args: Any) -> str:
-    try:
-        res = complex(1, 0)
-        for arg in args:
-            for v in np.asarray(arg, dtype=object).ravel():
-                res *= _to_complex(v)
-        return _from_complex(res)
-    except (ValueError, TypeError, OverflowError, ZeroDivisionError):
-        return "#VALUE!"
+    return _im_fold(args, lambda left, right: left * right)
 
 
 @_im_float
@@ -295,14 +327,7 @@ def imsub(c1: complex, c2: complex) -> complex:
 
 
 def imsum(*args: Any) -> str:
-    try:
-        res = complex(0, 0)
-        for arg in args:
-            for v in np.asarray(arg, dtype=object).ravel():
-                res += _to_complex(v)
-        return _from_complex(res)
-    except (ValueError, TypeError, OverflowError, ZeroDivisionError):
-        return "#VALUE!"
+    return _im_fold(args, lambda left, right: left + right)
 
 
 @_im_unary
@@ -316,15 +341,22 @@ def imtanh(c: complex) -> complex:
 
 
 def intercept(data_y: Any, data_x: Any) -> float:
-    from plugin.scripting.venv.calc_functions_n_s import slope
+    # steyx imports intercept, so this import stays inside the function.
+    # A module-level import of n_s would cycle. The absolute import failed
+    # when the worker's package root was not the repo root.
+    from .calc_functions_n_s import slope
 
-    s = slope(data_y, data_x)
+    # slope drops text pairs. Re-parsing the original arrays with
+    # dtype=float raised ValueError once slope had already accepted the
+    # numeric pairs (intercept([1, "text", 3], [1, 2, 3])).
+    cleaned = _clean_paired_arrays(data_y, data_x)
+    if cleaned is None:
+        return float("nan")
+    y, x = cleaned
+    s = slope(y, x)
     if np.isnan(s):
         return float("nan")
-    y = np.asarray(data_y, dtype=float).ravel()
-    x = np.asarray(data_x, dtype=float).ravel()
-    mask = ~np.isnan(y) & ~np.isnan(x)
-    return float(np.mean(y[mask]) - s * np.mean(x[mask]))
+    return float(np.mean(y) - s * np.mean(x))
 
 
 def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, basis: Any = 0) -> float:
@@ -380,19 +412,29 @@ def irr(values: Any, guess: Any = 0.1) -> float:
         x = float(guess)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    # Simple Newton's method for IRR
-    for _unused in range(100):
-        f = 0.0
-        df = 0.0
-        for i, v in enumerate(vals):
-            f += v / ((1 + x) ** i)
-            if i > 0:
-                df -= i * v / ((1 + x) ** (i + 1))
-        if abs(f) < 1e-7:
-            return float(x)
-        if df == 0:
-            break
-        x = x - f / df
+    # ScIRR (interpr2.cxx) starts at 0.1 when the guess is -1. (1+x)**i
+    # is 0 there, so Newton never moves and a cashflow such as [-1, 1]
+    # came back NaN instead of 0. A later step that lands on -1, or a
+    # huge (1+x)**i, is #NUM!. OverflowError used to escape the helper.
+    if x == -1.0:
+        x = 0.1
+    try:
+        for _unused in range(100):
+            if not math.isfinite(x) or x == -1.0:
+                return float("nan")
+            f = 0.0
+            df = 0.0
+            for i, v in enumerate(vals):
+                f += v / ((1 + x) ** i)
+                if i > 0:
+                    df -= i * v / ((1 + x) ** (i + 1))
+            if abs(f) < 1e-7:
+                return float(x)
+            if df == 0:
+                break
+            x = x - f / df
+    except (OverflowError, ZeroDivisionError):
+        return float("nan")
     return float("nan")
 
 
@@ -410,15 +452,24 @@ def iserror(val: Any) -> bool:
     return _is_calc_error(val)
 
 
-def iseven(val: Any) -> bool:
+def _parity(val: Any) -> int | None:
+    """Truncated integer, or None when the value is not a finite number.
+
+    ``int(inf)`` raises ``OverflowError``. That used to escape ``iseven``.
+    NaN is not even and not odd.
+    """
     try:
-        f = float(val)
-        if np.isnan(f):
-            return False
-        # int(inf) raises OverflowError, which the old handler let escape.
-        return int(f) % 2 == 0
+        number = float(val)
+        if np.isnan(number):
+            return None
+        return int(number)
     except (ValueError, TypeError, OverflowError):
-        return False
+        return None
+
+
+def iseven(val: Any) -> bool:
+    number = _parity(val)
+    return number is not None and number % 2 == 0
 
 
 def isformula(val: Any) -> bool:
@@ -434,23 +485,25 @@ def isna(val: Any) -> bool:
     return is_na_value(val)
 
 
-def isnontext(val: Any) -> bool:
-    return not isinstance(val, str) or val == "" or val.startswith("#")
-
-
-def isnumber(val: Any) -> bool:
+def _is_number(val: Any) -> bool:
     # np.integer and np.floating count. bool and np.bool_ do not: they are logical.
     return isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, (bool, np.bool_))
 
 
+def isnontext(val: Any) -> bool:
+    # startswith("#") made isnontext("#hashtag") true while istext of that
+    # string is also true. "" had the same contradiction. Error tokens stay
+    # non-text because istext already excludes them.
+    return not istext(val)
+
+
+def isnumber(val: Any) -> bool:
+    return _is_number(val)
+
+
 def isodd(val: Any) -> bool:
-    try:
-        f = float(val)
-        if np.isnan(f):
-            return False
-        return int(f) % 2 != 0
-    except (ValueError, TypeError, OverflowError):
-        return False
+    number = _parity(val)
+    return number is not None and number % 2 != 0
 
 
 def isoweeknum(serial: Any) -> float:
@@ -492,27 +545,34 @@ def istext(val: Any) -> bool:
 
 
 def jis(text: Any) -> str | float:
-    try:
-        if text is None:
-            return ""
-        return str(text)
-    except (ValueError, TypeError):
-        return float("nan")
+    # No half-width map. str(1.0) is "1.0"; an integral float is the digits.
+    # None is a blank cell. str() of a cell does not raise ValueError.
+    if text is None:
+        return ""
+    if isinstance(text, float) and math.isfinite(text) and text.is_integer():
+        return str(int(text))
+    return str(text)
 
 
 def kurt(*args: Any) -> float:
-    try:
-        import scipy.stats
-    except ImportError:
-        return float("nan")
+    # ScKurt (interpr3.cxx). Fewer than 4 numbers, or a zero sample stdev,
+    # is #DIV/0!. This is the unbiased excess kurtosis. scipy.stats.kurtosis
+    # (bias=False) is the same expression, and a missing scipy used to make
+    # every call NaN.
     arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True)
-    if len(arr) < 4 or np.std(arr, ddof=1) == 0:
+    count = len(arr)
+    if count < 4:
         return float("nan")
-    try:
-        res = float(scipy.stats.kurtosis(arr, bias=False))
-        return res if math.isfinite(res) else float("nan")
-    except Exception:
+    mean = float(np.mean(arr))
+    stdev = float(np.std(arr, ddof=1))
+    if stdev == 0.0:
         return float("nan")
+    k_d = (count - 2.0) * (count - 3.0)
+    k_l = count * (count + 1.0) / ((count - 1.0) * k_d)
+    k_t = 3.0 * (count - 1.0) * (count - 1.0) / k_d
+    centered = (arr - mean) / stdev
+    res = float(np.sum(centered**4) * k_l - k_t)
+    return res if math.isfinite(res) else float("nan")
 
 
 def large(r: Any, k: Any) -> float:
@@ -524,51 +584,97 @@ def large(r: Any, k: Any) -> float:
         return float("nan")
     if not 0 < ki <= len(arr):
         return float("nan")
-    arr.sort()
-    return float(arr[-ki])
+    # The kth largest sits at index -ki. The rest of the array stays unsorted.
+    return float(np.partition(arr, -ki)[-ki])
+
+
+def _as_bool_flag(val: Any) -> bool:
+    """LINEST / LOGEST ``const``.
+
+    A blank cell is false (``GetBool`` of an empty cell). ``"TRUE"`` and
+    ``"FALSE"`` are those booleans. ``"0"`` is false. ``bool("0")`` and
+    ``bool("FALSE")`` used to be true, so the fit kept an intercept.
+    """
+    if isinstance(val, (bool, np.bool_)):
+        return bool(val)
+    if val is None or val == "":
+        return False
+    if isinstance(val, str):
+        token = val.strip().upper()
+        if token == "TRUE":
+            return True
+        if token == "FALSE":
+            return False
+    return bool(float(val))
+
+
+def _regression_inputs(
+    args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> tuple[np.ndarray, np.ndarray, bool] | str:
+    """Shared known_y / known_x / const parse for LINEST and LOGEST.
+
+    Returns ``"#VALUE!"`` when the ranges are illegal. Omitted known_x
+    (the one-argument call) is ``1..n``. A present blank (``None``) is not
+    that omission: ``ScLinest`` uses ``1..n`` only for ``IsMissing``.
+    The fourth argument, ``stats``, is ignored. ``CalculateRGPRKP`` builds
+    a 5-row statistics matrix this helper does not port.
+    """
+    raw_y = np.asarray(args[0], dtype=object).ravel()
+    if any(isinstance(v, str) for v in raw_y):
+        return "#VALUE!"
+    data_y = np.asarray(args[0], dtype=float).ravel()
+    if data_y.size == 0 or np.any(np.isnan(data_y)):
+        return "#VALUE!"
+    if len(args) <= 1:
+        data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
+    elif args[1] is None:
+        return "#VALUE!"
+    else:
+        raw_x = np.asarray(args[1], dtype=object).ravel()
+        if any(isinstance(v, str) for v in raw_x):
+            return "#VALUE!"
+        data_x = np.asarray(args[1], dtype=float)
+        if np.any(np.isnan(data_x)):
+            return "#VALUE!"
+        if data_x.ndim == 1:
+            data_x = data_x[:, np.newaxis]
+        elif data_x.ndim == 2 and data_x.shape[0] != len(data_y) and data_x.shape[1] == len(data_y):
+            data_x = data_x.T
+    if data_x.shape[0] != len(data_y):
+        return "#VALUE!"
+    if "const" in kwargs:
+        raw_const = kwargs["const"]
+    elif len(args) > 2:
+        raw_const = args[2]
+    else:
+        raw_const = True
+    return data_y, data_x, _as_bool_flag(raw_const)
+
+
+def _fit_line(data_y: np.ndarray, data_x: np.ndarray, const: bool) -> list[float]:
+    """Coefficients in ``[mk, …, m1, b]`` order. ``const=False`` forces ``b = 0``."""
+    if const:
+        coeffs = np.linalg.lstsq(np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None)[0]
+        slopes = coeffs[:-1]
+        intercept_b = float(coeffs[-1])
+    else:
+        coeffs = np.linalg.lstsq(data_x, data_y, rcond=None)[0]
+        slopes = coeffs
+        intercept_b = 0.0
+    return [float(v) for v in slopes[::-1]] + [intercept_b]
 
 
 def linest(*args: Any, **kwargs: Any) -> Any:
     # Excel order is [mk, …, m1, b]. const=False forces b = 0. A row-oriented
     # known_x is transposed so it lines up with known_y.
     try:
-        raw_y = np.asarray(args[0]).ravel()
-        if any(isinstance(v, str) for v in raw_y):
+        parsed = _regression_inputs(args, kwargs)
+        # Equality does not narrow tuple | str for mypy or basedpyright.
+        # The helper's only string is "#VALUE!".
+        if isinstance(parsed, str):
             return "#VALUE!"
-        data_y = np.asarray(args[0], dtype=float).ravel()
-        if data_y.size == 0 or np.any(np.isnan(data_y)):
-            return "#VALUE!"
-        if len(args) > 1:
-            raw_x = np.asarray(args[1]).ravel()
-            if any(isinstance(v, str) for v in raw_x):
-                return "#VALUE!"
-            data_x = np.asarray(args[1], dtype=float)
-            if np.any(np.isnan(data_x)):
-                return "#VALUE!"
-            if data_x.ndim == 1:
-                data_x = data_x[:, np.newaxis]
-            elif data_x.ndim == 2:
-                if data_x.shape[0] != len(data_y) and data_x.shape[1] == len(data_y):
-                    data_x = data_x.T
-        else:
-            data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
-
-        if data_x.shape[0] != len(data_y):
-            return "#VALUE!"
-
-        const = bool(kwargs.get("const", args[2] if len(args) > 2 else True))
-
-        if const:
-            c, _unused, _unused2, _unused3 = np.linalg.lstsq(
-                np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None
-            )
-            slopes = c[:-1].tolist()
-            intercept = float(c[-1])
-            return [*slopes[::-1], intercept]
-        else:
-            c, _unused, _unused2, _unused3 = np.linalg.lstsq(data_x, data_y, rcond=None)
-            slopes = c.tolist()
-            return [*slopes[::-1], 0.0]
+        data_y, data_x, const = parsed
+        return _fit_line(data_y, data_x, const)
     except Exception:
         return "#VALUE!"
 
@@ -577,46 +683,18 @@ def logest(*args: Any, **kwargs: Any) -> Any:
     # Excel order reverses the slopes. const=False forces b = 1. A row-oriented
     # known_x is transposed so it lines up with known_y.
     try:
-        raw_y = np.asarray(args[0]).ravel()
-        if any(isinstance(v, str) for v in raw_y):
+        parsed = _regression_inputs(args, kwargs)
+        if isinstance(parsed, str):
             return "#VALUE!"
-        data_y = np.asarray(args[0], dtype=float).ravel()
-        if data_y.size == 0 or np.any(np.isnan(data_y)):
-            return "#VALUE!"
+        data_y, data_x, const = parsed
         if np.any(data_y <= 0):
             return "#VALUE!"
-        data_y = np.log(data_y)
-        if len(args) > 1:
-            raw_x = np.asarray(args[1]).ravel()
-            if any(isinstance(v, str) for v in raw_x):
-                return "#VALUE!"
-            data_x = np.asarray(args[1], dtype=float)
-            if np.any(np.isnan(data_x)):
-                return "#VALUE!"
-            if data_x.ndim == 1:
-                data_x = data_x[:, np.newaxis]
-            elif data_x.ndim == 2:
-                if data_x.shape[0] != len(data_y) and data_x.shape[1] == len(data_y):
-                    data_x = data_x.T
-        else:
-            data_x = np.arange(1, len(data_y) + 1, dtype=float)[:, np.newaxis]
-
-        if data_x.shape[0] != len(data_y):
-            return "#VALUE!"
-
-        const = bool(kwargs.get("const", args[2] if len(args) > 2 else True))
-
+        fitted = _fit_line(np.log(data_y), data_x, const)
+        # const=False stores a log-space intercept of 0. The multiplicative
+        # intercept is 1, not exp of a fitted b.
         if const:
-            c, _unused, _unused2, _unused3 = np.linalg.lstsq(
-                np.c_[data_x, np.ones(data_x.shape[0])], data_y, rcond=None
-            )
-            slopes = np.exp(c[:-1]).tolist()
-            intercept = float(np.exp(c[-1]))
-            return [*slopes[::-1], intercept]
-        else:
-            c, _unused, _unused2, _unused3 = np.linalg.lstsq(data_x, data_y, rcond=None)
-            slopes = np.exp(c).tolist()
-            return [*slopes[::-1], 1.0]
+            return [float(np.exp(v)) for v in fitted]
+        return [float(np.exp(v)) for v in fitted[:-1]] + [1.0]
     except Exception:
         return "#VALUE!"
 
@@ -628,10 +706,14 @@ def loginv(p: Any, mean: Any, stdev: Any) -> float:
         prob = float(p)
         m = float(mean)
         s = float(stdev)
-        if prob < 0 or prob > 1 or s <= 0:
+        # ScLogNormInv (interpr3.cxx): fP <= 0 or fP >= 1 is
+        # IllegalArgument. ppf(0) is 0 and ppf(1) is inf.
+        if prob <= 0 or prob >= 1 or s <= 0:
             return float("nan")
-        return float(st.lognorm.ppf(prob, s, scale=math.exp(m)))
-    except (ValueError, TypeError, ImportError):
+        res = float(st.lognorm.ppf(prob, s, scale=math.exp(m)))
+        return res if math.isfinite(res) else float("nan")
+    except (ValueError, TypeError, OverflowError, ImportError):
+        # math.exp(1e308) raises OverflowError ("math range error").
         return float("nan")
 
 
@@ -643,44 +725,64 @@ def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
         m = float(mean)
         s = float(stdev)
         cum = bool(float(c))
-        if x_val <= 0 or s <= 0:
+        if s <= 0:
             return float("nan")
+        # ScLogNormDist: cumulative of x <= 0 is 0. The density is
+        # IllegalArgument. Check before exp so a huge mean does not
+        # overflow a scale this branch does not use.
+        if x_val <= 0:
+            return 0.0 if cum else float("nan")
+        scale = math.exp(m)
         if cum:
-            return float(st.lognorm.cdf(x_val, s, scale=math.exp(m)))
-        return float(st.lognorm.pdf(x_val, s, scale=math.exp(m)))
-    except (ValueError, TypeError, ImportError):
+            res = float(st.lognorm.cdf(x_val, s, scale=scale))
+        else:
+            res = float(st.lognorm.pdf(x_val, s, scale=scale))
+        return res if math.isfinite(res) else float("nan")
+    except (ValueError, TypeError, OverflowError, ImportError):
+        # math.exp(1e308) raises OverflowError ("math range error").
         return float("nan")
+
+
+def _lookup_number(val: Any) -> float | None:
+    """Numeric LOOKUP key. A bool is 0 or 1. Text and blanks are not numbers."""
+    if isinstance(val, (bool, np.bool_)):
+        return float(val)
+    if isinstance(val, (int, float, np.integer, np.floating)):
+        try:
+            number = float(val)
+        except (ValueError, TypeError, OverflowError):
+            return None
+        if math.isnan(number):
+            return None
+        return number
+    return None
 
 
 def lookup(lookup_val: Any, *args: Any) -> Any:
     # dtype=object keeps numbers as numbers. Text compares case-insensitively.
+    # ScLookup (interpr1.cxx) requires data <= query and the same type. A
+    # number does not match text. str(None) used to be the text "None", so
+    # lookup(20, ["10x"]) returned "10x". A miss is #N/A, not Python None.
     if len(args) == 1:
         vec = np.asarray(args[0], dtype=object).ravel()
         result = vec
     else:
-        lookup_vec = np.asarray(args[0], dtype=object).ravel()
+        vec = np.asarray(args[0], dtype=object).ravel()
         result = np.asarray(args[1], dtype=object).ravel()
-        vec = lookup_vec
+    query_num = _lookup_number(lookup_val)
+    query_text = lookup_val.casefold() if isinstance(lookup_val, str) and lookup_val != "" else None
     best_idx = None
-    for i, v in enumerate(vec):
-        try:
-            if float(v) <= float(lookup_val):
+    for i, value in enumerate(vec):
+        if query_num is not None:
+            cell = _lookup_number(value)
+            if cell is not None and cell <= query_num:
                 best_idx = i
-        except (ValueError, TypeError, OverflowError):
-            if isinstance(v, str) and isinstance(lookup_val, str):
-                if v.casefold() <= lookup_val.casefold():
-                    best_idx = i
-            elif str(v) <= str(lookup_val):
+        elif query_text is not None and isinstance(value, str) and value != "":
+            if value.casefold() <= query_text:
                 best_idx = i
-    if best_idx is None:
-        return None
-    if best_idx >= len(result):
+    if best_idx is None or best_idx >= len(result):
         return "#N/A"
     return result[best_idx]
-
-
-
-
 
 def maxa(*args: Any) -> float:
     vals = _collect_a_values(*args)
@@ -689,20 +791,23 @@ def maxa(*args: Any) -> float:
     return float(np.max(vals))
 
 
+def _trim_matrix(matrix: np.ndarray) -> np.ndarray:
+    """Keep the first block of a 3-d list. det/inv/matmul used to do this inline."""
+    if matrix.ndim > 2:
+        return matrix[0]
+    return matrix
+
+
 def mdeterm(matrix: Any) -> float:
     try:
-        import numpy as np
-
-        m = np.asarray(matrix, dtype=float)
-        if m.ndim > 2:
-            m = m[0]
+        m = _trim_matrix(np.asarray(matrix, dtype=float))
         return float(np.linalg.det(m))
     except Exception:
         return float("nan")
 
 
 def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
-    from plugin.scripting.venv.calc_functions_d_h import duration
+    from .calc_functions_d_h import duration
 
     try:
         s = float(settlement)
@@ -730,11 +835,7 @@ def mina(*args: Any) -> float:
 
 def minverse(matrix: Any) -> Any:
     try:
-        import numpy as np
-
-        m = np.asarray(matrix, dtype=float)
-        if m.ndim > 2:
-            m = m[0]
+        m = _trim_matrix(np.asarray(matrix, dtype=float))
         return np.linalg.inv(m).tolist()
     except Exception:
         return "#VALUE!"
@@ -755,37 +856,45 @@ def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
 
 def mmult(array1: Any, array2: Any) -> Any:
     try:
-        import numpy as np
-
-        a1 = np.asarray(array1, dtype=float)
-        if a1.ndim > 2:
-            a1 = a1[0]
-        a2 = np.asarray(array2, dtype=float)
-        if a2.ndim > 2:
-            a2 = a2[0]
-        return np.matmul(a1, a2).tolist()
+        left = _trim_matrix(np.asarray(array1, dtype=float))
+        right = _trim_matrix(np.asarray(array2, dtype=float))
+        return np.matmul(left, right).tolist()
     except Exception:
         return "#VALUE!"
 
 
-def mode(r: Any) -> Any:
-    # dtype=object. A bare asarray stringifies a mixed range, so 1 comes back as text.
-    vals = [x for x in np.asarray(r, dtype=object).ravel() if x is not None and x != ""]
+def mode(*args: Any) -> Any:
+    # ScModalValue (interpr3.cxx) takes one or more arguments and keeps
+    # numbers only. mode(1, 2, 2) used to raise TypeError. Text is not a
+    # candidate. A Calc bool is a numeric cell, so True and 1 are the same
+    # value and must stay merged. dtype=object so a mixed range is not
+    # stringified (1 used to come back as text).
+    vals: list[float] = []
+    for arg in args:
+        for value in np.asarray(arg, dtype=object).ravel():
+            if isinstance(value, (bool, np.bool_)):
+                vals.append(float(value))
+                continue
+            if isinstance(value, str) or value is None:
+                continue
+            try:
+                number = float(value)
+            except (ValueError, TypeError, OverflowError):
+                continue
+            if math.isnan(number):
+                continue
+            vals.append(number)
     if not vals:
         return float("nan")
     counts = Counter(vals)
     best = max(counts.values())
-    # Excel/Calc MODE is #N/A when nothing repeats. na() is float nan, which
-    # isna() already treats as #N/A. most_common used to return a singleton.
+    # No repeat is #N/A. na() is float nan, which isna() already treats as #N/A.
     if best < 2:
         return float("nan")
-    winners = [v for v, c in counts.items() if c == best]
-    # Tie-break is the lowest value, not the first one Counter saw
-    # (mode([2, 2, 1, 1]) was 2).
-    try:
-        return min(winners)
-    except TypeError:
-        return winners[0]
+    winners = [value for value, count in counts.items() if count == best]
+    # Tie-break is the lowest value, the first run after ScModalValue sorts.
+    # mode([2, 2, 1, 1]) was 2 when Counter's first key won.
+    return float(min(winners))
 
 
 def mround(number: Any, multiple: Any) -> float:
@@ -804,6 +913,9 @@ def mround(number: Any, multiple: Any) -> float:
     # (if fMult == 0.0 return fMult) and Excel agree; it is not #DIV/0!.
     if m == 0:
         return 0.0
+    # 0 / negative is signed zero, so MROUND(0, -1) was -0.0.
+    if n == 0:
+        return 0.0
     if (n > 0 and m < 0) or (n < 0 and m > 0):
         return float("nan")
     # Python round() is banker's rounding (half to even), so MROUND(2.5, 1)
@@ -818,11 +930,7 @@ def mround(number: Any, multiple: Any) -> float:
 
 def mtrans(matrix: Any) -> Any:
     try:
-        import numpy as np
-
-        m = np.asarray(matrix)
-        if m.ndim > 2:
-            m = m[0]
+        m = _trim_matrix(np.asarray(matrix))
         return np.transpose(m).tolist()
     except Exception:
         return "#VALUE!"
@@ -830,19 +938,26 @@ def mtrans(matrix: Any) -> Any:
 
 def multinomial(*args: Any) -> float:
     try:
-        vals = []
+        vals: list[int] = []
         for arg in args:
-            for v in np.asarray(arg).ravel():
-                vals.append(int(float(v)))
-        return float(math.factorial(sum(vals)) / math.prod(math.factorial(x) for x in vals))
-    except Exception:
+            for value in np.asarray(arg).ravel():
+                vals.append(int(float(value)))
+        if any(value < 0 for value in vals):
+            return float("nan")
+        # math.factorial(sum) builds one huge integer. The product of
+        # combinations is the same multinomial and stays smaller.
+        acc = 1
+        rest = sum(vals)
+        for value in vals:
+            acc *= math.comb(rest, value)
+            rest -= value
+        return float(acc)
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def munit(dimension: Any) -> Any:
     try:
-        import numpy as np
-
         return np.eye(int(dimension)).tolist()
     except Exception:
         return "#VALUE!"
@@ -850,10 +965,8 @@ def munit(dimension: Any) -> Any:
 
 def n(val: Any) -> float:
     # N() of any text is 0, including a numeric-looking string such as "5".
-    if isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, (bool, np.bool_)):
+    if _is_number(val):
         return float(val)
     if isinstance(val, (bool, np.bool_)):
         return 1.0 if val else 0.0
-    if isinstance(val, str):
-        return 0.0
     return 0.0
