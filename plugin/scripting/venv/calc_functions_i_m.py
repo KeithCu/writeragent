@@ -12,6 +12,7 @@ from __future__ import annotations
 import cmath
 import datetime as dt
 import math
+import statistics
 from collections import Counter
 from typing import Any, Callable
 
@@ -389,11 +390,18 @@ def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val:
         n = float(nper)
         pv_f = float(pv_val)
         fv_f = float(fv_val)
-        t = 1 if int(float(type_val)) == 1 else 0
+        type_f = float(type_val)
     except (ValueError, TypeError, OverflowError):
-        # int(float(per)) and int(float(type_val)) raise OverflowError on ±inf.
-        # That used to escape the helper. Excel IPMT is #NUM!, reported as NaN.
+        # int(float(per)) raises OverflowError on ±inf. That used to escape
+        # the helper. Excel IPMT is #NUM!, reported as NaN.
         return float("nan")
+    # ScIpmt (interpr2.cxx) uses GetBool(), which is GetDouble() != 0.
+    # int(type) == 1 treated 2, -1, and 0.5 as end of period. CUMIPMT is
+    # the function that rejects a flag other than 0 or 1. A non-finite
+    # type is still #NUM!. numpy-financial only understands 0 and 1.
+    if not math.isfinite(type_f):
+        return float("nan")
+    t = 0 if type_f == 0.0 else 1
     # GetIpmt / Excel: per outside 1..nper is #NUM!. numpy-financial returns
     # 0 once per > nper (and NaN only for per < 1).
     if p < 1 or p > n:
@@ -409,17 +417,23 @@ def irr(values: Any, guess: Any = 0.1) -> float:
     # dtype=float and float(guess) raise on a text cell. Sibling helpers return NaN.
     try:
         vals = np.asarray(values, dtype=float).ravel()
-        x = float(guess)
+        estimated = float(guess)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
     # ScIRR (interpr2.cxx) starts at 0.1 when the guess is -1. (1+x)**i
     # is 0 there, so Newton never moves and a cashflow such as [-1, 1]
     # came back NaN instead of 0. A later step that lands on -1, or a
     # huge (1+x)**i, is #NUM!. OverflowError used to escape the helper.
-    if x == -1.0:
-        x = 0.1
+    x = 0.1 if estimated == -1.0 else estimated
+    # The stop used to be abs(NPV) < 1e-7 for 100 steps. ScIRR stops when
+    # the rate step drops below SCdEpsilon (1e-7), and it gives up after
+    # 20 steps (NoConvergence). At a 1e9 scale the NPV residual sticks
+    # near 1.2e-7 while the step is already ~1e-16, so the old test
+    # returned NaN for a rate Calc finds. A guess of exactly 0 that lands
+    # within 1e-7 of 0 is snapped to 0 before that check.
+    eps = 1.0
     try:
-        for _unused in range(100):
+        for _unused in range(20):
             if not math.isfinite(x) or x == -1.0:
                 return float("nan")
             f = 0.0
@@ -428,13 +442,19 @@ def irr(values: Any, guess: Any = 0.1) -> float:
                 f += v / ((1 + x) ** i)
                 if i > 0:
                     df -= i * v / ((1 + x) ** (i + 1))
-            if abs(f) < 1e-7:
-                return float(x)
-            if df == 0:
+            if df == 0.0:
                 break
-            x = x - f / df
+            x_new = x - f / df
+            eps = abs(x_new - x)
+            x = x_new
+            if not eps > 1e-7:
+                break
     except (OverflowError, ZeroDivisionError):
         return float("nan")
+    if estimated == 0.0 and math.isfinite(x) and abs(x) < 1e-7:
+        x = 0.0
+    if eps < 1e-7 and math.isfinite(x):
+        return float(x)
     return float("nan")
 
 
@@ -520,7 +540,9 @@ def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
         p = float(per)
         n = float(nper)
         pv_f = float(pv_val)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # float() of a huge int raises OverflowError. The other payment
+        # helpers already turn that into NaN. This one let it escape.
         return float("nan")
     # nper == 0 used to raise ZeroDivisionError (pv / nper). Excel/Calc are
     # #NUM!; this module returns NaN. Same guard as pmt.
@@ -544,7 +566,7 @@ def istext(val: Any) -> bool:
     return isinstance(val, str) and not _is_calc_error(val)
 
 
-def jis(text: Any) -> str | float:
+def jis(text: Any) -> str:
     # No half-width map. str(1.0) is "1.0"; an integral float is the digits.
     # None is a blank cell. str() of a cell does not raise ValueError.
     if text is None:
@@ -701,45 +723,44 @@ def logest(*args: Any, **kwargs: Any) -> Any:
 
 def loginv(p: Any, mean: Any, stdev: Any) -> float:
     try:
-        import scipy.stats as st
-
         prob = float(p)
         m = float(mean)
         s = float(stdev)
         # ScLogNormInv (interpr3.cxx): fP <= 0 or fP >= 1 is
-        # IllegalArgument. ppf(0) is 0 and ppf(1) is inf.
+        # IllegalArgument. gaussinv(0) is -inf and gaussinv(1) is +inf.
         if prob <= 0 or prob >= 1 or s <= 0:
             return float("nan")
-        res = float(st.lognorm.ppf(prob, s, scale=math.exp(m)))
+        # exp(mue + sigma * gaussinv(p)). statistics.NormalDist is that
+        # inverse CDF. scipy.stats used to be imported inside the call, so
+        # a missing scipy made every probability NaN.
+        res = math.exp(m + s * statistics.NormalDist().inv_cdf(prob))
         return res if math.isfinite(res) else float("nan")
-    except (ValueError, TypeError, OverflowError, ImportError):
-        # math.exp(1e308) raises OverflowError ("math range error").
+    except (ValueError, TypeError, OverflowError):
+        # exp(1e308) raises OverflowError ("math range error").
         return float("nan")
 
 
 def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     try:
-        import scipy.stats as st
-
         x_val = float(x)
         m = float(mean)
         s = float(stdev)
         cum = bool(float(c))
         if s <= 0:
             return float("nan")
-        # ScLogNormDist: cumulative of x <= 0 is 0. The density is
-        # IllegalArgument. Check before exp so a huge mean does not
-        # overflow a scale this branch does not use.
+        # ScLogNormDist (interpr3.cxx): cumulative of x <= 0 is 0. The
+        # density is IllegalArgument. The body is integralPhi((ln x - mue)
+        # / sigma) and phi(z) / sigma / x. It does not exp(mue), so a huge
+        # mean is a tail probability, not an overflow.
         if x_val <= 0:
             return 0.0 if cum else float("nan")
-        scale = math.exp(m)
+        z = (math.log(x_val) - m) / s
         if cum:
-            res = float(st.lognorm.cdf(x_val, s, scale=scale))
+            res = 0.5 * math.erfc(-z / math.sqrt(2.0))
         else:
-            res = float(st.lognorm.pdf(x_val, s, scale=scale))
+            res = math.exp(-0.5 * z * z) / (x_val * s * math.sqrt(2.0 * math.pi))
         return res if math.isfinite(res) else float("nan")
-    except (ValueError, TypeError, OverflowError, ImportError):
-        # math.exp(1e308) raises OverflowError ("math range error").
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -758,17 +779,48 @@ def _lookup_number(val: Any) -> float | None:
     return None
 
 
+def _lookup_keys(data: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+    """Search vector and the default result vector for ``ScLookup``.
+
+    A 1-D list is that vector. A 2-D table searches the first column when
+    it has at least as many rows as columns, and the first row otherwise.
+    The other end of that line is the result when no result vector is passed.
+    ``ravel`` used to search ``[[1, 10], [2, 20]]`` as one list, so
+    ``LOOKUP(2, that)`` returned 2 instead of 20.
+    """
+    if data.size == 0:
+        return None
+    if data.ndim <= 1:
+        keys = data.ravel()
+        return keys, keys
+    if data.ndim != 2:
+        return None
+    if data.shape[0] >= data.shape[1]:
+        return data[:, 0], data[:, -1]
+    return data[0, :], data[-1, :]
+
+
 def lookup(lookup_val: Any, *args: Any) -> Any:
     # dtype=object keeps numbers as numbers. Text compares case-insensitively.
     # ScLookup (interpr1.cxx) requires data <= query and the same type. A
     # number does not match text. str(None) used to be the text "None", so
     # lookup(20, ["10x"]) returned "10x". A miss is #N/A, not Python None.
+    if not args:
+        return "#N/A"
+    parsed = _lookup_keys(np.asarray(args[0], dtype=object))
+    if parsed is None:
+        return "#N/A"
+    vec, default_result = parsed
     if len(args) == 1:
-        vec = np.asarray(args[0], dtype=object).ravel()
-        result = vec
+        result = default_result
     else:
-        vec = np.asarray(args[0], dtype=object).ravel()
-        result = np.asarray(args[1], dtype=object).ravel()
+        result_arr = np.asarray(args[1], dtype=object)
+        # A result range must be a vector. A block is IllegalParameter.
+        if result_arr.ndim > 2 or (
+            result_arr.ndim == 2 and result_arr.shape[0] > 1 and result_arr.shape[1] > 1
+        ):
+            return "#VALUE!"
+        result = result_arr.ravel()
     query_num = _lookup_number(lookup_val)
     query_text = lookup_val.casefold() if isinstance(lookup_val, str) and lookup_val != "" else None
     best_idx = None
@@ -798,10 +850,24 @@ def _trim_matrix(matrix: np.ndarray) -> np.ndarray:
     return matrix
 
 
+def _as_matrix(value: Any, *, numeric: bool) -> np.ndarray:
+    """2-D array. A scalar is 1×1. A flat list is a row.
+
+    Sheet ranges are already 2-D. ``MMULT`` of two 1-D lists used to be a
+    dot product; ``ScMatMult`` rejects 1×n times 1×n. ``ScMatDet`` of a
+    1×1 matrix is that element, so ``MDETERM(5)`` is 5.
+    """
+    matrix = _trim_matrix(np.asarray(value, dtype=float if numeric else None))
+    if matrix.ndim == 0:
+        return matrix.reshape(1, 1)
+    if matrix.ndim == 1:
+        return matrix.reshape(1, -1)
+    return matrix
+
+
 def mdeterm(matrix: Any) -> float:
     try:
-        m = _trim_matrix(np.asarray(matrix, dtype=float))
-        return float(np.linalg.det(m))
+        return float(np.linalg.det(_as_matrix(matrix, numeric=True)))
     except Exception:
         return float("nan")
 
@@ -835,8 +901,10 @@ def mina(*args: Any) -> float:
 
 def minverse(matrix: Any) -> Any:
     try:
-        m = _trim_matrix(np.asarray(matrix, dtype=float))
-        return np.linalg.inv(m).tolist()
+        # ScMatInv of a singular matrix is IllegalArgument (Err:502), not
+        # #NUM!. This helper reports that as #VALUE!. A scalar is 1×1, so
+        # MINVERSE(5) is [[0.2]] rather than #VALUE!.
+        return np.linalg.inv(_as_matrix(matrix, numeric=True)).tolist()
     except Exception:
         return "#VALUE!"
 
@@ -846,7 +914,9 @@ def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
         vals = [float(x) for x in np.asarray(values).ravel()]
         fr = float(finance_rate)
         rr = float(reinvest_rate)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # float() of a huge int raises OverflowError. The other rate
+        # helpers already turn that into NaN. This one let it escape.
         return float("nan")
     # rate == -1 used to divide by zero (later negative flows) or return a
     # finite number (reinvest rate -1). numpy-financial's NPV is undefined
@@ -856,8 +926,8 @@ def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
 
 def mmult(array1: Any, array2: Any) -> Any:
     try:
-        left = _trim_matrix(np.asarray(array1, dtype=float))
-        right = _trim_matrix(np.asarray(array2, dtype=float))
+        left = _as_matrix(array1, numeric=True)
+        right = _as_matrix(array2, numeric=True)
         return np.matmul(left, right).tolist()
     except Exception:
         return "#VALUE!"
@@ -931,6 +1001,12 @@ def mround(number: Any, multiple: Any) -> float:
 def mtrans(matrix: Any) -> Any:
     try:
         m = _trim_matrix(np.asarray(matrix))
+        # A scalar stays a scalar. np.transpose of a 1-D array does nothing,
+        # so a flat row never became a column. ScMatTrans swaps the axes.
+        if m.ndim == 0:
+            return m.tolist()
+        if m.ndim == 1:
+            m = m.reshape(1, -1)
         return np.transpose(m).tolist()
     except Exception:
         return "#VALUE!"
@@ -957,8 +1033,18 @@ def multinomial(*args: Any) -> float:
 
 
 def munit(dimension: Any) -> Any:
+    # ScEMat (interpr5.cxx): GetUInt32 truncates, then dimension 0 is
+    # IllegalArgument. np.eye(0) used to return []. Above 1024 the identity
+    # is more than a million Python floats. Calc pushes MatrixSize when the
+    # square is not allocatable instead of building it.
     try:
-        return np.eye(int(dimension)).tolist()
+        size = int(dimension)
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
+    if size < 1 or size > 1024:
+        return "#VALUE!"
+    try:
+        return np.eye(size).tolist()
     except Exception:
         return "#VALUE!"
 

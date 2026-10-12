@@ -183,7 +183,9 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("ipmt-per-inf", "ipmt", (0.1, _INF, 3, 8000), _NAN),
     ("ipmt-type-inf", "ipmt", (0.1, 1, 3, 8000, 0, _INF), _NAN),
     ("irr-blank", "irr", ([None, None],), _NAN),
-    ("irr-zero", "irr", ([0, 0, 0],), 0.1),
+    # All zeros: f and df are 0, so ScIRR never shrinks the step and
+    # pushes NoConvergence. The old NPV test returned the guess 0.1.
+    ("irr-zero", "irr", ([0, 0, 0],), _NAN),
     ("irr-inf", "irr", ([_INF, -_INF],), _NAN),
     ("irr-guess-inf", "irr", ([-100, 110], _INF), _NAN),
     ("isblank-text", "isblank", ("text",), False),
@@ -326,7 +328,7 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("multinomial-inf", "multinomial", (_INF,), _NAN),
     ("munit-text", "munit", ("text",), "#VALUE!"),
     ("munit-blank", "munit", (None,), "#VALUE!"),
-    ("munit-zero", "munit", (0,), []),
+    ("munit-zero", "munit", (0,), "#VALUE!"),
     ("munit-neg", "munit", (-1,), "#VALUE!"),
     ("munit-inf", "munit", (_INF,), "#VALUE!"),
 ]
@@ -453,6 +455,12 @@ def test_irr_guess_minus_one_and_overflow():
     assert calc.irr([-1, 1], -1) == pytest.approx(0.0, abs=1e-6)
     assert math.isnan(calc.irr([-1, 1], 1e308))
     assert math.isnan(calc.irr([-100] + [0] * 40 + [110], 1e6))
+    # abs(NPV) < 1e-7 never finishes at this scale: the residual sticks
+    # just above 1e-7. ScIRR stops on the rate step, so the rate matches
+    # the unscaled series. A guess of 0 within 1e-7 of zero snaps to 0.
+    small = calc.irr([-100, 30, 40, 50])
+    assert calc.irr([-1e9, 3e8, 4e8, 5e8]) == pytest.approx(small)
+    assert calc.irr([-1, 1], 0) == 0.0
 
 
 def test_loginv_bounds_and_lognormdist_nonpositive():
@@ -464,7 +472,11 @@ def test_loginv_bounds_and_lognormdist_nonpositive():
     assert calc.lognormdist(0, 0, 1) == 0.0
     assert calc.lognormdist(-1, 0, 1) == 0.0
     assert math.isnan(calc.lognormdist(0, 0, 1, False))
-    assert math.isnan(calc.lognormdist(1, 1e308, 1))
+    # ScLogNormDist uses integralPhi((ln x - mean) / sd). A huge mean is the
+    # far tail, 0. scipy's exp(mean) used to overflow into NaN.
+    assert calc.lognormdist(1, 1e308, 1) == 0.0
+    assert calc.lognormdist(1, 0, 1) == pytest.approx(0.5)
+    assert calc.lognormdist(1, 0, 1, False) == pytest.approx(1.0 / math.sqrt(2.0 * math.pi))
 
 
 def test_im_suffix_blanks_and_nonfinite():
@@ -529,4 +541,59 @@ def test_jis_integral_float_has_no_decimal():
     assert calc.jis(1.0) == "1"
     assert calc.jis(1.5) == "1.5"
     assert calc.jis(None) == ""
+
+
+def test_ipmt_any_nonzero_type_is_beginning():
+    # GetBool() is GetDouble() != 0. int(type) == 1 used to treat these as end.
+    beginning = calc.ipmt(0.1, 1, 3, 8000, 0, 1)
+    assert beginning == 0.0
+    assert calc.ipmt(0.1, 1, 3, 8000, 0, 2) == beginning
+    assert calc.ipmt(0.1, 1, 3, 8000, 0, -1) == beginning
+    assert calc.ipmt(0.1, 1, 3, 8000, 0, 0.5) == beginning
+    assert calc.ipmt(0.1, 1, 3, 8000, 0, 0) == pytest.approx(-800.0)
+    assert math.isnan(calc.ipmt(0.1, 1, 3, 8000, 0, float("inf")))
+
+
+def test_lookup_two_dimensional_uses_first_and_last():
+    table = [[1, 10], [2, 20], [3, 30]]
+    assert calc.lookup(2, table) == 20
+    assert calc.lookup(2, table, [100, 200, 300]) == 200
+    # More columns than rows: search the first row, return the last row.
+    assert calc.lookup(2, [[1, 2, 3], [10, 20, 30]]) == 20
+    assert calc.lookup(2, [1, 2, 3], [10, 20, 30]) == 20
+    assert calc.lookup(2, table, [[100, 200], [300, 400]]) == "#VALUE!"
+
+
+def test_matrix_scalar_and_flat_list():
+    assert calc.mdeterm(5) == pytest.approx(5.0)
+    assert calc.mdeterm([5]) == pytest.approx(5.0)
+    assert math.isnan(calc.mdeterm([1, 2, 3]))
+    assert calc.mmult([1, 2], [3, 4]) == "#VALUE!"
+    assert calc.mmult([[1, 2]], [[3], [4]]) == [[11.0]]
+    assert calc.mtrans([1, 2, 3]) == [[1], [2], [3]]
+    assert calc.mtrans(0) == 0
+    assert calc.minverse(5) == [[0.2]]
+    # Singular stays #VALUE!. Calc's code is Err:502, not #NUM!.
+    assert calc.minverse([[1, 2], [2, 4]]) == "#VALUE!"
+
+
+def test_munit_zero_and_cap():
+    assert calc.munit(0) == "#VALUE!"
+    assert calc.munit(0.9) == "#VALUE!"
+    assert calc.munit(1025) == "#VALUE!"
+    assert calc.munit(2.9) == [[1.0, 0.0], [0.0, 1.0]]
+
+
+def test_ispmt_and_mirr_huge_int_is_nan():
+    huge = 10**10000
+    assert math.isnan(calc.ispmt(huge, 1, 12, 100))
+    assert math.isnan(calc.mirr([-100, 10], huge, 0.1))
+
+
+def test_iseven_bool_is_numeric_and_mround_half_ulp():
+    # Calc stores TRUE as 1. Excel's #VALUE! for a boolean is not copied.
+    assert calc.iseven(True) is False
+    assert calc.isodd(True) is True
+    # floor(q + 0.5) is 1 here, and getMround's approxValue path is also 1.
+    assert calc.mround(math.nextafter(0.5, 0.0), 1) == 1.0
 
