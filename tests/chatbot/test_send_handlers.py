@@ -2259,6 +2259,60 @@ def test_agent_worker_finally_clears_matching_backend():
     assert panel._current_agent_backend is None
 
 
+def test_retained_agent_backend_reuses_one_cli_until_the_id_changes():
+    """The sidebar keeps the adapter. A new id shuts the old CLI down."""
+    panel = DummyChatbotPanel()
+    scope = MagicMock()
+    order: list[str] = []
+    scope.register_on_cancel.side_effect = lambda hook: order.append("register")
+    panel._send_cancellation = scope
+
+    hermes = MagicMock()
+    hermes.is_available.return_value = True
+    hermes.prepare_turn.side_effect = lambda: order.append("prepare")
+    claude = MagicMock()
+    claude.is_available.return_value = True
+    created: list[str] = []
+
+    def get_backend(backend_id, ctx=None):
+        created.append(backend_id)
+        return hermes if backend_id == "hermes" else claude
+
+    ids = iter(["hermes", "hermes", "claude"])
+
+    def get_config(key, default=None):
+        if key == "agent_backend.backend_id":
+            return next(ids)
+        return "" if default is None else default
+
+    def fake_drain(drain_q, run_agent_fn, *args, **kwargs):
+        run_agent_fn()
+
+    panel._run_unified_worker_drain_loop = fake_drain
+    with (
+        patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=MagicMock()),
+        patch("plugin.chatbot.send_handlers.get_backend", side_effect=get_backend),
+        patch("plugin.chatbot.send_handlers.get_config", side_effect=get_config),
+        patch("plugin.mcp.is_mcp_server_running", return_value=False),
+    ):
+        panel._execute_agent_backend_effect("one", MagicMock(), "writer", MagicMock(), MagicMock())
+        assert order == ["prepare", "register"]
+        assert created == ["hermes"]
+        assert panel._acp_backend is hermes
+        assert panel._acp_backend_id == "hermes"
+        order.clear()
+        panel._execute_agent_backend_effect("two", MagicMock(), "writer", MagicMock(), MagicMock())
+        assert created == ["hermes"]
+        assert order == ["prepare", "register"]
+        hermes.shutdown.assert_not_called()
+        assert panel._acp_backend is hermes
+        panel._execute_agent_backend_effect("three", MagicMock(), "writer", MagicMock(), MagicMock())
+    hermes.shutdown.assert_called_once()
+    assert created == ["hermes", "claude"]
+    assert panel._acp_backend is claude
+    assert panel._acp_backend_id == "claude"
+
+
 def test_stale_active_run_flag_does_not_hijack_web_research():
     """Stale _active_run_* flags must be reset so they do not leak into the next send."""
     panel = DummyChatbotPanel()

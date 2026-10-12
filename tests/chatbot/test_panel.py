@@ -151,6 +151,21 @@ class TestSendDispose:
     def teardown_method(self) -> None:
         self._modules_patcher.stop()
 
+    def test_disposing_shuts_down_the_retained_cli(self) -> None:
+        listener = _make_send_listener()
+        scope = SendCancellation()
+        order: list[str] = []
+        scope.register_on_cancel(lambda: order.append("cancel"))
+        listener._send_cancellation = scope
+        backend = MagicMock()
+        backend.shutdown.side_effect = lambda: order.append("shutdown")
+        listener._acp_backend = backend
+        listener._acp_backend_id = "hermes"
+        listener.disposing(None)
+        assert order == ["cancel", "shutdown"]
+        assert listener._acp_backend is None
+        assert listener._acp_backend_id is None
+
     def test_disposing_cancels_in_flight_send(self) -> None:
         listener = _make_send_listener()
         scope = SendCancellation()

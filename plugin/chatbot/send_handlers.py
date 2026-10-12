@@ -205,6 +205,8 @@ class SendHandlerHost(Protocol):
     _stt_inflight: bool
     _stt_kill: Any
     _current_agent_backend: Any
+    _acp_backend: Any
+    _acp_backend_id: str | None
     _turn: Any
 
     def _set_status(self, text: str) -> None: ...
@@ -219,6 +221,7 @@ class SendHandlerHost(Protocol):
     def _get_mcp_url(self) -> str | None: ...
     def _do_send_direct_image(self, query_text: str, model: Any) -> None: ...
     def _do_send_via_agent_backend(self, query_text: str, model: Any, doc_type_str: str) -> None: ...
+    def _retained_agent_backend(self, backend_id: str) -> Any: ...
     def on_librarian_session_finished(self) -> None: ...
     def on_brainstorming_session_finished(self, spec_saved: bool = False) -> None: ...
     def on_writing_plan_session_finished(self) -> None: ...
@@ -250,6 +253,8 @@ class SendHandlersMixin:
     _stt_inflight: bool = False
     _stt_kill: Any = None
     _current_agent_backend: Any = None
+    _acp_backend: Any = None
+    _acp_backend_id: str | None = None
     _librarian_suggested_user_name: str | None = None
     _in_librarian_mode: bool = False
     _in_brainstorming_mode: bool = False
@@ -661,6 +666,32 @@ class SendHandlersMixin:
         for effect in step.effects:
             interpreter.interpret(effect)
 
+    def _retained_agent_backend(self: SendHandlerHost, backend_id: str) -> Any:
+        """Keep one CLI on this sidebar until the backend id changes.
+
+        ``get_backend`` always constructs. The slot is this panel so two
+        documents do not share one stdio stream. The rules are the
+        process-worker slot policy: one live child, drop a dead child,
+        shutdown is explicit. This is not a ``BaseProcessWorker``.
+        """
+        held = getattr(self, "_acp_backend", None)
+        held_id = getattr(self, "_acp_backend_id", None)
+        if held is not None and held_id == backend_id:
+            return held
+        if held is not None:
+            try:
+                held.shutdown()
+            except Exception:
+                log.exception("ACP shutdown on backend switch failed")
+            self._acp_backend = None
+            self._acp_backend_id = None
+        adapter = get_backend(backend_id, ctx=self.ctx)
+        if adapter is None:
+            return None
+        self._acp_backend = adapter
+        self._acp_backend_id = backend_id
+        return adapter
+
     def _execute_agent_backend_effect(self: SendHandlerHost, query_text: str, model: Any, doc_type_str: str, current_state: "SendHandlerState", interpreter: "EffectInterpreter") -> None:
 
 
@@ -702,7 +733,7 @@ class SendHandlersMixin:
 
 
         backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
-        adapter = get_backend(backend_id, ctx=self.ctx)
+        adapter = self._retained_agent_backend(backend_id)
         if not adapter:
 
 
@@ -721,7 +752,11 @@ class SendHandlersMixin:
         self._current_agent_backend = adapter
         # Spawn-time scope. run_agent must not call resolve_stop_checker:
         # Stop clears the field and the next send replaces it.
+        # prepare_turn publishes this turn's id before Stop can be registered,
+        # so a Stop that lands before send() aborts this turn only.
         cancel_scope, stop_checker = capture_send_stop(self)
+        if hasattr(adapter, "prepare_turn"):
+            adapter.prepare_turn()
         if cancel_scope is not None and hasattr(adapter, "stop"):
             cancel_scope.register_on_cancel(adapter.stop)
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 from plugin.framework.thread_guard import background
 import json
 import logging
+import math
 import os
 import queue
 import subprocess
@@ -40,20 +41,32 @@ from plugin.framework.worker_pool import BackgroundHandle, StderrTail, get_subpr
 log = logging.getLogger(__name__)
 
 _JSONRPC_VERSION = "2.0"
+# send_request's idle wait polls this often so an inbound line can extend it.
+_IDLE_POLL_S = 0.05
+# Not a JSON-RPC id. None is a valid id, so rejection cannot use None.
+_BAD_ID = object()
 
 
-def _is_jsonrpc_id(value: Any) -> bool:
-    """JSON-RPC 2.0 id: string, number, or null. Not an array, object, or boolean.
+def _canonical_id(value: Any) -> Any:
+    """Pending-map key for a JSON-RPC id, or ``_BAD_ID``.
 
     ``bool`` subclasses ``int``, and ``True`` hashes equal to ``1``, so a JSON
-    ``true`` id would complete the in-flight integer request if it were used
-    as a ``_pending`` key.
+    ``true`` id would complete the in-flight integer request. A whole-number
+    float has the same hash: JSON ``1.0`` must become ``1`` or it collides
+    with request id ``1`` by accident and ``1.5`` would be stored as a float
+    key we never send.
     """
     if value is None or isinstance(value, str):
-        return True
+        return value
     if isinstance(value, bool):
-        return False
-    return isinstance(value, (int, float))
+        return _BAD_ID
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            return _BAD_ID
+        return int(value)
+    return _BAD_ID
 
 
 @dataclass
@@ -62,6 +75,22 @@ class _Pending:
 
     event: threading.Event
     response: Any = None
+
+
+@dataclass
+class _QueuedWrite:
+    """One stdin line. ``fail_req_id`` is set for ``send_request``."""
+
+    proc: Any
+    data: bytes
+    fail_req_id: int | None = None
+
+
+@dataclass
+class _QueuedStop:
+    """Close stdin and kill this process. Carries the ``stop()`` snapshot."""
+
+    proc: Any
 
 
 def _accept_message(line: str) -> dict[str, Any] | None:
@@ -73,20 +102,30 @@ def _accept_message(line: str) -> dict[str, Any] | None:
     child was still alive. An ``id`` that is an array, object, or JSON
     boolean is the same stray line: ``pending.get`` would raise ``TypeError``
     on an unhashable key, or ``true`` would hash equal to request id ``1``.
+
+    What was wrong: ``find("{")`` ran on every line, so ``[{"a": 1}]`` became
+    ``{"a": 1}`` and was dispatched as an object. Why: slice a prefix only
+    when the line is not already a JSON object or array. A log line in front
+    of an object still parses.
     """
-    idx = line.find("{")
-    if idx >= 0:
-        line = line[idx:]
-    msg = safe_json_loads(line)
+    payload = line.lstrip()
+    if not payload.startswith("{") and not payload.startswith("["):
+        idx = line.find("{")
+        if idx >= 0:
+            payload = line[idx:]
+    msg = safe_json_loads(payload)
     if msg is None:
-        log.debug("Non-JSON output: %s", line[:200])
+        log.debug("Non-JSON output: %s", payload[:200])
         return None
     if not isinstance(msg, dict):
-        log.debug("Non-object JSON output: %s", line[:200])
+        log.debug("Non-object JSON output: %s", payload[:200])
         return None
-    if "id" in msg and not _is_jsonrpc_id(msg["id"]):
-        log.debug("Non-JSON-RPC id output: %s", line[:200])
-        return None
+    if "id" in msg:
+        canonical = _canonical_id(msg["id"])
+        if canonical is _BAD_ID:
+            log.debug("Non-JSON-RPC id output: %s", payload[:200])
+            return None
+        msg["id"] = canonical
     return msg
 
 
@@ -121,8 +160,9 @@ class ACPConnection:
     _request_id: int
     _running: bool
     _notify_callback: Any
-    _write_queue: queue.Queue[tuple[str, Any, bytes | None]]
-    _writer_started: bool
+    _write_queue: queue.Queue[Any]
+    _writer_thread: BackgroundHandle | None
+    _last_inbound: float
 
     def __init__(self, cmd_line: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> None:
         self._cmd_line = cmd_line
@@ -137,7 +177,8 @@ class ACPConnection:
         self._running = False
         self._notify_callback = None
         self._write_queue = queue.Queue()
-        self._writer_started = False
+        self._writer_thread = None
+        self._last_inbound = time.monotonic()
 
     def start(self) -> None:
         """Spawn the ACP subprocess."""
@@ -161,6 +202,9 @@ class ACPConnection:
         self._proc = cast("subprocess.Popen[bytes]", subprocess.Popen(wrap_command_for_sandbox(self._cmd_line), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd, **popen_kw))
         self._stderr_drain = start_stderr_drain(self._proc.stderr, name=f"acp-stderr-{self._proc.pid}")
         self._running = True
+        # One thread owns stdin for the life of the child. Request writes,
+        # notifications, and the kill all go through it.
+        self._ensure_writer()
         self._reader_thread = run_in_background(self._reader_loop, daemon=True, name="acp-reader", dedicated=True)
 
     def _wake_pending(self, message: str) -> None:
@@ -172,10 +216,7 @@ class ACPConnection:
         """
         with self._lock:
             self._running = False
-            for entry in self._pending.values():
-                if entry.response is None:
-                    entry.response = {"error": {"message": message}}
-                entry.event.set()
+            self._fail_waiters(message, only_unanswered=False)
 
     def _complete_null_id(self, msg: dict[str, Any]) -> None:
         """Deliver a JSON-RPC error whose id is null.
@@ -191,15 +232,29 @@ class ACPConnection:
             return
         text = error.get("message", str(error)) if isinstance(error, dict) else str(error)
         with self._lock:
-            waiting = [entry for entry in self._pending.values() if entry.response is None]
-            if not waiting:
-                log.debug("ACP null-id error with no waiter: %s", text)
-                return
-            if len(waiting) > 1:
-                log.warning("ACP null-id error applied to %s in-flight requests", len(waiting))
-            for entry in waiting:
-                entry.response = {"error": {"message": text}}
+            waiting = self._fail_waiters(text, only_unanswered=True)
+        if not waiting:
+            log.debug("ACP null-id error with no waiter: %s", text)
+            return
+        if waiting > 1:
+            log.warning("ACP null-id error applied to %s in-flight requests", waiting)
+
+    def _fail_waiters(self, message: str, *, only_unanswered: bool) -> int:
+        """Store ``message`` on waiters that have no response. Caller holds ``_lock``.
+
+        ``_wake_pending`` also sets the event on a waiter that already has a
+        response, so a stop cannot leave that caller blocked. A null-id error
+        leaves those waiters alone.
+        """
+        failed = 0
+        for entry in self._pending.values():
+            if entry.response is None:
+                entry.response = {"error": {"message": message}}
                 entry.event.set()
+                failed += 1
+            elif not only_unanswered:
+                entry.event.set()
+        return failed
 
     def stop(self) -> None:
         """Terminate the subprocess and unblock in-flight ``send_request`` calls.
@@ -227,76 +282,90 @@ class ACPConnection:
             return
 
         # Stdin writes and stdin.close() on the calling thread freeze the UI
-        # when the pipe buffer is full. Sending writes to the background
-        # while stop() calls terminate() immediately races and kills the
-        # child before session/cancel is sent. Sequence writes and stop
-        # through a background FIFO: session/cancel and permission responses
-        # flush before proc.stdin.close() and proc.terminate() run
-        # off-thread. A fallback watchdog forces terminate() if a wedged
-        # pipe blocks writes.
-        self._enqueue_write("stop", proc, None)
+        # when the pipe buffer is full. One writer thread owns the pipe.
+        # Queued lines, including session/cancel, run before this stop item
+        # closes stdin and kills the tree. The bytes are written if the pipe
+        # accepts them. This does not wait for the agent to read them.
+        self._enqueue(_QueuedStop(proc))
 
         def _watchdog_terminate() -> None:
-            time.sleep(0.5)
+            # What was wrong: sleep(0.5) then poll() always waited half a
+            # second, and killed again after the writer had already reaped
+            # the child. Why: wait returns as soon as the child is gone.
+            # Kill only when that wait times out, which is a writer blocked
+            # in a full-pipe write that has not reached its own wait.
             try:
-                if proc and proc.poll() is None:
+                proc.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                try:
                     _kill_acp_tree(proc)
+                except Exception:
+                    log.debug("ACP stop watchdog kill failed", exc_info=True)
             except Exception:
-                pass
+                log.debug("ACP stop watchdog wait failed", exc_info=True)
 
         run_in_background(_watchdog_terminate, name="acp-stop-watchdog", dedicated=True)
 
-    def _enqueue_write(self, action: str, proc: Any, data: bytes | None) -> None:
+    def _ensure_writer(self) -> None:
+        """Start the stdin thread once. Tests that skip ``start()`` enqueue first."""
         with self._lock:
-            self._write_queue.put((action, proc, data))
-            if not self._writer_started:
-                self._writer_started = True
-                run_in_background(self._writer_drain_loop, name="acp-writer", dedicated=True)
+            if self._writer_thread is not None:
+                return
+            self._writer_thread = run_in_background(self._writer_drain_loop, name="acp-writer", dedicated=True)
+
+    def _enqueue(self, item: _QueuedWrite | _QueuedStop) -> None:
+        self._ensure_writer()
+        self._write_queue.put(item)
+
+    def _fail_request(self, req_id: int, message: str) -> None:
+        """Unblock one ``send_request`` after its stdin write failed."""
+        with self._lock:
+            entry = self._pending.get(req_id)
+            if entry is not None and entry.response is None:
+                entry.response = {"error": {"message": message}}
+                entry.event.set()
 
     @background
     def _writer_drain_loop(self) -> None:
-        while True:
-            try:
-                item = self._write_queue.get(timeout=0.2)
-            except queue.Empty:
-                with self._lock:
-                    if not self._running and self._write_queue.empty():
-                        self._writer_started = False
-                        break
-                continue
-
-            action, proc, data = item
-            if action == "write":
-                try:
-                    stdin = proc.stdin if proc is not None else None
-                    if stdin and data is not None:
-                        stdin.write(data)
-                        stdin.flush()
-                except Exception:
-                    # A closed pipe during stop is expected. Debug keeps a
-                    # failed session/cancel visible without an error traceback.
-                    log.debug("ACP stdin write failed", exc_info=True)
-            elif action == "stop":
-                try:
-                    if proc and proc.stdin:
-                        proc.stdin.close()
-                except Exception:
-                    pass
-                # What was wrong: terminate()/kill() hit only this process, and
-                # closing stdout was supposed to unblock readline. close()
-                # takes the buffer lock readline already holds, so both
-                # threads wait forever when a grandchild still has the pipe.
-                # Why: kill the process group. The child's death closes the
-                # write end, and readline returns EOF.
-                if proc is not None:
-                    _kill_acp_tree(proc)
+        try:
+            while True:
+                item = self._write_queue.get()
+                if isinstance(item, _QueuedStop):
+                    proc = item.proc
                     try:
-                        proc.wait(timeout=3)
+                        if proc and proc.stdin:
+                            proc.stdin.close()
                     except Exception:
                         pass
-                with self._lock:
-                    self._writer_started = False
-                break
+                    # What was wrong: terminate()/kill() hit only this process, and
+                    # closing stdout was supposed to unblock readline. close()
+                    # takes the buffer lock readline already holds, so both
+                    # threads wait forever when a grandchild still has the pipe.
+                    # Why: kill the process group. The child's death closes the
+                    # write end, and readline returns EOF.
+                    if proc is not None:
+                        _kill_acp_tree(proc)
+                        try:
+                            proc.wait(timeout=3)
+                        except Exception:
+                            pass
+                    break
+                try:
+                    stdin = item.proc.stdin if item.proc is not None else None
+                    if stdin and item.data is not None:
+                        stdin.write(item.data)
+                        stdin.flush()
+                except Exception as exc:
+                    # A closed pipe during stop is expected. Debug keeps a
+                    # failed session/cancel visible without an error traceback.
+                    # A request write must still unblock send_request. ValueError
+                    # from a closed pipe used to escape the caller's handler.
+                    log.debug("ACP stdin write failed", exc_info=True)
+                    if item.fail_req_id is not None:
+                        self._fail_request(item.fail_req_id, f"Failed to write to ACP: {exc}")
+        finally:
+            with self._lock:
+                self._writer_thread = None
 
     @property
     def is_alive(self) -> bool:
@@ -319,7 +388,7 @@ class ACPConnection:
             self._request_id += 1
             return self._request_id
 
-    def send_request(self, method: str, params: Any = None, timeout: int = 120) -> Any:
+    def send_request(self, method: str, params: Any = None, timeout: float = 120) -> Any:
         """Send a JSON-RPC request and wait for the response."""
         if not self.is_alive:
             raise ToolExecutionError("ACP process is not running")
@@ -346,18 +415,13 @@ class ACPConnection:
 
         line = json.dumps(msg) + "\n"
         log.debug(f"→ {method} (id={req_id})")
+        # The caller used to write stdin itself. A full pipe blocked this
+        # thread before the timeout started, and a second writer could run
+        # beside the queue. The writer thread performs the write. A closed
+        # pipe fails this waiter instead of raising ValueError here.
+        self._enqueue(_QueuedWrite(proc, line.encode("utf-8"), req_id))
 
-        try:
-            stdin = proc.stdin
-            if stdin:
-                stdin.write(line.encode("utf-8"))
-                stdin.flush()
-        except (BrokenPipeError, OSError, ValueError) as e:
-            with self._lock:
-                self._pending.pop(req_id, None)
-            raise ToolExecutionError(f"Failed to write to ACP: {e}") from e
-
-        if not event.wait(timeout=timeout):
+        if not self._wait_idle(event, timeout):
             with self._lock:
                 self._pending.pop(req_id, None)
             raise TimeoutError(f"ACP request {method} timed out after {timeout}s")
@@ -373,6 +437,25 @@ class ACPConnection:
 
         return resp.get("result") if resp else None
 
+    def _wait_idle(self, event: threading.Event, timeout: float) -> bool:
+        """True when ``event`` is set before ``timeout`` seconds of silence.
+
+        What was wrong: one ``event.wait(timeout)`` was a wall clock. A
+        ``session/prompt`` that was still streaming died at 600s. Why: each
+        accepted stdout line stores ``_last_inbound``. The wait is sliced so
+        that reset is visible before the idle budget runs out.
+        """
+        self._last_inbound = time.monotonic()
+        while True:
+            if event.is_set():
+                return True
+            idle_for = time.monotonic() - self._last_inbound
+            if idle_for >= timeout:
+                return False
+            remaining = timeout - idle_for
+            if event.wait(timeout=min(_IDLE_POLL_S, remaining)):
+                return True
+
     def send_notification(self, method: str, params: Any = None) -> None:
         """Send a JSON-RPC notification (no response expected)."""
         proc = self._proc
@@ -380,7 +463,7 @@ class ACPConnection:
             return
         msg = {"jsonrpc": _JSONRPC_VERSION, "method": method, "params": params or {}}
         line = json.dumps(msg) + "\n"
-        self._enqueue_write("write", proc, line.encode("utf-8"))
+        self._enqueue(_QueuedWrite(proc, line.encode("utf-8")))
 
     def send_response(self, msg_id: Any, result: Any = None, error: Any = None) -> None:
         """Send a JSON-RPC response to a request from the agent."""
@@ -394,7 +477,7 @@ class ACPConnection:
             msg["result"] = result or {}
 
         line = json.dumps(msg) + "\n"
-        self._enqueue_write("write", proc, line.encode("utf-8"))
+        self._enqueue(_QueuedWrite(proc, line.encode("utf-8")))
 
     def set_notification_callback(self, callback: Any) -> None:
         """Set a callback(method, params, msg_id) for incoming notifications."""
@@ -437,6 +520,9 @@ class ACPConnection:
                     msg = _accept_message(line)
                     if msg is None:
                         continue
+                    # Silence is what times out a prompt. Any accepted line,
+                    # including session/update, resets that clock.
+                    self._last_inbound = time.monotonic()
 
                     if "id" in msg and msg["id"] is None and "method" not in msg:
                         self._complete_null_id(msg)

@@ -491,6 +491,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     panel: Any
     audio_wav_path: str | None
     _current_agent_backend: Any
+    _acp_backend: Any
+    _acp_backend_id: str | None
     _current_tool_call_id: str | None
     _approval_event: Any
     _extracted_peer_query: str
@@ -589,6 +591,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.client = None
         self.audio_wav_path = None
         self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
+        # The CLI for this sidebar. _current_agent_backend is only the in-flight
+        # pointer and is cleared when the worker finishes.
+        self._acp_backend = None
+        self._acp_backend_id = None
         self._button_mnemonics: dict[str, str] = {}
         # Session I/O handles for the tool-loop interpreter (not FSM control state).
         # The queue, stripper, and document model live on ``_turn``.
@@ -2389,6 +2395,16 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         scope = getattr(self, "_send_cancellation", None)
         if scope is not None:
             scope.cancel()
+        # Stop above cancels an in-flight prompt. Dispose also drops the CLI
+        # this sidebar was keeping. A missing slot is the normal chat path.
+        acp_backend = getattr(self, "_acp_backend", None)
+        self._acp_backend = None
+        self._acp_backend_id = None
+        if acp_backend is not None:
+            try:
+                acp_backend.shutdown()
+            except Exception:
+                log.exception("ACP shutdown on panel dispose failed")
         self._stop_requested_fallback = True
         self._kill_inflight_stt()
         self._release_open_microphone()

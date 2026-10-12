@@ -778,3 +778,110 @@ def test_stop_flushes_before_tree_kill():
     assert "kill" in events, "process tree kill was never called"
     assert events.index("write") < events.index("kill")
     mock_proc.stdout.close.assert_not_called()
+
+
+def test_json_array_is_not_sliced_into_an_object():
+    from plugin.acp.acp_connection import _accept_message
+
+    assert _accept_message('[{"a": 1}]') is None
+
+
+def test_brace_after_a_prefix_still_parses():
+    from plugin.acp.acp_connection import _accept_message
+
+    msg = _accept_message('log {"jsonrpc":"2.0","method":"session/update","params":{}}')
+    assert msg is not None
+    assert msg["method"] == "session/update"
+
+
+def test_integral_float_id_completes_the_integer_request():
+    conn = ACPConnection(["agent"])
+    event = threading.Event()
+    conn._pending[1] = _Pending(event)
+    conn._running = True
+    line = json.dumps({"jsonrpc": "2.0", "id": 1.0, "result": {"ok": True}}) + "\n"
+    proc = _live_proc()
+    proc.stdout.readline.side_effect = [line.encode(), b""]
+    conn._proc = proc
+    conn._reader_loop()
+    assert event.is_set()
+    assert conn._pending[1].response["result"] == {"ok": True}
+
+
+def test_fractional_float_id_does_not_complete_the_request():
+    conn = ACPConnection(["agent"])
+    event = threading.Event()
+    conn._pending[1] = _Pending(event)
+    conn._running = True
+    line = json.dumps({"jsonrpc": "2.0", "id": 1.5, "result": {"ok": True}}) + "\n"
+    proc = _live_proc()
+    proc.stdout.readline.side_effect = [line.encode(), b""]
+    conn._proc = proc
+    conn._reader_loop()
+    assert conn._pending[1].response["error"]["message"] == "ACP process terminated"
+    assert "result" not in conn._pending[1].response
+    assert all("result" not in (entry.response or {}) for entry in conn._pending.values())
+
+
+def test_inbound_lines_extend_the_idle_wait():
+    """Silence times out. Accepted-line bumps of the clock keep the wait alive."""
+    conn = ACPConnection(["agent"])
+    proc = _live_proc()
+    conn._proc = proc
+    conn._running = True
+
+    def bump() -> None:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and not conn._pending:
+            time.sleep(0.01)
+        assert conn._pending
+        # send_request stamps the clock at the start of the wait, after pending.
+        time.sleep(0.05)
+        end = time.monotonic() + 0.55
+        while time.monotonic() < end:
+            conn._last_inbound = time.monotonic()
+            time.sleep(0.04)
+
+    bumper = threading.Thread(target=bump)
+    bumper.start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(TimeoutError):
+            conn.send_request("session/prompt", {}, timeout=0.3)
+    finally:
+        conn.stop()
+        bumper.join(timeout=2)
+    assert time.monotonic() - started >= 0.5
+
+
+def test_watchdog_does_not_kill_again_when_wait_returns():
+    conn = ACPConnection(["agent"])
+    proc = _live_proc()
+    proc.wait.return_value = 0
+    kills: list[object] = []
+    conn._proc = proc
+    conn._running = True
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("plugin.scripting.venv_worker._kill_process_tree", lambda process: kills.append(process))
+        conn.stop()
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and len(kills) < 1:
+            time.sleep(0.01)
+        time.sleep(0.2)
+    assert len(kills) == 1
+
+
+def test_watchdog_kills_when_wait_times_out():
+    conn = ACPConnection(["agent"])
+    proc = _live_proc()
+    proc.wait.side_effect = subprocess.TimeoutExpired(cmd="agent", timeout=0.5)
+    kills: list[object] = []
+    conn._proc = proc
+    conn._running = True
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("plugin.scripting.venv_worker._kill_process_tree", lambda process: kills.append(process))
+        conn.stop()
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and len(kills) < 2:
+            time.sleep(0.01)
+    assert len(kills) >= 2
