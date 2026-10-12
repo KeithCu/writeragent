@@ -950,8 +950,13 @@ def sumifs(sr: Any, *args: Any) -> float:
     total = 0.0
     for idx in range(min(len(sr_flat), len(mask))):
         if mask[idx]:
+            # Same rule as AVERAGEIFS: text and bools in the sum range
+            # are ignored. float("5") and float(True) used to add them.
+            cell = sr_flat[idx]
+            if isinstance(cell, (bool, np.bool_, str)):
+                continue
             try:
-                val = float(sr_flat[idx])
+                val = float(cell)
                 if not np.isnan(val):
                     total += val
             except (ValueError, TypeError, OverflowError):

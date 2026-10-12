@@ -44,6 +44,15 @@ def test_conditional_aggregates():
     assert abs(calc.averageif([5.0, 12.0, 3.0, 15.0, 8.0], ">5", [1.0, 2.0, 3.0, 4.0, 5.0]) - 11.0 / 3.0) < 1e-9
 
     assert abs(calc.averageifs([1.0, 2.0, 3.0, 4.0, 5.0], [5.0, 12.0, 3.0, 15.0, 8.0], ">5") - 11.0 / 3.0) < 1e-9
+    # Text and bools in the value range are ignored, not coerced.
+    assert calc.averageif([1.0, 2.0], ">0", ["5", 4.0]) == 4.0
+    assert calc.averageif([1.0, 2.0], ">0", [True, 4.0]) == 4.0
+    assert calc.sumif([1.0, 2.0], ">0", ["5", 4.0]) == 4.0
+    assert calc.sumif([1.0, 2.0], ">0", [True, 4.0]) == 4.0
+    assert calc.averageifs(["5", 4.0], [1.0, 2.0], ">0") == 4.0
+    assert calc.averageifs([True, 4.0], [1.0, 2.0], ">0") == 4.0
+    assert calc.sumifs(["5", 4.0], [1.0, 2.0], ">0") == 4.0
+    assert calc.sumifs([True, 4.0], [1.0, 2.0], ">0") == 4.0
 
 
 def test_lookup_text_date():
@@ -549,6 +558,9 @@ def test_averageifs_and_countifs_reject_odd_predicates():
     assert calc.countifs([1.0, 2.0], ">0", [1.0, 2.0]) == "#VALUE!"
     assert calc.countifs([1.0, 2.0, 3.0], ">1") == 2.0
     assert calc.averageifs([1.0, 2.0, 3.0], [1.0, 2.0, 3.0], ">1") == 2.5
+    # No range/criterion pair is #VALUE!, not 0 and not the mean of the range.
+    assert calc.countifs() == "#VALUE!"
+    assert calc.averageifs([1.0, 2.0]) == "#VALUE!"
 
 
 def test_bit_char_choose_combin_inf_does_not_raise():
@@ -572,6 +584,43 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     assert math.isnan(calc.combin(float("inf"), 2))
     assert math.isnan(calc.combina(5, float("inf")))
     assert calc.combin(5, 2) == 10.0
+    # math.comb(3, 5) is 0. ScCombin rejects k > n.
+    assert math.isnan(calc.combin(3, 5))
+    assert math.isnan(calc.combin(5, -1))
+    # combina(-2, 6) is math.comb(3, 6) == 0. Negatives are #NUM!.
+    assert math.isnan(calc.combina(-2, 6))
+    assert math.isnan(calc.combina(-1, 2))
+    # Excel COMBINA(3, 5) is 21. ScCombinA rejects k > n; we do not.
+    assert calc.combina(3, 5) == 21.0
+    assert calc.combina(0, 0) == 1.0
+    assert calc.combina(0, 1) == 0.0
+    # Reduced k ~ 5e8 does not fit in float64. Without the lgamma guard
+    # math.comb builds that integer and this hits the 60s pytest timeout.
+    assert math.isnan(calc.combin(10**9, 5 * 10**8))
+
+
+def test_chidist_chiinv_and_critbinom_reject_bad_arguments():
+    # scipy chi2.sf(-1, 5) is 1. ScChiDist's Excel path is #NUM!. x == 0 stays 1.
+    assert math.isnan(calc.chidist(-1, 5))
+    assert calc.chidist(0, 5) == 1.0
+    assert math.isnan(calc.chidist(1, 0.5))
+    assert calc.chidist(1, "3.5") == calc.chidist(1, 3)
+    assert math.isnan(calc.chidist(1, 10**10 + 1))
+    # scipy chi2.isf(0, df) is inf. ScChiInv rejects p <= 0.
+    assert math.isnan(calc.chiinv(0, 5))
+    assert math.isnan(calc.chiinv(-0.1, 5))
+    assert math.isnan(calc.chiinv(1.1, 5))
+    assert math.isfinite(calc.chiinv("0.5", "3.5"))
+    assert calc.chiinv(1, 5) == 0.0
+    # scipy binom.ppf(0, n, p) is -1. ScCritBinom returns 0.
+    assert calc.critbinom(10, 0.5, 0) == 0.0
+    assert calc.critbinom(10, 0.5, 1) == 10.0
+    assert calc.critbinom(10, 0, 1) == 0.0
+    assert math.isnan(calc.critbinom(-1, 0.5, 0.5))
+    assert math.isnan(calc.critbinom(10, 2, 0.5))
+    assert math.isnan(calc.critbinom(10, 0.5, -0.1))
+    assert math.isnan(calc.critbinom(10, 0.5, 1.1))
+    assert calc.critbinom(8, 0.6, 0.9) == 7.0
 
 
 def test_aggregate_error_options_and_text():
@@ -586,7 +635,13 @@ def test_aggregate_error_options_and_text():
     assert calc.aggregate(9, 4, [1.0, "x", "", 3.0]) == 4.0
     assert calc.aggregate(3, 4, [1.0, "x", "", 3.0]) == 3.0
     assert calc.aggregate(3, 6, [1.0, "x", float("nan")]) == 2.0
-    assert calc.aggregate(3, 4, [1.0, "x", float("nan")]) == 3.0
+    # Option 4 does not ignore errors. COUNTA used to count the NaN.
+    assert math.isnan(calc.aggregate(3, 4, [1.0, "x", float("nan")]))
+    erred = [1.0, float("nan"), 3.0]
+    for fn in (2, 4, 5):
+        assert math.isnan(calc.aggregate(fn, 4, erred))
+    assert calc.aggregate(4, 6, erred) == 3.0
+    assert calc.aggregate(2, 6, erred) == 2.0
     assert calc.aggregate(9, 4, [1.0, 2.0, 3.0]) == 6.0
     # Ignore-errors that strips every value. Calc PRODUCT and SUM are 0.
     # np.prod([]) is 1, so the empty product has to be replaced.
@@ -594,6 +649,14 @@ def test_aggregate_error_options_and_text():
     assert calc.aggregate(9, 2, [float("nan")]) == 0.0
     assert calc.aggregate(6, 6, [2.0, float("nan"), 3.0]) == 6.0
     assert calc.aggregate(9, 2, [1.0, float("nan")]) == 1.0
+    # Sample stdev/var of one value is #DIV/0!, and must not warn.
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert math.isnan(calc.aggregate(7, 6, [1.0]))
+        assert math.isnan(calc.aggregate(10, 6, [1.0]))
+    assert not any(issubclass(item.category, RuntimeWarning) for item in caught)
 
 
 def test_base_returns_num_error_token():
@@ -603,6 +666,8 @@ def test_base_returns_num_error_token():
     assert calc.base("x", 10) == "#NUM!"
     assert calc.base(float("inf"), 10) == "#NUM!"
     assert calc.base(15, 16, 4) == "000F"
+    # zfill(1e9) would allocate a gigabyte string.
+    assert calc.base(1, 2, 10**9) == "#NUM!"
 
 
 def _excel_serial(year: int, month: int, day: int) -> float:
@@ -1163,23 +1228,6 @@ def test_complex_integer_coefficients_have_no_trailing_decimal():
     assert calc.complex(0, 1) == "i"
     assert calc.complex(5.5, 1.25) == "5.5+1.25i"
     assert calc.complex(-5, 0) == "-5"
-
-
-def test_coup_days_nonfinite_frequency_reaches_guard():
-    from plugin.scripting.venv.calc_functions_util import _coup_days_in_period
-
-    # int(float(inf)) used to OverflowError before f <= 0. Callers catch
-    # Exception, so this calls the helper directly.
-    assert math.isnan(_coup_days_in_period(float("inf"), 0))
-    assert math.isnan(_coup_days_in_period(float("-inf"), 0))
-    assert math.isnan(_coup_days_in_period(1e309, 0))
-    assert math.isnan(_coup_days_in_period(10**400, 0))
-    assert math.isnan(_coup_days_in_period(0, 0))
-    assert math.isnan(_coup_days_in_period(-2, 0))
-    # 0.4 truncates to 0; the post-int guard must still run.
-    assert math.isnan(_coup_days_in_period(0.4, 0))
-    assert _coup_days_in_period(2, 0) == 180.0
-    assert _coup_days_in_period(2, 3) == 182.5
 
 
 def _serial(day: dt.date) -> float:

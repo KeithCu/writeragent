@@ -28,7 +28,6 @@ from plugin.scripting.venv.calc_functions_util import (
     _npf_result,
     _parse_weekend,
     _serial_to_date,
-    _simple_accrual,
     _to_float_a,
     _wildcard_fullmatch,
     match_criteria,
@@ -304,17 +303,6 @@ def test_bessel_kn_yn():
     assert math.isnan(_bessel_kn_yn(dummy_fn, "invalid", 1))
 
 
-def test_simple_accrual():
-    # 43831 = 2020-01-01, 43891 = 2020-03-01
-    res = _simple_accrual(43831, 43891, 0.05, 1000)
-    assert not math.isnan(res)
-    assert res > 0.0
-
-    # Invalid values return NaN
-    assert math.isnan(_simple_accrual("invalid", 43891, 0.05, 1000))
-    assert math.isnan(_simple_accrual(43831, 43891, "invalid", 1000))
-
-
 def test_criteria_numbers():
     # Same range for criteria and values
     assert _criteria_numbers([10, 20, 30, 40], ">20") == [30.0, 40.0]
@@ -326,6 +314,8 @@ def test_criteria_numbers():
 
     # No matches returns empty list
     assert _criteria_numbers([1, 2, 3], ">10") == []
+    # Numeric text and bools are not numbers in the value range.
+    assert _criteria_numbers(["yes", "yes", "yes"], "yes", ["5", True, 4.0]) == [4.0]
 
 
 def test_dollar_fraction_terms():

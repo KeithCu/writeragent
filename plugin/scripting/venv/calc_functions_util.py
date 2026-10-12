@@ -28,7 +28,6 @@ __all__ = [
     "_clean_paired_arrays",
     "_collect_a_values",
     "_complex_coeff",
-    "_coup_days_in_period",
     "_criteria_numbers",
     "_date_to_serial",
     "_days360",
@@ -50,7 +49,6 @@ __all__ = [
     "_round_half_up",
     "_scipy_stats",
     "_serial_to_date",
-    "_simple_accrual",
     "_to_complex",
     "_to_float_a",
     "_wildcard_fullmatch",
@@ -650,34 +648,22 @@ def _bessel_kn_yn(scipy_fn: Any, x: Any, n: Any) -> float:
         return float("nan")
 
 
-def _simple_accrual(
-    issue: Any, settlement: Any, rate: Any, par: Any, basis: Any = 0
-) -> float:
-    """Simple accrual interest calculation for accrint and accrintm."""
-    from .calc_functions_t_z import yearfrac
-
-    try:
-        r = float(rate)
-        p = float(par)
-        yf = yearfrac(issue, settlement, basis)
-        if math.isnan(yf):
-            return float("nan")
-        return float(p * r * yf)
-    except Exception:
-        return float("nan")
-
-
 def _criteria_numbers(r: Any, crit: Any, val_range: Any | None = None) -> list[float]:
     """Collect matching numeric values for criteria-based functions (averageif, sumif)."""
     # dtype=object keeps cell types. A huge int raises OverflowError, which is
-    # the same failure as a bad number.
+    # the same failure as a bad number. Text and bools are not numbers:
+    # float("5") and float(True) used to count them. Calc AVERAGEIF and
+    # SUMIF ignore both in the value range.
     r_flat = np.asarray(r, dtype=object).ravel()
     v_flat = np.asarray(val_range, dtype=object).ravel() if val_range is not None else r_flat
     vals: list[float] = []
     for i in range(min(len(r_flat), len(v_flat))):
         if match_criteria(r_flat[i], crit):
+            cell = v_flat[i]
+            if isinstance(cell, (bool, np.bool_, str)):
+                continue
             try:
-                val = float(v_flat[i])
+                val = float(cell)
                 if not np.isnan(val):
                     vals.append(val)
             except (ValueError, TypeError, OverflowError):
@@ -904,21 +890,5 @@ def _get_coupon_dates(
         days_in_per = float((curr - prev).days)
 
     return p_ser, c_ser, days_in_per, float(k)
-
-
-def _coup_days_in_period(frequency: Any, basis: Any = 0) -> float:
-    """Days in coupon period for given frequency and basis."""
-    try:
-        freq = int(float(frequency))
-        b = int(float(basis))
-        if freq not in (1, 2, 4) or b not in (0, 1, 2, 3, 4):
-            return float("nan")
-        if b in (0, 2, 4):
-            return 360.0 / freq
-        if b == 3:
-            return 365.0 / freq
-        return 365.25 / freq
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
 
 

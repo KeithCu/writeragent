@@ -12,6 +12,7 @@ from __future__ import annotations
 import builtins
 import math
 import operator
+import sys
 from typing import Any
 
 import numpy as np
@@ -30,6 +31,7 @@ from .calc_functions_util import (
     _int_shift,
     _multi_criteria_mask,
     _npf_result,
+    _round_half_up,
     _serial_to_date,
     _to_float_a as _to_float_a,
     match_criteria,
@@ -105,8 +107,12 @@ def accrint(
     basis: Any = 0,
     calc_method: Any = True,
 ) -> float:
-    # LibreOffice ScInterpreter AnalysisAddIn::getAccrint: frequency in
-    # (1, 2, 4), basis in (0..4), rate > 0, par > 0, issue < settlement.
+    # LibreOffice AnalysisAddIn::getAccrint (financial.cxx) ignores
+    # first_interest (the parameter is /*nFirstInter*/) and has no
+    # calc_method argument. Accrued interest is par * rate *
+    # yearfrac(issue, settlement). frequency in (1, 2, 4), basis in
+    # (0..4), rate > 0, par > 0, issue < settlement. first_interest and
+    # calc_method stay in the signature so Excel-shaped callers still parse.
     from .calc_functions_t_z import yearfrac
 
     try:
@@ -234,6 +240,11 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
         arr = np.asarray(numeric, dtype=float)
         if opt in (2, 3, 6, 7):
             arr = arr[~np.isnan(arr)]
+        elif arr.size and bool(np.isnan(arr).any()):
+            # Options 0, 1, 4, 5 keep errors. nanmax, nanmin, and COUNT
+            # skip NaN, so an error token disappeared and the call returned
+            # a number. Calc returns the error instead.
+            return float("nan")
 
         # Simplified implementations for most common
         if fn == 1:
@@ -253,7 +264,9 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
             # or text leaves no numbers (AGGREGATE(6,6,NA(),NA()) is 0).
             return float(np.prod(arr)) if arr.size else 0.0
         if fn == 7:
-            return float(np.std(arr, ddof=1))
+            # One sample makes np.std(ddof=1) warn and return NaN. Calc
+            # STDEV.S of one value is #DIV/0!. Same guard as subtotal.
+            return float(np.std(arr, ddof=1)) if arr.size > 1 else float("nan")
         if fn == 8:
             return float(np.std(arr, ddof=0))
         if fn == 9:
@@ -261,7 +274,8 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
             # ignore-errors option strips every value.
             return float(np.sum(arr)) if arr.size else 0.0
         if fn == 10:
-            return float(np.var(arr, ddof=1))
+            # One sample makes np.var(ddof=1) warn and return NaN.
+            return float(np.var(arr, ddof=1)) if arr.size > 1 else float("nan")
         if fn == 11:
             return float(np.var(arr, ddof=0))
         if fn == 12:
@@ -271,6 +285,15 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
         raise
     except Exception:
         return float("nan")
+
+
+def _round_amor(value: float) -> float:
+    """Integer round, half away from zero.
+
+    GetAmordegrc uses rtl::math::round (analysishelper.cxx). Python
+    round() is half-to-even, so 0.5 became 0 and 2.5 became 2.
+    """
+    return float(_round_half_up(value, 0))
 
 
 def amordegrc(
@@ -322,17 +345,17 @@ def amordegrc(
     yf = yearfrac(d_purch, d_first, b)
     if math.isnan(yf):
         return float("nan")
-    f_n_rate = round(yf * f_rate * f_cost)
+    f_n_rate = _round_amor(yf * f_rate * f_cost)
     f_cost -= f_n_rate
     f_rest = f_cost - f_salv
 
     for n in range(n_per):
-        f_n_rate = round(f_rate * f_cost)
+        f_n_rate = _round_amor(f_rate * f_cost)
         f_rest -= f_n_rate
         if f_rest < 0.0:
             rem = n_per - n
             if rem in (0, 1):
-                return float(round(f_cost * 0.5))
+                return _round_amor(f_cost * 0.5)
             else:
                 return 0.0
         f_cost -= f_n_rate
@@ -381,6 +404,8 @@ def amorlinc(
     if math.isnan(yf):
         return float("nan")
     f0_rate = yf * f_rate * f_cost
+    # Two positive floats can still underflow to 0. The division below
+    # has no handler, so that product has to be rejected here.
     if f_one_rate == 0:
         return float("nan")
     num_full_periods = int((f_cost - f_salv - f0_rate) / f_one_rate)
@@ -412,10 +437,12 @@ def arabic(text: Any) -> float:
 
 
 def areas(r: Any) -> float:
-    """Return the number of areas in a reference.
+    """Guess how many areas this Python value looks like.
 
-    A sequence of ranges counts each disjoint area. One contiguous range
-    or cell is 1.0, matching Excel and Calc.
+    A list or tuple whose first cell is itself a list or tuple counts as
+    that many areas (the length of the outer sequence). Every other value,
+    including one flat range, is 1. This is a shape guess, not a Calc
+    reference.
     """
     if isinstance(r, (list, tuple)) and r and isinstance(r[0], (list, tuple)) and len(r[0]) > 0 and isinstance(r[0][0], (list, tuple)):
         return float(len(r))
@@ -423,7 +450,8 @@ def areas(r: Any) -> float:
 
 
 def asc(text: Any) -> str:
-    # Basic full-width to half-width conversion for ASCII/Katakana characters
+    # Full-width ASCII (U+FF01–U+FF5E) to ASCII, and ideographic space
+    # U+3000 to a normal space. Half-width katakana is not converted.
     try:
         if text is None:
             return ""
@@ -472,8 +500,9 @@ def averageif(r: Any, crit: Any, ar: Any | None = None) -> float:
 
 def averageifs(ar: Any, *args: Any) -> float | str:
     # Criteria ranges must match the average range. A shorter range is #VALUE!,
-    # not a silent truncate.
-    if len(args) % 2 != 0:
+    # not a silent truncate. Calc also requires at least one pair; no pairs
+    # used to average the whole range.
+    if len(args) % 2 != 0 or not args:
         return "#VALUE!"
     ar_flat = np.asarray(ar, dtype=object).ravel()
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
@@ -483,8 +512,13 @@ def averageifs(ar: Any, *args: Any) -> float | str:
     vals: list[float] = []
     for idx in range(len(ar_flat)):
         if mask[idx]:
+            # Text and bools are not numbers. float("5") and float(True)
+            # used to pull them into the mean. Calc AVERAGEIFS ignores both.
+            cell = ar_flat[idx]
+            if isinstance(cell, (bool, np.bool_, str)):
+                continue
             try:
-                val = float(ar_flat[idx])
+                val = float(cell)
                 if not np.isnan(val):
                     vals.append(val)
             except (ValueError, TypeError, OverflowError):
@@ -506,7 +540,9 @@ def base(number: Any, radix: Any, min_length: Any = 0) -> str:
         m = int(float(min_length))
         # Literal "NaN" is not a Calc error token, so bad BASE input showed up as
         # text. Excel/Calc BASE returns #NUM! for a bad number, radix, or length.
-        if n < 0 or r < 2 or r > 36 or m < 0:
+        # zfill(1e9) allocates a gigabyte string and hangs the worker.
+        # Excel cells hold 32767 characters.
+        if n < 0 or r < 2 or r > 36 or m < 0 or m > 32767:
             return "#NUM!"
         if n == 0:
             return "0".zfill(m)
@@ -652,19 +688,35 @@ def char(n: Any) -> str:
 
 
 def chidist(x: Any, df: Any) -> float:
+    # ScChiDist (interpr3.cxx), Excel path: x < 0 is #NUM!. ODFF returns 1
+    # for x <= 0; scipy's sf(-1, df) is 1.0, and this helper follows the
+    # Excel path, same as binomdist. x == 0 stays 1. df is truncated.
+    # df < 1 or df > 1e10 is #NUM! (Excel; LO enforces the cap on
+    # ScChiSqDist_MS). int(df) rejected the string "3.5".
     try:
         from scipy import stats
 
-        return float(stats.chi2.sf(float(x), int(df)))
+        xv = float(x)
+        dof = int(float(df))
+        if xv < 0.0 or dof < 1 or dof > 10**10:
+            return float("nan")
+        return float(stats.chi2.sf(xv, dof))
     except Exception:
         return float("nan")
 
 
 def chiinv(p: Any, df: Any) -> float:
+    # ScChiInv: df < 1, p <= 0, or p > 1 is #NUM!. scipy isf(0, df) is inf.
+    # p == 1 stays 0. df uses int(float()) so "3.5" truncates. df > 1e10
+    # matches Excel CHIINV and the chidist cap above.
     try:
         from scipy import stats
 
-        return float(stats.chi2.isf(float(p), int(df)))
+        pv = float(p)
+        dof = int(float(df))
+        if dof < 1 or dof > 10**10 or pv <= 0.0 or pv > 1.0:
+            return float("nan")
+        return float(stats.chi2.isf(pv, dof))
     except Exception:
         return float("nan")
 
@@ -702,21 +754,50 @@ def code(s: Any) -> float:
         return float("nan")
 
 
+def _binom_float(n: int, k: int, *, reject_k_gt_n: bool) -> float:
+    """Binomial coefficient as a float, or NaN when the result is not finite.
+
+    math.comb(n, k) is 0 when k > n. ScCombin (interpr3.cxx) rejects that
+    for COMBIN. COMBINA still wants C(n+k-1, k); that coefficient is 0
+    when the bottom exceeds the top (COMBINA(0, 1)), so the caller turns
+    the rejection off.
+
+    math.comb(1e9, 5e8) builds a giant int before float() raises. After
+    folding k to min(k, n-k), C(n, k) >= C(2k, k), which no longer fits
+    in float64 once k is about 515. lgamma rejects that case first.
+    """
+    if n < 0 or k < 0:
+        return float("nan")
+    if k > n:
+        return float("nan") if reject_k_gt_n else 0.0
+    k = min(k, n - k)
+    log_c = math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1)
+    if not math.isfinite(log_c) or log_c > math.log(sys.float_info.max):
+        return float("nan")
+    return float(math.comb(n, k))
+
+
 def combin(n: Any, k: Any) -> float:
+    # ScCombin rejects k > n and any negative. math.comb(3, 5) is 0.
     try:
-        return float(math.comb(int(float(n)), int(float(k))))
+        return _binom_float(int(float(n)), int(float(k)), reject_k_gt_n=True)
     except (ValueError, TypeError, OverflowError):
         # int(float(inf)) raises OverflowError, which used to escape this helper.
         return float("nan")
 
 
 def combina(n: Any, k: Any) -> float:
+    # ScCombinA also rejects k > n. Excel COMBINA(3, 5) is 21, so this
+    # helper still evaluates C(n+k-1, k) in that case. n < 0 has to be
+    # NaN: combina(-2, 6) is math.comb(3, 6), which is 0.
     try:
         ni = int(float(n))
         ki = int(float(k))
+        if ni < 0 or ki < 0:
+            return float("nan")
         if ni == 0 and ki == 0:
             return 1.0
-        return float(math.comb(ni + ki - 1, ki))
+        return _binom_float(ni + ki - 1, ki, reject_k_gt_n=False)
     except (ValueError, TypeError, OverflowError):
         # int(float(inf)) raises OverflowError, which used to escape this helper.
         return float("nan")
@@ -775,8 +856,9 @@ def countif(r: Any, crit: Any) -> float:
 
 def countifs(*args: Any) -> float | str:
     # Every criteria range must be the same length. zip() would drop the tail
-    # and return a count instead of #VALUE!.
-    if len(args) % 2 != 0:
+    # and return a count instead of #VALUE!. No pairs used to sum an empty
+    # mask and return 0. Calc requires one range/criterion pair.
+    if len(args) % 2 != 0 or not args:
         return "#VALUE!"
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]
     mask = _multi_criteria_mask(pairs)
@@ -847,10 +929,22 @@ def couppcd(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> f
 
 
 def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
+    # ScCritBinom (interpr3.cxx): n < 0, alpha outside [0, 1], or p outside
+    # [0, 1] is #NUM!. alpha == 0 returns 0. scipy's ppf(0, n, p) is -1.
+    # alpha == 1 returns n, or 0 when p == 0. int(trials) rejected "10.9".
     try:
         from scipy import stats
 
-        return float(stats.binom.ppf(float(alpha), int(trials), float(prob)))
+        n = int(float(trials))
+        p = float(prob)
+        a = float(alpha)
+        if n < 0 or a < 0.0 or a > 1.0 or p < 0.0 or p > 1.0:
+            return float("nan")
+        if a == 0.0:
+            return 0.0
+        if a == 1.0:
+            return 0.0 if p == 0.0 else float(n)
+        return float(stats.binom.ppf(a, n, p))
     except Exception:
         return float("nan")
 
@@ -872,7 +966,16 @@ def csch(x: Any) -> float:
         return float("nan")
 
 
-def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
+def _cum_payment(
+    kind: str,
+    rate: Any,
+    nper: Any,
+    pv: Any,
+    start_period: Any,
+    end_period: Any,
+    type_val: Any,
+) -> float:
+    """Shared body of CUMIPMT and CUMPRINC. kind is "ipmt" or "ppmt"."""
     # rate must be > 0. Zero is #NUM!, same as a negative rate.
     try:
         r = float(rate)
@@ -888,24 +991,13 @@ def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, t
     if r <= 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
         return float("nan")
     pers = np.arange(s, e + 1)
-    return _npf_result("ipmt", r, pers, n, p, 0, t)
+    return _npf_result(kind, r, pers, n, p, 0, t)
+
+
+def cumipmt(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
+    return _cum_payment("ipmt", rate, nper, pv, start_period, end_period, type_val)
 
 
 def cumprinc(rate: Any, nper: Any, pv: Any, start_period: Any, end_period: Any, type_val: Any) -> float:
-    # rate must be > 0. Zero is #NUM!, same as a negative rate.
-    try:
-        r = float(rate)
-        n = float(nper)
-        p = float(pv)
-        s = int(float(start_period))
-        e = int(float(end_period))
-        t = int(float(type_val))
-        if t not in (0, 1):
-            return float("nan")
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
-    if r <= 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
-        return float("nan")
-    pers = np.arange(s, e + 1)
-    return _npf_result("ppmt", r, pers, n, p, 0, t)
+    return _cum_payment("ppmt", rate, nper, pv, start_period, end_period, type_val)
 

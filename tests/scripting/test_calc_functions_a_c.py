@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import inspect
 import math
 import pytest
 
 import plugin.scripting.calc_functions as calc
+import plugin.scripting.venv.calc_functions_a_c as calc_a_c
 
 
 def test_address():
@@ -29,6 +32,15 @@ def test_address():
     assert calc.address(0, 1, 1) == "#VALUE!"
     assert calc.address(1, 0, 1) == "#VALUE!"
     assert calc.address("invalid", 1) == "#VALUE!"
+
+
+def test_public_names_match_all():
+    defined = [
+        name
+        for name, obj in vars(calc_a_c).items()
+        if inspect.isfunction(obj) and obj.__module__ == calc_a_c.__name__ and not name.startswith("_")
+    ]
+    assert sorted(calc_a_c.__all__) == sorted(defined)
 
 
 def test_aggregate_stubs_and_bools():
@@ -55,6 +67,15 @@ def test_areas():
 def test_bahttext_raises_not_implemented():
     with pytest.raises(NotImplementedError):
         calc.bahttext(123)
+
+
+def test_amordegrc_rounds_half_away_from_zero():
+    # rate 0.5, life under 3 years, coefficient 1. A one-year 30/360 span
+    # makes the first term exactly 0.5. Python round(0.5) is 0.
+    # GetAmordegrc uses rtl::math::round, which is 1.
+    purch = float(dt.date(2020, 1, 1).toordinal() - 693594)
+    first = float(dt.date(2021, 1, 1).toordinal() - 693594)
+    assert calc.amordegrc(1.0, purch, first, 0, 0, 0.5, 0) == 1.0
 
 
 def test_accrint_and_accrintm():
@@ -201,7 +222,8 @@ def test_countifs():
 
     # Mismatched lengths return #VALUE!
     assert calc.countifs([1, 2, 3], ">0", [1, 2], ">0") == "#VALUE!"
-    assert calc.countifs() == 0.0  # No args
+    # Calc COUNTIFS needs at least one range/criterion pair.
+    assert calc.countifs() == "#VALUE!"
     assert calc.countifs([1, 2, 3]) == "#VALUE!"  # Odd args
 
 
