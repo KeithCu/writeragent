@@ -3311,6 +3311,85 @@ def test_real_socket_queue_timeout() -> None:
         server.server_close()
 
 
+def test_real_socket_queue_absorption() -> None:
+    """A request queued behind a busy worker must succeed once the worker frees before its deadline.
+
+    The smart-service contract states that worker busy is the steady state at 200-400 rps,
+    and brief queueing gets absorbed cleanly without failing or returning premature 503s.
+    """
+    from compute_service.server import WSGIDualStackServer, create_wsgi_app
+    from compute_service.config import ComputeSettings
+    import threading
+    import urllib.request
+    import json
+    import time
+
+    settings = ComputeSettings(log_level="DEBUG")
+    unblock_worker = threading.Event()
+    worker_started = threading.Event()
+
+    def fake_execute(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        if kwargs.get("code") == "block_first":
+            worker_started.set()
+            unblock_worker.wait(timeout=5.0)
+            return {"status": "ok", "result": "first_done"}
+        return {"status": "ok", "result": "absorbed_done"}
+
+    # Single-worker gate to force request 2 into the admission queue
+    app = create_wsgi_app(settings, execute_fn=fake_execute, worker_semaphore=threading.Semaphore(1))
+    server = WSGIDualStackServer("127.0.0.1", 0, max_threads=4)
+    server.set_app(app)
+
+    port = server.srv.server_port
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+
+    try:
+        req1 = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/execute",
+            data=b'{"code": "block_first", "timeout_ms": 5000}',
+            headers={"Content-Type": "application/json"},
+        )
+        t1 = threading.Thread(target=lambda: urllib.request.urlopen(req1))
+        t1.start()
+
+        assert worker_started.wait(timeout=3.0)
+
+        # Request 2 queues behind the busy worker with generous timeout
+        req2 = urllib.request.Request(
+            f"http://127.0.0.1:{port}/v1/execute",
+            data=b'{"code": "second_absorbed", "timeout_ms": 3000}',
+            headers={"Content-Type": "application/json"},
+        )
+
+        res_holder: list[dict[str, Any]] = []
+
+        def send_req2() -> None:
+            with urllib.request.urlopen(req2) as resp:
+                res_holder.append(json.loads(resp.read().decode("utf-8")))
+
+        t2 = threading.Thread(target=send_req2)
+        t2.start()
+
+        # Brief pause to ensure req2 is actively queued in _gated semaphore
+        time.sleep(0.08)
+
+        # Worker 1 completes and releases permit
+        unblock_worker.set()
+
+        t1.join(timeout=3.0)
+        t2.join(timeout=3.0)
+
+        assert len(res_holder) == 1
+        assert res_holder[0].get("status") == "ok"
+        assert res_holder[0].get("result") == "absorbed_done"
+    finally:
+        unblock_worker.set()
+        server.shutdown()
+        server.server_close()
+
+
+
 def test_bearer_scheme_case_insensitive() -> None:
     """RFC 7235: Bearer auth scheme prefix is case-insensitive."""
     settings = ComputeSettings(api_key="my-secret-key")

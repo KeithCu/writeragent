@@ -326,3 +326,36 @@ def test_health_monitor_metrics() -> None:
     assert monitor.p95_ms == pytest.approx(10.0)
     assert monitor.max_ms == pytest.approx(10.0)
 
+
+def test_format_stress_results_with_deadline_invariants() -> None:
+    """format_stress_results displays the gated deadline-wait and queue absorption invariant."""
+    res = StressResult(
+        workers=2,
+        concurrency=32,
+        total_requests=640,
+        successful_requests=640,
+        failed_requests=0,
+        duration_sec=3.5,
+        rps=182.8,
+        invariants_passed=True,
+        invariant_details=[
+            "[PASS] Deterministic Math Accuracy: 640/640 requests exact match",
+            "[PASS] Session stress-session-0: 80/80 sequential updates",
+            "[PASS] Periodic Session Resets: 4 cycles verified",
+            "[PASS] Error Resilience: 32 eval errors handled cleanly",
+            "[PASS] Gated Deadline-Wait & Queue Absorption: 503 deadline timeout (950ms wait) and 200 queue absorption (310ms wait) verified",
+            "[PASS] Health Liveness: 150 probes, 0 failures",
+        ],
+        health_probes=150,
+        health_failures=0,
+        health_p50_ms=1.2,
+        health_p95_ms=3.0,
+        health_max_ms=7.5,
+    )
+    output = format_stress_results(res)
+    assert "ALL INVARIANTS PASSED [OK]" in output
+    assert "Gated Deadline-Wait & Queue Absorption" in output
+    assert "503 deadline timeout" in output
+    assert "200 queue absorption" in output
+
+

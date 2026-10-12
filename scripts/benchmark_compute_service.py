@@ -522,8 +522,10 @@ def run_stress_suite(
     2. Shared session increments monotonically without duplicate or lost updates across threads.
     3. Periodic session reset: repeatedly resets session every N requests under concurrent background traffic.
     4. Error handling returns standard 200 error payloads without destabilizing workers.
-    5. Health probe liveness: /health responds with 200 OK throughout the high-concurrency run.
-    6. Chaos resilience: timeout/kill recovery and session reset signaling.
+    5. Gated deadline-wait and worker queue absorption: saturated workers cause short-deadline requests
+       to wait full timeout and return 503, while queued requests absorb brief waits and succeed with 200.
+    6. Health probe liveness: /health responds with 200 OK throughout the high-concurrency run.
+    7. Chaos resilience: timeout/kill recovery and session reset signaling.
     """
     chaos_modes = ["hangs", "crashes"] if chaos is None else [c.strip().lower() for c in chaos if c.strip()]
     chaos_set = set(chaos_modes)
@@ -860,11 +862,180 @@ def run_stress_suite(
                 )
 
             # -------------------------------------------------------------
-            # Phase 5: Pluggable Chaos Scenarios (if enabled)
+            # Phase 5: Gated Deadline-Wait & Worker Queue Absorption
+            # -------------------------------------------------------------
+            # Exercises the core contract:
+            # 1. Under full worker saturation, incoming requests queue against the deadline clock.
+            #    If workers stay busy past the request's deadline, it must wait the full timeout
+            #    and return 503 (WORKER_POOL_BUSY or QUEUE_TIMEOUT), proving no premature drop.
+            # 2. If a worker frees before the request deadline expires, the queued request is
+            #    admitted and succeeds with HTTP 200, proving brief waits get absorbed seamlessly.
+            if progress_callback:
+                progress_callback(
+                    f"Phase 5: Gated deadline-wait and worker queue absorption ({workers} workers)..."
+                )
+
+            deadline_phase_failures = 0
+
+            # Subphase 5A: Worker permit saturation + short deadline wait (503)
+            # Occupy all workers with blocking sleeps. The incoming request with a 1.0s deadline
+            # (the server's clamp_timeout_sec minimum integer floor) must wait >=850ms then return 503.
+            sat_sleep_sec = 1.8
+            sat_payload = json.dumps({
+                "code": f"import time\ntime.sleep({sat_sleep_sec})\nresult = 'sat_done'",
+                "mode": "isolated",
+                "timeout_ms": 6000,
+            }).encode("utf-8")
+
+            def _occupy_worker(out_holder: list[RequestResponse]) -> None:
+                resp = execute_request_detail(f"{base_url}/v1/execute", sat_payload, timeout=10.0)
+                out_holder.append(resp)
+
+            sat_threads: list[threading.Thread] = []
+            sat_responses: list[RequestResponse] = []
+            sat_holders: list[list[RequestResponse]] = [[] for _w_idx in range(workers)]
+
+            for w_idx in range(workers):
+                t = threading.Thread(target=_occupy_worker, args=(sat_holders[w_idx],), daemon=True)
+                sat_threads.append(t)
+                t.start()
+
+            # Ensure all workers have leased their permit and entered sleep
+            time.sleep(0.08)
+
+            short_payload = json.dumps({
+                "code": "result = 'should_timeout'",
+                "mode": "isolated",
+                "timeout_ms": 1000,
+            }).encode("utf-8")
+
+            timeout_resp = execute_request_detail(f"{base_url}/v1/execute", short_payload, timeout=5.0)
+
+            for t in sat_threads:
+                t.join(timeout=5.0)
+
+            for holder in sat_holders:
+                if holder:
+                    sat_responses.append(holder[0])
+
+            with lock:
+                all_latencies_ms.append(timeout_resp.duration_ms)
+                for s_resp in sat_responses:
+                    all_latencies_ms.append(s_resp.duration_ms)
+                    if s_resp.success and s_resp.data and s_resp.data.get("result") == "sat_done":
+                        successful_requests += 1
+                    else:
+                        failed_requests += 1
+                        deadline_phase_failures += 1
+
+            code_val = timeout_resp.data.get("code") if timeout_resp.data else None
+            waited_full_deadline = timeout_resp.duration_ms >= 850.0
+            is_expected_503 = (
+                timeout_resp.status_code == 503
+                and code_val in ("WORKER_POOL_BUSY", "QUEUE_TIMEOUT")
+                and waited_full_deadline
+            )
+
+            with lock:
+                if is_expected_503:
+                    successful_requests += 1
+                else:
+                    failed_requests += 1
+                    deadline_phase_failures += 1
+
+            if not is_expected_503:
+                invariant_details.append(
+                    f"[FAIL] Deadline-Wait Contract: expected 503 WORKER_POOL_BUSY/QUEUE_TIMEOUT with "
+                    f"duration >= 850ms, got status={timeout_resp.status_code}, code={code_val}, "
+                    f"duration={timeout_resp.duration_ms:.1f}ms"
+                )
+
+            # Subphase 5B: Worker queue absorption (200 OK)
+            # Saturate workers with staggered durations: worker 0 finishes early (~0.35s),
+            # while remaining workers hold permits (~1.2s). A queued request with a generous
+            # 3000ms deadline must wait in queue, get admitted when worker 0 frees, and return 200.
+            absorb_holders: list[list[RequestResponse]] = [[] for _w_idx in range(workers)]
+            absorb_threads: list[threading.Thread] = []
+
+            for w_idx in range(workers):
+                sleep_dur = 0.35 if w_idx == 0 else 1.2
+                stagger_pl = json.dumps({
+                    "code": f"import time\ntime.sleep({sleep_dur})\nresult = 'held_{w_idx}'",
+                    "mode": "isolated",
+                    "timeout_ms": 5000,
+                }).encode("utf-8")
+
+                def _occupy_staggered(payload_bytes: bytes, out_holder: list[RequestResponse]) -> None:
+                    resp = execute_request_detail(f"{base_url}/v1/execute", payload_bytes, timeout=10.0)
+                    out_holder.append(resp)
+
+                t = threading.Thread(target=_occupy_staggered, args=(stagger_pl, absorb_holders[w_idx]), daemon=True)
+                absorb_threads.append(t)
+                t.start()
+
+            # Ensure all workers have leased their permit and entered sleep
+            time.sleep(0.08)
+
+            absorb_client_payload = json.dumps({
+                "code": "result = 'absorbed_successfully'",
+                "mode": "isolated",
+                "timeout_ms": 3000,
+            }).encode("utf-8")
+
+            absorbed_resp = execute_request_detail(f"{base_url}/v1/execute", absorb_client_payload, timeout=6.0)
+
+            for t in absorb_threads:
+                t.join(timeout=5.0)
+
+            with lock:
+                all_latencies_ms.append(absorbed_resp.duration_ms)
+                for holder in absorb_holders:
+                    if holder:
+                        h_resp = holder[0]
+                        all_latencies_ms.append(h_resp.duration_ms)
+                        if h_resp.success:
+                            successful_requests += 1
+                        else:
+                            failed_requests += 1
+                            deadline_phase_failures += 1
+
+            is_absorbed_ok = (
+                absorbed_resp.success
+                and absorbed_resp.status_code == 200
+                and absorbed_resp.data is not None
+                and absorbed_resp.data.get("result") == "absorbed_successfully"
+                and absorbed_resp.duration_ms >= 200.0
+            )
+
+            with lock:
+                if is_absorbed_ok:
+                    successful_requests += 1
+                else:
+                    failed_requests += 1
+                    deadline_phase_failures += 1
+
+            if not is_absorbed_ok:
+                invariant_details.append(
+                    f"[FAIL] Worker Queue Absorption: expected 200 OK 'absorbed_successfully' with "
+                    f"duration >= 200ms, got status={absorbed_resp.status_code}, data={absorbed_resp.data}, "
+                    f"duration={absorbed_resp.duration_ms:.1f}ms"
+                )
+
+            if deadline_phase_failures == 0:
+                invariant_details.append(
+                    f"[PASS] Gated Deadline-Wait & Queue Absorption: 503 deadline timeout "
+                    f"({timeout_resp.duration_ms:.0f}ms wait) and 200 queue absorption "
+                    f"({absorbed_resp.duration_ms:.0f}ms wait) verified"
+                )
+            else:
+                invariants_passed = False
+
+            # -------------------------------------------------------------
+            # Phase 6: Pluggable Chaos Scenarios (if enabled)
             # -------------------------------------------------------------
             if "hangs" in chaos_set:
                 if progress_callback:
-                    progress_callback("Phase 5 [Chaos]: Injecting timeout hangs...")
+                    progress_callback("Phase 6 [Chaos]: Injecting timeout hangs...")
                 hang_payload = json.dumps({
                     "code": "import time\ntime.sleep(2.0)\nresult = 1",
                     "mode": "isolated",
@@ -893,7 +1064,7 @@ def run_stress_suite(
 
             if "crashes" in chaos_set:
                 if progress_callback:
-                    progress_callback("Phase 4 [Chaos]: Injecting worker crash...")
+                    progress_callback("Phase 6 [Chaos]: Injecting worker crash...")
                 crash_sid = "stress-chaos-crash-session"
                 # Seed the session
                 execute_request_detail(
