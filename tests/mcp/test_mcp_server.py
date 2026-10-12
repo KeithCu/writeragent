@@ -342,6 +342,9 @@ def test_get_request_sets_socket_timeout():
     from plugin.mcp.server import MCP_HTTP_SOCKET_TIMEOUT_SEC, _ThreadedHTTPServer
 
     server = _ThreadedHTTPServer.__new__(_ThreadedHTTPServer)
+    # __new__ does not run __init__. The class default is None ("handler
+    # sets the deadline"), so the MCP timeout has to be assigned here.
+    server.socket_timeout = MCP_HTTP_SOCKET_TIMEOUT_SEC
     conn = MagicMock()
     with patch.object(socketserver.TCPServer, "get_request", return_value=(conn, ("127.0.0.1", 1))):
         got, addr = _ThreadedHTTPServer.get_request(server)
@@ -351,15 +354,20 @@ def test_get_request_sets_socket_timeout():
 
 
 def test_handle_error_timeout_does_not_call_super():
+    import socket
+
     from plugin.mcp.server import _ThreadedHTTPServer
 
     server = _ThreadedHTTPServer.__new__(_ThreadedHTTPServer)
-    try:
-        raise TimeoutError("stalled body")
-    except TimeoutError:
-        with patch("socketserver.BaseServer.handle_error") as super_handle:
-            server.handle_error(None, ("127.0.0.1", 1))
-    super_handle.assert_not_called()
+    # Before 3.10 these are different classes. On 3.10+ they are one class,
+    # and the loop still checks that both names skip the traceback.
+    for exc_type in (TimeoutError, socket.timeout):
+        try:
+            raise exc_type("stalled body")
+        except (TimeoutError, socket.timeout):
+            with patch("socketserver.BaseServer.handle_error") as super_handle:
+                server.handle_error(None, ("127.0.0.1", 1))
+        super_handle.assert_not_called()
 
 
 def test_use_ssl_without_certs_raises_and_closes_listener():

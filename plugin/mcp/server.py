@@ -45,7 +45,7 @@ from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.http_server import (
     DualStackThreadPoolHTTPServer,
-    _PORT_IN_USE_GUIDANCE,
+    _PORT_IN_USE_GUIDANCE as _PORT_IN_USE_GUIDANCE,
     format_bind_failure,
     is_port_in_use_error as is_port_in_use_error,
 )
@@ -266,9 +266,14 @@ def format_mcp_start_failure(host: str, port: int | str, exc: BaseException) -> 
 
 
 class _ThreadedHTTPServer(DualStackThreadPoolHTTPServer):
-    """Dual-stack thread-pooled HTTP server for MCP and local routes."""
+    """Dual-stack thread-pooled HTTP server for MCP and local routes.
+
+    ``route_registry`` and ``bind_host`` are MCP-only. The shared base does
+    not carry them. ``cors`` reads ``bind_host`` with getattr.
+    """
 
     route_registry: HttpRouteRegistry | None = None
+    bind_host: str | None = None
 
 
 
@@ -392,50 +397,40 @@ class HttpServer:
             log.warning("HTTP server is already running")
             return
 
-        # Single bind — no retry/sleep. A busy port used to block bootstrap and the Start MCP
-        # menu for ~4s (5×1s). Stdio clients that start before LO are handled by mcp_bridge.py;
-        # callers stash OSError and show _PORT_IN_USE_GUIDANCE in the UI.
-        try:
-            self._server = _ThreadedHTTPServer(
-                (self.host, self.port),
-                GenericRequestHandler,
-                max_threads=32,
-                thread_name_prefix="mcp-worker",
-                socket_timeout=MCP_HTTP_SOCKET_TIMEOUT_SEC,
-            )
-            self._server.route_registry = self.route_registry
-            # The configured bind host (e.g. a LAN name) is an allowed Host header
-            # alongside loopback and the tunnel host (DNS-rebinding check).
-            self._server.bind_host = self.host
-            # Before the accept thread exists, so request handlers share this state.
-            _sse_state(self._server)
-        except OSError:
-            log.exception("Could not bind %s:%s — %s", self.host, self.port, _PORT_IN_USE_GUIDANCE)
-            raise
-
+        # Certs are loaded before bind. A missing file or use_ssl without
+        # certs used to bind the port and then close it. The caller logs the
+        # failure once (_start_server); logging here too wrote two tracebacks.
+        ssl_ctx = None
         if self.use_ssl:
             # TLS server mode requires explicit certificates.
             # Local generation of certificates has been removed from ssl_helpers.
-            if self.ssl_cert and self.ssl_key:
-                cert_path, key_path = self.ssl_cert, self.ssl_key
-                log.info("TLS using custom certs: %s", cert_path)
-                import ssl
-
-                ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-                try:
-                    ssl_ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
-                    if self._server:
-                        self._server.ssl_ctx = ssl_ctx
-                except Exception:
-                    if self._server:
-                        self._server.server_close()
-                        self._server = None
-                    raise
-            else:
-                if self._server:
-                    self._server.server_close()
-                    self._server = None
+            if not (self.ssl_cert and self.ssl_key):
                 raise ValueError("use_ssl is True but no certificates provided.")
+            cert_path, key_path = self.ssl_cert, self.ssl_key
+            log.info("TLS using custom certs: %s", cert_path)
+            import ssl
+
+            ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            ssl_ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
+
+        # Single bind — no retry/sleep. A busy port used to block bootstrap and the Start MCP
+        # menu for ~4s (5×1s). Stdio clients that start before LO are handled by mcp_bridge.py;
+        # callers stash OSError and show _PORT_IN_USE_GUIDANCE in the UI.
+        self._server = _ThreadedHTTPServer(
+            (self.host, self.port),
+            GenericRequestHandler,
+            max_threads=32,
+            thread_name_prefix="mcp-worker",
+            socket_timeout=MCP_HTTP_SOCKET_TIMEOUT_SEC,
+        )
+        self._server.route_registry = self.route_registry
+        # The configured bind host (e.g. a LAN name) is an allowed Host header
+        # alongside loopback and the tunnel host (DNS-rebinding check).
+        self._server.bind_host = self.host
+        if ssl_ctx is not None:
+            self._server.ssl_ctx = ssl_ctx
+        # Before the accept thread exists, so request handlers share this state.
+        _sse_state(self._server)
 
         self._running = True
         self._thread = run_in_background(self._run, daemon=True, name="http-server", dedicated=True)

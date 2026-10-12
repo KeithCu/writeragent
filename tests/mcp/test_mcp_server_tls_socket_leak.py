@@ -11,11 +11,8 @@ def test_tls_listen_socket_leaks():
         server.start()
 
     assert not server.is_running()
-
-    # At this point, if it leaked, server._server.socket is still open
-    if server._server:
-        sock = server._server.socket
-        assert sock.fileno() == -1, "Socket leaked!"
+    # The cert is loaded before bind, so a missing file never takes the port.
+    assert server._server is None
 
 if __name__ == "__main__":
     pytest.main(["-v", "test_tls_leak.py"])
