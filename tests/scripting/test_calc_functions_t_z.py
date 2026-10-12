@@ -367,3 +367,65 @@ def test_textsplit_non_one_match_mode_stays_sensitive():
     assert math.isnan(calc.textsplit("a-b", ""))
     assert calc.textsplit("Hello World", "world", match_mode=2) == [["Hello World"]]
 
+
+def test_xirr_stop_is_scale_invariant():
+    # abs(NPV) < 1e-7 returned the 0.1 guess: NPV at 0.1 is about 9e-8.
+    # getXirr's absolute 1e-10 NPV stop cannot pin a 1e-6 cash flow to
+    # 1e-6 relative. It must still land near 0.2, not on the guess.
+    small = calc.xirr([-1e-6, 1.2e-6], [0, 365])
+    large = calc.xirr([-1e10, 1.2e10], [0, 365])
+    assert math.isclose(small, 0.2, abs_tol=1e-3)
+    assert abs(small - 0.1) > 0.05
+    assert math.isclose(large, 0.2, rel_tol=1e-6)
+    classic = calc.xirr([-10000, 2750, 4250, 3250, 2750], [44197, 44562, 44927, 45292, 45658])
+    assert math.isclose(classic, 0.1153874812592906, rel_tol=1e-6)
+    assert math.isnan(calc.xirr([-1, 1e-20], [0, 365], 0.1))
+    assert math.isnan(calc.xirr([-100, 110], [0, 365], -1))
+
+
+def test_ztest_skips_blanks_and_propagates_errors():
+    # ScZTest skips blanks and text, counts TRUE as 1, and errors the call
+    # when a cell is an error or fewer than two numbers remain.
+    pair = calc.ztest([1, 3], 2)
+    assert math.isclose(calc.ztest([1, None, 3], 2), pair)
+    assert math.isclose(calc.ztest([1, "x", 3], 2), pair)
+    assert not math.isclose(calc.ztest([1, True, 3], 2), pair)
+    assert math.isnan(calc.ztest([1, float("nan"), 3], 2))
+    assert math.isnan(calc.ztest([1, "#VALUE!", 3], 2))
+    assert math.isnan(calc.ztest([1], 0, 1))
+    assert math.isnan(calc.ztest([1, 2, 3], 2, float("inf")))
+
+
+def test_tdist_tinv_floor_degrees_of_freedom():
+    assert math.isclose(calc.tdist(1, 2.7, 1), calc.tdist(1, 2, 1))
+    assert math.isclose(calc.tinv(0.05, 2.7), calc.tinv(0.05, 2))
+    assert math.isfinite(calc.tdist(1, 2.7, 1))
+    assert math.isfinite(calc.tinv(0.05, 2.7))
+
+
+def test_trend_false_string_drops_intercept():
+    y = [3, 5, 7]
+    x = [1, 2, 3]
+    forced = calc.trend(y, x, [4], False)
+    assert np.allclose(calc.trend(y, x, [4], "FALSE"), forced)
+    assert not np.allclose(calc.trend(y, x, [4]), forced)
+    assert calc.trend([]) == "#VALUE!"
+
+
+def test_xnpv_bad_value_is_nan():
+    assert math.isnan(calc.xnpv(0.1, ["a", 1], [0, 365]))
+    assert math.isclose(calc.xnpv(0.1, [-100, 110], [0, 365]), 0.0, abs_tol=1e-9)
+
+
+def test_text_large_integer_is_not_scientific():
+    assert calc.text(1e30, "0") == "1" + "0" * 30
+    assert calc.text(0.285, "0%") == "29%"
+
+
+def test_xlookup_one_d_returns_python_int():
+    found = calc.xlookup(20, [10, 20], [100, 200])
+    assert isinstance(found, int)
+    assert not isinstance(found, np.generic)
+    assert found == 200
+    assert calc.xlookup("z", ["a"], [1]) == "#N/A"
+

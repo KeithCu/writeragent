@@ -13,7 +13,7 @@ import calendar
 import datetime as dt
 import math
 import re
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 from typing import Any, cast
 
 import numpy as np
@@ -81,7 +81,9 @@ def t(value: Any) -> str:
 def tdist(x: Any, df: Any, tails: Any) -> float:
     try:
         val = float(x)
-        d = float(df)
+        # ScTDist floors df (approxFloor) before the < 1 check. 2.7 was
+        # passed through to the t distribution.
+        d = math.floor(float(df))
         # ``t`` is the public T() function. A local with that name would hide it.
         tail_count = int(float(tails))
         if d < 1 or tail_count not in (1, 2) or val < 0:
@@ -149,7 +151,11 @@ def _format_number_pattern(value: float, places: int, grouped: bool, *, scale: i
     if scale != 1:
         dec *= scale
     quant = Decimal(1).scaleb(-places)
-    rounded = dec.quantize(quant, rounding=ROUND_HALF_UP)
+    # Default precision is 28. quantize of 1e30 raised InvalidOperation,
+    # and TEXT then returned the scientific fallback "1e+30".
+    with localcontext() as ctx:
+        ctx.prec = max(28, abs(dec.adjusted()) + places + 2)
+        rounded = dec.quantize(quant, rounding=ROUND_HALF_UP)
     if places == 0:
         whole = int(rounded)
         # int(Decimal("-0")) is 0; Calc shows 0, not "-0".
@@ -348,7 +354,8 @@ def timevalue(text: Any) -> float:
 def tinv(prob: Any, df: Any) -> float:
     try:
         p = float(prob)
-        d = float(df)
+        # ScTInv floors df, same as ScTDist. A fractional df was used as-is.
+        d = math.floor(float(df))
         if p <= 0 or p > 1 or d < 1:
             return float("nan")
         st = _scipy_stats()
@@ -394,7 +401,16 @@ def trend(*args: Any) -> Any:
         if np.any(np.isnan(new_data_x)):
             return "#VALUE!"
 
-        const = bool(args[3]) if len(args) > 3 else True
+        # bool("FALSE") is True, so a const string kept the intercept.
+        # LINEST's GetBool helper already maps "FALSE" / "TRUE" / 0.
+        # i_m imports yearfrac only inside a function, so this import
+        # does not cycle.
+        if len(args) > 3:
+            from .calc_functions_i_m import _as_bool_flag
+
+            const = _as_bool_flag(args[3])
+        else:
+            const = True
 
         if const:
             A = np.c_[data_x, np.ones(data_x.shape[0])]
@@ -405,7 +421,9 @@ def trend(*args: Any) -> Any:
             pred = new_data_x @ c
 
         return pred.tolist()
-    except Exception:
+    except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
+        # A broad Exception hid programming errors as #VALUE!. A bad const
+        # string still raises ValueError inside _as_bool_flag and stays #VALUE!.
         return "#VALUE!"
 
 
@@ -798,17 +816,22 @@ def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
             f = 0.0
             df = 0.0
             for v, d in zip(vals, dts):
-                # ``t`` is the public T() function.
                 year_offset = (float(d) - d0) / 365.0
                 f += v / ((1.0 + x) ** year_offset)
                 df -= year_offset * v / ((1.0 + x) ** (year_offset + 1.0))
-            if abs(f) < 1e-7:
+            # getXirr stops when abs(NPV) or the Newton step is <= 1e-10.
+            # abs(f) < 1e-7 returned the 0.1 guess for cash flows near 1e-6
+            # (NPV there is about 9e-8) and never succeeded for flows near 1e10.
+            if abs(f) <= 1e-10:
                 return float(x)
             # df == 0 missed a tiny slope. Newton then stepped by f/df
             # (up to ~1e300) before the derivative underflowed to 0.
             if abs(df) < 1e-15:
                 break
-            x = x - f / df
+            step = f / df
+            if abs(step) <= 1e-10:
+                return float(x - step)
+            x = x - step
         return float("nan")
     except (ValueError, TypeError, OverflowError, ZeroDivisionError):
         return float("nan")
@@ -833,7 +856,10 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
     # mismatches, instead of letting the exception escape.
     try:
         if r_flat.ndim == 1:
-            return r_flat[best_idx]
+            # A 1-D numeric return was an np.int64 / np.float64. The 2-D
+            # branch already returns Python values via tolist().
+            cell = r_flat[best_idx]
+            return cell.item() if isinstance(cell, np.generic) else cell
         if r_flat.ndim == 2:
             l_shape = np.asarray(lookup_arr).shape
             if len(l_shape) == 2 and l_shape[0] > 1 and l_shape[1] == 1:
@@ -850,8 +876,10 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
                 # A horizontal 1×N lookup into a one-row return sliced out a
                 # one-element column and .tolist() wrapped it. A 1×1 result is a scalar.
                 return _scalar_if_singleton(r_flat[:, best_idx].tolist())
-            return r_flat.ravel()[best_idx]
-        return r_flat.ravel()[best_idx]
+            cell = r_flat.ravel()[best_idx]
+            return cell.item() if isinstance(cell, np.generic) else cell
+        cell = r_flat.ravel()[best_idx]
+        return cell.item() if isinstance(cell, np.generic) else cell
     except IndexError:
         return "#VALUE!"
 
@@ -879,7 +907,9 @@ def xnpv(rate: Any, values: Any, dates: Any) -> float:
         for v, d in zip(vals, dts):
             res += float(v) / ((1.0 + r) ** ((float(d) - d0) / 365.0))
         return res
-    except Exception:
+    except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+        # A broad Exception hid programming errors as NaN. Bad values
+        # still fail float() and stay NaN.
         return float("nan")
 
 
@@ -1064,9 +1094,12 @@ def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, bas
 
 def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
     try:
-        d = np.asarray(data, dtype=float).ravel()
-        d = d[np.isfinite(d)]
-        if len(d) == 0:
+        # ScZTest counts numeric cells, including TRUE as 1, and skips text
+        # and blanks. dtype=float raised on None, so one blank made the call
+        # NaN. isfinite then dropped error cells instead of propagating them.
+        # Fewer than 2 numbers is #DIV/0! even when sigma is supplied.
+        d = _extract_numeric_array(data, ignore_bool=False, propagate_nan=True)
+        if len(d) < 2 or np.any(np.isnan(d)):
             return float("nan")
         val = float(x)
         n = len(d)
