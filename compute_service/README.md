@@ -407,7 +407,8 @@ docker run --rm --init -p 127.0.0.1:8000:8000 \
 
 - The image and `start-docker.sh` set `PYTHON_COMPUTE_HOST=0.0.0.0` so the published port reaches the process. The host publish stays on `127.0.0.1`. `HOST` and `PORT` are not read. `start-docker.sh` publishes `127.0.0.1:$PYTHON_COMPUTE_PORT:$PYTHON_COMPUTE_PORT` (default `8000`) and passes that value into the container.
 - `start-docker.sh` resolves `PYTHON_COMPUTE_API_KEY_FILE` to an absolute path from the caller's working directory. It runs `--init` and `--user` as the invoking uid and gid, so a mode `600` key file owned by that user is readable inside the container. An env key is mounted from a temp file. It is not placed on the `docker run` command line.
-- The multi-stage Dockerfile copies only pre-compiled packages into the runner image, drops root privileges (`USER appuser`), and excludes compiler build tools (`build-essential`) from the runner stage. `server.py` needs `plugin/vision/vision_common.py` at import. The desktop `plugin/vision/__init__.py` is not copied. OCR is not in this image.
+- The multi-stage Dockerfile copies only pre-compiled packages into the runner image, drops root privileges (`USER appuser`), and excludes compiler build tools (`build-essential`) from the runner stage. `server.py` needs `plugin/vision/vision_common.py` at import. The desktop `plugin/vision/__init__.py` is not copied. OCR is not in this image. Every cell imports `plugin.scripting.named_scripts`, which imports `plugin.doc.doc_type`. The runner copies that module and not `plugin/doc/__init__.py`.
+- Wheels are installed into `/app/pkgs`. Formula workers drop `PYTHONPATH` before spawn, and `worker_base.install_image_pkgs` adds that directory to `sys.path` when it is present. Without that, the process reaches the ready handshake and then exits because numpy and sympy are not visible to the worker.
 
 ---
 

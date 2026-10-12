@@ -2983,4 +2983,28 @@ def test_unpicklable_payload_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> 
     assert spawned == []
 
 
+def test_install_image_pkgs_adds_sibling_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pkgs directory next to the service is inserted once.
+
+    The image publishes wheels through PYTHONPATH, and the worker scrub
+    removes that variable. The directory itself has to be added by path.
+    A missing directory leaves sys.path alone.
+    """
+    import sys
+
+    from compute_service.worker_base import install_image_pkgs
+
+    pkgs = tmp_path / "pkgs"
+    pkgs.mkdir()
+    monkeypatch.setattr(sys, "path", ["/usr/lib/python"])
+    install_image_pkgs(str(tmp_path))
+    assert sys.path[0] == str(pkgs)
+    install_image_pkgs(str(tmp_path))
+    assert sys.path.count(str(pkgs)) == 1
+
+    monkeypatch.setattr(sys, "path", ["/usr/lib/python"])
+    install_image_pkgs(str(tmp_path / "no-such-root"))
+    assert sys.path == ["/usr/lib/python"]
+
+
 

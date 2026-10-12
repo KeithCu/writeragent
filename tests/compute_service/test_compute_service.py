@@ -2859,7 +2859,8 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
     __init__.py, plugin.vision is a namespace package and vision_common loads.
     This materializes the Dockerfile COPY lines; it does not need a Docker
     daemon. queue_executor, uno_context, and logging are not part of that
-    load-time closure.
+    load-time closure. named_scripts is imported on every cell and pulls in
+    plugin.doc.doc_type. That file has to be in the runner copy set.
     """
     import shutil
     import subprocess
@@ -2889,9 +2890,12 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
     vision = app / "plugin" / "vision"
     assert (vision / "vision_common.py").is_file()
     assert not (vision / "__init__.py").exists()
+    doc = app / "plugin" / "doc"
+    assert (doc / "doc_type.py").is_file()
+    assert not (doc / "__init__.py").exists()
 
     proc = subprocess.run(
-        [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base, compute_service.server, compute_service.formula_worker"],
+        [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base, compute_service.server, compute_service.formula_worker, plugin.scripting.named_scripts"],
         cwd=app,
         env={"PYTHONPATH": str(app), "PYTHONDONTWRITEBYTECODE": "1"},
         capture_output=True,

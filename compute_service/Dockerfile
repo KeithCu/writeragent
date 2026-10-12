@@ -64,10 +64,19 @@ COPY plugin/contrib/__init__.py /app/plugin/contrib/__init__.py
 # plugin.vision is a namespace package. vision_common has no relative imports.
 # plugin.framework.config is imported only inside merge_vision_params.
 # OCR stays out of this image (ocr_workers defaults to 0).
+# Every cell imports plugin.scripting.named_scripts, which imports
+# domain_registry, which imports plugin.doc.doc_type at load. Without this
+# file, result = 1 fails with ModuleNotFoundError: plugin.doc. Do not copy
+# plugin/doc/__init__.py: it imports common_module (desktop ModuleBase).
+# With no __init__.py, plugin.doc is a namespace package and doc_type loads.
+COPY plugin/doc/doc_type.py /app/plugin/doc/doc_type.py
 COPY plugin/vision/vision_common.py /app/plugin/vision/vision_common.py
 
 RUN python -m compileall -q /app/compute_service /app/plugin
 
+# Workers scrub PYTHONPATH (LibreOffice must not leak its stdlib into a
+# child). install_image_pkgs in worker_base puts /app/pkgs back on sys.path
+# by directory, so this variable is only for the parent process.
 ENV PYTHONPATH=/app/pkgs:/app
 # Bind all container interfaces. HOST/PORT were unread; the process used
 # PYTHON_COMPUTE_HOST and defaulted to 127.0.0.1, so docker -p never connected.

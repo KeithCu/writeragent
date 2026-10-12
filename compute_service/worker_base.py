@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
+import sys
 import threading
 import time
 from collections import OrderedDict
@@ -37,7 +39,28 @@ from plugin.framework.process_worker import MIN_REQUEST_SEC, BaseProcessWorker, 
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES
 
-__all__ = ["BaseProcessPool", "BaseProcessWorker", "COMPUTE_THREAD_ENV_VARS", "Child", "Deadline", "MIN_REQUEST_SEC", "PoolSingleton", "RestrictedUnpickler", "configure_compute_worker_env", "error_dict", "resolve_override", "run_compute_worker", "run_worker_stdio_loop", "set_pdeathsig", "unpack_restricted_pickle_frame"]
+
+def install_image_pkgs(project_root: str) -> None:
+    """Add the image wheel directory when it exists.
+
+    What was wrong: the runner image installs numpy and the rest into
+    ``/app/pkgs`` and publishes that directory with ``PYTHONPATH``. Formula
+    workers call ``scrub_subprocess_env``, which drops ``PYTHONPATH`` so a
+    LibreOffice interpreter cannot leak its own stdlib into the child. The
+    container variable never arrived, ``check_dependencies`` reported numpy
+    and sympy missing, and the server exited immediately after the ready
+    handshake. Re-add the known image directory by path. Do not copy
+    ``PYTHONPATH`` through: that is the variable the scrub exists to remove.
+    Desktop runs have no ``pkgs`` directory, so this is a no-op there.
+    """
+    pkgs = os.path.join(project_root, "pkgs")
+    if os.path.isdir(pkgs) and pkgs not in sys.path:
+        sys.path.insert(0, pkgs)
+
+
+install_image_pkgs(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+__all__ = ["BaseProcessPool", "BaseProcessWorker", "COMPUTE_THREAD_ENV_VARS", "Child", "Deadline", "MIN_REQUEST_SEC", "PoolSingleton", "RestrictedUnpickler", "configure_compute_worker_env", "error_dict", "install_image_pkgs", "resolve_override", "run_compute_worker", "run_worker_stdio_loop", "set_pdeathsig", "unpack_restricted_pickle_frame"]
 
 log = logging.getLogger("compute_service.worker")
 
