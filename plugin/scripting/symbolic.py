@@ -45,7 +45,6 @@ _SYMBOLIC_VENV_EXPORTS = frozenset(
     {
         "differentiate",
         "integrate",
-        "integrate_helper",
         "latex_to_math_object",
         "run_symbolic",
         "solve_equation",

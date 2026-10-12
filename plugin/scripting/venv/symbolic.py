@@ -2,11 +2,17 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Trusted venv symbolic compute — runs in user venv worker."""
+"""Trusted venv symbolic compute — runs in the user venv worker.
+
+Host ``run_symbolic`` uses the long trusted worker budget
+(``LONG_TRUSTED_WORKER_TIMEOUT_SEC``, 300 seconds) and kills the worker if
+sympy does not return. This module does not add a second timer.
+"""
 
 from __future__ import annotations
 
 import functools
+import inspect
 import logging
 import re
 from typing import Any, Callable
@@ -22,6 +28,17 @@ from plugin.scripting.venv.coerce import (
 log = logging.getLogger(__name__)
 
 _MAX_SYMBOLIC_EXPR_CHARS = 10_000
+
+# Cues that mean "already LaTeX". ``x_1`` is kept; ``x1`` is parsed.
+_LATEX_CUES = ("=", "\\", "{", "}", "^", "_")
+
+_SYMPY_NAMES = (
+    "Abs Add And E Eq Float Ge Gt I Integer Le Lt Mul Ne Not Or Pow Rational "
+    "Symbol binomial cos exp factorial log oo pi sin sqrt tan "
+    "asin acos atan atan2 sinh cosh tanh asinh acosh atanh "
+    "sec csc cot floor ceiling Min Max gamma erf Mod sign re im "
+    "Piecewise conjugate"
+).split()
 
 
 class _SymbolicError(Exception):
@@ -43,6 +60,21 @@ def _require_sympy() -> Any | None:
         return None
 
 
+def _param_text(value: Any, default: str = "") -> str:
+    """Stringify a parameter. ``None`` uses *default*.
+
+    ``value or ""`` treated JSON ``0`` and ``False`` as missing, so
+    ``expression: 0`` became "empty expression" instead of the number zero.
+    """
+    if value is None:
+        return default
+    return str(value)
+
+
+def _is_blank_param(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
 @functools.cache
 def _parse_transformations() -> tuple[Any, ...]:
     # x^2 is power, not XOR, and a multi-letter name stays one symbol.
@@ -58,86 +90,66 @@ def _parse_transformations() -> tuple[Any, ...]:
     return standard_transformations + (convert_xor, implicit_multiplication, implicit_application)
 
 
+@functools.cache
 def _sympy_name_dict(sp: Any) -> dict[str, Any]:
-    """Names a formula may use. Not the process globals, so parse_expr cannot import."""
-    names: dict[str, Any] = {}
-    # Names a formula may call. ln is sp.log. A name missing here is split
-    # into letters or fails to parse.
-    for name in (
-        "Abs",
-        "Add",
-        "And",
-        "E",
-        "Eq",
-        "Float",
-        "Ge",
-        "Gt",
-        "I",
-        "Integer",
-        "Le",
-        "Lt",
-        "Mul",
-        "Ne",
-        "Not",
-        "Or",
-        "Pow",
-        "Rational",
-        "Symbol",
-        "binomial",
-        "cos",
-        "exp",
-        "factorial",
-        "log",
-        "oo",
-        "pi",
-        "sin",
-        "sqrt",
-        "tan",
-        "asin",
-        "acos",
-        "atan",
-        "atan2",
-        "sinh",
-        "cosh",
-        "tanh",
-        "asinh",
-        "acosh",
-        "atanh",
-        "sec",
-        "csc",
-        "cot",
-        "floor",
-        "ceiling",
-        "Min",
-        "Max",
-        "gamma",
-        "erf",
-        "Mod",
-        "sign",
-        "re",
-        "im",
-        "Piecewise",
-        "conjugate",
-    ):
+    """Names a formula may use. Not the process globals, so parse_expr cannot import.
+
+    Cached on the sympy module. ``parse_expr`` writes ``local_dict``, not this
+    dict. ``__builtins__`` is present so ``eval`` does not inject the real
+    builtins when the key is missing. Callers must not mutate the dict.
+    """
+    names: dict[str, Any] = {"__builtins__": {}}
+    # A name missing here is split into letters or fails to parse.
+    for name in _SYMPY_NAMES:
         obj = getattr(sp, name, None)
         if obj is not None:
             names[name] = obj
-    names["ln"] = getattr(sp, "log", None)
+    # ln is sp.log. e is Euler's number (sympy spells it E). getattr(sp, "e")
+    # is None, and storing that None would make parse_expr treat e as missing.
+    log_fn = getattr(sp, "log", None)
+    if log_fn is not None:
+        names["ln"] = log_fn
+    euler = getattr(sp, "E", None)
+    if euler is not None:
+        names["e"] = euler
     return names
 
 
-def _parse_expression(sp: Any, expr: str, *, variable: Any | None = None) -> Any:
-    text = str(expr or "").strip()
+def _reject_unsafe_expression(text: str) -> None:
+    """Reject source that ``parse_expr`` would eval.
+
+    ``parse_expr`` compiles the string and evals it. A restricted global dict
+    still runs attribute chains such as ``(1).__class__`` before we can look
+    at the result, and ``__subclasses__()`` had already executed on that path.
+    Dunder names are not math. A dot is a decimal only when the character
+    before it or after it is a digit (``1.5``, ``.5``, ``1.``, ``x.5``).
+    """
+    if "__" in text:
+        raise _SymbolicError("PARSE_ERROR", "Dunder attribute access is not allowed in expressions.")
+    for index, char in enumerate(text):
+        if char != ".":
+            continue
+        prev_digit = index > 0 and text[index - 1].isdigit()
+        next_digit = index + 1 < len(text) and text[index + 1].isdigit()
+        if not prev_digit and not next_digit:
+            raise _SymbolicError("PARSE_ERROR", "Attribute access is not allowed in expressions.")
+
+
+def _parse_expression(sp: Any, expr: Any, *, variable: Any | None = None) -> Any:
+    text = _param_text(expr).strip()
     if not text:
-        raise ValueError("empty expression")
+        raise _SymbolicError("PARSE_ERROR", "empty expression")
     if len(text) > _MAX_SYMBOLIC_EXPR_CHARS:
-        raise ValueError(f"expression longer than {_MAX_SYMBOLIC_EXPR_CHARS} characters")
+        raise _SymbolicError("PARSE_ERROR", f"expression longer than {_MAX_SYMBOLIC_EXPR_CHARS} characters")
+    _reject_unsafe_expression(text)
     from sympy.core.function import AppliedUndef
     from sympy.parsing.sympy_parser import parse_expr
 
     local_dict: dict[str, Any] = {}
     if variable is not None:
         var_name = str(variable)
+        # local_dict wins over the global name, so a variable named e stays a
+        # symbol instead of Euler's number.
         local_dict[var_name] = sp.Symbol(var_name)
 
     try:
@@ -149,19 +161,19 @@ def _parse_expression(sp: Any, expr: str, *, variable: Any | None = None) -> Any
             evaluate=False,
         )
     except Exception as exc:
-        raise ValueError(f"Could not parse expression: {exc}") from exc
+        raise _SymbolicError("PARSE_ERROR", f"Could not parse expression: {exc}") from exc
 
     # parse_expr turns an unknown call into AppliedUndef and would return ok.
     # Reject those atoms so the caller sees PARSE_ERROR.
     if parsed.atoms(AppliedUndef):
-        undef = ", ".join(str(a.func) for a in parsed.atoms(AppliedUndef))
-        raise ValueError(f"Undefined function in expression: {undef}")
+        undef = ", ".join(str(atom.func) for atom in parsed.atoms(AppliedUndef))
+        raise _SymbolicError("PARSE_ERROR", f"Undefined function in expression: {undef}")
 
     return parsed
 
 
-def _parse_variable(sp: Any, name: str) -> Any:
-    var = str(name or "x").strip() or "x"
+def _parse_variable(sp: Any, name: Any) -> Any:
+    var = _param_text(name, default="x").strip() or "x"
     return sp.Symbol(var)
 
 
@@ -169,8 +181,23 @@ def _to_latex(sp: Any, value: Any) -> str:
     return str(sp.latex(value))
 
 
+def _public_signature(func: Callable[..., Any]) -> inspect.Signature:
+    """Drop ``sp``. Callers and generated templates never pass the module."""
+    raw = inspect.signature(func)
+    params = [param for name, param in raw.parameters.items() if name != "sp"]
+    return raw.replace(parameters=params)
+
+
 def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
-    """One exception-to-result wrapper for symbolic helpers."""
+    """Resolve sympy once and turn helper failures into result dicts.
+
+    The wrapper passes the module in, so helpers do not look it up again and
+    do not assert on it. Those asserts disappeared under ``python -O``.
+    Parse failures raise ``_SymbolicError`` directly. A ``ValueError`` from
+    ``simplify``, ``integrate``, or ``solve`` used to be labeled PARSE_ERROR
+    because this wrapper caught every ValueError from the whole body.
+    """
+    public_sig = _public_signature(func)
 
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -179,21 +206,21 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
         if sp is None:
             return _missing_package_error(helper, "sympy")
         try:
-            return func(*args, **kwargs)
+            return func(sp, *args, **kwargs)
         except _SymbolicError as exc:
             return _error_result(exc.code, exc.message, helper=helper)
-        except ValueError as exc:
-            return _error_result("PARSE_ERROR", str(exc), helper=helper)
         except Exception as exc:
             return _error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
 
+    # inspect.signature follows __wrapped__ unless this is set, and would
+    # then require `sp`. Run Python Script templates bind the public kwargs.
+    setattr(wrapper, "__signature__", public_sig)
     return wrapper
 
 
 @_symbolic_helper
-def symbolic_simplify(*, expression: str) -> dict[str, Any]:
-    sp = _require_sympy()
-    assert sp is not None
+def symbolic_simplify(sp: Any, *, expression: Any) -> dict[str, Any]:
+    """Simplify a symbolic expression."""
     expr = _parse_expression(sp, expression)
     simplified = sp.simplify(expr)
     latex = _to_latex(sp, simplified)
@@ -201,9 +228,11 @@ def symbolic_simplify(*, expression: str) -> dict[str, Any]:
 
 
 @_symbolic_helper
-def differentiate(*, expression: str, variable: str = "x") -> dict[str, Any]:
-    sp = _require_sympy()
-    assert sp is not None
+def differentiate(sp: Any, *, expression: Any, variable: Any = "x") -> dict[str, Any]:
+    """Differentiate *expression* with respect to *variable* (default ``x``).
+
+    ``e`` is Euler's number. A variable named ``e`` stays that symbol.
+    """
     sym = _parse_variable(sp, variable)
     expr = _parse_expression(sp, expression, variable=sym)
     result = sp.diff(expr, sym)
@@ -214,14 +243,14 @@ def differentiate(*, expression: str, variable: str = "x") -> dict[str, Any]:
 
 @_symbolic_helper
 def integrate(
+    sp: Any,
     *,
-    expression: str,
-    variable: str = "x",
-    lower: str | None = None,
-    upper: str | None = None,
+    expression: Any,
+    variable: Any = "x",
+    lower: Any = None,
+    upper: Any = None,
 ) -> dict[str, Any]:
-    sp = _require_sympy()
-    assert sp is not None
+    """Integrate an expression. Pass both bounds for a definite integral."""
     sym = _parse_variable(sp, variable)
     expr = _parse_expression(sp, expression, variable=sym)
     has_lower = lower is not None and str(lower).strip() != ""
@@ -238,23 +267,31 @@ def integrate(
     else:
         result = sp.integrate(expr, sym)
 
+    # integrate returns Integral(...) when it has no closed form and the
+    # helper used to report that object as success.
+    if result.has(sp.Integral):
+        raise _SymbolicError("NO_CLOSED_FORM", f"No closed form: {result}")
+
     latex = _to_latex(sp, result)
     return _ok_result("integrate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
 
 
-integrate_helper = integrate
-
-
 @_symbolic_helper
-def solve_equation(*, equation: str, variable: str = "x") -> dict[str, Any]:
-    sp = _require_sympy()
-    assert sp is not None
+def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, Any]:
+    """Solve one equation for *variable*.
+
+    Use ``=`` or an expression equal to zero. Inequalities and ``==`` are
+    rejected. ``!=`` is one token, including ``n!=720``, so that is not
+    factorial. Factorial equations need a space before ``=`` (``n! = 720``).
+    SymPy may still report that it has no algorithm for those.
+    """
     sym = _parse_variable(sp, variable)
-    text = str(equation or "").strip()
+    text = _param_text(equation).strip()
     if not text:
         raise _SymbolicError("MISSING_PARAM", "equation is required")
     # Inequalities and '==' are INVALID_PARAMS. split("=", 1) would cut
-    # '<=' and '==' into pieces parse_expr cannot accept.
+    # '<=' and '==' into pieces parse_expr cannot accept. `!=` stays rejected:
+    # the tokenizer fuses it, so factorial_notation never sees a bare `!`.
     if re.search(r"<=|>=|!=|==|<|>", text):
         raise _SymbolicError("INVALID_PARAMS", "Inequalities and '==' are not supported in solve_equation; use '=' or expression equal to zero.")
     if "=" in text:
@@ -285,47 +322,65 @@ def solve_equation(*, equation: str, variable: str = "x") -> dict[str, Any]:
 
 
 @_symbolic_helper
-def latex_to_math_object(*, latex: str) -> dict[str, Any]:
-    trimmed = str(latex or "").strip()
+def latex_to_math_object(sp: Any, *, latex: Any) -> dict[str, Any]:
+    """Normalize a math string for Writer Math insert.
+
+    A LaTeX cue (``=``, ``\\``, ``{``, ``}``, ``^``, ``_``) keeps the text
+    unchanged as both ``latex`` and ``text``. Anything else is parsed and
+    re-emitted as LaTeX. ``x_1`` is kept because of ``_``. ``x1`` and ``a b``
+    have no cue, so they are parsed (``a b`` becomes a product).
+    """
+    trimmed = _param_text(latex).strip()
     if not trimmed:
         raise _SymbolicError("MISSING_PARAM", "latex is required")
-    # '{', '}', '^', and '_' are LaTeX, same as '=' and '\\'. x^{2} or x_1
-    # sent through parse_expr is mangled.
-    if not any(cue in trimmed for cue in ("=", "\\", "{", "}", "^", "_")):
-        sp = _require_sympy()
-        assert sp is not None
+    if not any(cue in trimmed for cue in _LATEX_CUES):
         expr = _parse_expression(sp, trimmed)
         trimmed = _to_latex(sp, expr)
     return _ok_result("latex_to_math_object", latex=trimmed, text=trimmed, writer_cleanup_hints=[])
 
 
-_HELPERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
-    "symbolic_simplify": lambda p: symbolic_simplify(expression=str(p.get("expression") or "")),
-    "differentiate": lambda p: differentiate(
-        expression=str(p.get("expression") or ""),
-        variable=str(p.get("variable") or "x"),
-    ),
-    "integrate": lambda p: integrate(
-        expression=str(p.get("expression") or ""),
-        variable=str(p.get("variable") or "x"),
-        lower=p.get("lower"),
-        upper=p.get("upper"),
-    ),
-    "solve_equation": lambda p: solve_equation(
-        equation=str(p.get("equation") or ""),
-        variable=str(p.get("variable") or "x"),
-    ),
-    "latex_to_math_object": lambda p: latex_to_math_object(
-        latex=str(p.get("latex") or p.get("expression") or ""),
-    ),
+_HELPERS: dict[str, Callable[..., dict[str, Any]]] = {
+    "symbolic_simplify": symbolic_simplify,
+    "differentiate": differentiate,
+    "integrate": integrate,
+    "solve_equation": solve_equation,
+    "latex_to_math_object": latex_to_math_object,
 }
 
 
 def _dispatch_helper(name: str, params: dict[str, Any]) -> dict[str, Any]:
-    handler = _HELPERS.get(name)
-    if handler is None:
+    """Call *name* with the parameters that function accepts.
+
+    The old lambdas repeated ``str(p.get(...) or "x")``. Defaults live on the
+    functions. ``None`` for an optional parameter keeps that default, so JSON
+    ``0`` is passed through. A missing required string is ``""``, which is
+    what those lambdas passed, so the helper's own empty check still runs.
+    """
+    func = _HELPERS.get(name)
+    if func is None:
         return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
-    return handler(params)
+    # Public signature only. The wrapper injects sympy and hides `sp`.
+    sig = inspect.signature(func)
+    kwargs: dict[str, Any] = {}
+    for pname, param in sig.parameters.items():
+        if pname not in params:
+            if param.default is inspect.Parameter.empty and param.kind is inspect.Parameter.KEYWORD_ONLY:
+                kwargs[pname] = ""
+            continue
+        value = params[pname]
+        if value is None and param.default is not inspect.Parameter.empty:
+            continue
+        if value is None:
+            kwargs[pname] = ""
+            continue
+        kwargs[pname] = value
+    if name == "latex_to_math_object" and _is_blank_param(kwargs.get("latex")):
+        # Callers used to send the formula as `expression`. A blank latex
+        # string fell through via `or`. Numeric 0 does not.
+        expression = params.get("expression")
+        if not _is_blank_param(expression):
+            kwargs["latex"] = expression
+    return func(**kwargs)
 
 
 def run_symbolic(

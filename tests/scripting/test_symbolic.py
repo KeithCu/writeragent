@@ -198,3 +198,118 @@ def test_is_symbolic_result():
     assert is_symbolic_result({"status": "ok", "latex": "x^2"}) is False
     assert is_symbolic_result({"status": "error", "code": "OTHER_ERROR"}) is False
 
+
+def test_differentiate_euler_e():
+    from plugin.scripting.venv.symbolic import differentiate
+
+    res = differentiate(expression="e^x", variable="x")
+    assert res["status"] == "ok"
+    assert res["text"] == "E**x"
+
+    # A variable named e overrides Euler's number in the name dict.
+    res_var = differentiate(expression="e*x", variable="e")
+    assert res_var["status"] == "ok"
+    assert res_var["text"] == "x"
+    assert res_var["variable"] == "e"
+
+
+def test_attribute_access_is_parse_error_without_eval():
+    from plugin.scripting.venv.symbolic import differentiate, symbolic_simplify
+
+    payloads = (
+        "(1).__class__",
+        "(1).__class__.__bases__[0].__subclasses__()",
+        "x.real",
+    )
+    for payload in payloads:
+        with patch("sympy.parsing.sympy_parser.parse_expr") as parse_expr:
+            res = differentiate(expression=payload, variable="x")
+        assert res["status"] == "error"
+        assert res["code"] == "PARSE_ERROR"
+        parse_expr.assert_not_called()
+
+    decimal = symbolic_simplify(expression="1.5")
+    assert decimal["status"] == "ok"
+    implicit = symbolic_simplify(expression="x.5")
+    assert implicit["status"] == "ok"
+    assert "x" in implicit["text"]
+
+
+def test_numeric_zero_is_not_empty():
+    from plugin.scripting.venv.symbolic import symbolic_simplify
+
+    direct = symbolic_simplify(expression=0)
+    assert direct["status"] == "ok"
+    assert direct["text"] == "0"
+
+    via_run = run_symbolic(
+        {"helper": "symbolic_simplify", "params": {"expression": 0}},
+        None,
+        {},
+    )
+    assert via_run["status"] == "ok"
+    assert via_run["text"] == "0"
+
+
+def test_sympy_valueerror_is_symbolic_error():
+    import sympy as sp
+
+    from plugin.scripting.venv.symbolic import symbolic_simplify
+
+    with patch.object(sp, "simplify", side_effect=ValueError("internal boom")):
+        res = symbolic_simplify(expression="x")
+    assert res["status"] == "error"
+    assert res["code"] == "SYMBOLIC_ERROR"
+    assert "internal boom" in res["message"]
+
+
+def test_helpers_match_helper_names():
+    from plugin.scripting.calc_functions_common import SYMBOLIC_HELPER_NAMES
+    from plugin.scripting.venv.symbolic import _HELPERS
+
+    assert set(_HELPERS) == set(SYMBOLIC_HELPER_NAMES)
+
+
+def test_factorial_equation_needs_a_space_before_equals():
+    from plugin.scripting.venv.symbolic import solve_equation
+
+    # `!=` is one token. factorial_notation only rewrites a bare `!`.
+    for equation in ("n!=720", "5!=120"):
+        res = solve_equation(equation=equation, variable="n")
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAMS"
+
+    spaced = solve_equation(equation="n! = 720", variable="n")
+    assert spaced["status"] == "error"
+    assert spaced["code"] == "SYMBOLIC_ERROR"
+
+
+def test_unevaluated_integral_is_no_closed_form():
+    from plugin.scripting.venv.symbolic import integrate
+
+    res = integrate(expression="exp(sin(x))", variable="x")
+    assert res["status"] == "error"
+    assert res["code"] == "NO_CLOSED_FORM"
+
+    si = integrate(expression="sin(x)/x", variable="x")
+    assert si["status"] == "ok"
+    assert "Si" in si["text"]
+
+
+def test_solve_no_roots_is_empty_list():
+    from plugin.scripting.venv.symbolic import solve_equation
+
+    res = solve_equation(equation="exp(x)", variable="x")
+    assert res["status"] == "ok"
+    assert res["solutions"] == []
+
+
+def test_latex_to_math_object_accepts_expression_alias():
+    res = run_symbolic(
+        {"helper": "latex_to_math_object", "params": {"expression": "sin(x)"}},
+        None,
+        {},
+    )
+    assert res["status"] == "ok"
+    assert "sin" in res["latex"].lower()
+

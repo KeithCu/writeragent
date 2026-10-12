@@ -486,6 +486,8 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 
 **Tests:** [`test_symbolic.py`](../../tests/scripting/test_symbolic.py), [`test_symbolic_templates.py`](../../tests/scripting/test_symbolic_templates.py), [`test_python_runner_symbolic.py`](../../tests/scripting/test_python_runner_symbolic.py), [`test_symbolic_tool.py`](../../tests/scripting/test_symbolic_tool.py).
 
+**Parser limits:** `e` is Euler's number unless it is the variable being differentiated or solved. Dunder names and non-decimal dots are rejected before parsing, because `parse_expr` uses `eval`. An integral SymPy leaves as `Integral(...)` returns `NO_CLOSED_FORM`. `solve_equation` rejects `!=`, `==`, and inequalities. Factorial equations need a space before `=` (`n! = 720`); SymPy may still have no algorithm for them. These helpers already use the 300s long trusted worker timeout (`LONG_TRUSTED_WORKER_TIMEOUT_SEC`).
+
 **Out of scope (deferred):** SageMath backend, `sage` sandbox whitelist — [sagemath-integration-dev-plan.md](../archive/sagemath-integration-dev-plan.md).
 
 ---
