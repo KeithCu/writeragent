@@ -96,8 +96,9 @@ from .provider_detection import is_openrouter_endpoint
 log = logging.getLogger(__name__)
 
 # Anthropic Messages SSE has no OpenAI ``choices`` array. These event types
-# still carry text, tool_use, or stop_reason.
-_ANTHROPIC_STREAM_TYPES = frozenset({"content_block_start", "content_block_delta", "message_delta", "message_stop", "message"})
+# still carry text, tool_use, stop_reason, or usage. message_start nests
+# input-token usage under message.usage; the shim reads it. ping is keepalive.
+_ANTHROPIC_STREAM_TYPES = frozenset({"message_start", "content_block_start", "content_block_delta", "message_delta", "message_stop", "message"})
 
 
 def _chunk_should_parse(chunk: dict[str, Any]) -> bool:
@@ -1060,7 +1061,13 @@ class LlmClient:
                             # snapshot; callbacks have already run.
                             emitted_any = True
                         outgoing: dict[str, Any] | None = delta if isinstance(delta, dict) else None
-                        if usage_obj:
+                        # The Anthropic shim already put normalized usage on the
+                        # delta (input_tokens → prompt_tokens). Raw chunk usage
+                        # on message_delta used to overwrite those aliases.
+                        # OpenAI and Grok put usage only on the chunk, and their
+                        # delta has no usage key, so this still fills it.
+                        shim_usage = outgoing.get("usage") if isinstance(outgoing, dict) else None
+                        if usage_obj and not (isinstance(shim_usage, dict) and shim_usage):
                             outgoing = dict(outgoing or {})
                             outgoing["usage"] = usage_obj
                         if outgoing and on_delta:
@@ -1223,7 +1230,18 @@ class LlmClient:
                 _normalize_delta(d)
                 accumulate_streaming_thinking(thinking_parts, thinking_meta, cast("dict[str, Any]", d))
                 d_for_snapshot = {k: v for k, v in d.items() if k not in THINKING_DELTA_KEYS}
+                # Anthropic message_delta.usage is a cumulative total (platform
+                # streaming docs: message_start.output_tokens is 1, the final
+                # event is 15). accumulate_delta adds numbers, so those became
+                # 16. Replace each usage key instead of summing it. One OpenAI
+                # usage chunk still lands unchanged.
+                usage_update = d_for_snapshot.pop("usage", None)
                 accumulate_delta(message_snapshot, d_for_snapshot)
+                if isinstance(usage_update, dict) and usage_update:
+                    prev_usage = message_snapshot.get("usage")
+                    merged_usage = dict(prev_usage) if isinstance(prev_usage, dict) else {}
+                    merged_usage.update(cast("dict[str, Any]", usage_update))
+                    message_snapshot["usage"] = merged_usage
                 if "model" in d and "model" not in message_snapshot:
                     message_snapshot["model"] = d["model"]
 

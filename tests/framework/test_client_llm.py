@@ -1342,31 +1342,38 @@ def test_is_image_only_model(client):
 
 
 def test_anthropic_shim(client):
-    # Clear the default model so we see the shim's default
-    client.config["model"] = ""
-    
+    client.config["model"] = "claude-sonnet-4-5"
+
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
-        
+
         messages = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "Hello!"}
         ]
-        
+
         method, path, body, headers = client.make_chat_request(messages, max_tokens=100)
-        
+
         assert method == "POST"
         assert "/v1/messages" in path
-        
+
         data = json.loads(body)
-        assert data["model"] == "claude-3-5-sonnet-20241022"
+        assert data["model"] == "claude-sonnet-4-5"
         assert data["system"].endswith("You are a helpful assistant.")
         assert data["messages"] == [{"role": "user", "content": "Hello!"}]
         assert data["max_tokens"] == 100
 
 
-def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
+def test_anthropic_blank_model_raises(client):
     client.config["model"] = ""
+    with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
+        mock_auth.return_value = {"provider": "anthropic"}
+        with pytest.raises(NetworkError, match="model is not set"):
+            client.make_chat_request([{"role": "user", "content": "Hi"}], max_tokens=10)
+
+
+def test_anthropic_joins_system_messages_and_maps_reasoning_effort(client):
+    client.config["model"] = "claude-sonnet-4-5"
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         messages = [
@@ -1600,6 +1607,41 @@ def test_anthropic_stream_loop_keeps_tool_events(client):
     assert "Hi" in result["content"]
     assert result["tool_calls"][0]["function"]["name"] == "do_work"
     assert result["finish_reason"] == "tool_calls"
+
+
+def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client):
+    """message_start output_tokens=1 plus message_delta output_tokens=15 stays 15, not 16."""
+    payloads = [
+        '{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":25,"output_tokens":1}}}',
+        '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}',
+        '{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":15}}',
+        '{"type":"message_stop"}',
+        "[DONE]",
+    ]
+
+    def iterate(_response):
+        yield from payloads
+
+    with (
+        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
+        patch("http.client.HTTPSConnection") as mock_https,
+        patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate),
+        patch("plugin.framework.client.http_transport.get_verified_ssl_context"),
+    ):
+        mock_conn = MagicMock()
+        mock_https.return_value = mock_conn
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_conn.getresponse.return_value = mock_response
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=10,
+        )
+    usage = result["usage"]
+    assert usage["input_tokens"] == 25
+    assert usage["prompt_tokens"] == 25
+    assert usage["output_tokens"] == 15
+    assert usage["completion_tokens"] == 15
 
 
 def test_make_chat_request_coalesces_mixed_system_messages(client):

@@ -142,6 +142,21 @@ Tests: [`tests/framework/test_tool.py`](../../tests/framework/test_tool.py), [`t
 
 ---
 
+## 9.2 Anthropic Messages usage, tool ids, and image URLs
+
+**Problem**: The native Messages shim (`plugin/framework/client/anthropic_shim.py`) speaks OpenAI-shaped chat on the inside and `/v1/messages` on the wire.
+
+- Stream usage: `message_start` nests input tokens under `message.usage`. `message_delta.usage` is a cumulative total (`output_tokens` goes from 1 to 15, not 1+15). Summing those counts reports 16. Sync parse already aliased `input_tokens` → `prompt_tokens`; the stream path did not, so the main chat result kept Anthropic's names and dropped input tokens.
+- A tool result with no `tool_call_id` used the tool name as `tool_use_id`. Anthropic returns HTTP 400. A missing id was also stored as `None` in the dropped-id set, which then swallowed every later tool message that also had no id.
+- An `http(s)` image part was dropped. Messages accepts `source.type` `url` as well as base64 (see `docs/images/generation.md`).
+- A blank Settings model was sent as the retired id `claude-3-5-sonnet-20241022`.
+
+**Solution**: Normalize usage in one helper and replace usage keys on the stream snapshot instead of adding them. Require a non-empty string `tool_call_id`. Map `http(s)` images to `source.type = "url"`. Raise `NetworkError` when the Anthropic model is blank.
+
+Tests: [`tests/framework/client/test_anthropic_shim.py`](../../tests/framework/client/test_anthropic_shim.py), [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py).
+
+---
+
 ## 10. Calc `=PROMPT()` empty cell (reasoning vs content)
 
 **Problem**: Some reasoning models (e.g. Inception Mercury) spend `max_tokens` on `reasoning_tokens` and return `"content": null` with `finish_reason: length`. [`chat_completion_sync`](../../plugin/framework/client/llm_client.py) coerces missing content to `""`, so Calc showed a blank cell with no error.
