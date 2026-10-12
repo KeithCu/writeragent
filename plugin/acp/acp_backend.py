@@ -273,9 +273,20 @@ def _tool_activity_payload(update: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tool_stream_kind(update: dict[str, Any]) -> StreamQueueKind:
+    """``TOOL_RESULT`` only for a finished call.
+
+    What was wrong: any update that carried ``content`` or ``rawOutput``
+    was a result, including ``status: in_progress``. A streaming tool
+    then showed several "[Tool result]" lines for one call. The status
+    comment already said in_progress is not a result. Why: pending and
+    in_progress stay activity. A terminal status, or content with no
+    status, is the result.
+    """
     if update.get("sessionUpdate") != "tool_call_update":
         return StreamQueueKind.TOOL_CALL
     status = update.get("status")
+    if status in ("pending", "in_progress"):
+        return StreamQueueKind.TOOL_CALL
     if status in _TERMINAL_TOOL_STATUSES or "content" in update or "rawOutput" in update:
         return StreamQueueKind.TOOL_RESULT
     return StreamQueueKind.TOOL_CALL
@@ -305,7 +316,7 @@ class ACPBackend(AgentBackend):
     _state_lock: threading.Lock
     _pending_permissions: dict[Any, list[Any]]
     _turn: int
-    _prepared_turn: int
+    _turn_pending: bool
     _stop_turn: int
     _ready: bool
     _session_url: str | None
@@ -322,10 +333,10 @@ class ACPBackend(AgentBackend):
         self._ready = False
         self._stop_requested = False
         # prepare_turn publishes _turn before Stop is registered. send()
-        # honors a stop for that id only, so the previous turn's Stop does
-        # not cancel the next message. -1 means send() must open the turn.
+        # consumes that publication. A send that was not prepared opens a
+        # new turn, so a Stop from the previous message cannot stick.
         self._turn = 0
-        self._prepared_turn = -1
+        self._turn_pending = False
         self._stop_turn = 0
         self._prompt_inflight = False
         self._prompt_done = threading.Event()
@@ -744,6 +755,26 @@ class ACPBackend(AgentBackend):
         tool_name = _permission_tool_name(tool_call)
         queue.put((StreamQueueKind.APPROVAL_REQUIRED, description, tool_name, tool_call, msg_id))
 
+    def _pop_pending_permission_ids(self) -> list[Any]:
+        """Drop the pending map. Caller holds ``_state_lock``."""
+        pending_ids = list(self._pending_permissions)
+        self._pending_permissions.clear()
+        return pending_ids
+
+    def _clear_slot_locked(self, conn: ACPConnection | None) -> None:
+        """Forget ``conn`` and its session. Caller holds ``_state_lock``.
+
+        A different connection already in the slot is left alone, including
+        its session. ``conn`` None clears whatever the slot holds.
+        """
+        if conn is not None and self._conn is not conn:
+            return
+        self._conn = None
+        self._ready = False
+        self._session_id = None
+        self._session_url = None
+        self._session_prompted = False
+
     def _cancel_pending_permissions(self) -> None:
         """Answer every outstanding permission with the ACP ``cancelled`` outcome.
 
@@ -753,8 +784,7 @@ class ACPBackend(AgentBackend):
         Pop under the lock so a concurrent Approve cannot answer twice.
         """
         with self._state_lock:
-            pending_ids = list(self._pending_permissions)
-            self._pending_permissions.clear()
+            pending_ids = self._pop_pending_permission_ids()
         for request_id in pending_ids:
             self._reply(request_id, result=_cancelled_permission(), what=f"cancel ACP permission {request_id}")
 
@@ -772,28 +802,33 @@ class ACPBackend(AgentBackend):
         """Publish a turn id before Stop can be registered.
 
         ``send_handlers`` calls this, then ``register_on_cancel(stop)``.
-        A Stop that lands before ``send()`` records this id. A Stop from
-        the previous turn recorded an older id and does not abort this one.
+        A Stop that lands before ``send()`` records this id. ``send()``
+        consumes the publication. A Stop from the previous turn recorded
+        an older id and does not abort this one.
         """
         with self._state_lock:
             self._turn += 1
-            self._prepared_turn = self._turn
+            self._turn_pending = True
             self._stop_turn = 0
             self._stop_requested = False
 
     def _turn_already_stopped(self, stop_checker: Any) -> bool:
         """True when this send must return Stopped without starting work.
 
-        What was wrong: ``_stop_requested`` was one latch on the adapter.
-        The adapter now lives across messages, so the previous turn's Stop
-        looked like a Stop for this one. Why: ``prepare_turn`` publishes an
-        id. Only a Stop for that id, or a true ``stop_checker``, aborts.
+        What was wrong: the first ``send()`` with no ``prepare_turn`` set
+        the published id equal to ``_turn``. A Stop on that turn then
+        matched every later send, which returned Stopped forever. Why:
+        ``prepare_turn`` publishes an id that this send consumes. A send
+        that was not published opens a new turn and drops the previous
+        Stop. Only a Stop for the consumed id, or a true ``stop_checker``,
+        aborts.
         """
         checker_hit = callable(stop_checker) and bool(stop_checker())
         with self._state_lock:
-            if self._prepared_turn != self._turn:
+            if self._turn_pending:
+                self._turn_pending = False
+            else:
                 self._turn += 1
-                self._prepared_turn = self._turn
                 self._stop_turn = 0
                 self._stop_requested = False
             if checker_hit or self._stop_turn == self._turn:
@@ -848,21 +883,14 @@ class ACPBackend(AgentBackend):
         Why: the slot is cleared under the same lock as the check. The
         captured connection is the one that is stopped. ``shutdown()`` reads
         ``self._conn``, so calling it after the slot is cleared would skip
-        the kill. The lock is not held across ``stop()``: cancelling
-        permissions takes it.
+        the kill. The lock is not held across ``stop()``.
         """
         with self._state_lock:
             if self._turn != turn or not self._prompt_inflight:
                 return
             conn = self._conn
-            pending_ids = list(self._pending_permissions)
-            self._pending_permissions.clear()
-            if self._conn is conn:
-                self._conn = None
-            self._ready = False
-            self._session_id = None
-            self._session_url = None
-            self._session_prompted = False
+            pending_ids = self._pop_pending_permission_ids()
+            self._clear_slot_locked(conn)
         log.info("ACP cancel was not answered within %ss; killing the CLI", _CANCEL_GRACE_SEC)
         for request_id in pending_ids:
             if conn is None:
@@ -1084,7 +1112,15 @@ class ACPBackend(AgentBackend):
         self._release_connection(conn)
 
     def _release_connection(self, conn: ACPConnection | None) -> None:
-        """Reap ``conn`` if it is still the slot, and forget the session."""
+        """Reap ``conn`` and forget its session when it is still the slot.
+
+        What was wrong: ``_ready`` and the session fields were cleared
+        even after ``self._conn`` had moved to another process, and the
+        write sat outside ``_state_lock`` while the cancel grace wrote
+        the same fields under it. Why: stop the captured process first.
+        Under the lock, drop the slot only when it is still this
+        connection. A replacement keeps its session.
+        """
         if conn is not None:
             try:
                 conn.set_notification_callback(None)
@@ -1094,9 +1130,5 @@ class ACPBackend(AgentBackend):
                 conn.stop()
             except Exception:
                 log.exception("ACP shutdown failed")
-            if self._conn is conn:
-                self._conn = None
-        self._ready = False
-        self._session_id = None
-        self._session_url = None
-        self._session_prompted = False
+        with self._state_lock:
+            self._clear_slot_locked(conn)

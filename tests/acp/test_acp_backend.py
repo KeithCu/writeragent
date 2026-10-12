@@ -415,7 +415,7 @@ def _bare_backend():
     backend._ready = False
     backend._conn = None
     backend._turn = 0
-    backend._prepared_turn = -1
+    backend._turn_pending = False
     backend._stop_turn = 0
     backend._prompt_inflight = False
     backend._prompt_done = threading.Event()
@@ -481,6 +481,28 @@ class TestSessionUpdateDiscriminator:
         events = self._events(update)
         assert (events[0][0]) == (StreamQueueKind.TOOL_CALL)
         assert (events[0][1]["status"]) == ("in_progress")
+
+    def test_tool_call_update_in_progress_with_content_is_activity(self):
+        """Streaming content is not a finished result.
+
+        What was wrong: ``content`` on an in_progress update was queued as
+        TOOL_RESULT, so one call showed several "[Tool result]" lines.
+        """
+        update = {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_001",
+            "status": "in_progress",
+            "content": [{"type": "content", "content": {"type": "text", "text": "partial"}}],
+        }
+        events = self._events(update)
+        assert (events[0][0]) == (StreamQueueKind.TOOL_CALL)
+        pending = {"sessionUpdate": "tool_call_update", "toolCallId": "call_001", "status": "pending", "rawOutput": {"partial": True}}
+        assert (self._events(pending)[0][0]) == (StreamQueueKind.TOOL_CALL)
+
+    def test_tool_call_update_content_without_status_is_a_result(self):
+        update = {"sessionUpdate": "tool_call_update", "toolCallId": "call_001", "rawOutput": {"ok": True}}
+        events = self._events(update)
+        assert (events[0][0]) == (StreamQueueKind.TOOL_RESULT)
 
     def test_tool_call_update_completed_is_tool_result(self):
         update = {
@@ -868,6 +890,70 @@ class TestStopAndShutdown:
         backend._ensure_connection.assert_not_called()
         backend._ensure_session.assert_not_called()
         assert (backend._stop_requested) is True
+
+    def test_stop_between_unprepared_sends_does_not_stick(self):
+        """A Stop on one unprepared send must not Stop the next one.
+
+        What was wrong: the first send() without prepare_turn left the
+        turn looking prepared, so a later Stop matched every send.
+        """
+        backend = _bare_backend()
+        conn = MagicMock()
+        conn.is_alive = True
+        conn.send_request.return_value = {"stopReason": "end_turn"}
+        backend._session_id = "sess-1"
+        backend._session_url = ""
+        backend._session_prompted = True
+
+        def ensure_connection(stop_checker=None):
+            backend._conn = conn
+
+        backend._ensure_connection = ensure_connection
+        q = queue.Queue()
+        backend.send(queue=q, user_message="one", document_context=None, document_url=None)
+        assert ((StreamQueueKind.STREAM_DONE, None)) in (_drain(q))
+        backend.stop()
+        backend.send(queue=q, user_message="two", document_context=None, document_url=None)
+        second = _drain(q)
+        assert ((StreamQueueKind.STREAM_DONE, None)) in (second)
+        assert (StreamQueueKind.STOPPED) not in ([event[0] for event in second])
+        assert (conn.send_request.call_count) == (2)
+        assert (backend._session_id) == ("sess-1")
+        conn.stop.assert_not_called()
+
+    def test_release_of_a_replaced_connection_keeps_the_new_session(self):
+        backend = _bare_backend()
+        old = MagicMock()
+        new = MagicMock()
+        backend._conn = new
+        backend._ready = True
+        backend._session_id = "sess-new"
+        backend._session_url = "file:///a.odt"
+        backend._session_prompted = True
+        backend._release_connection(old)
+        old.stop.assert_called_once()
+        new.stop.assert_not_called()
+        assert (backend._conn) is new
+        assert (backend._session_id) == ("sess-new")
+        assert (backend._ready) is True
+        assert (backend._session_prompted) is True
+        assert (backend._session_url) == ("file:///a.odt")
+
+    def test_release_of_the_current_connection_clears_the_session(self):
+        backend = _bare_backend()
+        conn = MagicMock()
+        backend._conn = conn
+        backend._ready = True
+        backend._session_id = "sess"
+        backend._session_url = "file:///a.odt"
+        backend._session_prompted = True
+        backend._release_connection(conn)
+        conn.stop.assert_called_once()
+        assert (backend._conn) is None
+        assert (backend._session_id) is None
+        assert (backend._ready) is False
+        assert (backend._session_prompted) is False
+        assert (backend._session_url) is None
 
     def test_previous_stop_does_not_abort_the_next_send(self):
         backend = _bare_backend()

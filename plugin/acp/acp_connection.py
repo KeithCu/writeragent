@@ -406,7 +406,7 @@ class ACPConnection:
                         try:
                             proc.wait(timeout=3)
                         except Exception:
-                            pass
+                            log.debug("ACP process wait failed", exc_info=True)
                     break
                 try:
                     stdin = item.proc.stdin if item.proc is not None else None
@@ -488,8 +488,12 @@ class ACPConnection:
             entry = self._pending.pop(req_id, None)
 
         resp = entry.response if entry is not None else None
-        if resp and "error" in resp:
-            err = resp["error"]
+        # What was wrong: ``"error" in resp`` is true when the field is JSON
+        # null. A successful result was raised as ``ACP error: None``. Why:
+        # JSON-RPC null means there is no error. Only a real error value
+        # fails the request.
+        err = resp.get("error") if resp else None
+        if err is not None:
             msg_str = err.get("message", str(err)) if isinstance(err, dict) else str(err)
             raise ToolExecutionError(f"ACP error: {msg_str}")
 

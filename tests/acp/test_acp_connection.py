@@ -550,6 +550,40 @@ class TestStdinWriteCapturesProc:
         assert stdin.written
         assert b"session/prompt" in stdin.written[0]
 
+    def test_null_error_field_returns_the_result(self):
+        """JSON-RPC ``error: null`` is success. The result is returned."""
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+
+        def flush() -> None:
+            with conn._lock:
+                entry = conn._pending.get(1)
+                if entry is not None and entry.response is None:
+                    entry.response = {"result": {"protocolVersion": 1}, "error": None}
+                    entry.event.set()
+
+        proc.stdin.flush.side_effect = flush
+        conn._proc = proc
+        conn._running = True
+        assert (conn.send_request("initialize", {}, timeout=2)) == ({"protocolVersion": 1})
+
+    def test_error_object_still_raises(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+
+        def flush() -> None:
+            with conn._lock:
+                entry = conn._pending.get(1)
+                if entry is not None and entry.response is None:
+                    entry.response = {"error": {"message": "nope"}}
+                    entry.event.set()
+
+        proc.stdin.flush.side_effect = flush
+        conn._proc = proc
+        conn._running = True
+        with pytest.raises(ToolExecutionError, match="nope"):
+            conn.send_request("initialize", {}, timeout=2)
+
     def test_send_request_closed_stdin_is_tool_error(self):
         """A pipe stop() already closed must not escape as ValueError.
 
