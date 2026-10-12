@@ -64,6 +64,13 @@ def test_parse_sync_response_null_usage():
     assert images == []
     assert shim.parse_image_responses(["nope"]) == []
 
+    # A string tool_calls is truthy, so the caller used to rewrite
+    # finish_reason to tool_calls and then drop the value. A list usage
+    # has no .get and crashed token accounting.
+    _content, _finish, tools, bad_usage, _images, _message = shim.parse_sync_response({"choices": [{"message": {"role": "assistant", "content": "hi", "tool_calls": "x"}}], "usage": ["not", "a", "dict"]})
+    assert tools is None
+    assert bad_usage == {}
+
 
 def test_coerce_image_data_url_keeps_any_data_url():
     # A non-image data URL used to get a second data:image/png prefix.

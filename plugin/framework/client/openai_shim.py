@@ -26,12 +26,20 @@ def _openai_reasoning_model(model_name: str | None) -> bool:
     name = str(model_name or "").strip().lower()
     if not name:
         return False
+    # Fine-tune ids are ft:<base>:<org>:<suffix>:<id>. Splitting on '/' first
+    # turned ft:gpt-5-mini:org/team:name:id into team:name:id, so the gpt-5
+    # base kept max_tokens and api.openai.com returned 400. The base is the
+    # field after ft:, including when a provider prefix sits in front
+    # (openai/ft:...). A '/' inside that base (ft:openai/gpt-5-mini:...) is
+    # stripped afterwards.
+    # https://developers.openai.com/api/reference/resources/fine_tuning/subresources/jobs/methods/create
+    ft_at = name.find("ft:")
+    if ft_at != -1 and (ft_at == 0 or name[ft_at - 1] in "/:"):
+        base = name[ft_at + 3 :].split(":", 1)[0]
+        if base:
+            name = base
     if "/" in name:
         name = name.rsplit("/", 1)[-1]
-    if name.startswith("ft:"):
-        parts = name.split(":")
-        if len(parts) > 1 and parts[1]:
-            name = parts[1]
     # ChatGPT snapshots (gpt-5-chat-latest, gpt-5.1-chat-latest,
     # gpt-5.2-chat-latest) accept max_tokens and a non-default temperature.
     # Their model pages do not list reasoning-token support; gpt-5.1 does.

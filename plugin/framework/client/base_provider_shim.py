@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from typing import Any
@@ -14,6 +15,27 @@ from typing import Any
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
 from plugin.framework.url_utils import get_url_path_and_query
+
+# Keys WriterAgent builds; openrouter_chat_extra must not replace these.
+# Lives here so chat payload assembly does not import llm_client (that
+# module imports this package's registry at load time).
+OPENROUTER_CHAT_EXTRA_BLOCKLIST: frozenset[str] = frozenset({"messages", "tools", "tool_choice", "stream"})
+
+
+def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | None) -> None:
+    """Merge *extra* into *base* in place. Skips blocklisted keys; recurses into dict values."""
+    if not extra:
+        return
+    for key, val in extra.items():
+        if key in OPENROUTER_CHAT_EXTRA_BLOCKLIST:
+            continue
+        if key in base and isinstance(base[key], dict) and isinstance(val, dict):
+            merge_openrouter_chat_extra(base[key], val)
+        elif isinstance(val, dict):
+            base[key] = copy.deepcopy(val)
+        else:
+            base[key] = val
+
 
 # Named UI / tool values → OpenRouter / Gemini aspect_ratio strings.
 _NAMED_ASPECT_RATIOS: dict[str, str] = {
@@ -47,8 +69,10 @@ def canonical_aspect_ratio(width: int | None = None, height: int | None = None, 
     """Return a provider aspect-ratio hint (``1:1``, ``16:9``, …) or None.
 
     Named UI/tool values win. Pixel WxH maps to the closest standard ratio
-    within a small tolerance so 64-pixel rounding (``896x512``) still yields
-    ``16:9``.
+    within about 7% so 64-pixel rounding (``896x512``) still yields ``16:9``.
+    An absolute 0.12 gap mapped ``512x1024`` (1:2) onto ``9:16`` while
+    ``1024x512`` stayed unmapped, and OpenRouter then sent that aspect
+    instead of the pixel size.
     """
     if named:
         key = str(named).strip().lower().replace(" ", "_").replace("(", "").replace(")", "")
@@ -59,7 +83,7 @@ def canonical_aspect_ratio(width: int | None = None, height: int | None = None, 
         return None
     ratio = width / height
     label, expected = min(_PIXEL_ASPECT_RATIOS, key=lambda item: abs(ratio - item[1]))
-    if abs(ratio - expected) <= 0.12:
+    if expected and abs(ratio / expected - 1) <= 0.07:
         return label
     return None
 
@@ -217,8 +241,6 @@ class BaseProviderShim:
     def _chat_payload(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        from .llm_client import merge_openrouter_chat_extra
-
         # top_p used to be hardcoded to 0.9 on every OpenAI-compatible chat.
         # Models that reject temperature and top_p together returned HTTP 400,
         # and there is no top_p setting. Omit it, same as a missing temperature.
@@ -317,9 +339,17 @@ class BaseProviderShim:
         if not isinstance(images, list):
             images = []
         tool_calls = message.get("tool_calls")
+        # A string tool_calls is truthy. request_with_tools then rewrites
+        # finish_reason to tool_calls, and coalesce_split_tool_calls drops
+        # the value because it is not a list.
+        if not isinstance(tool_calls, list):
+            tool_calls = None
         # JSON "usage": null makes .get("usage", {}) return None, because the
-        # key is present. ``or {}`` normalizes that to a dict.
-        usage = response_data.get("usage") or {}
+        # key is present. A list or string used to pass through, and callers
+        # call usage.get.
+        usage = response_data.get("usage")
+        if not isinstance(usage, dict):
+            usage = {}
 
         return content, finish_reason, tool_calls, usage, images, message
 

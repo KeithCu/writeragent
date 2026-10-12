@@ -575,6 +575,10 @@ class TestCanonicalAspectRatio:
         assert (canonical_aspect_ratio(1024, 1024)) == ("1:1")
         assert (canonical_aspect_ratio(1024, 576)) == ("16:9")
         assert (canonical_aspect_ratio(896, 512)) == ("16:9")
+        # 1:2 is within an absolute 0.12 of 9:16, but 2:1 is not within 0.12
+        # of 16:9. Both stay unmapped so the caller sends the pixel size.
+        assert (canonical_aspect_ratio(512, 1024)) is None
+        assert (canonical_aspect_ratio(1024, 512)) is None
         assert (canonical_aspect_ratio(1024, 768)) == ("4:3")
         assert (canonical_aspect_ratio(768, 1024)) == ("3:4")
 
