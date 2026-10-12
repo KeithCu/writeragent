@@ -124,8 +124,10 @@ def adjust_image_body_for_rejection(body: bytes, error_text: str) -> bytes | Non
                 else:
                     accepted_sets.append([])
 
-            # find intersection of all non-empty accepted sets
-            # if they disagree, or no accepted values provided, delete the param
+            # Intersect the non-empty Accepted lists. A line with no list is
+            # ignored when another line names a value, so the retry uses that
+            # value. Delete the param only when those lists do not overlap,
+            # or when nobody named a value.
             valid_accepted = [s for s in accepted_sets if s]
             if valid_accepted:
                 common = set(valid_accepted[0])
@@ -167,6 +169,16 @@ def coerce_raw_b64(image_url: str | None = None, source_image: str | None = None
     ref = image_url or source_image
     if not ref:
         return None
+    # Ollama's REST ``images[]`` and Gemini ``inlineData.data`` are raw base64.
+    # An http(s) URL used to be returned unchanged and sent as if it were
+    # base64. Ollama does not fetch URLs on this route, and a Gemini URL
+    # belongs in ``fileData.fileUri``, which this client does not send.
+    # https://docs.ollama.com/api/generate
+    # https://ai.google.dev/gemini-api/docs/generate-content/image-understanding
+    if ref.startswith(("http://", "https://")):
+        raise ValueError("Ollama and Gemini image edits need raw base64 or a data URL, not an http(s) URL.")
+    # A data URL with no comma stays the whole string. Stripping at the first
+    # comma is the only split; Anthropic skips that shape before calling here.
     if ref.startswith("data:") and "," in ref:
         return ref.split(",", 1)[1]
     return ref
@@ -189,6 +201,14 @@ class BaseProviderShim:
 
     def __init__(self, client: Any) -> None:
         self.client = client
+
+    def _url(self, suffix: str) -> str:
+        """``endpoint + api_path + suffix``. Ollama and Google build their own URLs."""
+        return self.client._endpoint() + self.client._api_path() + suffix
+
+    def _post(self, url: str, data: dict[str, Any], headers: dict[str, str] | None = None) -> tuple[str, str, bytes, dict[str, str]]:
+        path = get_url_path_and_query(url)
+        return "POST", path, json.dumps(data).encode("utf-8"), headers if headers is not None else self.client._headers()
 
     def _chat_payload(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
@@ -224,12 +244,8 @@ class BaseProviderShim:
     def build_chat_request(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
     ) -> tuple[str, str, bytes, dict[str, str]]:
-        endpoint = self.client._endpoint()
-        api_path = self.client._api_path()
-        url = endpoint + api_path + "/chat/completions"
         data = self._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
-        path = get_url_path_and_query(url)
-        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+        return self._post(self._url("/chat/completions"), data)
 
     def parse_response_chunk(self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None) -> tuple[str, str | None, str | None, dict[str, Any]]:
         from .stream_normalizer import _extract_thinking_from_delta, _normalize_message_content
@@ -302,7 +318,12 @@ class BaseProviderShim:
 
     def _image_payload(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> dict[str, Any]:
         """Generic OpenAI-compatible generations body. Official OpenAI overrides the request."""
-        data: dict[str, Any] = {"prompt": prompt, "n": 1, "size": f"{width}x{height}", "response_format": "b64_json"}
+        data: dict[str, Any] = {"prompt": prompt, "n": 1, "response_format": "b64_json"}
+        # image_generate floors with (n // 64) * 64 and keeps an explicit 0.
+        # "0x512" is not a size any host accepts. Omit the field and let the
+        # server default apply. OpenAI buckets sizes itself; Together drops size.
+        if width > 0 and height > 0:
+            data["size"] = f"{width}x{height}"
         if model:
             data["model"] = model
         if steps:
@@ -315,12 +336,8 @@ class BaseProviderShim:
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         """Build an image generation request (standard OpenAI format)."""
-        endpoint = self.client._endpoint()
-        api_path = self.client._api_path()
-        url = endpoint + api_path + "/images/generations"
         data = self._image_payload(prompt, model, width, height, steps, source_image, image_url)
-        path = get_url_path_and_query(url)
-        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+        return self._post(self._url("/images/generations"), data)
 
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
         """Extract list of base64 image data from response (standard OpenAI format)."""

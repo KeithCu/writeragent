@@ -12,7 +12,6 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
-from plugin.framework.url_utils import get_url_path_and_query
 from .base_provider_shim import BaseProviderShim, coerce_raw_b64, inline_image_mime
 
 log = logging.getLogger(__name__)
@@ -432,8 +431,7 @@ class AnthropicShim(BaseProviderShim):
             if effort in ("low", "medium", "high", "max"):
                 data["output_config"] = {"effort": effort}
 
-        path = get_url_path_and_query(url)
-        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+        return self._post(url, data)
 
     def parse_response_chunk(self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None) -> tuple[str, str | None, str | None, dict[str, Any]]:
         msg_type = chunk.get("type", "")

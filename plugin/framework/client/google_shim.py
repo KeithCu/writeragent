@@ -10,11 +10,9 @@ with Google's native REST interface for image generation (Imagen & Gemini Multim
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
-from plugin.framework.url_utils import get_url_path_and_query
 from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_raw_b64, inline_image_mime
 
 log = logging.getLogger(__name__)
@@ -61,11 +59,10 @@ class GoogleShim(BaseProviderShim):
                 image_config["imageSize"] = res
             data = {"contents": [{"role": "user", "parts": parts}], "generationConfig": {"responseModalities": ["IMAGE", "TEXT"], "imageConfig": image_config}}
 
-        path = get_url_path_and_query(url)
         headers = dict(self.client._headers())
         if key:
             headers["x-goog-api-key"] = key
-        return "POST", path, json.dumps(data).encode("utf-8"), headers
+        return self._post(url, data, headers)
 
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
         out: list[str] = []

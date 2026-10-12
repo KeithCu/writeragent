@@ -212,6 +212,20 @@ def test_openai_reasoning_models_send_max_completion_tokens(model):
     assert "temperature" not in data
 
 
+@pytest.mark.parametrize("model", ["gpt-5-chat-latest", "openai/gpt-5-chat-latest", "ft:gpt-5-chat-latest:org:name:id"])
+def test_gpt5_chat_latest_keeps_max_tokens_and_temperature(model):
+    """gpt-5-chat-latest accepts max_tokens and temperature. The gpt-5 prefix used to rewrite both."""
+    client = LlmClient(
+        {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": model, "temperature": 0.2},
+        MockContext(),
+    )
+    _method, _path, body, _headers = client.make_chat_request([{"role": "user", "content": "hi"}], max_tokens=50)
+    data = json.loads(body.decode("utf-8"))
+    assert data["max_tokens"] == 50
+    assert "max_completion_tokens" not in data
+    assert data["temperature"] == pytest.approx(0.2)
+
+
 def test_openai_reasoning_model_keeps_default_temperature():
     client = LlmClient(
         {"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "o3", "temperature": 1.0},
@@ -1072,15 +1086,17 @@ def test_grok_shim(client):
         mock_auth.return_value = {"provider": "xai"}
         mock_sync.return_value = {"data": []}
 
-        # Test image request for Grok (should omit size)
-        client.image_completion("Draw a cat", model="aurora", width=1024, height=1024)
+        # Test image request for Grok (should omit size and steps)
+        client.image_completion("Draw a cat", model="aurora", width=1024, height=1024, steps=30)
 
         path, body = _posted_json(mock_sync)
         assert body["prompt"] == "Draw a cat"
         assert body["model"] == "aurora"
         assert body["aspect_ratio"] == "1:1"
         assert body["resolution"] == "1k"
+        assert body["response_format"] == "b64_json"
         assert "size" not in body
+        assert "steps" not in body
         assert "quality" not in body
         assert "image" not in body
         assert str(path).endswith("/images/generations")
@@ -1142,6 +1158,11 @@ def test_ollama_shim_image(client):
         assert shim.parse_image_responses({"image": "def"}) == ["def"]
         # Fallback to OpenAI style
         assert shim.parse_image_responses({"data": [{"b64_json": "ghi"}]}) == ["ghi"]
+        # A non-dict body, or a non-string list entry, must not reach the decoder.
+        assert shim.parse_image_responses(["nope"]) == []
+        assert shim.parse_image_responses({"images": ["abc", 1, ""]}) == ["abc"]
+        with pytest.raises(ValueError, match="http"):
+            shim.build_image_request("edit", "flux", 512, 512, image_url="https://example.com/a.png")
 
 
 def test_image_completion_passes_client_timeout(client):

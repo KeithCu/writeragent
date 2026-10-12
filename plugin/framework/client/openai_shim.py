@@ -7,13 +7,11 @@
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.framework.url_utils import get_url_path_and_query
 from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_image_data_url, coerce_raw_b64
 
 # api.openai.com o-series and gpt-5 reject max_tokens. Dated snapshots
@@ -34,6 +32,12 @@ def _openai_reasoning_model(model_name: str | None) -> bool:
         parts = name.split(":")
         if len(parts) > 1 and parts[1]:
             name = parts[1]
+    # gpt-5-chat-latest is the non-reasoning ChatGPT snapshot. It accepts
+    # max_tokens and a non-default temperature. The gpt-5 prefix used to
+    # rewrite it anyway, which dropped the user's temperature.
+    # https://developers.openai.com/api/docs/models/gpt-5-chat-latest
+    if name.startswith("gpt-5-chat"):
+        return False
     return name.startswith(_OPENAI_REASONING_PREFIXES)
 
 
@@ -83,6 +87,7 @@ class OpenAIShim(BaseProviderShim):
         return data
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
+        # ``steps`` is on the shared signature. The OpenAI Images API has no steps field.
         ref = coerce_image_data_url(image_url, source_image)
         lower_model = str(model).lower() if model else ""
         # dall-e-2 and dall-e-3 were retired on 2026-05-12. dall-e-3 never
@@ -96,9 +101,7 @@ class OpenAIShim(BaseProviderShim):
         if ref and lower_model.startswith("dall-e"):
             raise ValueError(f"{model} cannot edit an existing image. Pick a GPT Image model (gpt-image-… or chatgpt-image-latest).")
 
-        endpoint = self.client._endpoint()
-        api_path = self.client._api_path()
-        url = endpoint + api_path + ("/images/edits" if ref else "/images/generations")
+        url = self._url("/images/edits" if ref else "/images/generations")
         data: dict[str, Any] = {"prompt": prompt, "n": 1}
         if model:
             data["model"] = model
@@ -126,14 +129,14 @@ class OpenAIShim(BaseProviderShim):
 
         if ref:
             data["images"] = [{"image_url": ref}]
-        path = get_url_path_and_query(url)
-        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+        return self._post(url, data)
 
 
 class OllamaShim(BaseProviderShim):
     """Shim for Ollama specifically (handles native /api image endpoints if needed)."""
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
+        # ``steps`` is on the shared signature. Ollama /api/generate has no steps field.
         endpoint = self.client._endpoint()
         url = f"{endpoint}/api/generate"
         eff_model = model or "flux"
@@ -148,14 +151,20 @@ class OllamaShim(BaseProviderShim):
         raw = coerce_raw_b64(image_url, source_image)
         if raw:
             data["images"] = [raw]
-        path = get_url_path_and_query(url)
-        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+        return self._post(url, data)
 
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
+        # A non-dict body, or a list entry that is not a string, used to be
+        # returned as-is. The caller base64-decodes each item and then raises.
+        if not isinstance(response_data, dict):
+            return []
         images = response_data.get("images")
-        if images and isinstance(images, list):
-            return images
-        if img := response_data.get("image"):
+        if isinstance(images, list):
+            out = [item for item in images if isinstance(item, str) and item]
+            if out:
+                return out
+        img = response_data.get("image")
+        if isinstance(img, str) and img:
             return [img]
         if "data" in response_data:
             return super().parse_image_responses(response_data)
@@ -166,9 +175,8 @@ class OpenRouterShim(BaseProviderShim):
     """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
-        endpoint = self.client._endpoint()
-        api_path = self.client._api_path()
-        url = endpoint + api_path + "/images"
+        # ``steps`` is on the shared signature. OpenRouter /images has no steps field.
+        url = self._url("/images")
         # png is the Images API default and is accepted by models that reject
         # webp (black-forest-labs/flux.2-klein-4b returns HTTP 400 for webp).
         # Include "model" only when set; OpenRouter's /images endpoint rejects
@@ -206,17 +214,14 @@ class OpenRouterShim(BaseProviderShim):
         if ref:
             data["input_references"] = [{"type": "image_url", "image_url": {"url": ref}}]
 
-        path = get_url_path_and_query(url)
-        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+        return self._post(url, data)
 
 
 class TogetherShim(BaseProviderShim):
     """Together Images API: Kontext uses image_url; other models use reference_images."""
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
-        endpoint = self.client._endpoint()
-        api_path = self.client._api_path()
-        url = endpoint + api_path + "/images/generations"
+        url = self._url("/images/generations")
         # Start from the generic generations dict. Decoding super()'s bytes
         # just to edit two fields encoded the body twice.
         data = self._image_payload(prompt, model, width, height, steps, source_image, image_url)
@@ -247,8 +252,7 @@ class TogetherShim(BaseProviderShim):
                 data["image_url"] = ref
             else:
                 data["reference_images"] = [ref]
-        path = get_url_path_and_query(url)
-        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
+        return self._post(url, data)
 
 
 def _load_anthropic() -> type[BaseProviderShim]:
