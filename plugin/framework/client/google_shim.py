@@ -15,13 +15,12 @@ import logging
 from typing import Any
 
 from plugin.framework.url_utils import get_url_path_and_query
-from .base_provider_shim import canonical_aspect_ratio, canonical_resolution, coerce_raw_b64, inline_image_mime
-from .openai_shim import OpenAIShim
+from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_raw_b64, inline_image_mime
 
 log = logging.getLogger(__name__)
 
 
-class GoogleShim(OpenAIShim):
+class GoogleShim(BaseProviderShim):
     """Shim for Google Gemini: OpenAI-compatible for chat/tools, native REST for images."""
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
@@ -70,10 +69,14 @@ class GoogleShim(OpenAIShim):
 
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
         out: list[str] = []
-        if "error" in response_data:
+        # A success body can include "error": null. Checking the key treated
+        # that as a failure and raised NetworkError("None") via str(None).
+        # Only a truthy error is a Google API error. Chat parse already
+        # ignores a null error the same way.
+        err = response_data.get("error")
+        if err:
             from plugin.framework.errors import NetworkError
 
-            err = response_data["error"]
             msg = err.get("message", "Unknown Google API error") if isinstance(err, dict) else str(err)
             log.error("Google image generation error: %s", msg)
             raise NetworkError(str(msg), code="HTTP_ERROR")

@@ -5,9 +5,10 @@
 import json
 import pytest
 from unittest.mock import MagicMock
+from plugin.framework.errors import NetworkError
 from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.client.base_provider_shim import BaseProviderShim
 from plugin.framework.client.google_shim import GoogleShim
-from plugin.framework.client.openai_shim import OpenAIShim
 from plugin.tests.testing_utils import MockContext
 
 @pytest.fixture
@@ -16,7 +17,7 @@ def mock_ctx():
 
 
 def test_google_get_shim_returns_google_shim(mock_ctx):
-    """Verify that LlmClient with Google config resolves to GoogleShim (subclass of OpenAIShim)."""
+    """Verify that LlmClient with Google config resolves to GoogleShim (subclass of BaseProviderShim)."""
     config = {
         "endpoint": "https://generativelanguage.googleapis.com",
         "api_key": "test-key",
@@ -25,11 +26,11 @@ def test_google_get_shim_returns_google_shim(mock_ctx):
     client = LlmClient(config, mock_ctx)
     shim = client._get_shim()
     assert isinstance(shim, GoogleShim)
-    assert isinstance(shim, OpenAIShim)
+    assert isinstance(shim, BaseProviderShim)
 
 
 def test_google_chat_request_openai_format(mock_ctx):
-    """Verify that GoogleShim inherits OpenAIShim chat request building with /v1beta/openai/chat/completions."""
+    """Verify that GoogleShim uses the base chat builder at /v1beta/openai/chat/completions."""
     config = {
         "endpoint": "https://generativelanguage.googleapis.com",
         "api_key": "test-gemini-key",
@@ -178,6 +179,11 @@ def test_google_parse_image_responses(mock_ctx):
 
     # Safety blocks send content: null. That used to raise AttributeError.
     assert shim.parse_image_responses({"candidates": [{"content": None}]}) == []
+
+    # "error": null is not a failure. The key check raised NetworkError("None").
+    assert shim.parse_image_responses({"error": None, "predictions": [{"bytesBase64Encoded": "img"}]}) == ["img"]
+    with pytest.raises(NetworkError, match="bad key"):
+        shim.parse_image_responses({"error": {"message": "bad key"}})
 
 
 def test_google_openai_auth_resolution():

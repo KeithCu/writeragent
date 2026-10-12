@@ -10,11 +10,10 @@ import json
 from typing import Any
 
 from plugin.framework.url_utils import get_url_path_and_query
-from .base_provider_shim import canonical_aspect_ratio, canonical_resolution, coerce_image_data_url
-from .openai_shim import OpenAIShim
+from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_image_data_url
 
 
-class GrokShim(OpenAIShim):
+class GrokShim(BaseProviderShim):
     """Shim for xAI Grok API (OpenAI-compatible with Aurora image generation)."""
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:

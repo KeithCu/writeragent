@@ -135,10 +135,13 @@ def test_provider_config_has_no_host_matches_and_grok_alias_is_gone():
     """Detection is the host matcher. ``grok`` duplicated ``xai``."""
     import dataclasses
 
+    from plugin.framework.client.base_provider_shim import BaseProviderShim
     from plugin.framework.client.grok_shim import GrokShim
     from plugin.framework.client.openai_shim import OpenAIShim, _SHIM_REGISTRY, get_provider_shim_class
 
     assert "host_matches" not in {f.name for f in dataclasses.fields(PROVIDERS["openai"])}
     assert "grok" not in _SHIM_REGISTRY
     assert get_provider_shim_class("xai") is GrokShim
-    assert get_provider_shim_class("grok") is OpenAIShim
+    assert get_provider_shim_class("openai") is OpenAIShim
+    # Unknown names, including the old grok alias, use the generic base shim.
+    assert get_provider_shim_class("grok") is BaseProviderShim

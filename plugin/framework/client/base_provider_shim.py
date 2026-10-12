@@ -36,7 +36,8 @@ _NAMED_ASPECT_RATIOS: dict[str, str] = {
     "5:4": "5:4",
 }
 
-# Closest-match table for WxH. Keep 16:9 before 3:2 so 1792x1024 stays 16:9.
+# Closest-match table for WxH. min() picks the nearest ratio, so order
+# matters only when two ratios are exactly the same distance.
 _PIXEL_ASPECT_RATIOS: tuple[tuple[str, float], ...] = (("1:1", 1.0), ("16:9", 16 / 9), ("9:16", 9 / 16), ("4:3", 4 / 3), ("3:4", 3 / 4), ("3:2", 1.5), ("2:3", 2 / 3), ("21:9", 21 / 9), ("4:5", 4 / 5), ("5:4", 5 / 4))
 
 
@@ -152,7 +153,11 @@ def coerce_image_data_url(image_url: str | None = None, source_image: str | None
     ref = image_url or source_image
     if not ref:
         return None
-    if ref.startswith(("data:image", "http://", "https://")):
+    # Any data: URL is already labeled. Wrapping data:application/… again
+    # produced data:image/png;base64,data:application/… and the model could
+    # not decode it. Raw selection bytes stay PNG: get_selected_image_base64
+    # always exports PNG, and raw base64 has no MIME to sniff.
+    if ref.startswith(("data:", "http://", "https://")):
         return ref
     return "data:image/png;base64," + ref
 
@@ -185,14 +190,10 @@ class BaseProviderShim:
     def __init__(self, client: Any) -> None:
         self.client = client
 
-    def build_chat_request(
+    def _chat_payload(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
-    ) -> tuple[str, str, bytes, dict[str, str]]:
+    ) -> dict[str, Any]:
         from .llm_client import merge_openrouter_chat_extra
-
-        endpoint = self.client._endpoint()
-        api_path = self.client._api_path()
-        url = endpoint + api_path + "/chat/completions"
 
         # top_p used to be hardcoded to 0.9 on every OpenAI-compatible chat.
         # Models that reject temperature and top_p together returned HTTP 400,
@@ -207,6 +208,7 @@ class BaseProviderShim:
             data["tool_choice"] = "auto"
             # Always false until the tool loop can apply parallel calls. The
             # config key is stored but not read here; do not send True.
+            # Omitting the field is not safe: OpenAI defaults it to true.
             data["parallel_tool_calls"] = False
         if response_format:
             data["response_format"] = response_format
@@ -217,13 +219,20 @@ class BaseProviderShim:
                 merge_openrouter_chat_extra(data, extra)
         if isinstance(chat_extra, dict) and chat_extra:
             merge_openrouter_chat_extra(data, chat_extra)
+        return data
 
-        json_data = json.dumps(data).encode("utf-8")
+    def build_chat_request(
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+    ) -> tuple[str, str, bytes, dict[str, str]]:
+        endpoint = self.client._endpoint()
+        api_path = self.client._api_path()
+        url = endpoint + api_path + "/chat/completions"
+        data = self._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
         path = get_url_path_and_query(url)
-        return "POST", path, json_data, self.client._headers()
+        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
 
     def parse_response_chunk(self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None) -> tuple[str, str | None, str | None, dict[str, Any]]:
-        from .stream_normalizer import _extract_thinking_from_delta
+        from .stream_normalizer import _extract_thinking_from_delta, _normalize_message_content
 
         choices = chunk.get("choices", [])
         # Unexpected schema (string "choices", non-dict first element) used to
@@ -242,7 +251,12 @@ class BaseProviderShim:
                     finish_reason = c.get("finish_reason")
                     break
 
-        content = (delta.get("content") or "") if delta else ""
+        # Some OpenAI-compatible hosts send delta.content as a list of parts.
+        # Returning that list made ThinkTagStreamSplitter.feed concatenate
+        # str + list, which raised TypeError and aborted the stream. Sync
+        # parse already flattens parts with this helper.
+        raw_content = delta.get("content") if delta else None
+        content = _normalize_message_content(raw_content) or ""
         thinking = _extract_thinking_from_delta(chunk)
         return content, finish_reason, thinking, delta
 
@@ -286,11 +300,8 @@ class BaseProviderShim:
 
         return content, finish_reason, tool_calls, usage, images, message
 
-    def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
-        """Build an image generation request (standard OpenAI format)."""
-        endpoint = self.client._endpoint()
-        api_path = self.client._api_path()
-        url = endpoint + api_path + "/images/generations"
+    def _image_payload(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> dict[str, Any]:
+        """Generic OpenAI-compatible generations body. Official OpenAI overrides the request."""
         data: dict[str, Any] = {"prompt": prompt, "n": 1, "size": f"{width}x{height}", "response_format": "b64_json"}
         if model:
             data["model"] = model
@@ -300,7 +311,14 @@ class BaseProviderShim:
         ref = coerce_image_data_url(image_url, source_image)
         if ref:
             data["image_url"] = ref
+        return data
 
+    def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
+        """Build an image generation request (standard OpenAI format)."""
+        endpoint = self.client._endpoint()
+        api_path = self.client._api_path()
+        url = endpoint + api_path + "/images/generations"
+        data = self._image_payload(prompt, model, width, height, steps, source_image, image_url)
         path = get_url_path_and_query(url)
         return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
 

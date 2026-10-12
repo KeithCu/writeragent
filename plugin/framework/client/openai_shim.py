@@ -37,71 +37,79 @@ def _openai_reasoning_model(model_name: str | None) -> bool:
     return name.startswith(_OPENAI_REASONING_PREFIXES)
 
 
-class OpenAIShim(BaseProviderShim):
-    """Shim for standard OpenAI-compatible providers.
+def _pick_size(width: int, height: int, landscape: str, portrait: str, square: str) -> str:
+    """Bucket WxH into one of three vendor sizes.
 
-    Official ``api.openai.com`` image edit is ``POST /v1/images/edits`` JSON
-    ``images[].image_url``, not a top-level ``image_url`` on generations
+    ``width=0`` used to divide as 0 and pick the portrait size. ``height=0``
+    already became square. Both axes must be positive or the ratio is treated
+    as square. ``image_generate`` can pass 0 after ``(n // 64) * 64``.
+    """
+    ratio = (width / height) if width and height else 1.0
+    if ratio > 1.2:
+        return landscape
+    if ratio < 0.8:
+        return portrait
+    return square
+
+
+class OpenAIShim(BaseProviderShim):
+    """Official ``api.openai.com`` chat and Images API.
+
+    Registered only for provider ``openai``. Other hosts use
+    ``BaseProviderShim`` or their own shim.
+
+    Image edit is ``POST /v1/images/edits`` JSON ``images[].image_url``
     (https://developers.openai.com/api/reference/resources/images/methods/edit).
-    Other hosts keep the generic OpenAI-compat body in ``BaseProviderShim``.
+    GPT Image models reject ``response_format``. ``dall-e-*`` create keeps the
+    legacy body; ``dall-e-*`` edit raises.
     """
 
-    def build_chat_request(
+    def _chat_payload(
         self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
-    ) -> tuple[str, str, bytes, dict[str, str]]:
-        method, path, body, headers = super().build_chat_request(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
+    ) -> dict[str, Any]:
+        data = super()._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
         # api.openai.com o1/o3/o4 and gpt-5 reject max_tokens and any
-        # temperature other than the default (1), which is HTTP 400. Only
-        # provider openai and those families; Groq, OpenRouter, and every
-        # other host keep max_tokens. The documented replacement is
-        # max_completion_tokens.
-        if self.client._get_provider() != "openai" or not _openai_reasoning_model(model_name):
-            return method, path, body, headers
-        data = json.loads(body.decode("utf-8"))
+        # temperature other than the default (1), which is HTTP 400. This
+        # class is only constructed for provider openai; Groq, OpenRouter,
+        # and every other host use a different shim and keep max_tokens.
+        # The documented replacement is max_completion_tokens.
+        if not _openai_reasoning_model(model_name):
+            return data
         if "max_tokens" in data:
             data["max_completion_tokens"] = data.pop("max_tokens")
         temp = data.get("temperature")
         if temp is not None and temp != _OPENAI_DEFAULT_TEMPERATURE:
             data.pop("temperature", None)
-        return method, path, json.dumps(data).encode("utf-8"), headers
+        return data
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
-        if self.client._get_provider() != "openai":
-            return super().build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
-
         ref = coerce_image_data_url(image_url, source_image)
-        # dall-e-3 is generations-only. A prompt-only create while a graphic is
-        # selected would replace it with a new image (same silent miss as
-        # OpenRouter's old image_url / Imagen :predict).
-        if ref and model and str(model).lower().startswith("dall-e-3"):
-            raise ValueError("dall-e-3 cannot edit an existing image. Pick a GPT Image model or dall-e-2.")
+        lower_model = str(model).lower() if model else ""
+        # dall-e-2 and dall-e-3 were retired on 2026-05-12. dall-e-3 never
+        # edited. dall-e-2 edits were multipart image=@file, which this client
+        # does not send. The old error told the user to pick dall-e-2, and a
+        # missing model kept response_format on /images/edits. GPT Image
+        # models (the documented default when model is omitted is
+        # gpt-image-2.5-sunburst) reject that field with HTTP 400.
+        # https://developers.openai.com/api/reference/resources/images/methods/edit
+        # https://developers.openai.com/api/reference/python/resources/images/methods/generate/
+        if ref and lower_model.startswith("dall-e"):
+            raise ValueError(f"{model} cannot edit an existing image. Pick a GPT Image model (gpt-image-… or chatgpt-image-latest).")
 
         endpoint = self.client._endpoint()
         api_path = self.client._api_path()
         url = endpoint + api_path + ("/images/edits" if ref else "/images/generations")
-        data: dict[str, Any] = {"prompt": prompt, "n": 1, "size": f"{width}x{height}", "response_format": "b64_json"}
+        data: dict[str, Any] = {"prompt": prompt, "n": 1}
         if model:
             data["model"] = model
 
-        lower_model = str(model).lower() if model else ""
-        if lower_model.startswith("gpt-image"):
-            data.pop("response_format", None)
-            ratio = width / height if height else 1.0
-            if ratio > 1.2:
-                data["size"] = "1536x1024"
-            elif ratio < 0.8:
-                data["size"] = "1024x1536"
-            else:
-                data["size"] = "1024x1024"
-        elif lower_model.startswith("dall-e-3"):
-            ratio = width / height if height else 1.0
-            if ratio > 1.2:
-                data["size"] = "1792x1024"
-            elif ratio < 0.8:
-                data["size"] = "1024x1792"
-            else:
-                data["size"] = "1024x1024"
+        if lower_model.startswith("dall-e-3"):
+            # Legacy create body. Proxies that still serve the retired id
+            # accept response_format and these three sizes.
+            data["response_format"] = "b64_json"
+            data["size"] = _pick_size(width, height, "1792x1024", "1024x1792", "1024x1024")
         elif lower_model.startswith("dall-e"):
+            data["response_format"] = "b64_json"
             edge = max(width, height)
             if edge <= 256:
                 data["size"] = "256x256"
@@ -109,6 +117,12 @@ class OpenAIShim(BaseProviderShim):
                 data["size"] = "512x512"
             else:
                 data["size"] = "1024x1024"
+        else:
+            # gpt-image*, chatgpt-image-latest, and an omitted or unknown name.
+            # Those models always return b64_json and 400 on response_format.
+            # The three sizes below are valid for every GPT Image model,
+            # including gpt-image-1, which rejects arbitrary WxH.
+            data["size"] = _pick_size(width, height, "1536x1024", "1024x1536", "1024x1024")
 
         if ref:
             data["images"] = [{"image_url": ref}]
@@ -196,12 +210,16 @@ class OpenRouterShim(BaseProviderShim):
         return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
 
 
-class TogetherShim(OpenAIShim):
+class TogetherShim(BaseProviderShim):
     """Together Images API: Kontext uses image_url; other models use reference_images."""
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
-        method, path, body, headers = super().build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
-        data = json.loads(body.decode("utf-8"))
+        endpoint = self.client._endpoint()
+        api_path = self.client._api_path()
+        url = endpoint + api_path + "/images/generations"
+        # Start from the generic generations dict. Decoding super()'s bytes
+        # just to edit two fields encoded the body twice.
+        data = self._image_payload(prompt, model, width, height, steps, source_image, image_url)
         # Together documents width/height integers (Flash Image, FLUX.2) or
         # aspect_ratio (Kontext), not OpenAI size="WxH". Unknown size is
         # ignored, so Square/16:9 never reach the model.
@@ -212,8 +230,6 @@ class TogetherShim(OpenAIShim):
             ratio = canonical_aspect_ratio(width, height)
             if ratio:
                 data["aspect_ratio"] = ratio
-            data.pop("width", None)
-            data.pop("height", None)
         else:
             if width:
                 data["width"] = width
@@ -231,7 +247,8 @@ class TogetherShim(OpenAIShim):
                 data["image_url"] = ref
             else:
                 data["reference_images"] = [ref]
-        return method, path, json.dumps(data).encode("utf-8"), headers
+        path = get_url_path_and_query(url)
+        return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
 
 
 def _load_anthropic() -> type[BaseProviderShim]:
@@ -253,15 +270,24 @@ def _load_google() -> type[BaseProviderShim]:
 
 
 # ``grok`` duplicated ``xai``. Detection returns ``xai``; nothing reads ``grok``.
-_SHIM_REGISTRY: dict[str, Callable[[], type[BaseProviderShim]]] = {"anthropic": _load_anthropic, "google": _load_google, "xai": _load_grok, "ollama": lambda: OllamaShim, "openrouter": lambda: OpenRouterShim, "together": lambda: TogetherShim}
+# ``openai`` is explicit so unknown hosts stay on the generic base body.
+_SHIM_REGISTRY: dict[str, Callable[[], type[BaseProviderShim]]] = {
+    "anthropic": _load_anthropic,
+    "google": _load_google,
+    "openai": lambda: OpenAIShim,
+    "xai": _load_grok,
+    "ollama": lambda: OllamaShim,
+    "openrouter": lambda: OpenRouterShim,
+    "together": lambda: TogetherShim,
+}
 
 
 def get_provider_shim_class(provider: str) -> type[BaseProviderShim]:
-    """Return the provider shim class matching the provider name, defaulting to OpenAIShim.
+    """Return the shim class for ``provider``.
 
-    Standard OpenAI-compatible providers (DeepSeek, Mistral, Cerebras, Groq, NVIDIA NIM, Z.ai)
-    route to OpenAIShim by default. Google routes to GoogleShim (which inherits OpenAIShim for chat/tools
-    and implements native REST for image generation).
+    Unknown OpenAI-compatible hosts (DeepSeek, Mistral, Cerebras, Groq,
+    NVIDIA NIM, Z.ai, custom) use ``BaseProviderShim``. ``openai`` is
+    ``OpenAIShim``. Google, xAI, and Together subclass the base directly.
     """
     loader = _SHIM_REGISTRY.get(provider)
-    return loader() if loader else OpenAIShim
+    return loader() if loader else BaseProviderShim
