@@ -12,7 +12,8 @@ from __future__ import annotations
 import datetime as dt
 import math
 import re
-from typing import Any, cast
+import statistics
+from typing import Any
 
 import numpy as np
 
@@ -167,58 +168,44 @@ def nominal(effect_rate: Any, npery: Any) -> float:
 
 def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
     try:
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
         x_val = float(x)
         m = float(mean)
         s = float(stdev)
         cum = bool(float(c))
         if s <= 0:
             return float("nan")
+        # integralPhi / phi from ScNormDist. scipy.stats was imported inside
+        # the call, so a missing scipy made every value NaN.
+        z = (x_val - m) / s
         if cum:
-            return float(st.norm.cdf(x_val, loc=m, scale=s))
-        return float(st.norm.pdf(x_val, loc=m, scale=s))
-    except (ValueError, TypeError):
+            res = 0.5 * math.erfc(-z / math.sqrt(2.0))
+        else:
+            res = math.exp(-0.5 * z * z) / (s * math.sqrt(2.0 * math.pi))
+        return res if math.isfinite(res) else float("nan")
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def norminv(prob: Any, mean: Any, stdev: Any) -> float:
     try:
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
         p = float(prob)
         m = float(mean)
         s = float(stdev)
         if p <= 0 or p >= 1 or s <= 0:
             return float("nan")
-        return float(st.norm.ppf(p, loc=m, scale=s))
-    except (ValueError, TypeError):
+        # gaussinv(p) is the standard-normal inverse CDF.
+        res = m + s * statistics.NormalDist().inv_cdf(p)
+        return res if math.isfinite(res) else float("nan")
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def normsdist(z: Any) -> float:
-    try:
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
-        return float(st.norm.cdf(float(z)))
-    except (ValueError, TypeError):
-        return float("nan")
+    return normdist(z, 0, 1, True)
 
 
 def normsinv(prob: Any) -> float:
-    try:
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
-        p = float(prob)
-        if p <= 0 or p >= 1:
-            return float("nan")
-        return float(st.norm.ppf(p))
-    except (ValueError, TypeError):
-        return float("nan")
+    return norminv(prob, 0, 1)
 
 
 def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
@@ -268,35 +255,72 @@ def npv(rate: Any, *args: Any) -> float:
     return float(res)
 
 
+# Whole-string decimal that rtl_math_stringToDouble accepts. Python float()
+# also accepts "inf", "nan", and "1_000", which ScNumberValue rejects.
+_NUMBER_TEXT = re.compile(r"^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$")
+
+
 def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
     # When the group separator equals the decimal separator, do not strip it.
     # numbervalue("1,5", ",") is 1.5, not 15.
     try:
-        s = str(text).strip()
+        s = str(text)
+        dec = str(dec_sep)
+        grp = str(grp_sep)
+        # ScNumberValue requires a one-character decimal separator.
+        if len(dec) != 1:
+            return float("nan")
         if not s:
             return 0.0
-        if str(grp_sep) != str(dec_sep):
-            s = s.replace(str(grp_sep), "")
-        if str(dec_sep) != ".":
-            s = s.replace(str(dec_sep), ".")
-        return float(s)
-    except (ValueError, TypeError):
+        if grp != dec:
+            # A decimal mark inside the group separator is IllegalArgument.
+            if dec in grp:
+                return float("nan")
+            # Group marks are removed from the integer part only. Stripping
+            # them from the fraction turned "1.2,3" into 1.23.
+            split_at = s.find(dec)
+            head, tail = (s, "") if split_at < 0 else (s[:split_at], s[split_at:])
+            for ch in grp:
+                head = head.replace(ch, "")
+            s = head + tail
+        if dec != ".":
+            s = s.replace(dec, ".", 1)
+        # Spaces, tabs, and line breaks are removed, then each trailing '%'
+        # divides by 100. float("5%") and float("1 000") used to be NaN.
+        s = "".join(ch for ch in s if ch not in " \t\r\n")
+        percent = 0
+        while s.endswith("%"):
+            s = s[:-1]
+            percent += 1
+        if _NUMBER_TEXT.fullmatch(s) is None:
+            return float("nan")
+        value = float(s) * (10.0 ** (-2 * percent))
+        return value if math.isfinite(value) else float("nan")
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
 def odd(n: Any) -> float:
-    # Text cells used to raise from the unguarded float()/int() coercion.
+    # ScOdd (interpr2.cxx) ceils away from zero, then steps off an even
+    # integer. int(trunc(1.5)) is already odd, so odd(1.5) used to return 1.
     try:
         v = float(n)
-        i = int(np.trunc(v))
+        if not math.isfinite(v):
+            return float("nan")
+        # -0.0 == 0. copysign(1, -0.0) is -1, and ScOdd takes the >= 0 branch.
+        if v == 0.0:
+            return 1.0
+        n_abs = math.ceil(abs(v))
+        if n_abs % 2 == 0:
+            n_abs += 1
+        return math.copysign(float(n_abs), v)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    if i % 2 != 0:
-        return float(i)
-    return float(i + (1 if v >= 0 else -1))
 
 
 def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
+    # GetOddfprice throws. issue and first_coupon are checked so a bad date
+    # is NaN, and they do not change this regular-period approximation.
     try:
         s = float(settlement)
         m = float(maturity)
@@ -307,7 +331,7 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
         red = float(redemption)
         f = float(frequency)
         b = int(float(basis))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
     # frequency 0 used to reach `r / f` and `y / f` (ZeroDivisionError). The
     # `n <= 0` check below only hides that when years is finite. Excel #NUM!.
@@ -317,7 +341,7 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
     days_to_mat = _days_between(s, m, b)
     years = days_to_mat / 365.25 if b == 1 else days_to_mat / 360.0
     n = years * f
-    if n <= 0:
+    if n <= 0 or not math.isfinite(n):
         return float("nan")
 
     # yld == -frequency makes (1 + y/f) zero. The coupon loop then divides by
@@ -328,11 +352,19 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
 
     c = 100 * r / f
     price = sum(c / (discount_base ** i) for i in range(1, int(n) + 1))
-    price += red / (discount_base ** n)
-    return price
+    # A negative base raised to a float is a Python complex and does not raise.
+    tail = discount_base ** n
+    if isinstance(tail, complex) or tail == 0:
+        return float("nan")
+    price += red / tail
+    if isinstance(price, complex) or not math.isfinite(price):
+        return float("nan")
+    return float(price)
 
 
 def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
+    # GetOddfyield throws. This is Y = (C + (F-P)/n) / ((F+P)/2). Frequency
+    # is validated and does not enter the approximation.
     try:
         s = float(settlement)
         m = float(maturity)
@@ -343,13 +375,14 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
         red = float(redemption)
         _f = float(frequency)
         b = int(float(basis))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+    if _f == 0:
         return float("nan")
 
-    # Approx yield using simple formula: Y = (C + (F-P)/n) / ((F+P)/2)
     days_to_mat = _days_between(s, m, b)
     years = days_to_mat / 365.25 if b == 1 else days_to_mat / 360.0
-    if years <= 0:
+    if years <= 0 or not math.isfinite(years):
         return float("nan")
     c = 100 * r
     # (red + price) / 2 is the denominator. Opposite signs of equal magnitude
@@ -370,38 +403,35 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
         red = float(redemption)
         f = float(frequency)
         b = int(float(basis))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
     # frequency 0 used to raise ZeroDivisionError on `360 / f` and `y / f`.
+    # GetOddlprice cancels frequency, and a zero frequency is still #NUM!.
     if f == 0:
         return float("nan")
+    # GetOddlprice (analysishelper.cxx). The old power of (1 + y/f) used
+    # 365.25 or 360 for every other basis, so basis 3 was Actual/360.
+    # A negative base raised to that fraction was a Python complex.
+    from .calc_functions_t_z import yearfrac
 
-    days_in_reg_period = 365.25 / f if b == 1 else 360.0 / f
-    days_li_to_m = _days_between(li, m, b)
-    last_period_frac = days_li_to_m / days_in_reg_period
-
-    days_s_to_m = _days_between(s, m, b)
-    settle_frac = days_s_to_m / days_in_reg_period
-
-    if last_period_frac <= 0 or settle_frac <= 0:
+    span_last_mat = yearfrac(li, m, b)
+    span_set_mat = yearfrac(s, m, b)
+    span_last_set = yearfrac(li, s, b)
+    if (
+        not math.isfinite(span_last_mat)
+        or not math.isfinite(span_set_mat)
+        or not math.isfinite(span_last_set)
+        or span_last_mat <= 0
+        or span_set_mat <= 0
+    ):
         return float("nan")
-
-    # yld == -frequency makes (1 + y/f) zero and the price power raises
-    # ZeroDivisionError. Excel ODDLPRICE is #NUM!.
-    discount_base = 1.0 + y / f
-    if abs(discount_base) < 1e-12:
+    denom = 1.0 + span_set_mat * y
+    if denom == 0.0:
         return float("nan")
-
-    c = 100 * r / f
-    last_c = c * last_period_frac
-
-    price = (red + last_c) / (discount_base ** settle_frac)
-
-    days_li_to_s = _days_between(li, s, b)
-    accrued_frac = days_li_to_s / days_in_reg_period
-    accrued_interest = c * accrued_frac
-
-    return price - accrued_interest
+    price = (red + span_last_mat * 100.0 * r) / denom - span_last_set * 100.0 * r
+    if not math.isfinite(price):
+        return float("nan")
+    return float(price)
 
 
 def pearson(data1: Any, data2: Any) -> float:
@@ -412,12 +442,10 @@ def pearson(data1: Any, data2: Any) -> float:
         d1_clean, d2_clean = cleaned
         if len(d1_clean) <= 1:
             return float("nan")
-        st = _scipy_stats()
-        if st is None:
-            return float("nan")
-        corr, _p = st.pearsonr(d1_clean, d2_clean)
-        return float(cast("float", corr))
-    except (ValueError, TypeError):
+        # ScPearson is the correlation. np.corrcoef is the same value rsq squares.
+        corr = float(np.corrcoef(d1_clean, d2_clean)[0, 1])
+        return corr if math.isfinite(corr) else float("nan")
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -516,7 +544,7 @@ def prob(data: Any, probs: Any, x_start: Any, x_end: Any | None = None) -> float
         end = float(x_end) if x_end is not None else start
         mask = (d >= start) & (d <= end)
         return float(np.sum(p[mask]))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -588,46 +616,79 @@ def _translate_calc_replacement(rep: str) -> str:
     return re.sub(r"\$\$|\$&|\$[0-9]+", _sub, rep)
 
 
-def regex(text: Any, expr: Any, replacement: Any | None = None, flags: str = "") -> str | float:
+def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "") -> str | float:
     # Calc replacements are $1, $&, and $$. re.sub wants \g<n>, \g<0>, and a literal $.
+    # ScRegex (interpr1.cxx): the 4th argument is an occurrence or a flag
+    # string. Search returns the whole match. m.group(1) is None when an
+    # optional group does not participate, so REGEX("b", "(a)?b") returned None.
     try:
         if text is None:
             text = ""
         text_str = str(text)
         expr_str = str(expr)
+        occurrence = 1
         re_flags = 0
-        if "i" in str(flags).lower():
-            re_flags |= re.IGNORECASE
+        global_replace = False
+        if isinstance(flags, (bool, np.bool_)):
+            return float("nan")
+        if isinstance(flags, (int, float, np.integer, np.floating)):
+            if not math.isfinite(float(flags)):
+                return float("nan")
+            occurrence = int(flags)
+            if occurrence < 0:
+                return float("nan")
+        else:
+            flag_text = str(flags).lower()
+            if any(ch not in "gi" for ch in flag_text):
+                return float("nan")
+            if "i" in flag_text:
+                re_flags |= re.IGNORECASE
+            global_replace = "g" in flag_text
+        # Occurrence 0 is the original text, even when the pattern is invalid.
+        if occurrence == 0:
+            return text_str
         if replacement is None:
-            if "g" in str(flags).lower():
-                matches = re.findall(expr_str, text_str, flags=re_flags)
-                if not matches:
-                    return ""
-                if isinstance(matches[0], tuple):
-                    return ", ".join("".join(m) for m in matches)
-                return ", ".join(matches)
-            m = re.search(expr_str, text_str, flags=re_flags)
-            if m:
-                return m.group(1) if m.groups() else m.group(0)
-            return ""
+            # "g" with no replacement does not comma-join every match.
+            found = 0
+            for match in re.finditer(expr_str, text_str, flags=re_flags):
+                found += 1
+                if found == occurrence:
+                    return match.group(0)
+            return "#N/A"
         rep_str = _translate_calc_replacement(str(replacement))
-        if "g" in str(flags).lower():
-            return re.sub(expr_str, rep_str, text_str, flags=re_flags)
-        return re.sub(expr_str, rep_str, text_str, count=1, flags=re_flags)
+        seen = 0
+
+        def _replace_nth(match: re.Match[str]) -> str:
+            nonlocal seen
+            seen += 1
+            if global_replace or seen == occurrence:
+                return match.expand(rep_str)
+            return match.group(0)
+
+        return re.sub(expr_str, _replace_nth, text_str, flags=re_flags)
     except re.error:
         return float("nan")
+
+
+# ScRept rejects a result longer than kScInterpreterMaxStrLen (SAL_MAX_INT32 / 8).
+_MAX_REPT_CHARS = 2**31 // 8
 
 
 def rept(text: Any, n: Any) -> str | float:
     try:
         count = int(float(n))
     except (ValueError, TypeError, OverflowError):
-        return ""
+        # A text count used to return "". GetStringPositionArgument does not.
+        return float("nan")
     # `"text" * -1` is "" in Python and does not raise. Excel REPT truncates
     # first, then returns #VALUE! when the count is still negative.
     if count < 0:
         return float("nan")
-    return str(text) * count
+    body = str(text)
+    # Check before allocating. Excel's 32767 is not this limit.
+    if count and body and count > _MAX_REPT_CHARS // len(body):
+        return float("nan")
+    return body * count
 
 
 def rsq(data_y: Any, data_x: Any) -> float:
@@ -674,22 +735,26 @@ def seriessum(x: Any, n: Any, m: Any, coefficients: Any) -> float:
         if isinstance(res, complex) or not math.isfinite(res):
             return float("nan")
         return float(res)
-    except Exception:
+    except (ValueError, TypeError, OverflowError, ZeroDivisionError):
         return float("nan")
 
 
 def skew(*args: Any) -> float:
-    st = _scipy_stats()
-    if st is None:
+    # ScSkew (interpr3.cxx CalculateSkewOrSkewp, bSkewp false):
+    # n * sum(((x - mean) / s)^3) / ((n - 1) * (n - 2)), s = sample stdev.
+    # scipy.stats.skew(bias=False) is that formula. Text and bools stay out,
+    # same as RANK.
+    arr = _extract_numeric_array(*args)
+    n = len(arr)
+    if n < 3:
         return float("nan")
-    arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True)
-    if len(arr) < 3 or np.std(arr, ddof=1) == 0:
+    s = float(np.std(arr, ddof=1))
+    if s == 0.0 or not math.isfinite(s):
         return float("nan")
-    try:
-        res = float(st.skew(arr, bias=False))
-        return res if math.isfinite(res) else float("nan")
-    except Exception:
-        return float("nan")
+    mean = float(np.mean(arr))
+    acc = float(np.sum(((arr - mean) / s) ** 3))
+    res = n * acc / ((n - 1) * (n - 2))
+    return float(res) if math.isfinite(res) else float("nan")
 
 
 def slope(data_y: Any, data_x: Any) -> float:
@@ -730,11 +795,16 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
         return float("nan")
     # int(float()) on text or a blank sort_index/order used to raise ValueError.
     # max(1, ...) used to clamp a non-positive index onto the first row/column.
+    # ScSort (interpr1.cxx) accepts only sort_order 1 and -1. >= 0 treated 0
+    # and 2 as ascending (PushIllegalParameter).
     try:
         si = int(float(sort_index))
-        asc = int(float(sort_order)) >= 0
+        order = float(sort_order)
     except (ValueError, TypeError, OverflowError):
         return float("nan")
+    if order != 1.0 and order != -1.0:
+        return float("nan")
+    asc = order > 0.0
     if arr.ndim == 1:
         indices = list(range(arr.size))
         indices.sort(key=lambda i: _calc_sort_key(arr[i]), reverse=not asc)
@@ -758,21 +828,26 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
 
 
 def _sort_order_sign(val: Any) -> int | None:
-    """Scalar Excel sort direction, or None when ``val`` is a by_array.
+    """Scalar Calc sort direction, or None when ``val`` is a by_array.
 
-    Positive and zero are ascending; negative is descending. Lists, tuples, and
-    ndarrays are keys, so an omitted sort_order can be told apart from the next
-    by_array in ``SORTBY(array, by1, [order1], by2, [order2], ...)``.
+    ScSortBy accepts only 1 and -1. ``0`` is an illegal order, not another key:
+    returning None made ``sortby(data, keys, 0, other)`` parse ``0`` as a key.
+    Lists, tuples, ndarrays, and bools stay keys, so an omitted sort_order can
+    be told apart from the next by_array.
     """
-    if isinstance(val, (bool, np.ndarray, list, tuple)):
+    if isinstance(val, (bool, np.bool_, np.ndarray, list, tuple)):
         return None
     try:
         num = float(val)
     except (ValueError, TypeError, OverflowError):
         return None
-    if math.isnan(num) or math.isinf(num):
-        return None
-    return 1 if num >= 0 else -1
+    if num == 1.0:
+        return 1
+    if num == -1.0:
+        return -1
+    if math.isfinite(num):
+        return 0
+    return None
 
 
 def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: Any) -> list[Any] | float:
@@ -789,6 +864,8 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
     specs: list[tuple[Any, int]] = []
     rest: list[Any] = list(extra)
     primary = _sort_order_sign(sort_order)
+    if primary == 0:
+        return float("nan")
     if primary is None:
         specs.append((by_array, 1))
         rest.insert(0, sort_order)
@@ -800,31 +877,58 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
         sign = 1
         if idx + 1 < len(rest):
             nxt = _sort_order_sign(rest[idx + 1])
+            if nxt == 0:
+                return float("nan")
             if nxt is not None:
                 sign = nxt
                 idx += 1
         specs.append((key, sign))
         idx += 1
 
-    n = int(arr.shape[0] if arr.ndim > 1 else arr.size)
+    # ScSortBy: a 1-D key sorts rows (length must match). A 2-D key of shape
+    # (1, ncols) sorts columns; shape (nrows, 1) sorts rows. Mixed axes are
+    # illegal. A 1-D range has no column axis, so a 2-D key is raveled.
+    nrows = int(arr.shape[0] if arr.ndim > 1 else arr.size)
+    ncols = int(arr.shape[1]) if arr.ndim > 1 else None
+    axis: str | None = None
     keys: list[tuple[Any, bool]] = []
     for key, sign in specs:
-        flat = np.asarray(key, dtype=object).ravel()
-        # Slicing a shorter key and indexing arr[order] dropped the leftover
-        # rows. Excel returns #VALUE! when a by_array length does not match.
-        if int(flat.size) != n:
+        key_arr = np.asarray(key, dtype=object)
+        if arr.ndim == 1 or key_arr.ndim <= 1:
+            flat = key_arr.ravel()
+            if int(flat.size) != nrows:
+                return float("nan")
+            this_axis = "row"
+        elif (
+            ncols is not None
+            and key_arr.ndim == 2
+            and tuple(key_arr.shape) == (1, ncols)
+        ):
+            flat = key_arr.ravel()
+            this_axis = "col"
+        elif key_arr.ndim == 2 and tuple(key_arr.shape) == (nrows, 1):
+            flat = key_arr.ravel()
+            this_axis = "row"
+        else:
             return float("nan")
-        keys.append((flat, sign >= 0))
+        if axis is None:
+            axis = this_axis
+        elif axis != this_axis:
+            return float("nan")
+        keys.append((flat, sign > 0))
 
     try:
-        order_list = list(range(n))
+        width = ncols if axis == "col" and ncols is not None else nrows
+        order_list = list(range(width))
         for flat, asc in reversed(keys):
             target_flat = flat
-            order_list.sort(key=lambda idx: _calc_sort_key(target_flat[idx]), reverse=not asc)
+            order_list.sort(key=lambda pos: _calc_sort_key(target_flat[pos]), reverse=not asc)
+        if axis == "col":
+            return arr[:, order_list].tolist()
         if arr.ndim == 1:
             return arr.ravel()[order_list].tolist()
         return arr[order_list].tolist()
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, IndexError):
         return float("nan")
 
 
@@ -834,7 +938,7 @@ def sqrtpi(number: Any) -> float:
         if n < 0:
             return float("nan")
         return float(math.sqrt(n * math.pi))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -846,7 +950,7 @@ def standardize(x: Any, mean: Any, stdev: Any) -> float:
         if s <= 0:
             return float("nan")
         return float((val - m) / s)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -865,8 +969,9 @@ def stdevpa(*args: Any) -> float:
 
 
 def steyx(data_y: Any, data_x: Any) -> float:
-    from plugin.scripting.venv.calc_functions_i_m import intercept
-
+    # ScSTEYX is CalculatePearsonCovar. sqrt((Syy - Sxy^2/Sxx) / (n-2))
+    # is that residual. The old path imported intercept, which imports slope
+    # from this module, and walked the pairs three times.
     cleaned = _clean_paired_arrays(data_y, data_x)
     if cleaned is None:
         return float("nan")
@@ -874,34 +979,64 @@ def steyx(data_y: Any, data_x: Any) -> float:
     n = len(y)
     if n < 3:
         return float("nan")
-    s = slope(y, x)
-    i = intercept(y, x)
-    y_hat = s * x + i
-    ss_resid = np.sum((y - y_hat) ** 2)
-    return float(math.sqrt(ss_resid / (n - 2)))
+    dx = x - np.mean(x)
+    dy = y - np.mean(y)
+    sxx = float(np.sum(dx * dx))
+    if sxx == 0.0 or not math.isfinite(sxx):
+        return float("nan")
+    sxy = float(np.sum(dx * dy))
+    syy = float(np.sum(dy * dy))
+    resid = syy - (sxy * sxy) / sxx
+    # A perfect line leaves a tiny negative from float noise.
+    if resid < 0.0:
+        resid = 0.0
+    if not math.isfinite(resid):
+        return float("nan")
+    return float(math.sqrt(resid / (n - 2)))
+
+
+def _cell_number(val: Any) -> float | None:
+    """Calc number in a range cell, or None when the cell is blank or text.
+
+    TRUE is 1 and FALSE is 0. Text, including ``"5"``, is not a number
+    (GetDoubleArray / ScSumProduct skip ElementNaN and strings). OverflowError
+    from a huge integer propagates so the caller can return NaN for the call.
+    """
+    if val is None or val == "":
+        return None
+    if isinstance(val, str):
+        return None
+    return float(val)
 
 
 def subtotal(fn_num: Any, r: Any) -> float:
     # int(float(fn_num)) raises on text. Match small() / steyx and return NaN.
     try:
-        fn = int(float(fn_num)) % 100
-        flat = np.asarray(r).ravel()
+        fn = int(float(fn_num))
+        # dtype=object keeps True and "5" distinct. Default asarray turned
+        # [1, True, "5"] into strings, then float("True") dropped the bool
+        # and float("5") added the text.
+        flat = np.asarray(r, dtype=object).ravel()
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    # 101–111 collapse via % 100. 0 and anything else outside 1–11 used to
-    # fall through to SUM. Excel SUBTOTAL is #VALUE!.
+    # ScSubTotal (interpr1.cxx) subtracts 100 once for the hidden-row codes
+    # 101–111. This helper cannot see hidden rows, so 109 is still SUM.
+    # fn % 100 mapped 201 onto AVERAGE and 211 onto VARP.
+    if fn > 100:
+        fn -= 100
     if fn < 1 or fn > 11:
         return float("nan")
-    nums = []
+    nums: list[float] = []
     for x in flat:
-        if x is None or x == "":
-            continue
         try:
-            v = float(x)
-            if not np.isnan(v):
-                nums.append(v)
+            v = _cell_number(x)
+        except OverflowError:
+            return float("nan")
         except (ValueError, TypeError):
-            pass
+            continue
+        if v is None or math.isnan(v):
+            continue
+        nums.append(v)
     arr = np.asarray(nums, dtype=float)
     if fn == 1:
         # Empty AVERAGE is #DIV/0!.
@@ -976,9 +1111,9 @@ def sumifs(sr: Any, *args: Any) -> float:
 
 
 def sumproduct(*args: Any) -> float:
-    arrays = [np.asarray(a) for a in args]
-    if not arrays:
+    if not args:
         return 0.0
+    arrays = [np.asarray(a, dtype=object) for a in args]
     # Excel SUMPRODUCT returns #VALUE! when the arrays are not the same shape.
     # Ravelling and stopping at min_len used to drop the tail and return a partial sum.
     shape = arrays[0].shape
@@ -990,10 +1125,18 @@ def sumproduct(*args: Any) -> float:
         prod = 1.0
         for arr in flat:
             try:
-                prod *= float(arr[i])
+                val = _cell_number(arr[i])
+            except OverflowError:
+                # float(10**10000) used to escape the ValueError handler.
+                return float("nan")
             except (ValueError, TypeError):
                 prod = 0.0
                 break
+            # Blank and text are a zero factor. A numeric NaN stays NaN.
+            if val is None:
+                prod = 0.0
+                break
+            prod *= val
         total += prod
     return float(total)
 
@@ -1001,12 +1144,16 @@ def sumproduct(*args: Any) -> float:
 def sumsq(*args: Any) -> float:
     total = 0.0
     for arg in args:
-        for val in np.asarray(arg).ravel():
-            if val is not None and val != "":
-                try:
-                    total += float(val) ** 2
-                except (ValueError, TypeError):
-                    pass
+        for val in np.asarray(arg, dtype=object).ravel():
+            try:
+                num = _cell_number(val)
+            except OverflowError:
+                return float("nan")
+            except (ValueError, TypeError):
+                continue
+            if num is None or math.isnan(num):
+                continue
+            total += num * num
     return float(total)
 
 

@@ -15,6 +15,7 @@ is not an error (text ignored, or a defined zero).
 
 from __future__ import annotations
 
+import inspect
 import math
 
 import pytest
@@ -117,8 +118,8 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("rank", (0, [0, 1, 2]), 3.0, "rank-zero"),
     ("rank", (9, [1, 2, 3]), "nan", "rank-out-of-range"),
     ("regex", ("abc", ""), "", "regex-blank-pattern"),
-    ("rept", ("ab", "text"), "", "rept-text-count"),
-    ("rept", ("ab", ""), "", "rept-blank-count"),
+    ("rept", ("ab", "text"), "nan", "rept-text-count"),
+    ("rept", ("ab", ""), "nan", "rept-blank-count"),
     ("rsq", ("", [1.0, 2.0, 3.0]), "nan", "rsq-blank"),
     ("rsq", (None, [1.0, 2.0, 3.0]), "nan", "rsq-blank-none"),
     ("rsq", ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]), "nan", "rsq-zero"),
@@ -287,4 +288,122 @@ def test_rsq_slope_steyx_paired_clean():
     assert calc.rsq([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 1.0
     assert calc.slope([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 2.0
     assert calc.steyx([2, 4, float("nan"), 8], [1, 2, 5, 4]) == 0.0
+
+
+def test_n_s_all_matches_public_functions():
+    import plugin.scripting.venv.calc_functions_n_s as n_s
+
+    public = {
+        name
+        for name, obj in inspect.getmembers(n_s, inspect.isfunction)
+        if not name.startswith("_") and obj.__module__ == n_s.__name__
+    }
+    assert public == set(n_s.__all__)
+
+
+def test_odd_rounds_away_from_zero():
+    # ScOdd ceils away from zero, then steps off an even integer.
+    assert calc.odd(1.5) == 3.0
+    assert calc.odd(-1.5) == -3.0
+    assert calc.odd(0) == 1.0
+    assert calc.odd(2) == 3.0
+    assert calc.odd(-2) == -3.0
+    assert calc.odd(-3.2) == -5.0
+    assert calc.odd(1.1) == 3.0
+    assert calc.odd(-0.5) == -1.0
+
+
+def test_regex_occurrence_and_whole_match():
+    # Search returns the whole match. An optional group that did not
+    # participate used to make group(1) None.
+    assert calc.regex("b", "(a)?b") == "b"
+    assert calc.regex("abc-123", "([a-z]+)-([0-9]+)") == "abc-123"
+    assert calc.regex("ababa", "a", None, 2) == "a"
+    assert calc.regex("a1b2", r"[a-z]\d", None, 2) == "b2"
+    assert calc.regex("ababa", "a", "X", 2) == "abXba"
+    assert calc.regex("abc", "z") == "#N/A"
+    # Occurrence 0 is the original text, before the pattern is compiled.
+    assert calc.regex("abc", "[", None, 0) == "abc"
+    assert calc.regex("aba", "a", None, "g") == "a"
+    assert math.isnan(calc.regex("abc", "b", None, "x"))
+    assert math.isnan(calc.regex("abc", "b", None, -1))
+
+
+def test_rept_length_cap_and_bad_count():
+    assert len(calc.rept("a", 10**6)) == 10**6
+    # kScInterpreterMaxStrLen is 2**31 // 8. Do not allocate the product.
+    assert math.isnan(calc.rept("a", 10**9))
+    assert math.isnan(calc.rept("ab", (2**31 // 8) // 2 + 1))
+    assert math.isnan(calc.rept("a", "x"))
+    assert math.isnan(calc.rept("ab", "text"))
+
+
+def test_subtotal_sumproduct_sumsq_ignore_text_keep_bools():
+    # TRUE is 1. The text "5" is not a number. 201 is not a function code.
+    assert calc.subtotal(9, [1, True, "5"]) == 2.0
+    assert math.isnan(calc.subtotal(201, [1, 2]))
+    assert math.isnan(calc.subtotal(211, [1, 2]))
+    assert calc.subtotal(3, ["5"]) == 1.0
+    assert calc.subtotal(2, [1, True, "5"]) == 2.0
+    assert calc.sumproduct([1, "5"], [2, 2]) == 2.0
+    assert calc.sumsq(["5", 3]) == 9.0
+    huge = 10**10000
+    assert math.isnan(calc.sumproduct([huge], [1]))
+    assert math.isnan(calc.sumsq(huge))
+    assert math.isnan(calc.subtotal(9, [huge]))
+
+
+def test_numbervalue_percent_spaces_and_exponent():
+    assert calc.numbervalue("5%") == 0.05
+    assert calc.numbervalue("5%%") == 0.0005
+    assert calc.numbervalue(" 5 % ") == 0.05
+    assert calc.numbervalue("1 000") == 1000.0
+    assert calc.numbervalue("1e5") == 100000.0
+    assert math.isnan(calc.numbervalue("1_000"))
+    assert math.isnan(calc.numbervalue("inf"))
+    assert math.isnan(calc.numbervalue("INF"))
+    assert math.isnan(calc.numbervalue("%%"))
+    assert math.isnan(calc.numbervalue("   "))
+    assert calc.numbervalue("1,234.56") == 1234.56
+    assert calc.numbervalue("1.234,56", ",", ".") == 1234.56
+
+
+def test_oddfprice_negative_base_is_nan():
+    # (-2) ** fractional is a Python complex and must not leak out.
+    res = calc.oddfprice(40000, 41000, 39900, 40100, 0.05, -3, 100, 1)
+    assert isinstance(res, float)
+    assert math.isnan(res)
+
+
+def test_oddlprice_uses_yearfrac():
+    # GetOddlprice. Basis 3 is Actual/365; basis 0 is 30/360.
+    def expected(basis: int) -> float:
+        rate = 0.05
+        yld = 0.06
+        red = 100.0
+        last, settle, mat = 39000, 40000, 41000
+        span_last_mat = calc.yearfrac(last, mat, basis)
+        span_set_mat = calc.yearfrac(settle, mat, basis)
+        span_last_set = calc.yearfrac(last, settle, basis)
+        return (red + span_last_mat * 100.0 * rate) / (1.0 + span_set_mat * yld) - span_last_set * 100.0 * rate
+
+    basis0 = calc.oddlprice(40000, 41000, 39000, 0.05, 0.06, 100, 2, 0)
+    basis3 = calc.oddlprice(40000, 41000, 39000, 0.05, 0.06, 100, 2, 3)
+    assert math.isclose(basis0, expected(0), rel_tol=1e-12)
+    assert math.isclose(basis3, expected(3), rel_tol=1e-12)
+    assert basis0 != basis3
+
+
+def test_sort_order_is_only_one_or_minus_one():
+    assert math.isnan(calc.sort([3, 1, 2], 1, 0))
+    assert math.isnan(calc.sort([3, 1, 2], 1, 2))
+    assert calc.sort([3, 1, 2], 1, 1) == [1, 2, 3]
+    assert calc.sort([3, 1, 2], 1, -1) == [3, 2, 1]
+    data = [[3, 1, 2], [6, 4, 5]]
+    # Key shape (1, 3) sorts columns: 1, then 2, then 3.
+    assert calc.sortby(data, [[2, 3, 1]]) == [[2, 3, 1], [5, 6, 4]]
+    assert math.isnan(calc.sortby([1, 2, 3], [1, 2, 3], 0))
+    assert math.isnan(calc.sortby(data, [[2, 3, 1]], 2))
+    # A row key and a column key in one call do not share an axis.
+    assert math.isnan(calc.sortby(data, [[3], [1]], 1, [[2, 3, 1]], 1))
 

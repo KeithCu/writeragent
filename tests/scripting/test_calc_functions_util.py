@@ -185,10 +185,17 @@ def test_parse_weekend():
     assert _parse_weekend(11) == {6}     # Sun only
     assert _parse_weekend(17) == {5}     # Sat only
 
-    # String masks (7 chars: 1 = non-working, 0 = working)
+    # String masks (7 chars: 1 = non-working, 0 = working, Monday-first)
     assert _parse_weekend("0000011") == {5, 6}
     assert _parse_weekend("1000000") == {0}
     assert _parse_weekend("0000000") == set()
+    assert _parse_weekend("1111111") == {0, 1, 2, 3, 4, 5, 6}
+
+    # A string must be exactly seven characters of 0 or 1.
+    assert math.isnan(_parse_weekend("abc"))
+    assert math.isnan(_parse_weekend("1"))
+    assert math.isnan(_parse_weekend("0000012"))
+    assert math.isnan(_parse_weekend("00000110"))
 
     # Invalid numeric codes must return NaN
     assert math.isnan(_parse_weekend(0))

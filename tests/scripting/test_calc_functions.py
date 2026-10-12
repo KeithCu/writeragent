@@ -1393,15 +1393,16 @@ def test_nominal_zero_effective_rate_is_zero():
     assert math.isclose(calc.nominal(0.1, 4), 4 * ((1.1) ** 0.25 - 1))
 
 
-def test_norm_missing_scipy_is_nan():
+def test_norm_stdlib_ignores_missing_scipy():
     import sys
     from unittest.mock import patch
 
-    # import scipy.stats raises when the module slot is missing.
+    # NORMINV / NORMSDIST / NORMSINV are stdlib. POISSON still needs scipy.stats.
     with patch.dict(sys.modules, {"scipy.stats": None}):
-        assert math.isnan(calc.norminv(0.5, 0, 1))
-        assert math.isnan(calc.normsdist(0))
-        assert math.isnan(calc.normsinv(0.5))
+        assert math.isclose(calc.norminv(0.5, 0, 1), 0.0, abs_tol=1e-5)
+        assert math.isclose(calc.normsdist(0), 0.5, abs_tol=1e-5)
+        assert math.isclose(calc.normsinv(0.5), 0.0, abs_tol=1e-5)
+        assert math.isnan(calc.poisson(1, 1))
     assert math.isclose(calc.norminv(0.5, 0, 1), 0.0, abs_tol=1e-5)
     assert math.isclose(calc.normsdist(0), 0.5, abs_tol=1e-5)
     assert math.isclose(calc.normsinv(0.5), 0.0, abs_tol=1e-5)
@@ -1417,12 +1418,18 @@ def test_nper_overflow_is_nan():
 
 
 def test_odd_price_yield_negates_frequency_is_nan():
-    # yld == -frequency makes the discount base 0 (ZeroDivisionError).
+    # ODDFPRICE: yld == -frequency makes the discount base 0.
     assert math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, -2, 100, 2))
-    assert math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, -2, 100, 2))
-    # A base within 1e-12 of zero is the same #NUM!.
     assert math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, -2 + 1e-15, 100, 2))
-    assert math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, -2 + 1e-15, 100, 2))
+    # ODDLPRICE follows GetOddlprice. 1 + yearfrac*yield is not zero here.
+    for yld in (-2, -2 + 1e-15):
+        got = calc.oddlprice(40000, 41000, 39000, 0.05, yld, 100, 2)
+        span_last_mat = calc.yearfrac(39000, 41000, 0)
+        span_set_mat = calc.yearfrac(40000, 41000, 0)
+        span_last_set = calc.yearfrac(39000, 40000, 0)
+        expected = (100 + span_last_mat * 100 * 0.05) / (1 + span_set_mat * yld) - span_last_set * 100 * 0.05
+        assert isinstance(got, float)
+        assert math.isclose(got, expected, rel_tol=1e-12)
     # A yield that is merely negative still prices.
     assert not math.isnan(calc.oddfprice(40000, 41000, 39900, 40100, 0.05, -0.5, 100, 2))
     assert not math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, -0.5, 100, 2))
@@ -1453,7 +1460,7 @@ def test_subtotal_rejects_unknown_fn_and_empty_samples():
     assert math.isnan(calc.subtotal(0, [1.0, 2.0, 3.0]))
     assert math.isnan(calc.subtotal(12, [1.0, 2.0, 3.0]))
     assert math.isnan(calc.subtotal(100, [1.0, 2.0, 3.0]))
-    # 109 % 100 is SUM, same as function 9.
+    # 109 subtracts 100 once and is still SUM. 201 does not collapse.
     assert calc.subtotal(109, [1.0, 2.0, 3.0]) == 6.0
     assert calc.subtotal(9, []) == 0.0
     assert calc.subtotal(6, []) == 0.0

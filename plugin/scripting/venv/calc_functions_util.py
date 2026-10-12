@@ -166,13 +166,19 @@ def _build_holiday_set(holidays: Any | None = None) -> set[dt.date]:
 
 
 def _parse_weekend(weekend: Any = 1) -> set[int] | float:
-    """Parse Excel weekend parameter into a set of weekday integers, or NaN if invalid."""
+    """Parse a Calc weekend argument into weekday integers, or NaN if invalid.
+
+    GetWeekendAndHolidayMasks_MS (interpr2.cxx) accepts a string only when it
+    is exactly seven characters of ``0`` or ``1``. ``"abc"`` and ``"1"`` used
+    to become a mask (empty, or Monday) because any other character was
+    ignored and the string was truncated to seven. The string is Monday-first,
+    matching the masks workday tests already build. Numeric codes 1–7 and
+    11–17 stay in ``_WEEKEND_MAPPING``.
+    """
     if isinstance(weekend, str):
-        wk_days: set[int] = set()
-        for i, char in enumerate(weekend[:7]):
-            if char == "1":
-                wk_days.add(i)
-        return wk_days
+        if len(weekend) != 7 or any(ch not in "01" for ch in weekend):
+            return float("nan")
+        return {i for i, ch in enumerate(weekend) if ch == "1"}
     try:
         w_idx = int(float(weekend))
     except (ValueError, TypeError, OverflowError):
