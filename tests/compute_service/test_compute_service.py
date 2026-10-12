@@ -2651,15 +2651,22 @@ def test_run_server_bind_oserror_is_clean(monkeypatch, capsys) -> None:
     assert vision_shutdown.call_count == 2
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
-def test_start_docker_keeps_api_key_as_one_argument(tmp_path) -> None:
-    """Spaces and glob characters in the key must stay one docker argument."""
+def _run_start_docker(tmp_path, env_extra: dict[str, str], cwd=None):
+    """Run start-docker.sh against a docker that records argv and exits 0."""
+    import os
     import subprocess
     from pathlib import Path
 
-    bindir = tmp_path / "bin"
+    # A fresh dir per call. The fake docker appends, and one test invokes
+    # the script twice from the same tmp_path.
+    n = 0
+    while (tmp_path / f"docker-argv-{n}").exists():
+        n += 1
+    run_dir = tmp_path / f"docker-argv-{n}"
+    run_dir.mkdir()
+    bindir = run_dir / "bin"
     bindir.mkdir()
-    marker = tmp_path / "args"
+    marker = run_dir / "args"
     fake = bindir / "docker"
     fake.write_text(
         "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$DOCKER_ARGS\"\nexit 0\n",
@@ -2667,18 +2674,38 @@ def test_start_docker_keeps_api_key_as_one_argument(tmp_path) -> None:
     )
     fake.chmod(0o755)
     script = Path(__file__).resolve().parents[2] / "compute_service" / "start-docker.sh"
-    key = "sec ret *"
     env = {
         "PATH": f"{bindir}:/usr/bin:/bin",
         "HOME": str(tmp_path),
         "DOCKER_ARGS": str(marker),
-        "PYTHON_COMPUTE_API_KEY": key,
         "PYTHON_COMPUTE_IMAGE": "python-compute",
     }
-    proc = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True, check=False)
+    env.update(env_extra)
+    proc = subprocess.run(["bash", str(script)], env=env, cwd=cwd, capture_output=True, text=True, check=False)
+    lines = marker.read_text(encoding="utf-8").splitlines() if marker.is_file() else []
+    return proc, lines, os.getuid(), os.getgid()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
+def test_start_docker_does_not_put_api_key_in_argv(tmp_path) -> None:
+    """An env key used to be -e PYTHON_COMPUTE_API_KEY=..., visible to ps.
+
+    Spaces and glob characters in the secret must not appear in any docker
+    argument. The script mounts a mode-600 temp file instead.
+    """
+    key = "sec ret *"
+    proc, lines, uid, gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY": key})
     assert proc.returncode == 0, proc.stderr
-    lines = marker.read_text(encoding="utf-8").splitlines()
-    assert f"PYTHON_COMPUTE_API_KEY={key}" in lines
+    text = "\n".join(lines)
+    assert key not in text
+    assert "PYTHON_COMPUTE_API_KEY=" not in text
+    assert "PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/python_compute_api_key" in lines
+    assert any(line.endswith(":/run/secrets/python_compute_api_key:ro") for line in lines)
+    assert "--init" in lines
+    assert "--user" in lines
+    assert f"{uid}:{gid}" in lines
+    assert "127.0.0.1:8000:8000" in lines
+    assert "PYTHON_COMPUTE_PORT=8000" in lines
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
@@ -2687,41 +2714,116 @@ def test_start_docker_mounts_api_key_file_read_only(tmp_path) -> None:
 
     Forwarding PYTHON_COMPUTE_API_KEY_FILE without -v made the process look
     for the host path inside the image and exit 2. Spaces and glob characters
-    in the key and the path must stay one docker argument each.
+    in the path must stay one docker argument. realpath is the mount source,
+    so a symlinked tmp dir still matches one line.
     """
-    import subprocess
-    from pathlib import Path
+    import os
 
-    bindir = tmp_path / "bin"
-    bindir.mkdir()
-    marker = tmp_path / "args"
-    fake = bindir / "docker"
-    fake.write_text(
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$DOCKER_ARGS\"\nexit 0\n",
-        encoding="utf-8",
-    )
-    fake.chmod(0o755)
     key_file = tmp_path / "sec ret *" / "api key"
     key_file.parent.mkdir()
     key_file.write_text("from-file\n", encoding="utf-8")
-    script = Path(__file__).resolve().parents[2] / "compute_service" / "start-docker.sh"
-    key = "sec ret *"
-    env = {
-        "PATH": f"{bindir}:/usr/bin:/bin",
-        "HOME": str(tmp_path),
-        "DOCKER_ARGS": str(marker),
-        "PYTHON_COMPUTE_API_KEY": key,
-        "PYTHON_COMPUTE_API_KEY_FILE": str(key_file),
-        "PYTHON_COMPUTE_IMAGE": "python-compute",
-    }
-    proc = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True, check=False)
+    proc, lines, _uid, _gid = _run_start_docker(tmp_path, {"PYTHON_COMPUTE_API_KEY_FILE": str(key_file)})
     assert proc.returncode == 0, proc.stderr
-    lines = marker.read_text(encoding="utf-8").splitlines()
-    mount = f"{key_file}:/run/secrets/python_compute_api_key:ro"
+    mount = f"{os.path.realpath(key_file)}:/run/secrets/python_compute_api_key:ro"
     assert mount in lines
     assert "PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/python_compute_api_key" in lines
     assert f"PYTHON_COMPUTE_API_KEY_FILE={key_file}" not in lines
-    assert f"PYTHON_COMPUTE_API_KEY={key}" in lines
+    assert "PYTHON_COMPUTE_API_KEY=" not in lines
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
+def test_start_docker_env_key_wins_over_key_file(tmp_path) -> None:
+    """load_settings prefers the env key. The script must mount only that."""
+    import os
+
+    key = "sec ret *"
+    key_file = tmp_path / "host-key"
+    key_file.write_text("from-file\n", encoding="utf-8")
+    proc, lines, _uid, _gid = _run_start_docker(
+        tmp_path,
+        {"PYTHON_COMPUTE_API_KEY": key, "PYTHON_COMPUTE_API_KEY_FILE": str(key_file)},
+    )
+    assert proc.returncode == 0, proc.stderr
+    text = "\n".join(lines)
+    assert key not in text
+    assert os.path.realpath(key_file) not in text
+    assert "PYTHON_COMPUTE_API_KEY=" not in text
+    assert any(line.endswith(":/run/secrets/python_compute_api_key:ro") for line in lines)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
+def test_start_docker_resolves_relative_key_file_before_cd(tmp_path) -> None:
+    """A relative path is the caller's cwd, not the repo root.
+
+    A basename with no slash used to be a named volume. The script cd's to
+    the repo root before docker build, so resolution has to happen first.
+    """
+    import os
+
+    caller = tmp_path / "elsewhere"
+    nested = caller / "nested"
+    nested.mkdir(parents=True)
+    key_file = nested / "api key"
+    key_file.write_text("from-file\n", encoding="utf-8")
+    proc, lines, _uid, _gid = _run_start_docker(
+        tmp_path,
+        {"PYTHON_COMPUTE_API_KEY_FILE": "nested/api key"},
+        cwd=caller,
+    )
+    assert proc.returncode == 0, proc.stderr
+    mount = f"{os.path.realpath(key_file)}:/run/secrets/python_compute_api_key:ro"
+    assert mount in lines
+
+    bare = caller / "apikey"
+    bare.write_text("bare\n", encoding="utf-8")
+    proc, lines, _uid, _gid = _run_start_docker(
+        tmp_path,
+        {"PYTHON_COMPUTE_API_KEY_FILE": "apikey"},
+        cwd=caller,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert f"{os.path.realpath(bare)}:/run/secrets/python_compute_api_key:ro" in lines
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
+@pytest.mark.parametrize("port", ["0", "65536", "nope", "-1"])
+def test_start_docker_rejects_bad_port(tmp_path, port: str) -> None:
+    """A bad PYTHON_COMPUTE_PORT fails before docker build."""
+    proc, lines, _uid, _gid = _run_start_docker(
+        tmp_path,
+        {"PYTHON_COMPUTE_API_KEY": "k", "PYTHON_COMPUTE_PORT": port},
+    )
+    assert proc.returncode != 0
+    assert "PYTHON_COMPUTE_PORT" in proc.stderr
+    assert lines == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
+def test_start_docker_publishes_python_compute_port(tmp_path) -> None:
+    """PYTHON_COMPUTE_PORT is both the published port and the listener."""
+    proc, lines, _uid, _gid = _run_start_docker(
+        tmp_path,
+        {"PYTHON_COMPUTE_API_KEY": "k", "PYTHON_COMPUTE_PORT": "9001"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "127.0.0.1:9001:9001" in lines
+    assert "PYTHON_COMPUTE_PORT=9001" in lines
+    assert "127.0.0.1:8000:8000" not in lines
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs a POSIX shell script")
+def test_start_docker_rejects_missing_key_file(tmp_path) -> None:
+    """A missing key file must not become a Docker directory mount."""
+    caller = tmp_path / "elsewhere"
+    caller.mkdir()
+    proc, lines, _uid, _gid = _run_start_docker(
+        tmp_path,
+        {"PYTHON_COMPUTE_API_KEY_FILE": "missing-key"},
+        cwd=caller,
+    )
+    assert proc.returncode != 0
+    assert "not a file" in proc.stderr
+    assert lines == []
 
 
 def _runner_stage_copies(dockerfile_text: str) -> list[tuple[str, str]]:
@@ -2746,13 +2848,18 @@ def _runner_stage_copies(dockerfile_text: str) -> list[tuple[str, str]]:
 
 
 def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
-    """The runner COPY set must import worker_base without the rest of plugin/.
+    """The runner COPY set must import the server without the rest of plugin/.
 
     The image copied only framework __init__, constants, and deal_shim.
     worker_base imports worker_pool at load, and that import failed, so the
-    container never started. This materializes the Dockerfile COPY lines; it
-    does not need a Docker daemon. queue_executor, uno_context, and logging
-    are not part of that load-time closure.
+    container never started. server.py also imports plugin.vision.vision_common
+    at load. That file was not copied, so import failed the same way. Copying
+    plugin/vision/__init__.py does not fix it: that file imports module_base
+    and plugin.vision.venv.vision, and the package init runs first. With no
+    __init__.py, plugin.vision is a namespace package and vision_common loads.
+    This materializes the Dockerfile COPY lines; it does not need a Docker
+    daemon. queue_executor, uno_context, and logging are not part of that
+    load-time closure.
     """
     import shutil
     import subprocess
@@ -2779,9 +2886,12 @@ def test_dockerfile_runner_copy_can_import_worker_base(tmp_path) -> None:
         assert (framework / name).is_file(), name
     for name in ("queue_executor.py", "uno_context.py", "logging.py"):
         assert not (framework / name).exists(), name
+    vision = app / "plugin" / "vision"
+    assert (vision / "vision_common.py").is_file()
+    assert not (vision / "__init__.py").exists()
 
     proc = subprocess.run(
-        [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base"],
+        [sys.executable, "-S", "-P", "-c", "import compute_service.worker_base, compute_service.server, compute_service.formula_worker"],
         cwd=app,
         env={"PYTHONPATH": str(app), "PYTHONDONTWRITEBYTECODE": "1"},
         capture_output=True,

@@ -256,7 +256,7 @@ Example JSON: [`python-compute.example.json`](python-compute.example.json).
 | `PYTHON_COMPUTE_MAX_CODE_CHARS` | Max `code` string length | `262144` |
 | `PYTHON_COMPUTE_OCR_ALLOW_PATHS` | `{os.pathsep}`-separated prefixes allowed for vision `file_path` (empty = deny) | `""` |
 
-Key file permissions: readable only by the service user (e.g. mode `0400`).
+Key file permissions: readable only by the service user (e.g. mode `0400`). `./compute_service/start-docker.sh` runs the container as the invoking uid and gid, so a mode `600` file owned by that user is readable. The image user's uid does not have to match the host file.
 
 ### Production / Collabora Online
 
@@ -266,18 +266,14 @@ coolwsd is the only hop that should reach this process. Bind loopback, set the s
 
 `--network=none` cannot be combined with `-p` (published ports need a network namespace). Publish to loopback on the host, or use an internal bridge **without a default route**. Tenant sockets still fail via the AST sandbox plus missing egress.
 
-`load_settings` refuses a non-loopback bind that has no API key, so `python compute_service/server.py --host 0.0.0.0` fails the same way as the image. `./compute_service/start-docker.sh` still requires `PYTHON_COMPUTE_API_KEY` or `PYTHON_COMPUTE_API_KEY_FILE` before it publishes a port. When the file variable is set, the script mounts that host file read-only at `/run/secrets/python_compute_api_key` and sets the container's `PYTHON_COMPUTE_API_KEY_FILE` to that path. Loopback with no key remains allowed.
+`load_settings` refuses a non-loopback bind that has no API key, so `python compute_service/server.py --host 0.0.0.0` fails the same way as the image. `./compute_service/start-docker.sh` still requires `PYTHON_COMPUTE_API_KEY` or `PYTHON_COMPUTE_API_KEY_FILE` before it publishes a port. A relative key-file path is resolved from the directory where you run the script (before the script `cd`s to the repo root) and mounted read-only at `/run/secrets/python_compute_api_key`. The container's `PYTHON_COMPUTE_API_KEY_FILE` is that mount. When `PYTHON_COMPUTE_API_KEY` is set, the script writes it to a mode-600 temp file and mounts that instead. It does not pass `-e PYTHON_COMPUTE_API_KEY` (that value shows up in `ps`). If both are set, the env key wins, same as `load_settings`. `PYTHON_COMPUTE_PORT` (default `8000`) is the published host port and the port inside the container (`127.0.0.1:$PORT:$PORT`). The script also passes `--init` and `--user` of the invoking uid and gid. Loopback with no key remains allowed for a process you start yourself; the script will not publish a port without a key.
 
 ```bash
 PYTHON_COMPUTE_API_KEY=same-secret-as-coolwsd ./compute_service/start-docker.sh
-# or:
-docker build -f compute_service/Dockerfile -t python-compute .
-docker run --read-only --tmpfs /tmp:rw,size=64m,mode=1777 \
-  --memory=512m --memory-swap=512m --cpus=1 --pids-limit=256 \
-  --security-opt no-new-privileges --cap-drop ALL \
-  -p 127.0.0.1:8000:8000 \
-  -e PYTHON_COMPUTE_API_KEY=same-secret-as-coolwsd \
-  python-compute
+# or a key file, from the directory where you run the script:
+PYTHON_COMPUTE_API_KEY_FILE=./secret ./compute_service/start-docker.sh
+# or another port:
+PYTHON_COMPUTE_PORT=9001 PYTHON_COMPUTE_API_KEY_FILE=./secret ./compute_service/start-docker.sh
 ```
 
 Shared `mode=shared` **must** use a per-document `session_id` query parameter (`?session_id=<id>`) (not a user id). coolwsd should `POST /v1/session/reset?session_id=<id>` on DocumentBroker destroy / last view leave (caller not shipped; Online still hard-codes isolated). Session TTL (`shared_kernel_ttl_sec`) remains the safety net if reset is missed: the next sticky call resets that kernel.
@@ -398,18 +394,20 @@ Log format includes timestamps, log level, request IDs, modes, code size, execut
 
 ```bash
 docker build -f compute_service/Dockerfile -t python-compute .
-docker run --rm -p 127.0.0.1:8000:8000 \
+docker run --rm --init -p 127.0.0.1:8000:8000 \
   --read-only --tmpfs /tmp:rw,size=64m,mode=1777 \
   --memory=1g --cpus=1 --pids-limit=256 \
   --security-opt no-new-privileges \
   --cap-drop ALL \
+  --user "$(id -u):$(id -g)" \
   -e PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/key \
   -v /secure/key:/run/secrets/key:ro \
   python-compute
 ```
 
-- The image and `start-docker.sh` set `PYTHON_COMPUTE_HOST=0.0.0.0` so the published port reaches the process. The host publish stays on `127.0.0.1`. `HOST` and `PORT` are not read.
-- The multi-stage Dockerfile copies only pre-compiled packages into the runner image, drops root privileges (`USER appuser`), and excludes compiler build tools (`build-essential`).
+- The image and `start-docker.sh` set `PYTHON_COMPUTE_HOST=0.0.0.0` so the published port reaches the process. The host publish stays on `127.0.0.1`. `HOST` and `PORT` are not read. `start-docker.sh` publishes `127.0.0.1:$PYTHON_COMPUTE_PORT:$PYTHON_COMPUTE_PORT` (default `8000`) and passes that value into the container.
+- `start-docker.sh` resolves `PYTHON_COMPUTE_API_KEY_FILE` to an absolute path from the caller's working directory. It runs `--init` and `--user` as the invoking uid and gid, so a mode `600` key file owned by that user is readable inside the container. An env key is mounted from a temp file. It is not placed on the `docker run` command line.
+- The multi-stage Dockerfile copies only pre-compiled packages into the runner image, drops root privileges (`USER appuser`), and excludes compiler build tools (`build-essential`) from the runner stage. `server.py` needs `plugin/vision/vision_common.py` at import. The desktop `plugin/vision/__init__.py` is not copied. OCR is not in this image.
 
 ---
 

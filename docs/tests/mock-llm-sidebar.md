@@ -189,9 +189,9 @@ Every test must satisfy:
 
 | ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
 |:--:|:----:|----------------|-----------------|------------------------|:--------------:|
-| **B1a** | CI | `--delay-ms 40`, `keep talking` | Pump ≥1 chunk, call `press_stop()` | Transcript has `[Stopped by user]` (not replaced by `No response.`); `is_busy` becomes False; `next_hello_ok()` succeeds | **OK / Landed** |
+| **B1a** | CI | `--delay-ms 40`, `keep talking` | Pump ≥1 chunk, call `press_stop()` | Transcript has `[Stopped by user]` (not replaced by `No response.`); `is_busy` becomes False; `next_hello_ok()` succeeds; `wait_for` matches assistant text, not prompt | **OK / Landed** |
 | **B1b** | CI | Same as B1a | Cancel using `press_stop_mouse()` | Same as B1a via GTK mouse listener path (`STOP_CLICKED (mousePressed)`) | **Dropped** (mouse hook) |
-| **B1c** | CI | B1a scenario | Assert state after Stop | Rich tail is NOT re-pasted as full HTML of the ramble; no `_copy_formatted…` after stop | **OK / Landed** |
+| **B1c** | CI | B1a scenario | Assert state after Stop | Rich tail is NOT re-pasted as full HTML of the ramble; no `_copy_formatted…` after stop; verified isolated from previous busy state | **OK / Landed** |
 | **B2** | CI | Ramble | Call `press_stop()`, then immediately `press_send()` | Single in-flight send; no stuck "Starting…"; `_active_q` not dual-owned; `next_hello_ok()` | **OK / Landed** |
 | **B3** | CI | Ramble | Call `press_stop()` twice quickly | Second click is a no-op; no exceptions; `next_hello_ok()` | **OK / Landed** |
 | **B3b** | CI | Idle state | Call `press_stop()` while idle | No crash; button labels unchanged; Send still functional | **OK / Landed** |

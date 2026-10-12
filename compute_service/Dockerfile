@@ -55,6 +55,16 @@ COPY plugin/contrib/smolagents /app/plugin/contrib/smolagents
 COPY plugin/contrib/__init__.py /app/plugin/contrib/__init__.py
 # JSON-forward does not load the Cython flatten accelerator. Workers import
 # unpack helpers from payload_codec and must not pay for contrib/vec_pack.
+# server.py imports plugin.vision.vision_common at load (IMPLEMENTED_HELPERS).
+# The runner stage never copied plugin/vision, so the process exited with
+# ModuleNotFoundError before it bound a port. Do not copy
+# plugin/vision/__init__.py: that file imports module_base and
+# plugin.vision.venv.vision (desktop VisionModule / run_vision). The package
+# init runs before vision_common and fails the same way. With no __init__.py,
+# plugin.vision is a namespace package. vision_common has no relative imports.
+# plugin.framework.config is imported only inside merge_vision_params.
+# OCR stays out of this image (ocr_workers defaults to 0).
+COPY plugin/vision/vision_common.py /app/plugin/vision/vision_common.py
 
 RUN python -m compileall -q /app/compute_service /app/plugin
 
