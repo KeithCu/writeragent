@@ -482,3 +482,41 @@ def test_flag_strings_follow_getdouble():
     assert calc.textsplit("a,,b", ",", ignore_empty="0") == [["a", "", "b"]]
     assert math.isnan(calc.textsplit("a-b", "-", ignore_empty="FALSE"))
 
+
+def test_trend_scalar_is_one_by_one():
+    # A scalar new_x is 0-d. shape[0] raised IndexError.
+    y = [2, 4, 6, 8]
+    x = [1, 2, 3, 4]
+    pred = calc.trend(y, x, 11)
+    assert np.allclose(pred, [22.0], atol=1e-6)
+    assert np.allclose(pred, calc.trend(y, x, [11]), atol=1e-6)
+    assert calc.trend(y, 11, [4, 5]) == "#VALUE!"
+    assert np.allclose(calc.trend(6, 2, 4, False), [12.0], atol=1e-6)
+
+
+def test_match_end_zero_string_is_false():
+    # GetBool of "0" is false. "FALSE" is not a number.
+    assert math.isnan(calc.textbefore("a-b-c", "-", 3, match_end="0"))
+    assert calc.textbefore("a-b-c", "-", 3, match_end="1") == "a-b-c"
+    assert math.isnan(calc.textbefore("a-b-c", "-", 3, match_end="FALSE"))
+    assert math.isnan(calc.textafter("a-b-c", "-", -3, match_end="0"))
+    assert calc.textafter("a-b-c", "-", -3, match_end="1") == "a-b-c"
+    assert math.isnan(calc.textafter("a-b-c", "-", -3, match_end="FALSE"))
+
+
+def test_xirr_and_xnpv_truncate_dates():
+    # sal_Int32 drops the fraction. 365.9 is the same year as 365.
+    whole = calc.xnpv(0.1, [-100, 110], [0, 365])
+    frac = calc.xnpv(0.1, [-100, 110], [0.9, 365.9])
+    assert math.isclose(frac, whole, abs_tol=1e-9)
+    dates = [44197, 44562, 44927, 45292, 45658]
+    flows = [-10000, 2750, 4250, 3250, 2750]
+    assert math.isclose(
+        calc.xirr(flows, [d + 0.9 for d in dates]),
+        calc.xirr(flows, dates),
+        rel_tol=1e-9,
+    )
+    # getXirr does not reject a date earlier than the first.
+    early = calc.xnpv(0.1, [-100, 110], [10, 0])
+    assert isinstance(early, float) and math.isfinite(early)
+

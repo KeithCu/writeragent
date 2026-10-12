@@ -1164,6 +1164,12 @@ def py_str(val: Any) -> str:
 
 def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
     try:
+        # bool("0") is true, so a zero flag invented a virtual delimiter.
+        # ScTextBeforeOrAfter uses GetBool(). Imported here so this module
+        # does not load t_z while t_z is still importing.
+        from .calc_functions_t_z import _as_nonzero
+
+        use_end = _as_nonzero(match_end)
         s, _delim, inst, idx, match_end_miss = _find_text_cut(
             text, delimiter, instance_num, match_mode, after=True
         )
@@ -1172,7 +1178,7 @@ def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any 
             # negative instance. Adding len(delim) again skipped a second
             # copy when the matched span was longer than the delimiter.
             return s[idx:]
-        if match_end and match_end_miss:
+        if use_end and match_end_miss:
             # ScTextBeforeOrAfter inserts the virtual delimiter at 0
             # when the instance is negative. Text after that is the whole
             # string. A positive instance's virtual delimiter is the end,

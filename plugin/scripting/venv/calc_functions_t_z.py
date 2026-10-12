@@ -214,12 +214,15 @@ fmt = text
 
 def textbefore(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
     try:
+        # bool("0") is true, so a zero flag invented a virtual delimiter.
+        # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
+        use_end = _as_nonzero(match_end)
         s, _delim, inst, idx, match_end_miss = _find_text_cut(
             text, delimiter, instance_num, match_mode, after=False
         )
         if idx is not None:
             return s[:idx]
-        if match_end and match_end_miss:
+        if use_end and match_end_miss:
             # ScTextBeforeOrAfter inserts the virtual delimiter at 0
             # when the instance is negative, and at the end otherwise.
             # Text before offset 0 is empty. This branch used to return
@@ -407,7 +410,11 @@ def trend(*args: Any) -> Any:
         if data_y.size == 0 or np.any(np.isnan(data_y)):
             return "#VALUE!"
         if len(args) > 1 and args[1] is not None:
-            data_x = np.asarray(args[1], dtype=float)
+            # A scalar is 0-d. GetMatrix (interpr5.cxx) stores that double
+            # as a 1×1 matrix. shape[0] on the 0-d array raised IndexError,
+            # which this handler does not catch, so TREND of a scalar known_x
+            # escaped instead of fitting.
+            data_x = np.atleast_1d(np.asarray(args[1], dtype=float))
             if data_x.ndim == 1:
                 data_x = data_x[:, np.newaxis]
             elif data_x.ndim == 2 and data_x.shape[0] != data_y.shape[0] and data_x.shape[1] == data_y.shape[0]:
@@ -419,7 +426,9 @@ def trend(*args: Any) -> Any:
             return "#VALUE!"
 
         if len(args) > 2 and args[2] is not None:
-            new_data_x = np.asarray(args[2], dtype=float)
+            # Same 0-d scalar as known_x. CalculateTrendGrowth predicts
+            # every element of the 1×1 new_x matrix.
+            new_data_x = np.atleast_1d(np.asarray(args[2], dtype=float))
             if new_data_x.ndim == 1:
                 new_data_x = new_data_x[:, np.newaxis]
             elif new_data_x.ndim == 2 and new_data_x.shape[1] != data_x.shape[1] and new_data_x.shape[0] == data_x.shape[1]:
@@ -843,7 +852,9 @@ def workday_intl(start_date: Any, days: Any, weekend: Any = 1, holidays: Any | N
 def xirr(values: Any, dates: Any, guess: Any = 0.1) -> float:
     try:
         vals = np.asarray(values, dtype=float).ravel()
-        dts = np.asarray(dates, dtype=float).ravel()
+        # getXirr takes sal_Int32 dates. A fractional serial was divided
+        # as-is, so day 365.9 was not one year.
+        dts = np.trunc(np.asarray(dates, dtype=float).ravel())
         if len(vals) != len(dts) or len(vals) == 0:
             return float("nan")
         x = float(guess)
@@ -939,7 +950,8 @@ def xnpv(rate: Any, values: Any, dates: Any) -> float:
     try:
         r = float(rate)
         vals = np.asarray(values).ravel()
-        dts = np.asarray(dates).ravel()
+        # getXnpv takes sal_Int32 dates, same truncation as getXirr.
+        dts = np.trunc(np.asarray(dates, dtype=float).ravel())
         if len(vals) != len(dts) or len(vals) == 0:
             return float("nan")
         # Excel XNPV returns #NUM! when rate <= -1. (1+rate)**fraction is

@@ -432,6 +432,9 @@ def test_textafter():
     # the start, so the text after that is the whole string.
     assert calc.textafter("a-b-c", "-", 3, match_end=1) == ""
     assert calc.textafter("a-b-c", "-", -3, match_end=1) == "a-b-c"
+    # GetBool of "0" is false, so there is no virtual delimiter.
+    assert math.isnan(calc.textafter("a-b-c", "-", -3, match_end="0"))
+    assert math.isnan(calc.textafter("a-b-c", "-", -3, match_end="FALSE"))
     # Miss returns if_not_found
     assert calc.textafter("a-b-c", "-", 3, match_end=0, if_not_found="NF") == "NF"
     assert calc.textafter("a-b-c", "-", 4, match_end=1, if_not_found="NF") == "NF"
@@ -450,6 +453,9 @@ def test_textbefore():
     # a virtual delimiter at the start, so the text before that is empty.
     assert calc.textbefore("a-b-c", "-", 3, match_end=1) == "a-b-c"
     assert calc.textbefore("a-b-c", "-", -3, match_end=1) == ""
+    # GetBool of "0" is false, so there is no virtual delimiter.
+    assert math.isnan(calc.textbefore("a-b-c", "-", 3, match_end="0"))
+    assert math.isnan(calc.textbefore("a-b-c", "-", 3, match_end="FALSE"))
     # Miss returns if_not_found
     assert calc.textbefore("a-b-c", "-", 3, match_end=0, if_not_found="NF") == "NF"
     assert calc.textbefore("a-b-c", "-", 4, match_end=1, if_not_found="NF") == "NF"
