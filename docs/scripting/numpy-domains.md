@@ -640,7 +640,7 @@ Results are inserted as compact tables and usable from scripts.
 
 **`linear_programming` layout:** Each row is a variable (`c` is that variable's objective coefficient). Each `a*` column is one `<=` constraint. `b` is one bound per constraint column. The template default `a_cols: ["a1"]` is a single constraint; repeat that same bound on every variable row. If `b` cannot be aligned to the constraint columns, the helper returns `SHAPE_MISMATCH` and does not replace `b` with zeros.
 
-**Quant returns:** `efficient_frontier` reads the sheet as a returns grid, the same contract as `portfolio_tearsheet` and `optimize_portfolio`. PyPortfolioOpt's `mean_historical_return` and `CovarianceShrinkage` default `returns_data=False` (prices, then percent-change). The helper passes `returns_data=True` so a returns sheet does not come back `status: ok` with a corner portfolio.
+**Quant returns:** `efficient_frontier` reads the sheet as a returns grid, the same contract as `portfolio_tearsheet` and `optimize_portfolio`. PyPortfolioOpt's `mean_historical_return` and `CovarianceShrinkage` default `returns_data=False` (prices, then percent-change). The helper passes `returns_data=True` so a returns sheet does not come back `status: ok` with a corner portfolio. Annualization stays 252 trading days. `technical_analysis` and `portfolio_tearsheet` sort a `date` / `datetime` / `timestamp` column ascending before path-dependent indicators and drawdown; duplicate tearsheet dates are averaged. `fetch_historical_data` stringifies every datetime column, and a multi-ticker download labels columns `Close / AAPL`. A comma-separated ticker string is several symbols. `weight_bounds` must be a pair or omitted, and a non-finite `risk_free_rate` is `INVALID_PARAMS`.
 
 ---
 

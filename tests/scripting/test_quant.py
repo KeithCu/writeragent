@@ -7,6 +7,10 @@
 from __future__ import annotations
 
 import builtins
+import math
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -349,3 +353,259 @@ def test_efficient_frontier_honors_params_and_case_insensitive_date(monkeypatch)
     mock_ef_class.assert_called_once()
     assert mock_ef_class.call_args[1]["weight_bounds"] == (0.1, 0.9)
     mock_ef_inst.max_sharpe.assert_called_once_with(risk_free_rate=0.03)
+
+
+@contextmanager
+def _fake_ta_accessor() -> Iterator[list[list[float]]]:
+    """Register a DataFrame.ta stand-in and remove it when the test ends."""
+    import pandas as pd
+
+    seen: list[list[float]] = []
+
+    class _FakeTa:
+        def __init__(self, pandas_obj: Any) -> None:
+            self._obj = pandas_obj
+
+        def macd(self, close: Any = None, append: bool = True) -> None:
+            seen.append([float(v) for v in self._obj[close].tolist()])
+            self._obj["MACD_12_26_9"] = [float("nan")] * len(self._obj)
+
+        def rsi(self, close: Any = None, append: bool = True) -> None:
+            return None
+
+        def bbands(self, close: Any = None, append: bool = True) -> None:
+            return None
+
+    pd.api.extensions.register_dataframe_accessor("ta")(_FakeTa)
+    try:
+        yield seen
+    finally:
+        pd.DataFrame._accessors.discard("ta")
+        if hasattr(pd.DataFrame, "ta"):
+            delattr(pd.DataFrame, "ta")
+
+
+def test_technical_analysis_sorts_newest_first(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "pandas_ta", object())
+    grid = [
+        ["Date", "Close"],
+        ["2024-01-03", 30.0],
+        ["2024-01-01", 10.0],
+        ["2024-01-02", 20.0],
+    ]
+    with _fake_ta_accessor() as seen:
+        result = venv_run_quant(
+            {"helper": "technical_analysis", "params": {"indicators": ["macd"]}},
+            data=grid,
+        )
+    assert result["status"] == "ok", result
+    assert seen == [[10.0, 20.0, 30.0]]
+    assert result["table"]["rows"][0][0] == "2024-01-01"
+    assert result["table"]["rows"][-1][0] == "2024-01-03"
+
+
+def test_technical_analysis_warmup_nan_stays_float(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "pandas_ta", object())
+    with _fake_ta_accessor():
+        result = venv_run_quant(
+            {"helper": "technical_analysis", "params": {"indicators": ["macd"]}},
+            data=[["Close"], [1.0], [2.0]],
+        )
+    assert result["status"] == "ok", result
+    cell = result["table"]["rows"][0][-1]
+    assert type(cell) is float
+    assert math.isnan(cell)
+
+
+def test_technical_analysis_rejects_non_list_indicators(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "pandas_ta", object())
+    result = venv_run_quant(
+        {"helper": "technical_analysis", "params": {"indicators": 1}},
+        data=[["Close"], [1.0]],
+    )
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAMS"
+
+
+def test_portfolio_tearsheet_sorts_and_averages_duplicate_dates(monkeypatch):
+    import sys
+    import pandas as pd
+
+    mock_qs = MagicMock()
+    mock_qs.reports.metrics.return_value = pd.DataFrame({"val": [0.05]}, index=["Cumulative Return"])
+    monkeypatch.setitem(sys.modules, "quantstats", mock_qs)
+    grid = [
+        ["Date", "AAPL"],
+        ["2024-01-03", 0.03],
+        ["2024-01-01", 0.01],
+        ["2024-01-01", 0.05],
+        ["2024-01-02", 0.02],
+    ]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {}}, data=grid)
+    assert result["status"] == "ok", result
+    series = mock_qs.reports.metrics.call_args[0][0]
+    assert len(series) == 3
+    assert str(series.index[0]).startswith("2024-01-01")
+    assert str(series.index[1]).startswith("2024-01-02")
+    assert str(series.index[2]).startswith("2024-01-03")
+    assert math.isclose(float(series.iloc[0]), 0.03)
+    assert "duplicate" in result["warning"].lower()
+
+
+def test_portfolio_tearsheet_string_matches_int_column(monkeypatch):
+    import sys
+    import pandas as pd
+
+    mock_qs = MagicMock()
+    mock_qs.reports.metrics.return_value = pd.DataFrame({"val": [0.05]}, index=["Cumulative Return"])
+    monkeypatch.setitem(sys.modules, "quantstats", mock_qs)
+    frame = pd.DataFrame({0: [0.01, 0.02], 1: [0.03, -0.01]})
+    result = venv_run_quant(
+        {"helper": "portfolio_tearsheet", "params": {"column": "0"}},
+        data=frame,
+    )
+    assert result["status"] == "ok", result
+    series = mock_qs.reports.metrics.call_args[0][0]
+    assert [float(v) for v in series.tolist()] == [0.01, 0.02]
+
+
+def test_fetch_stringifies_unnamed_and_timezone_datetimes(monkeypatch):
+    import sys
+    import pandas as pd
+
+    idx = pd.to_datetime(["2024-01-02", "2024-01-01"])
+    frame = pd.DataFrame({"Close": [2.0, 1.0]}, index=idx)
+    frame["When"] = pd.to_datetime(["2024-01-02 15:00", "2024-01-01 15:00"], utc=True)
+    fake_yf = MagicMock()
+    fake_yf.download.return_value = frame
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yf)
+
+    result = venv_run_quant({"helper": "fetch_historical_data", "params": {"tickers": ["AAPL"]}})
+    assert result["status"] == "ok", result
+    columns = result["table"]["columns"]
+    assert columns[0] == "index"
+    assert "When" in columns
+    when_at = columns.index("When")
+    for row in result["table"]["rows"]:
+        assert isinstance(row[0], str)
+        assert isinstance(row[when_at], str)
+        assert not row[when_at].startswith("Timestamp")
+
+
+def test_fetch_keeps_ticker_in_multiindex_columns(monkeypatch):
+    import sys
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        [[1.0, 2.0]],
+        columns=pd.MultiIndex.from_tuples([("Close", "AAPL"), ("Close", "MSFT")]),
+        index=pd.to_datetime(["2024-01-01"]),
+    )
+    frame.index.name = "Date"
+    fake_yf = MagicMock()
+    fake_yf.download.return_value = frame
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yf)
+
+    result = venv_run_quant(
+        {"helper": "fetch_historical_data", "params": {"tickers": ["AAPL", "MSFT"]}},
+    )
+    assert result["status"] == "ok", result
+    assert result["table"]["columns"] == ["Date", "Close / AAPL", "Close / MSFT"]
+
+
+def test_fetch_splits_comma_separated_tickers(monkeypatch):
+    import sys
+    import pandas as pd
+
+    fake_yf = MagicMock()
+    fake_yf.download.return_value = pd.DataFrame({"Close": [1.0]})
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yf)
+
+    venv_run_quant({"helper": "fetch_historical_data", "params": {"tickers": "AAPL, MSFT"}})
+    assert fake_yf.download.call_args[0][0] == ["AAPL", "MSFT"]
+
+    venv_run_quant({"helper": "fetch_historical_data", "params": {"tickers": "BRK.B"}})
+    assert fake_yf.download.call_args[0][0] == ["BRK.B"]
+
+    venv_run_quant({"helper": "fetch_historical_data", "params": {"tickers": ["AAPL,MSFT"]}})
+    assert fake_yf.download.call_args[0][0] == ["AAPL", "MSFT"]
+
+
+def test_fetch_retries_when_multi_level_index_is_unknown(monkeypatch):
+    import sys
+    import pandas as pd
+
+    calls: list[dict[str, Any]] = []
+
+    def download(tickers: Any, **kwargs: Any) -> pd.DataFrame:
+        calls.append(dict(kwargs))
+        if "multi_level_index" in kwargs:
+            raise TypeError("download() got an unexpected keyword argument 'multi_level_index'")
+        return pd.DataFrame({"Close": [1.0]}, index=pd.to_datetime(["2024-01-01"]))
+
+    fake_yf = MagicMock()
+    fake_yf.download.side_effect = download
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yf)
+
+    result = venv_run_quant({"helper": "fetch_historical_data", "params": {"tickers": ["AAPL"]}})
+    assert result["status"] == "ok", result
+    assert "multi_level_index" in calls[0]
+    assert "multi_level_index" not in calls[1]
+
+
+def test_fetch_other_typeerror_stays_execution_error(monkeypatch):
+    import sys
+
+    def download(*args: Any, **kwargs: Any) -> None:
+        raise TypeError("interval not understood")
+
+    fake_yf = MagicMock()
+    fake_yf.download.side_effect = download
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yf)
+
+    result = venv_run_quant({"helper": "fetch_historical_data", "params": {"tickers": ["AAPL"]}})
+    assert result["status"] == "error"
+    assert result["code"] == "EXECUTION_ERROR"
+    assert "interval" in result["message"]
+
+
+def _install_frontier_mocks(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    import sys
+
+    mock_ef_class = MagicMock()
+    mock_ef_inst = MagicMock()
+    mock_ef_class.return_value = mock_ef_inst
+    mock_ef_inst.clean_weights.return_value = {"A": 0.6, "B": 0.4}
+    monkeypatch.setitem(sys.modules, "pypfopt", MagicMock())
+    monkeypatch.setitem(sys.modules, "pypfopt.efficient_frontier", MagicMock(EfficientFrontier=mock_ef_class))
+    monkeypatch.setitem(sys.modules, "pypfopt.expected_returns", MagicMock(mean_historical_return=MagicMock()))
+    monkeypatch.setitem(sys.modules, "pypfopt.risk_models", MagicMock(CovarianceShrinkage=MagicMock()))
+    return mock_ef_class
+
+
+def test_efficient_frontier_rejects_bad_bounds_and_rate(monkeypatch):
+    mock_ef_class = _install_frontier_mocks(monkeypatch)
+    grid = [
+        ["A", "B"],
+        [0.01, 0.02],
+        [0.02, -0.01],
+    ]
+    bounds = venv_run_quant(
+        {"helper": "efficient_frontier", "params": {"weight_bounds": [0.1]}},
+        data=grid,
+    )
+    assert bounds["status"] == "error"
+    assert bounds["code"] == "INVALID_PARAMS"
+    rate = venv_run_quant(
+        {"helper": "efficient_frontier", "params": {"risk_free_rate": "nope"}},
+        data=grid,
+    )
+    assert rate["status"] == "error"
+    assert rate["code"] == "INVALID_PARAMS"
+    mock_ef_class.assert_not_called()
