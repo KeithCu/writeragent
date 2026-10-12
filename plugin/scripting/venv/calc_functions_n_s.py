@@ -946,6 +946,12 @@ def sumifs(sr: Any, *args: Any) -> float:
         return float("nan")
     if not args:
         return 0.0
+    # A scalar string is not a range. np.asarray("text", dtype=object) is
+    # shape (), so the shape check treated "text" and "" as a mismatch
+    # against [1, 2] and returned NaN. Text and blanks contribute nothing,
+    # same as sumif. The sum of no numbers is 0.
+    if isinstance(sr, str):
+        return 0.0
     sr_arr = np.asarray(sr, dtype=object)
     sr_flat = sr_arr.ravel()
     pairs = [(args[i], args[i + 1]) for i in range(0, len(args), 2)]

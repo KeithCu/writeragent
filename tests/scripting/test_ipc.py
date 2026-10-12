@@ -93,6 +93,12 @@ def test_truncated_pickle_payload_is_value_error():
         unpack_pickle_frame(b"\x80\x04")
 
 
+def test_unknown_pickle_opcode_is_value_error():
+    """An unknown opcode is KeyError from pickle._Unpickler. Callers still see ValueError."""
+    with pytest.raises(ValueError, match="invalid load key"):
+        unpack_pickle_frame(b"notpickl")
+
+
 def test_truncated_pickle_frame_returns_none():
     payload = pack_pickle_frame({"status": "ok"})
     truncated = payload[:-2]

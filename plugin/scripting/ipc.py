@@ -253,6 +253,17 @@ class AllowlistUnpickler(pickle._Unpickler):
     def load(self) -> Any:
         try:
             return super().load()
+        except KeyError as exc:
+            # pickle._Unpickler looks the opcode up in dispatch. An unknown
+            # byte is KeyError. The C unpickler raises UnpicklingError
+            # ("invalid load key, 'n'."). unpack_pickle_frame only maps
+            # UnpicklingError, so b"notpickl" escaped read_message as KeyError.
+            # A string key from inside an opcode handler is not this case.
+            key = exc.args[0] if exc.args else None
+            if isinstance(key, int) and 0 <= key <= 255:
+                shown = chr(key) if 32 <= key < 127 else "?"
+                raise pickle.UnpicklingError(f"invalid load key, '{shown}'.") from exc
+            raise
         except EOFError as exc:
             # pickle._Unpickler raises EOFError() with no text. The C
             # unpickler says "Ran out of input". unpack_pickle_frame
