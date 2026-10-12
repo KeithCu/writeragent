@@ -35,7 +35,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, cast
 
-from plugin.framework.errors import ToolExecutionError, safe_json_loads
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.worker_pool import BackgroundHandle, StderrTail, get_subprocess_creationflags, run_in_background, start_stderr_drain
 
 log = logging.getLogger(__name__)
@@ -93,6 +93,19 @@ class _QueuedStop:
     proc: Any
 
 
+def _json_value(payload: str) -> Any:
+    """Parsed JSON, or ``_BAD_ID`` when ``payload`` is not JSON.
+
+    ``None`` is valid JSON, so a failed load cannot use None. ``json.loads``
+    is strict on purpose: ``safe_json_loads`` repairs a log prefix into a
+    value that is not the RPC object.
+    """
+    try:
+        return json.loads(payload)
+    except (ValueError, RecursionError):
+        return _BAD_ID
+
+
 def _accept_message(line: str) -> dict[str, Any] | None:
     """Return a JSON-RPC object, or None for stray stdout.
 
@@ -103,18 +116,23 @@ def _accept_message(line: str) -> dict[str, Any] | None:
     boolean is the same stray line: ``pending.get`` would raise ``TypeError``
     on an unhashable key, or ``true`` would hash equal to request id ``1``.
 
-    What was wrong: ``find("{")`` ran on every line, so ``[{"a": 1}]`` became
-    ``{"a": 1}`` and was dispatched as an object. Why: slice a prefix only
-    when the line is not already a JSON object or array. A log line in front
-    of an object still parses.
+    What was wrong: a line was sliced at ``{`` unless it already started with
+    ``{`` or ``[``. ``[{"a": 1}]`` became ``{"a": 1}``. Skipping every ``[``
+    line then dropped ``[INFO] {"jsonrpc": ...}``, which the docstring said
+    would still parse. Why: load the whole line first. A real JSON value that
+    is not an object is rejected, so the array is not sliced. Only a failed
+    load falls through to the first ``{``.
     """
     payload = line.lstrip()
-    if not payload.startswith("{") and not payload.startswith("["):
+    msg = _json_value(payload)
+    if msg is _BAD_ID:
         idx = line.find("{")
-        if idx >= 0:
-            payload = line[idx:]
-    msg = safe_json_loads(payload)
-    if msg is None:
+        if idx < 0:
+            log.debug("Non-JSON output: %s", payload[:200])
+            return None
+        payload = line[idx:]
+        msg = _json_value(payload)
+    if msg is _BAD_ID:
         log.debug("Non-JSON output: %s", payload[:200])
         return None
     if not isinstance(msg, dict):
@@ -159,6 +177,7 @@ class ACPConnection:
     _lock: threading.Lock
     _request_id: int
     _running: bool
+    _closed: bool
     _notify_callback: Any
     _write_queue: queue.Queue[Any]
     _writer_thread: BackgroundHandle | None
@@ -175,6 +194,9 @@ class ACPConnection:
         self._reader_thread: BackgroundHandle | None = None
         self._stderr_drain: StderrTail | None = None
         self._running = False
+        # Set when the writer runs a stop item. A later enqueue must not
+        # start another writer: the previous one has exited, and stdin is closed.
+        self._closed = False
         self._notify_callback = None
         self._write_queue = queue.Queue()
         self._writer_thread = None
@@ -309,13 +331,44 @@ class ACPConnection:
     def _ensure_writer(self) -> None:
         """Start the stdin thread once. Tests that skip ``start()`` enqueue first."""
         with self._lock:
-            if self._writer_thread is not None:
-                return
-            self._writer_thread = run_in_background(self._writer_drain_loop, name="acp-writer", dedicated=True)
+            self._start_writer_unlocked()
+
+    def _start_writer_unlocked(self) -> None:
+        """Start the stdin thread. Caller holds ``_lock``."""
+        if self._closed or self._writer_thread is not None:
+            return
+        self._writer_thread = run_in_background(self._writer_drain_loop, name="acp-writer", dedicated=True)
 
     def _enqueue(self, item: _QueuedWrite | _QueuedStop) -> None:
-        self._ensure_writer()
-        self._write_queue.put(item)
+        """Queue one stdin item. A closed connection fails a request write.
+
+        What was wrong: the writer set ``_writer_thread`` to None after the
+        stop item and exited. A ``send_request`` that had already passed its
+        ``_running`` check then started another writer, which blocked on
+        ``get()`` forever, and items already behind the stop item were never
+        failed. Why: ``_closed`` is set under this lock when the stop item
+        runs. The closed check, the writer start, and the put share that lock.
+        """
+        fail_id: int | None = None
+        with self._lock:
+            if self._closed:
+                if isinstance(item, _QueuedWrite):
+                    fail_id = item.fail_req_id
+            else:
+                self._start_writer_unlocked()
+                self._write_queue.put(item)
+        if fail_id is not None:
+            self._fail_request(fail_id, "Failed to write to ACP: connection closed")
+
+    def _fail_writes_behind_stop(self) -> None:
+        """Fail request writes queued after the stop item. The writer has set ``_closed``."""
+        while True:
+            try:
+                leftover = self._write_queue.get_nowait()
+            except queue.Empty:
+                return
+            if isinstance(leftover, _QueuedWrite) and leftover.fail_req_id is not None:
+                self._fail_request(leftover.fail_req_id, "Failed to write to ACP: connection closed")
 
     def _fail_request(self, req_id: int, message: str) -> None:
         """Unblock one ``send_request`` after its stdin write failed."""
@@ -331,12 +384,17 @@ class ACPConnection:
             while True:
                 item = self._write_queue.get()
                 if isinstance(item, _QueuedStop):
+                    # Set before close/kill so a racing enqueue cannot start
+                    # a second writer onto a pipe this thread is about to close.
+                    with self._lock:
+                        self._closed = True
+                    self._fail_writes_behind_stop()
                     proc = item.proc
                     try:
                         if proc and proc.stdin:
                             proc.stdin.close()
                     except Exception:
-                        pass
+                        log.debug("ACP stdin close failed", exc_info=True)
                     # What was wrong: terminate()/kill() hit only this process, and
                     # closing stdout was supposed to unblock readline. close()
                     # takes the buffer lock readline already holds, so both
@@ -479,6 +537,22 @@ class ACPConnection:
         line = json.dumps(msg) + "\n"
         self._enqueue(_QueuedWrite(proc, line.encode("utf-8")))
 
+    def _answer_without_callback(self, method: str, msg_id: Any) -> None:
+        """Reply to an agent request that arrived after the turn callback was cleared.
+
+        What was wrong: ``send()`` sets the notification callback to None so a
+        late ``session/update`` cannot write into that turn's queue. The reader
+        then dropped every line, including ``session/request_permission`` and
+        ``fs/*`` requests that carry an id. The CLI stays up, so the agent
+        blocked on that request and the next prompt waited behind it. Why:
+        permission is cancelled, and any other method is JSON-RPC method not
+        found. A notification has no id and is still ignored.
+        """
+        if method == "session/request_permission":
+            self.send_response(msg_id, result={"outcome": {"outcome": "cancelled"}})
+            return
+        self.send_response(msg_id, error={"code": -32601, "message": f"Method not found: {method}"})
+
     def set_notification_callback(self, callback: Any) -> None:
         """Set a callback(method, params, msg_id) for incoming notifications."""
         self._notify_callback = callback
@@ -556,6 +630,8 @@ class ACPConnection:
                                 callback(method, params, msg_id)
                             except Exception:
                                 log.exception("Notification callback error")
+                        elif msg_id is not None and method:
+                            self._answer_without_callback(method, msg_id)
 
                 except Exception:
                     if self._running:

@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.acp.acp_connection import ACPConnection, _Pending
+from plugin.acp.acp_connection import ACPConnection, _Pending, _QueuedStop, _QueuedWrite
 from plugin.framework.errors import ToolExecutionError
 
 
@@ -794,6 +794,14 @@ def test_brace_after_a_prefix_still_parses():
     assert msg["method"] == "session/update"
 
 
+def test_bracket_log_prefix_still_parses():
+    from plugin.acp.acp_connection import _accept_message
+
+    msg = _accept_message('[INFO] {"jsonrpc":"2.0","method":"session/update","params":{}}')
+    assert msg is not None
+    assert msg["method"] == "session/update"
+
+
 def test_integral_float_id_completes_the_integer_request():
     conn = ACPConnection(["agent"])
     event = threading.Event()
@@ -885,3 +893,76 @@ def test_watchdog_kills_when_wait_times_out():
         while time.monotonic() < deadline and len(kills) < 2:
             time.sleep(0.01)
     assert len(kills) >= 2
+
+
+def test_reader_answers_a_request_when_the_callback_is_gone():
+    conn = ACPConnection(["agent"])
+    conn._running = True
+    conn._notify_callback = None
+    replies = []
+
+    def send_response(msg_id, result=None, error=None):
+        replies.append((msg_id, result, error))
+
+    conn.send_response = send_response  # type: ignore[method-assign]
+    permission = json.dumps({"jsonrpc": "2.0", "id": 4, "method": "session/request_permission", "params": {}}) + "\n"
+    fs_read = json.dumps({"jsonrpc": "2.0", "id": 5, "method": "fs/read_text_file", "params": {}}) + "\n"
+    note = json.dumps({"jsonrpc": "2.0", "method": "session/update", "params": {}}) + "\n"
+    proc = _live_proc()
+    proc.stdout.readline.side_effect = [permission.encode(), fs_read.encode(), note.encode(), b""]
+    conn._proc = proc
+    conn._reader_loop()
+    assert replies == [
+        (4, {"outcome": {"outcome": "cancelled"}}, None),
+        (5, None, {"code": -32601, "message": "Method not found: fs/read_text_file"}),
+    ]
+
+
+def _wait_until(pred) -> bool:
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        if pred():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_request_after_the_writer_stops_fails_without_a_new_thread():
+    conn = ACPConnection(["agent"])
+    proc = _live_proc()
+    conn._proc = proc
+    conn._running = True
+    names: list[str | None] = []
+    from plugin.framework.worker_pool import run_in_background as real_run
+
+    def run(*args, **kwargs):
+        names.append(kwargs.get("name"))
+        return real_run(*args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("plugin.acp.acp_connection.run_in_background", run)
+        patch.setattr("plugin.scripting.venv_worker._kill_process_tree", lambda process: None)
+        conn._enqueue(_QueuedStop(proc))
+        # The handle is cleared in the writer's finally. Waiting for that,
+        # not merely for _closed, is what used to start a second writer.
+        assert _wait_until(lambda: conn._writer_thread is None)
+        event = threading.Event()
+        conn._pending[3] = _Pending(event)
+        conn._enqueue(_QueuedWrite(proc, b"{}\n", 3))
+        assert event.wait(timeout=1)
+    assert "Failed to write" in conn._pending[3].response["error"]["message"]
+    assert names == ["acp-writer"]
+
+
+def test_write_queued_behind_stop_is_failed():
+    conn = ACPConnection(["agent"])
+    proc = _live_proc()
+    event = threading.Event()
+    conn._pending[8] = _Pending(event)
+    conn._write_queue.put(_QueuedStop(proc))
+    conn._write_queue.put(_QueuedWrite(proc, b"{}\n", 8))
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("plugin.scripting.venv_worker._kill_process_tree", lambda process: None)
+        conn._ensure_writer()
+        assert event.wait(timeout=2)
+    assert "Failed to write" in conn._pending[8].response["error"]["message"]

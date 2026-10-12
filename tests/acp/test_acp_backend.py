@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.acp.acp_backend import ACPBackend, _STARTUP_POLL_S, _STARTUP_POLLS, _split_cli_args
+from plugin.acp.acp_backend import ACPBackend, _TurnStopped, _split_cli_args
 from plugin.acp.claude_simple import ClaudeBackend
 from plugin.acp.grok_simple import GrokBackend
 from plugin.acp.hermes_simple import HermesBackend
@@ -243,6 +243,28 @@ class TestBinaryDiscovery:
             backend = OpenCodeBackend()
         assert (backend._binary_path) == ("/usr/bin/opencode")
         assert (backend._extra_args) == (["acp"])
+
+    def test_missing_config_path_warns_and_falls_back(self, caplog):
+        caplog.set_level("WARNING", logger="plugin.acp.acp_backend")
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/missing/hermes", args="")),
+            patch("os.path.isfile", return_value=False),
+            patch("shutil.which", return_value="/usr/bin/hermes"),
+        ):
+            backend = HermesBackend()
+        assert (backend._binary_path) == ("/usr/bin/hermes")
+        assert ("/missing/hermes") in (caplog.text)
+        assert ("not a file") in (caplog.text)
+
+    def test_empty_config_path_does_not_warn(self, caplog):
+        caplog.set_level("WARNING", logger="plugin.acp.acp_backend")
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path="", args="")),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value="/usr/bin/hermes"),
+        ):
+            HermesBackend()
+        assert ("agent_backend.path") not in (caplog.text)
 
     def test_home_local_bin_used_when_not_on_path(self):
         home_bin = os.path.join(os.path.expanduser("~"), ".local", "bin", "hermes")
@@ -741,6 +763,99 @@ class TestStopAndShutdown:
         assert (backend._conn) is None
         assert (backend._session_id) is None
 
+    def test_request_does_not_send_when_this_turn_is_already_stopped(self):
+        backend = _bare_backend()
+        backend._turn = 2
+        backend._stop_turn = 2
+        backend._stop_requested = True
+        conn = MagicMock()
+        with pytest.raises(_TurnStopped):
+            backend._request(conn, "session/prompt", {}, 1)
+        conn.send_request.assert_not_called()
+        assert (backend._prompt_inflight) is False
+        assert (backend._prompt_done.is_set()) is True
+
+    def test_stop_just_before_the_prompt_does_not_send_it(self):
+        backend = _bare_backend()
+        backend._session_id = "sess-1"
+        conn = MagicMock()
+        conn.is_alive = True
+        backend._conn = conn
+        backend._ensure_connection = lambda stop_checker=None: None
+        backend._ensure_session = lambda **kwargs: None
+        real_request = backend._request
+
+        def request(conn_arg, method, params, timeout):
+            if method == "session/prompt":
+                backend.stop()
+            return real_request(conn_arg, method, params, timeout)
+
+        backend._request = request
+        q = queue.Queue()
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        kinds = [event[0] for event in _drain(q)]
+        assert (StreamQueueKind.STOPPED) in (kinds)
+        assert (StreamQueueKind.ERROR) not in (kinds)
+        conn.send_request.assert_not_called()
+        conn.stop.assert_not_called()
+        assert (backend._conn) is conn
+        assert (backend._session_id) == ("sess-1")
+
+    def test_stop_before_session_new_is_stopped_not_a_session_error(self):
+        backend = _bare_backend()
+        conn = MagicMock()
+        conn.is_alive = True
+
+        def ensure_connection(stop_checker=None):
+            backend._conn = conn
+
+        backend._ensure_connection = ensure_connection
+        real_request = backend._request
+
+        def request(conn_arg, method, params, timeout):
+            if method == "session/new":
+                backend.stop()
+            return real_request(conn_arg, method, params, timeout)
+
+        backend._request = request
+        q = queue.Queue()
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        kinds = [event[0] for event in _drain(q)]
+        assert (StreamQueueKind.STOPPED) in (kinds)
+        assert (StreamQueueKind.ERROR) not in (kinds)
+        conn.send_request.assert_not_called()
+        conn.stop.assert_not_called()
+        assert (backend._conn) is conn
+
+    def test_grace_kills_only_the_turn_that_is_still_inflight(self):
+        backend = _bare_backend()
+        backend._turn = 3
+        backend._prompt_inflight = True
+        backend._session_id = "sess"
+        backend._ready = True
+        conn = MagicMock()
+        conn.is_alive = True
+        backend._conn = conn
+        backend._pending_permissions[9] = []
+        backend._kill_turn_if_still_inflight(3)
+        conn.send_response.assert_called_once_with(9, result={"outcome": {"outcome": "cancelled"}})
+        conn.stop.assert_called_once()
+        assert (backend._conn) is None
+        assert (backend._session_id) is None
+        assert (backend._ready) is False
+
+    def test_grace_does_not_kill_after_the_turn_moves(self):
+        backend = _bare_backend()
+        backend._turn = 4
+        backend._prompt_inflight = True
+        backend._session_id = "sess"
+        conn = MagicMock()
+        backend._conn = conn
+        backend._kill_turn_if_still_inflight(3)
+        conn.stop.assert_not_called()
+        assert (backend._conn) is conn
+        assert (backend._session_id) == ("sess")
+
     def test_stop_before_send_does_not_start_cli(self):
         backend = _bare_backend()
         backend.prepare_turn()
@@ -838,7 +953,7 @@ def _startup_conn(*, alive: bool = True):
 
 
 class TestStartupWait:
-    """The post-start grace period must notice Stop before initialize."""
+    """Stop during spawn skips initialize. A dead child is reported at once."""
 
     def _backend(self):
         backend = _bare_backend()
@@ -846,40 +961,34 @@ class TestStartupWait:
         backend._extra_args = []
         return backend
 
-    def test_stop_during_startup_wait_does_not_initialize_or_prompt(self):
+    def test_stop_during_spawn_does_not_initialize_or_prompt(self):
         backend = self._backend()
         conn = _startup_conn()
-        sleeps: list[float] = []
-
-        def sleep(seconds: float) -> None:
-            sleeps.append(seconds)
-            backend.stop()
-
+        conn.start.side_effect = lambda: backend.stop()
         q = queue.Queue()
-        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn), patch("plugin.acp.acp_backend.time.sleep", side_effect=sleep):
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
             backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
         kinds = [event[0] for event in _drain(q)]
         assert (StreamQueueKind.STOPPED) in (kinds)
         assert (StreamQueueKind.ERROR) not in (kinds)
-        assert (sleeps) == ([_STARTUP_POLL_S])
         conn.send_request.assert_not_called()
-        # Stop during the startup poll leaves the child. The next send
-        # continues initialize because the process is not ready yet.
+        # Stop during spawn leaves the child. The next send continues
+        # initialize because the process is not ready yet.
         conn.stop.assert_not_called()
         assert (backend._conn) is conn
         assert (backend._ready) is False
 
-    def test_stop_checker_during_startup_wait_does_not_prompt(self):
+    def test_stop_checker_during_spawn_does_not_prompt(self):
         backend = self._backend()
         conn = _startup_conn()
         armed = {"stop": False}
 
-        def sleep(seconds: float) -> None:
-            assert (seconds) == (_STARTUP_POLL_S)
+        def start() -> None:
             armed["stop"] = True
 
+        conn.start.side_effect = start
         q = queue.Queue()
-        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn), patch("plugin.acp.acp_backend.time.sleep", side_effect=sleep):
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
             backend.send(queue=q, user_message="hi", document_context=None, document_url=None, stop_checker=lambda: armed["stop"])
         kinds = [event[0] for event in _drain(q)]
         assert (StreamQueueKind.STOPPED) in (kinds)
@@ -887,29 +996,43 @@ class TestStartupWait:
         assert (backend._stop_requested) is True
         conn.send_request.assert_not_called()
 
-    def test_grace_period_still_initializes_when_not_stopped(self):
+    def test_turn_stopped_during_initialize_keeps_the_child(self):
         backend = self._backend()
         conn = _startup_conn()
-        sleeps: list[float] = []
+        real_request = backend._request
 
-        def sleep(seconds: float) -> None:
-            sleeps.append(seconds)
-            if conn.send_request.called:
-                raise AssertionError("initialize ran during the startup wait")
+        def request(conn_arg, method, params, timeout):
+            backend.stop()
+            return real_request(conn_arg, method, params, timeout)
 
-        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn), patch("plugin.acp.acp_backend.time.sleep", side_effect=sleep):
+        backend._request = request
+        q = queue.Queue()
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
+            backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        kinds = [event[0] for event in _drain(q)]
+        assert (StreamQueueKind.STOPPED) in (kinds)
+        assert (StreamQueueKind.ERROR) not in (kinds)
+        conn.send_request.assert_not_called()
+        conn.stop.assert_not_called()
+        assert (backend._conn) is conn
+        assert (backend._ready) is False
+
+    def test_cold_start_initializes_without_sleeping(self):
+        backend = self._backend()
+        conn = _startup_conn()
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
             backend._ensure_connection()
-        assert (sleeps) == ([_STARTUP_POLL_S] * _STARTUP_POLLS)
         conn.send_request.assert_called_once()
         assert (conn.send_request.call_args.args[0]) == ("initialize")
         params = conn.send_request.call_args.args[1]
         assert (params["clientCapabilities"]["fs"]) == ({"readTextFile": False, "writeTextFile": False})
         assert (params["clientInfo"]["version"]) == (EXTENSION_VERSION)
+        assert (backend._ready) is True
 
     def test_dead_process_still_raises_before_initialize(self):
         backend = self._backend()
         conn = _startup_conn(alive=False)
-        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn), patch("plugin.acp.acp_backend.time.sleep", side_effect=AssertionError("slept")):
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
             with pytest.raises(RuntimeError, match="failed to start"):
                 backend._ensure_connection()
         conn.send_request.assert_not_called()
@@ -933,7 +1056,7 @@ class TestStartupWait:
         backend._ready = True
         backend._session_id = "old"
         fresh = _startup_conn()
-        with patch("plugin.acp.acp_backend.ACPConnection", return_value=fresh), patch("plugin.acp.acp_backend.time.sleep", return_value=None):
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=fresh):
             backend._ensure_connection()
         dead.stop.assert_called()
         assert (backend._conn) is fresh
@@ -944,10 +1067,25 @@ class TestStartupWait:
         backend = self._backend()
         conn = _startup_conn(alive=False)
         conn.stderr_text.return_value = "cli: not found\n"
-        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn), patch("plugin.acp.acp_backend.time.sleep", side_effect=AssertionError("slept")):
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
             with pytest.raises(RuntimeError, match="cli: not found"):
                 backend._ensure_connection()
         conn.send_request.assert_not_called()
+
+    def test_initialize_failure_on_a_dead_child_includes_stderr(self):
+        backend = self._backend()
+        conn = _startup_conn()
+
+        def send_request(method, params=None, timeout=120):
+            conn.is_alive = False
+            raise RuntimeError("ACP error: ACP process terminated")
+
+        conn.send_request.side_effect = send_request
+        conn.stderr_text.return_value = "cli: not found\n"
+        with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
+            with pytest.raises(RuntimeError, match="cli: not found"):
+                backend._ensure_connection()
+        conn.stop.assert_called()
 
 
 class TestUnknownAcpRequest:

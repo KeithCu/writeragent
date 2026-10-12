@@ -28,7 +28,6 @@ import os
 import shlex
 import shutil
 import threading
-import time
 from typing import Any, Optional, Dict, List, Tuple
 
 from plugin.acp.base import AgentBackend
@@ -42,14 +41,6 @@ log = logging.getLogger(__name__)
 
 # ACP protocol version (integer per SDK)
 _ACP_PROTOCOL_VERSION = 1
-# After spawn, wait this long before initialize so a process that exits
-# immediately is reported as a start failure. The wait is polled so Stop
-# during it does not continue into the handshake.
-_STARTUP_WAIT_S = 0.5
-_STARTUP_POLL_S = 0.05
-# Slice count for the grace period. Not ``int(wait / poll)``: 0.05 is not
-# an exact binary fraction, and truncating a 9.999 result would shorten it.
-_STARTUP_POLLS = round(_STARTUP_WAIT_S / _STARTUP_POLL_S)
 
 # PermissionOption.kind values from the ACP schema. Prefer the "_once"
 # choice so Approve does not permanently allow later tool calls.
@@ -129,6 +120,10 @@ _PROMPT_IDLE_SEC = 600
 # Stop sends session/cancel and keeps the CLI. If the prompt has not
 # returned by then, the agent ignored cancel and the tree is killed.
 _CANCEL_GRACE_SEC = 3.0
+
+
+class _TurnStopped(Exception):
+    """This turn was stopped before its JSON-RPC request was sent."""
 
 
 def _cli_basename_matches(path: str, binary_name: str) -> bool:
@@ -353,6 +348,10 @@ class ACPBackend(AgentBackend):
             if path and os.path.isfile(path):
                 self._binary_path = path
             else:
+                # An empty setting means "search PATH". A path that is not a
+                # file is a typo, and falling through with no log hid it.
+                if path:
+                    log.warning("ACP agent_backend.path is not a file (%s); searching PATH", path)
                 self._binary_path = self._find_binary()
 
             args_str = str(get_config("agent_backend.args") or "").strip()
@@ -473,29 +472,22 @@ class ACPBackend(AgentBackend):
             self._ready = False
             conn.start()
 
-            # time.sleep(0.5) after start() never looked at Stop. stop() or a
-            # true stop_checker during that half-second was ignored, and this
-            # method continued into initialize. Poll the same grace period in
-            # short slices and return as soon as the stop latch or stop_checker()
-            # says so, before the handshake.
-            # Keep the connection created above. Shutdown can set self._conn
-            # to None, so the poll and the handshake use this local.
-            polls_left = _STARTUP_POLLS
-            while True:
-                if self._startup_stopped(stop_checker):
-                    return
-                if not conn.is_alive:
-                    if self._startup_stopped(stop_checker):
-                        return
-                    detail = conn.stderr_text().strip()
-                    message = f"{self.get_display_name()} ACP process failed to start."
-                    if detail:
-                        message = f"{message} {detail[:500]}"
-                    raise RuntimeError(message)
-                if polls_left <= 0:
-                    break
-                polls_left -= 1
-                time.sleep(_STARTUP_POLL_S)
+            # What was wrong: a half-second poll after every spawn delayed the
+            # first message so an instant crash could be named before
+            # initialize, and so Stop during that sleep skipped the handshake.
+            # Why: initialize fails on its own when the reader wakes the
+            # waiter. One liveness check still reports a child that is already
+            # dead, with its stderr. A Stop that landed during spawn is
+            # honored here, before the request is sent. Keep this local:
+            # shutdown can set self._conn to None.
+            if self._startup_stopped(stop_checker):
+                return
+            if not conn.is_alive:
+                detail = conn.stderr_text().strip()
+                message = f"{self.get_display_name()} ACP process failed to start."
+                if detail:
+                    message = f"{message} {detail[:500]}"
+                raise RuntimeError(message)
 
         # Initialize handshake. ACP fs capability names are camelCase;
         # snake_case keys are ignored and do not turn the features off.
@@ -512,9 +504,18 @@ class ACPBackend(AgentBackend):
             )
             self._ready = True
             log.info(f"ACP initialized: {result}")
-        except Exception:
+        except _TurnStopped:
+            # Stop won before initialize was sent. Leave the child so the
+            # next message can finish the handshake. _ready stays false.
+            return
+        except Exception as exc:
             log.exception("ACP initialize failed")
+            # A crash during the handshake used to say only "process
+            # terminated". The stderr tail is the CLI's own reason.
+            detail = conn.stderr_text().strip() if not conn.is_alive else ""
             self._release_connection(conn)
+            if detail:
+                raise RuntimeError(f"{self.get_display_name()} ACP process failed to start. {detail[:500]}") from exc
             raise
 
     def _ensure_session(self, mcp_url: str | None = None, document_url: str | None = None) -> None:
@@ -557,6 +558,10 @@ class ACPBackend(AgentBackend):
             self._session_url = url_key
             self._session_prompted = False
             log.debug(f"ACP session created: {self._session_id}")
+        except _TurnStopped:
+            # Stop won before session/new was sent. Not a session failure,
+            # and the process is still the one the next message should use.
+            raise
         except Exception:
             log.exception("ACP session creation failed")
             # The process can retry session/new. Drop it only when it has died.
@@ -799,8 +804,20 @@ class ACPBackend(AgentBackend):
             return False
 
     def _request(self, conn: ACPConnection, method: str, params: Any, timeout: float) -> Any:
-        """``send_request`` marked in flight so Stop can bound it."""
+        """``send_request`` marked in flight so Stop can bound it.
+
+        What was wrong: ``send()`` checked ``_stop_requested``, then this set
+        ``_prompt_inflight``. ``stop()`` in that gap saw inflight false, so
+        it sent no ``session/cancel`` and armed no grace. The prompt ran to
+        completion and the UI only said Stopped afterwards. Why: the stop
+        latch and the inflight flag share ``_state_lock``. A Stop that
+        already won this turn never reaches ``send_request``. The fresh
+        adapter has ``_stop_turn == _turn == 0`` with the latch clear, so
+        the latch has to be set too: equality alone is the unset pair.
+        """
         with self._state_lock:
+            if self._stop_requested and self._stop_turn == self._turn:
+                raise _TurnStopped()
             self._prompt_done.clear()
             self._prompt_inflight = True
         try:
@@ -818,13 +835,52 @@ class ACPBackend(AgentBackend):
             # clock would, and a wedged agent would keep editing.
             if self._prompt_done.wait(_CANCEL_GRACE_SEC):
                 return
-            with self._state_lock:
-                if self._turn != turn or not self._prompt_inflight:
-                    return
-            log.info("ACP cancel was not answered within %ss; killing the CLI", _CANCEL_GRACE_SEC)
-            self.shutdown()
+            self._kill_turn_if_still_inflight(turn)
 
         run_in_background(_watch, name="acp-cancel-grace", dedicated=True)
+
+    def _kill_turn_if_still_inflight(self, turn: int) -> None:
+        """Stop the CLI captured for ``turn`` when that request is still in flight.
+
+        What was wrong: the turn check and ``shutdown()`` were not one
+        critical section. ``prepare_turn`` could publish the next turn, and
+        that send could adopt the same child, before ``shutdown()`` ran.
+        Why: the slot is cleared under the same lock as the check. The
+        captured connection is the one that is stopped. ``shutdown()`` reads
+        ``self._conn``, so calling it after the slot is cleared would skip
+        the kill. The lock is not held across ``stop()``: cancelling
+        permissions takes it.
+        """
+        with self._state_lock:
+            if self._turn != turn or not self._prompt_inflight:
+                return
+            conn = self._conn
+            pending_ids = list(self._pending_permissions)
+            self._pending_permissions.clear()
+            if self._conn is conn:
+                self._conn = None
+            self._ready = False
+            self._session_id = None
+            self._session_url = None
+            self._session_prompted = False
+        log.info("ACP cancel was not answered within %ss; killing the CLI", _CANCEL_GRACE_SEC)
+        for request_id in pending_ids:
+            if conn is None:
+                break
+            try:
+                conn.send_response(request_id, result=_cancelled_permission())
+            except Exception:
+                log.exception("Failed to cancel ACP permission %s", request_id)
+        if conn is None:
+            return
+        try:
+            conn.set_notification_callback(None)
+        except Exception:
+            log.exception("Failed to clear ACP notification callback")
+        try:
+            conn.stop()
+        except Exception:
+            log.exception("ACP shutdown failed")
 
     def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any) -> None:
         """Send one prompt. The CLI stays up for the next message on this sidebar."""
@@ -900,6 +956,8 @@ class ACPBackend(AgentBackend):
 
                 self._finish_prompt_result(result, queue)
 
+            except _TurnStopped:
+                self._finish_stopped(queue)
             except TimeoutError:
                 # No accepted stdout for the idle window. The CLI is wedged.
                 self._report_failure(queue, format_error_payload(RuntimeError(f"{self.get_display_name()} prompt timed out")))
