@@ -13,10 +13,11 @@ import calendar
 import datetime as dt
 from decimal import Decimal, ROUND_HALF_UP
 import math
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
+from .calc_functions_t_z import yearfrac
 from .calc_functions_util import (
     _date_to_serial,
     _days360,
@@ -151,12 +152,9 @@ def _roll_ymd(year: int, month: int, day: int) -> dt.date:
 
 
 def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
-    try:
-        sd = dt.date.fromordinal(int(float(start_date)) + 693594)
-        ed = dt.date.fromordinal(int(float(end_date)) + 693594)
-    except Exception:
-        return float("nan")
-    if sd > ed:
+    sd = _serial_to_date(start_date)
+    ed = _serial_to_date(end_date)
+    if sd is None or ed is None or sd > ed:
         return float("nan")
     u = str(unit).strip('"').upper()
     # Month and day units follow ScGetDateDif (interpr2.cxx). A plain
@@ -197,7 +195,13 @@ def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
             return float((ed - anchor).days)
     except (ValueError, OverflowError):
         return float("nan")
-    return float((ed - sd).days)
+    # ScGetDateDif (interpr2.cxx) returns the day count when the dates are
+    # equal, before it checks the unit. Any other unknown unit is
+    # PushIllegalArgument. The fall-through used to return the day count
+    # for "X" as well.
+    if sd == ed:
+        return 0.0
+    return float("nan")
 
 
 def datevalue(text: Any) -> float:
@@ -211,9 +215,33 @@ def datevalue(text: Any) -> float:
     return float("nan")
 
 
+def _dagg(
+    database: Any,
+    field: Any,
+    criteria: Any,
+    reduce: Callable[[list[Any]], Any],
+    *,
+    min_n: int = 0,
+    empty: float = float("nan"),
+) -> float:
+    """Shared body of the numeric D* functions.
+
+    ``None`` from ``_eval_d_criteria`` is an illegal database, field, or
+    criteria header. An empty match is not that error: DSUM of no numbers
+    is 0, DMAX of no numbers is 0, DAVERAGE of no numbers is NaN. ``min_n``
+    is how many numbers ``reduce`` needs. ``np.prod([])`` is 1, so DPRODUCT
+    uses ``min_n`` 1 and ``empty`` 0 instead of calling prod on nothing.
+    """
+    vals = _eval_d_criteria(database, field, criteria)
+    if vals is None:
+        return float("nan")
+    if len(vals) < min_n:
+        return empty
+    return float(reduce(vals))
+
+
 def daverage(db: Any, field: Any, criteria: Any) -> float:
-    vals = _eval_d_criteria(db, field, criteria)
-    return float(np.mean(vals)) if vals else float("nan")
+    return _dagg(db, field, criteria, np.mean, min_n=1)
 
 
 def days(end_date: Any, start_date: Any) -> float:
@@ -265,8 +293,7 @@ def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> floa
 
 
 def dcount(db: Any, field: Any, criteria: Any) -> float:
-    vals = _eval_d_criteria(db, field, criteria)
-    return float(len(vals)) if vals is not None else float("nan")
+    return _dagg(db, field, criteria, len)
 
 
 def dcounta(db: Any, field: Any, criteria: Any) -> float:
@@ -301,11 +328,17 @@ def ddb(cost: Any, salvage: Any, life: Any, period: Any, factor: Any = 2) -> flo
 def decimal(text: Any, radix: Any) -> float:
     # Every character must be a digit for this radix. Python int() accepts
     # 0x, signs, and underscores; Excel and Calc DECIMAL do not.
+    # ScDecimal (interpr2.cxx) takes GetString(). An integral numeric cell
+    # arrives as 111.0, and str(111.0) is "111.0", so the dot failed the
+    # digit check. The cell's text has no trailing ".0".
     try:
         r = int(float(radix))
         if r < 2 or r > 36:
             return float("nan")
-        s = str(text).strip()
+        if isinstance(text, float) and math.isfinite(text) and text.is_integer():
+            s = str(int(text))
+        else:
+            s = str(text).strip()
         if not s:
             return float("nan")
         valid_chars = "0123456789abcdefghijklmnopqrstuvwxyz"[:r]
@@ -340,8 +373,6 @@ def dget(db: Any, field: Any, criteria: Any) -> Any:
 
 
 def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:
-    from plugin.scripting.venv.calc_functions_t_z import yearfrac
-
     try:
         p = float(pr)
         red = float(redemption)
@@ -355,18 +386,12 @@ def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 
 
 def dmax(db: Any, field: Any, criteria: Any) -> float:
     # No matching record is 0, not #NUM!. Excel and Calc DMAX do the same.
-    vals = _eval_d_criteria(db, field, criteria)
-    if vals is None:
-        return float("nan")
-    return float(np.max(vals)) if vals else 0.0
+    return _dagg(db, field, criteria, np.max, min_n=1, empty=0.0)
 
 
 def dmin(db: Any, field: Any, criteria: Any) -> float:
     # No matching record is 0, not #NUM!. Excel and Calc DMIN do the same.
-    vals = _eval_d_criteria(db, field, criteria)
-    if vals is None:
-        return float("nan")
-    return float(np.min(vals)) if vals else 0.0
+    return _dagg(db, field, criteria, np.min, min_n=1, empty=0.0)
 
 
 def _format_rounded(val: float, decimals: int, *, commas: bool) -> str:
@@ -374,6 +399,10 @@ def _format_rounded(val: float, decimals: int, *, commas: bool) -> str:
     # Half away from zero (2.5 -> 3, -2.5 -> -3). Python round() is half-to-even.
     places = max(0, decimals)
     q = _round_half_up(val, decimals)
+    # Decimal('-0.00') formats as "-0.00". A rounded zero has no sign.
+    # FIXED(-0.001, 2) was "-0.00". DOLLAR already hides it via q < 0.
+    if q == 0:
+        q = abs(q)
     if places == 0:
         return f"{int(q):,}" if commas else str(int(q))
     return f"{q:,.{places}f}" if commas else f"{q:.{places}f}"
@@ -384,7 +413,7 @@ def dollar(number: Any, decimals: Any = 2) -> str | float:
     try:
         val = float(number)
         dec = int(float(decimals))
-        if math.isnan(val) or not math.isfinite(val):
+        if not math.isfinite(val):
             return float("nan")
         q = _round_half_up(val, dec)
         places = max(0, dec)
@@ -415,36 +444,22 @@ def dollarfr(decimal_dollar: Any, fraction: Any) -> float:
 
 
 def dproduct(db: Any, field: Any, criteria: Any) -> float:
-    vals = _eval_d_criteria(db, field, criteria)
-    if vals is None:
-        return float("nan")
-    return float(np.prod(vals)) if vals else 0.0
+    return _dagg(db, field, criteria, np.prod, min_n=1, empty=0.0)
 
 
 def dstdev(db: Any, field: Any, criteria: Any) -> float:
-    vals = _eval_d_criteria(db, field, criteria)
-    if vals is None or len(vals) <= 1:
-        return float("nan")
-    return float(np.std(vals, ddof=1))
+    return _dagg(db, field, criteria, lambda vals: np.std(vals, ddof=1), min_n=2)
 
 
 def dstdevp(db: Any, field: Any, criteria: Any) -> float:
-    vals = _eval_d_criteria(db, field, criteria)
-    if vals is None or not vals:
-        return float("nan")
-    return float(np.std(vals, ddof=0))
+    return _dagg(db, field, criteria, lambda vals: np.std(vals, ddof=0), min_n=1)
 
 
 def dsum(db: Any, field: Any, criteria: Any) -> float:
-    vals = _eval_d_criteria(db, field, criteria)
-    if vals is None:
-        return float("nan")
-    return float(np.sum(vals))
+    return _dagg(db, field, criteria, np.sum)
 
 
 def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
-    from .calc_functions_t_z import yearfrac
-
     try:
         s = float(settlement)
         m = float(maturity)
@@ -478,17 +493,24 @@ def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: A
 
 
 def dvar(db: Any, field: Any, criteria: Any) -> float:
-    vals = _eval_d_criteria(db, field, criteria)
-    if vals is None or len(vals) <= 1:
-        return float("nan")
-    return float(np.var(vals, ddof=1))
+    return _dagg(db, field, criteria, lambda vals: np.var(vals, ddof=1), min_n=2)
 
 
 def dvarp(db: Any, field: Any, criteria: Any) -> float:
-    vals = _eval_d_criteria(db, field, criteria)
-    if vals is None or not vals:
-        return float("nan")
-    return float(np.var(vals, ddof=0))
+    return _dagg(db, field, criteria, lambda vals: np.var(vals, ddof=0), min_n=1)
+
+
+def _shift_months(sd: dt.date, months: Any) -> tuple[int, int] | None:
+    """Move ``sd`` by whole months. None when ``months`` is not a number."""
+    try:
+        month_delta = int(float(months))
+    except (ValueError, TypeError, OverflowError):
+        return None
+    y, m = sd.year, sd.month
+    m += month_delta
+    y += (m - 1) // 12
+    m = (m - 1) % 12 + 1
+    return y, m
 
 
 def edate(start_date: Any, months: Any) -> float:
@@ -496,14 +518,10 @@ def edate(start_date: Any, months: Any) -> float:
     sd = _serial_to_date(start_date)
     if sd is None:
         return float("nan")
-    try:
-        month_delta = int(float(months))
-    except (ValueError, TypeError, OverflowError):
+    shifted = _shift_months(sd, months)
+    if shifted is None:
         return float("nan")
-    y, m = sd.year, sd.month
-    m += month_delta
-    y += (m - 1) // 12
-    m = (m - 1) % 12 + 1
+    y, m = shifted
     try:
         dim = calendar.monthrange(y, m)[1]
         d = min(sd.day, dim)
@@ -543,14 +561,10 @@ def eomonth(start_date: Any, months: Any) -> float:
     sd = _serial_to_date(start_date)
     if sd is None:
         return float("nan")
-    try:
-        month_delta = int(float(months))
-    except (ValueError, TypeError, OverflowError):
+    shifted = _shift_months(sd, months)
+    if shifted is None:
         return float("nan")
-    y, m = sd.year, sd.month
-    m += month_delta
-    y += (m - 1) // 12
-    m = (m - 1) % 12 + 1
+    y, m = shifted
     try:
         dim = calendar.monthrange(y, m)[1]
         res_date = dt.date(y, m, dim)
@@ -911,7 +925,9 @@ def gammaln(x: Any) -> float:
         if x_val <= 0:
             return float("nan")
         return float(math.lgamma(x_val))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
+        # math.lgamma(1e308) raises OverflowError ("math range error").
+        # That is #NUM!, same as gamma() and gammaln of a non-positive x.
         return float("nan")
 
 
@@ -957,7 +973,11 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
             new_x_arr = np.asarray(new_x, dtype=float).ravel()
 
         y_log = np.log(y)
-        if const:
+        # A text "0" is truthy in Python, so GROWTH fitted an intercept.
+        # expondist and fixed coerce with bool(float()). "FALSE" raises
+        # and the handler below returns [].
+        use_const = bool(float(const))
+        if use_const:
             coeffs = np.polyfit(x, y_log, 1)
             res = np.exp(np.polyval(coeffs, new_x_arr))
         else:

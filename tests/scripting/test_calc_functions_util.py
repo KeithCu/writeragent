@@ -482,6 +482,18 @@ def test_eval_d_criteria():
     assert _eval_d_criteria(db, 99, crit) is None
     assert _eval_d_criteria(db, "Height", "invalid_crit") is None
 
+    # Text is skipped, TRUE is 1, NaN is missing. An unknown header is an error.
+    mixed = [["Name", "Score"], ["A", "5"], ["B", True], ["C", 2.0], ["D", float("nan")]]
+    mixed_crit = [["Name"], ["A"], ["B"], ["C"], ["D"]]
+    assert _eval_d_criteria(mixed, "Score", mixed_crit) == [1.0, 2.0]
+    assert _eval_d_criteria(mixed, "Score", [["Nope"], ["A"]]) is None
+
+    # Duplicate database headers: the name is the first column. Index 2 is the second.
+    dup = [["A", "A"], [1.0, 10.0], [2.0, 20.0]]
+    dup_crit = [["A"], [">0"]]
+    assert _eval_d_criteria(dup, "A", dup_crit) == [1.0, 2.0]
+    assert _eval_d_criteria(dup, 2, dup_crit) == [10.0, 20.0]
+
 
 def test_multi_criteria_mask():
     from plugin.scripting.venv.calc_functions_util import _multi_criteria_mask

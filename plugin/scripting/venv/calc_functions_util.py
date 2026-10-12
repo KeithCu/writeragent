@@ -749,12 +749,19 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
     if db_arr.ndim != 2:
         return None
     headers = [header_label(h).upper() for h in db_arr[0]]
+    # First duplicate header wins, same as findFieldColumn (doubleref.cxx)
+    # walking the header row left to right.
+    header_index: dict[str, int] = {}
+    for idx, name in enumerate(headers):
+        header_index.setdefault(name, idx)
 
     f_idx = -1
     if isinstance(field, str) or isinstance(field, bool):
+        # bool is an int subclass. int(True) - 1 would select column 0 when
+        # the label "TRUE" is missing. A bool field is the header text.
         f_name = header_label(field).upper()
-        if f_name in headers:
-            f_idx = headers.index(f_name)
+        if f_name in header_index:
+            f_idx = header_index[f_name]
     elif isinstance(field, (int, float)):
         try:
             f_idx = int(field) - 1
@@ -762,8 +769,8 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
             f_idx = -1
     elif field is not None and field != "":
         f_name = header_label(field).upper()
-        if f_name in headers:
-            f_idx = headers.index(f_name)
+        if f_name in header_index:
+            f_idx = header_index[f_name]
         else:
             try:
                 f_idx = int(float(field)) - 1
@@ -778,23 +785,30 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
         return None
     crit_headers = [header_label(h).upper() for h in crit_arr[0]]
 
-    matching_vals = []
+    # lcl_createExcelQuery (doubleref.cxx) requires every criteria header
+    # to name a database column. A miss makes createQueryParam return
+    # nullptr, and DBIterator sets IllegalParameter. Skipping the column
+    # used to match every row.
+    crit_cols: list[int] = []
+    for c_header in crit_headers:
+        col = header_index.get(c_header)
+        if col is None:
+            return None
+        crit_cols.append(col)
+
+    matching_vals: list[Any] = []
     for r_idx in range(1, db_arr.shape[0]):
         row = db_arr[r_idx]
         match_any_row = False
         for c_row_idx in range(1, crit_arr.shape[0]):
             match_all_cols = True
             for c_col_idx in range(crit_arr.shape[1]):
-                c_header = crit_headers[c_col_idx]
                 c_val = crit_arr[c_row_idx, c_col_idx]
                 if is_missing_value(c_val):
                     continue
-
-                if c_header in headers:
-                    db_col_idx = headers.index(c_header)
-                    if not match_criteria(row[db_col_idx], c_val):
-                        match_all_cols = False
-                        break
+                if not match_criteria(row[crit_cols[c_col_idx]], c_val):
+                    match_all_cols = False
+                    break
             if match_all_cols:
                 match_any_row = True
                 break
@@ -802,10 +816,22 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any, as_float: bool = True) 
         if match_any_row:
             val = row[f_idx]
             if as_float:
+                # Strings are not numbers. ScDBQueryParamBase starts with
+                # mbSkipString true (queryparam.cxx). DSUM uses that iterator.
+                # DCOUNTA sets the flag false and calls this with
+                # as_float=False, so text still counts there. float("5") used
+                # to add the text. A bool stays: Calc stores TRUE as a numeric
+                # cell, so float(True) is 1. NaN is missing (is_missing_value)
+                # and must not poison the aggregate.
+                if isinstance(val, str):
+                    continue
                 try:
-                    matching_vals.append(float(val))
+                    num = float(val)
                 except (ValueError, TypeError, OverflowError):
-                    pass
+                    continue
+                if math.isnan(num):
+                    continue
+                matching_vals.append(num)
             else:
                 matching_vals.append(val)
     return matching_vals

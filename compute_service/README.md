@@ -443,7 +443,7 @@ python scripts/benchmark_compute_service.py --workers 1,2,4 --concurrency 4
 # Multi-concurrency client load benchmark (1 to 32 concurrent clients)
 python scripts/benchmark_compute_service.py --concurrency 1,2,4,8,16,32 --requests 50 --threads 32
 
-# Battle-hardened stress scenario (32 clients hammering 2 workers, dual-wire peel+multipart, rapid process recycling every 25 tasks, concurrent reset traffic, and chaos hangs+crashes recovery by default)
+# Battle-hardened stress scenario (32 clients hammering 2 workers, dual-wire peel+multipart, rapid process recycling every 25 tasks, concurrent reset traffic, gated deadline-wait + queue absorption verification, and chaos hangs+crashes recovery by default)
 python scripts/benchmark_compute_service.py --stress
 
 # Optional overrides (e.g. custom workers, disable chaos, or adjust concurrency)

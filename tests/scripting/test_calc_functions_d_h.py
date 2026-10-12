@@ -103,6 +103,10 @@ def test_growth_rejects_non_positive_known_y():
     through_origin = calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, False)
     assert len(through_origin) == 1
     assert math.isfinite(through_origin[0])
+    # A text "0" is truthy in Python. It must follow the numeric 0 path.
+    assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "0") == through_origin
+    assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "FALSE") == []
+    assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4) == fitted
 
 
 def test_days360_us_february_month_end():
@@ -312,6 +316,9 @@ def test_fixed_and_dollar_half_up_and_negative():
     assert calc.fixed(-1.25, 1) == "-1.3"
     assert calc.fixed(1234.56, 1, True) == "1234.6"
     assert calc.fixed(1234.56, 1, False) == "1,234.6"
+    # Decimal('-0.00') used to format as "-0.00". A rounded zero has no sign.
+    assert calc.fixed(-0.001, 2) == "0.00"
+    assert calc.fixed(-1.235, 2) == "-1.24"
 
     # DOLLAR negative formatting: sign before dollar sign
     assert calc.dollar(-1234.567, 2) == "-$1,234.57"
@@ -325,6 +332,9 @@ def test_euroconvert_half_up_and_tables():
     assert calc.euroconvert(1.0, "DEM", "EUR") == 0.51
     # 1 EUR in DEM is 1.95583 rounds to 1.96
     assert calc.euroconvert(1.0, "EUR", "DEM") == 1.96
+    # LibreOffice applies triangulation precision when the target is EUR.
+    # 100/1.95583 rounded to 3 significant digits is 51.1, then to cents.
+    assert calc.euroconvert(100, "DEM", "EUR", False, 3) == 51.1
 
 
 def test_filter_vector_includes():
@@ -377,6 +387,10 @@ def test_decimal_validation():
     assert math.isnan(calc.decimal("+10", 10))
     assert math.isnan(calc.decimal("10_000", 10))
     assert math.isnan(calc.decimal("123", 2))  # '2' and '3' are invalid in base 2
+    # An integral numeric cell arrives as 111.0. str(111.0) is "111.0".
+    assert calc.decimal(111.0, 10) == 111.0
+    assert calc.decimal("111", 10) == 111.0
+    assert math.isnan(calc.decimal(10.5, 10))
 
 
 def test_database_functions_no_match_returns_zero():
@@ -393,6 +407,35 @@ def test_database_functions_no_match_returns_zero():
     # Invalid db/field returns NaN
     assert math.isnan(calc.dmax("not_a_db", "Score", crit))
     assert math.isnan(calc.dmin(db, 99, crit))
+
+
+def test_d_functions_skip_text_and_reject_unknown_headers():
+    # Text is not a number (mbSkipString). TRUE is a numeric cell. NaN is missing.
+    db = [["Name", "Score"], ["A", "5"], ["B", True], ["C", 2.0], ["D", float("nan")], ["E", ""]]
+    crit = [["Name"], ["A"], ["B"], ["C"], ["D"], ["E"]]
+    assert calc.dsum(db, "Score", crit) == 3.0
+    assert calc.dcount(db, "Score", crit) == 2.0
+    assert calc.dcounta(db, "Score", crit) == 4.0
+    text_only = [["Name", "Score"], ["A", "5"]]
+    assert calc.dsum(text_only, "Score", [["Name"], ["A"]]) == 0.0
+    assert calc.dcount(text_only, "Score", [["Name"], ["A"]]) == 0.0
+    # A criteria header that is not in the database is IllegalParameter, not match-all.
+    assert math.isnan(calc.dsum(db, "Score", [["Nope"], ["A"]]))
+    assert math.isnan(calc.dcount(db, "Score", [["Tree", ""], ["A", ""]]))
+
+
+def test_datedif_unknown_unit_is_nan_unless_dates_match():
+    # ScGetDateDif returns 0 for equal dates before it checks the unit.
+    # Any other unknown unit is an illegal argument, not the day count.
+    assert math.isnan(calc.datedif(44927, 45000, "X"))
+    assert calc.datedif(44927, 44927, "X") == 0.0
+    assert calc.datedif(44927, 45000, "D") == 73.0
+
+
+def test_gammaln_huge_input_is_nan():
+    # math.lgamma(1e308) raises OverflowError. That is #NUM!, same as gamma.
+    assert math.isnan(calc.gammaln(1e308))
+    assert calc.gammaln(1) == 0.0
 
 
 def test_frequency_bincount():
