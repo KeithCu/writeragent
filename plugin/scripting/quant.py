@@ -37,8 +37,8 @@ _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
 _HELPER_DESCRIPTIONS: dict[str, str] = {
     "fetch_historical_data": "Fetch historical prices via yfinance",
     "technical_analysis": "Calculate MACD, RSI, and Bollinger Bands",
-    "portfolio_tearsheet": "Generate portfolio performance metrics via quantstats",
-    "efficient_frontier": "Optimize portfolio weights via PyPortfolioOpt",
+    "portfolio_tearsheet": "Generate performance metrics from a returns sheet via quantstats",
+    "efficient_frontier": "Optimize weights from a returns sheet via PyPortfolioOpt",
 }
 
 _QUANT_VENV_EXPORTS = frozenset(

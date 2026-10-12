@@ -350,6 +350,7 @@ def test_efficient_frontier_honors_params_and_case_insensitive_date(monkeypatch)
         data=grid,
     )
     assert result["status"] == "ok"
+    assert "warning" not in result
     mock_ef_class.assert_called_once()
     assert mock_ef_class.call_args[1]["weight_bounds"] == (0.1, 0.9)
     mock_ef_inst.max_sharpe.assert_called_once_with(risk_free_rate=0.03)
@@ -557,6 +558,8 @@ def test_fetch_retries_when_multi_level_index_is_unknown(monkeypatch):
     assert result["status"] == "ok", result
     assert "multi_level_index" in calls[0]
     assert "multi_level_index" not in calls[1]
+    assert calls[0]["auto_adjust"] is True
+    assert calls[1]["auto_adjust"] is True
 
 
 def test_fetch_other_typeerror_stays_execution_error(monkeypatch):
@@ -609,3 +612,69 @@ def test_efficient_frontier_rejects_bad_bounds_and_rate(monkeypatch):
     assert rate["status"] == "error"
     assert rate["code"] == "INVALID_PARAMS"
     mock_ef_class.assert_not_called()
+
+
+def test_fetch_pins_auto_adjust(monkeypatch):
+    import sys
+    import pandas as pd
+
+    fake_yf = MagicMock()
+    fake_yf.download.return_value = pd.DataFrame({"Close": [1.0]})
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yf)
+
+    result = venv_run_quant({"helper": "fetch_historical_data", "params": {"tickers": ["AAPL"]}})
+    assert result["status"] == "ok", result
+    assert fake_yf.download.call_args.kwargs["auto_adjust"] is True
+
+
+def test_efficient_frontier_drops_incomplete_rows(monkeypatch):
+    import sys
+
+    _install_frontier_mocks(monkeypatch)
+    mean = sys.modules["pypfopt.expected_returns"].mean_historical_return
+    grid = [
+        ["A", "B"],
+        [0.01, 0.02],
+        [0.02, float("nan")],
+        [0.03, 0.01],
+    ]
+    result = venv_run_quant({"helper": "efficient_frontier", "params": {}}, data=grid)
+    assert result["status"] == "ok", result
+    passed = mean.call_args[0][0]
+    assert len(passed) == 2
+    assert [float(v) for v in passed["A"].tolist()] == [0.01, 0.03]
+    assert result["warning"] == "Dropped 1 row with missing or non-finite returns."
+
+
+def test_efficient_frontier_drops_empty_column(monkeypatch):
+    import sys
+
+    _install_frontier_mocks(monkeypatch)
+    mean = sys.modules["pypfopt.expected_returns"].mean_historical_return
+    grid = [
+        ["A", "B", "C"],
+        [0.01, float("nan"), 0.02],
+        [0.03, float("nan"), 0.01],
+    ]
+    result = venv_run_quant({"helper": "efficient_frontier", "params": {}}, data=grid)
+    assert result["status"] == "ok", result
+    passed = mean.call_args[0][0]
+    assert list(passed.columns) == ["A", "C"]
+    assert len(passed) == 2
+    assert result["warning"] == "Dropped 1 empty column."
+
+
+def test_efficient_frontier_accepts_none_bounds(monkeypatch):
+    mock_ef_class = _install_frontier_mocks(monkeypatch)
+    grid = [
+        ["A", "B"],
+        [0.01, 0.02],
+        [0.02, -0.01],
+    ]
+    result = venv_run_quant(
+        {"helper": "efficient_frontier", "params": {"weight_bounds": [None, None]}},
+        data=grid,
+    )
+    assert result["status"] == "ok", result
+    assert mock_ef_class.call_args[1]["weight_bounds"] == (None, None)
+    assert "warning" not in result

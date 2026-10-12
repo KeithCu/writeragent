@@ -156,11 +156,16 @@ def fetch_historical_data(params: dict[str, Any], context: dict[str, Any]) -> di
         # multi_level_index arrived in yfinance 0.2.48. An older download()
         # raises TypeError for that keyword; retry without it. Any other
         # TypeError still falls through to EXECUTION_ERROR.
+        # auto_adjust default flipped to True in yfinance 0.2.51. Leaving it
+        # unset made Close unadjusted and added Adj Close on older installs,
+        # so both the numbers and the column set depended on the package.
+        # Pin True: OHLC is split-adjusted and there is no Adj Close column.
         download_kwargs: dict[str, Any] = {
             "start": start_date,
             "end": end_date,
             "interval": interval,
             "progress": False,
+            "auto_adjust": True,
             "multi_level_index": False,
         }
         try:
@@ -398,8 +403,30 @@ def efficient_frontier(
         # Case-insensitive date column, shared with portfolio_tearsheet
         # (Date, datetime, timestamp, and the same names in other cases).
         numeric_df, _dates = _returns_frame_from_df(df)
+        # What was wrong: a hole in one asset still came back status ok.
+        # How it happened: CovarianceShrinkage.ledoit_wolf does np.nan_to_num
+        # (pypfopt/risk_models.py), so NaN becomes 0 and ±inf becomes ~1e308.
+        # mean_historical_return skips NaN via prod() and count()
+        # (pypfopt/expected_returns.py). Mean and covariance then disagree.
+        # Why this change: drop a blank column first, then any row that is
+        # not fully finite, so both calls see the same days. An empty column
+        # dropped with how="any" would have thrown away every row.
+        numeric_df = numeric_df.replace([math.inf, -math.inf], float("nan"))
+        n_cols_before = int(numeric_df.shape[1])
+        numeric_df = numeric_df.dropna(axis=1, how="all")
+        n_empty_cols = n_cols_before - int(numeric_df.shape[1])
+        n_rows_before = int(len(numeric_df))
+        numeric_df = numeric_df.dropna()
+        n_dropped_rows = n_rows_before - int(len(numeric_df))
         if numeric_df.empty or numeric_df.shape[1] < 2:
             return _error_result("INVALID_DATA", "Need at least two numeric assets for efficient frontier.", helper="efficient_frontier")
+        notes: list[str] = []
+        if n_empty_cols:
+            noun = "column" if n_empty_cols == 1 else "columns"
+            notes.append(f"Dropped {n_empty_cols} empty {noun}.")
+        if n_dropped_rows:
+            noun = "row" if n_dropped_rows == 1 else "rows"
+            notes.append(f"Dropped {n_dropped_rows} {noun} with missing or non-finite returns.")
 
         # A non-numeric rate used to escape as EXECUTION_ERROR. A weight_bounds
         # value that was not a pair was ignored, and the library default ran.
@@ -439,9 +466,13 @@ def efficient_frontier(
         ef.max_sharpe(risk_free_rate=rfr)
         cleaned_weights = ef.clean_weights()
 
+        extra: dict[str, Any] = {}
+        if notes:
+            extra["warning"] = " ".join(notes)
         return _ok_result(
             "efficient_frontier",
             weights=cleaned_weights,
+            **extra,
         )
     except Exception as e:
         log.exception("Error in efficient_frontier")
