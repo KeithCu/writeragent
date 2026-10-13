@@ -231,3 +231,34 @@ def test_calc_helpers_fail_on_writer_document():
     with pytest.raises(WriterAgentException) as range_exc:
         tool.execute(ctx, code="1", data_range="A1:A2")
     assert range_exc.value.code == "UNSUPPORTED_OPERATION"
+
+
+def test_execute_with_return_catches_timeout_and_exit_signals():
+    from unittest.mock import MagicMock
+    from plugin.calc.python.executor import PythonExecutor, WriterAgentException
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    executor = PythonExecutor("test")
+
+    # ExecutionTimeoutError
+    executor.executor = MagicMock()
+    executor.executor.side_effect = ExecutionTimeoutError("timed out")
+    with pytest.raises(WriterAgentException) as exc_info:
+        executor.execute_with_return("pass")
+    assert "timed out" in str(exc_info.value)
+    assert exc_info.value.code == "PYTHON_EXECUTION_ERROR"
+
+    # SystemExit
+    executor.executor.side_effect = SystemExit(4)
+    with pytest.raises(WriterAgentException) as exc_info:
+        executor.execute_with_return("pass")
+    assert "SystemExit" in str(exc_info.value)
+    assert exc_info.value.code == "PYTHON_EXECUTION_ERROR"
+
+    # KeyboardInterrupt
+    executor.executor.side_effect = KeyboardInterrupt()
+    with pytest.raises(WriterAgentException) as exc_info:
+        executor.execute_with_return("pass")
+    assert "KeyboardInterrupt" in str(exc_info.value)
+    assert exc_info.value.code == "PYTHON_EXECUTION_ERROR"
+

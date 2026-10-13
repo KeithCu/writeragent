@@ -35,7 +35,11 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-from plugin.contrib.smolagents.local_python_executor import InterpreterError, LocalPythonExecutor
+from plugin.contrib.smolagents.local_python_executor import (
+    ExecutionTimeoutError,
+    InterpreterError,
+    LocalPythonExecutor,
+)
 from plugin.scripting.payload_codec import (
     PAYLOAD_DATAFRAME,
     child_pack_result,
@@ -1392,6 +1396,15 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         # Wrapping host USER_STOPPED in RuntimeError lets the script keep
         # issuing wa.* calls after Stop.
         return _fail_cell(executor, prior_result, str(e) or "Stopped by user.", code="USER_STOPPED")
+    except ExecutionTimeoutError as e:
+        # ExecutionTimeoutError is BaseException; catch it before the broad
+        # BaseException handler so timeout errors return without traceback.
+        return _fail_cell(
+            executor,
+            prior_result,
+            str(e),
+            stdout=str(executor.state.get("_print_outputs", "")),
+        )
     except InterpreterError as e:
         return _fail_cell(
             executor,

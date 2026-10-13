@@ -287,23 +287,34 @@ class PrintContainer:
         return len(self.value)
 
 
-class BreakException(Exception):
+# Control-flow signals (break/continue/return) and timeout previously subclassed
+# Exception, causing user `except Exception` blocks in the sandbox to swallow
+# returns, breaks, continues, and SIGALRM timeout errors.
+# Subclassing BaseException ensures these signals bypass `except Exception` clauses.
+class InterpreterSignal(BaseException):
+    """Base class for AST control flow signals (break, continue, return)."""
+
     pass
 
 
-class ContinueException(Exception):
+class BreakException(InterpreterSignal):
     pass
 
 
-class ReturnException(Exception):
+class ContinueException(InterpreterSignal):
+    pass
+
+
+class ReturnException(InterpreterSignal):
     def __init__(self, value):
         self.value = value
 
 
-class ExecutionTimeoutError(Exception):
+class ExecutionTimeoutError(BaseException):
     """Exception raised when code execution exceeds the maximum allowed time."""
 
     pass
+
 
 
 def timeout(timeout_seconds: int):
@@ -1334,17 +1345,31 @@ def evaluate_with(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> None:
+    # Context managers enter one by one; if a later __enter__ raises, previous
+    # managers must be exited in reverse. Previously, optional_vars used raw .id
+    # (crashing on tuple/list unpacks) and suppressing managers swallowed returns.
     contexts = []
-    for item in with_node.items:
-        context_expr = evaluate_ast(item.context_expr, state, static_tools, custom_tools, authorized_imports)
-        enter_result = context_expr.__enter__()
-        contexts.append(context_expr)
-        if item.optional_vars:
-            state[item.optional_vars.id] = enter_result
+    try:
+        for item in with_node.items:
+            context_expr = evaluate_ast(item.context_expr, state, static_tools, custom_tools, authorized_imports)
+            enter_result = context_expr.__enter__()
+            contexts.append(context_expr)
+            if item.optional_vars:
+                set_value(item.optional_vars, enter_result, state, static_tools, custom_tools, authorized_imports)
+    except BaseException:
+        for context in reversed(contexts):
+            context.__exit__(None, None, None)
+        raise
 
     try:
         for stmt in with_node.body:
             evaluate_ast(stmt, state, static_tools, custom_tools, authorized_imports)
+    except (InterpreterSignal, FinalAnswerException, ExecutionTimeoutError):
+        # A suppressing manager must not cancel a return, break, continue,
+        # final_answer(), or timeout alarm.
+        for context in reversed(contexts):
+            context.__exit__(None, None, None)
+        raise
     except Exception as e:
         # exc_info tracks the active exception as we unwind (from innermost context manager)
         # Resetting it to (None, None, None) signals suppression to the remaining outer managers
@@ -1360,6 +1385,7 @@ def evaluate_with(
     else:
         for context in reversed(contexts):
             context.__exit__(None, None, None)
+
 
 
 def _dangerous_module_name(name: str) -> bool:

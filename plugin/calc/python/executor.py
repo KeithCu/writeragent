@@ -143,6 +143,18 @@ class PythonExecutor:
         except Exception as e:
             log.exception("Error executing Python code: \n%s", code_snippet)
             raise WriterAgentException(f"Execution Error: {str(e)}", code="PYTHON_EXECUTION_ERROR") from e
+        except ExecutionTimeoutError as e:
+            # ExecutionTimeoutError is a BaseException, so it bypasses `except Exception`.
+            # Catch it here so the timeout does not escape unhandled into LibreOffice.
+            log.exception("Sandbox execution timeout: \n%s", code_snippet)
+            raise WriterAgentException(f"Execution Error: {str(e)}", code="PYTHON_EXECUTION_ERROR") from e
+        except (SystemExit, KeyboardInterrupt) as e:
+            # User code can raise SystemExit or KeyboardInterrupt (BaseExceptions).
+            # Convert them to WriterAgentException naming the exception type; never catch GeneratorExit.
+            log.exception("Sandbox execution stopped by %s: \n%s", type(e).__name__, code_snippet)
+            msg = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            raise WriterAgentException(f"Execution Error: {msg}", code="PYTHON_EXECUTION_ERROR") from e
+
 
 
 class ExecutePythonScript(ToolBaseDummy):

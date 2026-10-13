@@ -148,3 +148,165 @@ def test_evaluate_import_does_not_dump_allowlist():
     assert msg == "Import of os is not allowed."
     assert "duckdb" not in msg
     assert "Authorized imports" not in msg
+
+
+def test_control_flow_not_swallowed_by_except_exception():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    # return inside try/except Exception
+    code = """
+def f():
+    try:
+        return 1
+    except Exception:
+        return 2
+result = f()
+"""
+    executor(code)
+    assert executor.state["result"] == 1
+
+    # break inside try/except Exception
+    code = """
+result = 0
+for i in [1, 2, 3]:
+    try:
+        break
+    except Exception:
+        result = 99
+result = 1
+"""
+    executor(code)
+    assert executor.state["result"] == 1
+
+    # continue inside try/except Exception
+    code = """
+result = 0
+for i in [1, 2, 3]:
+    try:
+        continue
+    except Exception:
+        result += 10
+    result += 100
+"""
+    executor(code)
+    assert executor.state["result"] == 0
+
+
+def test_with_suppressing_manager_does_not_swallow_return():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    class Suppress:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return True
+
+    executor.send_variables({"Suppress": Suppress})
+    code = """
+def f():
+    with Suppress():
+        return 42
+    return 99
+result = f()
+"""
+    executor(code)
+    assert executor.state["result"] == 42
+
+
+def test_with_suppressing_manager_suppresses_exception():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    class Suppress:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return True
+
+    executor.send_variables({"Suppress": Suppress})
+    code = """
+with Suppress():
+    raise ValueError("boom")
+result = "survived"
+"""
+    executor(code)
+    assert executor.state["result"] == "survived"
+
+
+def test_final_answer_inside_with_calls_exit_and_returns():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    exited = []
+
+    class Manager:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            exited.append(True)
+
+    executor.send_tools({"final_answer": lambda x: x})
+    executor.send_variables({"Manager": Manager})
+    out = executor("with Manager():\n    final_answer('done')")
+    assert out.is_final_answer is True
+    assert out.output == "done"
+    assert exited == [True]
+
+
+
+def test_with_second_enter_failing_exits_first_manager():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    events = []
+
+    class First:
+        def __enter__(self):
+            events.append("enter1")
+            return self
+        def __exit__(self, *args):
+            events.append("exit1")
+
+    class Second:
+        def __enter__(self):
+            events.append("enter2")
+            raise RuntimeError("fail enter2")
+        def __exit__(self, *args):
+            events.append("exit2")
+
+    executor.send_tools({})
+    executor.send_variables({"First": First, "Second": Second})
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("with First(), Second():\n    pass")
+    assert "fail enter2" in str(exc_info.value)
+    assert events == ["enter1", "enter2", "exit1"]
+
+
+def test_with_target_unpacking():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+
+    class PairManager:
+        def __enter__(self):
+            return (10, 20)
+        def __exit__(self, *args):
+            pass
+
+    executor.send_tools({})
+    executor.send_variables({"PairManager": PairManager})
+    executor("with PairManager() as (a, b):\n    result = a + b")
+    assert executor.state["result"] == 30
+
+
+def test_timeout_raises_execution_timeout_error_and_not_caught_by_user_except():
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    executor = LocalPythonExecutor(additional_authorized_imports=["time"])
+    executor.send_tools({})
+    executor.timeout_seconds = 1
+    code = """
+import time
+try:
+    time.sleep(2)
+except Exception:
+    pass
+"""
+    with pytest.raises(ExecutionTimeoutError):
+        executor(code)
+
