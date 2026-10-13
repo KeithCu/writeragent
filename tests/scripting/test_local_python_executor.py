@@ -1045,6 +1045,72 @@ except TypeError:
     assert "is not iterable" in str(exc_info.value)
 
 
+def test_slice9_timeout_validation_and_unwinding():
+    import time
+    from concurrent.futures import ThreadPoolExecutor as TPE
+    from plugin.contrib.smolagents.local_python_executor import (
+        ExecutionTimeoutError,
+        evaluate_python_code,
+        timeout,
+    )
+
+    # 1. Validation guard
+    with pytest.raises(TypeError) as exc_info:
+        timeout(0.5)
+    assert "whole number of seconds >= 1" in str(exc_info.value)
+
+    with pytest.raises(TypeError):
+        timeout(True)
+
+    with pytest.raises(TypeError):
+        timeout(0)
+
+    with pytest.raises(TypeError):
+        timeout(-2)
+
+    # 2. Thread pool fallback does not block on shutdown(wait=False)
+    # Run from a worker thread where signal.signal raises ValueError
+    def worker():
+        @timeout(1)
+        def slow():
+            time.sleep(2.5)
+            return "done"
+
+        t0 = time.monotonic()
+        with pytest.raises(ExecutionTimeoutError):
+            slow()
+        return time.monotonic() - t0
+
+    with TPE(max_workers=1) as pool:
+        future = pool.submit(worker)
+        elapsed = future.result()
+    assert elapsed < 2.0  # Returned well under 2.5s!
+
+    # 3. Outer timeout(3) with inner timeout(1) finishing immediately, outer sleeps
+    @timeout(3)
+    def outer_run():
+        evaluate_python_code("x = 1", timeout_seconds=1)
+        time.sleep(4.0)
+
+    t0 = time.monotonic()
+    with pytest.raises(ExecutionTimeoutError):
+        outer_run()
+    elapsed = time.monotonic() - t0
+    assert 2.5 <= elapsed <= 3.8
+
+    # 4. Inverse: outer timeout(2) with inner timeout(5) finishing immediately, outer sleeps
+    @timeout(2)
+    def outer_inverse():
+        evaluate_python_code("y = 1", timeout_seconds=5)
+        time.sleep(3.0)
+
+    t0 = time.monotonic()
+    with pytest.raises(ExecutionTimeoutError):
+        outer_inverse()
+    elapsed = time.monotonic() - t0
+    assert 1.5 <= elapsed <= 2.8
+
+
 
 
 

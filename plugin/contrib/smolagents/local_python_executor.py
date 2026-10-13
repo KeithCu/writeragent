@@ -350,8 +350,10 @@ def timeout(timeout_seconds: int):
     Note:
         If a timeout occurs, the thread running the function cannot be forcefully killed
         in Python, so it will continue running in the background until completion. However,
-        the caller will receive a TimeoutError and can continue execution.
+        the caller will receive an ExecutionTimeoutError and can continue execution.
     """
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or timeout_seconds < 1:
+        raise TypeError("executor timeout_seconds must be a whole number of seconds >= 1")
 
     def decorator(func):
         @wraps(func)
@@ -361,31 +363,54 @@ def timeout(timeout_seconds: int):
             # thread, signal.alarm runs the cell on that thread. Fall back to a
             # thread only when alarm cannot be installed.
             import signal
+            import time
+
+            start_time = time.monotonic()
 
             def sigalrm_handler(signum, frame):
-                raise ExecutionTimeoutError(f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds")
+                raise ExecutionTimeoutError(
+                    f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds"
+                )
 
             try:
                 old_handler = signal.signal(signal.SIGALRM, sigalrm_handler)
-                signal.alarm(timeout_seconds)
+                previous_alarm = signal.alarm(timeout_seconds)
+                # If an outer alarm was already active and sooner than timeout_seconds,
+                # keep the sooner deadline so the inner call cannot extend the budget.
+                if 0 < previous_alarm < timeout_seconds:
+                    signal.alarm(previous_alarm)
             except (ValueError, AttributeError):
-                # InterpreterError subclasses ValueError. Catching it around the
-                # cell treated a real timeout as "alarm unsupported", re-ran the
-                # cell on a thread, and ThreadPoolExecutor.shutdown waited for
-                # that thread. The compute host then SIGKILLed the process and
-                # dropped every other shared session on it. Only setup failures
-                # (not the main thread, or Windows) take this path.
-                with ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(func, *args, **kwargs)
-                    try:
-                        return future.result(timeout=timeout_seconds)
-                    except FuturesTimeoutError:
-                        raise ExecutionTimeoutError(f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds")
+                # Fallback to ThreadPoolExecutor when SIGALRM cannot be installed
+                # (e.g. not the main thread, or on Windows).
+                # Bugfix: with ThreadPoolExecutor(...) waited on shutdown(wait=True),
+                # blocking the caller until the timed-out thread finished.
+                # Now shutdown(wait=False, cancel_futures=True) returns immediately.
+                # Note: cancel_futures does not stop an already running thread; the caller
+                # returns, and the orphan thread can still touch the shared executor.
+                executor = ThreadPoolExecutor(max_workers=1)
+                future = executor.submit(func, *args, **kwargs)
+                try:
+                    return future.result(timeout=timeout_seconds)
+                except FuturesTimeoutError:
+                    raise ExecutionTimeoutError(
+                        f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds"
+                    )
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
+
             try:
                 return func(*args, **kwargs)
             finally:
-                signal.alarm(0)
+                elapsed_whole = int(time.monotonic() - start_time)
                 signal.signal(signal.SIGALRM, old_handler)
+                # Bugfix: previously signal.alarm(0) cancelled any outer alarm.
+                # Now restore the remaining whole seconds of the outer alarm under
+                # the previous handler, never canceling with 0 when an outer alarm existed.
+                if previous_alarm > 0:
+                    remaining = max(1, previous_alarm - elapsed_whole)
+                    signal.alarm(remaining)
+                else:
+                    signal.alarm(0)
 
         return wrapper
 
