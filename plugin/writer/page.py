@@ -409,6 +409,20 @@ def _copy_page_regions(
         if src_text is None:
             continue
         clone.setPropertyValue(is_on_prop, True)
+
+        # Issue #1424: Apply size values after turning the region on
+        prefix = "Header" if region.startswith("header") else "Footer"
+        for size_prop in (
+            "IsDynamicHeight", "DynamicSpacing",
+            "BodyDistance", "Height",
+            "LeftMargin", "RightMargin"
+        ):
+            prop_name = f"{prefix}{size_prop}"
+            try:
+                clone.setPropertyValue(prop_name, source.getPropertyValue(prop_name))
+            except Exception:
+                pass
+
         dest_text = clone.getPropertyValue(text_prop)
         if dest_text is None:
             raise RuntimeError("Page style clone: no %s text on the new style." % region)

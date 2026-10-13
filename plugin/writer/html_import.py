@@ -1344,6 +1344,10 @@ _FIELD_SPAN_RE = re.compile(
     r'(?:[^>]*/>|[^>]*>.*?</span>)' % "|".join(_EXPORTED_FIELD_TITLES),
     re.IGNORECASE | re.DOTALL,
 )
+_FIELD_TOKEN_RE = re.compile(
+    r"\[\[WA-FIELD:([a-z-]+)(?:\|([^\]]+))?\]\]",
+    re.IGNORECASE,
+)
 _FIELD_TITLE_TO_SERVICE = {
     "page-number": "com.sun.star.text.textfield.PageNumber",
     "page-count": "com.sun.star.text.textfield.PageCount",
@@ -1364,12 +1368,24 @@ def rewrite_exported_field_spans(html: str) -> str:
         return html
 
     def _repl(match: re.Match[str]) -> str:
-        return _FIELD_PLACEHOLDER_FMT % match.group(1).lower()
+        title = match.group(1).lower()
+        span_html = match.group(0)
+        props = []
+        if title == "page-number":
+            subtype_m = re.search(r'data-subtype=["\'](\d+)["\']', span_html)
+            offset_m = re.search(r'data-offset=["\'](-?\d+)["\']', span_html)
+            num_m = re.search(r'data-numbering-type=["\'](\d+)["\']', span_html)
+            if subtype_m: props.append(f"subtype={subtype_m.group(1)}")
+            if offset_m: props.append(f"offset={offset_m.group(1)}")
+            if num_m: props.append(f"numbering_type={num_m.group(1)}")
+
+        prop_str = ("|" + "|".join(props)) if props else ""
+        return f"[[WA-FIELD:{title}{prop_str}]]"
 
     return _FIELD_SPAN_RE.sub(_repl, html)
 
 
-def _insert_restored_field(model: Any, text_range: Any, title: str) -> bool:
+def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[str, str] | None = None) -> bool:
     service = _FIELD_TITLE_TO_SERVICE.get(title)
     if not service:
         return False
@@ -1377,17 +1393,20 @@ def _insert_restored_field(model: Any, text_range: Any, title: str) -> bool:
         field = model.createInstance(service)
     except Exception:
         return False
+    props = props or {}
     if title == "page-number":
         try:
-            from com.sun.star.text.PageNumberType import CURRENT
-
-            field.setPropertyValue("PageNumberType", CURRENT)
-        except Exception:
-            pass
+            field.setPropertyValue("SubType", int(props.get("subtype", "1"))) # CURRENT
+        except Exception as e:
+            log.debug("_insert_restored_field failed to set SubType: %s", e)
         try:
-            field.setPropertyValue("NumberingType", 4)  # Arabic
-        except Exception:
-            pass
+            field.setPropertyValue("Offset", int(props.get("offset", "0")))
+        except Exception as e:
+            log.debug("_insert_restored_field failed to set Offset: %s", e)
+        try:
+            field.setPropertyValue("NumberingType", int(props.get("numbering_type", "4")))  # Arabic
+        except Exception as e:
+            log.debug("_insert_restored_field failed to set NumberingType: %s", e)
     elif title == "date":
         try:
             field.setPropertyValue("IsDate", True)
@@ -1492,19 +1511,26 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any) -> int:
             return restored
         if "[[WA-FIELD:" not in plain:
             return restored
-        cursor = None
-        title = None
-        for candidate in _EXPORTED_FIELD_TITLES:
-            needle = _FIELD_PLACEHOLDER_FMT % candidate
-            if needle not in plain:
-                continue
-            cursor = _select_placeholder(text_obj, needle)
-            if cursor is not None:
-                title = candidate
-                break
-        if cursor is None or title is None:
+
+        match = _FIELD_TOKEN_RE.search(plain)
+        if not match:
             return restored
-        if not _insert_restored_field(model, cursor, title):
+
+        token = match.group(0)
+        title = match.group(1).lower()
+        props_str = match.group(2)
+        props = {}
+        if props_str:
+            for p in props_str.split('|'):
+                if '=' in p:
+                    k, v = p.split('=', 1)
+                    props[k] = v
+
+        cursor = _select_placeholder(text_obj, token)
+        if cursor is None:
+            return restored
+
+        if not _insert_restored_field(model, cursor, title, props):
             return restored
         restored += 1
     return restored
@@ -1525,30 +1551,50 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
     if model is None or not hasattr(model, "createSearchDescriptor"):
         return 0
     restored = 0
-    for title in _EXPORTED_FIELD_TITLES:
-        needle = _FIELD_PLACEHOLDER_FMT % title
-        try:
-            sd = model.createSearchDescriptor()
-            sd.SearchString = needle
-            sd.SearchRegularExpression = False
-            found = model.findFirst(sd)
-        except Exception:
-            continue
-        while found is not None:
-            in_region = True
-            if text_obj is not None:
-                try:
-                    in_region = uno_same(found.getText(), text_obj)
-                except Exception:
-                    in_region = True
-            nxt = None
+
+    try:
+        sd = model.createSearchDescriptor()
+        # Search for any token matching [[WA-FIELD:*]]
+        sd.SearchString = r"\[\[WA-FIELD:[a-z-]+(?:\|[^\]]+)?\]\]"
+        sd.SearchRegularExpression = True
+        found = model.findFirst(sd)
+    except Exception:
+        found = None
+
+    while found is not None:
+        in_region = True
+        if text_obj is not None:
             try:
-                nxt = model.findNext(found.getEnd(), sd)
+                in_region = uno_same(found.getText(), text_obj)
             except Exception:
-                nxt = None
-            if in_region and _insert_restored_field(model, found, title):
+                in_region = True
+
+        try:
+            token = found.getString()
+            match = _FIELD_TOKEN_RE.match(token)
+        except Exception:
+            match = None
+
+        nxt = None
+        try:
+            nxt = model.findNext(found.getEnd(), sd)
+        except Exception:
+            nxt = None
+
+        if in_region and match:
+            title = match.group(1).lower()
+            props_str = match.group(2)
+            props = {}
+            if props_str:
+                for p in props_str.split('|'):
+                    if '=' in p:
+                        k, v = p.split('=', 1)
+                        props[k] = v
+            if _insert_restored_field(model, found, title, props):
                 restored += 1
-            found = nxt
+
+        found = nxt
+
     return restored
 
 
@@ -1609,6 +1655,39 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
     _apply_ruby_spans(text_obj, ruby_spans)
     if model is not None:
         _restore_field_placeholders(model, text_obj)
+
+    # Issue #1424: HTML import can leave a trailing empty paragraph.
+    # If there is more than one paragraph and the last one is entirely empty, remove it.
+    try:
+        enum = text_obj.createEnumeration()
+        paras = []
+        while enum.hasMoreElements() is True:
+            try:
+                paras.append(enum.nextElement())
+            except Exception:
+                break
+        if len(paras) > 1:
+            last_para = paras[-1]
+            if not last_para.getString():
+                # Check for fields/portions before deleting
+                has_content = False
+                try:
+                    portions = last_para.createEnumeration()
+                    while portions.hasMoreElements() is True:
+                        portion = portions.nextElement()
+                        if portion.getString() or portion.getPropertyValue("TextPortionType") != "Text":
+                            has_content = True
+                            break
+                except Exception:
+                    pass
+                if not has_content:
+                    try:
+                        cursor = text_obj.createTextCursorByRange(last_para)
+                        cursor.setString("")
+                    except Exception:
+                        pass
+    except Exception:
+        pass
 
 
 def content_has_markup(content: str) -> bool:

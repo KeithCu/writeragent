@@ -84,7 +84,7 @@ class FieldsList(ToolWriterFieldBase):
                     info = field.getPropertySetInfo()
                     KNOWN_PROPERTIES = (
                         "NumberingType", "IsDate", "SubType", "Format", "IsFixed", "DateTimeValue",
-                        "Content", "Author", "Level", "Offset", "PageNumberType", "Condition",
+                        "Content", "Author", "Level", "Offset", "SubType", "Condition",
                         "Placeholder", "Hint", "VariableName", "Value", "SequenceValue", "URL",
                         "TargetFrame", "Name", "Representation", "Formula", "NumberFormat",
                         "IsVisible", "Title", "Subject", "Initials", "SourceName",

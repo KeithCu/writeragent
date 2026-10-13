@@ -476,3 +476,133 @@ def test_replace_footer_refuses_character_anchor_inside_match(ctx, doc):
     assert res["status"] == "error", res
     assert footer.getString() == before
     assert _shapes_anchored_in(doc, footer), "refuse path removed the graphic"
+
+@native_test
+@with_native_doc("writer")
+def test_copy_page_style_clones_height_and_fields_correctly(ctx, doc):
+    """
+    Verifies fixes for discussion #1424:
+    1. Header/footer heights and body distances match the source.
+    2. Footer paragraph count doesn't increase (no trailing empty para).
+    3. PageNumber fields retain SubType and aren't reset to previous-page (0).
+    """
+    from com.sun.star.text.PageNumberType import CURRENT
+
+    pages = doc.getStyleFamilies().getByName("PageStyles")
+    if pages.hasByName("CloneBug1424"):
+        pages.removeByName("CloneBug1424")
+
+    style, name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    style.setPropertyValue("HeaderBodyDistance", 0)
+    style.setPropertyValue("HeaderHeight", 1500)
+
+    style.setPropertyValue("FooterIsOn", True)
+    style.setPropertyValue("FooterBodyDistance", 0)
+    style.setPropertyValue("FooterHeight", 1200)
+
+    # Set up footer with a CURRENT PageNumber field and ONLY 1 paragraph
+    footer = style.getPropertyValue("FooterText")
+    footer.setString("Page ")
+    cursor = footer.createTextCursor()
+    cursor.gotoEnd(False)
+
+    field = doc.createInstance("com.sun.star.text.textfield.PageNumber")
+    field.setPropertyValue("SubType", CURRENT)
+    footer.insertTextContent(cursor, field, False)
+
+    from plugin.writer.page import copy_page_style
+    # Clone the page style
+    stats = copy_page_style(doc, name, "CloneBug1424", uno_ctx=ctx)
+    assert stats["status"] == "ok"
+
+    clone = pages.getByName("CloneBug1424")
+
+    # 1. Check heights and distances
+    assert clone.getPropertyValue("HeaderBodyDistance") == 0
+    assert clone.getPropertyValue("HeaderHeight") == 1500
+    assert clone.getPropertyValue("FooterBodyDistance") == 0
+    assert clone.getPropertyValue("FooterHeight") == 1200
+
+    # 2. Check paragraph count
+    clone_footer = clone.getPropertyValue("FooterText")
+    enum = clone_footer.createEnumeration()
+    para_count = 0
+    while enum.hasMoreElements():
+        enum.nextElement()
+        para_count += 1
+    assert para_count == 1, "Cloned footer should have exactly 1 paragraph, got %d" % para_count
+
+    # 3. Check PageNumber field properties (SubType)
+    # Get the fields from the clone_footer
+    scan = _scan_region_content(doc, clone_footer)
+    assert scan["fields"], "No fields found in cloned footer"
+
+    # We inserted 1 field, find its SubType
+    # We can walk the cloned footer to find the textfield
+    clone_cursor = clone_footer.createTextCursor()
+    clone_cursor.gotoStart(False)
+
+    enum = clone_footer.createEnumeration()
+    found_field = False
+    while enum.hasMoreElements():
+        para = enum.nextElement()
+        portions = para.createEnumeration()
+        while portions.hasMoreElements():
+            portion = portions.nextElement()
+            if portion.getPropertyValue("TextPortionType") == "TextField":
+                cloned_field = portion.getPropertyValue("TextField")
+                if cloned_field.supportsService("com.sun.star.text.textfield.PageNumber"):
+                    found_field = True
+                    # Assert it's CURRENT (1)
+                    assert cloned_field.getPropertyValue("SubType") == CURRENT
+    assert found_field, "Could not locate cloned PageNumber field to check SubType"
+
+@native_test
+@with_native_doc("writer")
+def test_copy_page_style_clones_next_page_number_and_roman(ctx, doc):
+    """
+    Verifies NEXT-page field with offset 1 and roman numeral survives clone.
+    """
+    from com.sun.star.text.PageNumberType import NEXT
+
+    pages = doc.getStyleFamilies().getByName("PageStyles")
+    if pages.hasByName("CloneBug1424_Next"):
+        pages.removeByName("CloneBug1424_Next")
+
+    style, name = _style(doc)
+    style.setPropertyValue("HeaderIsOn", True)
+    header = style.getPropertyValue("HeaderText")
+    header.setString("Next Page: ")
+    cursor = header.createTextCursor()
+    cursor.gotoEnd(False)
+
+    field = doc.createInstance("com.sun.star.text.textfield.PageNumber")
+    field.setPropertyValue("SubType", NEXT)
+    field.setPropertyValue("Offset", 1)
+    field.setPropertyValue("NumberingType", 2) # ROMAN_UPPER
+    header.insertTextContent(cursor, field, False)
+
+    from plugin.writer.page import copy_page_style
+    # Clone the page style
+    stats = copy_page_style(doc, name, "CloneBug1424_Next", uno_ctx=ctx)
+    assert stats["status"] == "ok"
+
+    clone = pages.getByName("CloneBug1424_Next")
+    clone_header = clone.getPropertyValue("HeaderText")
+
+    enum = clone_header.createEnumeration()
+    found_field = False
+    while enum.hasMoreElements():
+        para = enum.nextElement()
+        portions = para.createEnumeration()
+        while portions.hasMoreElements():
+            portion = portions.nextElement()
+            if portion.getPropertyValue("TextPortionType") == "TextField":
+                cloned_field = portion.getPropertyValue("TextField")
+                if cloned_field.supportsService("com.sun.star.text.textfield.PageNumber"):
+                    found_field = True
+                    assert cloned_field.getPropertyValue("SubType") == NEXT
+                    assert cloned_field.getPropertyValue("Offset") == 1
+                    assert cloned_field.getPropertyValue("NumberingType") == 2
+    assert found_field, "Could not locate cloned PageNumber field to check properties"

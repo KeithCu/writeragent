@@ -1074,11 +1074,11 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
         new_field = dest_doc.createInstance(svc)
     except Exception:
         return False
-    for prop in ("NumberingType", "PageNumberType", "IsDate", "IsFixed", "Format"):
+    for prop in ("NumberingType", "SubType", "IsDate", "IsFixed", "Format"):
         try:
             new_field.setPropertyValue(prop, src_field.getPropertyValue(prop))
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("_copy_field_into failed to set property %r: %s", prop, e)
     try:
         dest_text.insertTextContent(dest_cursor, new_field, False)
         return True
@@ -1382,6 +1382,65 @@ def _open_hidden_writer(ctx: Any) -> Any:
     return new_blank_writer(ctx)
 
 
+def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
+    """Walk *text_obj* in document order and collect PageNumber field properties."""
+    fields = []
+    if text_obj is None:
+        return fields
+    try:
+        enum = text_obj.createEnumeration()
+    except Exception:
+        return fields
+
+    def _walk_para(para: Any):
+        try:
+            portions = para.createEnumeration()
+        except Exception:
+            return
+        while portions.hasMoreElements() is True:
+            try:
+                portion = portions.nextElement()
+                kind = portion.getPropertyValue("TextPortionType")
+            except Exception:
+                break
+            if kind == "TextField":
+                try:
+                    field = portion.getPropertyValue("TextField")
+                    if field.supportsService("com.sun.star.text.textfield.PageNumber"):
+                        fields.append({
+                            "SubType": getattr(field, "SubType", 1), # Default CURRENT
+                            "Offset": getattr(field, "Offset", 0), # Default 0
+                            "NumberingType": getattr(field, "NumberingType", 4) # Default ARABIC
+                        })
+                except Exception:
+                    continue
+
+    while enum.hasMoreElements() is True:
+        try:
+            el = enum.nextElement()
+        except Exception:
+            break
+        if _supports_service(el, "com.sun.star.text.TextTable"):
+            try:
+                cell_names = el.getCellNames()
+            except Exception:
+                continue
+            for cell_name in cell_names:
+                try:
+                    cell = el.getCellByName(cell_name)
+                    cell_enum = cell.createEnumeration()
+                except Exception:
+                    continue
+                while cell_enum.hasMoreElements() is True:
+                    try:
+                        _walk_para(cell_enum.nextElement())
+                    except Exception:
+                        break
+        else:
+            _walk_para(el)
+    return fields
+
+
 def xtext_to_content(
     text_obj: Any,
     model: Any,
@@ -1399,13 +1458,16 @@ def xtext_to_content(
     """
     if text_obj is None:
         return ""
+
+    extracted_fields = extract_page_number_fields(text_obj)
+
     temp_doc = None
     try:
         temp_doc = _open_hidden_writer(ctx)
         if not temp_doc or not hasattr(temp_doc, "getText"):
             return ""
         _copy_xtext_into_doc(model, text_obj, temp_doc)
-        return document_to_content(
+        content = document_to_content(
             temp_doc,
             ctx,
             services,
@@ -1413,6 +1475,36 @@ def xtext_to_content(
             scope="full",
             include_images=include_images,
         )
+
+        if extracted_fields:
+            # Re-inject the collected properties into the resulting HTML string
+            # Find all <span title="page-number"> elements in the exported HTML
+            spans = list(re.finditer(r'<span title="page-number">', content))
+            if len(spans) == len(extracted_fields):
+                new_content = []
+                last_end = 0
+                for match, field_props in zip(spans, extracted_fields):
+                    new_content.append(content[last_end:match.end() - 1])
+
+                    # Only inject if different from defaults
+                    # com.sun.star.text.PageNumberType.CURRENT = 1
+                    # ARABIC = 4
+                    attrs = []
+                    if field_props["SubType"] != 1:
+                        attrs.append(f' data-subtype="{field_props["SubType"]}"')
+                    if field_props["Offset"] != 0:
+                        attrs.append(f' data-offset="{field_props["Offset"]}"')
+                    if field_props["NumberingType"] != 4:
+                        attrs.append(f' data-numbering-type="{field_props["NumberingType"]}"')
+
+                    new_content.append("".join(attrs) + ">")
+                    last_end = match.end()
+                new_content.append(content[last_end:])
+                content = "".join(new_content)
+            else:
+                log.warning("xtext_to_content: PageNumber fields count mismatch. Extracted %d, found %d spans. Skipping attribute injection.", len(extracted_fields), len(spans))
+
+        return content
     except Exception:
         log.exception("xtext_to_content failed")
         return ""
