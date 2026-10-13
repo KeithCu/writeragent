@@ -282,10 +282,6 @@ class PrintContainer:
     def __init__(self):
         self.value = ""
 
-    def append(self, text):
-        self.value += text
-        return self
-
     def __iadd__(self, other):
         """Implements the += operator"""
         self.value += str(other)
@@ -298,10 +294,6 @@ class PrintContainer:
     def __repr__(self):
         """Representation for debugging"""
         return f"PrintContainer({self.value})"
-
-    def __len__(self):
-        """Implements len() function support"""
-        return len(self.value)
 
 
 # Control-flow signals (break/continue/return) and timeout previously subclassed
