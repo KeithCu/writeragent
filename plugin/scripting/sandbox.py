@@ -75,9 +75,9 @@ def _writeragent_alias_mirrors(entries: tuple[str, ...]) -> tuple[str, ...]:
 
     AliasImporter maps ``writeragent.X`` to ``plugin.X``. A blanket
     ``writeragent.*`` made that map every plugin module, so a sandboxed script
-    could import ``plugin.framework.config`` and ``LlmClient``. The vendored
-    checker cannot translate the alias, so each allowlisted ``plugin.`` entry
-    is repeated under ``writeragent.``.
+    could import ``plugin.framework.config`` and ``LlmClient``. The runtime
+    checker now uses ``import_authorized``; the mirror strings stay so a
+    literal list match still sees them.
     """
     mirrors: list[str] = []
     for entry in entries:

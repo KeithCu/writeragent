@@ -454,27 +454,14 @@ def fix_final_answer_code(code: str) -> str:
     return code
 
 
-def build_import_tree(authorized_imports: list[str]) -> dict[str, Any]:
-    tree = {}
-    for import_path in authorized_imports:
-        parts = import_path.split(".")
-        current = tree
-        for part in parts:
-            if part not in current:
-                current[part] = {}
-            current = current[part]
-    return tree
-
-
 def check_import_authorized(import_to_check: str, authorized_imports: list[str]) -> bool:
-    current_node = build_import_tree(authorized_imports)
-    for part in import_to_check.split("."):
-        if "*" in current_node:
-            return True
-        if part not in current_node:
-            return False
-        current_node = current_node[part]
-    return True
+    if not import_to_check:
+        return False
+    # Bugfix: import_authorized and check_import_authorized previously diverged
+    # on package parents, aliases, and wildcards. Delegate directly to import_authorized.
+    from plugin.scripting.sandbox import import_authorized
+
+    return import_authorized(import_to_check, authorized_imports)
 
 
 def evaluate_attribute(

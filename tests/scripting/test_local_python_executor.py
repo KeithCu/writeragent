@@ -458,7 +458,7 @@ def test_injected_print_sep_end_file_unknown():
 
 
 def test_dotted_import_binding_xml():
-    executor = LocalPythonExecutor(additional_authorized_imports=["xml", "xml.etree.ElementTree"])
+    executor = LocalPythonExecutor(additional_authorized_imports=["xml", "xml.*"])
     executor.send_tools({})
 
     # import xml.etree.ElementTree binds "xml"
@@ -1109,6 +1109,39 @@ def test_slice9_timeout_validation_and_unwinding():
         outer_inverse()
     elapsed = time.monotonic() - t0
     assert 1.5 <= elapsed <= 2.8
+
+
+def test_slice10_import_authorized_drift():
+    from plugin.contrib.smolagents.local_python_executor import check_import_authorized
+    from plugin.scripting.sandbox import import_authorized
+
+    # Empty string returns False
+    assert check_import_authorized("", ["matplotlib"]) is False
+
+    for check_fn in (import_authorized, check_import_authorized):
+        # 1. writeragent allowed when list contains only plugin.scripting.writeragent_api
+        assert check_fn("writeragent", ["plugin.scripting.writeragent_api"]) is True
+        assert check_fn("writeragent", ["other_pkg"]) is False
+
+        # 2. writeragent.vision allowed when list contains plugin.vision or explicit alias
+        assert check_fn("writeragent.vision", ["plugin.vision"]) is True
+        assert check_fn("writeragent.vision", ["writeragent.vision"]) is True
+        assert check_fn("writeragent.vision", ["other_pkg"]) is False
+
+        # 3. matplotlib not allowed when list contains only matplotlib.pyplot
+        assert check_fn("matplotlib", ["matplotlib.pyplot"]) is False
+
+        # 4. matplotlib.pyplot not allowed when list contains only matplotlib (no star)
+        assert check_fn("matplotlib.pyplot", ["matplotlib"]) is False
+        # With star wildcard it is allowed
+        assert check_fn("matplotlib.pyplot", ["matplotlib.*"]) is True
+
+
+def test_slice10_dotted_import_with_allowlist():
+    executor = LocalPythonExecutor(additional_authorized_imports=["xml", "xml.*"])
+    executor.send_tools({})
+    executor("import xml.etree.ElementTree\nx = hasattr(xml, 'etree')")
+    assert executor.state["x"] is True
 
 
 
