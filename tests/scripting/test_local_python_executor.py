@@ -1144,6 +1144,40 @@ def test_slice10_dotted_import_with_allowlist():
     assert executor.state["x"] is True
 
 
+def test_b3_parent_module_rejected_when_only_child_listed():
+    """B3: with an allowlist naming only plugin.scripting.viz, importing plugin
+
+    and plugin.scripting must be REJECTED by the runtime import checker
+    (check_import_authorized -> import_authorized), while plugin.scripting.viz is ACCEPTED.
+    """
+    from plugin.contrib.smolagents.local_python_executor import check_import_authorized
+    from plugin.scripting.sandbox import import_authorized
+
+    allowlist = ["plugin.scripting.viz"]
+
+    # 1. Direct checks on both import_authorized and check_import_authorized
+    for check_fn in (import_authorized, check_import_authorized):
+        assert check_fn("plugin", allowlist) is False
+        assert check_fn("plugin.scripting", allowlist) is False
+        assert check_fn("plugin.scripting.viz", allowlist) is True
+
+    # 2. Executing imports through LocalPythonExecutor
+    executor = LocalPythonExecutor(additional_authorized_imports=allowlist)
+    executor.send_tools({})
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import plugin")
+    assert "not allowed" in str(exc_info.value).lower()
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import plugin.scripting")
+    assert "not allowed" in str(exc_info.value).lower()
+
+    # Importing the allowed child module succeeds
+    executor("import plugin.scripting.viz as viz\nloaded = str(viz)")
+    assert "plugin.scripting.viz" in executor.state["loaded"]
+
+
 
 
 
