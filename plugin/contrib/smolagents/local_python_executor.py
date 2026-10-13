@@ -71,9 +71,14 @@ def is_forbidden_dunder_attribute(name: str) -> bool:
     return name.startswith("__") and name.endswith("__") and name not in ALLOWED_DUNDER_ATTRIBUTES
 
 
-def nodunder_getattr(obj, name, default=None):
+_GETATTR_SENTINEL = object()
+
+
+def nodunder_getattr(obj, name, default=_GETATTR_SENTINEL):
     if is_forbidden_dunder_attribute(name):
         raise InterpreterError(f"Forbidden access to dunder attribute: {name}")
+    if default is _GETATTR_SENTINEL:
+        return getattr(obj, name)
     return getattr(obj, name, default)
 
 
@@ -91,8 +96,13 @@ def _reject_shared_object_mutation(obj: Any) -> None:
 
 
 def _guarded_setattr(obj: Any, name: str, value: Any) -> None:
+    # Previously, _guarded_setattr did not check is_forbidden_dunder_attribute,
+    # allowing setattr(obj, "__class__", ...) to bypass the dunder attribute guard.
+    if is_forbidden_dunder_attribute(name):
+        raise InterpreterError(f"Forbidden access to dunder attribute: {name}")
     _reject_shared_object_mutation(obj)
     setattr(obj, name, value)
+
 
 
 BASE_PYTHON_TOOLS = {
@@ -640,6 +650,7 @@ def evaluate_class_def(
                 obj = evaluate_ast(target.value, class_dict, static_tools, custom_tools, authorized_imports)
                 # If there's a value assignment, set the attribute
                 if stmt.value:
+                    _reject_shared_object_mutation(obj)
                     setattr(obj, target.attr, value)
             elif isinstance(target, ast.Subscript):
                 # Subscript annotation like "dict[key]: int"
@@ -657,6 +668,7 @@ def evaluate_class_def(
                     class_dict[target.id] = value
                 elif isinstance(target, ast.Attribute):
                     obj = evaluate_ast(target.value, class_dict, static_tools, custom_tools, authorized_imports)
+                    _reject_shared_object_mutation(obj)
                     setattr(obj, target.attr, value)
         elif isinstance(stmt, ast.Pass):
             pass
@@ -940,6 +952,8 @@ def evaluate_call(
     elif isinstance(call.func, ast.Attribute):
         obj = evaluate_ast(call.func.value, state, static_tools, custom_tools, authorized_imports)
         func_name = call.func.attr
+        if is_forbidden_dunder_attribute(func_name):
+            raise InterpreterError(f"Forbidden access to dunder attribute: {func_name}")
         if not hasattr(obj, func_name):
             raise InterpreterError(f"Object {obj} has no attribute {func_name}")
         func = getattr(obj, func_name)

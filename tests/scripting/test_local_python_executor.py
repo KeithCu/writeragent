@@ -359,3 +359,59 @@ def test_subscript_evaluates_value_before_index():
     assert order == ["value", "index"]
 
 
+def test_setattr_forbids_class_dunder():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    code = """
+class A:
+    pass
+class B:
+    pass
+a = A()
+setattr(a, "__class__", B)
+"""
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    assert "Forbidden access to dunder attribute" in str(exc_info.value)
+    assert "__class__" in str(exc_info.value)
+
+
+def test_nodunder_getattr_sentinel_two_and_three_args():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    # Two-arg getattr on missing attribute raises AttributeError
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("class A: pass\ngetattr(A(), 'missing')")
+    assert "AttributeError" in str(exc_info.value)
+
+    # Three-arg getattr returns default
+    executor("class A: pass\nresult = getattr(A(), 'missing', 99)")
+    assert executor.state["result"] == 99
+
+
+def test_class_body_mutation_guard_rejects_module_attribute_assignment():
+    import math
+
+    executor = LocalPythonExecutor(additional_authorized_imports=["math"])
+    executor.send_tools({})
+    code = """
+import math
+class B:
+    t = math
+    t.marker = 1
+"""
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code)
+    assert "Cannot assign attributes on a module or a type" in str(exc_info.value)
+    assert not hasattr(math, "marker")
+
+
+def test_evaluate_call_attribute_dunder_rejected_at_runtime():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("class A: pass\nA().__class__()")
+    assert "Forbidden" in str(exc_info.value)
+
+
+
