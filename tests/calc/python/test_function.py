@@ -508,8 +508,6 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
     """
     import json
 
-    from plugin.calc.python.formula_locator_cache import FORMULA_LOCATION_CACHE
-
     stored: dict[int, str] = {}
 
     def mock_get_prop(model, name, default=None):
@@ -536,8 +534,6 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
     python_function.SPILL_REGISTRY.clear()
     python_function.LOADED_DOCUMENTS.clear()
     python_function.SHEET_MODIFY_LISTENERS.clear()
-    FORMULA_LOCATION_CACHE.clear_document("uid-spill-1")
-    FORMULA_LOCATION_CACHE.clear_document("uid-spill-2")
     ctx1 = _ctx_with_doc(doc1)
     ctx2 = _ctx_with_doc(doc2)
     key1 = ("uid-spill-1", "Sheet1", 1, 1)
@@ -596,8 +592,6 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         python_function.SPILL_REGISTRY.clear()
         python_function.LOADED_DOCUMENTS.clear()
         python_function.SHEET_MODIFY_LISTENERS.clear()
-        FORMULA_LOCATION_CACHE.clear_document("uid-spill-1")
-        FORMULA_LOCATION_CACHE.clear_document("uid-spill-2")
 
 
 def test_session_key_and_init_kwargs_recursion_off_main_thread(monkeypatch: pytest.MonkeyPatch) -> None:

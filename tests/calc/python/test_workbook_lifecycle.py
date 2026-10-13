@@ -125,18 +125,6 @@ def test_unload_clears_in_memory_geometric_state():
     clear_in_memory_geometric_state()
 
 
-def test_unload_clears_formula_location_cache():
-    from plugin.calc.python.formula_locator_cache import FORMULA_LOCATION_CACHE
-
-    FORMULA_LOCATION_CACHE.put("key-1", "plt.show()", "Sheet1", 0, 0)
-    ctx = MagicMock()
-    listener = _CalcPythonUnloadListener(ctx, "calc:wb-1", "key-1")
-    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
-        mock_reset.return_value = {"status": "ok"}
-        listener.on_document_event(MagicMock(EventName="OnUnload"))
-    assert FORMULA_LOCATION_CACHE.get("key-1", "plt.show()") == []
-
-
 def test_ensure_registers_listener_once():
     ctx = MagicMock()
     doc = CalcDocStub(props={"RuntimeUID": "uid-reg"})
