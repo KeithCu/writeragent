@@ -664,6 +664,107 @@ def test_decorators_raise_interpreter_error():
     assert "Decorators are not supported in the sandbox" in str(exc_info.value)
 
 
+def test_slice6_class_scope_metaclass_super():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    # 1. Class-body assignment and scope: y = x + 1 works
+    code1 = """
+class A:
+    x = 10
+    y = x + 1
+res_x = A.x
+res_y = A.y
+"""
+    executor(code1)
+    assert executor.state["res_x"] == 10
+    assert executor.state["res_y"] == 11
+
+    # 2. A method that reads a class-body local name fails (name error / undefined)
+    code2 = """
+class B:
+    x = 10
+    def get_x(self):
+        return x
+b = B()
+b.get_x()
+"""
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code2)
+    assert "x" in str(exc_info.value)
+
+    # 3. class A(metaclass=M) has type M
+    code3 = """
+class Meta(type):
+    pass
+class MClass(metaclass=Meta):
+    pass
+t = type(MClass)
+"""
+    executor(code3)
+    assert executor.state["t"] is executor.state["Meta"]
+
+    # 4. class A(x=1) raises
+    code4 = """
+class BadClass(x=1):
+    pass
+"""
+    with pytest.raises(InterpreterError) as exc_info:
+        executor(code4)
+    assert "Unsupported class keyword argument 'x'" in str(exc_info.value)
+
+    # 5. Three classes each calling super().greet() do not recurse and return base string
+    code5 = """
+class Base:
+    def greet(self):
+        return "A"
+
+class Mid(Base):
+    def greet(self):
+        return super().greet() + "B"
+
+class Sub(Mid):
+    def greet(self):
+        return super().greet() + "C"
+
+sub = Sub()
+greeting = sub.greet()
+"""
+    executor(code5)
+    assert executor.state["greeting"] == "ABC"
+
+    # 6. obj.super() is not redirected
+    code6 = """
+class CustomSuper:
+    def super(self):
+        return "custom super"
+
+cs = CustomSuper()
+cs_res = cs.super()
+"""
+    executor(code6)
+    assert executor.state["cs_res"] == "custom super"
+
+    # 7. Zero-arg super() outside a method raises error
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("super()")
+    assert "super() needs at least one argument" in str(exc_info.value)
+
+    # 8. Explicit super(Cls, obj) works
+    code8 = """
+class X:
+    def f(self):
+        return "X"
+class Y(X):
+    def f(self):
+        return super(Y, self).f() + "Y"
+y_res = Y().f()
+"""
+    executor(code8)
+    assert executor.state["y_res"] == "XY"
+
+
+
 
 
 

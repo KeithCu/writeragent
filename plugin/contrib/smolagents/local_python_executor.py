@@ -580,6 +580,7 @@ def create_function(
     static_tools: dict[str, Callable],
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
+    class_cell: list[type | None] | None = None,
 ) -> Callable:
     if func_def.decorator_list:
         raise InterpreterError("Decorators are not supported in the sandbox")
@@ -592,12 +593,13 @@ def create_function(
         bound.apply_defaults()
         func_state = state.copy()
         func_state.update(bound.arguments)
+        if class_cell is not None:
+            func_state["__class_cell__"] = class_cell
 
-        # Update function state with self and __class__
+        # Update function state with self
         if func_def.args.args and func_def.args.args[0].arg == "self":
             if args:
                 func_state["self"] = args[0]
-                func_state["__class__"] = args[0].__class__
 
         result = None
         try:
@@ -650,12 +652,21 @@ def evaluate_class_def(
 
     # Determine the metaclass to use
     # If any base class has a custom metaclass, use it
-    metaclass = type
-    for base in bases:
-        base_metaclass = type(base)
-        if base_metaclass is not type:
-            metaclass = base_metaclass
-            break
+    # Evaluate keywords (e.g. metaclass=)
+    metaclass = None
+    for kw in class_def.keywords:
+        if kw.arg == "metaclass":
+            metaclass = evaluate_ast(kw.value, state, static_tools, custom_tools, authorized_imports)
+        else:
+            raise InterpreterError(f"Unsupported class keyword argument '{kw.arg}'")
+
+    if metaclass is None:
+        metaclass = type
+        for base in bases:
+            base_metaclass = type(base)
+            if base_metaclass is not type:
+                metaclass = base_metaclass
+                break
 
     # Use __prepare__ if the metaclass provides it (e.g., Enum uses _EnumDict)
     if hasattr(metaclass, "__prepare__"):
@@ -663,44 +674,54 @@ def evaluate_class_def(
     else:
         class_dict = {}
 
+    class_cell: list[type | None] = [None]
+    eval_state = state.copy()
+    eval_state.update(class_dict)
+
     for stmt in class_def.body:
         if isinstance(stmt, ast.FunctionDef):
-            class_dict[stmt.name] = create_function(stmt, state, static_tools, custom_tools, authorized_imports)
+            fn = create_function(
+                stmt, state, static_tools, custom_tools, authorized_imports, class_cell=class_cell
+            )
+            class_dict[stmt.name] = fn
+            eval_state[stmt.name] = fn
         elif isinstance(stmt, ast.AnnAssign):
             if stmt.value:
-                value = evaluate_ast(stmt.value, state, static_tools, custom_tools, authorized_imports)
+                value = evaluate_ast(stmt.value, eval_state, static_tools, custom_tools, authorized_imports)
             target = stmt.target
             # Handle target types for annotation
             if isinstance(target, ast.Name):
                 # Simple variable annotation like "x: int"
-                annotation = evaluate_ast(stmt.annotation, state, static_tools, custom_tools, authorized_imports)
+                annotation = evaluate_ast(stmt.annotation, eval_state, static_tools, custom_tools, authorized_imports)
                 class_dict.setdefault("__annotations__", {})[target.id] = annotation
                 # Assign value if provided
                 if stmt.value:
                     class_dict[target.id] = value
+                    eval_state[target.id] = value
             elif isinstance(target, ast.Attribute):
                 # Attribute annotation like "obj.attr: int"
-                obj = evaluate_ast(target.value, class_dict, static_tools, custom_tools, authorized_imports)
+                obj = evaluate_ast(target.value, eval_state, static_tools, custom_tools, authorized_imports)
                 # If there's a value assignment, set the attribute
                 if stmt.value:
                     _reject_shared_object_mutation(obj)
                     setattr(obj, target.attr, value)
             elif isinstance(target, ast.Subscript):
                 # Subscript annotation like "dict[key]: int"
-                container = evaluate_ast(target.value, class_dict, static_tools, custom_tools, authorized_imports)
-                index = evaluate_ast(target.slice, state, static_tools, custom_tools, authorized_imports)
+                container = evaluate_ast(target.value, eval_state, static_tools, custom_tools, authorized_imports)
+                index = evaluate_ast(target.slice, eval_state, static_tools, custom_tools, authorized_imports)
                 # If there's a value assignment, set the item
                 if stmt.value:
                     container[index] = value
             else:
                 raise InterpreterError(f"Unsupported AnnAssign target in class body: {type(target).__name__}")
         elif isinstance(stmt, ast.Assign):
-            value = evaluate_ast(stmt.value, state, static_tools, custom_tools, authorized_imports)
+            value = evaluate_ast(stmt.value, eval_state, static_tools, custom_tools, authorized_imports)
             for target in stmt.targets:
                 if isinstance(target, ast.Name):
                     class_dict[target.id] = value
+                    eval_state[target.id] = value
                 elif isinstance(target, ast.Attribute):
-                    obj = evaluate_ast(target.value, class_dict, static_tools, custom_tools, authorized_imports)
+                    obj = evaluate_ast(target.value, eval_state, static_tools, custom_tools, authorized_imports)
                     _reject_shared_object_mutation(obj)
                     setattr(obj, target.attr, value)
         elif isinstance(stmt, ast.Pass):
@@ -717,6 +738,7 @@ def evaluate_class_def(
             raise InterpreterError(f"Unsupported statement in class body: {stmt.__class__.__name__}")
 
     new_class = metaclass(class_name, tuple(bases), class_dict)
+    class_cell[0] = new_class
     state[class_name] = new_class
     return new_class
 
@@ -1000,6 +1022,8 @@ def evaluate_call(
             func = custom_tools[func_name]
         elif func_name in ERRORS:
             func = ERRORS[func_name]
+        elif func_name == "super":
+            func = "super"
         else:
             raise InterpreterError(
                 f"Forbidden function evaluation: '{call.func.id}' is not among the explicitly allowed tools or defined/imported in the preceding code"
@@ -1031,8 +1055,9 @@ def evaluate_call(
 
     if isinstance(call.func, ast.Name) and func_name == "super":
         if not args:
-            if "__class__" in state and "self" in state:
-                return super(state["__class__"], state["self"])
+            cell = state.get("__class_cell__")
+            if cell is not None and cell[0] is not None and "self" in state:
+                return super(cell[0], state["self"])
             else:
                 raise InterpreterError("super() needs at least one argument")
         cls = args[0]
