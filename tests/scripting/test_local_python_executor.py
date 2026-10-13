@@ -911,6 +911,140 @@ arr[k()] += 1
     assert executor.state["arr"]["key"] == 11
 
 
+def test_slice8_operator_tables():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    # 1. Binary operators
+    code_binop = """
+add_res = 10 + 2
+sub_res = 10 - 2
+mul_res = 10 * 2
+div_res = 10 / 2
+floordiv_res = 10 // 3
+mod_res = 10 % 3
+pow_res = 2 ** 3
+lshift_res = 1 << 2
+rshift_res = 8 >> 2
+and_res = 0b1100 & 0b1010
+or_res = 0b1100 | 0b1010
+xor_res = 0b1100 ^ 0b1010
+"""
+    executor(code_binop)
+    assert executor.state["add_res"] == 12
+    assert executor.state["sub_res"] == 8
+    assert executor.state["mul_res"] == 20
+    assert executor.state["div_res"] == 5.0
+    assert executor.state["floordiv_res"] == 3
+    assert executor.state["mod_res"] == 1
+    assert executor.state["pow_res"] == 8
+    assert executor.state["lshift_res"] == 4
+    assert executor.state["rshift_res"] == 2
+    assert executor.state["and_res"] == 0b1000
+    assert executor.state["or_res"] == 0b1110
+    assert executor.state["xor_res"] == 0b0110
+
+    # 2. AugAssign operators
+    code_aug = """
+v_add = 10; v_add += 2
+v_sub = 10; v_sub -= 2
+v_mul = 10; v_mul *= 2
+v_div = 10; v_div /= 2
+v_floordiv = 10; v_floordiv //= 3
+v_mod = 10; v_mod %= 3
+v_pow = 2; v_pow **= 3
+v_lshift = 1; v_lshift <<= 2
+v_rshift = 8; v_rshift >>= 2
+v_and = 0b1100; v_and &= 0b1010
+v_or = 0b1100; v_or |= 0b1010
+v_xor = 0b1100; v_xor ^= 0b1010
+"""
+    executor(code_aug)
+    assert executor.state["v_add"] == 12
+    assert executor.state["v_sub"] == 8
+    assert executor.state["v_mul"] == 20
+    assert executor.state["v_div"] == 5.0
+    assert executor.state["v_floordiv"] == 3
+    assert executor.state["v_mod"] == 1
+    assert executor.state["v_pow"] == 8
+    assert executor.state["v_lshift"] == 4
+    assert executor.state["v_rshift"] == 2
+    assert executor.state["v_and"] == 0b1000
+    assert executor.state["v_or"] == 0b1110
+    assert executor.state["v_xor"] == 0b0110
+
+    # 3. Comparison operators (==, !=, <, <=, >, >=, is, is not, in, not in)
+    code_cmp = """
+c_eq = (1 == 1)
+c_ne = (1 != 2)
+c_lt = (1 < 2)
+c_le = (2 <= 2)
+c_gt = (3 > 2)
+c_ge = (2 >= 2)
+a_obj = [1]
+c_is = (a_obj is a_obj)
+c_isnot = (a_obj is not [1])
+c_in = (1 in [1, 2])
+c_notin = (3 not in [1, 2])
+"""
+    executor(code_cmp)
+    assert executor.state["c_eq"] is True
+    assert executor.state["c_ne"] is True
+    assert executor.state["c_lt"] is True
+    assert executor.state["c_le"] is True
+    assert executor.state["c_gt"] is True
+    assert executor.state["c_ge"] is True
+    assert executor.state["c_is"] is True
+    assert executor.state["c_isnot"] is True
+    assert executor.state["c_in"] is True
+    assert executor.state["c_notin"] is True
+
+    # 4. Matmul @ and @= with pure Python object
+    code_matmul = """
+class Matrix:
+    def __init__(self, val):
+        self.val = val
+    def __matmul__(self, other):
+        return Matrix(self.val * other.val)
+    def __imatmul__(self, other):
+        self.val = self.val * other.val + 1
+        return self
+
+m1 = Matrix(3)
+m2 = Matrix(4)
+m3 = m1 @ m2
+m_val = m3.val
+m1 @= m2
+m_aug_val = m1.val
+"""
+    executor(code_matmul)
+    assert executor.state["m_val"] == 12
+    assert executor.state["m_aug_val"] == 13
+
+    # 5. @= on missing name raises undefined name error
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("missing_mat @= m2")
+    assert "missing_mat" in str(exc_info.value)
+    assert "not defined" in str(exc_info.value)
+
+    # 6. list += non-list raises TypeError (Python operator.iadd behavior)
+    code_type_err = """
+caught_type_error = False
+try:
+    lst = [1, 2]
+    lst += 3
+except TypeError:
+    caught_type_error = True
+"""
+    executor(code_type_err)
+    assert executor.state["caught_type_error"] is True
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("lst = [1, 2]; lst += 3")
+    assert "TypeError" in str(exc_info.value)
+    assert "is not iterable" in str(exc_info.value)
+
+
 
 
 

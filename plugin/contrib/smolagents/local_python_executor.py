@@ -20,6 +20,7 @@ import difflib
 import inspect
 import logging
 import math
+import operator
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Mapping
@@ -767,6 +768,40 @@ def evaluate_annassign(
     return None
 
 
+AUGASSIGN_OPERATORS: dict[type[ast.operator], Callable[[Any, Any], Any]] = {
+    ast.Add: operator.iadd,
+    ast.Sub: operator.isub,
+    ast.Mult: operator.imul,
+    ast.Div: operator.itruediv,
+    ast.FloorDiv: operator.ifloordiv,
+    ast.Mod: operator.imod,
+    ast.Pow: operator.ipow,
+    ast.MatMult: operator.imatmul,
+    ast.LShift: operator.ilshift,
+    ast.RShift: operator.irshift,
+    ast.BitAnd: operator.iand,
+    ast.BitOr: operator.ior,
+    ast.BitXor: operator.ixor,
+}
+
+
+BINOP_OPERATORS: dict[type[ast.operator], Callable[[Any, Any], Any]] = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+    ast.MatMult: operator.matmul,
+    ast.LShift: operator.lshift,
+    ast.RShift: operator.rshift,
+    ast.BitAnd: operator.and_,
+    ast.BitOr: operator.or_,
+    ast.BitXor: operator.xor,
+}
+
+
 def evaluate_augassign(
     expression: ast.AugAssign,
     state: dict[str, Any],
@@ -792,37 +827,10 @@ def evaluate_augassign(
 
     value_to_add = evaluate_ast(expression.value, state, static_tools, custom_tools, authorized_imports)
 
-    if isinstance(expression.op, ast.Add):
-        if isinstance(current_value, list):
-            if not isinstance(value_to_add, list):
-                raise InterpreterError(f"Cannot add non-list value {value_to_add} to a list.")
-            current_value += value_to_add
-        else:
-            current_value += value_to_add
-    elif isinstance(expression.op, ast.Sub):
-        current_value -= value_to_add
-    elif isinstance(expression.op, ast.Mult):
-        current_value *= value_to_add
-    elif isinstance(expression.op, ast.Div):
-        current_value /= value_to_add
-    elif isinstance(expression.op, ast.Mod):
-        current_value %= value_to_add
-    elif isinstance(expression.op, ast.Pow):
-        current_value **= value_to_add
-    elif isinstance(expression.op, ast.FloorDiv):
-        current_value //= value_to_add
-    elif isinstance(expression.op, ast.BitAnd):
-        current_value &= value_to_add
-    elif isinstance(expression.op, ast.BitOr):
-        current_value |= value_to_add
-    elif isinstance(expression.op, ast.BitXor):
-        current_value ^= value_to_add
-    elif isinstance(expression.op, ast.LShift):
-        current_value <<= value_to_add
-    elif isinstance(expression.op, ast.RShift):
-        current_value >>= value_to_add
-    else:
+    op_func = AUGASSIGN_OPERATORS.get(type(expression.op))
+    if op_func is None:
         raise InterpreterError(f"Operation {type(expression.op).__name__} is not supported.")
+    current_value = op_func(current_value, value_to_add)
 
     # Update target in-place without re-evaluating target.value or target.slice
     if isinstance(target, ast.Name):
@@ -869,33 +877,10 @@ def evaluate_binop(
     left_val = evaluate_ast(binop.left, state, static_tools, custom_tools, authorized_imports)
     right_val = evaluate_ast(binop.right, state, static_tools, custom_tools, authorized_imports)
 
-    # Determine the operation based on the type of the operator in the BinOp
-    if isinstance(binop.op, ast.Add):
-        return left_val + right_val
-    elif isinstance(binop.op, ast.Sub):
-        return left_val - right_val
-    elif isinstance(binop.op, ast.Mult):
-        return left_val * right_val
-    elif isinstance(binop.op, ast.Div):
-        return left_val / right_val
-    elif isinstance(binop.op, ast.Mod):
-        return left_val % right_val
-    elif isinstance(binop.op, ast.Pow):
-        return left_val**right_val
-    elif isinstance(binop.op, ast.FloorDiv):
-        return left_val // right_val
-    elif isinstance(binop.op, ast.BitAnd):
-        return left_val & right_val
-    elif isinstance(binop.op, ast.BitOr):
-        return left_val | right_val
-    elif isinstance(binop.op, ast.BitXor):
-        return left_val ^ right_val
-    elif isinstance(binop.op, ast.LShift):
-        return left_val << right_val
-    elif isinstance(binop.op, ast.RShift):
-        return left_val >> right_val
-    else:
-        raise NotImplementedError(f"Binary operation {type(binop.op).__name__} is not implemented.")
+    op_func = BINOP_OPERATORS.get(type(binop.op))
+    if op_func is None:
+        raise InterpreterError(f"Binary operation {type(binop.op).__name__} is not supported.")
+    return op_func(left_val, right_val)
 
 
 def evaluate_assign(
@@ -1160,6 +1145,20 @@ def evaluate_name(
     raise InterpreterError(f"The variable `{name.id}` is not defined{hint}.")
 
 
+COMPARE_OPERATORS: dict[type[ast.cmpop], Callable[[Any, Any], bool]] = {
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+    ast.Lt: operator.lt,
+    ast.LtE: operator.le,
+    ast.Gt: operator.gt,
+    ast.GtE: operator.ge,
+    ast.Is: operator.is_,
+    ast.IsNot: operator.is_not,
+    ast.In: lambda left, right: left in right,
+    ast.NotIn: lambda left, right: left not in right,
+}
+
+
 def evaluate_condition(
     condition: ast.Compare,
     state: dict[str, Any],
@@ -1167,34 +1166,15 @@ def evaluate_condition(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> bool | object:
-    result = True
+    result: bool | object = True
     left = evaluate_ast(condition.left, state, static_tools, custom_tools, authorized_imports)
-    for i, (op, comparator) in enumerate(zip(condition.ops, condition.comparators)):
-        op = type(op)
+    for i, (op_node, comparator) in enumerate(zip(condition.ops, condition.comparators)):
+        op_type = type(op_node)
+        op_func = COMPARE_OPERATORS.get(op_type)
+        if op_func is None:
+            raise InterpreterError(f"Unsupported comparison operator: {op_type.__name__}")
         right = evaluate_ast(comparator, state, static_tools, custom_tools, authorized_imports)
-        if op == ast.Eq:
-            current_result = left == right
-        elif op == ast.NotEq:
-            current_result = left != right
-        elif op == ast.Lt:
-            current_result = left < right
-        elif op == ast.LtE:
-            current_result = left <= right
-        elif op == ast.Gt:
-            current_result = left > right
-        elif op == ast.GtE:
-            current_result = left >= right
-        elif op == ast.Is:
-            current_result = left is right
-        elif op == ast.IsNot:
-            current_result = left is not right
-        elif op == ast.In:
-            current_result = left in right
-        elif op == ast.NotIn:
-            current_result = left not in right
-        else:
-            raise InterpreterError(f"Unsupported comparison operator: {op}")
-
+        current_result = op_func(left, right)
         if current_result is False:
             return False
         result = current_result if i == 0 else (result and current_result)
