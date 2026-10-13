@@ -1559,7 +1559,7 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
         sd.SearchRegularExpression = True
         found = model.findFirst(sd)
     except Exception:
-        found = None
+        return restored
 
     while found is not None:
         in_region = True

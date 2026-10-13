@@ -1384,7 +1384,7 @@ def _open_hidden_writer(ctx: Any) -> Any:
 
 def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
     """Walk *text_obj* in document order and collect PageNumber field properties."""
-    fields = []
+    fields: list[dict[str, Any]] = []
     if text_obj is None:
         return fields
     try:
