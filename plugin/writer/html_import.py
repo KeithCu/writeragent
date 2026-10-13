@@ -1325,7 +1325,6 @@ def _replace_single_range_with_content(
 # / ``_FIELD_TITLE_TO_SERVICE`` is intentional and easy when a real bug
 # arrives. GetReference / cross-ref is a separate loss class (different
 # markup, not this XSLT ``title=`` path).
-_FIELD_PLACEHOLDER_FMT = "[[WA-FIELD:%s]]"
 _EXPORTED_FIELD_TITLES = (
     "page-number",
     "page-count",
@@ -1361,6 +1360,27 @@ _FIELD_TITLE_TO_SERVICE = {
     "subject": "com.sun.star.text.textfield.docinfo.Subject",
 }
 
+_PAGE_NUMBER_SUBTYPE_VALS = {
+    "PREV": 0,
+    "CURRENT": 1,
+    "NEXT": 2
+}
+
+_PAGE_NUMBER_NUMBERING_TYPE_VALS = {
+    "CHARS_UPPER_LETTER": 0,
+    "CHARS_LOWER_LETTER": 1,
+    "ROMAN_UPPER": 2,
+    "ROMAN_LOWER": 3,
+    "ARABIC": 4,
+    "NUMBER_NONE": 5,
+    "CHAR_SPECIAL": 6,
+    "PAGE_DESCRIPTOR": 7,
+    "BITMAP": 8,
+    "CHARS_UPPER_LETTER_N": 9,
+    "CHARS_LOWER_LETTER_N": 10,
+    "ARABIC_ZERO": 11,
+}
+
 
 def rewrite_exported_field_spans(html: str) -> str:
     """Replace XHTML field spans with placeholders the HTML import will keep."""
@@ -1372,12 +1392,15 @@ def rewrite_exported_field_spans(html: str) -> str:
         span_html = match.group(0)
         props = []
         if title == "page-number":
-            subtype_m = re.search(r'data-subtype=["\'](\d+)["\']', span_html)
+            subtype_m = re.search(r'data-subtype=["\']([^"\']+)["\']', span_html)
             offset_m = re.search(r'data-offset=["\'](-?\d+)["\']', span_html)
-            num_m = re.search(r'data-numbering-type=["\'](\d+)["\']', span_html)
-            if subtype_m: props.append(f"subtype={subtype_m.group(1)}")
-            if offset_m: props.append(f"offset={offset_m.group(1)}")
-            if num_m: props.append(f"numbering_type={num_m.group(1)}")
+            num_m = re.search(r'data-numbering-type=["\']([^"\']+)["\']', span_html)
+            if subtype_m:
+                props.append(f"subtype={subtype_m.group(1)}")
+            if offset_m:
+                props.append(f"offset={offset_m.group(1)}")
+            if num_m:
+                props.append(f"numbering_type={num_m.group(1)}")
 
         prop_str = ("|" + "|".join(props)) if props else ""
         return f"[[WA-FIELD:{title}{prop_str}]]"
@@ -1396,7 +1419,9 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
     props = props or {}
     if title == "page-number":
         try:
-            field.setPropertyValue("SubType", int(props.get("subtype", "1"))) # CURRENT
+            subtype_str = props.get("subtype", "CURRENT")
+            st_val = _PAGE_NUMBER_SUBTYPE_VALS.get(subtype_str, 1) if not subtype_str.isdigit() else int(subtype_str)
+            field.setPropertyValue("SubType", st_val)
         except Exception as e:
             log.debug("_insert_restored_field failed to set SubType: %s", e)
         try:
@@ -1404,7 +1429,9 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
         except Exception as e:
             log.debug("_insert_restored_field failed to set Offset: %s", e)
         try:
-            field.setPropertyValue("NumberingType", int(props.get("numbering_type", "4")))  # Arabic
+            num_type_str = props.get("numbering_type", "ARABIC")
+            nt_val = _PAGE_NUMBER_NUMBERING_TYPE_VALS.get(num_type_str, 4) if not num_type_str.isdigit() else int(num_type_str)
+            field.setPropertyValue("NumberingType", nt_val)
         except Exception as e:
             log.debug("_insert_restored_field failed to set NumberingType: %s", e)
     elif title == "date":
@@ -1501,6 +1528,15 @@ def _select_placeholder(text_obj: Any, needle: str) -> Any | None:
     return None
 
 
+def _parse_field_token_props(props_str: str | None) -> dict[str, str]:
+    props = {}
+    if props_str:
+        for p in props_str.split('|'):
+            if '=' in p:
+                k, v = p.split('=', 1)
+                props[k] = v
+    return props
+
 def _restore_fields_by_cursor(model: Any, text_obj: Any) -> int:
     """Replace ``[[WA-FIELD:…]]`` tokens inside *text_obj* without document search."""
     restored = 0
@@ -1518,13 +1554,7 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any) -> int:
 
         token = match.group(0)
         title = match.group(1).lower()
-        props_str = match.group(2)
-        props = {}
-        if props_str:
-            for p in props_str.split('|'):
-                if '=' in p:
-                    k, v = p.split('=', 1)
-                    props[k] = v
+        props = _parse_field_token_props(match.group(2))
 
         cursor = _select_placeholder(text_obj, token)
         if cursor is None:
@@ -1552,6 +1582,7 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
         return 0
     restored = 0
 
+    sd = None
     try:
         sd = model.createSearchDescriptor()
         # Search for any token matching [[WA-FIELD:*]]
@@ -1559,6 +1590,9 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
         sd.SearchRegularExpression = True
         found = model.findFirst(sd)
     except Exception:
+        found = None
+
+    if sd is None:
         return restored
 
     while found is not None:
@@ -1583,13 +1617,7 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
 
         if in_region and match:
             title = match.group(1).lower()
-            props_str = match.group(2)
-            props = {}
-            if props_str:
-                for p in props_str.split('|'):
-                    if '=' in p:
-                        k, v = p.split('=', 1)
-                        props[k] = v
+            props = _parse_field_token_props(match.group(2))
             if _insert_restored_field(model, found, title, props):
                 restored += 1
 
@@ -1678,16 +1706,20 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
                         if portion.getString() or portion.getPropertyValue("TextPortionType") != "Text":
                             has_content = True
                             break
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("Failed to inspect trailing paragraph portions: %s", e)
                 if not has_content:
                     try:
-                        cursor = text_obj.createTextCursorByRange(last_para)
+                        # To actually remove the trailing break, we must select from the end of the previous paragraph
+                        # to the end of the document, and set String to empty.
+                        cursor = text_obj.createTextCursorByRange(paras[-2])
+                        cursor.gotoEndOfParagraph(False)
+                        cursor.gotoRange(last_para.getEnd(), True)
                         cursor.setString("")
-                    except Exception:
-                        pass
-    except Exception:
-        pass
+                    except Exception as e:
+                        log.debug("Failed to remove trailing paragraph break: %s", e)
+    except Exception as e:
+        log.debug("Failed to inspect trailing paragraph: %s", e)
 
 
 def content_has_markup(content: str) -> bool:

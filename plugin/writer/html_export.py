@@ -1382,9 +1382,30 @@ def _open_hidden_writer(ctx: Any) -> Any:
     return new_blank_writer(ctx)
 
 
+_PAGE_NUMBER_SUBTYPE_NAMES = {
+    0: "PREV",
+    1: "CURRENT",
+    2: "NEXT"
+}
+
+_PAGE_NUMBER_NUMBERING_TYPE_NAMES = {
+    0: "CHARS_UPPER_LETTER",
+    1: "CHARS_LOWER_LETTER",
+    2: "ROMAN_UPPER",
+    3: "ROMAN_LOWER",
+    4: "ARABIC",
+    5: "NUMBER_NONE",
+    6: "CHAR_SPECIAL",
+    7: "PAGE_DESCRIPTOR",
+    8: "BITMAP",
+    9: "CHARS_UPPER_LETTER_N",
+    10: "CHARS_LOWER_LETTER_N",
+    11: "ARABIC_ZERO",
+}
+
 def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
     """Walk *text_obj* in document order and collect PageNumber field properties."""
-    fields: list[dict[str, Any]] = []
+    fields = []
     if text_obj is None:
         return fields
     try:
@@ -1407,10 +1428,22 @@ def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
                 try:
                     field = portion.getPropertyValue("TextField")
                     if field.supportsService("com.sun.star.text.textfield.PageNumber"):
+                        try:
+                            subtype = field.getPropertyValue("SubType")
+                        except Exception:
+                            subtype = 1
+                        try:
+                            offset = field.getPropertyValue("Offset")
+                        except Exception:
+                            offset = 0
+                        try:
+                            numbering = field.getPropertyValue("NumberingType")
+                        except Exception:
+                            numbering = 4
                         fields.append({
-                            "SubType": getattr(field, "SubType", 1), # Default CURRENT
-                            "Offset": getattr(field, "Offset", 0), # Default 0
-                            "NumberingType": getattr(field, "NumberingType", 4) # Default ARABIC
+                            "SubType": subtype,
+                            "Offset": offset,
+                            "NumberingType": numbering
                         })
                 except Exception:
                     continue
@@ -1491,11 +1524,13 @@ def xtext_to_content(
                     # ARABIC = 4
                     attrs = []
                     if field_props["SubType"] != 1:
-                        attrs.append(f' data-subtype="{field_props["SubType"]}"')
+                        st_name = _PAGE_NUMBER_SUBTYPE_NAMES.get(field_props["SubType"], str(field_props["SubType"]))
+                        attrs.append(f' data-subtype="{st_name}"')
                     if field_props["Offset"] != 0:
                         attrs.append(f' data-offset="{field_props["Offset"]}"')
                     if field_props["NumberingType"] != 4:
-                        attrs.append(f' data-numbering-type="{field_props["NumberingType"]}"')
+                        nt_name = _PAGE_NUMBER_NUMBERING_TYPE_NAMES.get(field_props["NumberingType"], str(field_props["NumberingType"]))
+                        attrs.append(f' data-numbering-type="{nt_name}"')
 
                     new_content.append("".join(attrs) + ">")
                     last_end = match.end()

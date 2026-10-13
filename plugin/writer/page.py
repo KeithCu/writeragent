@@ -420,8 +420,8 @@ def _copy_page_regions(
             prop_name = f"{prefix}{size_prop}"
             try:
                 clone.setPropertyValue(prop_name, source.getPropertyValue(prop_name))
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("_copy_page_regions failed to copy %s: %s", prop_name, e)
 
         dest_text = clone.getPropertyValue(text_prop)
         if dest_text is None:

@@ -494,11 +494,11 @@ def test_copy_page_style_clones_height_and_fields_correctly(ctx, doc):
 
     style, name = _style(doc)
     style.setPropertyValue("HeaderIsOn", True)
-    style.setPropertyValue("HeaderBodyDistance", 0)
+    style.setPropertyValue("HeaderBodyDistance", 500)
     style.setPropertyValue("HeaderHeight", 1500)
 
     style.setPropertyValue("FooterIsOn", True)
-    style.setPropertyValue("FooterBodyDistance", 0)
+    style.setPropertyValue("FooterBodyDistance", 600)
     style.setPropertyValue("FooterHeight", 1200)
 
     # Set up footer with a CURRENT PageNumber field and ONLY 1 paragraph
@@ -519,9 +519,9 @@ def test_copy_page_style_clones_height_and_fields_correctly(ctx, doc):
     clone = pages.getByName("CloneBug1424")
 
     # 1. Check heights and distances
-    assert clone.getPropertyValue("HeaderBodyDistance") == 0
+    assert clone.getPropertyValue("HeaderBodyDistance") == 500
     assert clone.getPropertyValue("HeaderHeight") == 1500
-    assert clone.getPropertyValue("FooterBodyDistance") == 0
+    assert clone.getPropertyValue("FooterBodyDistance") == 600
     assert clone.getPropertyValue("FooterHeight") == 1200
 
     # 2. Check paragraph count
