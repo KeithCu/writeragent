@@ -417,13 +417,7 @@ def timeout(timeout_seconds: int):
     return decorator
 
 
-def get_iterable(obj):
-    if isinstance(obj, list):
-        return obj
-    elif hasattr(obj, "__iter__"):
-        return list(obj)
-    else:
-        raise InterpreterError("Object is not iterable")
+
 
 
 def fix_final_answer_code(code: str) -> str:
