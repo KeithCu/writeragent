@@ -414,4 +414,97 @@ def test_evaluate_call_attribute_dunder_rejected_at_runtime():
     assert "Forbidden" in str(exc_info.value)
 
 
+def test_print_hijack_method_and_user_def():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    # obj.print calls method
+    code = """
+class A:
+    def print(self, x):
+        return f"printed:{x}"
+result = A().print(123)
+"""
+    executor(code)
+    assert executor.state["result"] == "printed:123"
+
+    # User def print is called
+    code = """
+def print(*args, sep=" "):
+    return f"user:{sep.join(map(str, args))}"
+result = print("a", "b", sep="-")
+"""
+    executor(code)
+    assert executor.state["result"] == "user:a-b"
+
+
+def test_injected_print_sep_end_file_unknown():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    executor('print("a", "b", sep="-")')
+    assert str(executor.state["_print_outputs"]).endswith("a-b\n")
+
+    executor('print(1, 2, end="!")')
+    assert str(executor.state["_print_outputs"]).endswith("1 2!")
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor('print("foo", file="something")')
+    assert "file=" in str(exc_info.value)
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor('print("foo", unknown=1)')
+    assert "unexpected keyword argument" in str(exc_info.value)
+
+
+def test_dotted_import_binding_xml():
+    executor = LocalPythonExecutor(additional_authorized_imports=["xml", "xml.etree.ElementTree"])
+    executor.send_tools({})
+
+    # import xml.etree.ElementTree binds "xml"
+    executor("import xml.etree.ElementTree\nel = xml.etree.ElementTree.Element('tag')\nresult = el.tag")
+    assert executor.state["result"] == "tag"
+    assert "xml.etree.ElementTree" not in executor.state
+    assert "xml" in executor.state
+
+    # import xml.etree.ElementTree as ET binds "ET" to leaf
+    executor("import xml.etree.ElementTree as ET\nel2 = ET.Element('child')\nresult2 = el2.tag")
+    assert executor.state["result2"] == "child"
+    assert "ET" in executor.state
+
+
+def test_import_tool_guards():
+    executor = LocalPythonExecutor(additional_authorized_imports=["math"])
+    executor.send_tools({})
+
+    # from math import sqrt works (overridable)
+    executor("from math import sqrt\nresult = sqrt(4)")
+    assert executor.state["result"] == 2.0
+
+    # from math import sin as len is rejected
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("from math import sin as len")
+    assert "Cannot assign to name 'len': doing this would erase the existing tool!" in str(exc_info.value)
+
+    # import math as print is rejected
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import math as print")
+    assert "Cannot assign to name 'print': doing this would erase the existing tool!" in str(exc_info.value)
+
+    # from math import * does not replace pow
+    executor("from math import *\nresult_pow = pow(2, 3, 5)")
+    assert executor.state["result_pow"] == 3
+
+
+def test_relative_import_rejected():
+    from plugin.contrib.smolagents.local_python_executor import evaluate_import
+
+    # Calling evaluate_import on relative node raises InterpreterError, not AttributeError
+    node = ast.parse("from . import x").body[0]
+    with pytest.raises(InterpreterError) as exc_info:
+        evaluate_import(node, {}, [])
+    assert "Relative imports are not allowed." in str(exc_info.value)
+
+
+
 

@@ -160,6 +160,12 @@ BASE_PYTHON_TOOLS = {
     "complex": complex,
 }
 
+_IMPORT_OVERRIDABLE_TOOLS = frozenset(
+    k
+    for k, v in BASE_PYTHON_TOOLS.items()
+    if getattr(v, "__module__", None) == "math" or v is getattr(math, k, None)
+)
+
 # Non-exhaustive list of dangerous modules that should not be imported
 DANGEROUS_MODULES = [
     "builtins",
@@ -996,7 +1002,7 @@ def evaluate_call(
             # Normal keyword argument
             kwargs[keyword.arg] = evaluate_ast(keyword.value, state, static_tools, custom_tools, authorized_imports)
 
-    if func_name == "super":
+    if isinstance(call.func, ast.Name) and func_name == "super":
         if not args:
             if "__class__" in state and "self" in state:
                 return super(state["__class__"], state["self"])
@@ -1012,8 +1018,21 @@ def evaluate_call(
             return super(cls, instance)
         else:
             raise InterpreterError("super() takes at most 2 arguments")
-    elif func_name == "print":
-        state["_print_outputs"] += " ".join(map(str, args)) + "\n"
+    elif func is static_tools.get("print"):
+        # The print hijack runs only when the resolved callable is the injected
+        # custom_print tool (not an obj.print() method or user def print).
+        unknown = set(kwargs.keys()) - {"sep", "end", "file", "flush"}
+        if unknown:
+            raise TypeError(f"print() got an unexpected keyword argument '{next(iter(unknown))}'")
+        if kwargs.get("file") is not None:
+            raise InterpreterError("print() file= is unsupported in the sandbox")
+        sep = kwargs.get("sep", " ")
+        if sep is None:
+            sep = " "
+        end = kwargs.get("end", "\n")
+        if end is None:
+            end = "\n"
+        state["_print_outputs"] += sep.join(map(str, args)) + end
         return None
     else:  # Assume it's a callable object
         if (inspect.getmodule(func) == builtins) and inspect.isbuiltin(func) and (func not in static_tools.values()):
@@ -1486,32 +1505,66 @@ def get_safe_module(raw_module, authorized_imports, visited=None):
     return safe_module
 
 
-def evaluate_import(expression, state, authorized_imports):
+def evaluate_import(
+    expression: ast.Import | ast.ImportFrom,
+    state: dict[str, Any],
+    authorized_imports: list[str],
+    static_tools: dict[str, Callable] | None = None,
+) -> None:
+    import sys
+
+    tools = static_tools if static_tools is not None else {}
+
     if isinstance(expression, ast.Import):
         for alias in expression.names:
-            if check_import_authorized(alias.name, authorized_imports):
-                raw_module = import_module(alias.name)
-                state[alias.asname or alias.name] = get_safe_module(raw_module, authorized_imports)
-            else:
+            if not check_import_authorized(alias.name, authorized_imports):
                 # Bugfix: keep import-failure messages short; dumping authorized_imports exposes duckdb.
                 raise InterpreterError(f"Import of {alias.name} is not allowed.")
+            raw_leaf = import_module(alias.name)
+            if alias.asname:
+                target_name = alias.asname
+                if target_name in tools and target_name not in _IMPORT_OVERRIDABLE_TOOLS:
+                    raise InterpreterError(
+                        f"Cannot assign to name '{target_name}': doing this would erase the existing tool!"
+                    )
+                state[target_name] = get_safe_module(raw_leaf, authorized_imports)
+            else:
+                top_name = alias.name.split(".", 1)[0]
+                if top_name in tools and top_name not in _IMPORT_OVERRIDABLE_TOOLS:
+                    raise InterpreterError(
+                        f"Cannot assign to name '{top_name}': doing this would erase the existing tool!"
+                    )
+                state[top_name] = get_safe_module(sys.modules[top_name], authorized_imports)
         return None
     elif isinstance(expression, ast.ImportFrom):
+        if expression.level != 0 or expression.module is None:
+            raise InterpreterError("Relative imports are not allowed.")
         if check_import_authorized(expression.module, authorized_imports):
             raw_module = __import__(expression.module, fromlist=[alias.name for alias in expression.names])
             module = get_safe_module(raw_module, authorized_imports)
             if expression.names[0].name == "*":  # Handle "from module import *"
                 if hasattr(module, "__all__"):  # If module has __all__, import only those names
                     for name in module.__all__:
+                        if name in tools:
+                            # Silently skip names in static_tools (overridable or not)
+                            continue
                         state[name] = getattr(module, name)
                 else:  # If no __all__, import all public names (those not starting with '_')
                     for name in dir(module):
                         if not name.startswith("_"):
+                            if name in tools:
+                                # Silently skip names in static_tools (overridable or not)
+                                continue
                             state[name] = getattr(module, name)
             else:  # regular from imports
                 for alias in expression.names:
+                    target_name = alias.asname or alias.name
+                    if target_name in tools and target_name not in _IMPORT_OVERRIDABLE_TOOLS:
+                        raise InterpreterError(
+                            f"Cannot assign to name '{target_name}': doing this would erase the existing tool!"
+                        )
                     if hasattr(module, alias.name):
-                        state[alias.asname or alias.name] = getattr(module, alias.name)
+                        state[target_name] = getattr(module, alias.name)
                     else:
                         raise InterpreterError(f"Module {expression.module} has no attribute {alias.name}")
         else:
@@ -1704,7 +1757,7 @@ def evaluate_ast(
     elif isinstance(expression, ast.While):
         return evaluate_while(expression, *common_params)
     elif isinstance(expression, (ast.Import, ast.ImportFrom)):
-        return evaluate_import(expression, state, authorized_imports)
+        return evaluate_import(expression, state, authorized_imports, static_tools=static_tools)
     elif isinstance(expression, ast.ClassDef):
         return evaluate_class_def(expression, *common_params)
     elif isinstance(expression, ast.Try):
