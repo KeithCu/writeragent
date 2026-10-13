@@ -764,6 +764,154 @@ y_res = Y().f()
     assert executor.state["y_res"] == "XY"
 
 
+def test_slice7_syntax_and_unpacking():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    # 1. for...else: loop finishes naturally -> else runs
+    code_for_else = """
+res_for = 0
+for i in [1, 2, 3]:
+    res_for += i
+else:
+    for_else_ran = True
+"""
+    executor(code_for_else)
+    assert executor.state["res_for"] == 6
+    assert executor.state["for_else_ran"] is True
+
+    # 2. for...else: break prevents else from running
+    code_for_break = """
+for_break_else_ran = False
+for i in [1, 2, 3]:
+    if i == 2:
+        break
+else:
+    for_break_else_ran = True
+"""
+    executor(code_for_break)
+    assert executor.state["for_break_else_ran"] is False
+
+    # 3. while...else: loop finishes naturally -> else runs
+    code_while_else = """
+n = 3
+while n > 0:
+    n -= 1
+else:
+    while_else_ran = True
+"""
+    executor(code_while_else)
+    assert executor.state["while_else_ran"] is True
+
+    # 4. while...else: break prevents else from running
+    code_while_break = """
+while_break_else_ran = False
+m = 3
+while m > 0:
+    break
+else:
+    while_break_else_ran = True
+"""
+    executor(code_while_break)
+    assert executor.state["while_break_else_ran"] is False
+
+    # 5. Bare raise inside except re-raises matched exception
+    code_bare_raise = """
+caught = None
+try:
+    try:
+        raise ValueError("inner err")
+    except ValueError:
+        raise
+except ValueError as e:
+    caught = str(e)
+"""
+    executor(code_bare_raise)
+    assert executor.state["caught"] == "inner err"
+
+    # 6. Bare raise outside except errors
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("raise")
+    assert "Re-raise is not supported without an active exception" in str(exc_info.value)
+
+    # 7. [a, b] = [1, 2] list assignment
+    executor("[a, b] = [1, 2]")
+    assert executor.state["a"] == 1
+    assert executor.state["b"] == 2
+
+    # 8. a, *b = (1, 2, 3) and a, *b, c = (1, 2, 3, 4)
+    executor("x1, *x2 = (1, 2, 3)")
+    assert executor.state["x1"] == 1
+    assert executor.state["x2"] == [2, 3]
+
+    executor("y1, *y2, y3 = (1, 2, 3, 4)")
+    assert executor.state["y1"] == 1
+    assert executor.state["y2"] == [2, 3]
+    assert executor.state["y3"] == 4
+
+    # 9. a, b = "xy" string and bytes unpack
+    executor("s1, s2 = 'xy'")
+    assert executor.state["s1"] == "x"
+    assert executor.state["s2"] == "y"
+
+    executor("b1, b2 = b'12'")
+    assert executor.state["b1"] == ord(b"1")
+    assert executor.state["b2"] == ord(b"2")
+
+    # 10. Starred literals in list, tuple, set
+    code_starred_lits = """
+base_list = [2, 3]
+new_list = [1, *base_list, 4]
+new_tuple = (1, *base_list, 4)
+new_set = {1, *base_list, 4}
+"""
+    executor(code_starred_lits)
+    assert executor.state["new_list"] == [1, 2, 3, 4]
+    assert executor.state["new_tuple"] == (1, 2, 3, 4)
+    assert executor.state["new_set"] == {1, 2, 3, 4}
+
+    # 11. Dict unpack: {**d, "b": 2}
+    code_dict_unpack = """
+d1 = {"a": 1, "b": 0}
+d2 = {**d1, "b": 2, "c": 3}
+"""
+    executor(code_dict_unpack)
+    assert executor.state["d2"] == {"a": 1, "b": 2, "c": 3}
+
+    # 12. f-string conversions: f"{x!r}", f"{x!s}", f"{x!a}"
+    code_fstring = """
+val = "hello"
+r_str = f"{val!r}"
+s_str = f"{val!s}"
+val_nonascii = "héllo"
+a_str = f"{val_nonascii!a}"
+"""
+    executor(code_fstring)
+    assert executor.state["r_str"] == "'hello'"
+    assert executor.state["s_str"] == "hello"
+    assert executor.state["a_str"] == "'h\\xe9llo'"
+
+    # 13. x += 1 on missing x raises undefined name error
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("missing_var += 1")
+    assert "missing_var" in str(exc_info.value)
+    assert "not defined" in str(exc_info.value)
+
+    # 14. a[k()] += 1 calls k once
+    code_subscript_once = """
+call_log = []
+def k():
+    call_log.append(1)
+    return "key"
+arr = {"key": 10}
+arr[k()] += 1
+"""
+    executor(code_subscript_once)
+    assert len(executor.state["call_log"]) == 1
+    assert executor.state["arr"]["key"] == 11
+
+
+
 
 
 

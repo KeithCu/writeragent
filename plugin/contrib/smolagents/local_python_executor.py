@@ -560,17 +560,24 @@ def evaluate_while(
     authorized_imports: list[str],
 ) -> None:
     iterations = 0
+    broke = False
     while evaluate_ast(while_loop.test, state, static_tools, custom_tools, authorized_imports):
         for node in while_loop.body:
             try:
                 evaluate_ast(node, state, static_tools, custom_tools, authorized_imports)
             except BreakException:
-                return None
+                broke = True
+                break
             except ContinueException:
                 break
+        if broke:
+            break
         iterations += 1
         if iterations > MAX_WHILE_ITERATIONS:
             raise InterpreterError(f"Maximum number of {MAX_WHILE_ITERATIONS} iterations in While loop exceeded")
+    if not broke and while_loop.orelse:
+        for node in while_loop.orelse:
+            evaluate_ast(node, state, static_tools, custom_tools, authorized_imports)
     return None
 
 
@@ -767,24 +774,22 @@ def evaluate_augassign(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Any:
-    def get_current_value(target: ast.AST) -> Any:
-        if isinstance(target, ast.Name):
-            return state.get(target.id, 0)
-        elif isinstance(target, ast.Subscript):
-            obj = evaluate_ast(target.value, state, static_tools, custom_tools, authorized_imports)
-            key = evaluate_ast(target.slice, state, static_tools, custom_tools, authorized_imports)
-            return obj[key]
-        elif isinstance(target, ast.Attribute):
-            obj = evaluate_ast(target.value, state, static_tools, custom_tools, authorized_imports)
-            return getattr(obj, target.attr)
-        elif isinstance(target, ast.Tuple):
-            return tuple(get_current_value(elt) for elt in target.elts)
-        elif isinstance(target, ast.List):
-            return [get_current_value(elt) for elt in target.elts]
-        else:
-            raise InterpreterError("AugAssign not supported for {type(target)} targets.")
+    target = expression.target
+    obj = None
+    key = None
 
-    current_value = get_current_value(expression.target)
+    if isinstance(target, ast.Name):
+        current_value = evaluate_name(target, state, static_tools, custom_tools, authorized_imports)
+    elif isinstance(target, ast.Subscript):
+        obj = evaluate_ast(target.value, state, static_tools, custom_tools, authorized_imports)
+        key = evaluate_ast(target.slice, state, static_tools, custom_tools, authorized_imports)
+        current_value = obj[key]
+    elif isinstance(target, ast.Attribute):
+        obj = evaluate_ast(target.value, state, static_tools, custom_tools, authorized_imports)
+        current_value = getattr(obj, target.attr)
+    else:
+        raise InterpreterError(f"Cannot assign to {type(target).__name__}")
+
     value_to_add = evaluate_ast(expression.value, state, static_tools, custom_tools, authorized_imports)
 
     if isinstance(expression.op, ast.Add):
@@ -819,15 +824,16 @@ def evaluate_augassign(
     else:
         raise InterpreterError(f"Operation {type(expression.op).__name__} is not supported.")
 
-    # Update the state: current_value has been updated in-place
-    set_value(
-        expression.target,
-        current_value,
-        state,
-        static_tools,
-        custom_tools,
-        authorized_imports,
-    )
+    # Update target in-place without re-evaluating target.value or target.slice
+    if isinstance(target, ast.Name):
+        if target.id in static_tools:
+            raise InterpreterError(f"Cannot assign to name '{target.id}': doing this would erase the existing tool!")
+        state[target.id] = current_value
+    elif isinstance(target, ast.Subscript):
+        obj[key] = current_value
+    elif isinstance(target, ast.Attribute):
+        _reject_shared_object_mutation(obj)
+        setattr(obj, target.attr, current_value)
 
     return current_value
 
@@ -900,19 +906,8 @@ def evaluate_assign(
     authorized_imports: list[str],
 ) -> Any:
     result = evaluate_ast(assign.value, state, static_tools, custom_tools, authorized_imports)
-    if len(assign.targets) == 1:
-        target = assign.targets[0]
+    for target in assign.targets:
         set_value(target, result, state, static_tools, custom_tools, authorized_imports)
-    else:
-        expanded_values = []
-        for tgt in assign.targets:
-            if isinstance(tgt, ast.Starred):
-                expanded_values.extend(result)
-            else:
-                expanded_values.append(result)
-
-        for tgt, val in zip(assign.targets, expanded_values):
-            set_value(tgt, val, state, static_tools, custom_tools, authorized_imports)
     return result
 
 
@@ -928,16 +923,32 @@ def set_value(
         if target.id in static_tools:
             raise InterpreterError(f"Cannot assign to name '{target.id}': doing this would erase the existing tool!")
         state[target.id] = value
-    elif isinstance(target, ast.Tuple):
-        if not isinstance(value, tuple):
-            if hasattr(value, "__iter__") and not isinstance(value, (str, bytes)):
-                value = tuple(value)
-            else:
-                raise InterpreterError("Cannot unpack non-tuple value")
-        if len(target.elts) != len(value):
-            raise InterpreterError("Cannot unpack tuple of wrong size")
-        for i, elem in enumerate(target.elts):
-            set_value(elem, value[i], state, static_tools, custom_tools, authorized_imports)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        if not hasattr(value, "__iter__"):
+            raise InterpreterError("Cannot unpack non-iterable value")
+        seq = list(value)
+        elts = target.elts
+        starred_indices = [i for i, elem in enumerate(elts) if isinstance(elem, ast.Starred)]
+        if len(starred_indices) > 1:
+            raise InterpreterError("multiple starred expressions in assignment")
+        elif len(starred_indices) == 1:
+            star_idx = starred_indices[0]
+            before = star_idx
+            after = len(elts) - 1 - star_idx
+            if len(seq) < before + after:
+                raise InterpreterError("Cannot unpack tuple of wrong size")
+            for i in range(before):
+                set_value(elts[i], seq[i], state, static_tools, custom_tools, authorized_imports)
+            mid_len = len(seq) - after
+            starred_val = seq[before:mid_len]
+            set_value(elts[star_idx].value, starred_val, state, static_tools, custom_tools, authorized_imports)
+            for i in range(after):
+                set_value(elts[star_idx + 1 + i], seq[mid_len + i], state, static_tools, custom_tools, authorized_imports)
+        else:
+            if len(elts) != len(seq):
+                raise InterpreterError("Cannot unpack tuple of wrong size")
+            for elem, item in zip(elts, seq):
+                set_value(elem, item, state, static_tools, custom_tools, authorized_imports)
     elif isinstance(target, ast.Subscript):
         obj = evaluate_ast(target.value, state, static_tools, custom_tools, authorized_imports)
         key = evaluate_ast(target.slice, state, static_tools, custom_tools, authorized_imports)
@@ -946,6 +957,8 @@ def set_value(
         obj = evaluate_ast(target.value, state, static_tools, custom_tools, authorized_imports)
         _reject_shared_object_mutation(obj)
         setattr(obj, target.attr, value)
+    else:
+        raise InterpreterError(f"Cannot assign to {type(target).__name__}")
 
 
 def _reject_numpy_code_exec(func: Any, args: list[Any], kwargs: dict[str, Any]) -> None:
@@ -1220,6 +1233,7 @@ def evaluate_for(
 ) -> Any:
     result = None
     iterator = evaluate_ast(for_loop.iter, state, static_tools, custom_tools, authorized_imports)
+    broke = False
     for counter in iterator:
         set_value(
             for_loop.target,
@@ -1235,9 +1249,17 @@ def evaluate_for(
                 if line_result is not None:
                     result = line_result
             except BreakException:
-                return result
+                broke = True
+                break
             except ContinueException:
                 break
+        if broke:
+            break
+    if not broke and for_loop.orelse:
+        for node in for_loop.orelse:
+            line_result = evaluate_ast(node, state, static_tools, custom_tools, authorized_imports)
+            if line_result is not None:
+                result = line_result
     return result
 
 
@@ -1364,8 +1386,13 @@ def evaluate_try(
                 matched = True
                 if handler.name:
                     state[handler.name] = e
-                for stmt in handler.body:
-                    evaluate_ast(stmt, state, static_tools, custom_tools, authorized_imports)
+                stack: list[Exception] = state.setdefault("_active_exceptions", [])
+                stack.append(e)
+                try:
+                    for stmt in handler.body:
+                        evaluate_ast(stmt, state, static_tools, custom_tools, authorized_imports)
+                finally:
+                    stack.pop()
                 break
         if not matched:
             raise e
@@ -1389,7 +1416,11 @@ def evaluate_raise(
     if raise_node.exc is not None:
         exc = evaluate_ast(raise_node.exc, state, static_tools, custom_tools, authorized_imports)
     else:
-        exc = None
+        stack = state.get("_active_exceptions", [])
+        if not stack:
+            raise InterpreterError("Re-raise is not supported without an active exception")
+        exc = stack[-1]
+
     if raise_node.cause is not None:
         cause = evaluate_ast(raise_node.cause, state, static_tools, custom_tools, authorized_imports)
     else:
@@ -1726,7 +1757,13 @@ def evaluate_ast(
         # Constant -> just return the value
         return expression.value
     elif isinstance(expression, ast.Tuple):
-        return tuple((evaluate_ast(elt, *common_params) for elt in expression.elts))
+        result_tuple = []
+        for elt in expression.elts:
+            if isinstance(elt, ast.Starred):
+                result_tuple.extend(evaluate_ast(elt.value, *common_params))
+            else:
+                result_tuple.append(evaluate_ast(elt, *common_params))
+        return tuple(result_tuple)
     elif isinstance(expression, ast.GeneratorExp):
         return evaluate_generatorexp(expression, *common_params)
     elif isinstance(expression, ast.ListComp):
@@ -1757,10 +1794,19 @@ def evaluate_ast(
     elif isinstance(expression, ast.FunctionDef):
         return evaluate_function_def(expression, *common_params)
     elif isinstance(expression, ast.Dict):
-        # Dict -> evaluate all keys and values
-        keys = (evaluate_ast(k, *common_params) for k in expression.keys)
-        values = (evaluate_ast(v, *common_params) for v in expression.values)
-        return dict(zip(keys, values))
+        # Dict -> evaluate all keys and values, supporting {**d} unpack when key is None
+        result_dict = {}
+        for k, v in zip(expression.keys, expression.values):
+            if k is None:
+                val = evaluate_ast(v, *common_params)
+                if not isinstance(val, dict):
+                    raise InterpreterError(f"Cannot unpack non-dict value in dict literal: {type(val).__name__}")
+                result_dict.update(val)
+            else:
+                key = evaluate_ast(k, *common_params)
+                val = evaluate_ast(v, *common_params)
+                result_dict[key] = val
+        return result_dict
     elif isinstance(expression, ast.Expr):
         # Expression -> evaluate the content
         return evaluate_ast(expression.value, *common_params)
@@ -1770,6 +1816,12 @@ def evaluate_ast(
     elif isinstance(expression, ast.FormattedValue):
         # Formatted value (part of f-string) -> evaluate the content and format it
         value = evaluate_ast(expression.value, *common_params)
+        if expression.conversion == 115:
+            value = str(value)
+        elif expression.conversion == 114:
+            value = repr(value)
+        elif expression.conversion == 97:
+            value = ascii(value)
         # Early return if no format spec
         if not expression.format_spec:
             return value
@@ -1784,8 +1836,14 @@ def evaluate_ast(
     elif isinstance(expression, ast.JoinedStr):
         return "".join([str(evaluate_ast(v, *common_params)) for v in expression.values])
     elif isinstance(expression, ast.List):
-        # List -> evaluate all elements
-        return [evaluate_ast(elt, *common_params) for elt in expression.elts]
+        # List -> evaluate all elements, expanding starred elements
+        result_list = []
+        for elt in expression.elts:
+            if isinstance(elt, ast.Starred):
+                result_list.extend(evaluate_ast(elt.value, *common_params))
+            else:
+                result_list.append(evaluate_ast(elt, *common_params))
+        return result_list
     elif isinstance(expression, ast.Name):
         # Name -> pick up the value in the state
         return evaluate_name(expression, *common_params)
@@ -1821,7 +1879,13 @@ def evaluate_ast(
     elif isinstance(expression, ast.With):
         return evaluate_with(expression, *common_params)
     elif isinstance(expression, ast.Set):
-        return set((evaluate_ast(elt, *common_params) for elt in expression.elts))
+        result_set = set()
+        for elt in expression.elts:
+            if isinstance(elt, ast.Starred):
+                result_set.update(evaluate_ast(elt.value, *common_params))
+            else:
+                result_set.add(evaluate_ast(elt, *common_params))
+        return result_set
     elif isinstance(expression, ast.Return):
         raise ReturnException(evaluate_ast(expression.value, *common_params) if expression.value else None)
     elif isinstance(expression, ast.Pass):
