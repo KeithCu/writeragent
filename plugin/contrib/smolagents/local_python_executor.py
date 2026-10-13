@@ -484,6 +484,45 @@ def evaluate_unaryop(
         raise InterpreterError(f"Unary operation {expression.op.__class__.__name__} is not supported.")
 
 
+def _build_signature(
+    ast_args: ast.arguments,
+    state: dict[str, Any],
+    static_tools: dict[str, Callable],
+    custom_tools: dict[str, Callable],
+    authorized_imports: list[str],
+) -> inspect.Signature:
+    # Evaluate positional and keyword defaults at definition time in the defining scope.
+    # Storing them on the signature prevents call-time re-evaluation and supports shared mutable defaults.
+    evaluated_defaults = [
+        evaluate_ast(d, state, static_tools, custom_tools, authorized_imports)
+        for d in ast_args.defaults
+    ]
+    pos_names = [a.arg for a in ast_args.posonlyargs] + [a.arg for a in ast_args.args]
+    defaults_map = dict(zip(pos_names[-len(evaluated_defaults):], evaluated_defaults))
+
+    evaluated_kw_defaults = [
+        evaluate_ast(d, state, static_tools, custom_tools, authorized_imports) if d is not None else None
+        for d in ast_args.kw_defaults
+    ]
+
+    params = []
+    for a in ast_args.posonlyargs:
+        default = defaults_map.get(a.arg, inspect.Parameter.empty)
+        params.append(inspect.Parameter(a.arg, inspect.Parameter.POSITIONAL_ONLY, default=default))
+    for a in ast_args.args:
+        default = defaults_map.get(a.arg, inspect.Parameter.empty)
+        params.append(inspect.Parameter(a.arg, inspect.Parameter.POSITIONAL_OR_KEYWORD, default=default))
+    if ast_args.vararg:
+        params.append(inspect.Parameter(ast_args.vararg.arg, inspect.Parameter.VAR_POSITIONAL))
+    for a, d in zip(ast_args.kwonlyargs, evaluated_kw_defaults):
+        default = d if d is not None else inspect.Parameter.empty
+        params.append(inspect.Parameter(a.arg, inspect.Parameter.KEYWORD_ONLY, default=default))
+    if ast_args.kwarg:
+        params.append(inspect.Parameter(ast_args.kwarg.arg, inspect.Parameter.VAR_KEYWORD))
+
+    return inspect.Signature(params)
+
+
 def evaluate_lambda(
     lambda_expression: ast.Lambda,
     state: dict[str, Any],
@@ -491,12 +530,15 @@ def evaluate_lambda(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Callable:
-    args = [arg.arg for arg in lambda_expression.args.args]
+    sig = _build_signature(
+        lambda_expression.args, state, static_tools, custom_tools, authorized_imports
+    )
 
-    def lambda_func(*values: Any) -> Any:
+    def lambda_func(*values: Any, **kwargs: Any) -> Any:
+        bound = sig.bind(*values, **kwargs)
+        bound.apply_defaults()
         new_state = state.copy()
-        for arg, value in zip(args, values):
-            new_state[arg] = value
+        new_state.update(bound.arguments)
         return evaluate_ast(
             lambda_expression.body,
             new_state,
@@ -505,7 +547,9 @@ def evaluate_lambda(
             authorized_imports,
         )
 
+    lambda_func.__signature__ = sig
     return lambda_func
+
 
 
 def evaluate_while(
@@ -537,39 +581,17 @@ def create_function(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Callable:
+    if func_def.decorator_list:
+        raise InterpreterError("Decorators are not supported in the sandbox")
+
     source_code = ast.unparse(func_def)
+    sig = _build_signature(func_def.args, state, static_tools, custom_tools, authorized_imports)
 
     def new_func(*args: Any, **kwargs: Any) -> Any:
+        bound = sig.bind(*args, **kwargs)
+        bound.apply_defaults()
         func_state = state.copy()
-        arg_names = [arg.arg for arg in func_def.args.args]
-        default_values = [
-            evaluate_ast(d, state, static_tools, custom_tools, authorized_imports) for d in func_def.args.defaults
-        ]
-
-        # Apply default values
-        defaults = dict(zip(arg_names[-len(default_values) :], default_values))
-
-        # Set positional arguments
-        for name, value in zip(arg_names, args):
-            func_state[name] = value
-
-        # Set keyword arguments
-        for name, value in kwargs.items():
-            func_state[name] = value
-
-        # Handle variable arguments
-        if func_def.args.vararg:
-            vararg_name = func_def.args.vararg.arg
-            func_state[vararg_name] = args
-
-        if func_def.args.kwarg:
-            kwarg_name = func_def.args.kwarg.arg
-            func_state[kwarg_name] = kwargs
-
-        # Set default values for arguments that were not provided
-        for name, value in defaults.items():
-            if name not in func_state:
-                func_state[name] = value
+        func_state.update(bound.arguments)
 
         # Update function state with self and __class__
         if func_def.args.args and func_def.args.args[0].arg == "self":
@@ -593,6 +615,7 @@ def create_function(
     new_func.__ast__ = func_def
     new_func.__source__ = source_code
     new_func.__name__ = func_def.name
+    new_func.__signature__ = sig
 
     return new_func
 
@@ -604,8 +627,9 @@ def evaluate_function_def(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Callable:
+    # Function definitions store the function only in state, not custom_tools.
+    # This prevents top-level or nested functions from leaking into shared tools.
     fn = create_function(func_def, state, static_tools, custom_tools, authorized_imports)
-    custom_tools[func_def.name] = fn
     state[func_def.name] = fn
     return fn
 
@@ -618,6 +642,9 @@ def evaluate_class_def(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> type:
+    if class_def.decorator_list:
+        raise InterpreterError("Decorators are not supported in the sandbox")
+
     class_name = class_def.name
     bases = [evaluate_ast(base, state, static_tools, custom_tools, authorized_imports) for base in class_def.bases]
 
@@ -638,7 +665,7 @@ def evaluate_class_def(
 
     for stmt in class_def.body:
         if isinstance(stmt, ast.FunctionDef):
-            class_dict[stmt.name] = evaluate_ast(stmt, state, static_tools, custom_tools, authorized_imports)
+            class_dict[stmt.name] = create_function(stmt, state, static_tools, custom_tools, authorized_imports)
         elif isinstance(stmt, ast.AnnAssign):
             if stmt.value:
                 value = evaluate_ast(stmt.value, state, static_tools, custom_tools, authorized_imports)

@@ -506,5 +506,164 @@ def test_relative_import_rejected():
     assert "Relative imports are not allowed." in str(exc_info.value)
 
 
+def test_function_argument_binding_and_errors():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    # Positional-only
+    code = """
+def f(a, /, b):
+    return a + b
+result_pos = f(1, 2)
+"""
+    executor(code)
+    assert executor.state["result_pos"] == 3
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("f(a=1, b=2)")
+    assert "positional-only" in str(exc_info.value)
+
+    # Keyword-only with default
+    code = """
+def g(a, *, b=1):
+    return a + b
+r1 = g(10)
+r2 = g(10, b=5)
+"""
+    executor(code)
+    assert executor.state["r1"] == 11
+    assert executor.state["r2"] == 15
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("g(10, 20)")
+    assert "positional argument" in str(exc_info.value)
+
+    # Missing required argument raises TypeError
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("def h(x): return x\nh()")
+    assert "missing a required argument" in str(exc_info.value)
+
+    # Extra positional argument
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("def h(x): return x\nh(1, 2)")
+    assert "too many positional arguments" in str(exc_info.value)
+
+    # Unexpected keyword argument
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("def h(x): return x\nh(x=1, y=2)")
+    assert "unexpected keyword argument" in str(exc_info.value)
+
+    # *args and **kwargs contents
+    code = """
+def var(a, *args, **kwargs):
+    return (a, args, kwargs)
+result_var = var(1, 2, 3, b=4)
+"""
+    executor(code)
+    assert executor.state["result_var"] == (1, (2, 3), {"b": 4})
+
+
+def test_default_versus_global_and_definition_time_eval():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    # Global does not override default
+    code = """
+x = 10
+def f(x=1):
+    return x
+result = f()
+"""
+    executor(code)
+    assert executor.state["result"] == 1
+
+    # Definition-time default evaluation and mutable default sharing
+    code = """
+def f(x=[]):
+    x.append(1)
+    return x
+a = f()
+b = f()
+result = (a, b)
+"""
+    executor(code)
+    a, b = executor.state["result"]
+    assert a == [1, 1]
+    assert b is a
+
+
+def test_lambda_defaults_and_rest():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    code = """
+f = lambda x=1: x
+r1 = f()
+r2 = f(42)
+g = lambda *rest: rest
+r3 = g(1, 2)
+"""
+    executor(code)
+    assert executor.state["r1"] == 1
+    assert executor.state["r2"] == 42
+    assert executor.state["r3"] == (1, 2)
+
+
+def test_nested_def_and_class_methods_do_not_leak():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    # Nested def does not leak to state or custom_tools
+    code = """
+def outer():
+    def inner():
+        return 1
+    return inner()
+res = outer()
+"""
+    executor(code)
+    assert executor.state["res"] == 1
+    assert "inner" not in executor.state
+    assert "inner" not in executor.custom_tools
+
+    # Calling inner outside raises undefined error
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("inner()")
+    assert "inner" in str(exc_info.value)
+
+    # Class methods do not leak into executor.state or executor.custom_tools
+    code = """
+class A:
+    def foo(self):
+        return 4
+a_res = A().foo()
+"""
+    executor(code)
+    assert executor.state["a_res"] == 4
+    assert "foo" not in executor.state
+    assert "foo" not in executor.custom_tools
+
+
+def test_decorators_raise_interpreter_error():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+
+    def dummy_dec(fn):
+        return fn
+
+    executor.send_variables({"dec": dummy_dec})
+
+    # Function decorator
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("@dec\ndef f(): pass")
+    assert "Decorators are not supported in the sandbox" in str(exc_info.value)
+
+    # Class decorator
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("@dec\nclass C: pass")
+    assert "Decorators are not supported in the sandbox" in str(exc_info.value)
+
+
+
 
 

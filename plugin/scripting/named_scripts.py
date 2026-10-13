@@ -288,9 +288,9 @@ def _eval_library(executor: Any, source: str, ident: str) -> SimpleNamespace:
     extracted = extract_library_source(source)
     state: dict[str, Any] = {"__name__": ident}
     if extracted.strip():
-        # evaluate_function_def writes each def into custom_tools. Passing the
-        # executor dict made those names callable in later runs on this
-        # executor. The copy still sees helpers that already exist.
+        # evaluate_function_def previously wrote each def into custom_tools.
+        # Defs now stay in state, but the defensive copy of custom_tools is kept
+        # so library code cannot mutate the executor's tool dict.
         shared_tools = executor.custom_tools if isinstance(executor.custom_tools, dict) else {}
         evaluate_python_code(
             extracted,
