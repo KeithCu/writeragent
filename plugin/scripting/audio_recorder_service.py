@@ -199,7 +199,7 @@ def _reap_recording_process(proc: subprocess.Popen[str], timeout_sec: float) -> 
         try:
             proc.wait(timeout=1.0)
         except subprocess.TimeoutExpired:
-            from plugin.scripting.venv_worker import _kill_process_tree
+            from plugin.framework.managed_subprocess import _kill_process_tree
 
             _kill_process_tree(proc)
             try:

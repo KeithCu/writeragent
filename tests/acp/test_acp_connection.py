@@ -91,7 +91,7 @@ class TestACPConnectionStop:
             killed.append(proc_arg)
 
         with pytest.MonkeyPatch.context() as patch:
-            patch.setattr("plugin.scripting.venv_worker._kill_process_tree", _kill)
+            patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", _kill)
             conn.stop()
             conn.stop()
             deadline = time.monotonic() + 2
@@ -799,7 +799,7 @@ def test_stop_flushes_before_tree_kill():
     mock_proc.poll.return_value = None
 
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr("plugin.scripting.venv_worker._kill_process_tree", mock_kill)
+        patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", mock_kill)
         conn.send_notification("session/cancel", {})
         conn.stop()
 
@@ -904,7 +904,7 @@ def test_watchdog_does_not_kill_again_when_wait_returns():
     conn._proc = proc
     conn._running = True
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr("plugin.scripting.venv_worker._kill_process_tree", lambda process: kills.append(process))
+        patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", lambda process: kills.append(process))
         conn.stop()
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline and len(kills) < 1:
@@ -921,7 +921,7 @@ def test_watchdog_kills_when_wait_times_out():
     conn._proc = proc
     conn._running = True
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr("plugin.scripting.venv_worker._kill_process_tree", lambda process: kills.append(process))
+        patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", lambda process: kills.append(process))
         conn.stop()
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline and len(kills) < 2:
@@ -975,7 +975,7 @@ def test_request_after_the_writer_stops_fails_without_a_new_thread():
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr("plugin.acp.acp_connection.run_in_background", run)
-        patch.setattr("plugin.scripting.venv_worker._kill_process_tree", lambda process: None)
+        patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", lambda process: None)
         conn._enqueue(_QueuedStop(proc))
         # The handle is cleared in the writer's finally. Waiting for that,
         # not merely for _closed, is what used to start a second writer.
@@ -996,7 +996,7 @@ def test_write_queued_behind_stop_is_failed():
     conn._write_queue.put(_QueuedStop(proc))
     conn._write_queue.put(_QueuedWrite(proc, b"{}\n", 8))
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr("plugin.scripting.venv_worker._kill_process_tree", lambda process: None)
+        patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", lambda process: None)
         conn._ensure_writer()
         assert event.wait(timeout=2)
     assert "Failed to write" in conn._pending[8].response["error"]["message"]

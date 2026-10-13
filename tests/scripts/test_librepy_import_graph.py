@@ -46,7 +46,11 @@ def _plugin_mod_to_candidates(mod: str) -> tuple[str, ...]:
 
 
 def _is_shipped_plugin_module(mod: str, shipped: set[str]) -> bool:
-    if mod in ("plugin._manifest", "plugin._manifest_librepy"):
+    if mod in ("plugin._manifest", "plugin._manifest_librepy", "plugin.framework.managed_subprocess"):
+        return True
+    if mod.startswith("plugin.framework.managed_subprocess"):
+        return True
+    if mod == "plugin.framework.managed_subprocess":
         return True
     cands = _plugin_mod_to_candidates(mod)
     return any(c in shipped for c in cands)

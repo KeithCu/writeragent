@@ -155,7 +155,7 @@ def _kill_acp_tree(proc: subprocess.Popen[bytes]) -> None:
     stdout, so ``readline`` never sees EOF. ``BufferedReader.close()`` does
     not unblock that read: it waits on the same lock ``readline`` holds.
     """
-    from plugin.scripting.venv_worker import _kill_process_tree
+    from plugin.framework.managed_subprocess import _kill_process_tree
 
     try:
         _kill_process_tree(proc)
