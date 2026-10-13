@@ -310,3 +310,52 @@ except Exception:
     with pytest.raises(ExecutionTimeoutError):
         executor(code)
 
+
+def test_subscript_and_delete_exceptions_propagate():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    code = """
+d = {"a": 1}
+try:
+    _ = d["x"]
+    result1 = "failed"
+except KeyError:
+    result1 = "caught_key_error"
+
+try:
+    del d["x"]
+    result2 = "failed"
+except KeyError:
+    result2 = "caught_del_key_error"
+
+try:
+    _ = [][0]
+    result3 = "failed"
+except IndexError:
+    result3 = "caught_index_error"
+"""
+    executor(code)
+    assert executor.state["result1"] == "caught_key_error"
+    assert executor.state["result2"] == "caught_del_key_error"
+    assert executor.state["result3"] == "caught_index_error"
+
+
+def test_subscript_evaluates_value_before_index():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    order = []
+
+    def get_dict():
+        order.append("value")
+        return {"k": 42}
+
+    def get_key():
+        order.append("index")
+        return "k"
+
+    executor.send_tools({})
+    executor.send_variables({"get_dict": get_dict, "get_key": get_key})
+    executor("result = get_dict()[get_key()]")
+    assert executor.state["result"] == 42
+    assert order == ["value", "index"]
+
+

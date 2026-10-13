@@ -1034,15 +1034,13 @@ def evaluate_subscript(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Any:
-    index = evaluate_ast(subscript.slice, state, static_tools, custom_tools, authorized_imports)
+    # Evaluate container before index to match Python evaluation order.
+    # Previously, indexing caught KeyError/IndexError/TypeError and wrapped
+    # them in InterpreterError, preventing user try/except from catching them.
     value = evaluate_ast(subscript.value, state, static_tools, custom_tools, authorized_imports)
-    try:
-        return value[index]
-    except (KeyError, IndexError, TypeError) as e:
-        error_message = f"Could not index {value} with '{index}': {type(e).__name__}: {e}"
-        if isinstance(index, str) and isinstance(value, Mapping):
-            error_message += _close_match_hint(index, list(value.keys()), label="indexes")
-        raise InterpreterError(error_message) from e
+    index = evaluate_ast(subscript.slice, state, static_tools, custom_tools, authorized_imports)
+    return value[index]
+
 
 
 def evaluate_name(
@@ -1552,13 +1550,10 @@ def evaluate_delete(
             else:
                 raise InterpreterError(f"Cannot delete name '{target.id}': name is not defined")
         elif isinstance(target, ast.Subscript):
-            # Handle index/key deletion (del x[y])
+            # Handle index/key deletion (del x[y]); propagate KeyError/IndexError/TypeError directly
             obj = evaluate_ast(target.value, state, static_tools, custom_tools, authorized_imports)
             index = evaluate_ast(target.slice, state, static_tools, custom_tools, authorized_imports)
-            try:
-                del obj[index]
-            except (TypeError, KeyError, IndexError) as e:
-                raise InterpreterError(f"Cannot delete index/key: {str(e)}")
+            del obj[index]
         else:
             raise InterpreterError(f"Deletion of {type(target).__name__} targets is not supported")
 
