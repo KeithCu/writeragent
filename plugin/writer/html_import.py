@@ -1360,13 +1360,16 @@ _FIELD_TITLE_TO_SERVICE = {
     "subject": "com.sun.star.text.textfield.docinfo.Subject",
 }
 
-_PAGE_NUMBER_SUBTYPE_VALS = {
-    "PREV": 0,
-    "CURRENT": 1,
-    "NEXT": 2
+_PAGE_NUMBER_SUBTYPE_VALS: dict[str, str] = {
+    "PREV": "PREV",
+    "CURRENT": "CURRENT",
+    "NEXT": "NEXT",
+    "0": "PREV",
+    "1": "CURRENT",
+    "2": "NEXT",
 }
 
-_PAGE_NUMBER_NUMBERING_TYPE_VALS = {
+_PAGE_NUMBER_NUMBERING_TYPE_VALS: dict[str, int] = {
     "CHARS_UPPER_LETTER": 0,
     "CHARS_LOWER_LETTER": 1,
     "ROMAN_UPPER": 2,
@@ -1378,8 +1381,27 @@ _PAGE_NUMBER_NUMBERING_TYPE_VALS = {
     "BITMAP": 8,
     "CHARS_UPPER_LETTER_N": 9,
     "CHARS_LOWER_LETTER_N": 10,
-    "ARABIC_ZERO": 11,
+    "TRANSLITERATION": 11,
+    "NATIVE_NUMBERING": 12,
+    "FULLWIDTH_ARABIC": 13,
+    "CIRCLE_NUMBER": 14,
+    "ARABIC_ZERO": 64,
 }
+
+_PAGE_NUMBER_NUMBERING_TYPE_INT_TO_NAME: dict[int, str] = {
+    v: k for k, v in _PAGE_NUMBER_NUMBERING_TYPE_VALS.items()
+}
+
+try:
+    from com.sun.star.style import NumberingType as _NumberingType  # type: ignore
+    for _attr in dir(_NumberingType):
+        if not _attr.startswith("_"):
+            _val = getattr(_NumberingType, _attr, None)
+            if isinstance(_val, int):
+                _PAGE_NUMBER_NUMBERING_TYPE_VALS[_attr] = _val
+                _PAGE_NUMBER_NUMBERING_TYPE_INT_TO_NAME.setdefault(_val, _attr)
+except Exception:
+    pass
 
 
 def rewrite_exported_field_spans(html: str) -> str:
@@ -1396,11 +1418,31 @@ def rewrite_exported_field_spans(html: str) -> str:
             offset_m = re.search(r'data-offset=["\'](-?\d+)["\']', span_html)
             num_m = re.search(r'data-numbering-type=["\']([^"\']+)["\']', span_html)
             if subtype_m:
-                props.append(f"subtype={subtype_m.group(1)}")
+                st_raw = subtype_m.group(1).strip().upper()
+                st_name = _PAGE_NUMBER_SUBTYPE_VALS.get(st_raw)
+                if st_name is None:
+                    log.warning("Unknown PageNumber SubType attribute %r, defaulting to CURRENT", subtype_m.group(1))
+                    st_name = "CURRENT"
+                if st_name != "CURRENT":
+                    props.append(f"subtype={st_name}")
             if offset_m:
-                props.append(f"offset={offset_m.group(1)}")
+                try:
+                    off_val = int(offset_m.group(1))
+                    if off_val != 0:
+                        props.append(f"offset={off_val}")
+                except Exception as e:
+                    log.debug("rewrite_exported_field_spans offset parse error: %s", e)
             if num_m:
-                props.append(f"numbering_type={num_m.group(1)}")
+                nt_raw = num_m.group(1).strip().upper()
+                if nt_raw in _PAGE_NUMBER_NUMBERING_TYPE_VALS:
+                    nt_name = nt_raw
+                elif nt_raw.isdigit() and int(nt_raw) in _PAGE_NUMBER_NUMBERING_TYPE_INT_TO_NAME:
+                    nt_name = _PAGE_NUMBER_NUMBERING_TYPE_INT_TO_NAME[int(nt_raw)]
+                else:
+                    log.warning("Unknown PageNumber NumberingType attribute %r, defaulting to ARABIC", num_m.group(1))
+                    nt_name = "ARABIC"
+                if nt_name != "ARABIC":
+                    props.append(f"numbering_type={nt_name}")
 
         prop_str = ("|" + "|".join(props)) if props else ""
         return f"[[WA-FIELD:{title}{prop_str}]]"
@@ -1414,23 +1456,40 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
         return False
     try:
         field = model.createInstance(service)
-    except Exception:
+    except Exception as e:
+        log.debug("_insert_restored_field createInstance failed for %s: %s", service, e)
         return False
     props = props or {}
     if title == "page-number":
         try:
-            subtype_str = props.get("subtype", "CURRENT")
-            st_val = _PAGE_NUMBER_SUBTYPE_VALS.get(subtype_str, 1) if not subtype_str.isdigit() else int(subtype_str)
+            subtype_str = props.get("subtype", "CURRENT").strip().upper()
+            st_name = _PAGE_NUMBER_SUBTYPE_VALS.get(subtype_str)
+            if st_name is None:
+                log.warning("Unknown PageNumber SubType: %r, defaulting to CURRENT", props.get("subtype"))
+                st_name = "CURRENT"
+            st_val: Any
+            try:
+                import uno
+                st_val = uno.Enum("com.sun.star.text.PageNumberType", st_name)
+            except Exception:
+                st_val = 1 if st_name == "CURRENT" else (2 if st_name == "NEXT" else 0)
             field.setPropertyValue("SubType", st_val)
         except Exception as e:
             log.debug("_insert_restored_field failed to set SubType: %s", e)
         try:
-            field.setPropertyValue("Offset", int(props.get("offset", "0")))
+            offset_val = int(props.get("offset", "0"))
+            field.setPropertyValue("Offset", offset_val)
         except Exception as e:
             log.debug("_insert_restored_field failed to set Offset: %s", e)
         try:
-            num_type_str = props.get("numbering_type", "ARABIC")
-            nt_val = _PAGE_NUMBER_NUMBERING_TYPE_VALS.get(num_type_str, 4) if not num_type_str.isdigit() else int(num_type_str)
+            num_type_str = props.get("numbering_type", "ARABIC").strip().upper()
+            if num_type_str in _PAGE_NUMBER_NUMBERING_TYPE_VALS:
+                nt_val = _PAGE_NUMBER_NUMBERING_TYPE_VALS[num_type_str]
+            elif num_type_str.isdigit() and int(num_type_str) in _PAGE_NUMBER_NUMBERING_TYPE_INT_TO_NAME:
+                nt_val = int(num_type_str)
+            else:
+                log.warning("Unknown PageNumber NumberingType: %r, defaulting to ARABIC", props.get("numbering_type"))
+                nt_val = 4
             field.setPropertyValue("NumberingType", nt_val)
         except Exception as e:
             log.debug("_insert_restored_field failed to set NumberingType: %s", e)
@@ -1543,7 +1602,8 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any) -> int:
     for _unused in range(50):
         try:
             plain = text_obj.getString() or ""
-        except Exception:
+        except Exception as e:
+            log.debug("_restore_fields_by_cursor getString failed: %s", e)
             return restored
         if "[[WA-FIELD:" not in plain:
             return restored
@@ -1560,7 +1620,12 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any) -> int:
         if cursor is None:
             return restored
 
-        if not _insert_restored_field(model, cursor, title, props):
+        inserted = (
+            _insert_restored_field(model, cursor, title, props)
+            if props
+            else _insert_restored_field(model, cursor, title)
+        )
+        if not inserted:
             return restored
         restored += 1
     return restored
@@ -1582,46 +1647,59 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
         return 0
     restored = 0
 
-    sd = None
     try:
         sd = model.createSearchDescriptor()
-        # Search for any token matching [[WA-FIELD:*]]
-        sd.SearchString = r"\[\[WA-FIELD:[a-z-]+(?:\|[^\]]+)?\]\]"
         sd.SearchRegularExpression = True
-        found = model.findFirst(sd)
-    except Exception:
-        found = None
+    except Exception as e:
+        log.debug("_restore_field_placeholders createSearchDescriptor failed: %s", e)
+        return 0
 
-    if sd is None:
-        return restored
+    for title in _EXPORTED_FIELD_TITLES:
+        sd.SearchString = r"\[\[WA-FIELD:" + title + r"(?:\|[^\]]+)?\]\]"
+        try:
+            found = model.findFirst(sd)
+        except Exception as e:
+            log.debug("_restore_field_placeholders findFirst failed for %s: %s", title, e)
+            continue
 
-    while found is not None:
-        in_region = True
-        if text_obj is not None:
+        while found is not None:
+            in_region = True
+            if text_obj is not None:
+                try:
+                    in_region = uno_same(found.getText(), text_obj)
+                except Exception as e:
+                    log.debug("_restore_field_placeholders uno_same check failed: %s", e)
+                    in_region = True
+
+            props: dict[str, str] = {}
+            field_title = title
             try:
-                in_region = uno_same(found.getText(), text_obj)
-            except Exception:
-                in_region = True
+                token = found.getString()
+                if isinstance(token, str):
+                    match = _FIELD_TOKEN_RE.match(token)
+                    if match:
+                        field_title = match.group(1).lower()
+                        props = _parse_field_token_props(match.group(2))
+            except Exception as e:
+                log.debug("_restore_field_placeholders getString failed: %s", e)
 
-        try:
-            token = found.getString()
-            match = _FIELD_TOKEN_RE.match(token)
-        except Exception:
-            match = None
-
-        nxt = None
-        try:
-            nxt = model.findNext(found.getEnd(), sd)
-        except Exception:
             nxt = None
+            try:
+                nxt = model.findNext(found.getEnd(), sd)
+            except Exception as e:
+                log.debug("_restore_field_placeholders findNext failed: %s", e)
+                nxt = None
 
-        if in_region and match:
-            title = match.group(1).lower()
-            props = _parse_field_token_props(match.group(2))
-            if _insert_restored_field(model, found, title, props):
-                restored += 1
+            if in_region:
+                inserted = (
+                    _insert_restored_field(model, found, field_title, props)
+                    if props
+                    else _insert_restored_field(model, found, field_title)
+                )
+                if inserted:
+                    restored += 1
 
-        found = nxt
+            found = nxt
 
     return restored
 
@@ -1692,7 +1770,8 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
         while enum.hasMoreElements() is True:
             try:
                 paras.append(enum.nextElement())
-            except Exception:
+            except Exception as e:
+                log.debug("Failed to enumerate paragraph: %s", e)
                 break
         if len(paras) > 1:
             last_para = paras[-1]
@@ -1710,14 +1789,19 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
                     log.debug("Failed to inspect trailing paragraph portions: %s", e)
                 if not has_content:
                     try:
-                        # To actually remove the trailing break, we must select from the end of the previous paragraph
+                        # To actually remove the trailing break, select from the end of the previous paragraph
                         # to the end of the document, and set String to empty.
                         cursor = text_obj.createTextCursorByRange(paras[-2])
                         cursor.gotoEndOfParagraph(False)
                         cursor.gotoRange(last_para.getEnd(), True)
                         cursor.setString("")
                     except Exception as e:
-                        log.debug("Failed to remove trailing paragraph break: %s", e)
+                        log.debug("Failed to remove trailing paragraph break via cursor: %s", e)
+                        try:
+                            if hasattr(last_para, "dispose"):
+                                last_para.dispose()
+                        except Exception as e2:
+                            log.debug("Failed to dispose trailing paragraph: %s", e2)
     except Exception as e:
         log.debug("Failed to inspect trailing paragraph: %s", e)
 

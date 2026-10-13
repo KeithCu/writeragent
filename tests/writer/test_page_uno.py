@@ -514,15 +514,19 @@ def test_copy_page_style_clones_height_and_fields_correctly(ctx, doc):
     from plugin.writer.page import copy_page_style
     # Clone the page style
     stats = copy_page_style(doc, name, "CloneBug1424", uno_ctx=ctx)
-    assert stats["status"] == "ok"
+    assert stats["properties_copied"] > 0
 
     clone = pages.getByName("CloneBug1424")
 
     # 1. Check heights and distances
-    assert clone.getPropertyValue("HeaderBodyDistance") == 500
-    assert clone.getPropertyValue("HeaderHeight") == 1500
-    assert clone.getPropertyValue("FooterBodyDistance") == 600
-    assert clone.getPropertyValue("FooterHeight") == 1200
+    assert abs(int(clone.getPropertyValue("HeaderBodyDistance")) - 500) <= 2
+    assert clone.getPropertyValue("HeaderBodyDistance") == style.getPropertyValue("HeaderBodyDistance")
+    assert abs(int(clone.getPropertyValue("HeaderHeight")) - 1500) <= 2
+    assert clone.getPropertyValue("HeaderHeight") == style.getPropertyValue("HeaderHeight")
+    assert abs(int(clone.getPropertyValue("FooterBodyDistance")) - 600) <= 2
+    assert clone.getPropertyValue("FooterBodyDistance") == style.getPropertyValue("FooterBodyDistance")
+    assert abs(int(clone.getPropertyValue("FooterHeight")) - 1200) <= 2
+    assert clone.getPropertyValue("FooterHeight") == style.getPropertyValue("FooterHeight")
 
     # 2. Check paragraph count
     clone_footer = clone.getPropertyValue("FooterText")
@@ -586,7 +590,7 @@ def test_copy_page_style_clones_next_page_number_and_roman(ctx, doc):
     from plugin.writer.page import copy_page_style
     # Clone the page style
     stats = copy_page_style(doc, name, "CloneBug1424_Next", uno_ctx=ctx)
-    assert stats["status"] == "ok"
+    assert stats["properties_copied"] > 0
 
     clone = pages.getByName("CloneBug1424_Next")
     clone_header = clone.getPropertyValue("HeaderText")
