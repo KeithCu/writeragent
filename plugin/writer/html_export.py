@@ -1388,35 +1388,6 @@ _PAGE_NUMBER_SUBTYPE_NAMES: dict[int, str] = {
     2: "NEXT",
 }
 
-_PAGE_NUMBER_NUMBERING_TYPE_NAMES: dict[int, str] = {
-    0: "CHARS_UPPER_LETTER",
-    1: "CHARS_LOWER_LETTER",
-    2: "ROMAN_UPPER",
-    3: "ROMAN_LOWER",
-    4: "ARABIC",
-    5: "NUMBER_NONE",
-    6: "CHAR_SPECIAL",
-    7: "PAGE_DESCRIPTOR",
-    8: "BITMAP",
-    9: "CHARS_UPPER_LETTER_N",
-    10: "CHARS_LOWER_LETTER_N",
-    11: "TRANSLITERATION",
-    12: "NATIVE_NUMBERING",
-    13: "FULLWIDTH_ARABIC",
-    14: "CIRCLE_NUMBER",
-    64: "ARABIC_ZERO",
-}
-
-try:
-    from com.sun.star.style import NumberingType as _NumberingType  # type: ignore
-    for _attr in dir(_NumberingType):
-        if not _attr.startswith("_"):
-            _val = getattr(_NumberingType, _attr, None)
-            if isinstance(_val, int):
-                _PAGE_NUMBER_NUMBERING_TYPE_NAMES.setdefault(_val, _attr)
-except Exception:
-    pass
-
 _PAGE_NUMBER_SPAN_RE = re.compile(
     r'<span\b(?=[^>]*\btitle=["\']page-number["\'])[^>]*>',
     re.IGNORECASE,
@@ -1445,14 +1416,14 @@ def _page_number_subtype_to_name(subtype: Any) -> str:
 def _page_number_numbering_type_to_name(num_type: Any) -> str:
     """Return a readable NumberingType enum name (e.g. 'ROMAN_UPPER', 'ARABIC')."""
     if isinstance(num_type, int):
-        if num_type in _PAGE_NUMBER_NUMBERING_TYPE_NAMES:
-            return _PAGE_NUMBER_NUMBERING_TYPE_NAMES[num_type]
+        if num_type in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
+            return format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES[num_type]
     elif isinstance(num_type, str):
         u = num_type.strip().upper()
-        if u in _PAGE_NUMBER_NUMBERING_TYPE_NAMES.values():
+        if u in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
             return u
-        if u.isdigit() and int(u) in _PAGE_NUMBER_NUMBERING_TYPE_NAMES:
-            return _PAGE_NUMBER_NUMBERING_TYPE_NAMES[int(u)]
+        if u.isdigit() and int(u) in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
+            return format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES[int(u)]
     log.warning("Unknown PageNumber NumberingType: %r, defaulting to ARABIC", num_type)
     return "ARABIC"
 

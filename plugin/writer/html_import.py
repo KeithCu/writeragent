@@ -1369,40 +1369,6 @@ _PAGE_NUMBER_SUBTYPE_VALS: dict[str, str] = {
     "2": "NEXT",
 }
 
-_PAGE_NUMBER_NUMBERING_TYPE_VALS: dict[str, int] = {
-    "CHARS_UPPER_LETTER": 0,
-    "CHARS_LOWER_LETTER": 1,
-    "ROMAN_UPPER": 2,
-    "ROMAN_LOWER": 3,
-    "ARABIC": 4,
-    "NUMBER_NONE": 5,
-    "CHAR_SPECIAL": 6,
-    "PAGE_DESCRIPTOR": 7,
-    "BITMAP": 8,
-    "CHARS_UPPER_LETTER_N": 9,
-    "CHARS_LOWER_LETTER_N": 10,
-    "TRANSLITERATION": 11,
-    "NATIVE_NUMBERING": 12,
-    "FULLWIDTH_ARABIC": 13,
-    "CIRCLE_NUMBER": 14,
-    "ARABIC_ZERO": 64,
-}
-
-_PAGE_NUMBER_NUMBERING_TYPE_INT_TO_NAME: dict[int, str] = {
-    v: k for k, v in _PAGE_NUMBER_NUMBERING_TYPE_VALS.items()
-}
-
-try:
-    from com.sun.star.style import NumberingType as _NumberingType  # type: ignore
-    for _attr in dir(_NumberingType):
-        if not _attr.startswith("_"):
-            _val = getattr(_NumberingType, _attr, None)
-            if isinstance(_val, int):
-                _PAGE_NUMBER_NUMBERING_TYPE_VALS[_attr] = _val
-                _PAGE_NUMBER_NUMBERING_TYPE_INT_TO_NAME.setdefault(_val, _attr)
-except Exception:
-    pass
-
 
 def rewrite_exported_field_spans(html: str) -> str:
     """Replace XHTML field spans with placeholders the HTML import will keep."""
@@ -1434,10 +1400,10 @@ def rewrite_exported_field_spans(html: str) -> str:
                     log.debug("rewrite_exported_field_spans offset parse error: %s", e)
             if num_m:
                 nt_raw = num_m.group(1).strip().upper()
-                if nt_raw in _PAGE_NUMBER_NUMBERING_TYPE_VALS:
+                if nt_raw in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
                     nt_name = nt_raw
-                elif nt_raw.isdigit() and int(nt_raw) in _PAGE_NUMBER_NUMBERING_TYPE_INT_TO_NAME:
-                    nt_name = _PAGE_NUMBER_NUMBERING_TYPE_INT_TO_NAME[int(nt_raw)]
+                elif nt_raw.isdigit() and int(nt_raw) in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
+                    nt_name = format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES[int(nt_raw)]
                 else:
                     log.warning("Unknown PageNumber NumberingType attribute %r, defaulting to ARABIC", num_m.group(1))
                     nt_name = "ARABIC"
@@ -1483,9 +1449,9 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
             log.debug("_insert_restored_field failed to set Offset: %s", e)
         try:
             num_type_str = props.get("numbering_type", "ARABIC").strip().upper()
-            if num_type_str in _PAGE_NUMBER_NUMBERING_TYPE_VALS:
-                nt_val = _PAGE_NUMBER_NUMBERING_TYPE_VALS[num_type_str]
-            elif num_type_str.isdigit() and int(num_type_str) in _PAGE_NUMBER_NUMBERING_TYPE_INT_TO_NAME:
+            if num_type_str in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
+                nt_val = format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS[num_type_str]
+            elif num_type_str.isdigit() and int(num_type_str) in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
                 nt_val = int(num_type_str)
             else:
                 log.warning("Unknown PageNumber NumberingType: %r, defaulting to ARABIC", props.get("numbering_type"))

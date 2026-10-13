@@ -90,6 +90,31 @@ XHTML_EXTENSION = ".xhtml"
 FLAT_ODF_FILTER = "OpenDocument Text Flat XML"
 FODT_EXTENSION = ".fodt"
 
+# NumberingType mapping for PageNumber text fields preserved across HTML/XHTML round-trips.
+# Corresponds to com.sun.star.style.NumberingType constants.
+PAGE_NUMBER_NUMBERING_TYPE_NAMES: dict[int, str] = {
+    0: "CHARS_UPPER_LETTER",
+    1: "CHARS_LOWER_LETTER",
+    2: "ROMAN_UPPER",
+    3: "ROMAN_LOWER",
+    4: "ARABIC",
+    5: "NUMBER_NONE",
+    6: "CHAR_SPECIAL",
+    7: "PAGE_DESCRIPTOR",
+    8: "BITMAP",
+    9: "CHARS_UPPER_LETTER_N",
+    10: "CHARS_LOWER_LETTER_N",
+    11: "TRANSLITERATION",
+    12: "NATIVE_NUMBERING",
+    13: "FULLWIDTH_ARABIC",
+    14: "CIRCLE_NUMBER",
+    64: "ARABIC_ZERO",
+}
+
+PAGE_NUMBER_NUMBERING_TYPE_VALS: dict[str, int] = {
+    name: val for val, name in PAGE_NUMBER_NUMBERING_TYPE_NAMES.items()
+}
+
 # System temp directory (cross-platform). Under CrossHair, gettempdir() probes
 # candidate dirs with open() and trips auditwall SideEffectDetected on import —
 # honor tempfile's env vars (and a cwd fallback) without that probe.
