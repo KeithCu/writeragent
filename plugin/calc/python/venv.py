@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""LLM tool: run Python in the user-configured venv (see plugin/scripting/venv_worker.py)."""
+"""LLM tool: run Python in the user-configured venv for Writer, Calc, and Draw (see plugin/scripting/venv_worker.py)."""
 
 from __future__ import annotations
 
@@ -26,56 +26,22 @@ log = logging.getLogger(__name__)
 
 _ALL_VENV_DOCS = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
-_DATA_RANGE_DESCRIPTION = "Optional A1 range(s) injected as CalcRange: one address → `data` is that range and `ranges == [data]`; two or more → `data` is the same list as `ranges`. Pass one address string, a comma/semicolon-separated string (e.g. 'A1:A10, C1:C10'), or an array of address strings."
+_RESULT_NOTE = "Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar)."
+_CODE_PROP = {
+    "type": "string",
+    "description": f"Python / Numpy source. {_RESULT_NOTE}",
+}
+_DATA_RANGE_DESCRIPTION = (
+    "Optional A1 range(s) injected as CalcRange: one address → `data` is that range and `ranges == [data]`; "
+    "two or more → `data` is the same list as `ranges`. Pass one address string, a comma/semicolon-separated string "
+    "(e.g. 'A1:A10, C1:C10'), or an array of address strings."
+)
 _DATA_RANGE_SCHEMA = {
     "description": _DATA_RANGE_DESCRIPTION,
     # Single type: Gemini function calling rejects oneOf. Execute still
     # accepts a list of addresses if a model sends one.
     "type": "string",
 }
-
-_PARAMETERS_CALC = {
-    "type": "object",
-    "properties": {
-        "code": {"type": "string", "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar)."},
-        "data_range": _DATA_RANGE_SCHEMA,
-        "data": {"type": "array", "items": {"type": "array", "items": {}}, "description": "Optional 2D array of cell values as `data` (use data_range for bulk data; the host resolves addresses without putting values in the LLM context)."},
-    },
-    "required": ["code"],
-}
-
-_PARAMETERS_NON_CALC = {"type": "object", "properties": {"code": {"type": "string", "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar)."}}, "required": ["code"]}
-
-# Superset advertised when the target app is unknown (e.g. MCP discovery with no document
-# open), so a caller heading for Calc still sees data_range. data_range/data are Calc-only.
-_PARAMETERS_NEUTRAL = {
-    "type": "object",
-    "properties": {
-        "code": {"type": "string", "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar)."},
-        "data_range": {**_DATA_RANGE_SCHEMA, "description": "(Calc only) " + _DATA_RANGE_DESCRIPTION},
-        "data": {"type": "array", "items": {"type": "array", "items": {}}, "description": "(Calc only) Optional 2D array of cell values as `data` (prefer data_range for bulk data)."},
-    },
-    "required": ["code"],
-}
-
-_DESCRIPTION_CALC = (
-    "Run Python code. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). "
-    "Optional data_range (one A1 address, comma-separated addresses, or an array) injects "
-    "`data` / `ranges` (one address → `data` is that CalcRange; several → `data` is the `ranges` list). "
-    "The host reads ranges on the main thread and sends shaped data over the efficient IPC path. "
-    "For anything beyond tiny grids, use data_range (address) rather than passing values in the data parameter."
-)
-
-_DESCRIPTION_WRITER = "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). Use document tools to read or change the file; this tool does not inject spreadsheet `data`."
-
-_DESCRIPTION_DRAW = "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). Use document tools to read or change the slide/page; this tool does not inject spreadsheet `data`."
-
-# Used when the target app is unknown (e.g. discovery with no document open): covers both
-# the Calc data_range path and the Writer/Draw no-injection path, to match the superset schema.
-_DESCRIPTION_NEUTRAL = (
-    "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). In Calc, optional data_range injects `data` / `ranges` from one or more A1 addresses; "
-    "in Writer or Draw/Impress use document tools to read or change content (no spreadsheet `data` injection)."
-)
 
 _IMPORT_NOTE_MARKER = "Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). "
 
@@ -97,18 +63,51 @@ def _with_import_note(text: str) -> str:
     return text
 
 
-def _venv_tool_description(doc_type: str | None) -> str:
+def _venv_schema_and_description(doc_type: str | None) -> tuple[str, dict[str, Any]]:
+    """Build the description and JSON parameter schema for the given document type."""
+    props: dict[str, Any] = {"code": dict(_CODE_PROP)}
     if doc_type == "calc":
-        base = _DESCRIPTION_CALC
+        props["data_range"] = dict(_DATA_RANGE_SCHEMA)
+        props["data"] = {
+            "type": "array",
+            "items": {"type": "array", "items": {}},
+            "description": "Optional 2D array of cell values as `data` (use data_range for bulk data; the host resolves addresses without putting values in the LLM context).",
+        }
+        base_desc = (
+            f"Run Python code. {_RESULT_NOTE} "
+            "Optional data_range (one A1 address, comma-separated addresses, or an array) injects "
+            "`data` / `ranges` (one address → `data` is that CalcRange; several → `data` is the `ranges` list). "
+            "The host reads ranges on the main thread and sends shaped data over the efficient IPC path. "
+            "For anything beyond tiny grids, use data_range (address) rather than passing values in the data parameter."
+        )
     elif doc_type in ("draw", "impress"):
-        base = _DESCRIPTION_DRAW
+        base_desc = (
+            f"Run Python code in the configured venv. {_RESULT_NOTE} "
+            "Use document tools to read or change the slide/page; this tool does not inject spreadsheet `data`."
+        )
     elif doc_type is None:
-        base = _DESCRIPTION_NEUTRAL
+        props["data_range"] = {**_DATA_RANGE_SCHEMA, "description": "(Calc only) " + _DATA_RANGE_DESCRIPTION}
+        props["data"] = {
+            "type": "array",
+            "items": {"type": "array", "items": {}},
+            "description": "(Calc only) Optional 2D array of cell values as `data` (prefer data_range for bulk data).",
+        }
+        base_desc = (
+            f"Run Python code in the configured venv. {_RESULT_NOTE} "
+            "In Calc, optional data_range injects `data` / `ranges` from one or more A1 addresses; "
+            "in Writer or Draw/Impress use document tools to read or change content (no spreadsheet `data` injection)."
+        )
     else:
-        base = _DESCRIPTION_WRITER
+        base_desc = (
+            f"Run Python code in the configured venv. {_RESULT_NOTE} "
+            "Use document tools to read or change the file; this tool does not inject spreadsheet `data`."
+        )
+
     hint = format_matplotlib_plot_hint(doc_type=doc_type)
-    text = f"{base} {hint}" if hint else base
-    return _with_import_note(text)
+    text = f"{base_desc} {hint}" if hint else base_desc
+    desc = _with_import_note(text)
+    params = {"type": "object", "properties": props, "required": ["code"]}
+    return desc, params
 
 
 def _strip_image_payloads(obj: Any) -> Any:
@@ -134,27 +133,24 @@ def _strip_image_payloads(obj: Any) -> Any:
     return obj
 
 
+_CALC_DESC, _CALC_PARAMS = _venv_schema_and_description("calc")
+
+
 class RunVenvPythonScript(ToolCalcPythonBase):
     """Registered once; visible in Writer/Calc/Draw specialized ``domain=python`` via ``specialized_cross_cutting``."""
 
     name: str | None = "run_venv_python_script"
     specialized_cross_cutting: ClassVar[bool] = True
-    description: str = _DESCRIPTION_CALC
-    parameters: dict[str, Any] | None = _PARAMETERS_CALC
+    description: str = _CALC_DESC
+    parameters: dict[str, Any] | None = _CALC_PARAMS
     uno_services: list[str] | None = list(_ALL_VENV_DOCS)
     long_running: bool = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
-        if doc_type == "calc":
-            return _PARAMETERS_CALC
-        if doc_type is None:
-            # App unknown (e.g. discovery with no document) -> advertise the superset so a
-            # caller targeting Calc still sees data_range (marked Calc-only).
-            return _PARAMETERS_NEUTRAL
-        return _PARAMETERS_NON_CALC
+        return _venv_schema_and_description(doc_type)[1]
 
     def get_description(self, doc_type: str | None = None) -> str:
-        return _venv_tool_description(doc_type)
+        return _venv_schema_and_description(doc_type)[0]
 
     def is_async(self) -> bool:
         return True

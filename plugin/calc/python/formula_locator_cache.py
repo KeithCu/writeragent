@@ -284,7 +284,7 @@ def locate_formula_cell(ctx: Any, sheet: Any, code_str: str) -> tuple[int, int] 
                 if found_sheet == sheet or (hasattr(found_sheet, "getName") and hasattr(sheet, "getName") and found_sheet.getName() == sheet.getName()):
                     return (r, c)
     except Exception:
-        pass
+        log.debug("locate_formula_cell failed", exc_info=True)
 
     # Fallback to direct sheet search
     res = search_sheet_for_formula(sheet, code_str)

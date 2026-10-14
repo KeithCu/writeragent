@@ -69,23 +69,20 @@ def test_save_as_reuses_listener():
     second = ensure_sheet_modify_listener("ctx", doc, sheet)
     assert first is second
     assert len(sheet._modify_listeners) == 1
-    assert second.doc_url == "file:///saved.ods"
+    assert second.doc_key == "file:///saved.ods"
     assert SHEET_MODIFY_LISTENERS[("uid-saveas", "Sheet1")] is first
 
 
-def test_url_keyed_listener_is_reused_after_identity_change():
+def test_url_keyed_listener_is_ignored_after_identity_change():
     doc = CalcDocStub(url="file:///new.ods", props={"RuntimeUID": "uid-migrate"})
     sheet = doc.getSheets().getByName("Sheet1")
     stale = SheetModifyDispatcher("ctx", doc, "file:///old.ods", "Sheet1", "file:///old.ods")
     sheet.addModifyListener(stale)
     SHEET_MODIFY_LISTENERS[("file:///old.ods", "Sheet1")] = stale
     got = ensure_sheet_modify_listener("ctx", doc, sheet)
-    assert got is stale
-    assert len(sheet._modify_listeners) == 1
-    assert got.doc_url == "file:///new.ods"
+    assert got is not stale
     assert got.doc_identity == "uid-migrate"
-    assert ("file:///old.ods", "Sheet1") not in SHEET_MODIFY_LISTENERS
-    assert SHEET_MODIFY_LISTENERS[("uid-migrate", "Sheet1")] is stale
+    assert ("uid-migrate", "Sheet1") in SHEET_MODIFY_LISTENERS
 
 
 def test_modify_uses_owning_document_not_active(monkeypatch):

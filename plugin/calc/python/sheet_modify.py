@@ -89,7 +89,7 @@ def _owning_calc_doc(sheet: Any) -> Any | None:
     """
     current = sheet
     for _hop in range(4):
-        if current is None or type(current).__name__ == "MagicMock":
+        if current is None:
             return None
         supports = getattr(current, "supportsService", None)
         if callable(supports):
@@ -97,7 +97,7 @@ def _owning_calc_doc(sheet: Any) -> Any | None:
                 result = supports("com.sun.star.sheet.SpreadsheetDocument")
             except Exception:
                 result = False
-            if type(result).__name__ != "MagicMock" and bool(result):
+            if result is True:
                 return current
         parent = getattr(current, "getParent", None)
         if not callable(parent):
@@ -152,7 +152,15 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
         return
     url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
-    identity = _doc_identity(doc) or url
+    lifecycle_key = ""
+    if doc is not None:
+        try:
+            from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+
+            lifecycle_key = str(_lifecycle_key(doc) or "")
+        except Exception:
+            log.debug("sheet_modify: lifecycle key failed", exc_info=True)
+    identity = lifecycle_key or url
     key = _sheet_key(identity, name)
     _cancel_pending(key)
 
@@ -166,14 +174,6 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
 
         post_to_main_thread(lambda: run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=name))
 
-    lifecycle_key = ""
-    if doc is not None:
-        try:
-            from plugin.calc.python.workbook_lifecycle import _lifecycle_key
-
-            lifecycle_key = _lifecycle_key(doc)
-        except Exception:
-            log.debug("sheet_modify: lifecycle key failed", exc_info=True)
     from plugin.calc.python.function import start_deferred_sheet_timer
 
     # Timer lives in function.py (Layer C allowlist) — same 0.1s spill site.
@@ -331,7 +331,7 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
 
 def dispatch_sheet_modified(
     ctx: Any,
-    doc_url: str,
+    doc_key: str,
     sheet_name: str,
     event: Any,
     doc: Any = None,
@@ -364,23 +364,7 @@ def dispatch_sheet_modified(
         migrate_sheet_rename(owner, sheet_name, live, dispatcher=dispatcher)
         effective_name = live
     live_url = _doc_url_of(owner) if owner is not None else ""
-    schedule_sheet_modify_pass(ctx, owner, sheet, doc_url=live_url or doc_url, sheet_name=effective_name)
-
-
-def _dispatcher_on_sheet(sheet: Any) -> "SheetModifyDispatcher | None":
-    """Listener already attached, when the sheet exposes its listener list.
-
-    Real UNO does not enumerate modify listeners. The lifecycle-id map is the
-    dedupe for a live document; this covers stubs and a URL-keyed entry that
-    Save-As would otherwise miss.
-    """
-    listeners = getattr(sheet, "_modify_listeners", None)
-    if not isinstance(listeners, list):
-        return None
-    for listener in listeners:
-        if isinstance(listener, SheetModifyDispatcher):
-            return listener
-    return None
+    schedule_sheet_modify_pass(ctx, owner, sheet, doc_url=live_url or doc_key, sheet_name=effective_name)
 
 
 def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
@@ -394,33 +378,11 @@ def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
     from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
 
     existing = SHEET_MODIFY_LISTENERS.get(key)
-    if existing is None and url and url != identity:
-        # A listener stored under the file URL (pre-identity key, or the URL
-        # before Save-As) is the same sheet. Reusing it avoids a second
-        # addModifyListener and drops the stale key.
-        candidate = SHEET_MODIFY_LISTENERS.get((url, name))
-        if isinstance(candidate, SheetModifyDispatcher):
-            existing = SHEET_MODIFY_LISTENERS.pop((url, name), None)
-    if existing is None:
-        # Save-As changes a URL key. Match the same document object or the
-        # same lifecycle id so the sheet keeps the listener it already has.
-        for skey, listener in list(SHEET_MODIFY_LISTENERS.items()):
-            if not isinstance(listener, SheetModifyDispatcher):
-                continue
-            same_sheet = getattr(listener, "sheet_name", None) == name
-            same_doc = listener.doc is doc or getattr(listener, "doc_identity", None) == identity
-            if same_sheet and same_doc:
-                SHEET_MODIFY_LISTENERS.pop(skey, None)
-                existing = listener
-                break
-    if existing is None:
-        existing = _dispatcher_on_sheet(sheet)
     if existing is not None:
         existing.doc = doc
         existing.doc_identity = identity
         if url:
-            existing.doc_url = url
-        SHEET_MODIFY_LISTENERS[key] = existing
+            existing.doc_key = url
         return existing
     listener = SheetModifyDispatcher(ctx, doc, url, name, identity)
     try:
@@ -437,20 +399,20 @@ class SheetModifyDispatcher(unohelper.Base, XModifyListener):
 
     ctx: Any
     doc: Any
-    doc_url: str
+    doc_key: str
     sheet_name: str
     doc_identity: str
 
-    def __init__(self, ctx: Any, doc: Any, doc_url: str, sheet_name: str, doc_identity: str) -> None:
+    def __init__(self, ctx: Any, doc: Any, doc_key: str, sheet_name: str, doc_identity: str) -> None:
         self.ctx = ctx
         self.doc = doc
-        self.doc_url = doc_url
+        self.doc_key = doc_key
         self.sheet_name = sheet_name
         self.doc_identity = doc_identity
 
     def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
         try:
-            dispatch_sheet_modified(self.ctx, self.doc_url, self.sheet_name, aEvent, doc=self.doc, dispatcher=self)
+            dispatch_sheet_modified(self.ctx, self.doc_key, self.sheet_name, aEvent, doc=self.doc, dispatcher=self)
         except Exception:
             log.exception("Error in SheetModifyDispatcher.modified")
 
@@ -458,13 +420,13 @@ class SheetModifyDispatcher(unohelper.Base, XModifyListener):
         from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
 
         SHEET_MODIFY_LISTENERS.pop((self.doc_identity, self.sheet_name), None)
-        if self.doc_url and self.doc_url != self.doc_identity:
-            SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
+        if self.doc_key and self.doc_key != self.doc_identity:
+            SHEET_MODIFY_LISTENERS.pop((self.doc_key, self.sheet_name), None)
         # Ensure any key in SHEET_MODIFY_LISTENERS pointing to self is removed
         for k, v in list(SHEET_MODIFY_LISTENERS.items()):
             if v is self:
                 SHEET_MODIFY_LISTENERS.pop(k, None)
                 _cancel_pending(k)
         _cancel_pending((self.doc_identity, self.sheet_name))
-        if self.doc_url and self.doc_url != self.doc_identity:
-            _cancel_pending((self.doc_url, self.sheet_name))
+        if self.doc_key and self.doc_key != self.doc_identity:
+            _cancel_pending((self.doc_key, self.sheet_name))

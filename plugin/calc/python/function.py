@@ -458,12 +458,12 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
     """
 
     ctx: Any
-    doc_url: str
+    doc_key: str
     sheet_name: str
 
-    def __init__(self, ctx: Any, doc_url: str, sheet_name: str) -> None:
+    def __init__(self, ctx: Any, doc_key: str, sheet_name: str) -> None:
         self.ctx = ctx
-        self.doc_url = doc_url
+        self.doc_key = doc_key
         self.sheet_name = sheet_name
 
     def modified(self, aEvent: Any) -> None:
@@ -496,12 +496,12 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
             with _undo_lock(doc):
                 to_remove = []
                 for key, value in list(SPILL_REGISTRY.items()):
-                    doc_url, sheet_name, frow, fcol = key
+                    reg_doc_key, sheet_name, frow, fcol = key
                     # Callers pass the file URL or the lifecycle id. An empty
                     # string is not an identity: it matches every unsaved
                     # workbook, so a modify on one untitled book cleared the
                     # other's spill cells when the sheet names matched.
-                    if self.doc_url and doc_url == self.doc_url and sheet_name == self.sheet_name:
+                    if self.doc_key and reg_doc_key == self.doc_key and sheet_name == self.sheet_name:
                         try:
                             cell = sheet.getCellByPosition(fcol, frow)
                             formula = cell.getFormula()
@@ -527,7 +527,7 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
             log.exception("Error in CalcSpillModifyListener.modified")
 
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
+        SHEET_MODIFY_LISTENERS.pop((self.doc_key, self.sheet_name), None)
 
 
 def _spill_registry_doc_key(doc: Any) -> str:

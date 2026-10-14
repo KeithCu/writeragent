@@ -464,3 +464,41 @@ def test_follow_python_alias_empty_data_keeps_formula():
     assert formula_cell.getFormula() == "=PYTHON($A$1)"
     assert formula_cell.getFormula().count(")") == 1
 
+
+def test_get_active_calc_cell_uses_selection_sheet_index():
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from plugin.calc.python.editor import _get_active_calc_cell
+
+    sheet0 = CalcSheetStub("Sheet1")
+    sheet1 = CalcSheetStub("Sheet2")
+    sheet1.getCellByPosition(0, 0).setFormula('=PY("result = 2")')
+
+    doc = CalcDocStub(sheets=[sheet0, sheet1], active_sheet=sheet0)
+
+    ctrl = MagicMock()
+    ctrl.getActiveSheet.return_value = sheet0
+    ctrl.getModel.return_value = doc
+
+    sel = MagicMock()
+    sel.getRangeAddress.return_value = SimpleNamespace(
+        Sheet=1, StartColumn=0, StartRow=0, EndColumn=0, EndRow=0
+    )
+    ctrl.getSelection.return_value = sel
+    doc.getCurrentController = lambda: ctrl
+
+    ctx = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = doc
+    desktop.getCurrentFrame.return_value.getController.return_value.getModel.return_value = doc
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = desktop
+    ctx.ServiceManager = smgr
+
+    res = _get_active_calc_cell(ctx)
+    assert res is not None
+    model, cell, formula = res
+    assert formula == '=PY("result = 2")'
+    assert cell._sheet is sheet1
+
+

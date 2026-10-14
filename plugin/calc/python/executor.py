@@ -53,9 +53,8 @@ _JSON_RESULT_TYPES = (str, int, float, bool, list, dict)
 def _is_spreadsheet(doc: Any) -> bool:
     """True when *doc* is a Calc model.
 
-    An unconfigured MagicMock's ``supportsService`` returns another mock.
-    Treat that as Calc so existing tool tests keep the helpers. A real
-    Writer document returns False for the spreadsheet service.
+    Non-bool supportsService returns False (unconfigured mocks do not count
+    silently as spreadsheets).
     """
     supports = getattr(doc, "supportsService", None)
     if not callable(supports):
@@ -65,19 +64,17 @@ def _is_spreadsheet(doc: Any) -> bool:
     except Exception:
         log.debug("spreadsheet service check failed", exc_info=True)
         return False
-    if type(result).__name__ == "MagicMock":
-        return True
-    return bool(result)
+    if not isinstance(result, bool):
+        return False
+    return result
 
 
 class PythonExecutor:
     """Runs Python in LO's embedded interpreter with document helpers (stdlib-only imports)."""
 
-    doc_url: str
     executor: LocalPythonExecutor
 
-    def __init__(self, doc_url: str) -> None:
-        self.doc_url = doc_url
+    def __init__(self) -> None:
         self.executor = LocalPythonExecutor(additional_authorized_imports=list(CALC_AUTHORIZED_IMPORTS))
 
     def inject_helpers(self, bridge: CalcBridge, manipulator: CellManipulator, inspector: CellInspector, *, spreadsheet: bool = True) -> None:
@@ -203,11 +200,10 @@ class ExecutePythonScript(ToolBaseDummy):
         data_range = kwargs.get("data_range")
         target_range = kwargs.get("target_range")
 
-        doc_url = ctx.doc.getURL() or "untitled"
         spreadsheet = _is_spreadsheet(ctx.doc)
         if not spreadsheet and (data_range or target_range):
             raise WriterAgentException(_CALC_HELPER_ERROR, code="UNSUPPORTED_OPERATION")
-        executor = PythonExecutor(doc_url)
+        executor = PythonExecutor()
 
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
