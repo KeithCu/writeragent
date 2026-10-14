@@ -294,7 +294,7 @@ class NativePythonCellEditorDialog:
             dlg.setVisible(True)
             return True
         except Exception as exc:
-            from plugin.scripting.editor_ipc import exception_traceback
+            from plugin.scripting.editor_errors import exception_traceback
 
             log.exception("NativePythonCellEditorDialog._open failed")
             self._open_failure_detail = exception_traceback(exc)

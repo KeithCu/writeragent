@@ -1051,7 +1051,8 @@ flowchart LR
 | File | Role |
 |------|------|
 | [`plugin/scripting/editor_host.py`](../../plugin/scripting/editor_host.py) | Spawn pywebview child, session, theme |
-| [`plugin/scripting/editor_ipc.py`](../../plugin/scripting/editor_ipc.py) | Pipe framing, errors |
+| [`plugin/scripting/editor_ipc.py`](../../plugin/scripting/editor_ipc.py) | Pipe framing and session identity |
+| [`plugin/scripting/editor_errors.py`](../../plugin/scripting/editor_errors.py) | Msgbox failure text |
 | [`plugin/calc/python/editor.py`](../../plugin/calc/python/editor.py) | Edit Python in Cell… |
 | [`plugin/calc/python/xl_static_rewrite.py`](../../plugin/calc/python/xl_static_rewrite.py) | Optional save-time `xl("A1")` → `data` args (flag default off) |
 | [`plugin/calc/python/formula_edit.py`](../../plugin/calc/python/formula_edit.py) | Parse/rebuild `=PY()` formulas |

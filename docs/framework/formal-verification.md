@@ -510,7 +510,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 29. **`plugin/scripting/duckdb_sql.py`** — `get_sql_script_templates`, `parse_sql_script_header` ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py))
 30. **`plugin/scripting/sandbox_cache.py`** — `validate_sandbox_ast` ([`tests/scripting/test_scripting_ast_verification.py`](../../tests/scripting/test_scripting_ast_verification.py))
 31. **`plugin/scripting/trusted_rpc.py`** — `parse_worker_dict_result` ([`tests/scripting/test_trusted_rpc.py`](../../tests/scripting/test_trusted_rpc.py))
-32. **`plugin/scripting/editor_ipc.py`** — `failure_detail`, `failure_message` ([`tests/scripting/test_scripting_high_value_verification.py`](../../tests/scripting/test_scripting_high_value_verification.py))
+32. **`plugin/scripting/editor_errors.py`** — `failure_detail`, `failure_message` ([`tests/scripting/test_scripting_high_value_verification.py`](../../tests/scripting/test_scripting_high_value_verification.py))
 33. **`plugin/scripting/excel_xl.py`** — `make_xl` ([`tests/scripting/test_scripting_high_value_verification.py`](../../tests/scripting/test_scripting_high_value_verification.py))
 34. **`plugin/calc/formula_dep_chain.py`** — `_resolve_sheet_and_cell` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
 35. **`plugin/calc/sheet_filter_criteria.py`** — `filter_connection_code`, `resolve_filter_operator_code`, `parse_sheet_filter_criterion` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))

@@ -14,7 +14,7 @@ from plugin.framework.config import get_config
 from plugin.framework.i18n import _
 from plugin.scripting.document_scripts import get_calc_document_from_ctx, get_calc_init_script, set_calc_init_script
 from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available, probe_webview_import, resolve_editor_python
-from plugin.scripting.editor_ipc import failure_message
+from plugin.scripting.editor_errors import failure_message
 from plugin.scripting.session_manager import reset_workbook_python_session
 
 log = logging.getLogger(__name__)

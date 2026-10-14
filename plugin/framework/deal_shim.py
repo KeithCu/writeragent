@@ -234,8 +234,13 @@ def inverse_ensure_for(*, crosshair: bool) -> Any:
     return deal.ensure
 
 
-def _profile(crosshair_fn: Any, pytest_fn: Any = lambda *args, **kwargs: True) -> Any:  # pyright: ignore[reportUnusedFunction]  # imported by payload_codec and calc_range
+def _profile(crosshair_fn: Any, pytest_fn: Any = lambda *args, **kwargs: True) -> Any:  # pyright: ignore[reportUnusedFunction]  # imported by payload_codec, calc_range, editor_errors, editor_ipc
     """Pick the contract predicate once at import.
+
+    First argument is the CrossHair predicate, second is the pytest predicate.
+    Do not add another ``_profile`` with those two arguments reversed: the
+    same name then selects the tiny domain under pytest, or the wide domain
+    under CrossHair, and the other profile's tests still pass.
 
     Do not branch on ``UNDER_CROSSHAIR`` inside ``@deal.pre``; CrossHair would
     explore both arms. ``pytest_fn`` defaults to always-true when only the
