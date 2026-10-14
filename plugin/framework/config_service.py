@@ -17,10 +17,10 @@ from plugin.framework.deal_shim import deal
 
 from plugin.framework.service import ServiceBase
 from plugin.framework.event_bus import global_event_bus
-from plugin.framework.errors import ConfigError, ConfigValidationError
+from plugin.framework.errors import ConfigError
 
-from plugin.framework.config import get_config, set_config, remove_config, get_config_dict, get_current_endpoint, set_api_key_for_endpoint, parse_config_json_text, _config_store, AI_SIMPLE_FIELDS
-from plugin.framework.config_schema import get_manifest_modules
+from plugin.framework.config import get_config, set_config, remove_config, get_config_dict, get_current_endpoint, set_api_key_for_endpoint, parse_config_json_text, _config_store, AI_SIMPLE_FIELDS, _normalize_configured_endpoint_with_selector
+from plugin.framework.config_schema import get_manifest_modules, as_bool
 
 # get_stt_model / set_image_model / set_text_model stay inside the ai.* branches.
 # Importing them here pulls model_fetcher whenever ConfigService is imported.
@@ -211,7 +211,6 @@ class ConfigService(ServiceBase):
     def set(self, key: str, value: Any, caller_module: str | None = None) -> None:
         """Set a config value."""
         self._check_write_access(key, caller_module)
-        old_value = self.get(key)
 
         # Simple mapping: ai.<field> keys from the AI Options page should write
         # into the corresponding top-level settings (endpoint, model, etc.).
@@ -227,14 +226,8 @@ class ConfigService(ServiceBase):
 
             if field in AI_SIMPLE_FIELDS:
                 if field == "endpoint":
-                    from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
-
-                    # str(None) is the literal "None". That is not an endpoint,
-                    # and set_config would store it. An empty string fails below.
                     endpoint_text = "" if value is None else str(value)
-                    resolved = endpoint_from_selector_text(endpoint_text)
-                    # An empty resolve is a failure. Returning without writing
-                    # looks like success to the caller.
+                    resolved = _normalize_configured_endpoint_with_selector(endpoint_text, as_bool(get_config("is_openwebui")))
                     if not resolved:
                         raise ConfigError("Endpoint text did not resolve to a URL", "CONFIG_INVALID_ENDPOINT", details={"value": value})
                     set_config("endpoint", resolved, event_key=key)
@@ -260,21 +253,19 @@ class ConfigService(ServiceBase):
         # this method emits the one event below (old_value is the manifest
         # default, not the store's missing-key None).
         if self._config_path:
+            # The production read existed to heal via GET before the write,
+            # and the test bus is now the only caller that needs the pre-write value.
+            old_value = self.get(key)
 
             def _replace(_current: Any) -> Any:
                 return value
 
-            try:
-                changed = _config_store.apply(
-                    self._config_path,
-                    [(key, _replace)],
-                    emit=False,
-                    fail_on_unrepairable=False,
-                )
-            except ConfigValidationError:
-                raise
-            except ConfigError:
-                raise
+            changed = _config_store.apply(
+                self._config_path,
+                [(key, _replace)],
+                emit=False,
+                fail_on_unrepairable=False,
+            )
 
             if changed:
                 bus = self._events or global_event_bus

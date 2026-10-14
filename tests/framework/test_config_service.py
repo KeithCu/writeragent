@@ -295,6 +295,22 @@ def test_set_ai_endpoint_none_is_not_stored(config_svc) -> None:
     mock_set.assert_not_called()
 
 
+def test_set_ai_endpoint_without_config_ui_helpers(config_svc, config_dir) -> None:
+    import sys
+    from unittest.mock import patch
+    from plugin.framework.config import get_config, reset_config_for_tests
+    from plugin.framework.url_utils import normalize_endpoint_url
+
+    config_path = str(config_dir / "writeragent.json")
+    with (
+        patch.dict(sys.modules, {"plugin.chatbot.config_ui_helpers": None}),
+        patch("plugin.framework.config._config_path", return_value=config_path),
+    ):
+        reset_config_for_tests()
+        config_svc.set("ai.endpoint", "http://example.test/")
+        assert get_config("endpoint") == normalize_endpoint_url("http://example.test/", is_openwebui=False)
+
+
 def test_bootstrap_loads_public_config_flags(monkeypatch) -> None:
     """Production bootstrap must call ConfigService.initialize.
 

@@ -80,7 +80,9 @@ import shutil
 import tempfile
 import threading
 import time
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, TypeVar
+
+_T = TypeVar("_T", int, float)
 
 from plugin.framework.errors import ConfigError, ConfigValidationError, safe_call
 from plugin.framework.event_bus import global_event_bus
@@ -417,16 +419,7 @@ def _load_config_dict(config_file_path: str, *, allow_repair: bool = False, pers
 
 def is_grammar_enabled() -> bool:
     """True if the grammar checker is enabled on the Doc tab (LLM, LanguageTool, Vale, or Harper)."""
-    from plugin.framework.uno_context import is_libreharper
-
-    if is_libreharper():
-        return True
-
-    val = get_config("doc.grammar_proofreader_enabled")
-    if isinstance(val, bool):
-        return val  # Handle old boolean config
-    val_str = str(val).strip().lower()
-    return val_str in ("llm", "languagetool", "vale", "harper", "true")
+    return get_grammar_provider() != "off"
 
 
 def get_grammar_provider() -> str:
@@ -542,9 +535,7 @@ def get_config(key: str) -> Any:
     return _copy_config_value(_config_schema._resolve_default(key))
 
 
-def get_config_int(key: str) -> int:
-    """Get a config value as int. All requested keys MUST be in the schema (WriterAgentConfig or MODULES).
-    Throws ConfigError if the key is missing or invalid (use get_config_int_safe to return a default instead)."""
+def _required_number(key: str, parse: Callable[[Any], _T], kind: str) -> _T:
     v = get_config(key)
     # Empty string or None from JSON/UI: use schema default (same as missing key).
     if v == "" or v is None:
@@ -553,9 +544,15 @@ def get_config_int(key: str) -> int:
     if v == "":
         raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", "CONFIG_KEY_NOT_FOUND", details={"key": key})
     try:
-        return _config_schema.parse_int_robust(v)
+        return parse(v)
     except ValueError as e:
-        raise ConfigError(f"Config key {key!r} has non-integer value: {v!r}", "CONFIG_TYPE_ERROR") from e
+        raise ConfigError(f"Config key {key!r} has non-{kind} value: {v!r}", "CONFIG_TYPE_ERROR") from e
+
+
+def get_config_int(key: str) -> int:
+    """Get a config value as int. All requested keys MUST be in the schema (WriterAgentConfig or MODULES).
+    Throws ConfigError if the key is missing or invalid (use get_config_int_safe to return a default instead)."""
+    return _required_number(key, _config_schema.parse_int_robust, "integer")
 
 
 def get_config_str(key: str) -> str:
@@ -605,15 +602,7 @@ def get_config_int_safe(key: str) -> int:
 def get_config_float(key: str) -> float:
     """Get a config value as float. ALL requested keys MUST be in the schema.
     Throws ConfigError if key is not found or value is non-float."""
-    v = get_config(key)
-    if v == "" or v is None:
-        v = _config_schema._resolve_default(key)
-    if v == "":
-        raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", "CONFIG_KEY_NOT_FOUND", details={"key": key})
-    try:
-        return _config_schema.parse_float_robust(v)
-    except ValueError as e:
-        raise ConfigError(f"Config key {key!r} has non-float value: {v!r}", "CONFIG_TYPE_ERROR") from e
+    return _required_number(key, _config_schema.parse_float_robust, "float")
 
 
 def get_config_dict() -> dict[str, Any]:
