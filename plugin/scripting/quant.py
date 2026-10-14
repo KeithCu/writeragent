@@ -22,7 +22,6 @@ from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     header_prefix,
     make_template_api,
-    supports_calc_or_writer_manual,
 )
 
 QUANT_HEADER_PREFIX = header_prefix("quant")
@@ -82,8 +81,6 @@ def get_quant_template(helper: str) -> str | None:
 
 
 # --- Runner ---
-
-supports_quant_manual = supports_calc_or_writer_manual
 
 
 def run_trusted_quant(

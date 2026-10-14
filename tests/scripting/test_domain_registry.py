@@ -7,25 +7,45 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import get_args
 from unittest.mock import patch
 
 from plugin.scripting.domain_registry import (
+    DOC_SCRIPT_DISPLAY_PREFIX,
+    PICKER_WIRING,
     POST_VENV_DOMAIN_ORDER,
     WIRING_TABLE,
-    _RUN_IMPORT_DATA_BINDING,
+    FormatOkKind,
+    _RUN_DATA_BINDING_CALLS,
     get_picker_domains,
     get_post_venv_domains,
     get_rps_domains,
 )
 
 
-def test_wiring_table_uses_colon_module_attr():
+def test_registry_module_attr_targets_resolve():
+    # These modules import without a live LibreOffice (vision_egress, vision_runner,
+    # vision_templates, viz, symbolic, units, text_analytics, quant_egress,
+    # optimize, forecast, analysis_egress, duckdb_sql, analysis).
+    from plugin.scripting.domain_registry import _resolve_module_attr
+
+    targets: list[str] = []
     for w in WIRING_TABLE:
-        for path in (w.insert, w.is_result):
-            assert path.count(":") == 1, path
-            mod_name, attr_name = path.split(":")
-            assert "." in mod_name
-            assert attr_name.isidentifier()
+        targets.extend([w.insert, w.is_result])
+        if w.insert_kwargs_from_code is not None:
+            targets.append(w.insert_kwargs_from_code)
+    for p in PICKER_WIRING:
+        targets.append(p.templates)
+        if p.supports != "calc_only":
+            targets.append(p.supports)
+
+    for target in targets:
+        assert target.count(":") == 1, target
+        mod_name, attr_name = target.split(":")
+        assert "." in mod_name, target
+        assert attr_name.isidentifier(), target
+        fn = _resolve_module_attr(target)
+        assert callable(fn), target
 
 
 def test_rps_domain_order():
@@ -57,19 +77,18 @@ def test_post_venv_order_matches_constant():
 
 
 def test_wiring_and_post_venv_and_run_import_binding_agree():
-    """Same domain ids in WIRING_TABLE and POST_VENV_DOMAIN_ORDER; calc_only flags match.
+    """Same domain ids in WIRING_TABLE and POST_VENV_DOMAIN_ORDER.
 
     Picker is not 1:1 (text is wiring-only) — do not assert that.
     Order of the two wiring lists is intentionally different; only membership is shared.
+    The toolbar is Calc-only for every name, including run_viz, so it is not compared to post_venv_calc_only.
     """
     wiring_ids = {w.id for w in WIRING_TABLE}
     assert set(POST_VENV_DOMAIN_ORDER) == wiring_ids
-    by_id = {w.id: w for w in WIRING_TABLE}
-    for run_name, cfg in _RUN_IMPORT_DATA_BINDING.items():
+    for run_name in _RUN_DATA_BINDING_CALLS:
         assert run_name.startswith("run_")
         domain_id = run_name[len("run_") :]
-        assert domain_id in by_id
-        assert cfg.get("calc_only") is by_id[domain_id].post_venv_calc_only
+        assert domain_id in wiring_ids
 
 
 def test_script_header_needs_data_binding_on_calc_domains():
@@ -229,6 +248,10 @@ def test_is_reserved_script_name():
     assert is_reserved_script_name("DocScript") is False
     for prefix in RESERVED_SCRIPT_PREFIXES:
         assert is_reserved_script_name(f"{prefix} test") is True
+    assert RESERVED_SCRIPT_PREFIXES == (
+        DOC_SCRIPT_DISPLAY_PREFIX,
+        *(row.display_prefix for row in PICKER_WIRING),
+    )
 
 
 def test_rps_spec_insert_returns_int_only_when_int():
@@ -248,4 +271,78 @@ def test_rps_spec_insert_returns_int_only_when_int():
 
     with patch("plugin.scripting.domain_registry._resolve_fn", return_value=lambda *a, **kw: None):
         assert spec.insert(object(), object(), {}) is None
+
+
+def test_format_ok_kind_and_display_label():
+    allowed_kinds = set(get_args(FormatOkKind))
+    assert allowed_kinds == {"generic", "plot", "symbolic", "units", "vision", "rows"}
+    for w in WIRING_TABLE:
+        assert w.format_ok_kind in allowed_kinds
+        assert isinstance(w.display_label, str) and w.display_label
+
+
+def test_picker_supports_matches_post_venv_calc_only():
+    by_id = {w.id: w for w in WIRING_TABLE}
+    for row in PICKER_WIRING:
+        assert row.origin in by_id
+        if by_id[row.origin].post_venv_calc_only:
+            assert row.supports == "calc_only"
+        else:
+            assert row.supports != "calc_only"
+            assert row.supports.count(":") == 1
+    assert set(by_id) - {row.origin for row in PICKER_WIRING} == {"text"}
+
+
+def test_quant_picker_is_calc_only():
+    quant_spec = next(d for d in get_picker_domains() if d.origin == "quant")
+    calc_doc = object()
+    writer_doc = object()
+    with patch("plugin.scripting.domain_registry.is_calc", side_effect=lambda doc: doc is calc_doc):
+        assert quant_spec.supports(calc_doc) is True
+        assert quant_spec.supports(writer_doc) is False
+        assert quant_spec.supports(None) is False
+
+
+def test_script_header_needs_data_binding_ignores_comments_and_non_calc():
+    from plugin.scripting.domain_registry import script_header_needs_data_binding
+
+    calc_doc = object()
+    non_calc_doc = object()
+
+    def is_calc_mock(doc: object) -> bool:
+        return doc is calc_doc
+
+    viz_code = "from writeragent.scripting.viz import quick_plot\nresult = quick_plot()\n"
+
+    with patch("plugin.scripting.domain_registry.is_calc", side_effect=is_calc_mock):
+        assert script_header_needs_data_binding("# run_analysis(foo)\n", doc=calc_doc) is False
+        assert script_header_needs_data_binding('x = "run_analysis("\n', doc=calc_doc) is False
+        assert script_header_needs_data_binding("run_analysis()\n", doc=calc_doc) is True
+        assert (
+            script_header_needs_data_binding(
+                "result = writeragent.scripting.analysis.run_analysis()\n",
+                doc=calc_doc,
+            )
+            is True
+        )
+        assert script_header_needs_data_binding("query_folder_sql()\n", doc=calc_doc) is True
+        assert (
+            script_header_needs_data_binding(
+                "import writeragent.scripting.analysis as analysis\nresult = analysis.describe_data()\n",
+                doc=calc_doc,
+            )
+            is True
+        )
+        assert (
+            script_header_needs_data_binding(
+                "import writeragent.scripting.analysis\nresult = writeragent.scripting.analysis.describe_data()\n",
+                doc=calc_doc,
+            )
+            is False
+        )
+        assert script_header_needs_data_binding("run_analysis(\n", doc=calc_doc) is True
+        assert script_header_needs_data_binding("run_viz()\n", doc=non_calc_doc) is False
+        assert script_header_needs_data_binding(viz_code, doc=non_calc_doc) is False
+        assert script_header_needs_data_binding(viz_code, doc=calc_doc) is True
+
 

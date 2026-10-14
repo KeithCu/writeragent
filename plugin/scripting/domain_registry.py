@@ -12,13 +12,14 @@ Writer/Draw inserters are ``(ctx, doc, result)``. ``build_rps_spec`` keeps that 
 
 from __future__ import annotations
 
+import ast
 import functools
 import logging
 import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from plugin.doc.doc_type import is_calc
 from plugin.framework.i18n import N_, _
@@ -59,18 +60,6 @@ OPTIMIZE_SCRIPT_DISPLAY_PREFIX = "[Optimize] "
 FORECAST_SCRIPT_DISPLAY_PREFIX = "[Forecast] "
 SQL_SCRIPT_DISPLAY_PREFIX = "[SQL] "
 
-RESERVED_SCRIPT_PREFIXES = (
-    DOC_SCRIPT_DISPLAY_PREFIX,
-    ANALYSIS_SCRIPT_DISPLAY_PREFIX,
-    VISION_SCRIPT_DISPLAY_PREFIX,
-    VIZ_SCRIPT_DISPLAY_PREFIX,
-    MATH_SCRIPT_DISPLAY_PREFIX,
-    UNITS_SCRIPT_DISPLAY_PREFIX,
-    QUANT_SCRIPT_DISPLAY_PREFIX,
-    OPTIMIZE_SCRIPT_DISPLAY_PREFIX,
-    FORECAST_SCRIPT_DISPLAY_PREFIX,
-    SQL_SCRIPT_DISPLAY_PREFIX,
-)
 
 
 def is_reserved_script_name(name: str) -> bool:
@@ -136,18 +125,22 @@ def try_rps_post_venv(
 
 
 # --- Declarative Domain registry wiring ---
+FormatOkKind = Literal["generic", "plot", "symbolic", "units", "vision", "rows"]
+
+
 # Three tables on purpose: WIRING_TABLE (RPS insert order), POST_VENV_DOMAIN_ORDER
 # (is_result scan order), PICKER_WIRING (script-picker UI). Do not collapse them
-# or add a fourth registry. Drift is caught by test_domain_registry (same members
-# for wiring vs post-venv; picker is not 1:1 — text is wiring-only).
+# or add a fourth registry. Drift is caught by test_domain_registry: same members
+# for wiring vs post-venv; picker is not 1:1 (text is wiring-only); a
+# post_venv_calc_only domain's picker supports is the literal "calc_only".
 @dataclass(frozen=True)
 class DomainWiring:
     id: str
     insert: str  # module.path:attr
     is_result: str  # module.path:attr
-    format_ok_kind: str = "generic"  # generic | plot | symbolic | units | vision | rows
+    display_label: str
+    format_ok_kind: FormatOkKind = "generic"
     post_venv_calc_only: bool = False
-    display_label: str = ""
     insert_kwargs_from_code: str | None = None
 
 
@@ -206,9 +199,7 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
     def format_ok(*, meta: Any, result: dict[str, Any], t0: float, row_count: Any = None, stdout: str | None = None) -> dict[str, Any]:
         helper = str(getattr(meta, "helper", "") or "") or str(result.get("helper") or w.id)
         formatted_time = format_elapsed_time(time.perf_counter() - t0)
-        domain_label = w.display_label or (
-            w.id.upper() if w.id == "sql" else (w.id.capitalize() if w.id != "text" else "Text analytics")
-        )
+        domain_label = w.display_label
 
         if w.format_ok_kind == "plot":
             title = str(result.get("title") or helper or "Plot")
@@ -401,64 +392,53 @@ def get_post_venv_domains() -> list[RpsDomainSpec]:
     return out
 
 
-_RUN_IMPORT_DATA_BINDING: dict[str, dict[str, bool]] = {
-    "run_analysis": {"calc_only": True},
-    "run_viz": {"calc_only": False},
-    "run_quant": {"calc_only": True},
-    "run_optimize": {"calc_only": True},
-    "run_forecast": {"calc_only": True},
-}
+_RUN_DATA_BINDING_CALLS: frozenset[str] = frozenset({
+    "run_analysis",
+    "run_viz",
+    "run_quant",
+    "run_optimize",
+    "run_forecast",
+})
 
-# Current templates call the helper directly (``result = describe_data(...)``),
-# not ``run_analysis(``. The import plus that call is what should show Data.
-_IMPORT_DATA_BINDING: tuple[tuple[str, bool], ...] = (
-    ("writeragent.scripting.analysis", True),
-    ("writeragent.scripting.viz", False),
-    ("writeragent.scripting.quant", True),
-    ("writeragent.scripting.optimize", True),
-    ("writeragent.scripting.forecast", True),
-    ("writeragent.scripting.duckdb_sql", True),
-)
+# Both SQL templates call query_folder_sql. The sheet template passes
+# {"data": data}. The folder template does not, and still shows the toolbar.
+_SHEET_SQL_CALL = "query_folder_sql"
+
+_IMPORT_DATA_BINDING: frozenset[str] = frozenset({
+    "writeragent.scripting.analysis",
+    "writeragent.scripting.viz",
+    "writeragent.scripting.quant",
+    "writeragent.scripting.optimize",
+    "writeragent.scripting.forecast",
+    "writeragent.scripting.duckdb_sql",
+})
 
 
-def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
-    """True when *code* uses a trusted helper that may bind Calc sheet data.
+def _call_tail(func: ast.AST) -> str | None:
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
 
-    Parse the AST once. A per-module walk re-parsed the same source for every
-    entry in _IMPORT_DATA_BINDING and missed ``import ... as`` plus
-    ``from writeragent.scripting import analysis``. Track direct function
-    imports and module aliases, then check whether any imported helper is called.
-    """
-    if not code:
-        return False
-    calc = is_calc(doc)
-    for run_name, cfg in _RUN_IMPORT_DATA_BINDING.items():
-        if re.search(rf"\b{re.escape(run_name)}\s*\(", code):
-            if not cfg.get("calc_only") or calc:
-                return True
-    if calc and re.search(r"\bquery_folder_sql\s*\(", code):
-        return True
 
-    try:
-        import ast
+def _ast_calls_binding_name(tree: ast.AST) -> bool:
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _call_tail(node.func)
+        if name in _RUN_DATA_BINDING_CALLS or name == _SHEET_SQL_CALL:
+            return True
+    return False
 
-        tree = ast.parse(code)
-    except (SyntaxError, TypeError, ValueError):
-        for module, calc_only in _IMPORT_DATA_BINDING:
-            if calc_only and not calc:
-                continue
-            if module in code:
-                return True
-        return False
 
+def _ast_imports_and_calls(tree: ast.AST) -> bool:
     imported_names: set[str] = set()
     alias_modules: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             mod = node.module or ""
-            for module, calc_only in _IMPORT_DATA_BINDING:
-                if calc_only and not calc:
-                    continue
+            for module in _IMPORT_DATA_BINDING:
                 if mod == module:
                     for alias in node.names:
                         bound = alias.asname or alias.name
@@ -472,13 +452,10 @@ def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
                             alias_modules.add(bound)
         elif isinstance(node, ast.Import):
             for alias in node.names:
-                for module, calc_only in _IMPORT_DATA_BINDING:
-                    if calc_only and not calc:
-                        continue
+                for module in _IMPORT_DATA_BINDING:
                     if alias.name == module:
                         bound = alias.asname or alias.name
                         alias_modules.add(bound)
-
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -489,6 +466,35 @@ def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
             if isinstance(target, ast.Name) and target.id in alias_modules:
                 return True
     return False
+
+
+def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
+    """True when *code* uses a trusted helper that may bind Calc sheet data.
+
+    What was wrong: regex matched comments like ``# run_analysis(`` and string
+    literals like ``"run_analysis("``, and run_viz's old calc_only=False returned
+    true on Writer documents.
+    How: a raw-source pre-pass ran before the AST walk.
+    Why: AST call tails skip comments and strings; the toolbar binds a Calc sheet,
+    so a non-Calc doc returns false even though viz still inserts on Writer;
+    substring search runs only when ast.parse raises, same policy as
+    script_uses_run_import.
+    """
+    # The data toolbar binds a Calc sheet range; run_viz is not post_venv_calc_only
+    # because plots insert on Writer, and that must not enable this toolbar.
+    if not code or not is_calc(doc):
+        return False
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, TypeError, ValueError):
+        for name in (*_RUN_DATA_BINDING_CALLS, _SHEET_SQL_CALL):
+            if re.search(rf"\b{re.escape(name)}\s*\(", code):
+                return True
+        return any(module in code for module in _IMPORT_DATA_BINDING)
+
+    if _ast_calls_binding_name(tree):
+        return True
+    return _ast_imports_and_calls(tree)
 
 
 # --- Picker domains (order in build_xdl_script_picker_state) ---
@@ -593,7 +599,14 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         origin=SCRIPT_ORIGIN_QUANT,
         display_prefix=QUANT_SCRIPT_DISPLAY_PREFIX,
         title=N_("Quant Helpers"),
-        supports="plugin.scripting.quant:supports_quant_manual",
+        # What was wrong: supports_quant_manual is Calc-or-Writer, but quant is
+        # post_venv_calc_only and the only inserter is insert_quant_result_into_calc.
+        # On Writer, try_rps_post_venv returned None and format_result_for_writer
+        # stringified the nested table dict.
+        # How: the picker copied the symbolic/viz supports alias when the registry
+        # was introduced. Egress was never a Writer inserter.
+        # Why: "calc_only" matches analysis, sql, optimize, and forecast.
+        supports="calc_only",
         templates="plugin.scripting.quant:get_quant_script_templates",
     ),
     PickerWiring(
@@ -611,6 +624,11 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         templates="plugin.scripting.forecast:get_forecast_script_templates",
     ),
 )
+
+# Built from the picker rows so a new section cannot ship without a reserved
+# display prefix. [Doc] is not a picker domain. is_reserved_script_name reads
+# this at call time.
+RESERVED_SCRIPT_PREFIXES = (DOC_SCRIPT_DISPLAY_PREFIX, *(row.display_prefix for row in PICKER_WIRING))
 
 
 _picker_cache: list[PickerDomainSpec] | None = None

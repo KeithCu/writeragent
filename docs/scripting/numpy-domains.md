@@ -72,7 +72,7 @@ Future trusted-helper domains (Geospatial, Audio, optional `prophet`) will each 
 | **Units (Pint)** | **Data Engineering Libraries** (`pint`, `duckdb`) | [Data Engineering / Units §3b](#data-engineering-units) |
 | **Forecasting** | **Data Analysis / EDA Libraries** (`statsmodels` — shared with analysis) | [Forecasting §2](#forecasting) |
 | **Text Analytics** | **Text / NLP Libraries** (`spacy`, `textdescriptives`, `transformers`, …) | [Text Analytics §4](#text-analytics) |
-| **Quantitative Finance** | **Quantitative Finance Libraries** (`yfinance`, `pandas_ta`, …) | Run Python Script **Quant Helpers** |
+| **Quantitative Finance** | **Quantitative Finance Libraries** (`yfinance`, `pandas_ta`, …) | Run Python Script **Quant Helpers** (Calc only) |
 
 SageMath remains a future optional extension — [sagemath-integration-dev-plan.md](../archive/sagemath-integration-dev-plan.md).
 
@@ -641,6 +641,8 @@ Results are inserted as compact tables and usable from scripts.
 **`linear_programming` layout:** Each row is a variable (`c` is that variable's objective coefficient). Each `a*` column is one `<=` constraint. `b` is one bound per constraint column. The template default `a_cols: ["a1"]` is a single constraint; repeat that same bound on every variable row. If `b` cannot be aligned to the constraint columns, the helper returns `SHAPE_MISMATCH` and does not replace `b` with zeros.
 
 `optimize_portfolio` minimizes variance of per-period returns. Weights are long-only and sum to 1. The objective is the covariance scaled by the mean diagonal, because raw daily variances sit under SLSQP's default tolerance and used to return the equal-weight start as optimal. risk_free_rate does not change the weights. When returns_col or cost_cols is omitted, date-named columns and monotonic unique integer columns are left out, so a worker id or a Date serial is not an asset or a task. linear_programming accepts one bounds pair for every variable, or one pair per variable. A missing column is UNKNOWN_COLUMN. Scheduling reports metrics.unassigned_rows when there are more rows than columns. A sheet-write failure on optimize_data leaves status ok and sets sheet_write_error.
+
+**Quant picker:** Quant Helpers are listed only for Calc. The inserter is the sheet grid from [`insert_quant_result_into_calc`](../../plugin/calc/quant_egress.py). Writer does not show the section.
 
 **Quant returns:** `efficient_frontier` reads the sheet as a returns grid, the same contract as `portfolio_tearsheet` and `optimize_portfolio`. PyPortfolioOpt's `mean_historical_return` and `CovarianceShrinkage` default `returns_data=False` (prices, then percent-change). The helper passes `returns_data=True` so a returns sheet does not come back `status: ok` with a corner portfolio. Annualization stays 252 trading days. `technical_analysis` and `portfolio_tearsheet` sort a `date` / `datetime` / `timestamp` column ascending before path-dependent indicators and drawdown; duplicate tearsheet dates are averaged. `fetch_historical_data` stringifies every datetime column, and a multi-ticker download labels columns `Close / AAPL`. A comma-separated ticker string is several symbols. `weight_bounds` must be a pair or omitted, and a non-finite `risk_free_rate` is `INVALID_PARAMS`. Incomplete frontier rows are dropped before the optimizer, because Ledoit-Wolf turns NaN into 0. `fetch_historical_data` passes `auto_adjust=True`, so Close is split-adjusted on every yfinance version.
 
