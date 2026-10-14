@@ -1056,14 +1056,23 @@ def subtotal(fn_num: Any, r: Any) -> float:
         # STDEV.S needs two samples. One point or none is #DIV/0!.
         return float(np.std(arr, ddof=1)) if len(arr) > 1 else float("nan")
     if fn == 8:
-        return float(np.std(arr, ddof=0)) if len(arr) else 0.0
+        # What was wrong: SUBTOTAL STDEV.P of an empty range returned 0.
+        # How it happened: the empty guard was copied from PRODUCT, which
+        # really is 0. np.std([]) is NaN, so the guard hid that and also
+        # disagreed with ScStDevP (nValCount == 0 is #DIV/0!).
+        # Why this change fixes it: no numbers is NaN; one number stays 0.
+        return float(np.std(arr, ddof=0)) if len(arr) else float("nan")
     if fn == 9:
         return float(np.sum(arr))
     if fn == 10:
         # VAR.S needs two samples. One point or none is #DIV/0!.
         return float(np.var(arr, ddof=1)) if len(arr) > 1 else float("nan")
     if fn == 11:
-        return float(np.var(arr, ddof=0)) if len(arr) else 0.0
+        # What was wrong: SUBTOTAL VAR.P of an empty range returned 0.
+        # How it happened: same empty-product guard as function 8.
+        # ScVarP divides by the count, and an empty count is #DIV/0!.
+        # Why this change fixes it: no numbers is NaN; one number stays 0.
+        return float(np.var(arr, ddof=0)) if len(arr) else float("nan")
     return float("nan")
 
 

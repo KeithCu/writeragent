@@ -57,6 +57,29 @@ def test_aggregate_stubs_and_bools():
         with pytest.raises(NotImplementedError):
             calc.aggregate(fn, 4, [1, 2, 3])
 
+    import warnings
+
+    assert calc.aggregate(2, 4, [True, 1.0]) == 1.0
+    assert calc.aggregate(3, 4, [True]) == 1.0
+    assert calc.aggregate(3, 4, [True, False, ""]) == 2.0
+    assert math.isnan(calc.aggregate(3, 4, [True, float("nan")]))
+    assert calc.aggregate(4, 4, []) == 0.0
+    assert calc.aggregate(4, 4, ["a", "b"]) == 0.0
+    assert calc.aggregate(5, 6, [float("nan")]) == 0.0
+    assert calc.aggregate(8, 4, [4.0]) == 0.0
+    assert calc.aggregate(11, 4, [4.0]) == 0.0
+    assert calc.aggregate(13, 4, [1.0, 2.0, 2.0, 3.0]) == 2.0
+    assert calc.aggregate(13, 4, [2.0, 2.0, 1.0, 1.0]) == 1.0
+    assert math.isnan(calc.aggregate(13, 4, [1.0, 2.0, 3.0]))
+    # Bools are dropped before MODE. Two TRUEs and one 2 are not a mode.
+    assert math.isnan(calc.aggregate(13, 4, [True, True, 2.0]))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert math.isnan(calc.aggregate(8, 4, []))
+        assert math.isnan(calc.aggregate(11, 4, []))
+        assert math.isnan(calc.aggregate(12, 4, []))
+    assert not any(issubclass(item.category, RuntimeWarning) for item in caught)
+
 
 def test_areas():
     assert calc.areas("A1:B2") == 1.0
@@ -292,3 +315,24 @@ def test_cumipmt_and_cumprinc():
     assert math.isnan(calc.cumipmt(0.05, 60, 10000, 5, 2, 0))  # end < start
     assert math.isnan(calc.cumipmt(0.05, 60, 10000, 1, 61, 0))  # end > nper
     assert math.isnan(calc.cumipmt(0.05, 60, 10000, 1, 12, 2))  # type not in (0, 1)
+
+
+def test_besselk_bessely_reject_negative_order():
+    import scipy.special
+
+    assert math.isnan(calc.besselk(1.0, -1))
+    assert math.isnan(calc.bessely(1.0, -1))
+    # int(float(-1.9)) is -1. Truncation stays toward zero, then the sign check runs.
+    assert math.isnan(calc.besselk(1.0, -1.9))
+    assert math.isnan(calc.besselk(0.0, 0))
+    assert math.isnan(calc.bessely(-1.0, 0))
+    assert math.isclose(calc.besselk(1.0, 1), float(scipy.special.kn(1, 1.0)))
+    assert math.isclose(calc.bessely(1.0, 1), float(scipy.special.yn(1, 1.0)))
+
+
+def test_code_empty_string_is_zero():
+    # ScCode pushes 0. Do not follow Excel's #VALUE!, and do not treat None as "".
+    assert calc.code("") == 0.0
+    assert calc.code("A") == 65.0
+    assert calc.code(None) == float(ord("N"))
+

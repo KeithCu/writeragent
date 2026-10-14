@@ -203,8 +203,11 @@ def address(row: Any, col: Any, abs_num: Any = 1, a1: Any = True, sheet: Any = N
 
 
 def aggregate(function_num: Any, options: Any, *args: Any) -> float:
-    # Functions 1..12. 14..19 are not implemented. Bool is not a number
-    # (float(True) would be 1.0).
+    # ScAggregate dispatches 1..11 like ScSubTotal, plus MEDIAN (12) and
+    # MODE.SNGL (13). 14..19 need k and stay unimplemented. Bool is not a
+    # number for the numeric reductions (float(True) would be 1.0). COUNTA
+    # still counts a bool. Do not share this switch with subtotal(): that
+    # helper counts True as 1, which test_aggregate_stubs_and_bools forbids.
     try:
         fn = int(float(function_num))
         opt = int(float(options))
@@ -212,9 +215,13 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
             raise NotImplementedError(f"AGGREGATE function {fn} is unsupported in lightweight runtime")
         numeric: list[float] = []
         n_text = 0
+        n_bool = 0
         for arg in args:
             for x in np.asarray(arg, dtype=object).ravel():
                 if isinstance(x, (bool, np.bool_)):
+                    # Numeric reductions ignore bools. COUNTA must still see
+                    # them: skipping here made AGGREGATE(3, …, TRUE) return 0.
+                    n_bool += 1
                     continue
                 if isinstance(x, str):
                     if is_missing_value(x):
@@ -247,11 +254,14 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
         if fn == 2:
             return float(np.sum(~np.isnan(arr)))
         if fn == 3:
-            return float(len(arr) + n_text)
+            return float(len(arr) + n_text + n_bool)
         if fn == 4:
-            return float(np.nanmax(arr))
+            # ScMax pushes 0 when nothing numeric remains (text is ignored).
+            # np.nanmax([]) raises, and the handler below turned that into NaN.
+            return float(np.nanmax(arr)) if arr.size else 0.0
         if fn == 5:
-            return float(np.nanmin(arr))
+            # Same empty rule as ScMin / ScMax.
+            return float(np.nanmin(arr)) if arr.size else 0.0
         if fn == 6:
             # np.prod([]) is 1. Calc AGGREGATE PRODUCT is 0 when ignore-errors
             # or text leaves no numbers (AGGREGATE(6,6,NA(),NA()) is 0).
@@ -261,7 +271,9 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
             # STDEV.S of one value is #DIV/0!. Same guard as subtotal.
             return float(np.std(arr, ddof=1)) if arr.size > 1 else float("nan")
         if fn == 8:
-            return float(np.std(arr, ddof=0))
+            # ScStDevP: nValCount == 0 is #DIV/0!. np.std([]) warns and
+            # returns NaN. One value is 0 (population, ddof=0), not #DIV/0!.
+            return float(np.std(arr, ddof=0)) if arr.size else float("nan")
         if fn == 9:
             # np.sum([]) is already 0. That matches Calc AGGREGATE SUM after an
             # ignore-errors option strips every value.
@@ -270,9 +282,20 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
             # One sample makes np.var(ddof=1) warn and return NaN.
             return float(np.var(arr, ddof=1)) if arr.size > 1 else float("nan")
         if fn == 11:
-            return float(np.var(arr, ddof=0))
+            # ScVarP divides by the count. An empty count is #DIV/0!.
+            # np.var([]) warns. One value is 0.
+            return float(np.var(arr, ddof=0)) if arr.size else float("nan")
         if fn == 12:
-            return float(np.median(arr))
+            # GetMedian sets NoValue (#N/A) on an empty vector. np.median([])
+            # is NaN plus a RuntimeWarning. Keep the NaN, skip the call.
+            return float(np.median(arr)) if arr.size else float("nan")
+        if fn == 13:
+            # ScModalValue on the numbers already kept above. mode() would
+            # count True as 1 if given the raw args. Tie-break is the lowest
+            # value. No repeat is #N/A (NaN).
+            from .calc_functions_i_m import mode
+
+            return float(mode(arr.tolist()))
         return float("nan")
     except NotImplementedError:
         raise
@@ -772,9 +795,14 @@ def clean(text: Any) -> str | float:
 
 
 def code(s: Any) -> float:
+    # ScCode pushes 0 for an empty string. Excel CODE("") is #VALUE!.
+    # This helper follows Calc. str(None) is "None", so a missing object
+    # stays the code point of "N"; do not treat None as blank here.
     try:
         ss = str(s)
-        return float(ord(ss[0])) if ss else float("nan")
+        if not ss:
+            return 0.0
+        return float(ord(ss[0]))
     except (ValueError, TypeError):
         return float("nan")
 

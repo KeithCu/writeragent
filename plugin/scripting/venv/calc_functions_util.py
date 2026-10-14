@@ -656,7 +656,15 @@ def _bessel_kn_yn(scipy_fn: Any, x: Any, n: Any) -> float:
     try:
         xv = float(x)
         nv = int(float(n))
-        if xv <= 0:
+        # What was wrong: BESSELK(1, -1) returned kn(1, 1) and BESSELY(1, -1)
+        # returned a finite value. Both are illegal orders.
+        # How it happened: _bessel_iv_jv rejects nv < 0, but this helper only
+        # rejected xv <= 0. scipy.special.kn(-n, x) equals kn(n, x), so the
+        # missing check looked like a successful order-1 call.
+        # Why this change fixes it: AnalysisAddIn::getBesselk and getBessely
+        # throw IllegalArgumentException when nOrder < 0 or fNum <= 0. NaN is
+        # that error in this runtime.
+        if nv < 0 or xv <= 0:
             return float("nan")
         return float(scipy_fn(nv, xv))
     except Exception:
