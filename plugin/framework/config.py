@@ -24,8 +24,10 @@ use ``get_ctx()`` only for UNO operations.
 ``writeragent.json`` lives under the LibreOffice user profile (Linux:
 ``~/.config/libreoffice/{4,24}/user/``; macOS: ``~/Library/Application Support/LibreOffice/4/user/``;
 Windows: ``%APPDATA%\\LibreOffice\\4\\user\\``). LibrePy shares this same file on
-purpose (venv path, session mode, timeouts). Broken JSON is copied to
-``.bak`` when possible; ``json_repair`` fixes small typos on read.
+purpose (venv path, session mode, timeouts). One ``.bak`` is kept per
+distinct corrupt byte string; a different corrupt body adds one stamped file
+and does not overwrite the first ``.bak``. ``json_repair`` fixes small
+typos on read.
 
 Writes omit a key that still matches its default and prefix the file with
 ``//`` comment lines pointing at ``docs/writeragent-config-schema.md`` on
@@ -229,19 +231,60 @@ def _config_backup_path(config_file_path: str) -> str:
 
 def _backup_config_file(config_file_path: str, *, reason: str = "invalid-json") -> str | None:
     """Copy the raw config file before repair or other destructive handling."""
+    # What was wrong: Every parse failure created a new timestamped .bak file,
+    # piling up junk backups on repeated reads of the same corrupt file.
+    # How it happened: _backup_config_file checked only if .bak existed, and if
+    # so immediately allocated a new timestamped filename without checking
+    # whether an existing backup already contained the exact same bytes.
+    # Why this change fixes it: It inspects candidate backups in the same
+    # directory (.bak and .bak.<stamp>); if any already matches the source
+    # file's bytes, that path is returned without creating another copy.
     if not config_file_path or not os.path.exists(config_file_path):
         return None
+    try:
+        with open(config_file_path, "rb") as f:
+            src_bytes = f.read()
+    except OSError:
+        return None
+
     backup_path = _config_backup_path(config_file_path)
-    # A second corruption must not overwrite the only earlier copy.
+    backup_dir = os.path.dirname(backup_path) or "."
+    backup_base = os.path.basename(backup_path)
+
+    # Candidates: unsuffixed backup path, then stamped entries in the same directory.
+    if os.path.exists(backup_path):
+        try:
+            with open(backup_path, "rb") as f:
+                if f.read() == src_bytes:
+                    return backup_path
+        except OSError:
+            pass
+
+    try:
+        entries = os.listdir(backup_dir)
+    except OSError:
+        entries = []
+
+    stamped_candidates = sorted(e for e in entries if e.startswith(backup_base + "."))
+    for name in stamped_candidates:
+        cand_path = os.path.join(backup_dir, name)
+        try:
+            with open(cand_path, "rb") as f:
+                if f.read() == src_bytes:
+                    return cand_path
+        except OSError:
+            pass
+
+    dest_path = backup_path
     if os.path.exists(backup_path):
         stamped = backup_path + "." + time.strftime("%Y%m%d%H%M%S")
         if os.path.exists(stamped):
             stamped = stamped + "." + str(time.time_ns())
-        backup_path = stamped
+        dest_path = stamped
     try:
-        shutil.copy2(config_file_path, backup_path)
-        log.warning("Backed up config %s to %s (%s)", config_file_path, backup_path, reason)
-        return backup_path
+        shutil.copy2(config_file_path, dest_path)
+        log.warning("Backed up config %s to %s (%s)", config_file_path, dest_path, reason)
+        return dest_path
     except OSError:
         log.exception("Failed to backup config %s", config_file_path)
         return None
@@ -326,6 +369,7 @@ def _invalidate_config_cache() -> None:
     _cache.data = None
     _cache.mtime = 0
     _cache.mtime_last_checked = 0.0
+    _cache.error_logged = None
 
 
 def _load_config_dict(config_file_path: str, *, allow_repair: bool = False, persist_repair: bool = False, fail_on_unrepairable: bool = False) -> dict[str, Any]:
@@ -438,6 +482,7 @@ class ConfigCache:
     data: Dict[str, Any] | None = None
     mtime: float = 0
     mtime_last_checked: float = 0.0
+    error_logged: tuple[str, float, int] | tuple[str, None, None] | None = None
 
 
 _cache = ConfigCache()
@@ -1088,16 +1133,46 @@ def _get_validated_config_dict() -> dict[str, Any]:
 
             _cache.data = out
             _cache.mtime = current_mtime
+            _cache.error_logged = None
             return out
         except ConfigError:
-            log.exception("Config error reading %s", config_file_path)
+            # What was wrong: Read errors on cold cache logged an exception on
+            # every single read, and OSError discarded any good cached snapshot.
+            # How it happened: _cache.data is None on a cold cache, bypassing the
+            # 2-second throttle, and OSError returned {} unconditionally.
+            # Why this change fixes it: Failures are logged at most once per
+            # (path, mtime, size) until changed or cleared, and OSError returns
+            # the last good cached dict if present, matching ConfigError.
+            try:
+                err_id: tuple[str, float, int] | tuple[str, None, None] = (
+                    config_file_path,
+                    os.path.getmtime(config_file_path),
+                    os.path.getsize(config_file_path),
+                )
+            except OSError:
+                err_id = (config_file_path, None, None)
+            if _cache.error_logged != err_id:
+                log.exception("Config error reading %s", config_file_path)
+                _cache.error_logged = err_id
             # Keep the last good snapshot. Caching {} made the session look
             # like a fresh install (empty API keys) until the file was fixed.
             if isinstance(_cache.data, dict):
                 return _cache.data
             return {}
         except OSError:
-            log.exception("Error reading %s", config_file_path)
+            try:
+                err_id = (
+                    config_file_path,
+                    os.path.getmtime(config_file_path),
+                    os.path.getsize(config_file_path),
+                )
+            except OSError:
+                err_id = (config_file_path, None, None)
+            if _cache.error_logged != err_id:
+                log.exception("Error reading %s", config_file_path)
+                _cache.error_logged = err_id
+            if isinstance(_cache.data, dict):
+                return _cache.data
             return {}
 
 
