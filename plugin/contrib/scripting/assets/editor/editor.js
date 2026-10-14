@@ -342,7 +342,12 @@
       var plainEl = getPlainTextCheckbox();
       var saveAsPlain = !!plainEl && plainEl.checked;
       var input = getDataBindingInput();
-      var dataBinding = saveAsPlain ? "" : (input ? input.value.trim() : "");
+      // Follow keeps Data enabled (updateDataBindingEnabled). The plain-text
+      // box is checked because the code cell is setString'd, but the ranges
+      // still live on the formula. Sending "" made _apply_followed_ref_save
+      // treat the ranges as cleared and rewrite =PY($A$1; C1:C10) to
+      // =PY($A$1). Same rule as cell_editor_ui._save.
+      var dataBinding = (followCodeRef || !saveAsPlain) ? (input ? input.value.trim() : "") : "";
       window.pywebview.api.notify_save(code, saveAsPlain, dataBinding, "cell_save", sessionId, currentMode, sessionTarget);
       setStatus(pendingStatusText, "");
     }

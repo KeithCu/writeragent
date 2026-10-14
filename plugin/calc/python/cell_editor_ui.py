@@ -163,12 +163,6 @@ class NativePythonCellEditorDialog:
         data_ctrl = self._ctrl("DataEdit")
         if data_ctrl is not None:
             set_control_text(data_ctrl, data_text)
-            try:
-                model = data_ctrl.getModel()
-                if model is not None and hasattr(model, "HelpText"):
-                    model.HelpText = _("A1:C1  or  A1:C1, C1:C5")
-            except Exception:
-                log.debug("native cell editor: DataEdit HelpText failed", exc_info=True)
         plain = editor_load_save_as_plain(parsed_parts=self._parsed_parts, initial_code=initial_code or "", follow_code_ref=self._following_ref())
         set_checkbox_state(self._ctrl("ChkPlainText"), 1 if plain else 0)
         self._sync_data_enabled()
@@ -241,6 +235,8 @@ class NativePythonCellEditorDialog:
         self._set_status(_("Saving…"))
         save_as_plain = bool(get_checkbox_state(self._ctrl("ChkPlainText")))
         follow = self._following_ref()
+        # Same rule as editor.js btn-save: follow still sends Data while
+        # Save without =PY() is checked (the code cell is plain text).
         binding = self._data_text() if follow or not save_as_plain else None
         outcome = _apply_cell_save(self._doc, self._cell, parsed_parts=self._parsed_parts, new_code=self._code_text(), save_as_plain=save_as_plain, data_binding_text=binding, code_cell=self._code_cell if follow else None, code_ref=self._code_ref if follow else None)
         if outcome.get("type") == "error":

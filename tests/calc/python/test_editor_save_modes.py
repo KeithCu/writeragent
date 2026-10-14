@@ -218,6 +218,39 @@ def test_follow_code_ref_save_writes_a1_keeps_formula_ref():
     assert doc.calculate_all_count == 1
 
 
+def test_follow_plain_flag_still_sends_data_text():
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByIndex(0)
+    code_cell = sheet.getCellByPosition(0, 0)
+    formula_cell = sheet.getCellByPosition(1, 0)
+    code_cell.setString("result = 42")
+    formula_cell.setFormula("=PY($A$1; C1:C10)")
+    parts = parse_python_formula(formula_cell.getFormula())
+    assert parts is not None
+    assert parts.code == "$A$1"
+
+    resolved = _resolve_code_ref_cell(doc, parts.code)
+    assert resolved is code_cell
+
+    result = _apply_cell_save(
+        doc,
+        formula_cell,
+        parsed_parts=parts,
+        new_code="result = 99",
+        save_as_plain=True,
+        data_binding_text="C1:C10",
+        code_cell=code_cell,
+        code_ref=parts.code,
+    )
+    assert result["ok"] is True
+    assert code_cell.getString() == "result = 99"
+    formula = formula_cell.getFormula()
+    assert "$A$1" in formula
+    assert "C1:C10" in formula
+    assert formula.count(")") == 1
+    assert "result = 99" not in formula
+
+
 def test_follow_code_ref_save_can_change_data_binding():
     doc = CalcDocStub()
     sheet = doc.getSheets().getByIndex(0)
@@ -465,6 +498,70 @@ def test_follow_python_alias_empty_data_keeps_formula():
     assert formula_cell.getFormula().count(")") == 1
 
 
+def test_follow_alias_data_change_keeps_prefix():
+    cases = (
+        ("=PYTHON($A$1; C1:C10)", "=PYTHON("),
+        ("=py($A$1; C1:C10)", "=py("),
+        ("=PYTHON ($A$1; C1:C10)", "=PYTHON ("),
+        ("=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON($A$1; C1:C10)", "=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON("),
+    )
+    for formula_in, expected_prefix in cases:
+        _unused_doc, formula_cell, _unused_code_cell, _unused_parts = _follow_save(
+            formula_in,
+            "result = 1",
+            "D1:D5",
+        )
+        formula = formula_cell.getFormula()
+        assert formula.startswith(expected_prefix)
+        assert "$A$1" in formula
+        assert "D1:D5" in formula
+        assert "C1:C10" not in formula
+        assert formula.count(")") == 1
+
+
+def test_text_cell_py_literal_is_not_a_formula():
+    from unittest.mock import MagicMock
+    from plugin.calc.python.editor import (
+        _cell_has_unparsed_python,
+        _load_cell_editor_code,
+        _parse_cell_python_formula,
+        editor_load_save_as_plain,
+    )
+
+    cell1 = MagicMock()
+    cell1.getType.return_value = 2
+    cell1.getFormula.return_value = "PY(x)"
+    cell1.getPropertyValue.return_value = "PY(x)"
+    cell1.getString.return_value = "PY(x)"
+
+    code1, parts1, _source1 = _load_cell_editor_code(cell1)
+    assert code1 == "PY(x)"
+    assert parts1 is None
+    assert _cell_has_unparsed_python(cell1) is False
+    assert editor_load_save_as_plain(parsed_parts=None, initial_code="PY(x)") is True
+
+    cell2 = MagicMock()
+    cell2.getType.return_value = 2
+    cell2.getFormula.return_value = '=PY("x")'
+    cell2.getPropertyValue.return_value = '=PY("x")'
+    cell2.getString.return_value = "literal text"
+
+    code2, parts2, _source2 = _load_cell_editor_code(cell2)
+    assert code2 == "literal text"
+    assert parts2 is None
+
+    cell_stub = CalcCellStub()
+    cell_stub.setFormula('=PY("result = 1")')
+    code_stub, parts_stub, _source_stub = _load_cell_editor_code(cell_stub)
+    assert code_stub == "result = 1"
+    assert parts_stub is not None
+
+    mock_cell = MagicMock()
+    mock_cell.getFormula.return_value = "PY(x)"
+    _c, mock_parts, _s = _parse_cell_python_formula(mock_cell)
+    assert mock_parts is None
+
+
 def test_get_active_calc_cell_uses_selection_sheet_index():
     from types import SimpleNamespace
     from unittest.mock import MagicMock
@@ -500,5 +597,66 @@ def test_get_active_calc_cell_uses_selection_sheet_index():
     model, cell, formula = res
     assert formula == '=PY("result = 2")'
     assert cell._sheet is sheet1
+
+
+def test_get_active_calc_cell_bad_sheet_does_not_use_active_sheet():
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from plugin.calc.python.editor import _get_active_calc_cell
+
+    sheet0 = CalcSheetStub("Sheet1")
+    sheet1 = CalcSheetStub("Sheet2")
+    sheet1.getCellByPosition(0, 0).setFormula('=PY("result = 2")')
+
+    # Case 1: Sheet=9 (only two sheets)
+    doc1 = CalcDocStub(sheets=[sheet0, sheet1], active_sheet=sheet0)
+    ctrl1 = MagicMock()
+    ctrl1.getActiveSheet.return_value = sheet0
+    ctrl1.getModel.return_value = doc1
+
+    sel1 = MagicMock()
+    sel1.getRangeAddress.return_value = SimpleNamespace(
+        Sheet=9, StartColumn=0, StartRow=0, EndColumn=0, EndRow=0
+    )
+    ctrl1.getSelection.return_value = sel1
+    doc1.getCurrentController = lambda: ctrl1
+
+    ctx1 = MagicMock()
+    desktop1 = MagicMock()
+    desktop1.getCurrentComponent.return_value = doc1
+    desktop1.getCurrentFrame.return_value.getController.return_value.getModel.return_value = doc1
+    smgr1 = MagicMock()
+    smgr1.createInstanceWithContext.return_value = desktop1
+    ctx1.ServiceManager = smgr1
+
+    assert _get_active_calc_cell(ctx1) is None
+
+    # Case 2: Sheet=1 but getByIndex raises RuntimeError
+    doc2 = CalcDocStub(sheets=[sheet0, sheet1], active_sheet=sheet0)
+    mock_sheets = MagicMock()
+    mock_sheets.getCount.return_value = 2
+    mock_sheets.getByIndex.side_effect = RuntimeError("sheet access failure")
+    doc2.getSheets = lambda: mock_sheets
+
+    ctrl2 = MagicMock()
+    ctrl2.getActiveSheet.return_value = sheet0
+    ctrl2.getModel.return_value = doc2
+
+    sel2 = MagicMock()
+    sel2.getRangeAddress.return_value = SimpleNamespace(
+        Sheet=1, StartColumn=0, StartRow=0, EndColumn=0, EndRow=0
+    )
+    ctrl2.getSelection.return_value = sel2
+    doc2.getCurrentController = lambda: ctrl2
+
+    ctx2 = MagicMock()
+    desktop2 = MagicMock()
+    desktop2.getCurrentComponent.return_value = doc2
+    desktop2.getCurrentFrame.return_value.getController.return_value.getModel.return_value = doc2
+    smgr2 = MagicMock()
+    smgr2.createInstanceWithContext.return_value = desktop2
+    ctx2.ServiceManager = smgr2
+
+    assert _get_active_calc_cell(ctx2) is None
 
 
