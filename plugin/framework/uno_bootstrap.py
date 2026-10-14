@@ -58,13 +58,17 @@ class AliasLoader(importlib.abc.Loader):
     """Loader that returns the already loaded or newly imported real module."""
 
     real_name: str
+    _alias_name: str | None
     _saved_attrs: dict[str, Any] | None
 
-    def __init__(self, real_name: str) -> None:
+    def __init__(self, real_name: str, alias_name: str | None = None) -> None:
         self.real_name = real_name
+        self._alias_name = alias_name
         self._saved_attrs = None
 
     def create_module(self, spec: Any) -> Any:
+        if spec is not None and hasattr(spec, "name") and not self._alias_name:
+            self._alias_name = spec.name
         mod = importlib.import_module(self.real_name)
         existing_saved = getattr(mod, _SAVED_ATTRS_KEY, None)
         if isinstance(existing_saved, dict):
@@ -85,6 +89,11 @@ class AliasLoader(importlib.abc.Loader):
         if isinstance(saved, dict):
             try:
                 for attr, val in saved.items():
+                    if attr == "__path__" and self._alias_name == "writeragent":
+                        # Root writeragent namespace package must retain __path__ so child modules
+                        # (e.g. writeragent.scripting, writeragent.vision) can be resolved.
+                        module.__path__ = []
+                        continue
                     if val is _ABSENT:
                         if hasattr(module, attr):
                             try:
@@ -118,7 +127,7 @@ def _writeragent_namespace_spec(fullname: str = "writeragent") -> Any:
         real_spec = None
     if real_spec is not None:
         try:
-            spec = importlib.machinery.ModuleSpec(fullname, AliasLoader(_WRITERAGENT_NAMESPACE))
+            spec = importlib.machinery.ModuleSpec(fullname, AliasLoader(_WRITERAGENT_NAMESPACE, fullname))
             spec.submodule_search_locations = []
             return spec
         except Exception as exc:
@@ -176,7 +185,7 @@ class AliasImporter:
         if real_spec is None:
             return None
         try:
-            spec = importlib.machinery.ModuleSpec(fullname, AliasLoader(real_name))
+            spec = importlib.machinery.ModuleSpec(fullname, AliasLoader(real_name, fullname))
             if fullname == "writeragent":
                 spec.submodule_search_locations = []
             elif real_spec.submodule_search_locations is not None:
