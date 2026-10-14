@@ -1298,76 +1298,23 @@ def _reset_writer_style_families(doc) -> None:
 
 
 def _reset_writer_page_regions(doc) -> None:
-    """Clear leftover header/footer XText and restore shared-page defaults.
+    """Clear leftover header/footer text and drop user page styles.
 
     Body wipe does not touch page-style regions. Windows Writer reuse
-    (leftover_open=0) then left ``header_first`` / ``FirstIsShared=False``
-    from a prior letterhead test, so ``page_set_style_properties``
-    correctly refused disable (GHA 35466498641). Also reset
-    ``PageDescName`` so findFirst searches the Standard header we write.
+    (leftover_open=0) then left header_first / FirstIsShared=False from a
+    prior letterhead test, so page_set_style_properties correctly refused
+    disable (GHA 35466498641).
+
+    User page styles (the clone tests' AnnexFooterClone / CloneBug1424 /
+    CloneBug1424_Next) are removed without reading HeaderText. removeByName
+    deletes their header formats. Holding that XText, or holding the previous
+    style's XText across the next style's FirstIsShared write, is a
+    setPropertyValue → SwDoc::ChgPageDesc while Python still has the proxy.
+    ChgPageDesc replaces the frame format; the following URP queryInterface
+    SIGSEGVs (GHA 38596218222, 38596189579). isUserDefined() is True is
+    required: a MagicMock is truthy and must stay on the Standard clear path
+    (test_reset_writer_page_regions_clears_first_page_and_shares).
     """
-    try:
-        styles = doc.getStyleFamilies().getByName("PageStyles")
-    except Exception:
-        styles = None
-    if styles is not None:
-        try:
-            names = list(styles.getElementNames())
-        except Exception:
-            names = []
-        for name in names:
-            try:
-                style = styles.getByName(name)
-            except Exception:
-                continue
-            # Fast-path: default page styles have FirstIsShared=True and no headers/footers enabled.
-            try:
-                first_shared = style.getPropertyValue("FirstIsShared")
-                header_on = style.getPropertyValue("HeaderIsOn")
-                footer_on = style.getPropertyValue("FooterIsOn")
-                if first_shared is True and not header_on and not footer_on:
-                    continue
-            except Exception:
-                pass
-            for flag in ("FirstIsShared", "HeaderIsShared", "FooterIsShared"):
-                try:
-                    style.setPropertyValue(flag, True)
-                except Exception:
-                    pass
-            for text_prop in (
-                "HeaderText",
-                "HeaderTextFirst",
-                "HeaderTextLeft",
-                "FooterText",
-                "FooterTextFirst",
-                "FooterTextLeft",
-            ):
-                try:
-                    text_obj = style.getPropertyValue(text_prop)
-                except Exception:
-                    continue
-                if text_obj is None:
-                    continue
-                try:
-                    text_obj.setString("")
-                except Exception:
-                    pass
-                try:
-                    enum = text_obj.createEnumeration()
-                except Exception:
-                    continue
-                while True:
-                    try:
-                        if enum.hasMoreElements() is not True:
-                            break
-                        el = enum.nextElement()
-                    except Exception:
-                        break
-                    try:
-                        if el.supportsService("com.sun.star.text.TextTable") is True:
-                            text_obj.removeTextContent(el)
-                    except Exception:
-                        continue
     try:
         body = doc.getText().createTextCursor()
         body.gotoStart(False)
@@ -1375,6 +1322,85 @@ def _reset_writer_page_regions(doc) -> None:
         body.setPropertyValue("PageDescName", "Standard")
     except Exception:
         pass
+    try:
+        styles = doc.getStyleFamilies().getByName("PageStyles")
+    except Exception:
+        styles = None
+    if styles is None:
+        return
+    try:
+        names = list(styles.getElementNames())
+    except Exception:
+        names = []
+    for name in names:
+        try:
+            style = styles.getByName(name)
+        except Exception:
+            continue
+        try:
+            user_defined = style.isUserDefined() is True
+        except Exception:
+            user_defined = False
+        if user_defined:
+            # Release the style proxy before removeByName deletes its header.
+            del style
+            try:
+                styles.removeByName(name)
+            except Exception:
+                pass
+            continue
+        try:
+            first_shared = style.getPropertyValue("FirstIsShared")
+            header_on = style.getPropertyValue("HeaderIsOn")
+            footer_on = style.getPropertyValue("FooterIsOn")
+            if first_shared is True and not header_on and not footer_on:
+                continue
+        except Exception:
+            pass
+        for flag in ("FirstIsShared", "HeaderIsShared", "FooterIsShared"):
+            try:
+                style.setPropertyValue(flag, True)
+            except Exception:
+                pass
+        text_obj = None
+        for text_prop in (
+            "HeaderText",
+            "HeaderTextFirst",
+            "HeaderTextLeft",
+            "FooterText",
+            "FooterTextFirst",
+            "FooterTextLeft",
+        ):
+            text_obj = None
+            try:
+                text_obj = style.getPropertyValue(text_prop)
+            except Exception:
+                text_obj = None
+            if text_obj is None:
+                continue
+            try:
+                text_obj.setString("")
+            except Exception:
+                pass
+            try:
+                enum = text_obj.createEnumeration()
+            except Exception:
+                text_obj = None
+                continue
+            while True:
+                try:
+                    if enum.hasMoreElements() is not True:
+                        break
+                    el = enum.nextElement()
+                except Exception:
+                    break
+                try:
+                    if el.supportsService("com.sun.star.text.TextTable") is True:
+                        text_obj.removeTextContent(el)
+                except Exception:
+                    continue
+            text_obj = None
+        del style
 
 
 def _writer_pool_is_clean(doc) -> bool:

@@ -1344,23 +1344,17 @@ def _copy_xtext_by_portions(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
 def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # pyright: ignore[reportUnusedFunction]
     """Copy paragraphs, tables, fields, and direct char/para props inside *doc*.
 
-    Used by page-style clone. Does not select the source, does not use the
-    clipboard, and does not open a scratch Writer or run XHTML / flat ODF.
-    Returns how many fields were inserted.
+    Used by page-style clone after that clone has finished every page-style
+    setPropertyValue. Does not select the source, does not use the clipboard,
+    and does not open a scratch Writer or run XHTML / flat ODF. Returns how
+    many fields were inserted.
 
-    Bugfix: xtext_to_content used to controller.select the live header or
-    footer, getTransferable / insertTransferable into a hidden Writer, export
-    XHTML (in-process libxslt, stderr "XSL Vendor: 'libxslt'") and flat ODF,
-    then temp_doc.close(True) while that selection and clipboard could still
-    alias header nodes, fields, and titled draw frames. A titled AT_PARAGRAPH
-    graphic makes the ODF export hit the default rule in LibreOffice
-    filter/source/xslt/odf2xhtml/export/common/body.xsl (match="*"), which
-    logs "Using default element rule for ODF element 'svg:title'.". glibc
-    then reported "malloc(): unsorted double linked list corrupted", or
-    soffice died SIGSEGV 139 / VCL SalAbort. Python usually saw that on a
-    later pages.getByName ("Binary URP bridge disposed"), sometimes many
-    tests later in the pooled soffice (GHA 38526445257, 38584920511,
-    38584636315). This walk never selects and never exports.
+    The caller must not hold *src_text* or *dest_text* across a later
+    page-style setPropertyValue. Those writes call SwDoc::ChgPageDesc, which
+    replaces header/footer frame formats. #1476 removed the XHTML export from
+    this path; soffice still SIGSEGV'd in queryInterface on the next getByName
+    (GHA 38596218222, 38596189579) while the clone fetched HeaderText before
+    those writes.
     """
     cursor = dest_text.createTextCursor()
     cursor.gotoStart(False)

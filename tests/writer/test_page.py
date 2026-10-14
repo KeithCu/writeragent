@@ -1105,6 +1105,70 @@ def test_copy_page_regions_does_not_export_html():
     mock_replace_html.assert_not_called()
 
 
+def test_copy_page_regions_fetches_xtext_after_format_writes():
+    """Header and footer IsOn/size writes finish before either *Text is read.
+
+    ChgPageDesc on the footer must not run while the header XText is live.
+    """
+    from plugin.writer.page import _copy_page_regions
+
+    src_header = MagicMock()
+    src_header.getString.return_value = "H"
+    src_footer = MagicMock()
+    src_footer.getString.return_value = "F"
+    dest_header = MagicMock()
+    dest_header.getString.return_value = "H"
+    dest_footer = MagicMock()
+    dest_footer.getString.return_value = "F"
+    events: list[tuple[str, str]] = []
+
+    def _src_get_prop(name: str):
+        events.append(("get", name))
+        if name in ("HeaderIsOn", "FooterIsOn"):
+            return True
+        if name == "HeaderText":
+            return src_header
+        if name == "FooterText":
+            return src_footer
+        return 0
+
+    def _clone_set(name: str, value: object):
+        events.append(("set", name))
+
+    def _clone_get(name: str):
+        events.append(("get", name))
+        if name == "HeaderText":
+            return dest_header
+        if name == "FooterText":
+            return dest_footer
+        return 0
+
+    source = MagicMock()
+    source.getPropertyValue.side_effect = _src_get_prop
+    clone = MagicMock()
+    clone.setPropertyValue.side_effect = _clone_set
+    clone.getPropertyValue.side_effect = _clone_get
+    doc = MagicMock()
+    doc.getDrawPage.return_value.getCount.return_value = 0
+
+    text_names = {
+        "HeaderText", "HeaderTextFirst", "HeaderTextLeft",
+        "FooterText", "FooterTextFirst", "FooterTextLeft",
+    }
+    with patch("plugin.writer.html_export._copy_flow_into_xtext", return_value=1):
+        _copy_page_regions(doc, source, clone, uno_ctx=object(), services=None)
+
+    set_at = [i for i, (kind, _name) in enumerate(events) if kind == "set"]
+    text_at = [
+        i for i, (kind, name) in enumerate(events)
+        if kind == "get" and name in text_names
+    ]
+    assert set_at and text_at
+    assert max(set_at) < min(text_at)
+    assert any(name == "HeaderIsOn" for _kind, name in events if _kind == "set")
+    assert any(name == "FooterIsOn" for _kind, name in events if _kind == "set")
+
+
 # --- header/footer: replace one substring, leave fields and graphics -----------
 
 

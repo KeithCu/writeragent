@@ -823,6 +823,98 @@ def test_copy_page_style_clones_next_page_number_and_roman(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_copy_page_style_repeat_clone_survives_reset(ctx, doc):
+    """Six clone/reset rounds in one soffice.
+
+    The pool used to crash on the 1st–4th clone (queryInterface SIGSEGV,
+    then Binary URP bridge disposed on the following getByName). Repeating
+    the next-page field clone and the footer field-plus-graphic clone, with
+    the real pooled reset between them, is the permanent check.
+    """
+    from com.sun.star.text.PageNumberType import NEXT
+
+    from plugin.tests.testing_utils import reset_native_doc
+
+    logo = _header_logo_path()
+    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    graphic = _graphic_from_provider(ctx, _file_url_for_path(logo))
+    assert graphic is not None, "GraphicProvider could not load the fixture"
+
+    for i in range(6):
+        pages = doc.getStyleFamilies().getByName("PageStyles")
+        style, name = _style(doc)
+        if i % 2 == 0:
+            new_name = "RepeatNext%d" % i
+            if pages.hasByName(new_name):
+                pages.removeByName(new_name)
+            style.setPropertyValue("HeaderIsOn", True)
+            header = style.getPropertyValue("HeaderText")
+            header.setString("Next Page: ")
+            cursor = header.createTextCursor()
+            cursor.gotoEnd(False)
+            field = doc.createInstance("com.sun.star.text.textfield.PageNumber")
+            field.setPropertyValue("SubType", NEXT)
+            field.setPropertyValue("Offset", 1)
+            field.setPropertyValue("NumberingType", 2)
+            header.insertTextContent(cursor, field, False)
+            stats = copy_page_style(doc, name, new_name, uno_ctx=ctx)
+            assert stats["properties_copied"] > 0
+            clone = pages.getByName(new_name)
+            clone_header = clone.getPropertyValue("HeaderText")
+            found = False
+            enum = clone_header.createEnumeration()
+            while enum.hasMoreElements():
+                para = enum.nextElement()
+                portions = para.createEnumeration()
+                while portions.hasMoreElements():
+                    portion = portions.nextElement()
+                    if portion.getPropertyValue("TextPortionType") != "TextField":
+                        continue
+                    cloned = portion.getPropertyValue("TextField")
+                    if cloned.supportsService("com.sun.star.text.textfield.PageNumber"):
+                        found = True
+                        assert cloned.getPropertyValue("SubType") == NEXT
+                        assert cloned.getPropertyValue("Offset") == 1
+                        assert cloned.getPropertyValue("NumberingType") == 2
+            assert found, "repeat %d lost the NEXT field" % i
+        else:
+            new_name = "RepeatFoot%d" % i
+            if pages.hasByName(new_name):
+                pages.removeByName(new_name)
+            style.setPropertyValue("FooterIsOn", True)
+            footer = style.getPropertyValue("FooterText")
+            footer.setString("Annex 1 ")
+            cursor = footer.createTextCursor()
+            cursor.gotoEnd(False)
+            field = doc.createInstance("com.sun.star.text.textfield.PageNumber")
+            footer.insertTextContent(cursor, field, False)
+            shape = doc.createInstance("com.sun.star.text.TextGraphicObject")
+            shape.setPropertyValue("Graphic", graphic)
+            shape.setPropertyValue("AnchorType", AT_PARAGRAPH)
+            shape.setPropertyValue("Width", 1500)
+            shape.setPropertyValue("Height", 1500)
+            shape.setPropertyValue("HyperLinkURL", "https://example.com/index")
+            shape.setPropertyValue("Title", "back-to-index")
+            cursor.gotoEnd(False)
+            footer.insertTextContent(cursor, shape, False)
+            stats = copy_page_style(doc, name, new_name, uno_ctx=ctx)
+            assert stats["shapes_copied"] >= 1, stats
+            clone = pages.getByName(new_name)
+            clone_footer = clone.getPropertyValue("FooterText")
+            assert "Annex" in clone_footer.getString(), clone_footer.getString()
+            scan = _scan_region_content(doc, clone_footer)
+            assert scan["fields"], scan
+            linked = [
+                s for s in _shapes_anchored_in(doc, clone_footer)
+                if s.getPropertyValue("HyperLinkURL") == "https://example.com/index"
+            ]
+            assert linked, "repeat %d lost the footer graphic" % i
+            assert linked[0].getPropertyValue("Title") == "back-to-index"
+        reset_native_doc(doc, "writer", ctx)
+
+
+@native_test
+@with_native_doc("writer")
 def test_is_landscape_does_not_swap_unless_sizes_passed_uno(ctx, doc):
     style, name = _style(doc)
     w_snap = int(style.getPropertyValue("Width"))

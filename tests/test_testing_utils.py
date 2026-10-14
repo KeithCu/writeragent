@@ -836,6 +836,32 @@ def test_reset_writer_page_regions_clears_first_page_and_shares(monkeypatch):
     body.setPropertyValue.assert_called_with("PageDescName", "Standard")
 
 
+def test_reset_writer_page_regions_removes_user_style_without_reading_text():
+    """User page styles are removeByName'd and their HeaderText is not fetched."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+
+    user = MagicMock()
+    user.isUserDefined.return_value = True
+    styles = MagicMock()
+    styles.getElementNames.return_value = ("CloneBug1424",)
+    styles.getByName.return_value = user
+    styles.hasByName.return_value = True
+    families = MagicMock()
+    families.getByName.return_value = styles
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value = families
+
+    tu._reset_writer_page_regions(doc)
+
+    styles.removeByName.assert_called_once_with("CloneBug1424")
+    fetched = [c.args[0] for c in user.getPropertyValue.call_args_list]
+    assert "HeaderText" not in fetched
+    assert "FooterText" not in fetched
+    user.setPropertyValue.assert_not_called()
+
+
 def test_skip_windows_leftover_hidden_load_raises_on_win32(monkeypatch):
     """GHA 34646877587 / 34648929578 / 34649699848: leftover Hidden/AWT hang."""
     import unittest

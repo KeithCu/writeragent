@@ -8,7 +8,7 @@ In LibreOffice Writer, document layout is primarily controlled through **Page St
 
 The document's style families can be accessed via `doc.getStyleFamilies()`. The family for page styles is `"PageStyles"`.
 
-To copy a page style (direct properties, header/footer content, and floating graphics) call `style_clone(style=..., new_style=..., family="PageStyles")`. That tool lives with the other style tools; the page sub-agent can call it, and `style_list(family="PageStyles")`, without switching domains. It does not assign the new style to a page. `FollowStyle` on the clone stays the clone's own name. That clone copies header and footer flow inside the same document. It does not use the XHTML round-trip described below. `page_get_header_footer_text` and `page_set_header_footer_text` still do.
+To copy a page style (direct properties, header/footer content, and floating graphics) call `style_clone(style=..., new_style=..., family="PageStyles")`. That tool lives with the other style tools; the page sub-agent can call it, and `style_list(family="PageStyles")`, without switching domains. It does not assign the new style to a page. `FollowStyle` on the clone stays the clone's own name. That clone copies header and footer flow inside the same document. It does not use the XHTML round-trip described below. Those property writes (including HeaderIsOn, FooterIsOn, the share flags, and the header/footer sizes) finish before the clone reads HeaderText or FooterText; a write after that read makes LibreOffice replace the header frame format while this process still holds the text. `page_get_header_footer_text` and `page_set_header_footer_text` still do.
 
 ## 1. Page Styles and Dimensions (`com.sun.star.style.PageStyle`)
 

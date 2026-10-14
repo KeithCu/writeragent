@@ -477,13 +477,20 @@ def _copy_page_regions(
     """Copy on, non-mirror header/footer regions onto the clone.
 
     uno_ctx and services are unused. They stay so copy_page_style's keyword
-    call does not change. Flow is copied in-document; this no longer opens a
-    hidden Writer or reads the HTML import config service.
+    call does not change.
+
+    Every clone.setPropertyValue here runs before any HeaderText/FooterText
+    fetch. Each of those writes is SwXPageStyle::SetPropertyValues_Impl →
+    SwDoc::ChgPageDesc, which replaces header/footer frame formats
+    (CopyMasterHeader / CopyMasterFooter; docdesc.cxx). Fetching the text
+    first, or leaving the previous region's XText bound across the next
+    region's writes, hands Python a proxy whose sw object ChgPageDesc can
+    free. The next URP queryInterface then SIGSEGVs on cppu_threadpool and
+    Python sees "Binary URP bridge disposed" on the following getByName
+    (GHA 38596218222 libswlo+0xc62053, GHA 38596189579 libswlo+0xc624a3).
     """
-    shapes_copied = 0
-    skipped_shapes: list[str] = []
+    pending: list[tuple[str, str]] = []
     for region, (is_on_prop, text_prop) in _REGION_PROPS.items():
-        # First/left variants that only mirror the shared region would duplicate it.
         if _region_mirrors_shared(source, region):
             continue
         try:
@@ -491,54 +498,78 @@ def _copy_page_regions(
                 continue
         except Exception:
             continue
-        try:
-            src_text = source.getPropertyValue(text_prop)
-        except Exception:
-            src_text = None
-        if src_text is None:
-            continue
+        # IsOn before sizes: heights are void while the region is off (#1424).
+        # These writes finish before text_prop is read.
         clone.setPropertyValue(is_on_prop, True)
-
-        # Issue #1424: Apply size values after turning the region on
         prefix = "Header" if region.startswith("header") else "Footer"
         for size_prop in (
             "IsDynamicHeight", "DynamicSpacing",
             "BodyDistance", "Height",
-            "LeftMargin", "RightMargin"
+            "LeftMargin", "RightMargin",
         ):
-            prop_name = f"{prefix}{size_prop}"
+            prop_name = prefix + size_prop
             try:
                 clone.setPropertyValue(prop_name, source.getPropertyValue(prop_name))
             except Exception as e:
                 log.debug("_copy_page_regions failed to copy %s: %s", prop_name, e)
+        pending.append((region, text_prop))
 
-        dest_text = clone.getPropertyValue(text_prop)
-        if dest_text is None:
-            raise RuntimeError("Page style clone: no %s text on the new style." % region)
-        if _region_has_flow_content(doc, src_text):
-            # Bugfix: this used to export the region through xtext_to_content
-            # (controller.select + clipboard + hidden Writer + in-process
-            # libxslt / flat ODF) and import it with replace_xtext_with_html.
-            # That export is what corrupted soffice (malloc unsorted-list /
-            # SIGSEGV 139 / SalAbort), observed on the next getByName as
-            # "Binary URP bridge disposed" (GHA 38526445257, 38584920511,
-            # 38584636315). Same-document portion copy does not select, does
-            # not use the clipboard, and does not run libxslt.
-            from .html_export import _copy_flow_into_xtext
-
-            fields_copied = _copy_flow_into_xtext(doc, src_text, dest_text)
+    shapes_copied = 0
+    skipped_shapes: list[str] = []
+    for region, text_prop in pending:
+        src_text = None
+        dest_text = None
+        try:
             try:
-                plain = dest_text.getString() or ""
+                src_text = source.getPropertyValue(text_prop)
             except Exception:
-                plain = ""
-            if not str(plain).strip() and fields_copied == 0 and not _region_has_table(dest_text):
-                raise RuntimeError(
-                    "Page style clone: copied %s flow content was empty." % region
-                )
-        copied, skipped = _copy_region_graphics(doc, src_text, dest_text)
-        shapes_copied += copied
-        skipped_shapes.extend(skipped)
+                src_text = None
+            if src_text is None:
+                continue
+            dest_text = clone.getPropertyValue(text_prop)
+            if dest_text is None:
+                raise RuntimeError("Page style clone: no %s text on the new style." % region)
+            if _region_has_flow_content(doc, src_text):
+                from .html_export import _copy_flow_into_xtext
+
+                fields_copied = _copy_flow_into_xtext(doc, src_text, dest_text)
+                try:
+                    plain = dest_text.getString() or ""
+                except Exception:
+                    plain = ""
+                if not str(plain).strip() and fields_copied == 0 and not _region_has_table(dest_text):
+                    raise RuntimeError(
+                        "Page style clone: copied %s flow content was empty." % region
+                    )
+            copied, skipped = _copy_region_graphics(doc, src_text, dest_text)
+            shapes_copied += copied
+            skipped_shapes.extend(skipped)
+        finally:
+            # Drop the proxies before the next region and before return.
+            # release() is oneway; holding them until the caller getByName's
+            # is how a freed sw object faults under that call.
+            src_text = None
+            dest_text = None
     return shapes_copied, skipped_shapes
+
+
+def _clear_doc_undo(doc: Any) -> None:
+    """Empty undo and redo before any page-style property write.
+
+    SwXPageStyle::SetPropertyValues_Impl (LibreOffice sw/source/core/unocore/unostyle.cxx,
+    the block commented "Fix i64460") calls DelAllUndoObj on the first property
+    write, then SetItemSet → SwDoc::ChgPageDesc with undo forced off.
+    ChgPageDesc's undo-off branch (sw/source/core/doc/docdesc.cxx, tdf#141613)
+    deletes the live header/footer SwFrameFormat when the redo stack's first
+    id is HEADER_FOOTER or INSERT_PAGE_NUMBER. The clone tests insert a
+    PageNumber field immediately before this function, which is that id.
+    clear() drops those records first. It does not delete live header text;
+    the first setPropertyValue would discard the same undo records anyway.
+    """
+    try:
+        doc.getUndoManager().clear()
+    except Exception:
+        log.debug("page style clone: undo clear failed", exc_info=True)
 
 
 def copy_page_style(
@@ -578,6 +609,7 @@ def copy_page_style(
     # already defaulted to the new name and the skip list can leave it there.
     styles.insertByName(new_name, clone)
     try:
+        _clear_doc_undo(doc)
         copied, skipped = _copy_direct_style_properties(source, clone)
         shapes_copied, skipped_shapes = _copy_page_regions(
             doc, source, clone, uno_ctx=uno_ctx, services=services,
