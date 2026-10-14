@@ -277,3 +277,9 @@ def test_pack_calc_multi_data_for_wire_roundtrip():
     assert all(isinstance(r, CalcRange) for r in unpacked)
     assert float(np.sum(unpacked[0])) == pytest.approx(6.0)
     assert float(np.sum(unpacked[1])) == pytest.approx(15.0)
+
+
+def test_pack_calc_data_for_wire_flat_list_is_one_row():
+    wire = pack_calc_data_for_wire([1, 2, 3])
+    assert wire["shape"] == [1, 3]
+    assert wire["data"] == [[1, 2, 3]]

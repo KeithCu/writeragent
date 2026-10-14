@@ -90,15 +90,16 @@ def column_vector_as_2d(values: list[Any]) -> list[list[Any]]:
 
 @deal.post(lambda result: isinstance(result, dict) and is_calc_range_payload(result))
 def pack_calc_range_envelope(
-    grid: list[list[Any]],
+    grid: Any,
     *,
     address: str | None = None,
     pack_inner: Any | None = None,
 ) -> dict[str, Any]:
     """Build a ``calc_range`` wire envelope around an already-packed or raw grid.
 
-    *pack_inner*, when provided, is a callable ``(grid) -> wire`` (typically
-    ``host_pack_data``). When omitted, the rectangular list is stored as-is.
+    A scalar, a flat sequence, or a 2D grid is accepted; ``ensure_rectangular_2d``
+    runs once here. *pack_inner*, when provided, is a callable ``(grid) -> wire``
+    (typically ``host_pack_data``). When omitted, the rectangular list is stored as-is.
     """
     # crosshair: off
     rows = ensure_rectangular_2d(grid)
@@ -158,6 +159,18 @@ _deal_binary_op_pre = _profile(
 )
 
 
+def _numpy_required(exc: ImportError) -> TypeError:
+    """Missing-NumPy error for multi-cell arithmetic.
+
+    What was wrong: ``except Exception`` around ``to_numpy`` reported every
+    failure as ``TypeError: Multi-cell arithmetic requires NumPy``.
+    How it happened: the tests only patch ``to_numpy`` with ``ImportError``.
+    Why this fixes it: a missing NumPy is ``ImportError`` (``ModuleNotFoundError``
+    is a subclass). Any other exception propagates.
+    """
+    return TypeError(f"Multi-cell arithmetic requires NumPy: {exc}")
+
+
 def _binop(op: Any, reverse: bool = False) -> Any:
     """Factory for binary operator dunders delegating to _binary_op."""
     @deal.pre(_deal_binary_op_pre)
@@ -172,7 +185,7 @@ class CalcRange:
     """Rectangular sheet range exposed to user/venv scripts.
 
     Attributes:
-        values: Exact 2D cell values (``None`` for blanks). Never mutates orientation.
+        values: Exact 2D cell values (``None`` for blanks); the lists are the live storage, writing into them changes the range, and reading does not reshape.
         address: Optional source A1 / sheet hint from the host.
         shape: ``(nrows, ncols)``.
     """
@@ -193,6 +206,7 @@ class CalcRange:
     def values(self) -> list[list[Any]]:
         # crosshair: off
         # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
+        """Live 2D cells. ``None`` is a blank. These lists are the range's storage; writing into them changes the range."""
         return self._values
 
     @property
@@ -254,36 +268,43 @@ class CalcRange:
     def to_numpy(self, *, dtype: Any = None, copy: bool | None = None) -> Any:
         # crosshair: off
         # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
-        """Explicit NumPy conversion (same as ``np.asarray(range)``)."""
+        """NumPy view of the cells.
+
+        With no ``dtype``, a grid of ``None`` and real numbers (``int`` / ``float``,
+        not ``bool``) is ``float64`` and blanks are NaN. Any other grid is an object
+        array and blanks stay ``None``.
+
+        An explicit ``dtype`` is ``np.array`` on the raw cells. Blanks are not
+        rewritten first.
+        """
         import numpy as np
 
-        def _cell(v: Any) -> Any:
-            if v is None:
-                return math.nan
-            return v
-
-        grid = [[_cell(v) for v in row] for row in self._values]
         kwargs: dict[str, Any] = {}
         if copy is not None:
             kwargs["copy"] = copy
 
         if not self._values:
-            # np.array([]) is shape (0,), while .shape is (0, 0). A 0-row
-            # range has no row to carry a column count, so both are (0, 0).
             dt = np.float64 if dtype is None else dtype
             return np.array([], dtype=dt, **kwargs).reshape(0, 0)
 
+        # What was wrong: every explicit dtype was built from a grid that had
+        # already replaced None with math.nan. dtype=object stored nan, and
+        # dtype=bool stored True because nan is truthy.
+        # How it happened: _cell ran before the dtype branch. np.array on the
+        # raw cells keeps None for object, maps None to False for bool, and
+        # maps None to nan for float.
+        # Why this fixes it: a named dtype is passed the raw cells. Only the
+        # default all-numeric path maps blanks to NaN.
         if dtype is not None:
-            return np.array(grid, dtype=dtype, **kwargs)
+            return np.array(self._values, dtype=dtype, **kwargs)
 
-        # np.asarray(..., dtype=float64) turns "1.5" into 1.5 and True into 1.0.
-        # Use float64 only when every cell is a real number (int/float, not bool) or None.
         is_numeric = all(
             cell is None or (not isinstance(cell, bool) and isinstance(cell, (int, float)))
             for row in self._values
             for cell in row
         )
         if is_numeric:
+            grid = [[math.nan if v is None else v for v in row] for row in self._values]
             return np.array(grid, dtype=np.float64, **kwargs)
         return np.array(self._values, dtype=object, **kwargs)
 
@@ -402,36 +423,34 @@ class CalcRange:
         # crosshair: off
         # A 1x1 None raises TypeError on arithmetic (None + 1). Multi-cell
         # ranges already map None to nan; do the same here except for equality.
-        if self.shape == (1, 1):
-            val = self._values[0][0]
+        def _blank_to_nan(val: Any) -> Any:
             if val is None and op not in (operator.eq, operator.ne):
-                val = math.nan
+                return math.nan
+            return val
+
+        if self.shape == (1, 1):
+            val = _blank_to_nan(self._values[0][0])
             if isinstance(other, CalcRange):
                 if other.shape == (1, 1):
-                    other_val = other._values[0][0]
-                    if other_val is None and op not in (operator.eq, operator.ne):
-                        other_val = math.nan
+                    other_val = _blank_to_nan(other._values[0][0])
                     return op(other_val, val) if is_reverse else op(val, other_val)
                 try:
                     other_arr = other.to_numpy()
-                except Exception as exc:
-                    raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
+                except ImportError as exc:
+                    raise _numpy_required(exc) from exc
                 return op(other_arr, val) if is_reverse else op(val, other_arr)
-            if other is None and op not in (operator.eq, operator.ne):
-                other = math.nan
+            other = _blank_to_nan(other)
             return op(other, val) if is_reverse else op(val, other)
 
         try:
             self_arr = self.to_numpy()
-        except Exception as exc:
-            raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
+        except ImportError as exc:
+            raise _numpy_required(exc) from exc
         if isinstance(other, CalcRange):
             other_val = other._values[0][0] if other.shape == (1, 1) else other.to_numpy()
-            if other.shape == (1, 1) and other_val is None and op not in (operator.eq, operator.ne):
-                other_val = math.nan
-            other = other_val
-        elif other is None and op not in (operator.eq, operator.ne):
-            other = math.nan
+            other = _blank_to_nan(other_val)
+        else:
+            other = _blank_to_nan(other)
         return op(other, self_arr) if is_reverse else op(self_arr, other)
 
     def _unary_op(self, op: Any) -> Any:
@@ -444,8 +463,8 @@ class CalcRange:
             return op(val)
         try:
             return op(self.to_numpy())
-        except Exception as exc:
-            raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
+        except ImportError as exc:
+            raise _numpy_required(exc) from exc
 
     # Binary arithmetic
     __add__: Callable[..., Any] = _binop(operator.add)
@@ -549,6 +568,19 @@ def _deal_materialize_inner_ok_crosshair(inner: object) -> bool:
 _deal_materialize_inner_ok = _profile(_deal_materialize_inner_ok_crosshair)
 
 
+def _is_pandas_frame_or_series(obj: Any) -> bool:
+    """True for a pandas DataFrame or Series, including subclasses, without importing pandas.
+
+    Host LibreOffice Python has no pandas.
+    """
+    for cls in type(obj).__mro__:
+        if cls.__name__ in ("DataFrame", "Series"):
+            mod = getattr(cls, "__module__", None)
+            if isinstance(mod, str) and (mod == "pandas" or mod.startswith("pandas.")):
+                return True
+    return False
+
+
 @deal.pre(lambda inner: _deal_materialize_inner_ok(inner))
 def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     """Unpack split_grid / ndarray / DataFrame / nested lists to a rectangular ``list[list]``."""
@@ -567,11 +599,13 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     else:
         unpacked = inner
 
-    if hasattr(unpacked, "to_numpy") and callable(unpacked.to_numpy):
-        try:
-            unpacked = unpacked.to_numpy()
-        except Exception:
-            pass
+    # What was wrong: any object with to_numpy() was converted, and a raised
+    # to_numpy was swallowed so the object became a 1×1 cell.
+    # How it happened: duck-typing plus ``except Exception: pass``.
+    # Why this fixes it: only a pandas DataFrame or Series is a grid here.
+    # A failure from that to_numpy propagates. Anything else stays one cell.
+    if _is_pandas_frame_or_series(unpacked):
+        unpacked = unpacked.to_numpy()
 
     try:
         import numpy as np

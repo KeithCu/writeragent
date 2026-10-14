@@ -51,8 +51,9 @@ Builtin `sum` / `min` / `max` iterate **rows**, not cells (`sum(data)` on a colu
 **API (explicit conversions)** — when `data` is a single `CalcRange`:
 
 ```python
-data.values                                      # exact list[list] (None for blanks)
-data.to_numpy()                                  # ndarray (None → nan for numeric dtype)
+data.values                                      # exact list[list]; None is a blank. These lists are the range storage — assigning into them mutates the range
+data.to_numpy()                                  # no dtype: float64 and NaN blanks when every cell is None or a real number (int/float, not bool); otherwise object and None stays None
+data.to_numpy(dtype=...)                         # np.array(data.values, dtype=...) — None is not rewritten first
 data.to_pandas()                                 # header_row=0 by default
 data.to_pandas(header_row=None)                  # all rows are data; columns col_0…
 data.to_pandas(parse_strings=True)               # opt-in currency/percent/date string parsing
@@ -173,6 +174,8 @@ Microsoft Python in Excel also collapses empty → `NaN` on ingress and renders 
 | **Small range** (<100 cells, nested list) | `None` in `.values` | May promote to ndarray only if reloaded as clean numeric |
 
 Ingress blanks can poison naive `np.sum` / `np.mean` — prefer `nan*` helpers when blanks should be ignored.
+ 
+`to_numpy()` with no `dtype` maps blanks to NaN only when every cell is `None` or a real number (`int` or `float`, not `bool`). Any other grid is an object array and blanks stay `None`. An explicit `dtype` is `np.array(data.values, dtype=dtype)` with no earlier rewrite: `dtype=object` keeps `None`, `dtype=bool` follows NumPy (`None` becomes `False`), `dtype=float` becomes `nan`, and an integer dtype raises `TypeError` when a blank is present. `copy=False` raises `ValueError` because the cells are a Python list.
 
 ### Egress (Python → Calc)
 

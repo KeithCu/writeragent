@@ -456,3 +456,103 @@ def test_materialize_calc_range_address_strip():
     assert r2.address is None
 
 
+def test_to_numpy_explicit_dtype_does_not_rewrite_blanks():
+    np = pytest.importorskip("numpy")
+
+    # CalcRange([[1, None]]).to_numpy() is float64, cell 0 is 1.0, cell 1 is NaN.
+    arr_default = CalcRange([[1, None]]).to_numpy()
+    assert arr_default.dtype == np.float64
+    assert arr_default[0, 0] == 1.0
+    assert np.isnan(arr_default[0, 1])
+
+    # .to_numpy(dtype=object) is object, cell 0 is 1, cell 1 is None.
+    arr_obj = CalcRange([[1, None]]).to_numpy(dtype=object)
+    assert arr_obj.dtype == object
+    assert arr_obj[0, 0] == 1
+    assert arr_obj[0, 1] is None
+
+    # np.array(CalcRange([[1, None]]), dtype=object) cell 1 is None.
+    arr_np_obj = np.array(CalcRange([[1, None]]), dtype=object)
+    assert arr_np_obj[0, 1] is None
+
+    # CalcRange([[True, None]]).to_numpy(dtype=bool).tolist() is [[True, False]] and dtype.kind == "b".
+    arr_bool = CalcRange([[True, None]]).to_numpy(dtype=bool)
+    assert arr_bool.tolist() == [[True, False]]
+    assert arr_bool.dtype.kind == "b"
+
+    # .to_numpy(dtype=float) on [[1, None]] is float64 with NaN in cell 1.
+    arr_float = CalcRange([[1, None]]).to_numpy(dtype=float)
+    assert arr_float.dtype == np.float64
+    assert np.isnan(arr_float[0, 1])
+
+    # .to_numpy(dtype=int) on [[1, None]] raises TypeError.
+    with pytest.raises(TypeError):
+        CalcRange([[1, None]]).to_numpy(dtype=int)
+
+    # CalcRange([[1, 2]]).to_numpy(dtype=int) is an integer dtype (np.issubdtype(..., np.integer)) and .tolist() is [[1, 2]].
+    arr_int = CalcRange([[1, 2]]).to_numpy(dtype=int)
+    assert np.issubdtype(arr_int.dtype, np.integer)
+    assert arr_int.tolist() == [[1, 2]]
+
+    # CalcRange([[1, None, "a"]]).to_numpy() and .to_numpy(dtype=object) are both object, cell 1 is None, cell 2 is "a".
+    arr_mixed_default = CalcRange([[1, None, "a"]]).to_numpy()
+    assert arr_mixed_default.dtype == object
+    assert arr_mixed_default[0, 1] is None
+    assert arr_mixed_default[0, 2] == "a"
+    arr_mixed_obj = CalcRange([[1, None, "a"]]).to_numpy(dtype=object)
+    assert arr_mixed_obj.dtype == object
+    assert arr_mixed_obj[0, 1] is None
+    assert arr_mixed_obj[0, 2] == "a"
+
+
+def test_multi_cell_arithmetic_propagates_to_numpy_errors():
+    from unittest.mock import patch
+
+    with patch.object(CalcRange, "to_numpy", side_effect=ValueError("boom")):
+        with pytest.raises(ValueError, match="boom"):
+            _ = CalcRange([[1, 2], [3, 4]]) + 1
+        with pytest.raises(ValueError, match="boom"):
+            _ = -(CalcRange([[1, 2], [3, 4]]))
+        with pytest.raises(ValueError, match="boom"):
+            _ = CalcRange([[5]]) + CalcRange([[1, 2], [3, 4]])
+
+
+def test_values_is_live_storage():
+    cr = CalcRange([[1, 2], [3, 4]])
+    assert cr.values is cr._values
+    cr.values[0][0] = 9
+    assert cr.values == [[9, 2], [3, 4]]
+
+
+def test_calc_range_accepts_pandas_frame_and_series_only():
+    pd = pytest.importorskip("pandas")
+
+    # CalcRange(pd.Series([1, 2, 3])).values == [[1, 2, 3]] (one row).
+    assert CalcRange(pd.Series([1, 2, 3])).values == [[1, 2, 3]]
+
+    # A DataFrame subclass SubFrame(pd.DataFrame) of {"a": [1, 2], "b": [3, 4]} materializes to [[1, 3], [2, 4]].
+    class SubFrame(pd.DataFrame):
+        pass
+
+    sf = SubFrame({"a": [1, 2], "b": [3, 4]})
+    assert CalcRange(sf).values == [[1, 3], [2, 4]]
+
+    # A DataFrame subclass whose to_numpy raises RuntimeError("boom") makes CalcRange(...) raise RuntimeError matching boom.
+    class BrokenFrame(pd.DataFrame):
+        def to_numpy(self, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        CalcRange(BrokenFrame({"a": [1]}))
+
+    # A class NotPandas with to_numpy returning [[9, 9]] materializes to shape (1, 1) and values[0][0] is that instance.
+    class NotPandas:
+        def to_numpy(self):
+            return [[9, 9]]
+
+    np_instance = NotPandas()
+    cr_not_pd = CalcRange(np_instance)
+    assert cr_not_pd.shape == (1, 1)
+    assert cr_not_pd.values[0][0] is np_instance
+
+

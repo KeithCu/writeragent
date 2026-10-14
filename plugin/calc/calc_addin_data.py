@@ -198,8 +198,11 @@ def pack_calc_data_for_wire(py_data: list[list[Any]] | list[Any] | None, *, forc
     """Pack one Calc range as a ``calc_range`` envelope (inner list or split_grid)."""
     if py_data is None:
         return None
-    grid = ensure_rectangular_2d(py_data)
-    return pack_calc_range_envelope(grid, address=address, pack_inner=lambda g: host_pack_data(g, force=force))
+    # pack_calc_range_envelope runs ensure_rectangular_2d and sets shape from
+    # that grid. Doing it here first copied every cell again on the =PY()
+    # pack path. materialize_calc_range already stopped the matching double
+    # walk on the way back in.
+    return pack_calc_range_envelope(py_data, address=address, pack_inner=lambda g: host_pack_data(g, force=force))
 
 
 def count_cells(data: Any) -> int:
