@@ -519,7 +519,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 
 **Packages:** `pint` (required). Settings → Python **Data Engineering Libraries** group lists pint.
 
-**Run Python Script templates:** **Units Helpers →** `[Units] convert_quantity`, `[Units] parse_quantity`, `[Units] check_dimensionality`. Edit positional or keyword arguments in the direct helper function call (e.g. `convert_quantity(data, "m/s", "km/h")`).
+**Run Python Script templates:** **Units Helpers →** `[Units] convert_quantity`, `[Units] parse_quantity`, `[Units] check_dimensionality`. Edit positional or keyword arguments in the direct helper function call (e.g. `convert_quantity(data, "m/s", "km/h")`). The host parses that direct call into dispatch keys by positional prefix: `value`, `from`, `to` for `convert_quantity`; `quantity` for `parse_quantity`; `magnitude`, `units`, `format_spec` for `format_quantity`; `quantity_a`, `quantity_b` for `check_dimensionality`. Keywords keep the names written in the call and override the same slot.
 
 **Calc egress:** By default, `convert_quantity` and `parse_quantity` write a **single formatted cell** at the selection anchor (e.g. `36 km/h`). Writer inserts the same formatted string as plain text. A vector result inserts the per-cell strings joined with `", "`. For a debug/report layout, pass `output_style="detailed"` in the function call — this writes a key-value grid (formatted value on the first row, then magnitude/units or compatibility fields). `check_dimensionality` defaults to `detailed`.
 

@@ -275,3 +275,55 @@ def test_run_viz_bad_header_row_is_invalid_spec():
     assert result["status"] == "error"
     assert result["code"] == "INVALID_SPEC"
 
+
+def test_run_trusted_viz_sheet_disposal_propagates():
+    from plugin.scripting.viz import run_trusted_viz
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    client_mock = MagicMock()
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.scripting.viz.is_calc", return_value=True),
+        patch("plugin.scripting.viz.is_writer", return_value=False),
+        patch("plugin.scripting.viz.calc_tool_context", return_value=MagicMock()),
+        patch("plugin.scripting.viz._resolve_python_data", return_value=([["x"], [1]], None)),
+        patch("plugin.scripting.viz.client_run_viz", client_mock),
+        patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
+    ):
+        mock_bridge.return_value.get_active_sheet.side_effect = DisposedException("disposed")
+        with pytest.raises(DocumentDisposedError):
+            run_trusted_viz(
+                MagicMock(),
+                MagicMock(),
+                helper="quick_plot",
+                data=[["x"], [1]],
+            )
+    client_mock.assert_not_called()
+
+
+def test_run_trusted_viz_sheet_name_failure_is_best_effort():
+    from plugin.scripting.viz import run_trusted_viz
+
+    client_mock = MagicMock(return_value={"status": "ok", "helper": "quick_plot"})
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.scripting.viz.is_calc", return_value=True),
+        patch("plugin.scripting.viz.is_writer", return_value=False),
+        patch("plugin.scripting.viz.calc_tool_context", return_value=MagicMock()),
+        patch("plugin.scripting.viz._resolve_python_data", return_value=([["x"], [1]], None)),
+        patch("plugin.scripting.viz.client_run_viz", client_mock),
+        patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
+    ):
+        mock_bridge.return_value.get_active_sheet.side_effect = RuntimeError("no sheet")
+        result = run_trusted_viz(
+            MagicMock(),
+            MagicMock(),
+            helper="quick_plot",
+            data=[["x"], [1]],
+        )
+    assert result == {"status": "ok", "helper": "quick_plot"}
+    client_mock.assert_called_once()
+

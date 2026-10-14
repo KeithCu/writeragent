@@ -12,7 +12,7 @@ from plugin.calc.address_utils import index_to_column
 from plugin.calc.bridge import CalcBridge
 from plugin.doc.doc_type import is_calc
 from plugin.scripting.client import run_analysis
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.scripting.analysis import HELPER_NAMES
 
 if TYPE_CHECKING:
@@ -74,8 +74,13 @@ def run_trusted_analysis(uno_ctx: Any, doc: Any, *, helper: str, params: dict[st
         try:
             bridge = CalcBridge(doc)
             ctx_out["sheet_name"] = bridge.get_active_sheet().getName()
-        except Exception:
-            pass
+        except Exception as exc:
+            # What was wrong: DisposedException was ignored, then run_analysis ran
+            # against a dead document.
+            # How it happened: the sheet name is best-effort context.
+            # Why this change: reraise_if_disposed propagates real disposal. Other
+            # failures still leave sheet_name unset.
+            reraise_if_disposed(exc)
         return data_out, error_out, ctx_out
 
     py_data, err, context = execute_on_main_thread(_read_data)

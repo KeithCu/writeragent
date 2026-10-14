@@ -176,13 +176,29 @@ def _writeragent_imported_names(tree: ast.AST) -> set[str]:
     return names
 
 
+# Dispatch keys for a direct units call. Same names as the template
+# positional_args and venv _dispatch_* lookups. ``from`` / ``to`` stay the
+# short keys because ``from`` is not a keyword argument and _dispatch_convert
+# reads them before from_unit / to_unit. parse_quantity, format_quantity, and
+# check_dimensionality are keyword-only at runtime; a positional call
+# TypeErrors if executed, and the spec still records the prefix. Keywords
+# already stored win via setdefault. Helpers missing from this table keep
+# kwargs only: describe_data(data) must not become {"quantity": "data"}.
+_DIRECT_POSITIONAL_KEYS: dict[str, tuple[str, ...]] = {
+    "convert_quantity": ("value", "from", "to"),
+    "parse_quantity": ("quantity",),
+    "format_quantity": ("magnitude", "units", "format_spec"),
+    "check_dimensionality": ("quantity_a", "quantity_b"),
+}
+
+
 def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]:
     """Literal params from ``helper(...)`` (units positional style and kwargs).
 
-    Units helpers take positional value/from/to (or quantity). Applying that
-    map to every helper turned describe_data(data) into {"quantity": "data"}.
-    Use it only for convert_quantity, parse_quantity, format_quantity, and
-    check_dimensionality.
+    The positional prefix table maps arguments for convert_quantity,
+    parse_quantity, format_quantity, and check_dimensionality; keywords win.
+    Applying that map to every helper turned describe_data(data) into
+    {"quantity": "data"}.
     """
     params: dict[str, Any] = {}
     if node.keywords and any(kw.arg is None for kw in node.keywords):
@@ -194,16 +210,10 @@ def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]
     for kw in node.keywords:
         if kw.arg is not None:
             params[kw.arg] = _literal_value(kw.value)
-    if node.args and helper in ("convert_quantity", "parse_quantity", "format_quantity", "check_dimensionality"):
-        if len(node.args) == 3 and helper == "convert_quantity":
-            params.setdefault("value", _literal_value(node.args[0]))
-            params.setdefault("from", _literal_value(node.args[1]))
-            params.setdefault("to", _literal_value(node.args[2]))
-        elif len(node.args) == 1 and helper in ("parse_quantity", "format_quantity"):
-            params.setdefault("quantity", _literal_value(node.args[0]))
-        elif len(node.args) == 2 and helper == "check_dimensionality":
-            params.setdefault("quantity_a", _literal_value(node.args[0]))
-            params.setdefault("quantity_b", _literal_value(node.args[1]))
+    keys = _DIRECT_POSITIONAL_KEYS.get(helper)
+    if keys and node.args:
+        for key, arg in zip(keys, node.args):
+            params.setdefault(key, _literal_value(arg))
     return {"helper": helper, "params": params}
 
 
@@ -252,31 +262,49 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
 def _find_binding_insertion_line(code: str) -> int:
     """Line index (0-based) where injected bindings should be inserted.
 
-    Bindings go after any shebang, coding comment, module docstring, and
-    ``from __future__ import``. Prepending at line 0 breaks those headers
-    and shifts every line number in the script.
+    When *code* parses, bindings go after a leading module docstring and any
+    ``from __future__ import`` that follows it. A shebang or coding cookie above
+    those statements stays in the prefix because those lines are before
+    ``end_lineno``. When parsing fails, or the body has neither, the fallback
+    skips a shebang, a coding cookie, and a textual future import only.
     """
     lines = code.splitlines(keepends=True)
     if not lines:
         return 0
 
-    last_future_line = 0
+    insert_after = 0
     try:
         tree = ast.parse(code)
         for node in tree.body:
             if isinstance(node, ast.ImportFrom) and node.module == "__future__":
                 end_line = getattr(node, "end_lineno", node.lineno)
-                if end_line > last_future_line:
-                    last_future_line = end_line
-            elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-                continue
+                if end_line > insert_after:
+                    insert_after = end_line
+            elif (
+                insert_after == 0
+                and isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                # First statement only. A string later in the body is not __doc__.
+                # What was wrong: this branch continued and left insert_after at 0
+                # when the module had a docstring and no future import, so the
+                # manual scan returned 0 and the assignments landed above __doc__.
+                # How it happened: only a __future__ end line was stored.
+                # Why this change: the docstring end line is the insertion point
+                # when nothing later (__future__) extends it.
+                insert_after = getattr(node, "end_lineno", node.lineno)
             else:
                 break
     except (SyntaxError, TypeError, ValueError):
-        pass
+        insert_after = 0
 
-    if last_future_line > 0:
-        return min(last_future_line, len(lines))
+    if insert_after > 0:
+        return min(insert_after, len(lines))
+
+    # The manual scan runs when parse failed or the AST walk found neither a
+    # docstring nor a future import; it skips a shebang, a coding cookie, and
+    # a textual future import, and it does not try to find the end of a docstring.
 
     idx = 0
     in_future = False
@@ -815,6 +843,8 @@ def run_trusted_calc_data_helper(
 
     def _read_sheet() -> tuple[Any, str | None, dict[str, Any]]:
         # UNO only. Callers are async workers; the venv IPC must not sit in this hop.
+        from plugin.framework.errors import reraise_if_disposed
+
         tool_ctx = calc_tool_context(uno_ctx, doc)
         py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)
         context: dict[str, Any] = {}
@@ -822,6 +852,13 @@ def run_trusted_calc_data_helper(
             bridge = CalcBridge(doc)
             context["sheet_name"] = bridge.get_active_sheet().getName()
         except Exception as e:
+            # What was wrong: DisposedException was logged and ignored, then client_run
+            # ran against a dead document.
+            # How it happened: the sheet name is best-effort context, so the probe
+            # catches Exception.
+            # Why this change: reraise_if_disposed propagates real disposal and still
+            # swallows a missing sheet. A bare RuntimeException is not disposal.
+            reraise_if_disposed(e)
             log.debug("Failed to resolve active sheet name: %s", e)
         if task_hint:
             context["task_hint"] = str(task_hint)
