@@ -282,13 +282,73 @@ def session_duckdb(session_id: str | None = None) -> Any:
     return con
 
 
+def _quote_duckdb_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _main_catalog_entries(raw: Any, name: str) -> list[tuple[str, str]]:
+    sql = (
+        "SELECT table_catalog, table_type FROM information_schema.tables "
+        "WHERE table_schema = 'main' AND table_name = ?"
+    )
+    rows = raw.execute(sql, [name]).fetchall()
+    return [(str(r[0]), str(r[1])) for r in rows]
+
+
+def _memory_view_definition(raw: Any, name: str) -> str | None:
+    sql = (
+        "SELECT view_definition FROM information_schema.views "
+        "WHERE table_catalog = 'memory' AND table_schema = 'main' AND table_name = ?"
+    )
+    try:
+        rows = raw.execute(sql, [name]).fetchall()
+    except Exception:
+        return None
+    if not rows:
+        return None
+    val = rows[0][0]
+    return str(val) if val is not None else None
+
+
+def _drop_catalog_name(raw: Any, name: str) -> None:
+    try:
+        entries = _main_catalog_entries(raw, name)
+    except Exception as exc:
+        log.warning("Failed to query catalog for %r: %s", name, exc)
+        if hasattr(raw, "unregister"):
+            try:
+                raw.unregister(name)
+            except Exception:
+                pass
+        return
+
+    quoted = _quote_duckdb_ident(name)
+    has_base_table = False
+    for _cat, table_type in entries:
+        if table_type == "VIEW":
+            raw.execute(f"DROP VIEW IF EXISTS {quoted}")
+        elif table_type == "BASE TABLE":
+            has_base_table = True
+
+    if has_base_table:
+        raw.execute(f"DROP TABLE IF EXISTS {quoted}")
+
+    if hasattr(raw, "unregister"):
+        try:
+            raw.unregister(name)
+        except Exception:
+            pass
+
+
 def invalidate_session_tables(
     names: list[str] | tuple[str, ...] | None = None,
     *,
     session_id: str | None = None,
 ) -> None:
-    """Drop registered tables, or close the session catalog when *names* is omitted.
+    """Drop registered relations, views, or tables, or close the session catalog when *names* is omitted.
 
+    Drops a register() relation, a CREATE VIEW, or a CREATE TABLE. A flat-file
+    stem view that selects from the dropped table is dropped with it.
     Use this when a cell must discard a snapshot without Reset Python Session.
     """
     key = resolve_duckdb_session_id(session_id)
@@ -307,10 +367,20 @@ def invalidate_session_tables(
         if not name:
             continue
         try:
-            if hasattr(raw, "unregister"):
-                raw.unregister(name)
-            else:
-                raw.execute(f'DROP VIEW IF EXISTS "{name}"')
+            # Bugfix: unregister() is a silent no-op on CREATE TABLE / CREATE VIEW, and
+            # hasattr(raw, "unregister") made the old DROP VIEW branch dead. Flat files
+            # materialize via CREATE TABLE, so invalidate left those snapshots queryable.
+            # Look up catalog types in information_schema to drop the correct object type,
+            # and drop any stem view whose definition selects from the dropped table.
+            stem = os.path.splitext(name)[0]
+            stem_def: str | None = None
+            if stem and stem != name:
+                stem_def = _memory_view_definition(raw, stem)
+
+            _drop_catalog_name(raw, name)
+
+            if stem_def is not None and _quote_duckdb_ident(name) in stem_def:
+                _drop_catalog_name(raw, stem)
         except Exception:
             log.debug("invalidate_session_tables: could not drop %s", name, exc_info=True)
 
@@ -446,7 +516,9 @@ class GuardedDuckDBConnection:
             return
         # Setting allowed_directories alone does not restrict reads; it is only an
         # allowlist after external access is off, and DuckDB then refuses to change
-        # it. Absolute paths under base still read. Relative paths fail the literal check.
+        # it. Absolute paths under base still read. Relative paths are not a hit
+        # for _string_looks_like_escape (read_csv('etc/passwd') is allowed by the
+        # regex); enable_external_access=false rejects them.
         # That is why flat files are registered with resolve_flat_file_path's absolute
         # path and why this runs once.
         escaped_base = base.replace("'", "''")
@@ -651,9 +723,10 @@ def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
             _register_relation(con, orig_name, coerced.df)
             stem = os.path.splitext(orig_name)[0]
             if stem and stem != orig_name:
-                # Skip a stem that is already registered (a.csv vs a.xlsx) and
-                # log the alias error. Overwriting the earlier table would
-                # query the wrong file.
+                # This check is this batch only. A stem already in the catalog
+                # is refreshed by _register_relation when the same name is
+                # preloaded again. Do not treat a live catalog hit as a
+                # collision here.
                 if stem in preloaded or stem in registered_stems:
                     log.warning(
                         "Skipping stem alias %r for %r: name collision",
@@ -680,13 +753,15 @@ def _register_flat_files(
     con: Any,
     flat_files: dict[str, str] | None,
     scoped_dir: str | None = None,
-) -> None:
+) -> list[str]:
     if not flat_files:
-        return
+        return []
     # Files require scoped_dir. Every path goes through resolve_flat_file_path.
     if not scoped_dir:
         raise SqlError("MISSING_SCOPED_DIR", "scoped_dir is required for flat files")
     raw = _raw_duckdb(con)
+    created_stems: set[str] = set()
+    bound_stems: list[str] = []
     for name, path in flat_files.items():
         if not name or not path:
             continue
@@ -703,11 +778,11 @@ def _register_flat_files(
 
         # Copy flat-file relations into memory before external access is
         # turned off, or a later query on them fails.
-        escaped_name = name.replace('"', '""')
+        quoted_name = _quote_duckdb_ident(name)
         raw.register("_wa_tmp_import", rel)
         try:
-            raw.execute(f'DROP TABLE IF EXISTS "{escaped_name}"')
-            raw.execute(f'CREATE TABLE "{escaped_name}" AS SELECT * FROM _wa_tmp_import')
+            raw.execute(f"DROP TABLE IF EXISTS {quoted_name}")
+            raw.execute(f"CREATE TABLE {quoted_name} AS SELECT * FROM _wa_tmp_import")
         finally:
             try:
                 raw.unregister("_wa_tmp_import")
@@ -715,14 +790,37 @@ def _register_flat_files(
                 pass
 
         stem = os.path.splitext(name)[0]
-        if stem and stem != name and stem not in flat_files:
-            escaped_stem = stem.replace('"', '""')
-            try:
-                raw.execute(
-                    f'CREATE VIEW IF NOT EXISTS "{escaped_stem}" AS SELECT * FROM "{escaped_name}"'
-                )
-            except Exception as alias_err:
-                log.warning("Failed to create view for stem %r: %s", stem, alias_err)
+        if not stem or stem == name:
+            continue
+
+        if stem in flat_files:
+            if os.path.basename(str(flat_files[stem])) == os.path.basename(str(path)):
+                continue
+            log.warning("Skipping stem alias %r for %r: name collision", stem, name)
+            continue
+
+        if stem in created_stems:
+            log.warning("Skipping stem alias %r for %r: name collision", stem, name)
+            continue
+
+        existing_entries = _main_catalog_entries(raw, stem)
+        if existing_entries:
+            existing_def = _memory_view_definition(raw, stem)
+            if existing_def is not None and quoted_name in existing_def:
+                bound_stems.append(stem)
+                continue
+            log.warning("Skipping stem alias %r for %r: name collision", stem, name)
+            continue
+
+        quoted_stem = _quote_duckdb_ident(stem)
+        try:
+            raw.execute(f"CREATE VIEW {quoted_stem} AS SELECT * FROM {quoted_name}")
+            created_stems.add(stem)
+            bound_stems.append(stem)
+        except Exception as alias_err:
+            log.warning("Failed to create view for stem %r: %s", stem, alias_err)
+
+    return bound_stems
 
 
 # Shared by query_folder_sql and run_sql. run_sql needs the full frame,
@@ -781,9 +879,6 @@ def _execute(
             bn = os.path.basename(p)
             if bn not in resolved_flat:
                 resolved_flat[bn] = p
-            stem = os.path.splitext(bn)[0]
-            if stem and stem not in resolved_flat:
-                resolved_flat[stem] = p
     elif isinstance(normalized_files, dict):
         if not scoped_dir:
             raise SqlError("MISSING_SCOPED_DIR", "scoped_dir is required for file-based queries")
@@ -791,13 +886,14 @@ def _execute(
             if k and str(v).strip():
                 resolved_flat[k] = resolve_flat_file_path(scoped_dir, v)
 
+    stem_aliases: list[str] = []
     con, persist = _acquire_duckdb(session_id)
     try:
         if persist:
             con.confine_persist_folder(base)
         _register_preloaded(con, preloaded)
         if resolved_flat and base:
-            _register_flat_files(con, resolved_flat, scoped_dir=base)
+            stem_aliases = _register_flat_files(con, resolved_flat, scoped_dir=base)
 
         # os.chdir raced other cells; FROM 'name.csv' reads the table created
         # under that name, including with external access off.
@@ -821,6 +917,7 @@ def _execute(
     used.extend(os.path.basename(p) for p in validated)
     if resolved_flat:
         used.extend(resolved_flat.keys())
+    used.extend(stem_aliases)
 
     deduped: list[str] = []
     seen: set[str] = set()
@@ -923,7 +1020,9 @@ def query_folder_sql(
     """Run read-only SQL against scoped folder files + preloaded tables (from sibling spreadsheets or live ranges).
 
     - preloaded: dict table_name -> 2D grid data (from host LO reads for ranges/office files).
-    - files: list of basenames (legacy, uses chdir + filename refs) or dict name->basename for flat files.
+    - files: list or dict of basenames. Each basename is copied into an
+      in-memory table. A distinct stem becomes a view unless decision 3 skips
+      it. The worker does not chdir.
     - flat_files: dict name -> full validated path for direct DuckDB reads.
     - session_id: shared-kernel workbook id. When persistable (or the current
       ``=PY()`` sandbox session is), reuse one connection and keep tables

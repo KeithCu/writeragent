@@ -1231,3 +1231,120 @@ def test_files_used_drops_duplicate_basename(tmp_path: Path):
     assert res["files_used"] == ["item.csv", "item"]
 
 
+def test_invalidate_session_tables_drops_flat_file_and_stem_view(_clean_duckdb_sessions, tmp_path: Path):
+    sid = "calc:duckdb-invalidate-flat"
+    f = tmp_path / "ledger.csv"
+    _write_csv(f, "amount\n5\n")
+    res = query_folder_sql(
+        str(tmp_path),
+        "SELECT amount FROM ledger",
+        files=["ledger.csv"],
+        preloaded={"costs": _tiny_grid(2)},
+        session_id=sid,
+    )
+    assert res["status"] == "ok", res
+    assert res["rows"][0] == [5]
+
+    invalidate_session_tables(["ledger.csv"], session_id=sid)
+
+    res_stem = query_folder_sql(None, "SELECT amount FROM ledger", session_id=sid)
+    assert res_stem["status"] == "error"
+
+    res_file = query_folder_sql(None, 'SELECT amount FROM "ledger.csv"', session_id=sid)
+    assert res_file["status"] == "error"
+
+    res_costs = query_folder_sql(None, "SELECT x FROM costs", session_id=sid)
+    assert res_costs["status"] == "ok", res_costs
+    assert res_costs["rows"][0] == [2]
+
+
+def test_invalidate_session_tables_keeps_unrelated_stem_view(_clean_duckdb_sessions, tmp_path: Path):
+    sid = "calc:duckdb-invalidate-stem"
+    session_duckdb(session_id=sid).execute("CREATE VIEW ledger AS SELECT 42 AS y")
+    f = tmp_path / "ledger.csv"
+    _write_csv(f, "amount\n5\n")
+    res = query_folder_sql(
+        str(tmp_path),
+        "SELECT y FROM ledger",
+        files=["ledger.csv"],
+        session_id=sid,
+    )
+    assert res["status"] == "ok", res
+    assert res["rows"] == [[42]]
+
+    invalidate_session_tables(["ledger.csv"], session_id=sid)
+
+    res_stem = query_folder_sql(None, "SELECT y FROM ledger", session_id=sid)
+    assert res_stem["status"] == "ok", res_stem
+    assert res_stem["rows"] == [[42]]
+
+    res_file = query_folder_sql(None, 'SELECT * FROM "ledger.csv"', session_id=sid)
+    assert res_file["status"] == "error"
+
+
+def test_invalidate_session_tables_drops_relation_shadowing_table(_clean_duckdb_sessions):
+    import pandas as pd
+    from plugin.scripting.venv.duckdb_sql import _raw_duckdb
+
+    sid = "calc:duckdb-invalidate-shadow"
+    con = session_duckdb(session_id=sid)
+    raw = _raw_duckdb(con)
+    raw.execute("CREATE TABLE sales AS SELECT 1 AS x")
+    con.register("sales", pd.DataFrame({"x": [7]}))
+
+    res = query_folder_sql(None, "SELECT x FROM sales", session_id=sid)
+    assert res["status"] == "ok", res
+    assert res["rows"][0][0] == 7
+
+    invalidate_session_tables(["sales"], session_id=sid)
+
+    res_after = query_folder_sql(None, "SELECT x FROM sales", session_id=sid)
+    assert res_after["status"] == "error"
+
+
+def test_invalidate_session_tables_quotes_double_quote(_clean_duckdb_sessions):
+    from plugin.scripting.venv.duckdb_sql import _raw_duckdb
+
+    sid = "calc:duckdb-invalidate-quote"
+    con = session_duckdb(session_id=sid)
+    raw = _raw_duckdb(con)
+    raw.execute('CREATE TABLE "we""ird" AS SELECT 1 AS x')
+
+    invalidate_session_tables(['we"ird'], session_id=sid)
+
+    res = query_folder_sql(None, 'SELECT * FROM "we""ird"', session_id=sid)
+    assert res["status"] == "error"
+
+
+def test_flat_stem_collision_warns_and_keeps_first(tmp_path: Path, caplog):
+    import logging
+
+    csv_path = tmp_path / "a.csv"
+    _write_csv(csv_path, "amount\n1\n")
+    parquet_path = tmp_path / "a.parquet"
+    _write_parquet(parquet_path, [("x", 2)])
+
+    with caplog.at_level(logging.WARNING):
+        res_list = query_folder_sql(
+            str(tmp_path),
+            "SELECT amount FROM a",
+            files=["a.csv", "a.parquet"],
+        )
+    assert res_list["status"] == "ok", res_list
+    assert res_list["rows"] == [[1]]
+    assert any("Skipping stem alias 'a' for 'a.parquet'" in r.message for r in caplog.records)
+
+    caplog.clear()
+
+    with caplog.at_level(logging.WARNING):
+        res_dict = query_folder_sql(
+            str(tmp_path),
+            "SELECT amount FROM a",
+            files={"a.csv": "a.csv", "a.parquet": "a.parquet"},
+        )
+    assert res_dict["status"] == "ok", res_dict
+    assert res_dict["rows"] == [[1]]
+    assert any("Skipping stem alias 'a' for 'a.parquet'" in r.message for r in caplog.records)
+
+
+

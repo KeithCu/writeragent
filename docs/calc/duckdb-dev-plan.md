@@ -381,7 +381,7 @@ Cached connections are `GuardedDuckDBConnection` wrappers: `.execute` / `.sql` u
 | `session_duckdb()` | Return the workbook connection when a persistable session is active (`calc:` / `rps:` / `notebook:`); otherwise a fresh connection. Injected into `=PY()` / RPS namespaces. Also `from writeragent.scripting.duckdb_sql import session_duckdb`. |
 | `query_folder_sql(..., session_id=)` | Reuses that connection when `session_id` is persistable **or** the current sandbox session is. Re-registers any `preloaded` / `flat_files` on this call (refresh). Tables omitted from this call stay as last registered. |
 | `run_sql(sql, con=None)` | Same honesty dict; `con` is used when passed; `files` or `preloaded` returns an uncapped DataFrame on the session connection and raises `SqlError`. |
-| `invalidate_session_tables(names=None)` | Drop named tables, or close the whole catalog when *names* is omitted. |
+| `invalidate_session_tables(names=None)` | drops each given name (registered relation, view, or base table), or closes the whole catalog when names is omitted. A flat-file stem view is removed with the file table when the view reads that table. Another object that only shares the stem is left. |
 | `reset_session_duckdb(session_id)` | Close the cached connection. **Reset Python Session** calls this with the workbook id. |
 
 `run_folder_sql` / chat still pass the routing id `writeragent:sql`. That prefix is **not** persistable, so analysis-tool SQL cannot leak one catalog across documents.
@@ -396,7 +396,7 @@ Registered tables are **snapshots**, like other shared-kernel globals. F9 / part
 | Cell only **queries** (`SELECT … FROM sales`) | Sees the last-registered snapshot, even if the sheet changed. |
 | Sibling file re-read on a later `query_folder_sql` that includes that file | Re-registered from disk. Omitted files stay as last snapshot. |
 | **Reset Python Session** | Connection closed; all tables gone. Next `session_duckdb()` opens a new catalog. |
-| `invalidate_session_tables(["sales"])` | Drops that name only. |
+| `invalidate_session_tables(["sales"])` | drops that name only. For a flat file, also drops the stem view that selects from that table (ledger for ledger.csv). A user table that merely shares the stem is not dropped. |
 | Isolated `=PY()` / chat tool | No cache. Each call is a new connection. |
 
 Authoring: pass upstream ranges as `data` so Calc dirties the cell that re-registers; keep one-off `CREATE`/`register` in the init script or a setup cell. Do not assume row-major order.
@@ -519,3 +519,4 @@ No cloud telemetry required. Suggested signals:
 | 2026-09-05 | Folder SQL flat binders: Parquet + JSON/JSONL/NDJSON register reliably via `flat_files` / `files` dict; unsupported and missing types return `UNSUPPORTED_FILE_TYPE` / `MISSING_FILE`. Sibling XLSX/ODS stay on the LO import path. |
 | 2026-09-05 | Pretty-demo polish: SQL_DuckDB teaches `{sheet}` / `{named_range}` / sibling `file#Sheet` (named ranges `SalesData` / `MarketingData` as the live `=PY()` data args). ZIP join is a live `=PY()` via `run_sql` + `scoped_dir` (same 15×5 spill gutter; SQL still only in cells). |
 | 2026-09-05 | XLSX `SalesData` / `MarketingData` are absolute (`$A$4:$J$39`) so `=PY()` from SQL_DuckDB RESULTS does not pack a shifted/empty `data[0]`. `scoped_dir` inject reuses the cached `calc:file:` folder off-main. |
+| 2026-10-14 | invalidate_session_tables drops materialized flat-file tables, not only unregister relations, and drops the stem view that reads that table. List-file stems are views over the basename table. Two files with the same stem log Skipping stem alias and keep the first alias. |
