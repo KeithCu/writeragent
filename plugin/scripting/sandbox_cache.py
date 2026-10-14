@@ -143,6 +143,11 @@ def _memoized_fingerprint(imports_tuple: tuple[str, ...]) -> str:
 @deal.pre(lambda authorized_imports: _deal_sandbox_imports_ok(authorized_imports))
 def _imports_fingerprint(authorized_imports: Sequence[str]) -> str:
     # crosshair: off  # sorted join over symbolic import lists (cover-all 33418536119: sandbox_cache 20906s after PR 523). Doable later with a closed import-alphabet fingerprint.
+    # LocalPythonExecutor.authorized_imports is a set union, so order is not
+    # the policy. Sort and dedupe or the same allowlist misses the cache.
+    # Names are joined with newline. A newline or NUL in a name would alias
+    # two allowlists; test_allowlist_entries_fit_cache_key locks that out.
+    # _cache_key then joins source and this fingerprint with NUL.
     return _memoized_fingerprint(tuple(authorized_imports))
 
 
@@ -155,11 +160,18 @@ def _cache_key(code: str, authorized_imports: Sequence[str]) -> str:
 
 def _format_syntax_error(exc: SyntaxError) -> str:
     # crosshair: off  # SyntaxError text/offset formatting (cover-all 33355986432: sandbox_cache in-flight 6h, no flushed log). Doable later with a tiny lineno/text domain.
+    # offset is 1-based. Spacing by offset puts the caret one column to the
+    # right of the token CPython underlines (ast.parse("def f(:") is offset 7,
+    # the ':'). A null byte on 3.12+ is a SyntaxError with lineno/offset/text
+    # None; "line None" and a caret are not a location.
+    if exc.lineno is None:
+        return f"Code parsing failed due to: {type(exc).__name__}: {exc}"
     text = exc.text or ""
+    offset = exc.offset or 0
+    caret = (" " * (offset - 1) + "^") if offset else "^"
     return (
-        f"Code parsing failed on line {exc.lineno} due to: {type(exc).__name__}: {str(exc)}\n"
-        f"{text}"
-        f"{' ' * (exc.offset or 0)}^"
+        f"Code parsing failed on line {exc.lineno} due to: {type(exc).__name__}: {exc}\n"
+        f"{text}{caret}"
     )
 
 
@@ -174,6 +186,20 @@ def _build_entry(code: str, authorized_imports: Sequence[str]) -> HotEntry:
             module = ast.parse(code)
         except SyntaxError as exc:
             return HotEntry(module=None, error=_format_syntax_error(exc))
+        except ValueError as exc:
+            # What was wrong: ast.parse raises ValueError for a null byte on
+            # CPython before 3.12 (gh-96670). LibreOffice 24.8 ships Python 3.9
+            # and is the extension minimum; execute_with_return runs there.
+            # How it happened: only SyntaxError and RecursionError were caught.
+            # Release OXTs strip @deal, so the NUL deal pre does not run, and
+            # the ValueError left get_hot_entry. execute_with_return logged
+            # log.exception; _run_on_executor attached a traceback.
+            # Why this fixes it: null bytes are bad user source. Cache a parse
+            # error so evaluate_python_code raises InterpreterError.
+            return HotEntry(
+                module=None,
+                error=f"Code parsing failed due to: {type(exc).__name__}: {exc}",
+            )
         validation_error = validate_sandbox_ast(module, authorized_imports)
         return HotEntry(module=module, error=validation_error)
     except RecursionError:

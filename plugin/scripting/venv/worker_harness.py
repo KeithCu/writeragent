@@ -27,9 +27,6 @@ if _SCRIPT_DIR in sys.path:
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from plugin.framework.uno_bootstrap import register_alias_importer
-register_alias_importer()
-
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
@@ -41,7 +38,19 @@ from plugin.scripting.ipc import (
     read_pickle_frame,
     write_pickle_frame,
 )
-from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code
+
+# What was wrong: venv_sandbox was imported at module scope, and
+# claim_ipc_channel ran later in main(). The claim flushes sys.stdout onto
+# fd 1 before dup2, so an import-time print landed on the protocol pipe.
+# How it happened: b476c6899 claimed inside main() and left the sandbox
+# import above that call. Smolagents already shipped one such banner.
+# Why this change: the process entry claims before later imports. A library
+# import (tests) must not dup fd 1.
+if __name__ == "__main__":
+    claim_ipc_channel()
+
+from plugin.framework.uno_bootstrap import register_alias_importer
+register_alias_importer()
 
 log = logging.getLogger("worker_harness")
 
@@ -64,12 +73,12 @@ def _handle_trusted_action(
     *,
     stdout: Any | None = None,
 ) -> dict[str, Any] | None:
-    """Dispatch run_trusted_action via the declarative registry."""
+    """Dispatch run_trusted_action via the declarative registry. None means the terminal frame is already written."""
     from plugin.scripting.trusted_action_registry import get_trusted_action_wiring
     from plugin.scripting.venv.worker_heartbeat import HeartbeatEmitter, write_result_frame
 
     domain = str(data.get("domain") or "")
-    use_heartbeat = False
+    emit_result_frame = bool(request.get("allow_heartbeat")) and stdout is not None
     # Resolve wiring inside the try. A bad domain or a contract error must be
     # an error frame, not a dead worker.
     try:
@@ -77,18 +86,17 @@ def _handle_trusted_action(
         if wiring is None:
             resp = {"status": "error", "message": f"Unknown trusted action domain: {domain}"}
         else:
-            use_heartbeat = bool(request.get("allow_heartbeat")) and wiring.supports_heartbeat and stdout is not None
             heartbeat_fn = None
-            if use_heartbeat:
+            if emit_result_frame and wiring.supports_heartbeat:
                 emitter = HeartbeatEmitter(stdout)
                 heartbeat_fn = emitter.emit
             result = wiring.dispatch(data, heartbeat_fn=heartbeat_fn)
             resp = {"status": "ok", "result": result}
     except Exception as exc:
-        use_heartbeat = bool(request.get("allow_heartbeat")) and stdout is not None
         resp = _error_response(exc)
 
-    if use_heartbeat and stdout is not None:
+    if emit_result_frame:
+        assert stdout is not None
         req_id = str(request.get("id", ""))
         payload = {"id": req_id, **resp}
         # Packing fails before any byte hits stdout, so the pipe is still in
@@ -110,6 +118,8 @@ def _handle_trusted_action(
 
 
 def _action_reset_session(request: dict[str, Any], *, stdout: Any | None = None) -> dict[str, Any] | None:
+    from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
+
     session_id = _clean_str(request.get("session_id"))
     if not session_id:
         return {"status": "error", "message": "No session_id provided."}
@@ -137,6 +147,8 @@ def _action_run_trusted_action(request: dict[str, Any], *, stdout: Any | None = 
 
 
 def _action_execute(request: dict[str, Any], *, stdout: Any | None = None) -> dict[str, Any] | None:
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+
     code = request.get("code")
     if not isinstance(code, str) or not code.strip():
         return {"status": "error", "message": "No code provided."}
@@ -221,8 +233,8 @@ def main() -> None:
 
     # First read of stdin, so detach cannot drop a frame already buffered.
     stdin = claim_ipc_stdin()
-    # claim_ipc_channel() dups fd 1 into a private binary stream and points
-    # fd 1 at stderr. A library print() must not land in a protocol frame.
+    # Idempotent. The script entry already claimed before later imports. This
+    # call is the one in-process tests replace.
     stdout = claim_ipc_channel()
 
     while True:

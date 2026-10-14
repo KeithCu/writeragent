@@ -106,7 +106,7 @@ def test_format_script_api_catalog_embeds_full_proxy_docstrings():
 
     tools = _domain_tools_map()
     assert tools is not None
-    methods = _proxy_methods_by_tool(tools)
+    methods = _proxy_methods_by_tool()
     assert methods is not None
     for tool_name in (*DOMAIN_TOOLS["core"], *DOMAIN_TOOLS["shape"]):
         method = methods[tool_name]
@@ -215,20 +215,6 @@ def test_execute_tool_named_scripts_blocked_during_py_recalc():
         else:
             raise AssertionError(f"expected RuntimeError for {tool_name}")
 
-
-def test_rpc_tool_name_none_when_candidates_are_parameters():
-    """A const that is only a parameter name is not the RPC tool."""
-    from plugin.scripting.host_rpc import _rpc_tool_name
-
-    def shape_upsert(shape_upsert: str = "shape_upsert") -> str:
-        return shape_upsert
-
-    assert _rpc_tool_name(shape_upsert, frozenset({"shape_upsert"})) is None
-
-    def mixed(shape_upsert: str = "shape_upsert") -> tuple[str, str]:
-        return ("list_open_documents", shape_upsert)
-
-    assert _rpc_tool_name(mixed, frozenset({"shape_upsert", "list_open_documents"})) == "list_open_documents"
 
 
 def test_execute_tool_rejects_out_of_domain():
@@ -590,12 +576,23 @@ def test_proxy_methods_by_tool_uses_tool_methods():
     from plugin.scripting.host_rpc import _proxy_methods_by_tool
     import plugin.scripting.writeragent_api as api
 
-    methods = _proxy_methods_by_tool(api.DOMAIN_TOOLS)
+    methods = _proxy_methods_by_tool()
     assert methods is not None
     assert "shape_upsert" in methods
     assert methods["shape_upsert"] == api.shape.upsert
     assert "list_open_documents" in methods
     assert methods["list_open_documents"] == api.core.list_open_documents
+
+
+def test_proxy_methods_by_tool_missing_tool_methods_skips_bytecode(monkeypatch, caplog):
+    import logging
+    from plugin.scripting.host_rpc import _proxy_methods_by_tool
+
+    monkeypatch.delattr("plugin.scripting.writeragent_api.TOOL_METHODS")
+    with caplog.at_level(logging.WARNING):
+        res = _proxy_methods_by_tool()
+    assert res == {}
+    assert "no TOOL_METHODS" in caplog.text
 
 
 def test_writeragent_api_in_process_rpc_call_preserves_error_code():
@@ -646,3 +643,117 @@ def test_writeragent_api_exports_and_tool_methods():
     # Builtin range should not be in __all__ so star-import does not clobber it
     assert "range" not in api.__all__
     assert "math" in api.__all__
+
+
+def test_execute_tool_copies_stop_onto_tool_context():
+    focused = MagicMock()
+    bound = MagicMock()
+    registry = MagicMock()
+    registry._services = {}
+    tool = MagicMock()
+    tool.is_async.return_value = True
+    registry.get.return_value = tool
+    registry.execute.return_value = {"status": "ok"}
+
+    def checker() -> bool:
+        return False
+
+    sentinel = object()
+    with (
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.uno_context.get_active_document", return_value=focused),
+        patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
+        patch("plugin.main.get_tools", return_value=registry),
+        patch("plugin.doc.doc_type.is_draw", return_value=True),
+        patch("plugin.doc.doc_type.is_calc", return_value=False),
+        patch("plugin.doc.doc_type.is_writer", return_value=False),
+    ):
+        execute_tool(
+            "export_presentation_project",
+            {"project_path": "/p"},
+            stop_checker=checker,
+            send_cancellation=sentinel,
+        )
+    tctx = registry.execute.call_args.args[1]
+    assert tctx.stop_checker is checker
+    assert tctx.send_cancellation is sentinel
+
+
+def test_handle_tool_call_frame_forwards_stop_to_execute_tool():
+    def checker() -> bool:
+        return False
+
+    sentinel = object()
+    written: list[bytes] = []
+    with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}) as mock_tool:
+        handled = handle_tool_call_frame(
+            {"type": "tool_call", "id": "fwd1", "tool": "apply_document_content", "args": {}},
+            stdin_write=written.append,
+            stop_checker=checker,
+            send_cancellation=sentinel,
+        )
+    assert handled is True
+    assert mock_tool.call_args.kwargs["stop_checker"] is checker
+    assert mock_tool.call_args.kwargs["send_cancellation"] is sentinel
+
+
+def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):
+    import io
+    from plugin.scripting.ipc import IpcPayloadSizeError, pack_pickle_frame as real_pack
+
+    first = True
+
+    def mock_pack(payload, **kwargs):
+        nonlocal first
+        if first:
+            first = False
+            raise IpcPayloadSizeError("Pickle frame exceeds maximum payload size: 99")
+        return real_pack(payload, **kwargs)
+
+    monkeypatch.setattr("plugin.scripting.host_rpc.pack_pickle_frame", mock_pack)
+    written: list[bytes] = []
+    with patch("plugin.scripting.host_rpc.execute_tool", return_value={"blob": "x"}):
+        handled = handle_tool_call_frame(
+            {"type": "tool_call", "id": "over1", "tool": "apply_document_content", "args": {}},
+            stdin_write=written.append,
+        )
+    assert handled is True
+    assert len(written) == 1
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert resp["id"] == "over1"
+    assert "99" in resp["message"]
+
+
+def test_handle_tool_call_frame_second_pack_failure_propagates(monkeypatch):
+    import pytest
+    from plugin.scripting.ipc import IpcPayloadSizeError
+
+    def mock_pack(payload, **kwargs):
+        raise IpcPayloadSizeError("Pickle frame exceeds maximum payload size: 99")
+
+    monkeypatch.setattr("plugin.scripting.host_rpc.pack_pickle_frame", mock_pack)
+    written: list[bytes] = []
+    with patch("plugin.scripting.host_rpc.execute_tool", return_value={"blob": "x"}):
+        with pytest.raises(IpcPayloadSizeError):
+            handle_tool_call_frame(
+                {"type": "tool_call", "id": "over2", "tool": "apply_document_content", "args": {}},
+                stdin_write=written.append,
+            )
+
+
+def test_handle_tool_call_frame_write_timeout_propagates():
+    import pytest
+
+    def _timeout_write(_blob: bytes) -> None:
+        raise RuntimeError("host RPC response timed out")
+
+    with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}):
+        with pytest.raises(RuntimeError, match="timed out"):
+            handle_tool_call_frame(
+                {"type": "tool_call", "id": "to1", "tool": "apply_document_content", "args": {}},
+                stdin_write=_timeout_write,
+            )
+

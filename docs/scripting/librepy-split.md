@@ -283,6 +283,7 @@ Required for NumPy domain helpers, Vision OCR, and any `run_trusted_worker_actio
 |------|------|
 | [`plugin/scripting/client.py`](../../plugin/scripting/client.py) | `run_*` host stubs, long-trusted timeout list |
 | [`plugin/scripting/trusted_rpc.py`](../../plugin/scripting/trusted_rpc.py) | `run_trusted_worker_action` |
+| [`plugin/scripting/sheet_layout.py`](../../plugin/scripting/sheet_layout.py) | `extract_sheet_layout` (host client and venv child; no `venv_worker` import) |
 | [`plugin/scripting/trusted_action_registry.py`](../../plugin/scripting/trusted_action_registry.py) | Domain → venv dispatcher wiring |
 | [`plugin/scripting/venv/trusted_dispatch.py`](../../plugin/scripting/venv/trusted_dispatch.py) | Routes `run_trusted_action` to domain `run_*` |
 | [`plugin/scripting/venv/worker_heartbeat.py`](../../plugin/scripting/venv/worker_heartbeat.py) | Heartbeat frames (long jobs) |
@@ -308,6 +309,8 @@ flowchart LR
   compute[venv/analysis.py etc]
   host --> client --> rpc --> vw --> wh --> td --> compute
 ```
+
+The child imports `sheet_layout.py` for `headers` / `header_row` and does not import `trusted_rpc.py`, because that module imports `venv_worker`.
 
 ---
 
@@ -816,9 +819,9 @@ Allowlist: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_path
 
 **Root:** `plugin/__init__.py`, `plugin/main_core.py`, `plugin/librepy/`
 
-### Layer 1 adds (~11 paths)
+### Layer 1 adds (~12 paths)
 
-`client.py`, `trusted_rpc.py`, `trusted_action_registry.py`, `venv/trusted_dispatch.py`, `venv/worker_heartbeat.py`, `_lazy_venv.py`, `helper_domain.py`, `domain_registry.py`, `calc_functions_common.py`, `import_policy.py`, `venv_diagnostics.py`
+`client.py`, `trusted_rpc.py`, `sheet_layout.py`, `trusted_action_registry.py`, `venv/trusted_dispatch.py`, `venv/worker_heartbeat.py`, `_lazy_venv.py`, `helper_domain.py`, `domain_registry.py`, `calc_functions_common.py`, `import_policy.py`, `venv_diagnostics.py`
 
 ### Layer 2 adds (~18 paths)
 

@@ -21,7 +21,7 @@ from plugin.scripting.helper_domain import (
     header_prefix,
 )
 from plugin.scripting.payload_codec import is_image_payload, find_image_payloads, write_image_payload_to_temp
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -132,8 +132,13 @@ def run_trusted_viz(
                 from plugin.calc.bridge import CalcBridge
 
                 context["sheet_name"] = CalcBridge(doc).get_active_sheet().getName()
-            except Exception:
-                pass
+            except Exception as exc:
+                # What was wrong: DisposedException was ignored, then run_viz ran
+                # against a dead document.
+                # How it happened: the sheet name is best-effort context.
+                # Why this change: reraise_if_disposed propagates real disposal. Other
+                # failures still leave sheet_name unset.
+                reraise_if_disposed(exc)
         if task_hint:
             context["task_hint"] = str(task_hint)
         if dr:

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+from unittest.mock import MagicMock, patch
 
 from plugin.scripting.helper_domain import (
     build_helper_script_template,
@@ -128,7 +129,91 @@ def test_writeragent_import_call_is_a_helper_spec():
     spec = parse_run_import_call_spec(code, run_name="run_units")
     assert spec is not None
     assert spec["helper"] == "convert_quantity"
+    assert spec["params"] == {"value": 10, "from": "m", "to": "km"}
     assert script_uses_run_import(code, run_name="run_text_analytics") is False
+
+
+def test_direct_call_units_positional_prefix_and_keywords():
+    code1 = (
+        "from writeragent.scripting.units import convert_quantity\n"
+        'convert_quantity(data, from_unit="m/s", to_unit="km/h")\n'
+    )
+    assert parse_run_import_call_spec(code1, run_name="run_units") == {
+        "helper": "convert_quantity",
+        "params": {"value": "data", "from_unit": "m/s", "to_unit": "km/h"},
+    }
+
+    code2 = (
+        "from writeragent.scripting.units import convert_quantity\n"
+        'convert_quantity(1, "m", "km", value=5)\n'
+    )
+    assert parse_run_import_call_spec(code2, run_name="run_units") == {
+        "helper": "convert_quantity",
+        "params": {"value": 5, "from": "m", "to": "km"},
+    }
+
+    code3 = (
+        "from writeragent.scripting.units import convert_quantity\n"
+        'convert_quantity(data, "m")\n'
+    )
+    assert parse_run_import_call_spec(code3, run_name="run_units") == {
+        "helper": "convert_quantity",
+        "params": {"value": "data", "from": "m"},
+    }
+
+    code4 = (
+        "from writeragent.scripting.units import format_quantity\n"
+        'format_quantity(50, "m", ".2f")\n'
+    )
+    assert parse_run_import_call_spec(code4, run_name="run_units") == {
+        "helper": "format_quantity",
+        "params": {"magnitude": 50, "units": "m", "format_spec": ".2f"},
+    }
+
+    code5 = (
+        "from writeragent.scripting.units import format_quantity\n"
+        "format_quantity(50)\n"
+    )
+    spec5 = parse_run_import_call_spec(code5, run_name="run_units")
+    assert spec5 is not None
+    assert spec5["params"] == {"magnitude": 50}
+    assert "quantity" not in spec5["params"]
+
+    code6 = (
+        "from writeragent.scripting.units import parse_quantity\n"
+        'parse_quantity("10 m/s")\n'
+    )
+    assert parse_run_import_call_spec(code6, run_name="run_units") == {
+        "helper": "parse_quantity",
+        "params": {"quantity": "10 m/s"},
+    }
+
+    code7 = (
+        "from writeragent.scripting.units import check_dimensionality\n"
+        'check_dimensionality("10 m", "10 ft")\n'
+    )
+    assert parse_run_import_call_spec(code7, run_name="run_units") == {
+        "helper": "check_dimensionality",
+        "params": {"quantity_a": "10 m", "quantity_b": "10 ft"},
+    }
+
+    code8 = (
+        "from writeragent.scripting.units import check_dimensionality\n"
+        'check_dimensionality("10 m")\n'
+    )
+    assert parse_run_import_call_spec(code8, run_name="run_units") == {
+        "helper": "check_dimensionality",
+        "params": {"quantity_a": "10 m"},
+    }
+
+    code9 = (
+        "from writeragent.scripting.analysis import describe_data\n"
+        "describe_data(data)\n"
+    )
+    assert parse_run_import_call_spec(code9, run_name="run_analysis") == {
+        "helper": "describe_data",
+        "params": {},
+    }
 
 
 def test_parse_run_import_call_null_byte_returns_none():
@@ -235,6 +320,38 @@ def test_prepend_run_import_document_bindings_after_shebang_and_future():
     assert "active = True" in res
 
 
+def test_prepend_run_import_document_bindings_docstring_order():
+    code1 = '"""Module doc."""\nresult = 1\n'
+    res1 = prepend_run_import_document_bindings(code1, bindings={"text": "hi"})
+    lines1 = res1.splitlines()
+    assert lines1[0] == '"""Module doc."""'
+    assert lines1[1].startswith("# Document inputs injected below")
+    assert lines1[-1] == "result = 1"
+
+    code2 = '"""Line one.\n\nLine two.\n"""\nresult = 1\n'
+    res2 = prepend_run_import_document_bindings(code2, bindings={"text": "hi"})
+    lines2 = res2.splitlines()
+    assert lines2[3] == '"""'
+    assert lines2[4].startswith("# Document inputs injected below")
+    assert lines2[-1] == "result = 1"
+
+    code3 = '#!/usr/bin/env python3\n"""doc"""\nx = 1\n'
+    res3 = prepend_run_import_document_bindings(code3, bindings={"text": "hi"})
+    lines3 = res3.splitlines()
+    assert lines3[0] == "#!/usr/bin/env python3"
+    assert lines3[1] == '"""doc"""'
+    assert lines3[2].startswith("# Document inputs injected below")
+    assert lines3[-1] == "x = 1"
+
+    code4 = '"""doc"""\nfrom __future__ import annotations\nx = 1\n'
+    res4 = prepend_run_import_document_bindings(code4, bindings={"text": "hi"})
+    lines4 = res4.splitlines()
+    assert lines4[0] == '"""doc"""'
+    assert lines4[1] == "from __future__ import annotations"
+    assert lines4[2].startswith("# Document inputs injected below")
+    assert lines4[-1] == "x = 1"
+
+
 def test_build_helper_script_template_bare_data_only_for_injected_data():
     # What was wrong: val == "data" in template params caused literal "data" strings
     # for non-data parameters (like column="data") to be unquoted as bare variable references.
@@ -260,4 +377,92 @@ def test_format_elapsed_time_boundary_rounding():
     assert format_elapsed_time(59.999) == "1m 0s"
     assert format_elapsed_time(59.994) == "59.99s"
     assert format_elapsed_time(0.999) == "999 ms"
+
+
+def test_run_trusted_calc_data_helper_sheet_disposal_propagates():
+    from plugin.scripting.helper_domain import run_trusted_calc_data_helper
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    client_mock = MagicMock()
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.calc.analysis_runner.calc_tool_context", return_value=MagicMock()),
+        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([[1]], None)),
+        patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
+    ):
+        mock_bridge.return_value.get_active_sheet.side_effect = DisposedException("disposed")
+        with pytest.raises(DocumentDisposedError):
+            run_trusted_calc_data_helper(
+                MagicMock(),
+                MagicMock(),
+                helper="forecast_time_series",
+                helper_names=frozenset({"forecast_time_series"}),
+                error_code="FORECAST_ERROR",
+                empty_data_message="No data to forecast",
+                data=[[1]],
+                data_range=None,
+                headers=True,
+                params=None,
+                task_hint=None,
+                client_run=client_mock,
+            )
+    client_mock.assert_not_called()
+
+
+def test_run_trusted_calc_data_helper_sheet_name_failure_is_best_effort():
+    from plugin.scripting.helper_domain import run_trusted_calc_data_helper
+
+    class RuntimeException(Exception):
+        pass
+
+    client_mock = MagicMock(return_value={"status": "ok"})
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.calc.analysis_runner.calc_tool_context", return_value=MagicMock()),
+        patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([[1]], None)),
+        patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
+    ):
+        mock_bridge.return_value.get_active_sheet.side_effect = RuntimeError("no sheet")
+        res1 = run_trusted_calc_data_helper(
+            MagicMock(),
+            MagicMock(),
+            helper="forecast_time_series",
+            helper_names=frozenset({"forecast_time_series"}),
+            error_code="FORECAST_ERROR",
+            empty_data_message="No data to forecast",
+            data=[[1]],
+            data_range=None,
+            headers=True,
+            params=None,
+            task_hint=None,
+            client_run=client_mock,
+        )
+        assert res1 == {"status": "ok"}
+        client_mock.assert_called_once()
+        _, kwargs1 = client_mock.call_args
+        assert kwargs1.get("context") is None
+
+        client_mock.reset_mock()
+        mock_bridge.return_value.get_active_sheet.side_effect = RuntimeException("runtime err")
+        res2 = run_trusted_calc_data_helper(
+            MagicMock(),
+            MagicMock(),
+            helper="forecast_time_series",
+            helper_names=frozenset({"forecast_time_series"}),
+            error_code="FORECAST_ERROR",
+            empty_data_message="No data to forecast",
+            data=[[1]],
+            data_range=None,
+            headers=True,
+            params=None,
+            task_hint=None,
+            client_run=client_mock,
+        )
+        assert res2 == {"status": "ok"}
+        client_mock.assert_called_once()
+        _, kwargs2 = client_mock.call_args
+        assert kwargs2.get("context") is None
 
