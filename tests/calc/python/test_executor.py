@@ -196,19 +196,85 @@ def test_lp_helper_still_swallows_cell_errors():
 
 
 def test_format_result_stringifies_non_json_values():
+    import datetime
     import json
 
     executor = PythonExecutor("test")
-    samples = [executor.format_result(value) for value in ({1, 2}, b"ab", range(3), (x for x in (1, 2)), (1, 2))]
+    # Non-json leaf types are stringified
+    samples = [executor.format_result(value) for value in ({1, 2}, b"ab", range(3), (x for x in (1, 2)))]
     for formatted in samples:
         assert isinstance(formatted, str)
         json.dumps(formatted)
+
+    # Tuples become lists at top level and nested
+    assert executor.format_result((1, 2)) == [1, 2]
+    assert executor.format_result([(1, 2), (3, 4)]) == [[1, 2], [3, 4]]
+
+    # Nested non-JSON values are deeply walked and stringified
+    nested_date = executor.format_result([datetime.date(2020, 1, 2)])
+    assert nested_date == ["<Result: 2020-01-02>"]
+    json.dumps(nested_date)
+
+    nested_set = executor.format_result([{"s": {1, 2}}])
+    assert isinstance(nested_set[0]["s"], str)
+    assert nested_set[0]["s"].startswith("<Result:")
+    json.dumps(nested_set)
+
+    # Dict with non-string keys stringifies keys
+    int_keyed = executor.format_result({1: "a", 2: (3, 4)})
+    assert int_keyed == {"1": "a", "2": [3, 4]}
+    json.dumps(int_keyed)
+
     assert executor.format_result(None) is None
     assert executor.format_result([1, {"a": 2}]) == [1, {"a": 2}]
     assert executor.format_result({"a": 1}) == {"a": 1}
+
+    # execute_with_return tests
     assert executor.execute_with_return("{1, 2}").startswith("<Result:")
     json.dumps(executor.execute_with_return('b"ab"'))
-    json.dumps(executor.execute_with_return("(1, 2)"))
+    res_tuple = executor.execute_with_return("(1, 2)")
+    assert res_tuple == [1, 2]
+    json.dumps(res_tuple)  # strict json.dumps without default succeeds
+
+
+def test_target_range_writes_tuple_as_list():
+    """target_range of return (1, 2) writes two values as a list, not '<Result:' text."""
+    from plugin.calc.python.executor import ExecutePythonScript
+
+    tool = ExecutePythonScript()
+    ctx = MagicMock()
+    ctx.doc.getURL.return_value = "file:///test.ods"
+
+    with unittest.mock.patch("plugin.calc.python.executor.CellManipulator") as MockManip:
+        inst = MockManip.return_value
+        inst.write_formula_range.return_value = "Success"
+
+        res = tool.execute(ctx, code="(1, 2)", target_range="D1")
+        assert res["result"] == [1, 2]
+        assert res["write_status"] == "Success"
+        inst.write_formula_range.assert_called_with("D1", [1, 2])
+
+
+def test_data_range_read_failure_returns_error_result():
+    """read_range failure returns an error status naming the range; execute_with_return does not run."""
+    from plugin.calc.python.executor import ExecutePythonScript
+
+    tool = ExecutePythonScript()
+    ctx = MagicMock()
+    ctx.doc.getURL.return_value = "file:///test.ods"
+
+    with (
+        unittest.mock.patch("plugin.calc.python.executor.CellInspector") as MockInspector,
+        unittest.mock.patch("plugin.calc.python.executor.PythonExecutor.execute_with_return") as mock_exec,
+    ):
+        inst = MockInspector.return_value
+        inst.read_range.side_effect = RuntimeError("Bad range syntax")
+
+        res = tool.execute(ctx, code="data[0]", data_range="INVALID_RANGE")
+        assert res["status"] == "error"
+        assert "INVALID_RANGE" in res["message"]
+        assert "Bad range syntax" in res["message"]
+        mock_exec.assert_not_called()
 
 
 def test_calc_helpers_fail_on_writer_document():

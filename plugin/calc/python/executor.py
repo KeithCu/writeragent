@@ -46,7 +46,7 @@ log = logging.getLogger("writeragent.calc.python.executor")
 
 _SPREADSHEET_SERVICE = "com.sun.star.sheet.SpreadsheetDocument"
 _CALC_HELPER_ERROR = "lp, get_range, set_range, and data_range only work in a Calc spreadsheet."
-# json.dumps accepts these. Anything else (set, bytes, range, generators, custom objects) raises TypeError.
+# Tuples become lists, and containers are deeply walked. Any leaf json.dumps cannot accept is stringified.
 _JSON_RESULT_TYPES = (str, int, float, bool, list, dict)
 
 
@@ -117,17 +117,39 @@ class PythonExecutor:
 
         self.executor.send_variables({"lp": lp_helper, "Sheet": lp_helper, "get_range": lp_helper, "set_range": set_range_helper})
 
-    def format_result(self, result: Any) -> Any:
-        """Processes the result for storage and display."""
-        if result is None or isinstance(result, _JSON_RESULT_TYPES):
-            return result
-        # Stringify set, bytes, range, and generators too. They have no
-        # __dict__, and json.dumps then raises TypeError when the tool
-        # result is serialized.
+    def _normalize_value(self, val: Any, seen: set[int]) -> Any:
+        if val is None or isinstance(val, (str, int, float, bool)):
+            return val
+        val_id = id(val)
+        if val_id in seen:
+            return f"<Cycle: {type(val).__name__}>"
+        if isinstance(val, (list, tuple)):
+            seen.add(val_id)
+            try:
+                return [self._normalize_value(item, seen) for item in val]
+            finally:
+                seen.remove(val_id)
+        if isinstance(val, dict):
+            seen.add(val_id)
+            try:
+                # Dict keys that are not strings: stringify the key. json.dumps rejects non-string keys.
+                return {
+                    str(k) if not isinstance(k, str) else k: self._normalize_value(v, seen)
+                    for k, v in val.items()
+                }
+            finally:
+                seen.remove(val_id)
+        # Deep-walk containers; convert tuples to lists and stringify leaves that json.dumps cannot take.
         try:
-            return f"<Result: {str(result)}>"
+            return f"<Result: {str(val)}>"
         except Exception:
-            return f"<Object: {type(result).__name__}>"
+            return f"<Object: {type(val).__name__}>"
+
+    def format_result(self, result: Any) -> Any:
+        """Processes the result for storage and display, deep-walking containers."""
+        if result is None:
+            return None
+        return self._normalize_value(result, set())
 
     def execute_with_return(self, code_snippet: str) -> Any:
         """Execute *code_snippet*; return the last expression value (REPL-style ``_`` is not kept for the next call)."""
@@ -201,8 +223,9 @@ class ExecutePythonScript(ToolBaseDummy):
                 elif all(len(row) == 1 for row in py_data):
                     py_data = [row[0] for row in py_data]
                 executor.executor.send_variables({"data": py_data})
-            except Exception:
+            except Exception as exc:
                 log.exception("Failed to inject data_range %s", data_range)
+                return {"status": "error", "message": f"Failed to read data_range {data_range}: {exc}"}
 
         result = executor.execute_with_return(code)
 
