@@ -302,11 +302,12 @@ def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"
         if _domain_excluded(domain if isinstance(domain, str) else None):
             continue
         if domain:
-            from plugin.scripting.host_rpc import singularize_domain
-
             namespace = domain
             # Strip prefix if it matches domain (e.g. footnotes_insert -> insert)
             prefix = domain
+            # This probe is only for the method-name prefix; it is not
+            # singularize_domain; indexes_add_mark starts with index_
+            # (the namespace) and would become method es_add_mark.
             if domain.endswith("s"):
                 singular = domain[:-1]
                 if name.startswith(singular + "_"):

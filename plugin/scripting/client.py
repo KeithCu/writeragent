@@ -27,6 +27,17 @@ from plugin.vision.vision_common import resolve_engine
 log = logging.getLogger(__name__)
 
 
+def _split_spec(spec: Any) -> tuple[str, dict[str, Any]]:
+    """Split a spec (str, dict, or non-dict) into (helper, params)."""
+    if isinstance(spec, str):
+        return spec, {}
+    if not isinstance(spec, dict):
+        return "", {}
+    raw_params = spec.get("params")
+    params = raw_params if isinstance(raw_params, dict) else {}
+    return str(spec.get("helper") or ""), params
+
+
 def _make_spec_runner(
     *,
     domain: str,
@@ -48,18 +59,8 @@ def _make_spec_runner(
             if long_timeout
             else configured_python_exec_timeout()
         )
-        if isinstance(spec, str):
-            helper = spec
-            params: dict[str, Any] = {}
-            layout: dict[str, Any] = {}
-        else:
-            helper = spec.get("helper", "")
-            # spec.get("params") or {} forwards a non-dict (a list from LLM JSON)
-            # into trusted_rpc, which then raises TypeError/ValueError instead of
-            # a tool error. Non-dict params become {}.
-            raw_params = spec.get("params")
-            params = raw_params if isinstance(raw_params, dict) else {}
-            layout = extract_sheet_layout(spec)
+        helper, params = _split_spec(spec)
+        layout = extract_sheet_layout(spec)
 
         return run_trusted_worker_action(
             ctx,
@@ -75,7 +76,7 @@ def _make_spec_runner(
             header_row=layout.get("header_row"),
         )
 
-    _runner.__name__ = f"run_{error_label.lower().replace(' ', '_')}"
+    _runner.__name__ = f"run_{domain}"
     _runner.__doc__ = f"Execute a trusted {error_label} helper in the user venv."
     return _runner
 
@@ -117,12 +118,6 @@ run_forecast = _make_spec_runner(
     error_label="Forecast",
 )
 
-run_quant = _make_spec_runner(
-    domain="quant",
-    error_code="QUANT_ERROR",
-    error_label="Quant",
-)
-
 
 # # --- Vision ---
 
@@ -141,12 +136,8 @@ def _resolve_vision_timeout_sec(spec: dict[str, Any] | str) -> int:
         return int(custom)
 
     long_budget = long_trusted_worker_timeout_sec()
-    if isinstance(spec, str):
-        return long_budget
-    if not isinstance(spec, dict):
-        return long_budget
-    raw_params = spec.get("params")
-    params: dict[str, Any] = raw_params if isinstance(raw_params, dict) else {}
+    helper, params = _split_spec(spec)
+    del helper
     if resolve_engine(params) == "paddle":
         return VISION_WORKER_TIMEOUT_SEC  # slightly lighter than full Docling
     return long_budget  # Docling default path uses the long trusted budget
@@ -162,15 +153,7 @@ def run_vision(
 ) -> dict[str, Any]:
     """Execute a trusted vision helper in the user venv."""
     timeout_sec = _resolve_vision_timeout_sec(spec)
-    if isinstance(spec, str):
-        helper = spec
-        params: dict[str, Any] = {}
-    else:
-        helper = spec.get("helper", "")
-        # Non-dict params (a list from LLM JSON) become {} so trusted_rpc
-        # does not raise TypeError/ValueError instead of a tool error.
-        raw_params = spec.get("params")
-        params = raw_params if isinstance(raw_params, dict) else {}
+    helper, params = _split_spec(spec)
     return run_trusted_worker_action(
         ctx,
         domain="vision",
@@ -250,13 +233,7 @@ def run_text_analytics(
         log.exception("Could not read text_analytics_sentiment_model")
 
     timeout_sec = long_trusted_worker_timeout_sec()
-    if isinstance(spec, str):
-        helper = spec
-        params: dict[str, Any] = {}
-    else:
-        helper = str(spec.get("helper", "") or "")
-        raw_params = spec.get("params")
-        params = raw_params if isinstance(raw_params, dict) else {}
+    helper, params = _split_spec(spec)
     if model:
         params = dict(params)
         params["model"] = model
