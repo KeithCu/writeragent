@@ -889,6 +889,75 @@ def test_unknown_dtype_kind_promotes_column_like_cython() -> None:
         assert column_kinds_for_grid(grid) == ["float", "int"]
 
 
+def test_int_subclass_column_kind_matches_cython() -> None:
+    """Int subclasses pack as column kind 'int' on both Python and Cython lanes."""
+    import enum
+
+    from plugin.scripting.payload_codec import host_pack_split_grid
+
+    class Widget(int):
+        pass
+
+    class Color(enum.IntEnum):
+        RED = 1
+
+    def _check() -> None:
+        # [[Widget(7), Color.RED]] -> column_kinds == ["int", "int"], host unpack [[7, 1]], both cells type is int.
+        wire_pair = host_pack_split_grid([[Widget(7), Color.RED]])
+        assert wire_pair["column_kinds"] == ["int", "int"]
+        unpacked_pair = host_unpack_split_grid(wire_pair)
+        assert unpacked_pair == [[7, 1]]
+        assert type(unpacked_pair[0][0]) is int
+        assert type(unpacked_pair[0][1]) is int
+
+        # [Widget(-3)] -> column_kinds == ["int"], host unpack [-3], type is int.
+        wire_1d = host_pack_split_grid([Widget(-3)])
+        assert wire_1d["column_kinds"] == ["int"]
+        unpacked_1d = host_unpack_split_grid(wire_1d)
+        assert unpacked_1d == [-3]
+        assert type(unpacked_1d[0]) is int
+
+        # [[Widget(7), "x"]] -> column_kinds == ["int", "float"], host cell 0 is type is int and equals 7, cell 1 is "x". This is the slow path.
+        wire_slow = host_pack_split_grid([[Widget(7), "x"]])
+        assert wire_slow["column_kinds"] == ["int", "float"]
+        unpacked_slow = host_unpack_split_grid(wire_slow)
+        assert unpacked_slow[0][0] == 7
+        assert type(unpacked_slow[0][0]) is int
+        assert unpacked_slow[0][1] == "x"
+
+        # [[True], [Widget(1)]] -> column_kinds == ["int"].
+        wire_bool = host_pack_split_grid([[True], [Widget(1)]])
+        assert wire_bool["column_kinds"] == ["int"]
+
+        # [[1.5], [Widget(1)]] -> column_kinds == ["float"], host cell types are float.
+        wire_float = host_pack_split_grid([[1.5], [Widget(1)]])
+        assert wire_float["column_kinds"] == ["float"]
+        unpacked_float = host_unpack_split_grid(wire_float)
+        assert type(unpacked_float[0][0]) is float
+        assert type(unpacked_float[1][0]) is float
+
+        # [[Widget(10**400)]] -> the decimal text of that value is in strings, and the kind is not a successful int cast of the integer (the cell is text).
+        huge_val = Widget(10**400)
+        wire_huge = host_pack_split_grid([[huge_val]])
+        assert str(10**400) in wire_huge["strings"].values()
+        unpacked_huge = host_unpack_split_grid(wire_huge)
+        assert unpacked_huge == [[str(10**400)]]
+        assert type(unpacked_huge[0][0]) is str
+
+        try:
+            import numpy as np
+        except ImportError:
+            np = None
+        if np is not None:
+            child_arr = child_unpack_split_grid(wire_pair)
+            assert child_arr.dtype == np.int64
+
+    with cython_accelerator_context(enabled=False):
+        _check()
+    if payload_codec.fast_flatten_grid_2d is not None:
+        _check()
+
+
 def test_unknown_dtype_kind_numeric_regardless_of_string_position() -> None:
     """The same object is a float before or after a text cell.
 
