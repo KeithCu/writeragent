@@ -296,6 +296,215 @@ def test_page_insert_break_no_anchor(ctx, doc):
     assert view_cursor.getString() == "This is a "
 
 
+def _para_with_text(doc, needle):
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        para = enum.nextElement()
+        try:
+            if needle in para.getString():
+                return para
+        except Exception:
+            continue
+    return None
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_insert_break_applies_cloned_style_and_restarts_numbering(ctx, doc):
+    from plugin.writer.page import PageInsertBreak
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from com.sun.star.style.BreakType import PAGE_BEFORE, NONE
+
+    pages = doc.getStyleFamilies().getByName("PageStyles")
+    if pages.hasByName("AnnexRestart1424"):
+        pages.removeByName("AnnexRestart1424")
+    copy_page_style(doc, _style_name(doc), "AnnexRestart1424", uno_ctx=ctx)
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.setPropertyValue("PageDescName", "")
+    cursor.setPropertyValue("BreakType", NONE)
+    cursor.setPropertyToDefault("PageNumberOffset")
+    text.insertString(cursor, "Body stays.", False)
+    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+    text.insertString(cursor, "Annex start", False)
+
+    tool = PageInsertBreak()
+    res = tool.execute(
+        _tool_ctx(doc, ctx),
+        before_text="Annex start",
+        page_style="AnnexRestart1424",
+        restart_page_number=1,
+    )
+    assert res["status"] == "ok"
+    assert res["page_style"] == "AnnexRestart1424"
+    assert res["restart_page_number"] == 1
+    assert "before" in res["message"]
+    assert set(res) == {"status", "message", "page_style", "restart_page_number"}
+
+    annex_para = _para_with_text(doc, "Annex start")
+    assert annex_para is not None
+    assert annex_para.getPropertyValue("BreakType") == PAGE_BEFORE
+    assert annex_para.getPropertyValue("PageDescName") == "AnnexRestart1424"
+    assert int(annex_para.getPropertyValue("PageNumberOffset")) == 1
+
+    body_para = _para_with_text(doc, "Body stays.")
+    assert body_para is not None
+    assert body_para.getPropertyValue("BreakType") != PAGE_BEFORE
+    assert body_para.getPropertyValue("PageDescName") != "AnnexRestart1424"
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_insert_break_after_text_styles_the_following_paragraph(ctx, doc):
+    from plugin.writer.page import PageInsertBreak
+    from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
+    from com.sun.star.style.BreakType import PAGE_BEFORE, NONE
+
+    pages = doc.getStyleFamilies().getByName("PageStyles")
+    if pages.hasByName("AnnexAfter1424"):
+        pages.removeByName("AnnexAfter1424")
+    copy_page_style(doc, _style_name(doc), "AnnexAfter1424", uno_ctx=ctx)
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.setPropertyValue("PageDescName", "")
+    cursor.setPropertyValue("BreakType", NONE)
+    cursor.setPropertyToDefault("PageNumberOffset")
+    text.insertString(cursor, "Lead clause", False)
+    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
+    text.insertString(cursor, "Annex start", False)
+
+    tool = PageInsertBreak()
+    res = tool.execute(
+        _tool_ctx(doc, ctx),
+        after_text="Lead clause",
+        page_style="AnnexAfter1424",
+        restart_page_number=3,
+    )
+    assert res["status"] == "ok"
+    assert "after" in res["message"]
+
+    annex_para = _para_with_text(doc, "Annex start")
+    assert annex_para is not None
+    assert annex_para.getPropertyValue("BreakType") == PAGE_BEFORE
+    assert annex_para.getPropertyValue("PageDescName") == "AnnexAfter1424"
+    assert int(annex_para.getPropertyValue("PageNumberOffset")) == 3
+
+    lead_para = _para_with_text(doc, "Lead clause")
+    assert lead_para is not None
+    assert lead_para.getPropertyValue("BreakType") != PAGE_BEFORE
+    assert lead_para.getPropertyValue("PageDescName") != "AnnexAfter1424"
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_insert_break_unknown_style_changes_nothing(ctx, doc):
+    from plugin.writer.page import PageInsertBreak
+    from com.sun.star.style.BreakType import PAGE_BEFORE, NONE
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.setPropertyValue("PageDescName", "")
+    cursor.setPropertyValue("BreakType", NONE)
+    cursor.setPropertyToDefault("PageNumberOffset")
+    text.insertString(cursor, "Annex start", False)
+
+    tool = PageInsertBreak()
+    res = tool.execute(
+        _tool_ctx(doc, ctx),
+        before_text="Annex start",
+        page_style="MissingAnnex1424",
+    )
+    assert res["status"] == "error"
+    assert "No page style named 'MissingAnnex1424'" in res["message"]
+
+    para = _para_with_text(doc, "Annex start")
+    assert para is not None
+    assert "Annex start" in para.getString()
+    assert para.getPropertyValue("BreakType") != PAGE_BEFORE
+    assert para.getPropertyValue("PageDescName") != "MissingAnnex1424"
+    assert int(para.getPropertyValue("PageNumberOffset") or 0) == 0
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_insert_break_after_last_paragraph_does_not_apply_style(ctx, doc):
+    from plugin.writer.page import PageInsertBreak
+    from com.sun.star.style.BreakType import PAGE_BEFORE, NONE
+
+    pages = doc.getStyleFamilies().getByName("PageStyles")
+    if pages.hasByName("AnnexLast1424"):
+        pages.removeByName("AnnexLast1424")
+    copy_page_style(doc, _style_name(doc), "AnnexLast1424", uno_ctx=ctx)
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.setPropertyValue("PageDescName", "")
+    cursor.setPropertyValue("BreakType", NONE)
+    cursor.setPropertyToDefault("PageNumberOffset")
+    text.insertString(cursor, "Only paragraph", False)
+
+    tool = PageInsertBreak()
+    res = tool.execute(
+        _tool_ctx(doc, ctx),
+        after_text="Only paragraph",
+        page_style="AnnexLast1424",
+        restart_page_number=1,
+    )
+    assert res["status"] == "error"
+    assert "last paragraph" in res["message"]
+
+    para = _para_with_text(doc, "Only paragraph")
+    assert para is not None
+    assert para.getPropertyValue("BreakType") != PAGE_BEFORE
+    assert para.getPropertyValue("PageDescName") != "AnnexLast1424"
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_insert_break_view_cursor_applies_style_and_keeps_selection(ctx, doc):
+    from plugin.writer.page import PageInsertBreak
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+
+    pages = doc.getStyleFamilies().getByName("PageStyles")
+    if pages.hasByName("AnnexCursor1424"):
+        pages.removeByName("AnnexCursor1424")
+    copy_page_style(doc, _style_name(doc), "AnnexCursor1424", uno_ctx=ctx)
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.setString("This is a paragraph with some text.")
+
+    view_cursor = doc.getCurrentController().getViewCursor()
+    view_cursor.gotoStart(False)
+    view_cursor.goRight(10, True)  # Select "This is a "
+
+    assert view_cursor.getString() == "This is a "
+
+    tool = PageInsertBreak()
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = tool.execute(tool_ctx, page_style="AnnexCursor1424", restart_page_number=2)
+
+    assert res["status"] == "ok"
+    assert res["message"] == "Page break inserted."
+    assert view_cursor.getString() == "This is a "
+
+    para = text.createTextCursorByRange(view_cursor.getStart())
+    para.gotoStartOfParagraph(False)
+    para.gotoEndOfParagraph(True)
+    assert para.getString() == "This is a paragraph with some text."
+
+    assert para.getPropertyValue("BreakType") == PAGE_BEFORE
+    assert para.getPropertyValue("PageDescName") == "AnnexCursor1424"
+    assert int(para.getPropertyValue("PageNumberOffset")) == 2
+    assert view_cursor.getString() == "This is a "
+
+
 def _shapes_anchored_in(doc, text_obj):
     found = []
     draw_page = doc.getDrawPage()
@@ -668,6 +877,43 @@ def test_page_break_inside_table_cell_uno(ctx, doc):
 
     from com.sun.star.style.BreakType import PAGE_BEFORE
     assert cell_cursor.getPropertyValue("BreakType") != PAGE_BEFORE
+
+
+@native_test
+@with_native_doc("writer")
+def test_page_break_inside_table_cell_with_page_style_uno(ctx, doc):
+    from plugin.writer.page import PageInsertBreak
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+
+    pages = doc.getStyleFamilies().getByName("PageStyles")
+    if pages.hasByName("AnnexCell1424"):
+        pages.removeByName("AnnexCell1424")
+    copy_page_style(doc, _style_name(doc), "AnnexCell1424", uno_ctx=ctx)
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(1, 1)
+    text.insertTextContent(cursor, table, False)
+
+    cell = table.getCellByName("A1")
+    cell_text = cell.getText()
+    cell_cursor = cell_text.createTextCursor()
+    cell_cursor.setString("UniqueCellWord")
+
+    tool = PageInsertBreak()
+    res = tool.execute(
+        _tool_ctx(doc, ctx),
+        before_text="UniqueCellWord",
+        page_style="AnnexCell1424",
+        restart_page_number=1,
+    )
+    assert res["status"] == "error", res
+    assert "table cell" in res["message"]
+
+    assert cell_cursor.getPropertyValue("BreakType") != PAGE_BEFORE
+    assert cell_cursor.getPropertyValue("PageDescName") != "AnnexCell1424"
 
 
 @native_test

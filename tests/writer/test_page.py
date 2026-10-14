@@ -219,6 +219,51 @@ def test_insert_page_break():
     text_obj.insertControlCharacter.assert_not_called()
 
 
+def _attach_page_styles(doc, names):
+    styles = doc.getStyleFamilies.return_value.getByName.return_value
+    styles.hasByName.side_effect = lambda name: name in names
+    styles.getElementNames.return_value = tuple(sorted(names))
+    return styles
+
+
+def test_page_break_view_cursor_page_style_and_restart():
+    import sys
+    from unittest.mock import call
+    setattr(sys.modules["com.sun.star.style.BreakType"], "PAGE_BEFORE", 4)
+    doc = MagicMock()
+    controller = MagicMock()
+    view_cursor = MagicMock()
+    start_pos = MagicMock()
+    text_obj = MagicMock()
+    text_cursor = MagicMock()
+
+    doc.getCurrentController.return_value = controller
+    controller.getViewCursor.return_value = view_cursor
+    view_cursor.getStart.return_value = start_pos
+    view_cursor.getText.return_value = text_obj
+    text_cursor.getPropertyValue.return_value = None
+    text_obj.createTextCursorByRange.return_value = text_cursor
+
+    _attach_page_styles(doc, {"Annex"})
+
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    tool = PageInsertBreak()
+    res = tool.execute(ctx, page_style="Annex", restart_page_number=2)
+
+    assert res["status"] == "ok"
+    assert res["message"] == "Page break inserted."
+    text_obj.createTextCursorByRange.assert_called_with(start_pos)
+    text_cursor.setPropertyValue.assert_has_calls([
+        call("BreakType", 4),
+        call("PageDescName", "Annex"),
+        call("PageNumberOffset", 2),
+    ])
+    assert text_cursor.setPropertyValue.call_count == 3
+    text_obj.insertControlCharacter.assert_not_called()
+    assert not hasattr(text_cursor, "gotoNextParagraph") or text_cursor.gotoNextParagraph.call_count == 0
+    assert [c.args[0] for c in text_cursor.getPropertyValue.call_args_list] == ["TextTable"]
+
+
 def test_page_tools_shortened_style_param():
     doc = MagicMock()
     families = MagicMock()
@@ -742,6 +787,27 @@ def test_page_break_before_text_sets_break_on_match_paragraph():
     para.gotoNextParagraph.assert_not_called()
 
 
+def test_page_break_page_style_sets_page_desc_name_on_match_paragraph():
+    from unittest.mock import call
+    from plugin.writer.page import PageInsertBreak
+
+    doc, para = _pagebreak_doc()
+    _attach_page_styles(doc, {"Annex", "Standard"})
+    res = PageInsertBreak().execute(
+        SimpleNamespace(doc=doc),
+        before_text="Assinaturas",
+        page_style="Annex",
+    )
+    assert res["status"] == "ok"
+    assert "before" in res["message"]
+    assert set(res) == {"status", "message", "page_style"}
+    assert res["page_style"] == "Annex"
+    para.setPropertyValue.assert_has_calls([call("BreakType", "PAGE_BEFORE"), call("PageDescName", "Annex")])
+    assert para.setPropertyValue.call_count == 2
+    para.gotoNextParagraph.assert_not_called()
+    assert [c.args[0] for c in para.getPropertyValue.call_args_list] == ["TextTable"]
+
+
 def test_page_break_after_text_breaks_on_following_paragraph():
     from plugin.writer.page import PageInsertBreak
 
@@ -752,6 +818,54 @@ def test_page_break_after_text_breaks_on_following_paragraph():
     para.setPropertyValue.assert_called_once_with("BreakType", "PAGE_BEFORE")
 
 
+def test_page_break_restart_sets_page_number_offset():
+    from unittest.mock import call
+    from plugin.writer.page import PageInsertBreak
+
+    doc, para = _pagebreak_doc(found_next=True)
+    _attach_page_styles(doc, {"Annex"})
+    res = PageInsertBreak().execute(
+        SimpleNamespace(doc=doc),
+        after_text="clausula",
+        page_style="Annex",
+        restart_page_number=1,
+    )
+    assert res["status"] == "ok"
+    assert "after" in res["message"]
+    assert set(res) == {"status", "message", "page_style", "restart_page_number"}
+    assert res["page_style"] == "Annex"
+    assert res["restart_page_number"] == 1
+    para.gotoNextParagraph.assert_called_once()
+    para.setPropertyValue.assert_has_calls([
+        call("BreakType", "PAGE_BEFORE"),
+        call("PageDescName", "Annex"),
+        call("PageNumberOffset", 1),
+    ])
+    assert para.setPropertyValue.call_count == 3
+
+
+def test_page_break_restart_short_max_is_accepted():
+    from unittest.mock import call
+    from plugin.writer.page import PageInsertBreak
+
+    doc, para = _pagebreak_doc(found_next=True)
+    _attach_page_styles(doc, {"Annex"})
+    res = PageInsertBreak().execute(
+        SimpleNamespace(doc=doc),
+        after_text="clausula",
+        page_style="Annex",
+        restart_page_number=32767,
+    )
+    assert res["status"] == "ok"
+    assert res["restart_page_number"] == 32767
+    para.setPropertyValue.assert_has_calls([
+        call("BreakType", "PAGE_BEFORE"),
+        call("PageDescName", "Annex"),
+        call("PageNumberOffset", 32767),
+    ])
+    assert para.setPropertyValue.call_count == 3
+
+
 def test_page_break_after_text_last_paragraph_errors_instead_of_wrong_direction():
     from plugin.writer.page import PageInsertBreak
 
@@ -759,6 +873,22 @@ def test_page_break_after_text_last_paragraph_errors_instead_of_wrong_direction(
     res = PageInsertBreak().execute(SimpleNamespace(doc=doc), after_text="assinatura final")
     assert res["status"] == "error" and "last paragraph" in res["message"]
     para.setPropertyValue.assert_not_called()  # never the wrong-direction silent break
+
+
+def test_page_break_page_style_last_paragraph_still_errors():
+    from plugin.writer.page import PageInsertBreak
+
+    doc, para = _pagebreak_doc(found_next=False)
+    _attach_page_styles(doc, {"Annex"})
+    res = PageInsertBreak().execute(
+        SimpleNamespace(doc=doc),
+        after_text="assinatura final",
+        page_style="Annex",
+        restart_page_number=1,
+    )
+    assert res["status"] == "error"
+    assert "last paragraph" in res["message"]
+    para.setPropertyValue.assert_not_called()
 
 # ---- D5: insert_page_break anchored -----------------------------------------
 
@@ -768,6 +898,22 @@ def test_page_break_both_anchors_rejected():
     assert res["status"] == "error" and "only one" in res["message"]
 
 
+def test_page_break_both_anchors_still_rejected_when_page_style_set():
+    from plugin.writer.page import PageInsertBreak
+
+    doc = MagicMock()
+    res = PageInsertBreak().execute(
+        SimpleNamespace(doc=doc),
+        before_text="a",
+        after_text="b",
+        page_style="Nope",
+        restart_page_number=1,
+    )
+    assert res["status"] == "error"
+    assert "only one" in res["message"]
+    doc.getStyleFamilies.assert_not_called()
+
+
 def test_page_break_anchor_not_found():
     from plugin.writer.page import PageInsertBreak
     doc = MagicMock()
@@ -775,6 +921,86 @@ def test_page_break_anchor_not_found():
     # com.sun.star.style.BreakType is a mocked module; the import inside execute resolves via the uno mock.
     res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Signature")
     assert res["status"] == "error" and "not found" in res["message"]
+
+
+def test_page_break_unknown_page_style_changes_nothing():
+    from plugin.writer.page import PageInsertBreak
+
+    doc, para = _pagebreak_doc()
+    _attach_page_styles(doc, {"Standard"})
+    res = PageInsertBreak().execute(
+        SimpleNamespace(doc=doc),
+        before_text="Assinaturas",
+        page_style="NoSuch",
+    )
+    assert res["status"] == "error"
+    assert "No page style named 'NoSuch'" in res["message"]
+    assert "Standard" in res["message"]
+    para.setPropertyValue.assert_not_called()
+    doc.findFirst.assert_not_called()
+
+
+def test_page_break_restart_without_page_style_errors():
+    from plugin.writer.page import PageInsertBreak
+
+    doc, para = _pagebreak_doc()
+    res = PageInsertBreak().execute(
+        SimpleNamespace(doc=doc),
+        before_text="Assinaturas",
+        restart_page_number=1,
+    )
+    assert res["status"] == "error"
+    assert res["message"] == "restart_page_number requires page_style."
+    para.setPropertyValue.assert_not_called()
+    doc.findFirst.assert_not_called()
+    doc.getStyleFamilies.assert_not_called()
+
+
+def test_page_break_restart_rejects_non_positive():
+    from plugin.writer.page import PageInsertBreak
+
+    for val in (0, -1, True, 1.5, "1", 32768):
+        doc, para = _pagebreak_doc()
+        _attach_page_styles(doc, {"Annex"})
+        res = PageInsertBreak().execute(
+            SimpleNamespace(doc=doc),
+            before_text="Assinaturas",
+            page_style="Annex",
+            restart_page_number=val,
+        )
+        assert res["status"] == "error"
+        assert res["message"] == "restart_page_number must be an integer >= 1."
+        para.setPropertyValue.assert_not_called()
+
+
+def test_page_break_page_style_must_be_a_string():
+    from plugin.writer.page import PageInsertBreak
+
+    doc, para = _pagebreak_doc()
+    res = PageInsertBreak().execute(
+        SimpleNamespace(doc=doc),
+        before_text="Assinaturas",
+        page_style=123,
+    )
+    assert res["status"] == "error"
+    assert res["message"] == "page_style must be a string."
+    doc.getStyleFamilies.assert_not_called()
+    para.setPropertyValue.assert_not_called()
+
+
+def test_page_break_empty_style_with_restart_does_not_resolve():
+    from plugin.writer.page import PageInsertBreak
+
+    doc, para = _pagebreak_doc()
+    res = PageInsertBreak().execute(
+        SimpleNamespace(doc=doc),
+        before_text="Assinaturas",
+        page_style="",
+        restart_page_number=1,
+    )
+    assert res["status"] == "error"
+    assert res["message"] == "restart_page_number requires page_style."
+    doc.getStyleFamilies.assert_not_called()
 
 
 def test_copy_region_graphics_skips_non_graphic():
@@ -1294,4 +1520,46 @@ def test_page_break_in_table_cell_errors():
     assert res2["status"] == "error"
     assert "table cell" in res2["message"]
     text_cursor.setPropertyValue.assert_not_called()
+
+
+def test_page_break_page_style_in_table_cell_still_errors():
+    from plugin.writer.page import PageInsertBreak
+
+    # Anchor path: para is in text table
+    doc, para = _pagebreak_doc()
+    _attach_page_styles(doc, {"Annex"})
+    para.getPropertyValue.side_effect = lambda prop: object() if prop == "TextTable" else None
+    res = PageInsertBreak().execute(
+        SimpleNamespace(doc=doc),
+        before_text="Anchor",
+        page_style="Annex",
+        restart_page_number=1,
+    )
+    assert res["status"] == "error"
+    assert "table cell" in res["message"]
+    para.setPropertyValue.assert_not_called()
+
+    # View-cursor path: model cursor is in text table
+    import sys
+    setattr(sys.modules["com.sun.star.style.BreakType"], "PAGE_BEFORE", 4)
+    doc2 = MagicMock()
+    _attach_page_styles(doc2, {"Annex"})
+    controller = MagicMock()
+    view_cursor = MagicMock()
+    start_pos = MagicMock()
+    text_obj = MagicMock()
+    text_cursor = MagicMock()
+    text_cursor.getPropertyValue.side_effect = lambda prop: object() if prop == "TextTable" else None
+    doc2.getCurrentController.return_value = controller
+    controller.getViewCursor.return_value = view_cursor
+    view_cursor.getStart.return_value = start_pos
+    view_cursor.getText.return_value = text_obj
+    text_obj.createTextCursorByRange.return_value = text_cursor
+
+    ctx = SimpleNamespace(doc=doc2)
+    res2 = PageInsertBreak().execute(ctx, page_style="Annex")
+    assert res2["status"] == "error"
+    assert "table cell" in res2["message"]
+    text_cursor.setPropertyValue.assert_not_called()
+
 

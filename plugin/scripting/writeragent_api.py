@@ -1511,16 +1511,18 @@ class _PageProxy:
         """
         return _rpc_call("page_get_style_properties", style=style)
 
-    def insert_break(self, *, before_text: str | None = None, after_text: str | None = None, occurrence: int | None = None, case_sensitive: bool | None = None) -> dict[str, Any]:
-        """Start a new page. With no anchor, breaks at the user's cursor (arbitrary over MCP). Pass before_text or after_text to break the page at a specific passage instead, so a headless client can place it deterministically (e.g. before_text of the signature block).
+    def insert_break(self, *, before_text: str | None = None, after_text: str | None = None, occurrence: int | None = None, case_sensitive: bool | None = None, page_style: str | None = None, restart_page_number: int | None = None) -> dict[str, Any]:
+        """Start a new page. With no anchor, breaks at the user's cursor (arbitrary over MCP). Pass before_text or after_text to break the page at a specific passage instead, so a headless client can place it deterministically (e.g. before_text of the signature block). Pass page_style to apply an existing page style from that new page onward (often the name returned by style_clone of the current page, for an annex). Pass restart_page_number (integer >= 1) only together with page_style to restart page numbering at that value. An unknown page_style is an error and changes nothing.
 
         Args:
             before_text (optional): Break so this passage starts a new page (page break on the match's paragraph).
             after_text (optional): Break the page right after this passage's paragraph.
             occurrence (optional): 0-based match to use when the anchor text repeats (default 0).
             case_sensitive (optional): Case-sensitive anchor match (default true).
+            page_style (optional): Name of an existing page style to apply from this break onward (paragraph property PageDescName). Often a style_clone of the current page. Unknown names error and change nothing. Omit to keep the current page style.
+            restart_page_number (optional): Page number to start at on the new page (integer >= 1, paragraph property PageNumberOffset). Requires page_style. Omit to continue the current sequence. 0 is not a restart.
         """
-        return _rpc_call("page_insert_break", before_text=before_text, after_text=after_text, occurrence=occurrence, case_sensitive=case_sensitive)
+        return _rpc_call("page_insert_break", before_text=before_text, after_text=after_text, occurrence=occurrence, case_sensitive=case_sensitive, page_style=page_style, restart_page_number=restart_page_number)
 
     def replace_header_footer_text(self, region: str, old_content: str, content: str, *, style: str | None = None, case_sensitive: bool | None = None, occurrence: int | None = None, all_matches: bool | None = None) -> dict[str, Any]:
         """Replace one substring in this page-style header or footer. Leaves page-number fields and floating graphics in place. One old_content/content pair per call — call again for a second change, the same way apply_document_content search-replace does. Does not turn the region on and does not rewrite it; use page_set_header_footer_text for a full HTML replacement. A region that only mirrors the shared header or footer is skipped. Refuses when an image is anchored to a character inside the match.
@@ -2300,11 +2302,11 @@ class _TrackingProxy:
     """Proxy for tracking tools."""
 
     def manage_tracked_changes(self, action: str, *, index: int | None = None) -> dict[str, Any]:
-        """Accept or reject tracked changes. action=accept/reject requires index (from track_changes_list); action=accept_all/reject_all resolves every change.
+        """Accept or reject tracked changes. action=accept/reject requires index (from track_changes_list). That index is stale after any resolve; call track_changes_list again before the next accept or reject. action=accept_all/reject_all resolves every change.
 
         Args:
             action (required): accept/reject one change by index, or accept_all/reject_all. One of: accept, reject, accept_all, reject_all.
-            index (optional): Zero-based index from track_changes_list (required for accept/reject).
+            index (optional): Zero-based index from track_changes_list (required for accept/reject). Call track_changes_list again after each resolve; indexes shift.
         """
         return _rpc_call("manage_tracked_changes", action=action, index=index)
 
@@ -2366,7 +2368,7 @@ class _WriterProxy:
         """Insert or replace content. IMPORTANT: Required after web_research or document_research delegates return. To replace the ENTIRE document use target='full_document' with content only — do NOT pass the whole document as old_content. Use target='beginning', 'end', or 'selection' to insert. Use target='search' with old_content for find-and-replace of a specific substring only. An empty replacement that removes the last text in a table deletes that table. Clearing one cell while another cell still has text leaves the table in place. Search occurrence is 0-based over replaceable body/table/frame matches only (not dry_run shape/comment rows); omit it for first-match; do not combine with all_matches=true. dry_run tags those replaceable rows with occurrence so you can pass the index back. An outline hyperlink (#…|outline) covering a replaced match is updated when the matched text occurs once in the target outside that suffix; pass hyperlink_url to set a different target on that one link, including when content equals old_content and only the URL is stale. Bookmark links are not rewritten.
 
         Args:
-            content (required): List of HTML fragments or plain-text fragments (one per block), or one string. A string is one block; execute still joins a list with newlines. Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown.
+            content (required): List of HTML fragments or plain-text fragments (one per block), or one string. A string is one block; execute still joins a list with newlines. Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty string at beginning, end, or selection inserts nothing and returns an error. An empty search replacement deletes the match.
             target (optional): Where to apply the content. One of: beginning, end, selection, full_document, search.
             old_content (optional): Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.
             all_matches (optional): Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace'.

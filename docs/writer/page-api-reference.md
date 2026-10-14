@@ -128,14 +128,18 @@ While not strictly layout, forcing content onto a new page is often part of layo
 - **`BreakType`** (`com.sun.star.style.BreakType` enum): Applied to a paragraph to force a break before or after.
   - `PAGE_BEFORE`, `PAGE_AFTER`, `COLUMN_BEFORE`, `COLUMN_AFTER`, `NONE`.
 - A page break inside a table cell is rejected with an error and does not set `BreakType`.
+- **`PageDescName`** (string): page style to use from this paragraph onward. `page_insert_break(page_style=...)` writes the name `resolve_page_style` accepted. An unknown name is an error and does not set `BreakType`. Setting `PageDescName` also requests a page break ([ParagraphProperties](https://api.libreoffice.org/docs/idl/ref/servicecom_1_1sun_1_1star_1_1style_1_1ParagraphProperties.html)); the tool still sets `BreakType` to `PAGE_BEFORE`.
+- **`PageNumberOffset`** (short): new page number at that break. `page_insert_break(restart_page_number=N)` writes it only when `page_style` is set, and only for an integer `N` from 1 to 32767. Omitted means the current sequence continues. `0` is not written. `PageStyleName` is read-only and is not set.
 
 ### Python Example: Forcing a Page Break Before a Paragraph
 ```python
 from com.sun.star.style.BreakType import PAGE_BEFORE
 
 cursor = doc.getText().createTextCursor()
-# ... move cursor to desired paragraph ...
+# ... move cursor to the paragraph that should start the new page ...
 cursor.setPropertyValue("BreakType", PAGE_BEFORE)
+cursor.setPropertyValue("PageDescName", "Annex")
+cursor.setPropertyValue("PageNumberOffset", 1)
 ```
 
 ## 5. Comprehensive PageStyle Properties

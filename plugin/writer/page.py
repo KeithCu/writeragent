@@ -1699,25 +1699,102 @@ class PageSetColumns(ToolWriterPageBase):
             return self._tool_error(f"Error setting columns on page style '{style_name}': {e}")
 
 
+def _page_break_style_request(doc: Any, kwargs: dict[str, Any]) -> tuple[str | None, int | None]:
+    """Return (resolved page style or None, restart offset or None).
+
+    Does not modify the document. Unknown page_style raises the ValueError
+    from resolve_page_style. PageNumberOffset is a short, so values above
+    32767 are rejected here, before BreakType is set.
+    """
+    restart = kwargs.get("restart_page_number", None)
+    style_name = kwargs.get("page_style", None)
+
+    if restart is not None:
+        if isinstance(restart, bool) or not isinstance(restart, int) or restart < 1 or restart > 32767:
+            raise ValueError("restart_page_number must be an integer >= 1.")
+        if not isinstance(style_name, str) or style_name == "":
+            raise ValueError("restart_page_number requires page_style.")
+
+    if style_name is None:
+        return None, None
+    if not isinstance(style_name, str):
+        raise ValueError("page_style must be a string.")
+
+    _style, resolved = resolve_page_style(doc, style_name)
+    return resolved, restart
+
+
+def _apply_page_break(para: Any, page_style: str | None, restart: int | None) -> None:
+    """Set BreakType, then PageDescName, then PageNumberOffset.
+
+    PageDescName is how Writer switches page style at a break
+    (css.style.ParagraphProperties: setting it also requests a page break
+    and names the style). BreakType is still set: that is the existing
+    page_insert_break write. PageNumberOffset is a short; 0 means continue
+    the current sequence, so this function does not write 0. The offset is
+    written after PageDescName. Nothing is read back.
+    """
+    from com.sun.star.style.BreakType import PAGE_BEFORE
+    para.setPropertyValue("BreakType", PAGE_BEFORE)
+    if page_style is not None:
+        para.setPropertyValue("PageDescName", page_style)
+    if restart is not None:
+        para.setPropertyValue("PageNumberOffset", restart)
+
+
+def _page_break_ok(message: str, page_style: str | None, restart: int | None) -> dict[str, Any]:
+    result: dict[str, Any] = {"status": "ok", "message": message}
+    if page_style is not None:
+        result["page_style"] = page_style
+    if restart is not None:
+        result["restart_page_number"] = restart
+    return result
+
+
 # ------------------------------------------------------------------
 # PageInsertBreak
 # ------------------------------------------------------------------
 
 
 class PageInsertBreak(ToolWriterPageBase):
-    """Insert a page break at a text anchor (before_text/after_text) or at the view cursor."""
+    """Insert a page break at a text anchor (before_text/after_text) or at the view cursor.
+
+    Optional page_style applies that existing page style from the new page
+    (PageDescName). Optional restart_page_number (with page_style) restarts
+    numbering there (PageNumberOffset).
+    """
 
     name: str | None = "page_insert_break"
     description: str = (
         "Start a new page. With no anchor, breaks at the user's cursor (arbitrary over MCP). "
         "Pass before_text or after_text to break the page at a specific passage instead, so a "
-        "headless client can place it deterministically (e.g. before_text of the signature block)."
+        "headless client can place it deterministically (e.g. before_text of the signature block). "
+        "Pass page_style to apply an existing page style from that new page onward "
+        "(often the name returned by style_clone of the current page, for an annex). "
+        "Pass restart_page_number (integer >= 1) only together with page_style to restart "
+        "page numbering at that value. An unknown page_style is an error and changes nothing."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {
         "before_text": {"type": "string", "description": "Break so this passage starts a new page (page break on the match's paragraph)."},
         "after_text": {"type": "string", "description": "Break the page right after this passage's paragraph."},
         "occurrence": {"type": "integer", "description": "0-based match to use when the anchor text repeats (default 0)."},
         "case_sensitive": {"type": "boolean", "description": "Case-sensitive anchor match (default true)."},
+        "page_style": {
+            "type": "string",
+            "description": (
+                "Name of an existing page style to apply from this break onward "
+                "(paragraph property PageDescName). Often a style_clone of the current page. "
+                "Unknown names error and change nothing. Omit to keep the current page style."
+            ),
+        },
+        "restart_page_number": {
+            "type": "integer",
+            "description": (
+                "Page number to start at on the new page (integer >= 1, paragraph property "
+                "PageNumberOffset). Requires page_style. Omit to continue the current sequence. "
+                "0 is not a restart."
+            ),
+        },
     }, "required": []}
     is_mutation: bool | None = True
 
@@ -1727,6 +1804,17 @@ class PageInsertBreak(ToolWriterPageBase):
         after_text = kwargs.get("after_text")
         if before_text and after_text:
             return self._tool_error("Pass only one of before_text / after_text.")
+
+        try:
+            page_style, restart = _page_break_style_request(doc, kwargs)
+        except ValueError as e:
+            return self._tool_error(str(e))
+        except Exception as e:
+            if is_disposed_exception(e):
+                raise
+            return self._tool_error(
+                "Error accessing page style '%s': %s" % (kwargs.get("page_style"), e)
+            )
 
         try:
             if before_text or after_text:
@@ -1748,7 +1836,6 @@ class PageInsertBreak(ToolWriterPageBase):
                     found = doc.findNext(found.getEnd(), sd)
                 if found is None:
                     return self._tool_error("Anchor text '%s' not found%s." % (anchor, (" at occurrence %d" % occurrence) if occurrence else ""))
-                from com.sun.star.style.BreakType import PAGE_BEFORE
                 text = found.getText()
                 # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
                 # after_text -> the paragraph that FOLLOWS the match.
@@ -1764,8 +1851,8 @@ class PageInsertBreak(ToolWriterPageBase):
                 # Why this change fixes it: refuse to set BreakType if the cursor is inside a text table.
                 if _in_text_table(para):
                     return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
-                para.setPropertyValue("BreakType", PAGE_BEFORE)
-                return {"status": "ok", "message": "Page break inserted %s the anchor." % ("before" if before_text else "after")}
+                _apply_page_break(para, page_style, restart)
+                return _page_break_ok("Page break inserted %s the anchor." % ("before" if before_text else "after"), page_style, restart)
 
             view_cursor = doc.getCurrentController().getViewCursor()
             if not view_cursor:
@@ -1777,14 +1864,14 @@ class PageInsertBreak(ToolWriterPageBase):
             # and this path must not move that selection. insertControlCharacter
             # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
             # text; do not put that back.
-            from com.sun.star.style.BreakType import PAGE_BEFORE
             text = view_cursor.getText()
             cursor = text.createTextCursorByRange(view_cursor.getStart())
             if _in_text_table(cursor):
                 return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
-            cursor.setPropertyValue("BreakType", PAGE_BEFORE)
-            return {"status": "ok", "message": "Page break inserted."}
+            _apply_page_break(cursor, page_style, restart)
+            return _page_break_ok("Page break inserted.", page_style, restart)
         except Exception as e:
             if is_disposed_exception(e):
                 raise
             return self._tool_error(f"Error inserting page break: {e}")
+
