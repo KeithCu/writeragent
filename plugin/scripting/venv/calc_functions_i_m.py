@@ -10,7 +10,6 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 from __future__ import annotations
 
 import cmath
-import datetime as dt
 import math
 import statistics
 from collections import Counter
@@ -26,6 +25,7 @@ from .calc_functions_util import (
     _is_calc_error,
     _npf_result,
     _parse_complex,
+    _serial_to_date,
     _to_complex,
     match_criteria,
 )
@@ -378,7 +378,12 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
     yf = yearfrac(s, m, b)
     if yf == 0 or math.isnan(yf):
         return float("nan")
-    return (red - inv) / inv / yf
+    # What was wrong: INTRATE with an infinite redemption returned inf.
+    # How it happened: the quotient is outside the conversion try, and float
+    # division does not raise. getIntrate returns finiteOrThrow.
+    # Why this change fixes it: a non-finite quotient is NaN.
+    res = (red - inv) / inv / yf
+    return res if math.isfinite(res) else float("nan")
 
 
 def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
@@ -527,11 +532,12 @@ def isodd(val: Any) -> bool:
 
 
 def isoweeknum(serial: Any) -> float:
-    try:
-        d = dt.date.fromordinal(int(float(serial)) + 693594)
-        return float(d.isocalendar()[1])
-    except Exception:
+    # Same ordinal as every other serial helper. The inline fromordinal
+    # retyped 693594 and used except Exception.
+    d = _serial_to_date(serial)
+    if d is None:
         return float("nan")
+    return float(d.isocalendar()[1])
 
 
 def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import builtins
 import calendar
 import datetime as dt
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, Overflow, ROUND_HALF_UP, localcontext
 import functools
 import math
 import re
@@ -128,12 +128,25 @@ def _round_half_up(val: float, decimals: int) -> Decimal:
     # Half away from zero (2.5 -> 3, 2.675 -> 2.68). Python round() is half-to-even.
     if not math.isfinite(val):
         raise ValueError("Non-finite value cannot be rounded")
+    # What was wrong: DOLLAR, FIXED, and EUROCONVERT raised decimal.InvalidOperation
+    # for a large place count (fixed(0.5, 40), dollar(1.5, 40)).
+    # How it happened: quantize used the default 28-digit context. InvalidOperation
+    # subclasses ArithmeticError, not ValueError or OverflowError, so those handlers
+    # missed it. TEXT already widens the context in _format_number_pattern.
+    # Why this change fixes it: the same precision bump lets a 40-place quantize
+    # succeed, and a quantize that still fails becomes ValueError so the handlers
+    # return NaN instead of escaping the formula.
     d = Decimal(str(val))
-    if decimals >= 0:
-        exp = Decimal("1") if decimals == 0 else Decimal("1e" + str(-decimals))
-    else:
-        exp = Decimal("1e" + str(-decimals))
-    return d.quantize(exp, rounding=ROUND_HALF_UP)
+    try:
+        if decimals >= 0:
+            exp = Decimal("1") if decimals == 0 else Decimal("1e" + str(-decimals))
+        else:
+            exp = Decimal("1e" + str(-decimals))
+        with localcontext() as ctx:
+            ctx.prec = max(28, abs(d.adjusted()) + abs(decimals) + 2)
+            return d.quantize(exp, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, Overflow):
+        raise ValueError("decimal quantize failed") from None
 
 
 def nan_on_error(*exceptions: type[BaseException]) -> Callable[[Callable[..., Any]], Callable[..., Any]]:

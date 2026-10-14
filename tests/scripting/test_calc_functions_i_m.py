@@ -13,6 +13,7 @@ finite number or a boolean is the accepted result for that input.
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 
 import numpy as np
@@ -177,6 +178,7 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("intrate-blank", "intrate", (None, _DATE[1], 100, 105), _NAN),
     ("intrate-zero-investment", "intrate", (_DATE[0], _DATE[1], 0, 105), _NAN),
     ("intrate-basis-inf", "intrate", (_DATE[0], _DATE[1], 100, 105, _INF), _NAN),
+    ("intrate-inf-redemption", "intrate", (_DATE[0], _DATE[1], 100, _INF), _NAN),
     ("ipmt-text", "ipmt", ("text", 1, 3, 8000), _NAN),
     ("ipmt-blank", "ipmt", (None, 1, 3, 8000), _NAN),
     ("ipmt-zero-per", "ipmt", (0.1, 0, 3, 8000), _NAN),
@@ -596,4 +598,10 @@ def test_iseven_bool_is_numeric_and_mround_half_ulp():
     assert calc.isodd(True) is True
     # floor(q + 0.5) is 1 here, and getMround's approxValue path is also 1.
     assert calc.mround(math.nextafter(0.5, 0.0), 1) == 1.0
+
+
+def test_isoweeknum_date_matches_serial():
+    day = dt.date(2023, 1, 1)
+    assert calc.isoweeknum(day) == calc.isoweeknum(day.toordinal() - 693594)
+
 

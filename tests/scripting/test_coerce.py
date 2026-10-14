@@ -395,3 +395,13 @@ def test_coerce_str_list_skips_none():
     assert coerce_str_list([1]) == ["1"]
 
 
+def test_resolve_df_calc_range_uses_address_hint():
+    from plugin.scripting.calc_range import CalcRange
+    from plugin.scripting.venv.coerce import resolve_df
+
+    res = resolve_df(CalcRange([["a", "b"], [1, 2]], address="Sheet1.A1"))
+    assert res.metadata["sheet_hint"] == "Sheet1.A1"
+    assert list(res.df.columns) == ["a", "b"]
+
+
+

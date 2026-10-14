@@ -163,7 +163,16 @@ def nominal(effect_rate: Any, npery: Any) -> float:
     # Excel NOMINAL(0, npery) is 0. Only a negative effective rate is #NUM!.
     if er < 0 or np_y < 1:
         return float("nan")
-    return np_y * ((er + 1) ** (1.0 / np_y) - 1)
+    # What was wrong: NOMINAL(inf, n) returned inf.
+    # How it happened: er < 0 is false for +inf, and the power is outside the
+    # conversion try. getNominal returns finiteOrThrow. Rate 0 stays 0 (Excel);
+    # LibreOffice rejects rate <= 0, and this helper does not.
+    # Why this change fixes it: OverflowError and a non-finite result are NaN.
+    try:
+        res = np_y * ((er + 1) ** (1.0 / np_y) - 1)
+    except OverflowError:
+        return float("nan")
+    return res if math.isfinite(res) else float("nan")
 
 
 def normdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:

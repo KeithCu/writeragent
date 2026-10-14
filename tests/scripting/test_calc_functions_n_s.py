@@ -47,6 +47,7 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("nominal", ("text", 4), "nan", "nominal-text"),
     ("nominal", ("", 4), "nan", "nominal-blank"),
     ("nominal", (0.1, _INF), "nan", "nominal-out-of-range"),
+    ("nominal", (_INF, 4), "nan", "nominal-inf-rate"),
     ("normdist", ("text", 0, 1), "nan", "normdist-text"),
     ("normdist", ("", 0, 1), "nan", "normdist-blank"),
     ("normdist", (0, 0, 0), "nan", "normdist-zero-stdev"),
