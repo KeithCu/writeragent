@@ -677,10 +677,8 @@ def _stage_config_assignment(config_data: dict[str, Any], key: str, value: Any) 
     ):
         return False, coerced, previous
 
-    for dotted in _config_schema._dotted_fallback_keys(key):
-        config_data.pop(dotted, None)
-    if "." in key and key not in _DUAL_READ_DOTTED_KEYS_KEEP_FLAT:
-        config_data.pop(key.split(".", 1)[1], None)
+    for alias in _alias_keys_for_write(key):
+        config_data.pop(alias, None)
     config_data[key] = coerced
     return True, coerced, previous
 
@@ -741,15 +739,23 @@ def _value_for_update(loaded: dict[str, Any], key: str) -> Any:
     return _copy_config_value(raw)
 
 
-def _alias_keys_for_write(key: str) -> tuple[str, ...]:
-    """Other names ``set_config`` drops when it writes *key*.
+def _alias_keys_for_write(key: str, *, honor_keep_flat: bool = True) -> tuple[str, ...]:
+    """Other names ``set_config`` / ``remove`` drops when it writes/removes *key*.
 
-    Dotted fallbacks always go. The unsuffixed flat name goes too, except
-    ``audio.stt_model``, which must keep a pre-move ``stt_model``.
+    What was wrong: Any dotted key blindly deleted the flat name matching its
+    suffix (e.g. setting notamodule.endpoint dropped endpoint).
+    How it happened: _alias_keys_for_write split on dot and popped the suffix
+    without checking if that flat name actually mapped to this dotted key.
+    Why this change fixes it: It only treats the suffix as an alias when the
+    manifest-backed _dotted_fallback_keys(flat) yields this exact dotted key.
     """
     aliases: list[str] = list(_config_schema._dotted_fallback_keys(key))
-    if "." in key and key not in _DUAL_READ_DOTTED_KEYS_KEEP_FLAT:
-        aliases.append(key.split(".", 1)[1])
+    if "." in key:
+        flat = key.split(".", 1)[1]
+        if (not honor_keep_flat or key not in _DUAL_READ_DOTTED_KEYS_KEEP_FLAT) and any(
+            dotted == key for dotted in _config_schema._dotted_fallback_keys(flat)
+        ):
+            aliases.append(flat)
     return tuple(aliases)
 
 
@@ -905,7 +911,7 @@ class ConfigStore:
             _emit_pending(pending)
         return True
 
-    def remove(self, path: str, key: str, *, emit: bool = True) -> bool:
+    def remove(self, path: str, key: str, *, emit: bool = True, event_key: str | None = None) -> bool:
         """Drop *key* and its aliases. Leave every other key as it was read."""
         if not path or not os.path.exists(path):
             return False
@@ -919,21 +925,15 @@ class ConfigStore:
             except OSError:
                 log.exception("remove_config skipped: config file could not be read")
                 return False
+            aliases = _alias_keys_for_write(key, honor_keep_flat=False)
             remaining = dict(loaded)
             removed = False
             if key in remaining:
                 remaining.pop(key, None)
                 removed = True
-            for dotted in _config_schema._dotted_fallback_keys(key):
-                if dotted in remaining:
-                    remaining.pop(dotted, None)
-                    removed = True
-            # A dotted key's flat alias is the pre-move name (stt_model for
-            # audio.stt_model). Removing the dotted key removes that alias too.
-            if "." in key:
-                field_name = key.split(".", 1)[1]
-                if field_name in remaining:
-                    remaining.pop(field_name, None)
+            for alias in aliases:
+                if alias in remaining:
+                    remaining.pop(alias, None)
                     removed = True
             if not removed or remaining == loaded:
                 return False
@@ -947,11 +947,8 @@ class ConfigStore:
                 return False
             to_write = _repaired_file_dict(loaded, cfg)
             to_write.pop(key, None)
-            for dotted in _config_schema._dotted_fallback_keys(key):
-                to_write.pop(dotted, None)
-            if "." in key:
-                field_name = key.split(".", 1)[1]
-                to_write.pop(field_name, None)
+            for alias in aliases:
+                to_write.pop(alias, None)
             if to_write == loaded:
                 return False
             try:
@@ -961,7 +958,7 @@ class ConfigStore:
                 log.exception("Error writing to %s", path)
                 raise ConfigError(f"Failed to remove config key: {e}", "CONFIG_SAVE_ERROR") from e
             if emit:
-                pending = _PendingConfigEvent(key, (key,), None, None, False)
+                pending = _PendingConfigEvent(event_key or key, (key,), None, None, False)
         if pending is not None:
             _emit_pending(pending)
         return True
@@ -1065,12 +1062,12 @@ def set_configs(values: dict[str, Any]) -> None:
     _config_store.update_many(values)
 
 
-def remove_config(key: str) -> None:
+def remove_config(key: str, *, event_key: str | None = None) -> None:
     """Remove a config key. Other keys in the file are left as they were read."""
     config_file_path = _config_path()
     if not config_file_path:
         raise ConfigError("Config path is empty", "CONFIG_PATH_ERROR")
-    _config_store.remove(config_file_path, key)
+    _config_store.remove(config_file_path, key, event_key=event_key)
 
 
 def _get_validated_config_dict() -> dict[str, Any]:

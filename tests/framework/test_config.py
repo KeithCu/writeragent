@@ -518,6 +518,26 @@ class TestConfigSyncFileIO:
         assert data.get("text_model") == "keep-me"
         assert data.get("temperature") == 1.0
 
+    def test_set_unrelated_dotted_key_keeps_flat_endpoint(self):
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"endpoint": "http://keep.example", "text_model": "m"}, f)
+        reset_config_for_tests()
+        set_config("notamodule.endpoint", "http://other.example")
+        data = self._load_written()
+        assert data.get("endpoint") == "http://keep.example"
+        assert data.get("notamodule.endpoint") == "http://other.example"
+
+    def test_remove_audio_stt_model_drops_legacy_stt_model(self):
+        from plugin.framework.config import remove_config
+
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"audio.stt_model": "whisper-new", "stt_model": "whisper-legacy"}, f)
+        reset_config_for_tests()
+        remove_config("audio.stt_model")
+        data = self._load_written()
+        assert "audio.stt_model" not in data
+        assert "stt_model" not in data
+
     def test_get_config_default_resolution(self):
         if os.path.exists(self.config_path):
             os.remove(self.config_path)

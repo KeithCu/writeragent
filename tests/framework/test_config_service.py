@@ -95,6 +95,75 @@ class TestSetGet():
         mock_get.assert_called()
         mock_set.assert_called_once_with("audio.stt_model", "whisper-1", event_key="ai.stt_model")
 
+    def test_remove_ai_stt_model_clears_audio_key(self, config_svc, config_dir):
+        from unittest.mock import patch
+        from plugin.framework.config import reset_config_for_tests, parse_config_json_text
+
+        config_path = str(config_dir / 'writeragent.json')
+        with patch("plugin.framework.config._config_path", return_value=config_path):
+            reset_config_for_tests()
+            config_svc.set("ai.stt_model", "whisper-1")
+            config_svc.remove("ai.stt_model")
+            text = (config_dir / 'writeragent.json').read_text(encoding='utf-8')
+            data = parse_config_json_text(text) or {}
+            assert "audio.stt_model" not in data
+            assert "stt_model" not in data
+            assert config_svc.get("ai.stt_model") == ""
+
+    def test_remove_ai_endpoint_drops_endpoint(self, config_svc, config_dir):
+        from unittest.mock import patch
+        import json
+        from plugin.framework.config import reset_config_for_tests, parse_config_json_text
+
+        config_path = str(config_dir / 'writeragent.json')
+        (config_dir / 'writeragent.json').write_text(json.dumps({"endpoint": "http://custom.endpoint"}), encoding='utf-8')
+        with patch("plugin.framework.config._config_path", return_value=config_path):
+            reset_config_for_tests()
+            config_svc.remove("ai.endpoint")
+            text = (config_dir / 'writeragent.json').read_text(encoding='utf-8')
+            data = parse_config_json_text(text) or {}
+            assert "endpoint" not in data
+            assert "ai.endpoint" not in data
+
+    def test_remove_ai_api_key_clears_current_slot(self, config_svc, config_dir):
+        from unittest.mock import patch
+        import json
+        from plugin.framework.config import reset_config_for_tests, parse_config_json_text
+
+        config_path = str(config_dir / 'writeragent.json')
+        (config_dir / 'writeragent.json').write_text(
+            json.dumps({
+                "endpoint": "http://localhost:11434",
+                "api_keys_by_endpoint": {
+                    "http://localhost:11434": "sk-local",
+                    "https://api.openai.com": "sk-openai",
+                },
+            }),
+            encoding='utf-8',
+        )
+        with patch("plugin.framework.config._config_path", return_value=config_path):
+            reset_config_for_tests()
+            config_svc.remove("ai.api_key")
+            text = (config_dir / 'writeragent.json').read_text(encoding='utf-8')
+            data = parse_config_json_text(text) or {}
+            assert data["api_keys_by_endpoint"]["http://localhost:11434"] == ""
+            assert data["api_keys_by_endpoint"]["https://api.openai.com"] == "sk-openai"
+
+    def test_remove_ai_text_model_drops_text_model(self, config_svc, config_dir):
+        from unittest.mock import patch
+        import json
+        from plugin.framework.config import reset_config_for_tests, parse_config_json_text
+
+        config_path = str(config_dir / 'writeragent.json')
+        (config_dir / 'writeragent.json').write_text(json.dumps({"text_model": "test-gpt"}), encoding='utf-8')
+        with patch("plugin.framework.config._config_path", return_value=config_path):
+            reset_config_for_tests()
+            config_svc.remove("ai.text_model")
+            text = (config_dir / 'writeragent.json').read_text(encoding='utf-8')
+            data = parse_config_json_text(text) or {}
+            assert "text_model" not in data
+            assert "ai.text_model" not in data
+
 class TestAccessControl():
 
     @pytest.mark.parametrize(

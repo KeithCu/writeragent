@@ -287,6 +287,26 @@ class ConfigService(ServiceBase):
     def remove(self, key: str, caller_module: str | None = None) -> None:
         """Reset a config key."""
         self._check_write_access(key, caller_module)
+
+        # What was wrong: ConfigService.remove("ai.*") did not mirror get/set
+        # mappings. ai.api_key did not clear the endpoint slot, ai.stt_model
+        # left audio.stt_model, and other fields only cleared by accidental suffix pop.
+        # How it happened: remove() passed the literal key directly to remove_config.
+        # Why this change fixes it: It mirrors set()'s mapping, clearing the API
+        # key slot or removing the mapped canonical key with event_key=key.
+        if key.startswith("ai."):
+            field = key.split(".", 1)[1]
+            if field == "api_key":
+                endpoint = get_current_endpoint()
+                set_api_key_for_endpoint(endpoint, "", event_key=key)
+                return
+            if field in AI_SIMPLE_FIELDS:
+                if field == "stt_model":
+                    remove_config("audio.stt_model", event_key=key)
+                else:
+                    remove_config(field, event_key=key)
+                return
+
         if self._config_path:
             # Same store as production remove_config. emit=False so this
             # method emits the one event (test files have no UNO ctx).
