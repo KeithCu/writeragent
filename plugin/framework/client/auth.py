@@ -19,19 +19,24 @@ Model ID styles:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any
 
 from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import ConfigError
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, DEAL_MAX_URL, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 
 
 def reject_control_chars_in_api_key(api_key: str) -> str:
-    """Raise if *api_key* would be unsafe in an HTTP header (CR/LF/other controls)."""
-    if any(ord(c) < 32 for c in api_key):
-        raise AuthError("API key contains invalid control characters", code="invalid_api_key")
+    """Raise if *api_key* contains characters outside printable ASCII (CR/LF/controls/DEL/NBSP/smart quotes)."""
+    # What was wrong: Checking only ord(c) < 32 let DEL (\x7f), NBSP (\xa0),
+    # and unicode chars like smart quotes through. Smart quotes caused
+    # http.client putheader to fail with a confusing latin-1 UnicodeEncodeError.
+    # Why this fixes it: Enforce printable ASCII (33 to 126), disallowing interior
+    # spaces, DEL, and non-ASCII chars while code stays invalid_api_key.
+    if any(ord(c) < 33 or ord(c) > 126 for c in api_key):
+        raise AuthError("API key must be printable ASCII", code="invalid_api_key")
     return api_key
 
 
@@ -40,7 +45,7 @@ class AuthError(ConfigError):
 
     provider: str
 
-    def __init__(self, message: str, *, provider: str = "", code: Optional[str] = None) -> None:
+    def __init__(self, message: str, *, provider: str = "", code: str | None = None) -> None:
         if code is None:
             code = "AUTH_ERROR"
         super().__init__(message, code=code, details={"provider": provider})
@@ -60,12 +65,12 @@ class ProviderConfig:
     header_style: str = "bearer"
     # Optional static headers that should always be sent for this provider.
     # Host matching lives in provider_detection. This table is auth behavior only.
-    extra_headers: Dict[str, str] = field(default_factory=dict)
+    extra_headers: dict[str, str] = field(default_factory=dict)
     # Model list / request ``model`` field style: ``bare`` (vendor id) or ``slug`` (org/model).
     model_id_style: str = "bare"
 
 
-PROVIDERS: Dict[str, ProviderConfig] = {
+PROVIDERS: dict[str, ProviderConfig] = {
     "openrouter": ProviderConfig(id="openrouter", name="OpenRouter", header_style="bearer", model_id_style="slug", extra_headers={"HTTP-Referer": APP_REFERER, "X-Title": APP_TITLE}),
     "together": ProviderConfig(id="together", name="Together AI", header_style="bearer", model_id_style="slug"),
     "mistral": ProviderConfig(id="mistral", name="Mistral", header_style="bearer"),
@@ -85,7 +90,7 @@ PROVIDERS: Dict[str, ProviderConfig] = {
     ),
     "ollama": ProviderConfig(id="ollama", name="Ollama", header_style="none"),
     # Local LM Studio accepts an empty key the way Ollama does. A key, when
-    # set, still becomes Authorization: Bearer via the legacy header fallback.
+    # set, still becomes Authorization: Bearer via build_auth_headers fallback.
     "lmstudio": ProviderConfig(id="lmstudio", name="LM Studio", header_style="none"),
     "zai": ProviderConfig(id="zai", name="Z.ai", header_style="bearer"),
     "nvidia": ProviderConfig(id="nvidia", name="NVIDIA NIM", header_style="bearer"),
@@ -113,7 +118,9 @@ _deal_resolve_hint_ok = _deal_resolve_hint_ok_crosshair if UNDER_CROSSHAIR else 
 
 
 def _deal_resolve_endpoint_ok_pytest(endpoint: object) -> bool:
-    return isinstance(endpoint, str) and ascii_bounded(endpoint, DEAL_MAX_URL) and all(c in _URL_CHARS for c in endpoint)
+    # IPv6 brackets, userinfo @, and query characters are real endpoints;
+    # the body does the parse (same as url_utils._deal_url_ok_pytest).
+    return True
 
 
 def _deal_resolve_endpoint_ok_crosshair(endpoint: object) -> bool:
@@ -135,7 +142,7 @@ _deal_provider_id_ok = _deal_provider_id_ok_crosshair if UNDER_CROSSHAIR else _d
 
 
 @deal.pre(lambda endpoint, provider_hint=None: _deal_resolve_endpoint_ok(endpoint) and _deal_resolve_hint_ok(provider_hint))
-def _resolve_provider_id(endpoint: str, provider_hint: Optional[str] = None) -> str:
+def _resolve_provider_id(endpoint: str, provider_hint: str | None = None) -> str:
     """
     Map an endpoint URL + optional hint to a provider id from PROVIDERS.
     Falls back to "custom" when nothing matches.
@@ -177,7 +184,7 @@ def provider_requires_slug_model_id(provider_id: str | None) -> bool:
     return provider_cfg.model_id_style == "slug"
 
 
-def resolve_auth_for_config(api_config: Dict[str, Any]) -> Dict[str, Any]:
+def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     """
     Resolve auth information from an API config dict.
 
@@ -211,8 +218,7 @@ def resolve_auth_for_config(api_config: Dict[str, Any]) -> Dict[str, Any]:
         raise AuthError("No endpoint configured.", provider="", code="missing_endpoint")
 
     # Use the consolidated detection helpers (2026 provider heuristic cleanup).
-    # This guarantees the same OpenRouter + provider logic used everywhere else
-    # (model fetching, error messages, local SSL fallback, etc.).
+    # Single provider detection: determine hint once, avoiding redundant calls.
     provider_hint: str | None
     if is_openrouter_endpoint(endpoint, explicit_is_openrouter=api_config.get("is_openrouter")):
         provider_hint = "openrouter"
@@ -224,9 +230,9 @@ def resolve_auth_for_config(api_config: Dict[str, Any]) -> Dict[str, Any]:
 
     # For well-known hosted providers (OpenRouter, OpenAI, etc.), an API key
     # is required and missing keys are treated as configuration errors.
-    # For "custom" endpoints (typically local/self-hosted), an empty key is
-    # allowed and we simply omit auth headers.
-    if not api_key and provider_id != "custom" and provider_cfg.header_style != "none":
+    # Check uses provider_requires_api_key with provider_cfg.id so fallback to
+    # custom correctly permits an empty key.
+    if not api_key and provider_requires_api_key(provider_cfg.id):
         raise AuthError(f"No API key configured for endpoint '{endpoint}'.", provider=provider_id, code="missing_api_key")
 
     return {"provider": provider_cfg.id, "endpoint": endpoint, "api_key": api_key, "header_style": provider_cfg.header_style, "headers": dict(provider_cfg.extra_headers)}
@@ -234,7 +240,7 @@ def resolve_auth_for_config(api_config: Dict[str, Any]) -> Dict[str, Any]:
 
 @deal.pre(lambda auth_info: isinstance(auth_info, dict))
 @deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
-def build_auth_headers(auth_info: Dict[str, Any]) -> Dict[str, str]:
+def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     """
     Convert a resolved auth descriptor into concrete HTTP headers.
 
@@ -243,7 +249,7 @@ def build_auth_headers(auth_info: Dict[str, Any]) -> Dict[str, str]:
     other HTTP clients).
     """
     # crosshair: off
-    headers: Dict[str, str] = {}
+    headers: dict[str, str] = {}
     # Coerce: callers/CrossHair may pass non-str header_style (e.g. int 2).
     style = str(auth_info.get("header_style") or "bearer").lower().strip()
     api_key = str(auth_info.get("api_key") or "").strip()
@@ -265,5 +271,15 @@ def build_auth_headers(auth_info: Dict[str, Any]) -> Dict[str, str]:
             if k in headers:
                 continue
             headers[str(k)] = str(v)
+
+    # Legacy fallback for simple/manual endpoints: if an api_key exists and no
+    # auth header was added (e.g. style='none' or unknown provider), add Bearer.
+    # What was wrong: Style "none" providers (Ollama / LM Studio) dropped the API
+    # key on model fetching and /api/show because the fallback was previously only
+    # in LlmClient._headers.
+    # Why this fixes it: Consolidate fallback here so all HTTP paths (chat, catalog
+    # fetch, and /api/show probes) send the key. Null/empty keys remain header-less.
+    if api_key and "Authorization" not in headers and "x-api-key" not in headers:
+        headers["Authorization"] = f"Bearer {api_key}"
 
     return headers

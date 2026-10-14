@@ -197,6 +197,46 @@ def take_stop_partial(turn: Any) -> str | None:
     return text if isinstance(text, str) else None
 
 
+def _compact_bound_session(
+    session: Any,
+    client: Any,
+    turn: Any,
+    *,
+    tools: Any,
+    max_tokens: int | None,
+    stop_checker: Callable[[], bool] | None,
+    force: bool,
+    status_cb: Callable[[str], None],
+    batched: Any,
+) -> bool:
+    """True when the caller should stream. False when the turn was aborted.
+
+    Disabled compaction returns True without writing the turn fields.
+    """
+    if not get_config_bool_safe("chat_compaction_enabled"):
+        return True
+    result = compact_session(
+        session,
+        client,
+        window=resolve_context_window(client),
+        tools=tools,
+        max_tokens=max_tokens,
+        stop_checker=stop_checker,
+        force=force,
+        status_callback=status_cb,
+        enabled=True,
+    )
+    if isinstance(turn, TurnController):
+        turn._last_compact_reason = result.reason
+        turn._last_compact_tokens_before = result.tokens_before
+        turn._last_compact_tokens_after = result.tokens_after
+    if result.reason == "aborted":
+        if batched:
+            batched.flush()
+        return False
+    return True
+
+
 class ToolCallingMixin:
     """Tool-loop control state lives only in ``sidebar_state.tool_loop`` (via ``_sm_state``).
 
@@ -306,7 +346,7 @@ class ToolCallingMixin:
         if synced_model:
             log.debug("_do_send: text model updated to %s" % synced_model)
         if self.image_model_selector:
-            from plugin.chatbot.config_ui_helpers import _sanitize_model_combobox_value
+            from plugin.framework.model_lru import _sanitize_model_combobox_value
 
             selected_image_model = _sanitize_model_combobox_value(str(self.image_model_selector.getText() or ""))
             if selected_image_model:
@@ -577,27 +617,19 @@ class ToolCallingMixin:
                 with llm_request_lane(status_callback=status_cb, resume_status=resume_status):
                     # Compact + stream share one lane hold. compaction.py must
                     # not take the non-reentrant lock itself.
-                    if get_config_bool_safe("chat_compaction_enabled"):
-                        result = compact_session(
-                            session,
-                            client,
-                            window=resolve_context_window(client),
-                            tools=tools,
-                            max_tokens=max_tokens,
-                            stop_checker=stop_checker,
-                            force=force_compact,
-                            status_callback=status_cb,
-                            enabled=True,
-                        )
-                        if isinstance(turn, TurnController):
-                            turn._last_compact_reason = result.reason
-                            turn._last_compact_tokens_before = result.tokens_before
-                            turn._last_compact_tokens_after = result.tokens_after
-                        if result.reason == "aborted":
-                            if batched:
-                                batched.flush()
-                            emit((StreamQueueKind.STOPPED,))
-                            return
+                    if not _compact_bound_session(
+                        session,
+                        client,
+                        turn,
+                        tools=tools,
+                        max_tokens=max_tokens,
+                        stop_checker=stop_checker,
+                        force=force_compact,
+                        status_cb=status_cb,
+                        batched=batched,
+                    ):
+                        emit((StreamQueueKind.STOPPED,))
+                        return
                     payload = messages_for_llm(session)
                     response = client.stream_request_with_tools(
                         payload, max_tokens, tools=tools,
@@ -686,27 +718,19 @@ class ToolCallingMixin:
                     # Same compact-then-view path as _spawn_llm_worker. Final
                     # stream has no tools; still compact when the transcript
                     # is over the tiered threshold.
-                    if get_config_bool_safe("chat_compaction_enabled"):
-                        result = compact_session(
-                            session,
-                            client,
-                            window=resolve_context_window(client),
-                            tools=None,
-                            max_tokens=max_tokens,
-                            stop_checker=stop_checker,
-                            force=False,
-                            status_callback=status_cb,
-                            enabled=True,
-                        )
-                        if isinstance(turn, TurnController):
-                            turn._last_compact_reason = result.reason
-                            turn._last_compact_tokens_before = result.tokens_before
-                            turn._last_compact_tokens_after = result.tokens_after
-                        if result.reason == "aborted":
-                            if batched:
-                                batched.flush()
-                            emit((StreamQueueKind.STOPPED,))
-                            return
+                    if not _compact_bound_session(
+                        session,
+                        client,
+                        turn,
+                        tools=None,
+                        max_tokens=max_tokens,
+                        stop_checker=stop_checker,
+                        force=False,
+                        status_cb=status_cb,
+                        batched=batched,
+                    ):
+                        emit((StreamQueueKind.STOPPED,))
+                        return
                     client.stream_chat_response(
                         messages_for_llm(session), max_tokens, append_c, append_t,
                         stop_checker=stop_checker,

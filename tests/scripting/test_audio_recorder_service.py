@@ -33,7 +33,7 @@ def test_reap_kills_the_group_before_dropping_stderr(monkeypatch):
         order.append("kill")
         assert target is proc
 
-    monkeypatch.setattr("plugin.scripting.venv_worker._kill_process_tree", _kill)
+    monkeypatch.setattr("plugin.scripting.audio_recorder_service.kill_process_tree", _kill)
     try:
         _reap_recording_process(proc, 0.01)
     finally:
@@ -244,9 +244,7 @@ def test_native_audio_stt_fallback_replaces_db_row():
     assert len(host.session.messages) == 1
     assert host.session.messages[0]["content"] == "typed query\nspoken words"
 
-    # DB replacement must use the database rows (including system prompt, etc) with only the user row updated
-    expected_db_rows = [{"role": "system", "content": "hello"}, {"role": "user", "content": "typed query\nspoken words"}]
-    host.session.db.replace_messages.assert_called_once_with(expected_db_rows)
+    host.session.db.update_last_user_content.assert_called_once_with("typed query\nspoken words")
     host.session.add_user_message.assert_not_called()
 
 

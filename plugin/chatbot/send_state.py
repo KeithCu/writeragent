@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass
 from typing import Any, List, NamedTuple, Union
 
@@ -6,9 +7,6 @@ from enum import Enum, auto
 from plugin.framework.service import BaseState, FsmTransition
 
 from plugin.framework.deal_shim import deal
-
-# Imperative effects for the send panel interpreter (distinct from
-# audio_recorder_state.StartRecordingEffect / StopRecordingEffect types).
 
 # --- State ---
 
@@ -45,6 +43,8 @@ class SendEvent(NamedTuple):
 # --- Effects ---
 
 
+# Imperative effects for the send panel interpreter (distinct from
+# audio_recorder_state.StartRecordingEffect / StopRecordingEffect types).
 @dataclass(frozen=True)
 class UpdateUIEffect:
     send_enabled: bool
@@ -82,6 +82,19 @@ SendEffects = Union[UpdateUIEffect, StartRecordingEffect, StopRecordingEffect, C
 
 
 # --- Pure Transition Function ---
+
+
+def _replace_state(state: SendButtonState, **changes: Any) -> SendButtonState:
+    """Safe dataclass replace that falls back to explicit reconstruction for mocks."""
+    if dataclasses.is_dataclass(state) and not isinstance(state, type):
+        return dataclasses.replace(state, **changes)
+    return SendButtonState(
+        is_busy=changes.get("is_busy", getattr(state, "is_busy", False)),
+        is_recording=changes.get("is_recording", getattr(state, "is_recording", False)),
+        has_text=changes.get("has_text", getattr(state, "has_text", False)),
+        has_audio=changes.get("has_audio", getattr(state, "has_audio", False)),
+        audio_supported=changes.get("audio_supported", getattr(state, "audio_supported", False)),
+    )
 
 
 # Helper to determine the button label
@@ -126,9 +139,15 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
     event_data = event.data or {}
 
     effects: List[SendEffects] = []
+    busy_starting_effect = UpdateUIEffect(
+        send_enabled=False,
+        stop_enabled=True,
+        send_label="Send",
+        status_text="Starting...",
+    )
 
     if event.kind == SendEventKind.TEXT_UPDATED:
-        new_state = SendButtonState(is_busy=state.is_busy, is_recording=state.is_recording, has_text=event_data.get("has_text", False), has_audio=state.has_audio, audio_supported=state.audio_supported)
+        new_state = _replace_state(state, has_text=event_data.get("has_text", False))
         # Update has_text for when the turn finishes, and emit no UI effect
         # while busy. Typing during web-search approval or in-flight
         # generation would otherwise emit UpdateUIEffect, relabel Send, and
@@ -154,7 +173,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         if state.is_busy or state.is_recording or not state.audio_supported:
             return FsmTransition(state, effects)  # Invalid transition
 
-        new_state = SendButtonState(is_busy=False, is_recording=True, has_text=state.has_text, has_audio=state.has_audio, audio_supported=state.audio_supported)
+        new_state = _replace_state(state, is_busy=False, is_recording=True)
         effects.append(StartRecordingEffect())
         effects.append(
             UpdateUIEffect(
@@ -170,15 +189,14 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         if not state.is_recording:
             return FsmTransition(state, effects)
 
-        new_state = SendButtonState(
+        new_state = _replace_state(
+            state,
             is_busy=True,
             is_recording=False,
-            has_text=state.has_text,
             has_audio=True,  # Transitioning from Stop Rec means we now have audio
-            audio_supported=state.audio_supported,
         )
         effects.append(StopRecordingEffect())
-        effects.append(UpdateUIEffect(send_enabled=False, stop_enabled=True, send_label="Send", status_text="Starting..."))
+        effects.append(busy_starting_effect)
         effects.append(StartSendEffect())
         return FsmTransition(new_state, effects)
 
@@ -188,15 +206,8 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         if not state.has_text and not state.has_audio:
             return FsmTransition(state, effects)
 
-        new_state = SendButtonState(is_busy=True, is_recording=False, has_text=state.has_text, has_audio=state.has_audio, audio_supported=state.audio_supported)
-        effects.append(
-            UpdateUIEffect(
-                send_enabled=False,
-                stop_enabled=True,
-                send_label="Send",  # Label remains Send, but disabled
-                status_text="Starting...",
-            )
-        )
+        new_state = _replace_state(state, is_busy=True, is_recording=False)
+        effects.append(busy_starting_effect)
         effects.append(StartSendEffect())
         return FsmTransition(new_state, effects)
 
@@ -204,15 +215,8 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         # Peer inject: set busy without StartSendEffect (that posts _do_send / Ask-box).
         if state.is_busy or state.is_recording:
             return FsmTransition(state, effects)
-        new_state = SendButtonState(is_busy=True, is_recording=False, has_text=state.has_text, has_audio=state.has_audio, audio_supported=state.audio_supported)
-        effects.append(
-            UpdateUIEffect(
-                send_enabled=False,
-                stop_enabled=True,
-                send_label="Send",
-                status_text="Starting...",
-            )
-        )
+        new_state = _replace_state(state, is_busy=True, is_recording=False)
+        effects.append(busy_starting_effect)
         return FsmTransition(new_state, effects)
 
     elif event.kind == SendEventKind.STOP_CLICKED:
@@ -221,12 +225,10 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
 
         # Keep is_busy until SendCompleted/Error. Clear recording so an illegal
         # (busy and recording) start cannot be echoed (deal_shim is a no-op in LO).
-        new_state = SendButtonState(
+        new_state = _replace_state(
+            state,
             is_busy=True,
             is_recording=False,
-            has_text=state.has_text,
-            has_audio=state.has_audio,
-            audio_supported=state.audio_supported,
         )
         effects.append(StopSendEffect())
         effects.append(UpdateUIEffect(send_enabled=False, stop_enabled=True, send_label="Send", status_text="Stopping..."))
@@ -237,12 +239,11 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         # also drops the take, but it shows "Error" for a click the user meant.
         if not state.is_recording:
             return FsmTransition(state, effects)
-        new_state = SendButtonState(
+        new_state = _replace_state(
+            state,
             is_busy=False,
             is_recording=False,
-            has_text=state.has_text,
             has_audio=False,
-            audio_supported=state.audio_supported,
         )
         effects.append(CancelRecordingEffect())
         effects.append(
@@ -254,12 +255,12 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         if not state.is_busy:
             return FsmTransition(state, effects)
 
-        new_state = SendButtonState(
+        new_state = _replace_state(
+            state,
             is_busy=False,
             is_recording=False,
             has_text=False,  # We assume the text is cleared upon send start or completion
             has_audio=False,  # We assume audio is cleared upon send completion
-            audio_supported=state.audio_supported,
         )
         label = _get_send_label(new_state)
         effects.append(UpdateUIEffect(send_enabled=True, stop_enabled=False, send_label=label, status_text="Ready"))
@@ -269,12 +270,11 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         # Keep typed text so the user can retry. Always drop has_audio: Stop Rec
         # auto-send and _transcribe_audio already consume/delete the WAV. Leaving
         # has_audio True after STT/chat errors (G13/G28) shows a dead Send button.
-        new_state = SendButtonState(
+        new_state = _replace_state(
+            state,
             is_busy=False,
             is_recording=False,
-            has_text=state.has_text,  # Keep text on error so user can retry
             has_audio=False,
-            audio_supported=state.audio_supported,
         )
         label = _get_send_label(new_state)
         effects.append(UpdateUIEffect(send_enabled=True, stop_enabled=False, send_label=label, status_text="Error"))

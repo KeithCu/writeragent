@@ -147,6 +147,27 @@ class TestSendHandlerStateMachine:
         assert any(isinstance(e, CompleteJobEffect) and e.terminal_status == "Ready" for e in step.effects)
         assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "status" and e.text == "Ready" for e in step.effects)
 
+    def test_chunk_after_stop_ignored(self):
+        state = SendHandlerState(handler_type="agent", status="stopped")
+        event = StreamChunkEvent(chunk_text="late chunk")
+        step = next_state(state, event)
+        assert step.state.status == "stopped"
+        assert len(step.effects) == 0
+
+    def test_error_after_stop_ignored(self):
+        state = SendHandlerState(handler_type="web", status="stopped")
+        event = ErrorEvent(error=Exception("late failure"))
+        step = next_state(state, event)
+        assert step.state.status == "stopped"
+        assert len(step.effects) == 0
+
+    def test_stream_done_unknown_handler_type_emits_ready(self):
+        state = SendHandlerState(handler_type="other", status="running")
+        step = next_state(state, StreamDoneEvent(response={}))
+        assert step.state.status == "done"
+        assert any(isinstance(e, CompleteJobEffect) and e.terminal_status == "Ready" for e in step.effects)
+        assert any(isinstance(e, SendHandlerUIEffect) and e.kind == "status" and e.text == "Ready" for e in step.effects)
+
 
 class TestSendHandlerHelpers:
     def test_spawn_effects_image(self):

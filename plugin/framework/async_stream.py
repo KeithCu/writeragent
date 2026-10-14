@@ -792,7 +792,6 @@ class _EventDrain:
     epilogues: list[Callable[[], None]]
     closed: bool
     _held: bool
-    _previous_owner: str | None
     _generation: int
     _immediate_streak: int
 
@@ -805,7 +804,6 @@ class _EventDrain:
         self.epilogues = []
         self.closed = False
         self._held = False
-        self._previous_owner = None
         self._generation = 0
         self._immediate_streak = 0
 
@@ -813,7 +811,7 @@ class _EventDrain:
         """Take the pump owner and arm the first slice. Does not process items."""
         # crosshair: off
         global _event_drain
-        self._previous_owner = acquire_drain_owner("stream")
+        acquire_drain_owner("stream")
         self._held = True
         _event_drain = self
         try:
@@ -947,7 +945,7 @@ class _EventDrain:
             self._held = False
             # Idle callbacks see a free pump, same as the blocking loop exiting
             # its ``with`` before the caller continues.
-            release_drain_owner(self._previous_owner)
+            release_drain_owner()
         epilogues = self.epilogues
         self.epilogues = []
         for fn in epilogues:

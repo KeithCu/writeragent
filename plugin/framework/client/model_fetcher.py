@@ -10,9 +10,11 @@ for the LibreOffice process (sidebar combobox, settings probes, etc.).
 Those dicts have **no lock**. If two background jobs miss the cache at
 once, both may HTTP; whichever finishes last overwrites the list. That is
 harmless (same endpoint, same models). Do not add a mutex just to
-serialize identical fetches. When a UNO ``ctx`` is passed, the cache key
-includes a hash of the API key so two keys on the same host do not share a
-list and a dump of the dict does not contain the key.
+serialize identical fetches. Iteration over shared caches snapshots the
+dict first (e.g. ``list(...)``); a single-key write still needs no lock.
+When a UNO ``ctx`` is passed, the cache key includes a hash of the API
+key so two keys on the same host do not share a list and a dump of the
+dict does not contain the key.
 
 Settings treats a successful OpenRouter or Together catalog as once per
 process. ``settings_catalog_is_warm`` is that check. **Test Connection**
@@ -35,7 +37,7 @@ from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_s
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint, is_openwebui_endpoint
 from plugin.framework.errors import NetworkError
 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
-from plugin.framework.config import get_api_key_for_endpoint, get_config_bool_safe, get_config, get_current_endpoint, set_config
+from plugin.framework.config import get_api_key_for_endpoint, get_config_bool_safe, get_config, get_current_endpoint, set_config, update_config_mapping
 from plugin.framework.config_schema import as_bool
 
 log = logging.getLogger(__name__)
@@ -69,9 +71,9 @@ ENDPOINT_PRESETS = [
 _model_fetch_cache: dict[str, list[str] | None] = {}
 _model_fetch_image_cache: dict[str, list[str] | None] = {}
 # Successful /v1/models vision memo. A dict is id -> accepts image, and only
-# ids whose row listed input_modalities are present. A list is positive ids
-# only (tests). None is not stored: a failed GET must be retried.
-_model_fetch_vision_cache: dict[str, list[str] | dict[str, bool] | None] = {}
+# ids whose row listed input_modalities are present. None is not stored: a
+# failed GET must be retried.
+_model_fetch_vision_cache: dict[str, dict[str, bool] | None] = {}
 # OpenRouter GET /v1/models?output_modalities=speech|transcription. Separate from
 # the unfiltered catalog: that list does not mark TTS, and output_modalities=audio
 # is music / gpt-audio, not the Speech-tab TTS combo.
@@ -98,8 +100,6 @@ _model_context_cache: dict[str, dict[str, int] | None] = {}
 # POST /api/show, once per process. Value is {capabilities: list[str], num_ctx: int|None}.
 # Vision probes and the #570 crash sentence share this so the first probe pays for both.
 _ollama_show_cache: dict[str, dict[str, Any]] = {}
-# Older tests clear this name; keep it as an alias of the same dict.
-_ollama_capabilities_cache = _ollama_show_cache
 
 # Runtime PARAMETER / Modelfile line. Do not use this on model_info context_length.
 _OLLAMA_NUM_CTX_LINE = re.compile(r"(?im)^\s*(?:PARAMETER\s+)?num_ctx\s+(\d+)\s*$")
@@ -135,7 +135,9 @@ def _image_output_model_ids_from_v1_entries(entries: list[Any]) -> list[str]:
         mid = m.get("id")
         if not mid:
             continue
-        arch = m.get("architecture") or {}
+        arch = m.get("architecture")
+        if not isinstance(arch, dict):
+            arch = {}
         modalities = arch.get("output_modalities")
         # OpenRouter: google/gemini-2.5-flash-image, openai/gpt-5-image, etc.
         if isinstance(modalities, list) and "image" in modalities:
@@ -146,38 +148,19 @@ def _image_output_model_ids_from_v1_entries(entries: list[Any]) -> list[str]:
     return out
 
 
-def _vision_input_model_ids_from_v1_entries(entries: list[Any]) -> list[str]:
-    """Collect model IDs that accept image input (vision-capable models)."""
-    out: list[str] = []
-    for m in entries:
-        if not isinstance(m, dict):
-            continue
-        mid = m.get("id")
-        if not mid:
-            continue
-        arch = m.get("architecture") or {}
-        input_mods = m.get("input_modalities") or arch.get("input_modalities") or []
-        if isinstance(input_mods, list) and "image" in input_mods:
-            out.append(str(mid))
-    return out
-
-
 def _stated_input_modalities(row: dict[str, Any]) -> list[Any] | None:
     """input_modalities when this row states a list. None when the field is absent.
 
     An empty list is a statement (no image). A missing field is not.
-    ``top or nested`` matches ``_vision_input_model_ids_from_v1_entries``.
-    A non-dict architecture still raises on ``.get``.
+    A non-dict architecture is treated as field absent; a top-level list
+    on the row still counts.
     """
-    arch = row.get("architecture") or {}
-    top = row.get("input_modalities") if "input_modalities" in row else None
-    # Non-dict architecture: ``in`` is not enough (a string can contain the
-    # name). Call ``.get`` so the parse still aborts, same as the id collector.
-    if not isinstance(arch, dict) or "input_modalities" in arch:
+    arch = row.get("architecture")
+    nested = None
+    if isinstance(arch, dict):
         nested = arch.get("input_modalities")
-    else:
-        nested = None
-    chosen = top if top else nested
+    top = row.get("input_modalities") if "input_modalities" in row else None
+    chosen = top if top is not None else nested
     if isinstance(chosen, list):
         return chosen
     if isinstance(top, list):
@@ -240,8 +223,7 @@ def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], dict[str
     """Return (all_ids, image_output_ids, vision_declarations) from a /v1/models body.
 
     Vision declarations are id -> accepts image, only when the row listed
-    input_modalities. The positive-id walk still runs so a non-dict
-    architecture aborts this parse the same way it did before.
+    input_modalities.
     """
     entries = _v1_models_entries_from_body(data)
     if entries is None:
@@ -253,13 +235,10 @@ def _parse_v1_models_response(data: Any) -> tuple[list[str], list[str], dict[str
             if mid:
                 models.append(str(mid))
     image_models = _image_output_model_ids_from_v1_entries(entries)
-    # The positive-id walk is what aborts on a non-dict architecture. Keep it
-    # even though the memo now stores declarations, not that id list.
-    _vision_input_model_ids_from_v1_entries(entries)
     return models, image_models, _vision_declarations_from_v1_entries(entries)
 
 
-def _store_model_fetch_caches(cache_key: str, models: list[str] | None, image_models: list[str] | None, vision_models: list[str] | dict[str, bool] | None = None, context_tokens: dict[str, int] | None = None) -> None:
+def _store_model_fetch_caches(cache_key: str, models: list[str] | None, image_models: list[str] | None, vision_models: dict[str, bool] | None = None, context_tokens: dict[str, int] | None = None) -> None:
     # A failed fetch must not stick for the process lifetime. The next caller retries.
     if models is None:
         return
@@ -268,7 +247,7 @@ def _store_model_fetch_caches(cache_key: str, models: list[str] | None, image_mo
     if isinstance(vision_models, dict):
         _model_fetch_vision_cache[cache_key] = dict(vision_models)
     else:
-        _model_fetch_vision_cache[cache_key] = vision_models
+        _model_fetch_vision_cache[cache_key] = None
     _model_context_cache[cache_key] = dict(context_tokens) if context_tokens else {}
 
 
@@ -328,11 +307,20 @@ def _cached_id_list(cache: dict[str, list[str] | None], key: str) -> list[str] |
 
 
 def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
-    """True if endpoint looks like a complete http(s) URL with a real host (skip mid-typing e.g. 'http:/')."""
+    """True if endpoint looks like a complete http(s) URL with a real host and valid port.
+
+    Skips mid-typing (e.g. 'http:/'), half-typed schemes, and non-numeric or
+    out-of-range ports.
+    """
     if not endpoint or not isinstance(endpoint, str):
         return False
     try:
         p = urllib.parse.urlparse(endpoint.strip())
+        # Accessing .port raises ValueError on invalid port strings (e.g. '1a') or out-of-range ints (>65535).
+        # What was wrong: Helpers returning None/False on bad URLs called get_provider_from_endpoint
+        # which raised ConfigError on p.port, escaping catalog/settings error handlers.
+        # Why this fixes it: Reject bad ports at the suitability gate.
+        getattr(p, "port")
     except ValueError:
         return False
     if p.scheme not in ("http", "https"):
@@ -396,7 +384,8 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
     url = _models_list_url(base)
     cache_key = _model_fetch_cache_key(url, base, api_key_override)
     if cache_key in _model_fetch_cache:
-        return _model_fetch_cache[cache_key]
+        found = _model_fetch_cache[cache_key]
+        return list(found) if isinstance(found, list) else None
 
     is_openwebui = is_openwebui_endpoint(base, explicit_is_openwebui=as_bool(get_config("is_openwebui")))
     # Hostname equality, same rule as get_provider_from_endpoint. A path that
@@ -428,14 +417,14 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
             if provider == "zai":
                 preview = models[:5] if models else []
                 log.debug("fetch_available_models z.ai ok url=%s count=%s preview=%r", url, len(models), preview)
-            return models
+            return list(models)
+        log.warning("fetch_available_models unexpected body structure for %s: %s", url, type(data).__name__)
+    except NetworkError as e:
+        log.warning("fetch_available_models NetworkError for %s: %s", url, e)
     except (ValueError, TypeError, IOError) as e:
         log.warning("fetch_available_models network/parse error for %s: %s", url, e)
-    except Exception as e:
-        if isinstance(e, NetworkError):
-            log.warning("fetch_available_models NetworkError for %s: %s", url, e)
-        else:
-            log.exception("fetch_available_models unexpected error for %s", url)
+    except Exception:
+        log.exception("fetch_available_models unexpected error for %s", url)
     if get_provider_from_endpoint(base) == "zai":
         log.debug("fetch_available_models z.ai failed url=%s", url)
     return None
@@ -465,7 +454,8 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
         url = _openrouter_image_models_url(base)
         cache_key = _model_fetch_cache_key(url, base, api_key_override)
         if cache_key in _model_fetch_image_cache:
-            return _model_fetch_image_cache[cache_key]
+            found = _model_fetch_image_cache[cache_key]
+            return list(found) if isinstance(found, list) else None
 
         req_headers = _model_fetch_auth_headers(base, api_key_override, url, is_openwebui=is_owu, is_openrouter=True, log_label="fetch_available_image_models openrouter")
         if req_headers is None:
@@ -482,7 +472,7 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
                     if isinstance(m, dict) and m.get("id"):
                         image_models.append(str(m["id"]))
                 _model_fetch_image_cache[cache_key] = image_models
-                return image_models
+                return list(image_models)
         except Exception as e:
             log.warning("fetch_available_image_models openrouter failed for %s: %s", url, e)
         return None
@@ -659,7 +649,7 @@ def _together_voices_cache_keys(base: str, api_key_override: str | None) -> list
     sample = _model_fetch_cache_key(root, base, api_key_override)
     digest = sample.split("\x1f", 1)[1]
     found: list[str] = []
-    for key in _together_voices_fetch_cache:
+    for key in list(_together_voices_fetch_cache):
         url, sep, key_digest = key.partition("\x1f")
         if sep and key_digest == digest and (url == root or url.startswith(root + "?")):
             found.append(key)
@@ -754,7 +744,7 @@ def cached_tts_supported_voices(model_id: str) -> list[str]:
     if direct:
         return list(direct)
     folded = mid.casefold()
-    for key, voices in _tts_supported_voices.items():
+    for key, voices in list(_tts_supported_voices.items()):
         if key.casefold() == folded and voices:
             return list(voices)
     return []
@@ -768,7 +758,7 @@ def _tts_meta_key(model_id: str, table: dict[str, str]) -> str | None:
     if mid in table:
         return mid
     folded = mid.casefold()
-    for key in table:
+    for key in list(table):
         if key.casefold() == folded:
             return key
     return None
@@ -801,7 +791,7 @@ def remember_tts_response_format(model_id: str, fmt: str) -> None:
 
 def openrouter_speech_list_loaded() -> bool:
     """True after a successful OpenRouter speech-list fetch in this process."""
-    return any(isinstance(ids, list) for ids in _model_fetch_tts_cache.values())
+    return any(isinstance(ids, list) for ids in list(_model_fetch_tts_cache.values()))
 
 
 def openrouter_speech_list_has_model(model_id: str) -> bool:
@@ -809,7 +799,7 @@ def openrouter_speech_list_has_model(model_id: str) -> bool:
     mid = str(model_id or "").strip().casefold()
     if not mid:
         return False
-    for ids in _model_fetch_tts_cache.values():
+    for ids in list(_model_fetch_tts_cache.values()):
         if not ids:
             continue
         if any(str(api_id).casefold() == mid for api_id in ids):
@@ -836,7 +826,7 @@ def remember_tts_supported_voices(model_id: str, voices: list[str]) -> None:
         return
     key = mid
     folded = mid.casefold()
-    for existing in _tts_supported_voices:
+    for existing in list(_tts_supported_voices):
         if existing.casefold() == folded:
             key = existing
             break
@@ -947,7 +937,7 @@ def preferred_openrouter_tts_model_id(model_id: str) -> str:
     if not mid:
         return mid
     folded = mid.casefold()
-    for ids in _model_fetch_tts_cache.values():
+    for ids in list(_model_fetch_tts_cache.values()):
         if not ids:
             continue
         for api_id in ids:
@@ -1018,8 +1008,6 @@ def get_model_capability(model_id: Any, endpoint: Any) -> int:
         if not effective_id:
             continue
         if provider == "openrouter":
-            from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
-
             if openrouter_model_ids_equivalent(effective_id, model_id):
                 return m.get("capability", ModelCapability.CHAT)
         elif effective_id == model_id:
@@ -1076,22 +1064,11 @@ def has_native_audio(model_id: Any, endpoint: Any) -> bool | None:
 
 
 def _update_support_map(config_key: str, map_key: str, supported: bool) -> None:
-    """Read-modify-write one support map under the config write lock.
+    """Read-modify-write one support map under the config write lock."""
+    def _mutate(data: dict[str, Any]) -> None:
+        data[map_key] = bool(supported)
 
-    Uses this module's ``get_config`` / ``set_config`` names so tests that
-    patch them still see the write. The lock is the same one ``set_config``
-    takes, so a second writer cannot replace the map with a stale copy.
-    """
-    from plugin.framework.config import _config_write_lock
-
-    with _config_write_lock:
-        cache = get_config(config_key)
-        if not isinstance(cache, dict):
-            cache = {}
-        else:
-            cache = dict(cache)
-        cache[map_key] = bool(supported)
-        set_config(config_key, cache)
+    update_config_mapping(config_key, _mutate)
 
 
 def set_native_audio_support(model_id: Any, endpoint: Any, supported: bool) -> None:
@@ -1107,7 +1084,7 @@ def set_native_audio_support(model_id: Any, endpoint: Any, supported: bool) -> N
 
 def _sanitize_stored_model_value(val: Any) -> str:
     """Drop combobox placeholder strings from persisted model config."""
-    from plugin.chatbot.config_ui_helpers import _sanitize_model_combobox_value
+    from plugin.framework.model_lru import _sanitize_model_combobox_value
 
     return _sanitize_model_combobox_value(str(val or ""))
 
@@ -1151,23 +1128,28 @@ def get_tts_model() -> str:
     return _stored_or_default("audio.tts_model", "tts_model")
 
 
-def set_tts_model(val: Any, update_lru: bool = True) -> None:
-    """Set TTS model and optionally update tts_model_lru for the current endpoint."""
+def _set_stored_model(config_key: str, lru_key: str, val: Any, update_lru: bool, event_key: str | None = None) -> None:
+    """Helper for persisting text/image/TTS model selections and updating LRU."""
     if val is None:
         return
     val_str = _sanitize_stored_model_value(val)
     if not val_str:
         return
 
-    current = str(get_config("audio.tts_model") or "").strip()
+    current = str(get_config(config_key) or "").strip()
     if val_str == current:
         return
 
-    set_config("audio.tts_model", val_str)
+    set_config(config_key, val_str, event_key=event_key)
     if update_lru:
-        from plugin.chatbot.config_ui_helpers import update_lru_history
+        from plugin.framework.model_lru import update_lru_history
 
-        update_lru_history(val_str, "tts_model_lru", get_current_endpoint())
+        update_lru_history(val_str, lru_key, get_current_endpoint())
+
+
+def set_tts_model(val: Any, update_lru: bool = True) -> None:
+    """Set TTS model and optionally update tts_model_lru for the current endpoint."""
+    _set_stored_model("audio.tts_model", "tts_model_lru", val, update_lru, event_key=None)
 
 
 def get_grammar_model() -> str:
@@ -1185,49 +1167,12 @@ def get_image_model() -> str:
 
 def set_text_model(val: Any, update_lru: bool = True, *, event_key: str | None = None) -> None:
     """Set text/chat model and optionally update model_lru for the current endpoint."""
-    if val is None:
-        return
-    val_str = _sanitize_stored_model_value(val)
-    if not val_str:
-        return
-
-    current = str(get_config("text_model") or "").strip()
-    if val_str == current:
-        return
-
-    set_config("text_model", val_str, event_key=event_key)
-    if update_lru:
-        from plugin.chatbot.config_ui_helpers import update_lru_history
-
-        update_lru_history(val_str, "model_lru", get_current_endpoint())
+    _set_stored_model("text_model", "model_lru", val, update_lru, event_key=event_key)
 
 
 def set_image_model(val: Any, update_lru: bool = True, *, event_key: str | None = None) -> None:
     """Set image model and notify listeners."""
-    if val is None:
-        return
-    val_str = _sanitize_stored_model_value(val)
-    if not val_str:
-        return
-
-    current = str(get_config("image_model") or "").strip()
-    if val_str == current:
-        return
-
-    set_config("image_model", val_str, event_key=event_key)
-    if update_lru:
-        from plugin.chatbot.config_ui_helpers import update_lru_history
-
-        update_lru_history(val_str, "image_model_lru", get_current_endpoint())
-
-
-def _model_in_vision_list(provider: str, vision_list: list[str], model_id: str) -> bool:
-    """True when provider metadata lists this id as accepting image input."""
-    if provider == "openrouter":
-        from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent
-
-        return any(openrouter_model_ids_equivalent(v_id, model_id) for v_id in vision_list)
-    return model_id in vision_list
+    _set_stored_model("image_model", "image_model_lru", val, update_lru, event_key=event_key)
 
 
 def _declared_vision_flag(provider: str | None, declared: dict[str, bool], model_id: str) -> bool | None:
@@ -1242,17 +1187,13 @@ def _declared_vision_flag(provider: str | None, declared: dict[str, bool], model
     return None
 
 
-def _vision_memo_answer(provider: str | None, memo: list[str] | dict[str, bool] | None, model_id: str) -> bool | None:
+def _vision_memo_answer(provider: str | None, memo: dict[str, bool] | None, model_id: str) -> bool | None:
     """Answer to persist, or None when the catalog did not say.
 
-    A dict is the parse: only ids whose row listed input_modalities. A list is
-    positive ids only. A hit on that list is yes. A miss is not a no — the
-    list does not record an omitted field.
+    A dict is the parse: only ids whose row listed input_modalities.
     """
     if isinstance(memo, dict):
         return _declared_vision_flag(provider, memo, model_id)
-    if isinstance(memo, list) and _model_in_vision_list(provider or "", memo, model_id):
-        return True
     return None
 
 
@@ -1314,9 +1255,7 @@ def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True,
     # lookup is not stored, so the next send retries. Do not cache None: a
     # transient miss would hide vision until LibreOffice restarts.
     if provider in ("openrouter", "together"):
-        is_owu = get_config_bool_safe("is_openwebui")
-        suffix = get_api_version_suffix(endpoint_str, is_openwebui=is_owu)
-        url = f"{endpoint_str}{suffix}/models"
+        url = _models_list_url(endpoint_str)
         cache_key = _model_fetch_cache_key(url, endpoint_str)
         vision_memo = _model_fetch_vision_cache.get(cache_key)
         if vision_memo is None and allow_fetch:
@@ -1408,7 +1347,10 @@ def _num_ctx_from_modelfile(modelfile: Any) -> int | None:
 
 
 def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
-    """POST ``/api/show`` once per process. Returns capabilities + runtime num_ctx."""
+    """POST ``/api/show`` once per process. Returns capabilities + runtime num_ctx.
+
+    When an API key is saved for that endpoint, the probe sends the same Bearer header as chat.
+    """
     if not endpoint or not model_id:
         return None
     endpoint = normalize_endpoint_url(endpoint)
@@ -1420,9 +1362,14 @@ def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
     url = f"{endpoint}/api/show"
     req_body = {"model": model_id}
     try:
+        from plugin.framework.client.auth import build_auth_headers, resolve_auth_for_config
         from plugin.framework.client.requests import sync_request
 
-        headers = {"Content-Type": "application/json"}
+        # Authenticated Ollama proxies require credentials for /api/show as well.
+        api_key = str(get_api_key_for_endpoint(endpoint) or "").strip()
+        mini = {"endpoint": endpoint, "api_key": api_key}
+        headers = build_auth_headers(resolve_auth_for_config(mini))
+        headers["Content-Type"] = "application/json"
         res = sync_request(url, data=json.dumps(req_body).encode("utf-8"), headers=headers, parse_json=True, timeout=_MODEL_FETCH_TIMEOUT)
         if isinstance(res, dict):
             caps = res.get("capabilities") or []
@@ -1487,9 +1434,8 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
     base = normalize_endpoint_url(endpoint)
     if not base or not endpoint_url_suitable_for_v1_models_fetch(base):
         return None
-    is_owu = get_config_bool_safe("is_openwebui")
-    suffix = get_api_version_suffix(base, is_openwebui=is_owu)
-    cache_key = _model_fetch_cache_key(f"{base}{suffix}/models", base, None)
+    url = _models_list_url(base)
+    cache_key = _model_fetch_cache_key(url, base, None)
     lengths = _model_context_cache.get(cache_key)
     if not isinstance(lengths, dict) or not lengths:
         return None

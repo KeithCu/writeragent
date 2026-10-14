@@ -154,7 +154,7 @@ def test_apply_settings_skips_model_combobox_placeholders():
          patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
          patch("plugin.chatbot.settings_dialog.get_config", side_effect=_cfg), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://example.test/v1"), \
-         patch("plugin.chatbot.config_ui_helpers.update_lru_history") as mock_lru:
+         patch("plugin.framework.model_lru.update_lru_history") as mock_lru:
         for placeholder in placeholders:
             stored.clear()
             mock_lru.reset_mock()
@@ -194,7 +194,7 @@ def test_apply_settings_writes_audio_stt_model():
          patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)) as batch, \
          patch("plugin.chatbot.settings_dialog.get_config", return_value=""), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"), \
-         patch("plugin.chatbot.config_ui_helpers.update_lru_history") as mock_lru:
+         patch("plugin.framework.model_lru.update_lru_history") as mock_lru:
         apply_settings_result(MagicMock(), {"audio__stt_model": "whisper-1"})
 
     assert stored.get("audio.stt_model") == "whisper-1"
@@ -371,7 +371,7 @@ def test_apply_settings_translated_select_stores_value():
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
          patch("plugin.chatbot.settings_dialog.get_config", return_value=""), \
          patch("plugin.chatbot.settings_dialog.set_configs") as batch, \
-         patch("plugin.chatbot.config_ui_helpers.update_lru_history"), \
+         patch("plugin.framework.model_lru.update_lru_history"), \
          patch("plugin.framework.event_bus.global_event_bus.emit"), \
          patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext):
         apply_settings_result(MagicMock(), {"doc__grammar_provider": "Uit"})
@@ -420,7 +420,7 @@ def test_apply_settings_result_one_batch_no_extra_emit():
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
          patch("plugin.chatbot.settings_dialog.get_config", side_effect=_cfg), \
          patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: order.append("batch") or values) as batch, \
-         patch("plugin.chatbot.config_ui_helpers.update_lru_history", side_effect=lambda *args: order.append("lru")) as lru, \
+         patch("plugin.framework.model_lru.update_lru_history", side_effect=lambda *args: order.append("lru")) as lru, \
          patch("plugin.framework.event_bus.global_event_bus.emit") as emit, \
          patch("plugin.framework.config.set_config") as single, \
          patch("plugin.audio.tts_voices.set_config") as tts_set:
@@ -557,7 +557,7 @@ def test_ok_does_not_write_unchanged_keys_and_writes_only_real_changes():
         patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=_spy),
         patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
-        patch("plugin.chatbot.config_ui_helpers.update_lru_history"),
+        patch("plugin.framework.model_lru.update_lru_history"),
     ):
         apply_settings_result(MagicMock(), {
             "text_model": "llama3",
@@ -592,7 +592,7 @@ def test_ok_does_not_write_unchanged_keys_and_writes_only_real_changes():
         patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=_spy),
         patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
-        patch("plugin.chatbot.config_ui_helpers.update_lru_history"),
+        patch("plugin.framework.model_lru.update_lru_history"),
     ):
         apply_settings_result(MagicMock(), {
             "text_model": "llama3",
@@ -648,7 +648,7 @@ def test_settings_ok_many_keys_one_write_and_one_emit(tmp_path):
             patch("plugin.framework.event_bus.global_event_bus.emit") as emit,
             patch("plugin.framework.config._write_config_file", wraps=real_write) as write,
             patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs),
-            patch("plugin.chatbot.config_ui_helpers.update_lru_history") as lru,
+            patch("plugin.framework.model_lru.update_lru_history") as lru,
         ):
             apply_settings_result(MagicMock(), {
                 "endpoint": new_endpoint,

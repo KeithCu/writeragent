@@ -46,7 +46,7 @@ from plugin.chatbot.tool_loop_actions import (
     running_turn,
 )
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
-from plugin.chatbot.config_ui_helpers import update_lru_history
+from plugin.framework.model_lru import update_lru_history
 from plugin.framework.tool import ToolContext
 from plugin.doc.visual_helpers import selected_graphic_object
 

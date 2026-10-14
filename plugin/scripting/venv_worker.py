@@ -13,7 +13,6 @@ import contextlib
 import logging
 import os
 import select
-import signal
 import subprocess
 import sys
 import threading
@@ -33,10 +32,10 @@ from plugin.framework.constants import (
 from plugin.framework.worker_pool import (
     BackgroundHandle,
     StderrTail,
-    get_subprocess_creationflags,
     run_in_background,
     start_stderr_drain,
 )
+from plugin.framework.managed_subprocess import kill_process_tree
 from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,
@@ -229,72 +228,6 @@ def _worker_registry_key(exe: str, pool: str) -> str:
     return f"{pool}:{exe}"
 
 
-def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
-    """Kill *proc* and its descendants (POSIX process group, Windows ``taskkill /T``)."""
-    if sys.platform == "win32":
-        # Returning when poll() is not None skipped taskkill /T, so
-        # grandchildren of an already-exited worker were left running.
-        _kill_process_tree_win32(proc)
-        return
-    # The same early return skipped the process group on POSIX. The worker is
-    # a session leader (start_new_session, so pgid == pid). If it has already
-    # exited, poll() has reaped it and getpgid(pid) raises ProcessLookupError,
-    # but grandchildren can still be in that group. killpg(pid) reaches them.
-    # ProcessLookupError means the group is gone.
-    pid = proc.pid
-    # A MagicMock pid is truthy, and int(MagicMock()) is 1. os.getpgid()
-    # accepts that, so getpgid(1) is process group 1. killpg(1) is
-    # kill(-1, SIGKILL): every process this user can signal, which ends
-    # the desktop session. Only a real pid above 1 is safe to look up.
-    if type(pid) is not int or pid <= 1:
-        if proc.poll() is None:
-            proc.kill()
-        return
-    try:
-        pgid = os.getpgid(pid)
-        fallback = False
-    except ProcessLookupError:
-        pgid = pid
-        fallback = True
-
-    try:
-        if fallback and proc.poll() is None:
-            proc.kill()
-        elif type(pgid) is not int or pgid <= 1 or pgid == os.getpgrp():
-            # killpg on the host's own group (a reused pid, or a child without
-            # its own session) would kill LibreOffice. killpg(0) signals that
-            # same group. killpg(1) is kill(-1, SIGKILL). Kill only proc.
-            if proc.poll() is None:
-                proc.kill()
-        else:
-            os.killpg(pgid, signal.SIGKILL)
-    except ProcessLookupError:
-        if proc.poll() is None:
-            proc.kill()
-
-
-def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
-    """Terminate the Windows process tree; ``TerminateProcess`` does not kill grandchildren."""
-    pid = proc.pid
-    if not pid:
-        proc.kill()
-        return
-    try:
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(pid)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-            check=False,
-            **get_subprocess_creationflags(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        proc.kill()
-        return
-    if proc.poll() is None:
-        proc.kill()
-
-
 def _reap_worker_process(proc: subprocess.Popen[Any] | None, stderr_drain: StderrTail | None) -> None:
     """Kill a detached child and join its stderr drain. Runs off the caller thread.
 
@@ -308,7 +241,7 @@ def _reap_worker_process(proc: subprocess.Popen[Any] | None, stderr_drain: Stder
     """
     if proc is not None:
         try:
-            _kill_process_tree(proc)
+            kill_process_tree(proc)
             proc.wait(timeout=5)
         except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
             try:
@@ -1144,7 +1077,7 @@ class PythonWorkerManager:
             # by another thread (malloc, logging) deadlocks the child before
             # exec. start_new_session asks the C spawn path to call setsid,
             # which is the same new process group without that Python callback.
-            # pgid stays equal to pid for _kill_process_tree.
+            # pgid stays equal to pid for kill_process_tree.
             popen_kw["start_new_session"] = True
         # The top-of-function check can pass, then shutdown_all (or get())
         # sets _retired, and this call would still Popen. Re-check immediately
