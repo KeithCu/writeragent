@@ -1391,8 +1391,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         from plugin.framework.config import get_api_key_for_endpoint
         from plugin.chatbot.config_ui_helpers import (
             populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text,
-            _sanitize_model_combobox_value,
         )
+        from plugin.framework.model_lru import _sanitize_model_combobox_value
         from plugin.framework.client.provider_detection import get_provider_from_endpoint
         from plugin.framework.client.model_fetcher import (
             cached_image_models, cached_stt_models, cached_text_models, cached_tts_models,

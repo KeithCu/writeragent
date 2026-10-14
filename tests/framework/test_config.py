@@ -62,7 +62,7 @@ class TestConfigSync:
 
     def test_set_text_model_writes_and_lru(self):
         self.config_data['text_model'] = ''
-        with patch('plugin.chatbot.config_ui_helpers.update_lru_history') as mock_lru, patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch('plugin.framework.model_lru.update_lru_history') as mock_lru, patch.object(global_event_bus, 'emit') as mock_emit:
             set_text_model('new-chat-model')
             assert (self.config_data.get('text_model')) == ('new-chat-model')
             mock_lru.assert_called_once_with('new-chat-model', 'model_lru', '')
@@ -76,7 +76,7 @@ class TestConfigSync:
 
     def test_set_text_model_update_lru_false(self):
         self.config_data['text_model'] = ''
-        with patch('plugin.chatbot.config_ui_helpers.update_lru_history') as mock_lru:
+        with patch('plugin.framework.model_lru.update_lru_history') as mock_lru:
             set_text_model('chat-only', update_lru=False)
             assert (self.config_data.get('text_model')) == ('chat-only')
             mock_lru.assert_not_called()
@@ -97,16 +97,16 @@ class TestConfigSync:
         endpoint_b = 'http://localhost:8080'
         self.config_data[f'model_lru@{endpoint_b}'] = ['other-model']
         with patch('plugin.framework.client.model_fetcher.get_current_endpoint', return_value=endpoint_a), \
-             patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=lambda k: self.config_data.get(k, '')), \
-             patch('plugin.chatbot.config_ui_helpers.set_config', side_effect=lambda k, v: self.config_data.__setitem__(k, v)), \
-             patch('plugin.chatbot.config_ui_helpers.get_current_endpoint', return_value=endpoint_a):
+             patch('plugin.framework.model_lru.get_config', side_effect=lambda k: self.config_data.get(k, '')), \
+             patch('plugin.framework.model_lru.set_config', side_effect=lambda k, v: self.config_data.__setitem__(k, v)), \
+             patch('plugin.framework.client.model_fetcher.get_current_endpoint', return_value=endpoint_a):
             set_text_model('model-on-a', update_lru=True)
         assert (self.config_data.get(f'model_lru@{endpoint_a}')) == (['model-on-a'])
         assert (self.config_data.get(f'model_lru@{endpoint_b}')) == (['other-model'])
 
     def test_set_image_model_endpoint(self):
         self.config_data['image_model'] = ''
-        with patch('plugin.chatbot.config_ui_helpers.update_lru_history') as mock_lru, patch.object(global_event_bus, 'emit') as mock_emit:
+        with patch('plugin.framework.model_lru.update_lru_history') as mock_lru, patch.object(global_event_bus, 'emit') as mock_emit:
             set_image_model('new-endpoint-model')
             assert (self.config_data.get('image_model')) == ('new-endpoint-model')
             mock_lru.assert_called_once_with('new-endpoint-model', 'image_model_lru', '')
@@ -1224,7 +1224,7 @@ class TestRobustNumericParsing:
     def test_validate_api_config_without_config_ui_helpers(self):
         from plugin.framework.config import validate_api_config
 
-        with patch.dict(sys.modules, {"plugin.chatbot.config_ui_helpers": None}):
+        with patch.dict(sys.modules, {"plugin.framework.model_lru": None}):
             ok, err = validate_api_config({
                 "endpoint": "https://example.invalid",
                 "model": "glm-5.2",

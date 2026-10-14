@@ -306,7 +306,7 @@ class ToolCallingMixin:
         if synced_model:
             log.debug("_do_send: text model updated to %s" % synced_model)
         if self.image_model_selector:
-            from plugin.chatbot.config_ui_helpers import _sanitize_model_combobox_value
+            from plugin.framework.model_lru import _sanitize_model_combobox_value
 
             selected_image_model = _sanitize_model_combobox_value(str(self.image_model_selector.getText() or ""))
             if selected_image_model:

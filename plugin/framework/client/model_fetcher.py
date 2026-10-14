@@ -1084,7 +1084,7 @@ def set_native_audio_support(model_id: Any, endpoint: Any, supported: bool) -> N
 
 def _sanitize_stored_model_value(val: Any) -> str:
     """Drop combobox placeholder strings from persisted model config."""
-    from plugin.chatbot.config_ui_helpers import _sanitize_model_combobox_value
+    from plugin.framework.model_lru import _sanitize_model_combobox_value
 
     return _sanitize_model_combobox_value(str(val or ""))
 
@@ -1142,7 +1142,7 @@ def _set_stored_model(config_key: str, lru_key: str, val: Any, update_lru: bool,
 
     set_config(config_key, val_str, event_key=event_key)
     if update_lru:
-        from plugin.chatbot.config_ui_helpers import update_lru_history
+        from plugin.framework.model_lru import update_lru_history
 
         update_lru_history(val_str, lru_key, get_current_endpoint())
 

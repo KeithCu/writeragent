@@ -1,8 +1,10 @@
 from unittest.mock import MagicMock, patch
 from plugin.chatbot.config_ui_helpers import (
-    next_lru_list,
     populate_combobox_with_lru,
     sync_sidebar_text_model,
+)
+from plugin.framework.model_lru import (
+    next_lru_list,
     update_lru_history,
 )
 import pytest
@@ -20,13 +22,16 @@ class TestConfigUiHelpers:
             self.config_data[key] = value
 
         self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
-        self.set_patcher = patch('plugin.chatbot.config_ui_helpers.set_config', side_effect=mock_set_config)
+        self.get_lru_patcher = patch('plugin.framework.model_lru.get_config', side_effect=mock_get_config)
+        self.set_lru_patcher = patch('plugin.framework.model_lru.set_config', side_effect=mock_set_config)
         self.mock_get = self.get_patcher.start()
-        self.mock_set = self.set_patcher.start()
+        self.get_lru_patcher.start()
+        self.mock_lru_set = self.set_lru_patcher.start()
 
     def teardown_method(self):
         self.get_patcher.stop()
-        self.set_patcher.stop()
+        self.get_lru_patcher.stop()
+        self.set_lru_patcher.stop()
 
     def test_update_lru_history_scoping(self):
         update_lru_history('item1', 'model_lru', 'http://localhost')
@@ -41,9 +46,9 @@ class TestConfigUiHelpers:
 
     def test_update_lru_history_skips_when_list_unchanged(self):
         self.config_data['prompt_lru'] = ['first', 'second']
-        self.mock_set.reset_mock()
+        self.mock_lru_set.reset_mock()
         update_lru_history('first', 'prompt_lru', '')
-        self.mock_set.assert_not_called()
+        self.mock_lru_set.assert_not_called()
 
     def test_next_lru_list_skips_blank_and_head_and_promotes(self):
         assert next_lru_list(["first"], "  ", 10) is None
@@ -75,7 +80,7 @@ class TestSyncSidebarTextModel:
             self.config_data.update(values)
 
         self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
-        self.set_patcher = patch('plugin.chatbot.config_ui_helpers.set_config', side_effect=mock_set_config)
+        self.set_patcher = patch('plugin.framework.config.set_config', side_effect=mock_set_config)
         self.configs_patcher = patch('plugin.chatbot.config_ui_helpers.set_configs', side_effect=mock_set_configs)
         self.get_mf_patcher = patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config)
         self.set_mf_patcher = patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config)
@@ -237,7 +242,7 @@ class TestPopulateComboboxWithLruFetchOptions:
             self.config_data[key] = value
 
         self.get_patcher = patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config)
-        self.set_patcher = patch('plugin.chatbot.config_ui_helpers.set_config', side_effect=mock_set_config)
+        self.set_patcher = patch('plugin.framework.config.set_config', side_effect=mock_set_config)
         self.get_patcher.start()
         self.set_patcher.start()
 

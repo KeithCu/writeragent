@@ -53,7 +53,7 @@ from plugin.framework.config import get_config_int, get_config_bool, get_config_
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.framework.client.model_fetcher import get_image_model
 from plugin.framework.constants import USER_AGENT
-from plugin.chatbot.config_ui_helpers import update_lru_history
+from plugin.framework.model_lru import update_lru_history
 from plugin.doc.document_research import list_nearby_files
 from plugin.doc import visual_helpers
 from .image_tools import (

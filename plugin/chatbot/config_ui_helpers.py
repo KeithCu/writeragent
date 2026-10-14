@@ -5,7 +5,6 @@ from typing import Any
 from plugin.framework.config import (
     LRU_MAX_ITEMS,
     get_config,
-    set_config,
     set_configs,
     get_current_endpoint,
     get_api_key_for_endpoint,
@@ -20,6 +19,12 @@ from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, together_speech_ids
 from plugin.framework.constants import ModelCapability
 from plugin.framework.client.model_fetcher import fetch_available_models, _filter_fetched_models, endpoint_url_suitable_for_v1_models_fetch
+from plugin.framework.model_lru import (
+    _is_model_combobox_placeholder,
+    _sanitize_model_combobox_value,
+    lru_config_key,
+    next_lru_list,
+)
 
 def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
     """True if a DEFAULT_MODELS row applies to this combobox (text/image/audio).
@@ -128,32 +133,6 @@ def _effective_api_key(ctx: Any, endpoint: str, api_key_override: str | None) ->
     if api_key_override is not None:
         return str(api_key_override).strip()
     return str(get_api_key_for_endpoint(endpoint) or "").strip()
-
-
-_MODEL_COMBO_PLACEHOLDER_MSGIDS = (
-    "(Enter API Key to load models)",
-    "(Connection failed)",
-    "(No image models on this endpoint)",
-    "(Default for current endpoint)",
-)
-
-
-def _is_model_combobox_placeholder(val: str) -> bool:
-    text = str(val or "").strip()
-    if not text:
-        return False
-    from plugin.framework.i18n import _
-
-    for msgid in _MODEL_COMBO_PLACEHOLDER_MSGIDS:
-        if text == msgid or text == _(msgid):
-            return True
-    return False
-
-
-def _sanitize_model_combobox_value(val: str) -> str:
-    """Drop Settings combobox placeholder strings; they are not real model ids."""
-    cleaned = str(val or "").strip()
-    return "" if _is_model_combobox_placeholder(cleaned) else cleaned
 
 
 def _resolve_display_model_for_combobox(
@@ -428,52 +407,6 @@ def populate_combobox_with_lru(
     elif ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
         ctrl.setText("")
     return display_val if display_val else ""
-
-def lru_config_key(lru_key: str, endpoint: str) -> str:
-    """Config key for an LRU list. Endpoint-scoped lists are ``name@url``."""
-    return f"{lru_key}@{endpoint}" if endpoint else lru_key
-
-
-def next_lru_list(current: Any, val: Any, max_items: int) -> list[str] | None:
-    """LRU list after prepending *val*, or None when that would not be a write.
-
-    Blank values are not entries. A value that is already the first item is
-    not a write. *current* may be a non-list (a missing key read as something
-    else); that still becomes a one-item list, matching the old
-    ``update_lru_history`` compare.
-    """
-    val_str = str(val).strip()
-    if not val_str:
-        return None
-    # LRU entries are model id strings; get_config is JSON-shaped so normalize explicitly.
-    lru: list[str] = [str(item) for item in current] if isinstance(current, list) else []
-    # Already at the head: a set_config here would rewrite the file and emit
-    # config:changed for a list the UI already shows first.
-    if lru and lru[0] == val_str:
-        return None
-    if val_str in lru:
-        lru.remove(val_str)
-    lru.insert(0, val_str)
-    new_lru = lru[:max_items]
-    if isinstance(current, list) and current == new_lru:
-        return None
-    return new_lru
-
-
-def update_lru_history(val: Any, lru_key: str, endpoint: str, max_items: int | None = None) -> None:
-    """Prepend *val* to an endpoint-scoped LRU list in writeragent.json.
-
-    No write when the value is blank or already the first item. Settings OK
-    and the sidebar model sync do not call this once per key: they merge
-    ``next_lru_list`` into the same ``set_configs`` as the field change.
-    """
-    if max_items is None:
-        max_items = LRU_MAX_ITEMS
-    scoped_key = lru_config_key(lru_key, endpoint)
-    new_lru = next_lru_list(get_config(scoped_key), val, max_items)
-    if new_lru is None:
-        return
-    set_config(scoped_key, new_lru)
 
 
 def sync_sidebar_image_model(ctrl: Any, update_lru: bool = True) -> str | None:
