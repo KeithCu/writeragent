@@ -260,7 +260,14 @@ def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
     ed = _serial_to_date(end_date)
     if sd is None or ed is None:
         return float("nan")
-    return _days360(sd, ed, european=bool(method))
+    # LibreOffice GetBool() coerces via GetDouble() != 0 (interpre.hxx). Python
+    # bool("0") was True (European count). Coerce with bool(float(method)) so "0"
+    # selects US and non-numeric strings like "FALSE" raise and return nan.
+    try:
+        european = bool(float(method))
+    except (ValueError, TypeError, OverflowError):
+        return float("nan")
+    return _days360(sd, ed, european=european)
 
 
 def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> float:
@@ -276,7 +283,10 @@ def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> floa
             return float("nan")
         if p < 1 or p > life_val + 1:
             return float("nan")
-        rate = round(1.0 - math.pow(s / c, 1.0 / life_val), 3)
+        # LibreOffice ScDB rounds the depreciation rate half away from zero with
+        # approxFloor((fOffRate * 1000.0) + 0.5) / 1000.0 (interpr2.cxx). Python round()
+        # is half-to-even, which rounded ties down.
+        rate = float(_round_half_up(1.0 - math.pow(s / c, 1.0 / life_val), 3))
         val = c
         dep = 0.0
         for i in range(1, p + 1):
@@ -288,7 +298,7 @@ def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> floa
                 dep = val * rate
             val -= dep
         return float(dep)
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -321,7 +331,9 @@ def ddb(cost: Any, salvage: Any, life: Any, period: Any, factor: Any = 2) -> flo
                 dep = 0.0
             val -= dep
         return float(dep)
-    except Exception:
+    # Broad except Exception masked unexpected errors. Narrow to expected
+    # conversion and overflow errors, returning nan.
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -376,11 +388,23 @@ def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 
     try:
         p = float(pr)
         red = float(redemption)
-        yf = yearfrac(settlement, maturity, basis)
-        if math.isnan(yf) or yf == 0 or red == 0:
+        b = int(float(basis))
+        settle = float(settlement)
+        mature = float(maturity)
+        # getDisc throws when price or redemption is <= 0 or settlement >= maturity.
+        # yearfrac swaps a reversed pair, so disc(45000, 44000, 95, 100) returned
+        # the positive discount of the swapped dates. redemption == 0 was the only
+        # price check, so a negative redemption also returned a number.
+        if p <= 0 or red <= 0 or b < 0 or b > 4 or settle >= mature:
             return float("nan")
-        return float((red - p) / red / yf)
-    except Exception:
+        yf = yearfrac(settle, mature, b)
+        if math.isnan(yf) or yf <= 0:
+            return float("nan")
+        result = (red - p) / red / yf
+        if not math.isfinite(result):
+            return float("nan")
+        return float(result)
+    except (ValueError, TypeError, OverflowError):
         return float("nan")
 
 
@@ -768,9 +792,14 @@ def finv(p: Any, r1: Any, r2: Any) -> float:
         prob = float(p)
         df1 = float(r1)
         df2 = float(r2)
-        if prob < 0 or prob > 1 or df1 < 1 or df2 < 1:
+        # LibreOffice ScFInv rejects fP <= 0 and fP > 1 (sc/source/core/tool/interpr3.cxx).
+        # prob == 0 returned inf instead of nan because prob < 0 was checked instead of prob <= 0.
+        if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1:
             return float("nan")
-        return float(st.f.isf(prob, df1, df2))
+        result = float(st.f.isf(prob, df1, df2))
+        if not math.isfinite(result):
+            return float("nan")
+        return result
     except (ValueError, TypeError, ImportError):
         return float("nan")
 
@@ -841,8 +870,10 @@ def frequency(data: Any, bins: Any) -> Any:
         indices = np.searchsorted(sorted_bins, data_arr, side="left")
         counts = np.bincount(indices, minlength=len(sorted_bins) + 1)
         return [int(c) for c in counts[: len(sorted_bins) + 1]]
-    except Exception:
-        return []
+    # Broad except Exception returned [] on conversion failures instead of #VALUE!.
+    # Catch conversion errors and return "#VALUE!" while letting runtime errors propagate.
+    except (ValueError, TypeError, OverflowError):
+        return "#VALUE!"
 
 
 def fv(rate: Any, nper: Any, pmt_val: Any, pv_val: Any = 0, type_val: Any = 0) -> float:
@@ -912,9 +943,14 @@ def gammainv(p: Any, alpha: Any, beta: Any) -> float:
         prob = float(p)
         a = float(alpha)
         b = float(beta)
-        if prob < 0 or prob > 1 or a <= 0 or b <= 0:
+        # LibreOffice ScGammaInv rejects fP < 0 or fP >= 1 (fP == 0 is 0; fP == 1 is
+        # illegal). prob == 1 returned inf instead of nan because prob > 1 was checked.
+        if prob < 0 or prob >= 1 or a <= 0 or b <= 0:
             return float("nan")
-        return float(st.gamma.ppf(prob, a, scale=b))
+        result = float(st.gamma.ppf(prob, a, scale=b))
+        if not math.isfinite(result):
+            return float("nan")
+        return result
     except (ValueError, TypeError, ImportError):
         return float("nan")
 
@@ -958,11 +994,11 @@ def gestep(number: Any, step: Any = 0) -> float:
 def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = True) -> Any:
     try:
         y = np.asarray(known_y, dtype=float).ravel()
-        # Excel/Calc GROWTH returns #NUM! when any known y is <= 0.
-        # np.log of those values is -inf/nan and used to flow through
-        # polyfit/exp into the result list.
-        if np.any(y <= 0):
-            return []
+        # Excel/Calc GROWTH returns #NUM! when any known y is <= 0 or non-finite.
+        # Returning [] was wrong because Excel/Calc errors are string tokens, and
+        # non-finite values like inf were not caught by <= 0.
+        if y.size and (not np.all(np.isfinite(y)) or np.any(y <= 0)):
+            return "#NUM!"
         if known_x is None:
             x = np.arange(1, len(y) + 1, dtype=float)
         else:
@@ -975,7 +1011,7 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
         y_log = np.log(y)
         # A text "0" is truthy in Python, so GROWTH fitted an intercept.
         # expondist and fixed coerce with bool(float()). "FALSE" raises
-        # and the handler below returns [].
+        # and the handler below returns "#VALUE!".
         use_const = bool(float(const))
         if use_const:
             coeffs = np.polyfit(x, y_log, 1)
@@ -984,8 +1020,10 @@ def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = Tr
             slope = np.sum(x * y_log) / np.sum(x * x)
             res = np.exp(slope * new_x_arr)
         return res.tolist()
-    except Exception:
-        return []
+    # Broad except Exception returned [] on failures instead of #VALUE!.
+    # Narrow to expected conversion, linear algebra, and calculation exceptions.
+    except (ValueError, TypeError, OverflowError, ZeroDivisionError, np.linalg.LinAlgError):
+        return "#VALUE!"
 
 
 def harmean(*args: Any) -> float:
