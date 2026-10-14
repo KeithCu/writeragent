@@ -264,3 +264,27 @@ def test_import_failure_messages_short_and_hide_allowlist():
 
     err_rel_dotted = validate_sandbox_ast(ast.parse("from .numpy import foo"), allowed)
     assert err_rel_dotted == "Relative imports are not allowed."
+
+
+def test_venv_policy_omits_internal_writeragent_modules() -> None:
+    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
+
+    policy = format_venv_import_policy_for_prompt(compact=False)
+    prefix = "Allowed packages in this sandbox (+ submodules where applicable): "
+    suffix = ". Always blocked"
+    part = policy.split(prefix)[1].split(suffix)[0]
+    packages = {item.strip() for item in part.split(",")}
+
+    assert "writeragent" in packages
+    assert "writeragent.scripting.analysis" in packages
+    assert "writeragent.vision" in packages
+    assert "writeragent.scripting.calc_functions" in packages
+
+    assert "writeragent.scripting.payload_codec" not in packages
+    assert "writeragent.scripting.writeragent_api" not in packages
+    assert "writeragent.scripting.writeragent_namespace" not in packages
+
+    assert import_authorized("writeragent.scripting.payload_codec", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("writeragent.scripting.writeragent_api", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("writeragent.scripting.writeragent_namespace", VENV_AUTHORIZED_IMPORTS) is True
+

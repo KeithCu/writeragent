@@ -29,6 +29,7 @@ Topic docs: [docs/scripting/librepy-split.md](../../docs/scripting/librepy-split
 - Do **not** drop `plugin/calc/analyzer.py` from the LibrePy bundle.
 - Jupyter import (`plugin/notebook/`, vendored `plugin/contrib/nbformat/`) ships in LibrePy; do not exclude it from the allowlist.
 - ``writeragent.X`` is allowed only when ``plugin.X`` is on ``VENV_AUTHORIZED_IMPORTS``, or the alias is an explicit entry (``writeragent.vision``, ``writeragent.scripting.duckdb_sql``). Do not put back a blanket ``writeragent.*``. Leave ``duckdb`` / ``duckdb.*`` on the list and ``plugin.scripting.duckdb_sql`` off it.
+- The =PY blurb omits `payload_codec`, `writeragent_api`, and `writeragent_namespace` via `_PROMPT_OMIT_PACKAGE_MARKERS`; they stay on `VENV_AUTHORIZED_IMPORTS`.
 - Shipped LibrePy (`make deploy-core`) defaults to `log_level` WARN; a checkout that still has `plugin/tests/` defaults to DEBUG.
 - Python sidebar header/hamburger (`plugin/librepy/sidebar_menus.py`) must not import `plugin.main`, `llm_client`, embeddings, or MCP.
 - Python deck is Calc + Writer (not NotebookBar-only). Writer hides `=PY()` cell chrome; do not fall back to a Calc document from a Writer frame.

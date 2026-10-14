@@ -110,6 +110,39 @@ def test_resolve_venv_python_accepts_file_url(tmp_path):
     assert resolve_venv_python(venv.as_uri()) == str(py)
 
 
+def test_resolve_venv_python_accepts_uppercase_file_url(tmp_path):
+    venv = tmp_path / "José Doe (work)" / ".venv"
+    py = _make_posix_venv(venv)
+    uri = venv.as_uri()
+    assert resolve_venv_python("FILE:" + uri[len("file:"):]) == str(py)
+
+
+def test_path_from_file_url_scheme_case_and_unc(monkeypatch):
+    from plugin.scripting.sandbox import _path_from_file_url
+
+    assert _path_from_file_url("FILE:///tmp/x") == "/tmp/x"
+    assert _path_from_file_url("File:/tmp/x") == "/tmp/x"
+    assert _path_from_file_url("file://localhost/tmp/x") == "/tmp/x"
+    assert _path_from_file_url("file://server/share/a") == "/share/a"
+    assert _path_from_file_url("file:tmp") is None
+    assert _path_from_file_url("FILE:") is None
+
+    monkeypatch.setattr("plugin.scripting.sandbox.os.name", "nt")
+    assert _path_from_file_url("file:///C:/x") == r"C:\x"
+    assert _path_from_file_url("FILE:///C:/x") == r"C:\x"
+    assert _path_from_file_url("file://localhost/C:/x") == r"C:\x"
+    assert _path_from_file_url("file://LocalHost/C:/Users/a") == r"C:\Users\a"
+    assert _path_from_file_url("file://server/share/a") == r"\\server\share\a"
+    assert _path_from_file_url("file://server/C:/x") == r"\\server\C:\x"
+
+
+def test_normalize_venv_path_input_uppercase_file_scheme():
+    from plugin.scripting.sandbox import _normalize_venv_path_input
+
+    assert _normalize_venv_path_input("FILE:///tmp/x") == "/tmp/x"
+    assert _normalize_venv_path_input('"FILE:///tmp/x"') == "/tmp/x"
+
+
 def test_resolve_venv_python_windows_scripts_layout(tmp_path, monkeypatch):
     monkeypatch.setattr("plugin.scripting.sandbox.os.name", "nt")
     venv = tmp_path / "venv"
@@ -144,6 +177,20 @@ def test_resolve_venv_python_rejects_pythonw_exe(tmp_path, monkeypatch):
     (venv / "pythonw.exe").write_text("")
     assert resolve_venv_python(str(venv)) is None
     assert resolve_venv_python(str(venv / "pythonw.exe")) is None
+
+
+def test_resolve_venv_python_rejects_python_prefix_files(tmp_path):
+    bindir = tmp_path / "bin"
+    bindir.mkdir(parents=True)
+    fake = bindir / "pythonista"
+    fake.write_text("#!/bin/sh\necho fake\n")
+    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+    assert resolve_venv_python(str(fake)) is None
+
+    pybin = bindir / "python.bin"
+    pybin.write_text("#!/bin/sh\necho real\n")
+    pybin.chmod(pybin.stat().st_mode | stat.S_IEXEC)
+    assert resolve_venv_python(str(pybin)) == str(pybin)
 
 
 def test_resolve_venv_python_none_for_empty_dir(tmp_path):
@@ -566,6 +613,12 @@ def test_env_name_is_credential_matches_suffixes_and_dsn() -> None:
     assert _env_name_is_credential("GITHUB_PAT") is True
     assert _env_name_is_credential("SLACK_WEBHOOK_URL") is True
     assert _env_name_is_credential("APIKEY") is True
+    assert _env_name_is_credential("OPENAIAPIKEY") is True
+    assert _env_name_is_credential("GITHUBAPITOKEN") is True
+    assert _env_name_is_credential("AWSSECRETKEY") is True
+    assert _env_name_is_credential("OPENAI-APIKEY") is True
+    assert _env_name_is_credential("OPENAI_API_KEY") is True
+    assert _env_name_is_credential("AWS_ACCESS_KEY_ID") is True
     assert _env_name_is_credential("KEYRING") is True
     assert _env_name_is_credential("AUTHORIZATION") is True
 
@@ -635,6 +688,7 @@ def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
         "DATABASE_URL": "postgres://user:pass@host/db",
         "WRITERAGENT_COMPUTE_WORKER": "1",
         "OPENAI_APIKEY": "sk-test",
+        "OPENAIAPIKEY": "sk-test-glued",
         "POSTGRES_DSN": "postgres://...",
         "KEYBOARD_LAYOUT": "us",
         "USER_VAR": "hello",
@@ -647,6 +701,7 @@ def test_scrub_subprocess_env_blocked_exact_and_empty_dict() -> None:
     assert "DATABASE_URL" not in scrubbed
     assert "WRITERAGENT_COMPUTE_WORKER" not in scrubbed
     assert "OPENAI_APIKEY" not in scrubbed
+    assert "OPENAIAPIKEY" not in scrubbed
     assert "POSTGRES_DSN" not in scrubbed
     assert scrubbed["KEYBOARD_LAYOUT"] == "us"
     assert scrubbed["USER_VAR"] == "hello"
@@ -672,6 +727,20 @@ def test_is_acceptable_python_basename_rejects_config() -> None:
     assert _is_acceptable_python_basename("python3") is True
     assert _is_acceptable_python_basename("python3.13") is True
     assert _is_acceptable_python_basename("python.exe") is True
+    assert _is_acceptable_python_basename("python.bin") is True
+    assert _is_acceptable_python_basename("Python.BIN") is True
+    assert _is_acceptable_python_basename("python3.exe") is True
+    assert _is_acceptable_python_basename("python3.13.exe") is True
+    assert _is_acceptable_python_basename("python3.12m") is True
+    assert _is_acceptable_python_basename("python3.13t.exe") is True
+    assert _is_acceptable_python_basename("python3.13d") is True
+
+    assert _is_acceptable_python_basename("pythonista") is False
+    assert _is_acceptable_python_basename("python-magic") is False
+    assert _is_acceptable_python_basename("python_settings") is False
+    assert _is_acceptable_python_basename("python39") is False
+    assert _is_acceptable_python_basename("python3.12.1") is False
+    assert _is_acceptable_python_basename("python.bin.exe") is False
 
 
 def test_python_candidates_in_bin_dir_handles_oserror(tmp_path, monkeypatch) -> None:
@@ -707,4 +776,28 @@ def test_detect_sandbox_cache_clear(monkeypatch) -> None:
     _reset_cache()
     assert detect_sandbox() == "snap"
     _reset_cache()
+
+
+def test_writeragent_alias_authorization_matches_mirrored_plugin_entry() -> None:
+    from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS, import_authorized
+
+    for entry in VENV_AUTHORIZED_IMPORTS:
+        if not entry.startswith("plugin."):
+            continue
+        alias = "writeragent." + entry[len("plugin.") :]
+        assert import_authorized(alias, VENV_AUTHORIZED_IMPORTS) == import_authorized(
+            entry, VENV_AUTHORIZED_IMPORTS
+        )
+        if entry.endswith(".*"):
+            prefix = entry[: -2]
+            child = prefix + ".child"
+            alias_child = "writeragent." + child[len("plugin.") :]
+            assert import_authorized(alias_child, VENV_AUTHORIZED_IMPORTS) == import_authorized(
+                child, VENV_AUTHORIZED_IMPORTS
+            )
+    assert import_authorized("writeragent.vision", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("plugin.vision", VENV_AUTHORIZED_IMPORTS) is False
+    assert import_authorized("writeragent.scripting.duckdb_sql", VENV_AUTHORIZED_IMPORTS) is True
+    assert import_authorized("plugin.scripting.duckdb_sql", VENV_AUTHORIZED_IMPORTS) is False
+
 

@@ -29,10 +29,17 @@ from plugin.framework.deal_shim import UNDER_CROSSHAIR, ascii_bounded, deal
 # Stdlib roots from VENV_AUTHORIZED_IMPORTS beyond BASE_BUILTIN_MODULES.
 _VENV_STDLIB_EXTRA: frozenset[str] = frozenset(_VENV_STDLIB)
 
-# Dropped from the LLM allowed-packages line (substring, so a future
-# plugin.scripting.duckdb_sql entry would stay out too). Still importable:
-# session_duckdb() is the guarded helper; raw import duckdb is unguarded.
-_PROMPT_OMIT_PACKAGE_MARKERS: tuple[str, ...] = ("duckdb",)
+# Dropped from the LLM allowed-packages line (substring match). Still
+# importable. duckdb: session_duckdb() is the guarded helper. payload_codec,
+# writeragent_api, and writeragent_namespace are the wire codec, the generated
+# tool proxy, and the LibrePy namespace stub. Scripts use wa and the domain
+# helpers, not those modules.
+_PROMPT_OMIT_PACKAGE_MARKERS: tuple[str, ...] = (
+    "duckdb",
+    "payload_codec",
+    "writeragent_api",
+    "writeragent_namespace",
+)
 
 # Compact blurb "networking" list and common blocked modules.
 _NETWORK_BLOCKED_COMMON: tuple[str, ...] = (

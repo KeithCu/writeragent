@@ -12,7 +12,7 @@ from __future__ import annotations
 import functools
 import os
 import sys
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import subprocess
@@ -398,24 +398,29 @@ _DEAL_BASENAME_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_PATH
 
 
 def _env_name_is_credential(name: str) -> bool:
-    """True when an env name is a credential, matched on exact ``_`` tokens.
+    """True when an env name contains a glued credential substring or matches blocked tokens on _ segments.
 
-    Prefix and suffix matching blocked TOKENIZERS_PARALLELISM, MONKEY,
-    TURKEY, SECRETARY, and KEYWORD, and let MYSQL_PWD, PASSPHRASE, PASSWD,
-    GITHUB_PAT, and SLACK_WEBHOOK_URL through. Whole tokens plus the glued
-    set fix both. PWD itself stays allowed because it is the shell cwd, not
-    a password.
+    After the allowlist and DATABASE_URL / DSN checks, names matching any
+    glued credential compound substring (_GLUED_CREDENTIAL_TOKENS) are
+    credentials (e.g. OPENAIAPIKEY, OPENAI_APIKEY, OPENAI-APIKEY).
+    Short tokens in _BLOCKED_ENV_TOKENS still match only a non-empty _ or -
+    segment, keeping PWD, XAUTHORITY, MONKEY, TURKEY, SECRETARY, KEYWORD,
+    KEYBOARD, KEYBOARD_LAYOUT, and TOKENIZERS_PARALLELISM allowed.
     """
     nu = name.upper()
     if nu in _ENV_CREDENTIAL_ALLOW:
         return False
     if nu == "DATABASE_URL" or nu == "DSN" or nu.endswith("_DSN"):
         return True
+    # Bugfix: segment matching left OPENAIAPIKEY (no _ or -) in the child env
+    # because token splitting only inspected delimited tokens. Substring
+    # matching the glued compounds fixes this; the glued compounds are specific
+    # enough that a substring does not hit MONKEY, SECRETARY, KEYWORD, or
+    # TOKENIZERS_PARALLELISM.
+    if any(glued in nu for glued in _GLUED_CREDENTIAL_TOKENS):
+        return True
     tokens = [part for part in nu.replace("-", "_").split("_") if part]
-    for token in tokens:
-        if token in _BLOCKED_ENV_TOKENS or token in _GLUED_CREDENTIAL_TOKENS:
-            return True
-    return False
+    return any(token in _BLOCKED_ENV_TOKENS for token in tokens)
 
 
 @deal.pre(lambda base: _deal_scrub_env_ok(base))
@@ -595,9 +600,19 @@ def _path_from_file_url(raw: str) -> str | None:
     """Convert a ``file://`` / ``file:/`` URL to a filesystem path (stdlib only)."""
     # crosshair: off
     # urlparse/unquote/url2pathname combinatorics on free strings (cover-all 33293627157: ~2.0h, 190k lines / 108k examples). Doable later with a tiny file-URL alphabet.
+    # Bugfix: The old startswith("file:/") was case-sensitive while
+    # _normalize_venv_path_input accepted file: in any case, so FILE:///tmp/x
+    # was used as a literal path; and file://localhost/C:/x became
+    # \\localhostC:\x because the drive-letter branch dropped the slash
+    # before the host was glued on. Normalizing the scheme case-insensitively,
+    # treating localhost as empty host (RFC 8089), and formatting UNC paths as
+    # \\host\tail fixes both issues.
     from urllib.parse import unquote, urlparse
 
     text = raw.strip()
+    if len(text) < 5 or text[:5].lower() != "file:":
+        return None
+    text = "file:" + text[5:]
     if text.startswith("file:/") and not text.startswith("file://"):
         text = "file://" + text[len("file:") :]
     if not text.startswith("file://"):
@@ -606,14 +621,20 @@ def _path_from_file_url(raw: str) -> str | None:
     if parsed.scheme != "file":
         return None
     unquoted = unquote(parsed.path)
-    if os.name == "nt" and len(unquoted) >= 3 and unquoted[0] == "/" and unquoted[2] == ":":
-        path = unquoted[1:].replace("/", "\\")
+    host = parsed.netloc
+    if host.lower() == "localhost":
+        host = ""
+    if os.name == "nt":
+        if host:
+            tail = unquoted[1:] if unquoted.startswith("/") else unquoted
+            tail = tail.replace("/", "\\")
+            path = "\\\\" + host + ("\\" + tail if tail else "")
+        elif len(unquoted) >= 3 and unquoted[0] == "/" and unquoted[2] == ":":
+            path = unquoted[1:].replace("/", "\\")
+        else:
+            path = unquoted
     else:
         path = unquoted
-    # Windows: file://server/share → netloc=server, path=/share
-    if parsed.netloc and os.name == "nt" and not path.startswith("\\\\"):
-        # UNC: file://server/share → netloc=server, path=/share
-        path = f"\\\\{parsed.netloc}{path}"
     return path or None
 
 
@@ -631,12 +652,32 @@ def _normalize_venv_path_input(venv_dir: str) -> str:
 
 @deal.pre(lambda base: ascii_bounded(base, _DEAL_BASENAME_LEN))
 def _is_acceptable_python_basename(base: str) -> bool:
-    """True for python / python3 / python.exe; false for pythonw and -config scripts."""
-    # python3.X-config scripts are shell wrappers, not Python interpreters.
+    """True for python, python3, python3.X, python.bin, and those plus .exe.
+
+    One optional ABI letter m, d, or t may follow a version digit
+    (python3.12t, python3.8m). pythonw and -config scripts are not
+    interpreters. Other python* names (pythonista, python-magic) are not
+    either. String checks only: this function stays on CrossHair cover-all,
+    and a regex here is a relib hang.
+    """
     lower = base.lower()
-    if lower in ("pythonw", "pythonw.exe") or lower.endswith(("-config", "-config.exe")):
+    if lower == "python.bin":
+        return True
+    stem = lower[:-4] if lower.endswith(".exe") else lower
+    if stem == "python":
+        return True
+    if not stem.startswith("python"):
         return False
-    return lower.startswith("python")
+    rest = stem[len("python") :]
+    if len(rest) >= 2 and rest[-1] in "mdt" and rest[-2].isdigit():
+        rest = rest[:-1]
+    if len(rest) == 1 and rest.isdigit():
+        return True
+    dot = rest.find(".")
+    if dot != 1:
+        return False
+    minor = rest[2:]
+    return rest[0].isdigit() and bool(minor) and minor.isdigit()
 
 
 def _is_usable_python_file(path: str) -> bool:
@@ -653,7 +694,7 @@ def _is_usable_python_file(path: str) -> bool:
     return os.access(path, os.X_OK)
 
 
-def _python_beside_soffice(soffice_path: str) -> Optional[str]:
+def _python_beside_soffice(soffice_path: str) -> str | None:
     # crosshair: off
     # cover-all 33689813185 leftover cluster: filesystem walk beside soffice. Doable later.
     """Office-bundled interpreter next to soffice (not checkout ``.venv``).
@@ -723,7 +764,7 @@ def _bundled_lo_python_candidates() -> list[str]:
     return out
 
 
-def resolve_libreoffice_python() -> Optional[str]:
+def resolve_libreoffice_python() -> str | None:
     """Return a usable office Python: ``sys.executable``, else bundled neighbor.
 
     Under PyUNO this is normally the office-bundled Python. On Windows/macOS
@@ -792,7 +833,7 @@ def _first_executable_python(candidates: list[str]) -> str | None:
     return None
 
 
-def resolve_venv_python(venv_dir: str) -> Optional[str]:
+def resolve_venv_python(venv_dir: str) -> str | None:
     """Return the python executable for *venv_dir*.
 
     Accepts a venv root (``…/myvenv``), ``bin/`` / ``Scripts/`` directory, or a direct
@@ -845,10 +886,12 @@ def resolve_venv_python(venv_dir: str) -> Optional[str]:
     )
 )
 def is_safe_workspace_path(target_path: str, root_dir: str) -> bool:
-    """Return True if *target_path* resolves strictly inside *root_dir*.
+    """Return True if *target_path* resolves to *root_dir* or a path inside it.
 
     ``realpath`` follows symlinks. ``abspath`` only collapses ``..``, so a
     link inside the root that pointed outside used to count as safe.
+    This is a check-then-use policy: a symlink can change between this
+    call and a later open.
     """
     if not target_path or not root_dir:
         return False
