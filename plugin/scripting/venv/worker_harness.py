@@ -37,6 +37,7 @@ from plugin.scripting.ipc import (
     IpcPayloadSizeError,
     UserStopped,
     claim_ipc_channel,
+    claim_ipc_stdin,
     read_pickle_frame,
     write_pickle_frame,
 )
@@ -218,7 +219,8 @@ def main() -> None:
     _init_logging()
     log.info("Worker process %d starting up with python %s", os.getpid(), sys.version)
 
-    stdin = sys.stdin.buffer
+    # First read of stdin, so detach cannot drop a frame already buffered.
+    stdin = claim_ipc_stdin()
     # claim_ipc_channel() dups fd 1 into a private binary stream and points
     # fd 1 at stderr. A library print() must not land in a protocol frame.
     stdout = claim_ipc_channel()

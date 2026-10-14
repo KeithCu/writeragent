@@ -264,10 +264,10 @@ class EditorSessionState:
     pending_on_closed: Callable[[], None] | None = None
     save_token: object | None = None
     extra: dict[str, Any] = field(default_factory=dict)
-    target_key: tuple[str, str, str, str, str, str] = field(init=False)
 
-    def __post_init__(self) -> None:
-        self.target_key = target_identity_key(self.mode, self.target)
+    @property
+    def target_key(self) -> tuple[str, str, str, str, str, str]:
+        return target_identity_key(self.mode, self.target)
 
 
 class PersistentEditor:
@@ -277,6 +277,7 @@ class PersistentEditor:
     _stderr_tail_lock: threading.Lock
     _stderr_tail: deque[str]
     _stderr_tail_chars: int
+    _stderr_generation: int
     _stderr_tail_max_chars: int
     _ready_event: threading.Event
     _save_lock: threading.Lock
@@ -289,6 +290,7 @@ class PersistentEditor:
         self._stderr_tail_lock = threading.Lock()
         self._stderr_tail = deque()
         self._stderr_tail_chars = 0
+        self._stderr_generation = 0
         self._stderr_tail_max_chars = 65536
         self._ready_event = threading.Event()
         self._save_lock = threading.Lock()
@@ -350,9 +352,10 @@ class PersistentEditor:
 
     @property
     def is_running(self) -> bool:
-        if self._proc is None:
+        proc = self._proc
+        if proc is None:
             return False
-        return self._proc.poll() is None
+        return proc.poll() is None
 
     @property
     def proc(self) -> subprocess.Popen[bytes] | None:
@@ -360,14 +363,20 @@ class PersistentEditor:
 
     def start(self, proc: subprocess.Popen[bytes]) -> None:
         """Start the reader thread for the spawned process."""
-        self._proc = proc
+        with self._stdin_lock:
+            self._proc = proc
         self._ready_event.clear()
         with self._stderr_tail_lock:
+            self._stderr_generation += 1
+            generation = self._stderr_generation
             self._stderr_tail.clear()
             self._stderr_tail_chars = 0
         self._reader_thread = run_in_background(self._read_loop, name="editor-pipe-reader", daemon=True, dedicated=True)
         if proc.stderr is not None:
-            self._stderr_thread = run_in_background(self._stderr_drain_loop, name="editor-stderr-drain", daemon=True, dedicated=True)
+            def _drain() -> None:
+                self._stderr_drain_loop(proc, generation)
+
+            self._stderr_thread = run_in_background(_drain, name="editor-stderr-drain", daemon=True, dedicated=True)
 
     def terminate(self) -> None:
         """Force terminate the subprocess and its WebEngine children.
@@ -376,8 +385,16 @@ class PersistentEditor:
         ``proc.terminate()`` leaves Qt grandchildren alive, and a surviving
         parent is then reused as if it were healthy.
         """
-        proc = self._proc
-        self._proc = None
+        # Bugfix: send read self._proc three times under _stdin_lock while terminate
+        # nulled it and closed the pipes without the lock, so a concurrent config-thread
+        # terminate_persistent_editor, reader finally, or UI send raised AttributeError
+        # on None.poll or wrote a closed stdin. One local proc inside the lock, and
+        # terminate publishing None before it closes, makes send either finish the write
+        # on the pipes it captured or see None and raise RuntimeError. The lock is not
+        # held across kill/wait because the reader timeout path is inside send.
+        with self._stdin_lock:
+            proc = self._proc
+            self._proc = None
         if proc is None:
             return
         try:
@@ -410,16 +427,17 @@ class PersistentEditor:
                 target=state.target,
             )
         with self._stdin_lock:
-            if self._proc is None:
+            proc = self._proc
+            if proc is None:
                 raise RuntimeError("No editor process is running")
-            exit_code = self._proc.poll()
+            exit_code = proc.poll()
             if exit_code is not None:
                 detail = self.read_stderr_tail()
                 raise RuntimeError(f"Editor process already exited (code={exit_code}). {detail}")
-            if self._proc.stdin is None:
+            if proc.stdin is None:
                 raise RuntimeError("Editor process stdin is closed")
             try:
-                write_message(self._proc.stdin, message)
+                write_message(proc.stdin, message)
             except BrokenPipeError as e:
                 detail = self.read_stderr_tail()
                 raise RuntimeError(f"Editor process closed stdin. {detail}") from e
@@ -435,10 +453,15 @@ class PersistentEditor:
             return text[-limit:].strip()
         return text.strip()
 
-    def _append_stderr_line(self, line: str) -> None:
+    def _append_stderr_line(self, line: str, generation: int | None = None) -> None:
         if not line:
             return
         with self._stderr_tail_lock:
+            # A drain started by an older start still runs after the tail is cleared;
+            # its captured generation is stale, so those lines must not enter the new tail.
+            # None means the caller is the current owner (tests and direct appends).
+            if generation is not None and generation != self._stderr_generation:
+                return
             self._stderr_tail.append(line)
             # +1 matches the old sum(len(s) + 1) budget (one join newline per line).
             # Recomputing that sum on every popleft is O(n²) while the drain
@@ -450,9 +473,8 @@ class PersistentEditor:
                 self._stderr_tail_chars -= len(dropped) + 1
 
     @background
-    def _stderr_drain_loop(self) -> None:
-        proc = self._proc
-        if proc is None or proc.stderr is None:
+    def _stderr_drain_loop(self, proc: subprocess.Popen[bytes], generation: int) -> None:
+        if proc.stderr is None:
             return
         stderr = proc.stderr
         try:
@@ -465,7 +487,7 @@ class PersistentEditor:
                     line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
                     if line:
                         log.debug("editor child: %s", line)
-                        self._append_stderr_line(line)
+                        self._append_stderr_line(line, generation=generation)
             else:
                 while proc.poll() is None:
                     ready, _unused_w, _unused_x = select.select([stderr], [], [], 0.5)
@@ -477,7 +499,7 @@ class PersistentEditor:
                     line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
                     if line:
                         log.debug("editor child: %s", line)
-                        self._append_stderr_line(line)
+                        self._append_stderr_line(line, generation=generation)
         except Exception:
             log.debug("editor stderr drain failed", exc_info=True)
         finally:
@@ -491,7 +513,7 @@ class PersistentEditor:
                     for piece in remainder.decode("utf-8", errors="replace").splitlines():
                         if piece:
                             log.debug("editor child: %s", piece)
-                            self._append_stderr_line(piece)
+                            self._append_stderr_line(piece, generation=generation)
             except Exception:
                 log.debug("editor stderr drain tail read failed", exc_info=True)
 
@@ -500,12 +522,14 @@ class PersistentEditor:
         from plugin.framework.uno_context import process_events_to_idle
 
         deadline = time.monotonic() + timeout_sec
+        proc = self._proc
         while time.monotonic() < deadline:
             if self._ready_event.is_set():
                 return True
-            if self._proc is None:
+            proc = self._proc
+            if proc is None:
                 return False
-            exit_code = self._proc.poll()
+            exit_code = proc.poll()
             if exit_code is not None:
                 log.error("Editor child exited before ready (code=%s). stderr=%s", exit_code, self.read_stderr_tail())
                 return False
@@ -515,14 +539,14 @@ class PersistentEditor:
                 log.debug("process_events_to_idle failed while waiting for ready", exc_info=True)
             time.sleep(0.05)
         if not self._ready_event.is_set():
-            log.error("Editor ready timeout (%ss). child_running=%s stderr=%s", timeout_sec, self._proc is not None, self.read_stderr_tail())
+            log.error("Editor ready timeout (%ss). child_running=%s stderr=%s", timeout_sec, proc is not None, self.read_stderr_tail())
         return self._ready_event.is_set()
 
     @background
     def _read_loop(self) -> None:
-        if self._proc is None or self._proc.stdout is None:
-            return
         proc = self._proc
+        if proc is None or proc.stdout is None:
+            return
         stdout = proc.stdout
         try:
             if sys.platform == "win32":
@@ -708,6 +732,10 @@ class PersistentEditor:
                         _send_save(
                             {"type": "error", "message": str(e), "traceback": exception_traceback(e)},
                         )
+                    # This path is Monaco Run (action="run"). pending_load is applied
+                    # only by the synchronous success path below, which is what request_save
+                    # hits (#btn-save → action="save"). Applying the queued load from
+                    # deliver would switch buffers when a run finishes.
                     return
                 if not isinstance(result, dict):
                     result = {"type": "saved", "ok": True}
@@ -825,7 +853,6 @@ class EditorSession:
     _proc: subprocess.Popen[bytes]
     _on_save: EditorSaveCallback
     _on_closed: Callable[[], None]
-    _executor: QueueExecutor
     session_id: str
 
     def __init__(
@@ -834,16 +861,12 @@ class EditorSession:
         *,
         on_save: EditorSaveCallback,
         on_closed: Callable[[], None],
-        executor: QueueExecutor | None = None,
         session_id: str = "",
     ) -> None:
         self._proc = proc
         self._on_save = on_save
         self._on_closed = on_closed
-        self._executor = executor or default_executor
         self.session_id = session_id
-
-        _PERSISTENT_EDITOR.executor = self._executor
 
     @property
     def is_running(self) -> bool:
@@ -865,6 +888,9 @@ class EditorSession:
     def _finish(self, *, clearing: bool = False) -> None:
         if self.session_id:
             live = _PERSISTENT_EDITOR.lookup(self.session_id)
+            # This identity is the wrapper's ownership of the state. _register_load_session
+            # replaces on_save when the same target is reused. A wrapper whose callback
+            # is no longer the state's must not end_session it.
             if live is not None and live.on_save is self._on_save:
                 # Every session switch used to call _finish, which called
                 # end_session(call_closed=False). When _register_load_session ran
@@ -931,17 +957,29 @@ def _on_config_changed(**kwargs: Any) -> None:
     changed = kwargs.get("keys") or ()
     # Settings OK emits one event with key="" and the changed names in keys.
     # Matching only key dropped a venv-path change that was saved with other fields.
-    if key == "scripting.python_venv_path" or "scripting.python_venv_path" in changed:
+    venv_changed = key == "scripting.python_venv_path" or "scripting.python_venv_path" in changed
+    force_changed = (
+        key == "scripting.force_internal_script_editor"
+        or "scripting.force_internal_script_editor" in changed
+    )
+    if not venv_changed and not force_changed:
+        return
+
+    if venv_changed:
         log.info("editor_host: scripting.python_venv_path changed, terminating background Monaco process")
         _PROBE_CACHE.clear()
         _PROBE_FAILURE_CACHE.clear()
-        terminate_persistent_editor()
         try:
             from plugin.vision.vision_availability import invalidate_vision_availability_cache
 
             invalidate_vision_availability_cache()
         except Exception:
             log.debug("vision availability cache invalidation failed", exc_info=True)
+
+    if force_changed:
+        log.info("editor_host: scripting.force_internal_script_editor changed, terminating background Monaco process")
+
+    terminate_persistent_editor()
 
 
 global_event_bus.subscribe("config:changed", _on_config_changed)
@@ -1064,6 +1102,8 @@ def prepare_monaco_buffer_replace(
     Returns ``proceed`` (nothing dirty, or the user discarded), ``queued``
     (request_save is in flight; do not load yet), or ``cancel``.
     A second call after discard returns ``proceed`` without asking again.
+    "queued" means request_save was sent; if the focused session is already gone,
+    the result is "cancel" so the caller does not load.
     """
     if not monaco_session_needs_flush():
         return "proceed"
@@ -1076,7 +1116,8 @@ def prepare_monaco_buffer_replace(
     if choice == "cancel":
         return "cancel"
     if choice == "save":
-        queue_save_then_load(load_message, on_save, on_closed)
+        if not queue_save_then_load(load_message, on_save, on_closed):
+            return "cancel"
         return "queued"
     focused.extra[_REPLACE_CONFIRMED] = True
     return "proceed"
@@ -1173,18 +1214,19 @@ def queue_save_then_load(
     load_message: dict[str, Any],
     on_save: EditorSaveCallback,
     on_closed: Callable[[], None],
-) -> None:
+) -> bool:
     """Ask Monaco to save the current buffer, then load *load_message*."""
     from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
 
     focused = _PERSISTENT_EDITOR.focused()
     if focused is None:
-        return
+        return False
     focused.pending_load = enrich_monaco_load_message(dict(load_message))
     focused.pending_on_save = on_save
     focused.pending_on_closed = on_closed
     try:
         _PERSISTENT_EDITOR.send({"type": "request_save"}, session=focused)
+        return True
     except Exception:
         # The queued load must not fire on a later unrelated save when the
         # request never reached the child.
