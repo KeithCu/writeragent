@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from importlib.util import find_spec
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -401,5 +402,167 @@ def test_anomaly_tables_use_200_rows():
     all_scores = next(t for t in res["tables"] if t["name"] == "all_scores")
     assert all_scores["truncated"] is False
     assert len(all_scores["rows"]) == 60
+
+
+def test_periods_below_one_is_invalid_param():
+    frame = pd.DataFrame({
+        "Date": pd.date_range("2024-01-01", periods=10, freq="D"),
+        "Value": [float(i) for i in range(10)],
+    })
+    for p in (0, -3, "0"):
+        res = forecast_time_series(frame, periods=p, model="moving_average")
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAM"
+        assert res["message"] == "periods must be an integer greater than 0"
+
+    res_run = run_forecast({"helper": "forecast_time_series", "params": {"periods": 0}}, data=frame)
+    assert res_run["status"] == "error"
+    assert res_run["code"] == "INVALID_PARAM"
+    assert res_run["message"] == "periods must be an integer greater than 0"
+
+    ok_res = forecast_time_series(frame, periods=1, model="moving_average")
+    assert ok_res["status"] == "ok"
+    assert ok_res["metrics"]["periods"] == 1
+
+
+def test_period_below_two_is_invalid_param():
+    _require_statsmodels_installed()
+    frame = pd.DataFrame({
+        "Date": pd.date_range("2024-01-01", periods=20, freq="D"),
+        "Value": [float(i) for i in range(20)],
+    })
+    for p in (1, 0, -5):
+        dec = decompose_time_series(frame, period=p)
+        assert dec["status"] == "error"
+        assert dec["code"] == "INVALID_PARAM"
+        assert dec["message"] == "period must be an integer greater than 1"
+
+        anom = anomaly_detection_time_series(frame, period=p)
+        assert anom["status"] == "error"
+        assert anom["code"] == "INVALID_PARAM"
+        assert anom["message"] == "period must be an integer greater than 1"
+
+    weekly_frame = pd.DataFrame({
+        "Date": pd.date_range("2024-01-07", periods=30, freq="W"),
+        "Value": [float(i) for i in range(30)],
+    })
+    dec_omitted = decompose_time_series(weekly_frame)
+    assert dec_omitted["status"] == "error"
+    assert dec_omitted["code"] == "INSUFFICIENT_DATA"
+
+
+def test_same_date_and_value_column_is_invalid_param():
+    frame = pd.DataFrame({"Date": pd.date_range("2024-01-01", periods=12, freq="D")})
+    res = forecast_time_series(frame, date_col="Date", value_col="Date", periods=2, model="moving_average")
+    assert res["status"] == "error"
+    assert res["code"] == "INVALID_PARAM"
+    assert res["message"] == "date_col and value_col must be different columns, got 'Date'"
+
+    run_res = run_forecast(
+        {"helper": "forecast_time_series", "params": {"date_col": "Date", "value_col": "Date", "periods": 2}},
+        data=frame,
+    )
+    assert run_res["status"] == "error"
+    assert run_res["code"] == "INVALID_PARAM"
+    assert run_res["message"] == "date_col and value_col must be different columns, got 'Date'"
+
+    dec_res = decompose_time_series(frame, date_col="Date", value_col="Date", period=7)
+    assert dec_res["status"] == "error"
+    assert dec_res["code"] == "INVALID_PARAM"
+    assert dec_res["message"] == "date_col and value_col must be different columns, got 'Date'"
+
+    frame_no_date = pd.DataFrame({"Other": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]})
+    res_no_date = forecast_time_series(frame_no_date, date_col="Date", value_col="Date")
+    assert res_no_date["status"] == "error"
+    assert res_no_date["code"] == "UNKNOWN_COLUMN"
+
+
+def test_prepare_does_not_mutate_caller_metadata():
+    from plugin.scripting.venv.coerce import resolve_df
+
+    rows: list[dict[str, Any]] = [
+        {"Date": f"2024-01-{day:02d}", "Value": float(day)} for day in range(1, 11)
+    ]
+    rows.append({"Date": "not-a-date", "Value": 1.0})
+    rows.append({"Date": "2024-01-01", "Value": 99.0})
+    frame = pd.DataFrame(rows)
+
+    coerced = resolve_df(frame)
+    snapshot = dict(coerced.metadata)
+
+    res = forecast_time_series(coerced, periods=2, model="moving_average")
+    assert res["status"] == "ok"
+    assert coerced.metadata == snapshot
+    assert "rows_dropped" not in coerced.metadata
+    assert "duplicate_dates_collapsed" not in coerced.metadata
+    assert res["metadata"] is not coerced.metadata
+    assert res["metadata"]["rows_dropped"] == 1
+    assert res["metadata"]["duplicate_dates_collapsed"] == 1
+    assert "Dropped 1 rows with an unparseable date or value" in res["flags"]
+    assert "Aggregated 1 duplicate date rows by mean" in res["flags"]
+
+
+def test_known_nonseasonal_frequency_is_named():
+    _require_statsmodels_installed()
+
+    # Yearly
+    yearly_frame = pd.DataFrame({
+        "Date": pd.date_range("2000-01-01", periods=12, freq="YS"),
+        "Value": [float(i) for i in range(12)],
+    })
+    res_yearly = forecast_time_series(yearly_frame, periods=2, model="auto")
+    assert res_yearly["status"] == "ok"
+    expected_yearly = f"frequency {pd.infer_freq(yearly_frame['Date'])} has no seasonal period to infer; used trend-only"
+    assert any(expected_yearly in flag for flag in res_yearly["flags"])
+    assert not any("could not infer a seasonal period from the dates" in flag for flag in res_yearly["flags"])
+
+    # Minutes
+    min_frame = pd.DataFrame({
+        "Date": pd.date_range("2024-01-01", periods=30, freq="min"),
+        "Value": [float(i) for i in range(30)],
+    })
+    res_min = forecast_time_series(min_frame, periods=2, model="auto")
+    assert res_min["status"] == "ok"
+    expected_min = f"frequency {pd.infer_freq(min_frame['Date'])} has no seasonal period to infer; used trend-only"
+    assert any(expected_min in flag for flag in res_min["flags"])
+    assert not any("could not infer a seasonal period from the dates" in flag for flag in res_min["flags"])
+
+    # No frequency
+    no_freq_dates = [
+        "2024-01-01",
+        "2024-01-04",
+        "2024-01-09",
+        "2024-01-16",
+        "2024-01-25",
+        "2024-02-06",
+        "2024-02-20",
+        "2024-03-10",
+    ]
+    no_freq_frame = pd.DataFrame({
+        "Date": pd.to_datetime(no_freq_dates),
+        "Value": [float(i) for i in range(8)],
+    })
+    res_no_freq = forecast_time_series(no_freq_frame, periods=2, model="auto")
+    assert res_no_freq["status"] == "ok"
+    exact_sentence = "could not infer a seasonal period from the dates; used trend-only"
+    assert exact_sentence in res_no_freq["flags"]
+    assert not any("has no seasonal period to infer" in flag for flag in res_no_freq["flags"])
+
+
+def test_cycle_threshold_follows_min_decompose_cycles(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(venv_forecast, "_MIN_DECOMPOSE_CYCLES", 3)
+    frame = pd.DataFrame({
+        "Date": pd.date_range("2024-01-01", periods=20, freq="D"),
+        "Value": [float(i) for i in range(20)],
+    })
+    res_auto = forecast_time_series(frame, periods=2, model="auto", seasonal_periods=7)
+    assert res_auto["status"] == "ok"
+    assert any("needs at least 21" in flag and "got 20" in flag for flag in res_auto["flags"])
+
+    res_hw = forecast_time_series(frame, periods=2, model="holt_winters", seasonal_periods=7)
+    assert res_hw["status"] == "error"
+    assert res_hw["code"] == "INSUFFICIENT_DATA"
+    assert "21" in res_hw["message"]
+
 
 
