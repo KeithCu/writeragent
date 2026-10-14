@@ -10,6 +10,9 @@
 LibrePy and WriterAgent both register this menu. Writer inserts HTML at the
 selection; Calc writes values from the active selection; Draw/Impress shows a
 message only.
+
+Concurrency: _monaco_run_in_flight is a process-wide set of document keys.
+Monaco on_save checks and updates it on the UI thread only. It is not locked.
 """
 
 import html as html_mod
@@ -17,7 +20,7 @@ import logging
 import time
 from typing import Any, Callable
 
-from plugin.framework.uno_context import get_ctx, get_desktop
+from plugin.framework.uno_context import get_ctx, get_desktop, get_runtime_uid
 from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import msgbox
@@ -33,6 +36,20 @@ from plugin.scripting.helper_domain import format_elapsed_time, plot_insert_ok_o
 
 log = logging.getLogger("writeragent.scripting")
 
+_monaco_run_in_flight: set[str] = set()
+
+
+def _monaco_run_document_key(doc: Any) -> str:
+    """Document key for Monaco in-flight run tracking.
+
+    Uses get_runtime_uid(doc). Non-empty UID becomes 'uid:' + uid;
+    otherwise 'no-uid'.
+    """
+    uid = get_runtime_uid(doc)
+    if uid:
+        return "uid:" + uid
+    return "no-uid"
+
 
 def _html_insert_text(value: Any) -> str:
     """Escape a script result so it stays text after Writer/Calc HTML insert.
@@ -46,8 +63,11 @@ def _html_insert_text(value: Any) -> str:
 
 
 def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) -> str:
-    """Internal helper to convert a list (of dicts or lists) to an HTML table.
-    If *headers* is provided, they are used for the thead (for dataframe egress).
+    """Convert a list of dicts or lists to an HTML table.
+
+    With headers (dataframe egress), always emit <table>, including a
+    one-column series. Without headers, a flat list of scalars is
+    <br>-joined text; that is intentional.
     """
     if not data:
         return ""
@@ -75,14 +95,18 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
 
     # Handle list of dicts (e.g. pandas records) -- legacy path
     # Dict headers must come from the first-seen union of every dict row.
-    # Using only data[0].keys() dropped later keys, and mixed dict/non-dict
-    # rows crashed or formatted inconsistently.
+    # What was wrong: a non-string key was stored as str(k) and read back with
+    # row.get on that string, so {1: "a"} rendered a header 1 and a blank cell.
+    # How it happened: setdefault(str(k), None) dropped the original key, and
+    # test_format_list_of_dicts only used string keys.
+    # Why this change fixes it: the header string maps to the first-seen original
+    # key, and a row that only has a different object with the same str() is scanned.
     if any(isinstance(row, dict) for row in data):
-        seen_keys: dict[str, None] = {}
+        seen_keys: dict[str, Any] = {}
         for row in data:
             if isinstance(row, dict):
                 for k in row.keys():
-                    seen_keys.setdefault(str(k), None)
+                    seen_keys.setdefault(str(k), k)
         keys = list(seen_keys.keys())
         parts.append('<table border="1"><thead><tr>')
         for key in keys:
@@ -92,7 +116,15 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
             parts.append("<tr>")
             if isinstance(row, dict):
                 for key in keys:
-                    val = row.get(key, "")
+                    orig_key = seen_keys[key]
+                    if orig_key in row:
+                        val = row[orig_key]
+                    else:
+                        val = ""
+                        for candidate_k, candidate_v in row.items():
+                            if str(candidate_k) == key:
+                                val = candidate_v
+                                break
                     parts.append(f"<td>{_html_insert_text(val)}</td>")
             else:
                 parts.append(f"<td>{_html_insert_text(row)}</td>")
@@ -394,23 +426,6 @@ def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
             ctx, doc, helper=helper_name, params=params_dict, insert_into_document=False
         )
 
-        # Attach individual_results since _finish_rps_execution expects it for insert.
-        # run_and_insert_vision_for_selection returns `results` under the key `results` if len > 1,
-        # but to keep _finish_rps_execution working, we map them here.
-        if "results" in result and result["results"]:
-            result["individual_results"] = result.pop("results")
-        elif result.get("status") == "ok":
-            # For a single result, run_and_insert_vision_for_selection does not return a list.
-            # Wrap the entire result as an individual result so _finish_rps_execution can insert it.
-            # It also adds context with image_name so the egress logic can figure out the anchor.
-            image_names = result.get("image_names")
-            context_name = image_name or (image_names[0] if image_names else None) or result.get("image_name")
-            indiv_res = dict(result)
-            if context_name:
-                indiv_res["image_name"] = context_name
-                indiv_res["context"] = {"image_name": context_name}
-            result["individual_results"] = [indiv_res]
-
         return {"status": "ok", "vision_selection_result": result}
 
     return run_code_in_user_venv(
@@ -446,9 +461,8 @@ def _finish_vision_execution(prepared: dict[str, Any], response: dict[str, Any])
         return rps_error_outcome(str(result.get("message") or _("Vision helper failed.")), t0=t0)
 
     helper_name = prepared["helper_name"]
-    discovered_count = prepared.get("discovered_count", 0)
     formatted_time = format_elapsed_time(time.perf_counter() - t0)
-    count = int(result.get("images_processed") or discovered_count)
+    count = int(result.get("images_processed") or 0)
     if count > 1:
         status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(helper=helper_name, count=count, time=formatted_time)
     else:
@@ -539,11 +553,12 @@ def _finish_rps_execution(prepared: dict[str, Any], response: dict[str, Any]) ->
 
 
 def execute_and_insert_result(ctx: Any, doc: Any, code: str, *, data_range: str | None = None) -> dict[str, Any]:
-    """Run *code* in the user venv and insert the result into *doc* when possible.
+    """Run code in the user venv and insert the result into doc when possible.
 
-    Synchronous. The native dialog and Monaco Run must not call this on the
-    UNO event thread; both use
-    :func:`plugin.scripting.python_runner_ui.start_native_script_run`.
+    Synchronous entry used by tests. The extension UI does not call this.
+    The native dialog and Monaco Run both use
+    plugin.scripting.python_runner_ui.start_native_script_run, which keeps
+    the venv wait off the UNO event thread.
     """
     prepared = _prepare_rps_execution(ctx, doc, code, data_range=data_range)
     early = prepared.get("early_outcome")
@@ -601,14 +616,24 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
 
         initial_binding = calc_selection_to_a1(doc) or ""
     show_binding = is_calc(doc) and script_header_needs_data_binding(initial_code, doc=doc)
-    # One Monaco window. A second Run while the venv is still working would
-    # insert two results and the later frame would win the save token.
-    run_busy = {"on": False}
 
     def on_save(code: str, _save_as_plain: bool, data_binding: str | None = None, action: str = "run") -> dict[str, Any] | DeferredEditorResult:
-        # A second Run is refused before the library write. Save still persists
-        # while a run is in flight; only Run is one-at-a-time on this editor.
-        if action != "save" and run_busy["on"]:
+        # What was wrong: reopening Tools → Run Python Script while a Run was
+        # in flight started a second run, and both could insert.
+        # How it happened: run_busy lived in the _run_python_monaco closure.
+        # _register_load_session replaces existing.on_save for the same target
+        # (a clean buffer proceeds; Don't save proceeds; Save queues
+        # request_save, and the synchronous save path then activates the new
+        # callback). PythonWorkerManager._io_session releases _io_lock before
+        # execute returns, so _finish_rps_execution runs after the lock is
+        # free. A second background run can enter the venv during that insert,
+        # or wait up to _IO_LOCK_ACQUIRE_TIMEOUT_SEC (600s) if the first venv
+        # call is still inside the lock.
+        # Why this change fixes it: the in-flight set is keyed by document
+        # RuntimeUID and is shared by every on_save for that document,
+        # including a closure installed by a later menu open.
+        run_key = _monaco_run_document_key(doc)
+        if action != "save" and run_key in _monaco_run_in_flight:
             return {"type": "error", "message": _("A script is already running.")}
         # Save the edited code back to the currently selected script
         name_config_key = resolve_run_script_name_config_key(doc)
@@ -639,19 +664,19 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         # LibreOffice. The library write above stays on the UI thread. The
         # venv wait uses the same prepare/finish split as the native Run
         # button. The Monaco frame is delivered when that run finishes.
-        run_busy["on"] = True
+        _monaco_run_in_flight.add(run_key)
         snapshot = code
         binding = data_binding if isinstance(data_binding, str) else None
 
         def _start(deliver: Callable[[dict[str, Any]], None]) -> None:
             def _on_complete(outcome: dict[str, Any]) -> None:
-                run_busy["on"] = False
+                _monaco_run_in_flight.discard(run_key)
                 deliver(_monaco_editor_run_payload(outcome, run_ok_text))
 
             try:
                 start_native_script_run(ctx, doc, snapshot, data_range=binding, on_complete=_on_complete)
             except Exception:
-                run_busy["on"] = False
+                _monaco_run_in_flight.discard(run_key)
                 raise
 
         return DeferredEditorResult(_start)

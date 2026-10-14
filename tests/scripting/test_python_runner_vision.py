@@ -330,3 +330,73 @@ def test_prepare_rps_execution_vision_runs_before_calc_data():
     # Calc data resolution must not have run for vision scripts
     mock_calc_data.assert_not_called()
 
+
+def test_execute_and_insert_vision_inserts_each_individual_result():
+    ctx = MagicMock()
+    doc = MagicMock()
+    code = get_vision_script_templates()["extract_structure"]
+    mock_payload = {
+        "status": "ok",
+        "images_processed": 2,
+        "helper": "extract_structure",
+        "html": "",
+        "individual_results": [
+            {
+                "helper": "extract_structure",
+                "html": "<p>A</p>",
+                "image_name": "A",
+                "tables": [{"name": "t1"}],
+            },
+            {
+                "helper": "extract_structure",
+                "html": "<p>B</p>",
+                "image_name": "B",
+            },
+        ],
+    }
+
+    with (
+        patch("plugin.scripting.python_runner.is_writer", return_value=True),
+        patch("plugin.scripting.python_runner.is_calc", return_value=False),
+        patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", return_value=mock_payload),
+        patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
+    ):
+        outcome = execute_and_insert_result(ctx, doc, code)
+
+    assert outcome["ok"] is True
+    assert mock_insert.call_count == 2
+    first_call_dict = mock_insert.call_args_list[0].args[2]
+    second_call_dict = mock_insert.call_args_list[1].args[2]
+    assert first_call_dict["tables"] == [{"name": "t1"}]
+    assert first_call_dict["image_name"] == "A"
+    assert second_call_dict["image_name"] == "B"
+    assert "images_processed" not in first_call_dict
+    assert "images_processed" not in second_call_dict
+
+
+def test_execute_and_insert_vision_does_not_read_results_key():
+    ctx = MagicMock()
+    doc = MagicMock()
+    code = get_vision_script_templates()["extract_text"]
+    mock_payload = {
+        "status": "ok",
+        "images_processed": 2,
+        "helper": "extract_text",
+        "results": [{"html": "<p>1</p>"}, {"html": "<p>2</p>"}],
+    }
+
+    with (
+        patch("plugin.scripting.python_runner.is_writer", return_value=True),
+        patch("plugin.scripting.python_runner.is_calc", return_value=False),
+        patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True),
+        patch("plugin.vision.vision_runner.run_and_insert_vision_for_selection", return_value=mock_payload),
+        patch("plugin.vision.vision_egress.insert_vision_result") as mock_insert,
+    ):
+        outcome = execute_and_insert_result(ctx, doc, code)
+
+    mock_insert.assert_not_called()
+    assert outcome["ok"] is True
+    assert "2 images" in outcome["status_ok_text"]
+
+

@@ -315,7 +315,10 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         "image_names": image_names,
         "image_name": image_names[0] if image_names else None,
         "message": message,
-        "results": results if len(results) > 1 else None,
+        # This list is the per-image payloads for every success count, including
+        # one image; Run Python Script inserts it; the aggregate fields are
+        # the chat-tool summary; do not also emit results.
+        "individual_results": list(results),
     }
     if stopped_early:
         res_out["stopped"] = True

@@ -167,13 +167,12 @@ CPython `ThreadPoolExecutor` workers are **non-daemon** from 3.9 on and would bl
 | `plugin/chatbot/tool_loop.py` | `llm-worker-*`, `llm-worker-final` |
 | `plugin/chatbot/tool_loop_actions.py` | `tool-async-*`, `tool-sync-*` |
 | `plugin/framework/tool.py` `_execute_with_timeout` | `tool-timeout-*` (caller `join(timeout)`) |
-| `plugin/writer/locale/harper.py` | `harper-ensure-ready` (download + LSP start) |
-| `plugin/embeddings/search_ui.py`, `plugin/scripting/python_runner_ui.py`, `plugin/scripting/editor_host.py` | `warm-venv-worker` |
+| `plugin/embeddings/search_ui.py` | `warm-venv-worker` |
 | `plugin/embeddings/embeddings_indexer.py` | `corpus-index-*` |
 | `plugin/chatbot/web_research_cache.py` | `web-research-cache-embeddings`, `web-research-cache-embedding-row` |
 | `plugin/chatbot/extension_update_check.py` | `extension_update_check_*` |
 
-**Pooled** (default) — short fire-and-forget: `_update_menu_icons`, `notify_menu_update`, search-dialog query/rebuild, settings probes/fetches, `status-dialog-probe`.
+**Pooled** (default) — short fire-and-forget: `_update_menu_icons`, `notify_menu_update`, search-dialog query/rebuild, settings probes/fetches, `status-dialog-probe`, `warm-venv-worker` from `plugin/scripting/python_runner_ui.py` and `plugin/scripting/editor_host.py`.
 
 **Not on this pool:** Opengrep-excluded raw threads (`grammar_work_queue.py`, `venv_worker.py` IPC, `harper.py` stdout, CDP `browser_supervisor`). Local `ThreadPoolExecutor` in `web_research_deep.py` and jedi (`editor_main.py`) stay local.
 
