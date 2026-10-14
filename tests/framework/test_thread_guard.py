@@ -483,3 +483,84 @@ def test_proxy_bool():
         assert bool(prox) is True
         am.assert_called_with("UNO bool")
 
+
+class _PicklableTarget:
+    def hello(self) -> str:
+        return "pickled"
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _PicklableTarget)
+
+
+def test_proxy_copy():
+    import copy
+
+    class Target:
+        def hello(self):
+            return "world"
+
+    target = Target()
+    proxy = tg._UnoThreadGuardProxy(target)
+    c = copy.copy(proxy)
+    assert isinstance(c, tg._UnoThreadGuardProxy)
+    assert c._target is target
+    assert c.hello() == "world"
+
+
+def test_proxy_pickle():
+    import pickle
+
+    target = _PicklableTarget()
+    proxy = tg._UnoThreadGuardProxy(target)
+    dumped = pickle.dumps(proxy)
+    loaded = pickle.loads(dumped)
+    assert isinstance(loaded, tg._UnoThreadGuardProxy)
+    assert loaded._target == target
+    assert loaded.hello() == "pickled"
+
+
+def test_proxy_object_new_raises_attribute_error_not_recursion():
+    proxy = object.__new__(tg._UnoThreadGuardProxy)
+    with pytest.raises(AttributeError):
+        _ = proxy.hello
+
+
+def test_proxy_dir():
+    class Target:
+        def hello(self):
+            return "world"
+
+    target = Target()
+    proxy = tg._UnoThreadGuardProxy(target)
+    names = dir(proxy)
+    assert "hello" in names
+    assert "_target" not in names
+
+
+def test_proxy_dir_raises_off_thread(monkeypatch):
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("release stub proxy does not assert on dir")
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    real = _make_pyuno_like()
+    prox = tg._UnoThreadGuardProxy(real)
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+    errors: list[BaseException] = []
+
+    def _call() -> None:
+        try:
+            dir(prox)
+        except BaseException as exc:
+            errors.append(exc)
+
+    try:
+        worker = threading.Thread(target=_call, name="bg-dir")
+        worker.start()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert len(errors) == 1
+        assert isinstance(errors[0], RuntimeError) and "UNO thread violation" in str(errors[0])
+    finally:
+        tg.GUARD_ON = was
+

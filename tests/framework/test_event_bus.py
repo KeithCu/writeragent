@@ -431,3 +431,15 @@ def test_subscribe_weak_python_method_stays_weakmethod():
     assert is_weak is True
     assert isinstance(stored, weakref.WeakMethod)
 
+
+def test_emit_positional_only_payload_keys_event_and_self():
+    bus = EventBus()
+    received = {}
+
+    def handler(**data):
+        received.update(data)
+
+    bus.subscribe("x", handler)
+    bus.emit("x", event="payload", self="also")
+    assert received == {"event": "payload", "self": "also"}
+
