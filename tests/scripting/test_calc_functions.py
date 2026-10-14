@@ -1484,8 +1484,13 @@ def test_subtotal_rejects_unknown_fn_and_empty_samples():
     assert math.isnan(calc.subtotal(107, [4.0]))
     assert math.isclose(calc.subtotal(7, [1.0, 3.0]), math.sqrt(2))
     assert math.isnan(calc.subtotal(10, [4.0]))
-    assert math.isnan(calc.subtotal(10, []))
     assert calc.subtotal(10, [1.0, 3.0]) == 2.0
+    assert math.isnan(calc.subtotal(8, []))
+    assert math.isnan(calc.subtotal(11, []))
+    assert calc.subtotal(8, [4.0]) == 0.0
+    assert calc.subtotal(11, [4.0]) == 0.0
+    assert calc.subtotal(4, []) == 0.0
+    assert calc.subtotal(5, []) == 0.0
 
 def test_kurt_and_skew():
     data = [1.0, 2.0, 4.0, 7.0, 11.0, 16.0]

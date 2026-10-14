@@ -50,17 +50,50 @@ _DESCRIPTIVE_KEYS = frozenset({
     "syllables_per_token_mean", "syllables_per_token_median", "syllables_per_token_std",
 })
 
-_EXTRA_TD_GROUPS = ("dependency_distance", "pos_proportions", "coherence", "quality")
+_INSTALL_PACKAGES = ("spacy", "textdescriptives", "transformers", "torch", "scikit-learn")
 
 
-def _model_candidates(lang: str | None) -> list[str]:
+def _text_analytics_install_command(model: str) -> str:
+    return "uv pip install " + " ".join(_INSTALL_PACKAGES) + f" && python -m spacy download {model}"
+
+
+def _lang_prefix(lang: Any) -> str | None:
+    if not isinstance(lang, str):
+        return None
+    prefix = lang.lower().strip()[:2]
+    return prefix or None
+
+
+_SENTIMENT_PIPELINE: dict[str, Any] = {}
+
+
+def _sentiment_pipeline(model: str) -> Any:
+    """Load or retrieve the cached sentiment pipeline for *model*.
+
+    The worker is warm and handles one text call at a time; store only
+    the last successful pipeline; do not store failures.
+    """
+    # What was wrong: pipeline("sentiment-analysis", model=model) was called on every invocation, reloading heavy models.
+    # How it happened: there was no cache holding the pipeline across calls within the warm worker.
+    # Why this change: cache the last successfully loaded pipeline for that exact model string.
+    if model in _SENTIMENT_PIPELINE:
+        return _SENTIMENT_PIPELINE[model]
+    from transformers import pipeline
+
+    pipe = pipeline("sentiment-analysis", model=model)
+    _SENTIMENT_PIPELINE.clear()
+    _SENTIMENT_PIPELINE[model] = pipe
+    return pipe
+
+
+def _model_candidates(lang: Any) -> list[str]:
     # What was wrong: xx_sent_ud_sm was appended inside the lang block and again
     # in the multilingual list, so a known language tried it twice.
     # How it happened: both the per-language candidate builder and the general
     # fallback list independently appended xx_sent_ud_sm.
     # Why this change: xx_sent_ud_sm is tried once; xx_ent_wiki_sm stays last
     # because it is NER-only.
-    code = (lang or "").lower().strip()[:2] or None
+    code = _lang_prefix(lang)
     candidates: list[str] = []
     if code and code in _LANG_MODELS:
         candidates.extend(_LANG_MODELS[code])
@@ -157,8 +190,8 @@ def _sentence_count(doc: Any) -> int:
     return 0
 
 
-def _extract_readability(doc: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    """Return (readability_dict, descriptive_stats_dict, extra_dict) from textdescriptives (or basic fallback).
+def _extract_readability(doc: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return (readability_dict, descriptive_stats_dict) from textdescriptives (or basic fallback).
 
     textdescriptives >=2 returns a flat dict (after the components have run on the doc).
     We split it into the groups the rest of the code expects.
@@ -166,8 +199,8 @@ def _extract_readability(doc: Any) -> tuple[dict[str, Any], dict[str, Any], dict
     # What was wrong: the full-analysis copy of these sets had already dropped the n_* keys
     # and named the fallback n_sents, while readability used n_sentences.
     # How it happened: duplicate copies of key sets diverged across helpers.
-    # Why this change: share module-level _READABILITY_KEYS and _DESCRIPTIVE_KEYS, return
-    # extra textdescriptives groups as a third dict, and use n_sentences with _sentence_count.
+    # Why this change: share module-level _READABILITY_KEYS and _DESCRIPTIVE_KEYS, and use
+    # n_sentences with _sentence_count.
     try:
         import textdescriptives as td
 
@@ -176,11 +209,13 @@ def _extract_readability(doc: Any) -> tuple[dict[str, Any], dict[str, Any], dict
             m = m[0]
         rd = {k: v for k, v in m.items() if k in _READABILITY_KEYS}
         ds = {k: v for k, v in m.items() if k in _DESCRIPTIVE_KEYS or k.startswith("n_")}
-        extra = {k: m[k] for k in _EXTRA_TD_GROUPS if k in m}
-        return rd, ds, extra
+        # What was wrong: _extract_readability returned extra groups that were always empty in textdescriptives >= 2.0.
+        # How it happened: textdescriptives flattens metrics to top-level keys rather than nested group dicts.
+        # Why this change: return only (readability_dict, descriptive_stats_dict) without unused empty extra groups.
+        return rd, ds
     except Exception:
         # textdescriptives not available or failed to extract — fall back to basic spaCy stats.
-        return {}, {"n_tokens": len(doc), "n_sentences": _sentence_count(doc)}, {}
+        return {}, {"n_tokens": len(doc), "n_sentences": _sentence_count(doc)}
 
 
 def _extract_entities(doc: Any) -> list[dict[str, Any]]:
@@ -214,7 +249,7 @@ def _extract_key_phrases(doc: Any) -> list[dict[str, Any]]:
     return key_phrases[:25]
 
 
-def _extract_topics(text: str | list[str], n_topics: int = 4) -> dict[str, Any]:
+def _extract_topics(text: str | list[str], n_topics: Any = 4) -> dict[str, Any]:
     """Topic modeling via TF-IDF + NMF (from scikit-learn).
 
     Accepts either a single string (whole document) or list[str] of section texts.
@@ -259,9 +294,12 @@ def _extract_topics(text: str | list[str], n_topics: int = 4) -> dict[str, Any]:
     if not filtered:
         filtered = [(0, docs[0])]
 
-    n_topics = max(1, min(int(n_topics or 4), len(filtered), 8))
-
     try:
+        # What was wrong: non-numeric n_topics (e.g. "auto" or a list) raised ValueError or TypeError outside the fit try, crashing the analysis.
+        # How it happened: int(n_topics or 4) conversion happened before the try block that catches fit errors.
+        # Why this change: moving int conversion inside the fit try routes conversion failures through the topic_model_failed envelope.
+        n_topics = max(1, min(int(n_topics or 4), len(filtered), 8))
+
         # Multilingual-friendly: no hardcoded English stop_words (users can have mixed docs).
         # ngram up to 2 helps with short technical phrases.
         vectorizer = TfidfVectorizer(
@@ -376,7 +414,7 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
     (reusing the same section extraction as topics for "by section" analysis on Writer docs).
 
     Config override via text_analytics_sentiment_model (JSON setting) for future flexibility.
-    For now only "transformers" engine is supported.
+    Only the transformers engine is implemented.
     """
     params = params or {}
     if isinstance(text, (list, tuple)):
@@ -392,7 +430,7 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
     model = params.get("model") or "cardiffnlp/twitter-xlm-roberta-base-sentiment"
 
     try:
-        from transformers import pipeline
+        import transformers
     except Exception as exc:
         return {
             "overall": {"score": 0.0, "label": "neutral"},
@@ -403,9 +441,7 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
         }
 
     try:
-        # Let device fall back to default behavior.
-        # The model is loaded once per warm worker invocation.
-        clf = pipeline("sentiment-analysis", model=model)
+        clf = _sentiment_pipeline(model)
     except Exception as exc:
         return {
             "overall": {"score": 0.0, "label": "neutral"},
@@ -456,7 +492,11 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
             "label": overall_label,
         }
     else:
-        overall = per_section[0] if per_section else {"score": 0.0, "label": "neutral"}
+        # What was wrong: single-string sentiment included section_index in the overall dictionary.
+        # How it happened: overall was assigned per_section[0] directly, which contained section_index.
+        # Why this change: copy only score and label to overall so section_index is present only in per_section.
+        src = per_section[0] if per_section else {"score": 0.0, "label": "neutral"}
+        overall = {"score": src["score"], "label": src["label"]}
 
     res: dict[str, Any] = {"overall": overall}
     if is_multi:
@@ -483,10 +523,9 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
 
     result: dict[str, Any] = {}
 
-    rd, ds, extra = _extract_readability(doc)
+    rd, ds = _extract_readability(doc)
     result["readability"] = rd
     result["descriptive_stats"] = ds
-    result.update(extra)
 
     result["entities"] = _extract_entities(doc)
     result["key_phrases"] = _extract_key_phrases(doc)
@@ -513,7 +552,7 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
     return {"status": "ok", "result": result}
 
 
-def check_diagnostics(lang: str | None = None) -> dict[str, Any]:
+def check_diagnostics(lang: Any = None) -> dict[str, Any]:
     """Perform self-diagnostics of the packages needed by Text Analytics features.
 
     This runs *inside the worker* using whatever python the extension resolved
@@ -523,6 +562,7 @@ def check_diagnostics(lang: str | None = None) -> dict[str, Any]:
       - spaCy + models (for entities, key phrases, basic stats, language)
       - textdescriptives (for real Readability scores)
       - transformers + torch (for the Sentiment feature using a good multilingual model)
+      - scikit-learn (for topics)
 
     The output includes the python executable being used and the exact install command.
     """
@@ -530,14 +570,14 @@ def check_diagnostics(lang: str | None = None) -> dict[str, Any]:
     import sys
     python_exe = getattr(sys, "executable", "unknown")
 
-    lang = (lang or "").lower().strip()[:2] or None
+    # What was wrong: non-string lang raised AttributeError on .lower() before the try block, returning a raw worker crash instead of diagnostics.
+    # How it happened: check_diagnostics assumed lang was always a string or None.
+    # Why this change: _lang_prefix treats non-string lang as None.
+    lang = _lang_prefix(lang)
     recommended_model = _LANG_MODELS[lang][0] if lang and lang in _LANG_MODELS else "xx_sent_ud_sm"
 
     # Full command needed for everything the dialog supports.
-    text_analytics_install = (
-        "uv pip install spacy textdescriptives transformers torch && "
-        f"python -m spacy download {recommended_model}"
-    )
+    text_analytics_install = _text_analytics_install_command(recommended_model)
 
     try:
         import spacy
@@ -578,6 +618,16 @@ def check_diagnostics(lang: str | None = None) -> dict[str, Any]:
         except ImportError:
             pass
 
+        # scikit-learn (for topics)
+        has_sklearn = False
+        sklearn_version = None
+        try:
+            import sklearn
+            has_sklearn = True
+            sklearn_version = getattr(sklearn, "__version__", "unknown")
+        except ImportError:
+            pass
+
         return {
             "status": "ok",
             "python_used_by_worker": python_exe,
@@ -588,6 +638,8 @@ def check_diagnostics(lang: str | None = None) -> dict[str, Any]:
             "transformers_version": transformers_version,
             "has_torch": has_torch,
             "torch_version": torch_version,
+            "has_sklearn": has_sklearn,
+            "sklearn_version": sklearn_version,
             "text_analytics_install": text_analytics_install,
         }
     except Exception as e:
@@ -641,7 +693,7 @@ def run_text_analytics(
     # skipping the unneeded NER / noun-chunk / textdescriptives work.
     if helper in ("readability", "stats", "descriptive"):
         nlp, doc, resolved_lang = _run_nlp_doc(str(text), lang, context)
-        rd, ds, _extra = _extract_readability(doc)
+        rd, ds = _extract_readability(doc)
         return {
             "status": "ok",
             "result": {

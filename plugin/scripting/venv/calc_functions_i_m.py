@@ -10,9 +10,9 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 from __future__ import annotations
 
 import cmath
-import datetime as dt
 import math
 import statistics
+import sys
 from collections import Counter
 from typing import Any, Callable
 
@@ -26,6 +26,7 @@ from .calc_functions_util import (
     _is_calc_error,
     _npf_result,
     _parse_complex,
+    _serial_to_date,
     _to_complex,
     match_criteria,
 )
@@ -378,7 +379,12 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
     yf = yearfrac(s, m, b)
     if yf == 0 or math.isnan(yf):
         return float("nan")
-    return (red - inv) / inv / yf
+    # What was wrong: INTRATE with an infinite redemption returned inf.
+    # How it happened: the quotient is outside the conversion try, and float
+    # division does not raise. getIntrate returns finiteOrThrow.
+    # Why this change fixes it: a non-finite quotient is NaN.
+    res = (red - inv) / inv / yf
+    return res if math.isfinite(res) else float("nan")
 
 
 def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
@@ -498,7 +504,12 @@ def isformula(val: Any) -> bool:
 
 
 def islogical(val: Any) -> bool:
-    return isinstance(val, bool)
+    # What was wrong: islogical(np.bool_(True)) was False.
+    # How it happened: np.bool_ is not a subclass of bool, and this was the
+    # only logical check that tested bool alone. _is_number excludes both,
+    # and n() maps both to 1.0 / 0.0.
+    # Why this change fixes it: a NumPy logical is logical, matching ISLOGICAL.
+    return isinstance(val, (bool, np.bool_))
 
 
 def isna(val: Any) -> bool:
@@ -527,11 +538,12 @@ def isodd(val: Any) -> bool:
 
 
 def isoweeknum(serial: Any) -> float:
-    try:
-        d = dt.date.fromordinal(int(float(serial)) + 693594)
-        return float(d.isocalendar()[1])
-    except Exception:
+    # Same ordinal as every other serial helper. The inline fromordinal
+    # retyped 693594 and used except Exception.
+    d = _serial_to_date(serial)
+    if d is None:
         return float("nan")
+    return float(d.isocalendar()[1])
 
 
 def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
@@ -1020,14 +1032,41 @@ def multinomial(*args: Any) -> float:
                 vals.append(int(float(value)))
         if any(value < 0 for value in vals):
             return float("nan")
-        # math.factorial(sum) builds one huge integer. The product of
-        # combinations is the same multinomial and stays smaller.
+        # What was wrong: multinomial(1e9, 1e9) did not return. It burned CPU
+        # and memory until the script timeout.
+        # How it happened: math.comb(sum, k) builds a Python int. comb(2e9, 1e9)
+        # is hundreds of millions of bits. The switch off math.factorial(sum)
+        # only made each factor smaller; it did not bound the factor.
+        # getMultinomial (analysis.cxx) multiplies BinomialCoefficient in
+        # double and returns finiteOrThrow. A non-finite result is #NUM!,
+        # which this module reports as NaN.
+        # Why this change fixes it: log-gamma rejects a coefficient that
+        # cannot fit in a float before math.comb runs, and the running
+        # product stops at the same float limit. k < 2 skips log-gamma:
+        # lgamma(1e308) raises OverflowError even when C(n, n) is 1 and
+        # C(n, 1) is n.
         acc = 1
         rest = sum(vals)
+        limit = math.log(sys.float_info.max)
         for value in vals:
+            k = min(value, rest - value)
+            if k >= 2:
+                try:
+                    ln = (
+                        math.lgamma(rest + 1)
+                        - math.lgamma(k + 1)
+                        - math.lgamma(rest - k + 1)
+                    )
+                except OverflowError:
+                    return float("nan")
+                if not math.isfinite(ln) or ln > limit:
+                    return float("nan")
             acc *= math.comb(rest, value)
+            if acc.bit_length() > 1024:
+                return float("nan")
             rest -= value
-        return float(acc)
+        result = float(acc)
+        return result if math.isfinite(result) else float("nan")
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
@@ -1052,7 +1091,16 @@ def munit(dimension: Any) -> Any:
 def n(val: Any) -> float:
     # N() of any text is 0, including a numeric-looking string such as "5".
     if _is_number(val):
-        return float(val)
+        # What was wrong: n(10**400) raised OverflowError out of the helper.
+        # How it happened: float() of a Python int outside the float range
+        # raises, and this return was not in a try. ispmt and mirr already
+        # catch that and return NaN. A Calc cell is a double and cannot
+        # reach this path.
+        # Why this change fixes it: the overflow is NaN (#NUM!), not a traceback.
+        try:
+            return float(val)
+        except OverflowError:
+            return float("nan")
     if isinstance(val, (bool, np.bool_)):
         return 1.0 if val else 0.0
     return 0.0

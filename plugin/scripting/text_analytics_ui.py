@@ -22,11 +22,12 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
     from com.sun.star.lang import EventObject
 
-from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, set_control_enabled
+from plugin.chatbot.dialogs import get_checkbox_state, load_writeragent_dialog, msgbox, set_control_enabled
 from plugin.doc.doc_type import is_writer
+from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.i18n import _
-from plugin.framework.queue_executor import post_to_main_thread
-from plugin.framework.uno_context import get_active_document
+from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
+from plugin.framework.uno_context import get_active_document, get_runtime_uid
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.client import run_text_analytics
 from plugin.scripting.text_analytics import (
@@ -38,13 +39,13 @@ from plugin.scripting.text_analytics import (
 
 log = logging.getLogger(__name__)
 
-_COMPUTE_BUTTONS: tuple[tuple[str, str, str], ...] = (
-    ("BtnRead", "readability", "checkbox"),
-    ("BtnEntities", "entities", "checkbox"),
-    ("BtnPhrases", "key_phrases", "checkbox"),
-    ("BtnTopics", "topics", "checkbox"),
-    ("BtnSentiment", "sentiment", "checkbox"),
-    ("BtnCheck", "diagnostics", "none"),
+_COMPUTE_BUTTONS: tuple[tuple[str, str, bool], ...] = (
+    ("BtnRead", "readability", True),
+    ("BtnEntities", "entities", True),
+    ("BtnPhrases", "key_phrases", True),
+    ("BtnTopics", "topics", True),
+    ("BtnSentiment", "sentiment", True),
+    ("BtnCheck", "diagnostics", False),
 )
 
 _BUSY_CONTROL_IDS: tuple[str, ...] = (
@@ -57,6 +58,13 @@ _BUSY_CONTROL_IDS: tuple[str, ...] = (
     "BtnInsert",
 )
 
+_MISSING_IMPORT_MARKERS = ("No module named", "ModuleNotFoundError", "ImportError")
+
+
+def _exception_suggests_missing_package(error: BaseException) -> bool:
+    text = str(error)
+    return any(marker in text for marker in _MISSING_IMPORT_MARKERS)
+
 
 class TextAnalyticsDialog:
     """Tiny floating modeless tool with a few direct high-quality buttons.
@@ -67,21 +75,26 @@ class TextAnalyticsDialog:
       - Key Phrases                 → noun chunks
       - Topics                      → NMF topic model (uses sections for structure)
       - Sentiment                   → multilingual transformers sentiment by section (whole doc)
-      - Check Venv                  → reports status of spacy, textdescriptives, transformers (for new features)
+      - Check Venv                  → reports status of spacy, textdescriptives, transformers, torch, scikit-learn
       - Insert report here          → appends a clean table after the caret/selection
     """
 
     _ctx: Any
     _closed: bool
     _busy: bool
+    _dlg: Any | None
+    _top_listener: Any | None
+    _last_result: dict[str, Any] | None
+    _source_uid: str | None
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
-        self._dlg: Any | None = None
+        self._dlg = None
         self._closed = False
         self._busy = False
-        self._top_listener: Any | None = None
-        self._last_result: dict[str, Any] | None = None
+        self._top_listener = None
+        self._last_result = None
+        self._source_uid = None
         self._open()
 
     @classmethod
@@ -169,20 +182,16 @@ class TextAnalyticsDialog:
             def disposing(self, Source: EventObject) -> None:
                 pass
 
-        for btn_id, helper, scope_mode in _COMPUTE_BUTTONS:
+        for btn_id, helper, uses_scope in _COMPUTE_BUTTONS:
             ctrl = dlg.getControl(btn_id)
             if ctrl is not None:
                 h_name = helper
-                if scope_mode == "checkbox":
-                    def _cb_chk(d: Any, h: str = h_name) -> None:
-                        owner._compute(d, h, owner._scope_from_dialog(d))
 
-                    ctrl.addActionListener(_Btn(_cb_chk))
-                else:
-                    def _cb_whole(d: Any, h: str = h_name) -> None:
-                        owner._compute(d, h, "whole")
+                def _cb(d: Any, h: str = h_name, scoped: bool = uses_scope) -> None:
+                    scope = owner._scope_from_dialog(d) if scoped else "whole"
+                    owner._compute(d, h, scope)
 
-                    ctrl.addActionListener(_Btn(_cb_whole))
+                ctrl.addActionListener(_Btn(_cb))
 
         btn_insert = dlg.getControl("BtnInsert")
         if btn_insert is not None:
@@ -196,7 +205,10 @@ class TextAnalyticsDialog:
             chk = dlg.getControl("ChkScope")
             if chk is None:
                 return "whole"
-            return "whole" if getattr(chk, "State", 0) == 1 else "selection"
+            # getattr(chk, "State", 0) only saw a forwarded model attribute, and a missing attribute was unchecked.
+            # get_checkbox_state uses getState() then model.State, which is what the other dialogs use.
+            # getControl failure still means whole document.
+            return "whole" if get_checkbox_state(chk) == 1 else "selection"
         except Exception:
             log.debug("text analytics: scope checkbox failed", exc_info=True)
             return "whole"
@@ -210,7 +222,8 @@ class TextAnalyticsDialog:
                 ctrl = self._dlg.getControl(cid)
             except Exception:
                 log.debug("text analytics: set busy control %s failed", cid, exc_info=True)
-                return
+                # return stopped the loop at the first getControl failure, so a later re-enable left every control after that id disabled. One missing or throwing id must not freeze the others.
+                continue
             if ctrl is not None:
                 set_control_enabled(ctrl, not busy)
 
@@ -228,21 +241,25 @@ class TextAnalyticsDialog:
         # How it happened: _last_result was only overwritten on success and never reset at compute start.
         # Why this change: clear _last_result before validation and background execution.
         self._last_result = None
+        self._source_uid = None
 
         ctx = self._ctx
+        doc = get_active_document(ctx)
 
         if helper in ("diagnostics", "check"):
             text: str | list[str] | None = None
-            doc = get_active_document(ctx)
             doc_lang = get_doc_language(doc) if doc else None
             context: dict[str, Any] | None = {"lang": doc_lang} if doc_lang else None
         else:
-            doc = get_active_document(ctx)
             if not doc or not is_writer(doc):
                 res_ctrl.getModel().Text = _("Open a Writer document to analyze.")
                 return
 
-            raw, context = resolve_text_analytics_document_inputs(doc, helper, scope=scope)
+            try:
+                raw, context = resolve_text_analytics_document_inputs(doc, helper, scope=scope)
+            except DocumentDisposedError:
+                res_ctrl.getModel().Text = _("The document was closed.")
+                return
 
             if scope == "selection" and (not raw or (isinstance(raw, str) and not raw.strip())):
                 res_ctrl.getModel().Text = _("Nothing is selected.")
@@ -257,6 +274,7 @@ class TextAnalyticsDialog:
                 return
 
             text = raw
+            self._source_uid = get_runtime_uid(doc) or None
 
         if helper in ("diagnostics", "check"):
             res_ctrl.getModel().Text = _("Checking spaCy / textdescriptives / transformers installation...")
@@ -286,19 +304,35 @@ class TextAnalyticsDialog:
                 log.exception("Text analytics worker call failed")
                 err = e
 
-            def _post(r: dict[str, Any] | None = res, ex: Exception | None = err) -> None:
-                owner._apply_compute_result(helper, r, ex)
-
-            try:
-                post_to_main_thread(_post)
-            except Exception:
-                log.exception("Failed to post text analytics compute result to main thread")
+            owner._deliver_compute_result(helper, res, err)
 
         try:
             run_in_background(_worker, name="text-analytics-dialog", dedicated=True)
         except Exception as e:
             log.exception("Failed to schedule text analytics background worker")
             self._apply_compute_result(helper, None, e)
+
+    def _deliver_compute_result(
+        self,
+        helper: str,
+        result: dict[str, Any] | None,
+        error: Exception | None,
+    ) -> None:
+        def _post() -> None:
+            self._apply_compute_result(helper, result, error)
+
+        # a raised post_to_main_thread used to return after a log, so _busy stayed true and the compute buttons stayed disabled until the dialog was closed. post raises TimeoutError when AsyncCallback is missing and the pending list is full, and _flush_pending_posts can raise before this closure is queued. execute_on_main_thread is the retry that still runs _apply_compute_result on a live main thread. The flag clear is only for when that marshal also refuses, and it does not touch UNO.
+        try:
+            post_to_main_thread(_post)
+            return
+        except Exception:
+            log.exception("Failed to post text analytics compute result to main thread")
+
+        try:
+            execute_on_main_thread(_post, timeout=5.0)
+        except Exception:
+            log.exception("text analytics: could not deliver result on the main thread")
+            self._busy = False
 
     def _apply_compute_result(
         self,
@@ -317,14 +351,19 @@ class TextAnalyticsDialog:
 
         if error is not None:
             self._last_result = None
+            self._source_uid = None
             if helper in ("diagnostics", "check"):
                 text = _("Error from the Text Analytics worker:\n{err}").format(err=str(error))
             else:
-                text = _(
-                    "Error: %s\n\nRequired packages may be missing in your configured venv (Settings → Python). "
-                    "Click Check Venv in this dialog or use the full Test in Settings → Python for details on "
-                    "spacy, textdescriptives, transformers, torch etc."
-                ) % error
+                # every non-diagnostics exception, including Python worker failed: timed out after …, used this package paragraph. The paragraph stays for messages that are failed imports. Other failures show only Error: plus the exception text.
+                if _exception_suggests_missing_package(error):
+                    text = _(
+                        "Error: %s\n\nRequired packages may be missing in your configured venv (Settings → Python). "
+                        "Click Check Venv in this dialog or use the full Test in Settings → Python for details on "
+                        "spacy, textdescriptives, transformers, torch etc."
+                    ) % error
+                else:
+                    text = _("Error: %s") % error
             try:
                 res_ctrl.getModel().Text = text
             except Exception:
@@ -339,6 +378,7 @@ class TextAnalyticsDialog:
             self._last_result = result
         else:
             self._last_result = None
+            self._source_uid = None
 
         try:
             display_text = format_text_analytics_result_for_display(helper, result)
@@ -362,6 +402,13 @@ class TextAnalyticsDialog:
 
         if not self._last_result:
             msgbox(ctx, _("Text Analytics"), _("Run an analysis first."))
+            return
+
+        source = self._source_uid or ""
+        active = get_runtime_uid(doc) or ""
+        # Insert used whatever document was active at click time, so a report computed from document A was written into document B. The uid is taken on the UI thread before the worker starts. Both ids must be present before a mismatch refuses; a missing id keeps the previous insert.
+        if source and active and source != active:
+            msgbox(ctx, _("Text Analytics"), _("Switch back to the document that was analyzed, or run the analysis again."))
             return
 
         try:

@@ -119,11 +119,19 @@ def test_check_diagnostics():
         pytest.skip("spacy package not installed in test environment")
 
     assert out["status"] in ("ok", "error")
+    assert "scikit-learn" in out["text_analytics_install"]
     if out["status"] == "ok":
         assert "spacy_version" in out
         assert "has_textdescriptives" in out
         assert "models" in out
         assert isinstance(out["models"], list)
+        assert isinstance(out["has_sklearn"], bool)
+        assert "sklearn_version" in out
+
+
+def test_check_diagnostics_non_string_lang_returns_dict():
+    out = vta.check_diagnostics(lang=123)
+    assert isinstance(out, dict)
 
 
 def test_run_text_analytics_diagnostics_dispatch():
@@ -265,6 +273,7 @@ def test_model_candidates_try_sent_once_and_ent_last():
 
     none_cands = vta._model_candidates(None)
     assert none_cands == ["xx_sent_ud_sm", "xx_ent_wiki_sm"]
+    assert vta._model_candidates(123) == ["xx_sent_ud_sm", "xx_ent_wiki_sm"]
 
     ja_cands = vta._model_candidates("ja")
     assert ja_cands[0] == "ja_core_news_sm"
@@ -307,6 +316,7 @@ def test_normalize_sentiment_label():
 
 
 def test_extract_sentiment_label_n_and_neutral_score(monkeypatch):
+    vta._SENTIMENT_PIPELINE.clear()
     import types
     fake_transformers = types.ModuleType("transformers")
     recorded: dict[str, Any] = {}
@@ -337,6 +347,42 @@ def test_extract_sentiment_label_n_and_neutral_score(monkeypatch):
     assert res["per_section"][1]["score"] == 0.0
     assert res["sentiment"]["score"] == 0.4
     assert res["sentiment"]["label"] == "positive"
+    assert set(res["sentiment"]) == {"score", "label"}
+
+
+def test_sentiment_pipeline_is_cached_and_single_string_has_no_section_index(monkeypatch):
+    import types
+    vta._SENTIMENT_PIPELINE.clear()
+    fake_transformers = types.ModuleType("transformers")
+    init_count = 0
+
+    class FakePipeline:
+        def __init__(self, task, model=None):
+            nonlocal init_count
+            init_count += 1
+            self.model = types.SimpleNamespace(config=types.SimpleNamespace(num_labels=2))
+
+        def __call__(self, text):
+            return [{"label": "LABEL_1", "score": 0.9}]
+
+    fake_transformers.pipeline = FakePipeline  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    # Two calls with the same model string construct the pipeline once
+    vta._extract_sentiment(["hello world"], params={"model": "model-a"})
+    assert init_count == 1
+    vta._extract_sentiment(["hello again"], params={"model": "model-a"})
+    assert init_count == 1
+
+    # Third call with that model and a single string still has constructor count 1,
+    # and overall keys are exactly score and label
+    res3 = vta._extract_sentiment("single string text", params={"model": "model-a"})
+    assert init_count == 1
+    assert set(res3["overall"]) == {"score", "label"}
+
+    # Fourth call with a different model string has constructor count 2
+    vta._extract_sentiment(["new model test"], params={"model": "model-b"})
+    assert init_count == 2
 
 
 def test_sentence_count_and_key_phrases_without_parser():
@@ -470,6 +516,23 @@ def test_topic_model_failure_is_visible(monkeypatch):
     assert res["status"] == "ok"
     err = res.get("result", {}).get("error", "")
     assert "topic_model_failed" in err and "boom" in err
+
+
+def test_topics_non_numeric_n_topics_is_topic_model_failed():
+    try:
+        import sklearn.decomposition  # noqa: F401
+    except ImportError:
+        pytest.skip("scikit-learn not available")
+
+    text = "one two three four five six seven eight nine ten"
+    res1 = vta._extract_topics(text, n_topics="auto")
+    assert res1["topics"] == []
+    assert res1.get("error", "").startswith("topic_model_failed:")
+
+    res2 = vta._extract_topics(text, n_topics=["no"])
+    assert res2["topics"] == []
+    assert res2.get("error", "").startswith("topic_model_failed:")
+
 
 
 def test_get_writer_sections_emits_heading_once(monkeypatch):
@@ -716,17 +779,47 @@ def test_format_diagnostics_inner_error_still_shows_install():
     assert "uv pip install spacy" in out
 
 
+def test_format_diagnostics_reports_sklearn():
+    data_installed = {
+        "status": "ok",
+        "result": {
+            "has_sklearn": True,
+            "sklearn_version": "1.2.3",
+            "has_transformers": False,
+            "has_torch": False,
+        },
+    }
+    out_installed = ta.format_text_analytics_result_for_display("diagnostics", data_installed)
+    assert "scikit-learn: Installed" in out_installed
+    assert "scikit-learn version: 1.2.3" in out_installed
+
+    data_missing = {
+        "status": "ok",
+        "result": {
+            "has_sklearn": False,
+            "has_transformers": False,
+            "has_torch": False,
+        },
+    }
+    out_missing = ta.format_text_analytics_result_for_display("diagnostics", data_missing)
+    assert "scikit-learn: Missing" in out_missing
+    assert "scikit-learn version" not in out_missing
+
+
 def test_format_readability_bool_is_not_int():
     data = {
         "status": "ok",
         "result": {
             "readability": {"flag": True, "score": 1.5},
+            "descriptive_stats": {"flag": False, "n_tokens": 3},
         },
     }
     out = ta.format_text_analytics_result_for_display("readability", data)
     assert "flag: True" in out
     assert "score: 1.50" in out
     assert "flag: 1" not in out
+    assert "flag: False" in out
+    assert "n_tokens: 3" in out
 
 
 def test_format_non_dict_is_no_result():
@@ -840,4 +933,98 @@ def test_selection_extraction_failure_is_empty_and_logged(caplog, monkeypatch):
         text, _ = ta.resolve_text_analytics_document_inputs(FakeDoc(), "readability", scope="selection")
     assert text == ""
     assert "selection text failed" in caplog.text
+
+
+def test_html_table_ignores_overall_key():
+    assert ta._result_to_html_table({"overall": {"score": 0.4, "label": "positive"}}) == ""
+    assert "positive" in ta._result_to_html_table({"sentiment": {"score": 0.4, "label": "positive"}})
+
+
+def test_insert_empty_ok_result_does_not_dump_envelope(monkeypatch):
+    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    captured_html = []
+
+    def fake_insert(doc, ctx, html, pos):
+        captured_html.append(html)
+
+    monkeypatch.setattr("plugin.writer.format.insert_content_at_position", fake_insert)
+
+    class FakeDoc:
+        def getCurrentController(self):
+            raise RuntimeError("no controller")
+
+    doc = FakeDoc()
+    ret = ta.insert_text_analytics_result_into_doc(None, doc, {"status": "ok", "result": {}, "note": "empty text"})
+    assert ret == 1
+    assert len(captured_html) == 1
+    html = captured_html[0]
+    assert "{}" in html
+    assert "status" not in html
+    assert "empty text" not in html
+
+
+def test_writer_text_reraises_disposal_and_skips_getstring(monkeypatch):
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+
+    class DisposedDoc:
+        def getText(self):
+            raise DisposedException("closed")
+
+    with pytest.raises(DocumentDisposedError):
+        ta._get_writer_text(DisposedDoc())
+
+    get_text_calls = 0
+
+    class RuntimeDoc:
+        def getText(self):
+            nonlocal get_text_calls
+            get_text_calls += 1
+            raise RuntimeError("other error")
+
+    assert ta._get_writer_text(RuntimeDoc()) == ""
+    assert get_text_calls == 1
+
+    class DisposedSelectionDoc:
+        def getCurrentController(self):
+            class Controller:
+                def getSelection(self):
+                    raise DisposedException("closed")
+
+            return Controller()
+
+    with pytest.raises(DocumentDisposedError):
+        ta._get_writer_selection_text(DisposedSelectionDoc())
+
+    class RuntimeSelectionDoc:
+        def getCurrentController(self):
+            class Controller:
+                def getSelection(self):
+                    raise RuntimeError("other error")
+
+            return Controller()
+
+    assert ta._get_writer_selection_text(RuntimeSelectionDoc()) == ""
+
+    class DummyDoc:
+        pass
+
+    def raise_disposed(d):
+        raise DisposedException("closed")
+
+    monkeypatch.setattr("plugin.doc.text_helpers.build_heading_tree", raise_disposed)
+    with pytest.raises(DocumentDisposedError):
+        ta._get_writer_sections(DummyDoc())
+
+    def raise_runtime(d):
+        raise RuntimeError("heading tree error")
+
+    monkeypatch.setattr("plugin.doc.text_helpers.build_heading_tree", raise_runtime)
+    monkeypatch.setattr("plugin.scripting.text_analytics._get_writer_text", lambda d: "fallback text long enough")
+    assert ta._get_writer_sections(DummyDoc()) == ["fallback text long enough"]
+
 

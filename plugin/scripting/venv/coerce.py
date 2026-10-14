@@ -429,7 +429,7 @@ def resolve_df(
     # DataFrame duck-type. Do not send it through grid_to_dataframe: that would
     # treat column names as a header row. CalcRange is unwrapped by
     # _normalize_input_grid inside coerce_to_dataframe.
-    if type(data).__name__ == "CalcRange":
+    if isinstance(data, CalcRange):
         hint = sheet_hint or getattr(data, "address", None)
         return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=hint)
     if hasattr(data, "columns") and hasattr(data, "index"):

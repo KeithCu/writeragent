@@ -28,6 +28,8 @@ def test_effect_non_positive_nominal_is_num_error():
     assert math.isnan(calc.effect(0, 4))
     assert math.isnan(calc.effect(-0.1, 4))
     assert math.isclose(calc.effect(0.0525, 4), 0.05354266737075819, rel_tol=1e-9)
+    assert math.isnan(calc.effect(1e6, 1e6))
+    assert math.isnan(calc.effect(float("inf"), 2))
 
 
 def test_dollarde_dollarfr_match_excel_calc_scale():
@@ -84,6 +86,7 @@ def test_disc_zero_redemption_is_nan():
     assert math.isnan(calc.disc(44000, 45000, -1, 100))
     assert math.isnan(calc.disc(44000, 45000, 95, -100))
     assert math.isclose(calc.disc(44000, 45000, 95, 100), 0.018237082066869303)
+    assert math.isnan(calc.disc(43831, 43983, float("inf"), 100))
 
 
 def test_dollar_and_fixed_negative_decimals_round_left():
@@ -95,6 +98,10 @@ def test_dollar_and_fixed_negative_decimals_round_left():
     assert calc.fixed(-12345.6, -1) == "-12,350"
     assert calc.fixed(1234.567) == "1,234.57"
     assert calc.fixed(1234.567, 1, True) == "1234.6"
+    assert calc.fixed(0.5, 40) == "0." + "5" + "0" * 39
+    assert calc.dollar(1.5, 40) == "$1." + "5" + "0" * 39
+    assert math.isnan(calc.fixed(0.5, 10**20))
+    assert math.isnan(calc.dollar(1.5, 10**20))
 
 
 def test_duration_zero_yield_is_the_closed_form_limit():
@@ -105,6 +112,11 @@ def test_duration_zero_yield_is_the_closed_form_limit():
     assert math.isclose(calc.duration(start, end, 0, 0, 2, 0), 5.0, rel_tol=1e-12)
     assert math.isclose(calc.duration(start, end, 0.08, 0, 2, 0), 30.5 / 7.0, rel_tol=1e-12)
     assert math.isfinite(calc.duration(start, end, 0.08, 0.09, 2, 0))
+
+
+def test_duration_huge_yield_is_nan():
+    start, end = _serial(2018, 1, 1), _serial(2023, 1, 1)
+    assert math.isnan(calc.duration(start, end, 0.08, 1e308, 2, 0))
 
 
 def test_growth_rejects_non_positive_known_y():

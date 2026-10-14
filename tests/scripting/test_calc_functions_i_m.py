@@ -13,6 +13,7 @@ finite number or a boolean is the accepted result for that input.
 
 from __future__ import annotations
 
+import datetime as dt
 import math
 
 import numpy as np
@@ -177,6 +178,7 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("intrate-blank", "intrate", (None, _DATE[1], 100, 105), _NAN),
     ("intrate-zero-investment", "intrate", (_DATE[0], _DATE[1], 0, 105), _NAN),
     ("intrate-basis-inf", "intrate", (_DATE[0], _DATE[1], 100, 105, _INF), _NAN),
+    ("intrate-inf-redemption", "intrate", (_DATE[0], _DATE[1], 100, _INF), _NAN),
     ("ipmt-text", "ipmt", ("text", 1, 3, 8000), _NAN),
     ("ipmt-blank", "ipmt", (None, 1, 3, 8000), _NAN),
     ("ipmt-zero-per", "ipmt", (0.1, 0, 3, 8000), _NAN),
@@ -379,6 +381,7 @@ def test_n_text_returns_zero():
     assert calc.n(False) == 0.0
     assert calc.n(np.int64(42)) == 42.0
     assert calc.n(np.float64(3.5)) == 3.5
+    assert math.isnan(calc.n(10**400))
 
 
 def test_error_predicates_i_m():
@@ -405,6 +408,11 @@ def test_error_predicates_i_m():
     assert calc.isnumber(np.float64(3.14)) is True
     assert calc.isnumber(True) is False
     assert calc.isnumber(np.bool_(True)) is False
+    assert calc.islogical(True) is True
+    assert calc.islogical(False) is True
+    assert calc.islogical(np.bool_(True)) is True
+    assert calc.islogical(np.bool_(False)) is True
+    assert calc.islogical(1) is False
     assert calc.isnumber(10) is True
 
     # iferror on token strings and NaN
@@ -584,6 +592,19 @@ def test_munit_zero_and_cap():
     assert calc.munit(2.9) == [[1.0, 0.0], [0.0, 1.0]]
 
 
+def test_multinomial_bounds_float_range():
+    # comb(2e9, 1e9) must not run. A sum cap would reject the finite cases below.
+    assert math.isnan(calc.multinomial(1e9, 1e9))
+    assert calc.multinomial(1e6, 1) == 1000001.0
+    assert calc.multinomial(1e308) == 1.0
+    assert calc.multinomial(1e308, 1) == 1e308
+    assert calc.multinomial(2, 3, 4) == 1260.0
+    assert math.isfinite(calc.multinomial(500, 500))
+    assert math.isnan(calc.multinomial(600, 600))
+    # Each C(600, 100), C(500, 100), ... fits; the product does not.
+    assert math.isnan(calc.multinomial(*([100] * 6)))
+
+
 def test_ispmt_and_mirr_huge_int_is_nan():
     huge = 10**10000
     assert math.isnan(calc.ispmt(huge, 1, 12, 100))
@@ -596,4 +617,10 @@ def test_iseven_bool_is_numeric_and_mround_half_ulp():
     assert calc.isodd(True) is True
     # floor(q + 0.5) is 1 here, and getMround's approxValue path is also 1.
     assert calc.mround(math.nextafter(0.5, 0.0), 1) == 1.0
+
+
+def test_isoweeknum_date_matches_serial():
+    day = dt.date(2023, 1, 1)
+    assert calc.isoweeknum(day) == calc.isoweeknum(day.toordinal() - 693594)
+
 

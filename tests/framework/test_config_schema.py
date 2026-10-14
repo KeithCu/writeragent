@@ -351,3 +351,12 @@ def test_set_endpoint_normalizer() -> None:
         assert _normalize_configured_endpoint("localhost", False) == "mock_localhost_False"
     finally:
         set_endpoint_normalizer(previous)
+
+
+def test_text_analytics_sentiment_engine_is_not_a_config_field() -> None:
+    import dataclasses
+
+    field_names = {f.name for f in dataclasses.fields(WriterAgentConfig)}
+    assert "text_analytics_sentiment_engine" not in field_names
+    assert "text_analytics_sentiment_model" in field_names
+

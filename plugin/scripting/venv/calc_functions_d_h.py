@@ -209,7 +209,7 @@ def datevalue(text: Any) -> float:
     for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%b-%Y"):
         try:
             parsed = dt.datetime.strptime(s, fmt)
-            return float(parsed.toordinal() - 693594)
+            return _date_to_serial(parsed)
         except ValueError:
             continue
     return float("nan")
@@ -404,7 +404,7 @@ def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 
         if not math.isfinite(result):
             return float("nan")
         return float(result)
-    except (ValueError, TypeError, OverflowError):
+    except Exception:
         return float("nan")
 
 
@@ -496,24 +496,32 @@ def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: A
     if c < 0 or y < 0 or f not in (1, 2, 4) or b < 0 or b > 4 or s >= m:
         return float("nan")
 
-    periods = yearfrac(s, m, b) * f
-    n = periods
-    if n <= 0:
-        return float("nan")
-
-    yf = y / f
-    cf = c / f
-    if yf == 0:
-        denom = cf * n + 1.0
-        if denom == 0:
+    # What was wrong: DURATION with a huge yield (1e308) raised OverflowError
+    # out of the formula.
+    # How it happened: (1 + y/f) ** n runs after the argument-parsing try.
+    # getDuration returns finiteOrThrow.
+    # Why this change fixes it: OverflowError and a non-finite Macaulay result
+    # are NaN. The zero-yield closed form is unchanged.
+    try:
+        periods = yearfrac(s, m, b) * f
+        n = periods
+        if n <= 0:
             return float("nan")
-        return n * (cf * (n + 1.0) + 2.0) / (2.0 * f * denom)
-    if cf == 0:
-        macd = n / f
-    else:
-        macd = ((1 + yf) / yf - (1 + yf + n * (cf - yf)) / (cf * ((1 + yf) ** n - 1) + yf)) / f
 
-    return macd
+        yf = y / f
+        cf = c / f
+        if yf == 0:
+            denom = cf * n + 1.0
+            if denom == 0:
+                return float("nan")
+            res = n * (cf * (n + 1.0) + 2.0) / (2.0 * f * denom)
+        elif cf == 0:
+            res = n / f
+        else:
+            res = ((1 + yf) / yf - (1 + yf + n * (cf - yf)) / (cf * ((1 + yf) ** n - 1) + yf)) / f
+    except OverflowError:
+        return float("nan")
+    return res if math.isfinite(res) else float("nan")
 
 
 def dvar(db: Any, field: Any, criteria: Any) -> float:
@@ -568,7 +576,17 @@ def effect(nominal_rate: Any, npery: Any) -> float:
     # that is not the spreadsheet result.
     if nr <= 0 or n_per < 1:
         return float("nan")
-    return (1 + nr / n_per) ** n_per - 1
+    # What was wrong: EFFECT(1e6, 1e6) raised OverflowError and EFFECT(inf, n)
+    # returned inf.
+    # How it happened: the power ran after the conversion try had exited, and
+    # inf <= 0 is false so the domain guard let it through. getEffect returns
+    # finiteOrThrow.
+    # Why this change fixes it: OverflowError and a non-finite result are NaN.
+    try:
+        res = (1 + nr / n_per) ** n_per - 1
+    except OverflowError:
+        return float("nan")
+    return res if math.isfinite(res) else float("nan")
 
 
 def encodeurl(text: Any) -> str | float:

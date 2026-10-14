@@ -138,7 +138,12 @@ def _get_writer_selection_text(doc: Any) -> str:
             return ""
         rng = sel.getByIndex(0)
         return get_string_without_tracked_deletions(rng) or ""
-    except Exception:
+    except Exception as exc:
+        # What was wrong: disposed document exceptions were caught and swallowed, returning empty text.
+        # How it happened: generic except Exception caught DisposedException without reraising.
+        # Why this change: reraise_if_disposed re-raises DocumentDisposedError so callers handle closed documents.
+        from plugin.framework.errors import reraise_if_disposed
+        reraise_if_disposed(exc)
         log.debug("text analytics: selection text failed", exc_info=True)
         return ""
 
@@ -153,13 +158,16 @@ def _get_writer_text(doc: Any) -> str:
             return ""
         text = doc.getText()
         return get_string_without_tracked_deletions(text) or ""
-    except Exception:
+    except Exception as exc:
+        # What was wrong: DisposedException was swallowed, and the secondary getString() fallback
+        # reintroduced tracked deletions and duplicated log warnings.
+        # How it happened: nested try/except caught Exception and tried doc.getText().getString().
+        # Why this change: reraise_if_disposed propagates DocumentDisposedError, and omitting getString()
+        # prevents deleted text leakage and duplicate logs.
+        from plugin.framework.errors import reraise_if_disposed
+        reraise_if_disposed(exc)
         log.debug("text analytics: writer text extraction failed", exc_info=True)
-        try:
-            return str(doc.getText().getString() or "")
-        except Exception:
-            log.debug("text analytics: writer text extraction failed", exc_info=True)
-            return ""
+        return ""
 
 
 def _get_writer_sections(doc: Any) -> list[str]:
@@ -216,7 +224,12 @@ def _get_writer_sections(doc: Any) -> list[str]:
                         current_parts = []
                     elif ptext.strip():
                         current_parts.append(ptext)
-            except Exception:
+            except Exception as exc:
+                # What was wrong: disposed document during paragraph iteration was ignored.
+                # How it happened: inner except Exception only logged debug without checking disposal.
+                # Why this change: reraise_if_disposed propagates DocumentDisposedError immediately.
+                from plugin.framework.errors import reraise_if_disposed
+                reraise_if_disposed(exc)
                 log.debug("text analytics: skipped paragraph %s", para_index, exc_info=True)
             para_index += 1
 
@@ -228,7 +241,12 @@ def _get_writer_sections(doc: Any) -> list[str]:
             return sections
         fallback = _get_writer_text(doc)
         return [fallback] if fallback.strip() else []
-    except Exception:
+    except Exception as exc:
+        # What was wrong: outer section extraction caught DisposedException and fell back to _get_writer_text.
+        # How it happened: generic except Exception caught DisposedException.
+        # Why this change: reraise_if_disposed propagates DocumentDisposedError before fallback.
+        from plugin.framework.errors import reraise_if_disposed
+        reraise_if_disposed(exc)
         log.debug("text analytics: section extraction failed", exc_info=True)
         # Safe fallback to flat text
         full = _get_writer_text(doc)
@@ -324,6 +342,18 @@ def _text_analytics_error_line(result: dict[str, Any] | None) -> str:
     return "Error: Text analytics failed."
 
 
+def _format_metric_lines(mapping: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for k, v in mapping.items():
+        if isinstance(v, bool):
+            lines.append(f"  {k}: {v}")
+        elif isinstance(v, float):
+            lines.append(f"  {k}: {v:.2f}")
+        else:
+            lines.append(f"  {k}: {v}")
+    return lines
+
+
 def format_text_analytics_result_for_display(helper: str, result: dict[str, Any] | None) -> str:
     """Format a text analytics result dict for UI display in the analytics dialog."""
     if not isinstance(result, dict):
@@ -364,6 +394,10 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
         lines.append(f"  torch: {'Installed' if data.get('has_torch') else 'Missing'}")
         if data.get("has_torch"):
             lines.append(f"  torch version: {data.get('torch_version', 'N/A')}")
+        has_sklearn = bool(data.get("has_sklearn"))
+        lines.append(f"  scikit-learn: {'Installed' if has_sklearn else 'Missing'}")
+        if has_sklearn:
+            lines.append(f"  scikit-learn version: {data.get('sklearn_version', 'N/A')}")
 
         install = data.get("text_analytics_install")
         if install:
@@ -386,22 +420,10 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
             ds = data.get("descriptive_stats") or {}
             if rd:
                 lines.append("Readability (via textdescriptives):")
-                for k, v in rd.items():
-                    if isinstance(v, bool):
-                        lines.append(f"  {k}: {v}")
-                    elif isinstance(v, (int, float)):
-                        lines.append(f"  {k}: {v:.2f}" if isinstance(v, float) else f"  {k}: {v}")
-                    else:
-                        lines.append(f"  {k}: {v}")
+                lines.extend(_format_metric_lines(rd))
             if ds:
                 lines.append("\nDescriptive stats:")
-                for k, v in ds.items():
-                    if isinstance(v, bool):
-                        lines.append(f"  {k}: {v}")
-                    elif isinstance(v, (int, float)):
-                        lines.append(f"  {k}: {v:.2f}" if isinstance(v, float) else f"  {k}: {v}")
-                    else:
-                        lines.append(f"  {k}: {v}")
+                lines.extend(_format_metric_lines(ds))
             meta = data.get("meta") or {}
             if meta:
                 lines.append(f"\nModel: {meta.get('model')}  Lang: {meta.get('lang')}")
@@ -569,7 +591,7 @@ def _result_to_html_table(data: dict[str, Any]) -> str:
             rows.append(f"<tr><td>topic sections</td><td>{_html_insert_text(summary)}</td></tr>")
 
     # Sentiment: overall + summary of per-section if available
-    sent = data.get("sentiment") or data.get("overall") or {}
+    sent = data.get("sentiment") or {}
     if sent and isinstance(sent, dict) and "score" in sent:
         sc = sent.get("score", 0)
         lab = sent.get("label", "neutral")
@@ -603,7 +625,15 @@ def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, 
             details={"result": result},
         )
 
-    data = (result or {}).get("result") or result or {}
+    # What was wrong: an empty inner result ({}) fell back to the outer envelope, dumping status and note into the doc.
+    # How it happened: (result or {}).get("result") or result or {} treated an empty inner dict as falsy.
+    # Why this change: select result["result"] when it is a dict (including {}), falling back to result only when "result" key is absent.
+    if isinstance(result, dict) and isinstance(result.get("result"), dict):
+        data = result["result"]
+    elif isinstance(result, dict) and "result" not in result:
+        data = result
+    else:
+        data = {}
     html = _result_to_html_table(data)
     if not html:
         # Fallback to a small JSON snippet so something is inserted

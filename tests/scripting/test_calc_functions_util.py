@@ -472,7 +472,10 @@ def test_round_half_up():
     assert _round_half_up(-2.5, 0) == Decimal("-3")
     assert _round_half_up(1.25, 1) == Decimal("1.3")
     assert _round_half_up(-1.25, 1) == Decimal("-1.3")
+    assert _round_half_up(0.5, 40) == Decimal("0.5")
 
+    with pytest.raises(ValueError):
+        _round_half_up(0.5, 10**20)
     with pytest.raises(ValueError):
         _round_half_up(float("nan"), 0)
     with pytest.raises(ValueError):

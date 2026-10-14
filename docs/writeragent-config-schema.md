@@ -44,7 +44,6 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `is_openrouter` | `boolean` | `false` |  |  |
 | `parallel_tool_calls` | `boolean` | `false` |  |  |
 | `openrouter_chat_extra` | `dict` | `{}` |  |  |
-| `text_analytics_sentiment_engine` | `string` | `"transformers"` |  |  |
 | `text_analytics_sentiment_model` | `string` | `"cardiffnlp/twitter-xlm-roberta-base-sentiment"` |  |  |
 | `doc_agent_edit_review_mode` | `string` | `"off"` |  |  |
 

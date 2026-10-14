@@ -22,6 +22,7 @@ from .calc_functions_util import (
     _build_holiday_set,
     _clean_paired_arrays,
     _collect_a_values,
+    _date_to_serial,
     _days360,
     _extract_numeric_array,
     _find_match_index,
@@ -650,8 +651,6 @@ def varpa(*args: Any) -> float:
 # weekend code 11 means Sunday is the day off, not that the week starts Monday.
 _WEEK_START_11_17: dict[int, int] = {11: 0, 12: 1, 13: 2, 14: 3, 15: 4, 16: 5, 17: 6}
 
-_WEEKDAY_ONES: dict[int, int] = _WEEK_START_11_17
-
 # System-1 WEEKNUM week start, same Monday=0 numbering. 21 and 150 are ISO.
 _WEEKNUM_WEEK_START: dict[int, int] = {1: 6, 2: 0, **_WEEK_START_11_17}
 
@@ -678,7 +677,7 @@ def weekday(serial: Any, return_type: int | float = 1) -> float:
         rt = 17
     elif rt == 2:
         rt = 11
-    start = _WEEKDAY_ONES.get(rt)
+    start = _WEEK_START_11_17.get(rt)
     if start is None:
         return float("nan")
     return float((wd - start) % 7 + 1)
@@ -834,7 +833,7 @@ def _workday_serial(
     end = _advance_workdays(curr, remaining, weekend_days, _build_holiday_set(holidays))
     if end is None:
         return float("nan")
-    return float(end.toordinal() - 693594)
+    return _date_to_serial(end)
 
 
 def workday(start_date: Any, days: Any, holidays: Any | None = None) -> float:
