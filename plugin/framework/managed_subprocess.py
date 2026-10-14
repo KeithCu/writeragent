@@ -48,6 +48,7 @@ class ManagedSubprocess:
     own stop and reap. run does not create an instance.
     Callers own the stdout and stdin pipes (e.g. for JSON-RPC or custom framing).
     This layer handles environment merging, process-tree killing, and cleanup.
+    These four knobs default to the worker spawn (binary pipes, registry, wrapped start errors, stderr name unchanged); `text=True` is line-buffered text pipes.
     """
 
     _cmd_line: list[str]
@@ -61,6 +62,10 @@ class ManagedSubprocess:
     _stderr_tail_chars: int | None
     _stderr_name: str | None
     _label: str
+    _text: bool
+    _register: bool
+    _log_start_failure: bool
+    _stderr_name_with_pid: bool
     _raw_spawn: bool
     _raw_stdin: Any
     _raw_stdout: Any
@@ -89,11 +94,14 @@ class ManagedSubprocess:
         stderr_tail_chars: int | None = None,
         stderr_name: str | None = None,
         label: str | None = None,
+        text: bool = False,
+        register: bool = True,
+        log_start_failure: bool = True,
+        stderr_name_with_pid: bool = False,
         raw_spawn: bool = False,
         stdin: Any = None,
         stdout: Any = None,
         stderr: Any = None,
-        text: bool = False,
         encoding: str | None = None,
         errors: str | None = None,
     ) -> None:
@@ -108,6 +116,10 @@ class ManagedSubprocess:
         self._stderr_tail_chars = stderr_tail_chars
         self._stderr_name = stderr_name
         self._label = label if label else "Managed subprocess"
+        self._text = text
+        self._register = register
+        self._log_start_failure = log_start_failure
+        self._stderr_name_with_pid = stderr_name_with_pid
         self._raw_spawn = raw_spawn
         self._raw_stdin = stdin
         self._raw_stdout = stdout
@@ -342,20 +354,39 @@ class ManagedSubprocess:
             proc: subprocess.Popen[bytes] | None = None
             drain: StderrTail | None = None
             try:
-                proc = cast(
-                    "subprocess.Popen[bytes]",
-                    subprocess.Popen(
-                        cmd,
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        env=merged_env,
-                        cwd=self._cwd,
-                        bufsize=0,
-                        **popen_kw,
-                    ),
-                )
-                drain_name = self._stderr_name if self._stderr_name is not None else f"managed-stderr-{proc.pid}"
+                if self._text:
+                    proc = cast(
+                        "subprocess.Popen[bytes]",
+                        subprocess.Popen(
+                            cmd,
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            env=merged_env,
+                            cwd=self._cwd,
+                            bufsize=1,
+                            text=True,
+                            **popen_kw,
+                        ),
+                    )
+                else:
+                    proc = cast(
+                        "subprocess.Popen[bytes]",
+                        subprocess.Popen(
+                            cmd,
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            env=merged_env,
+                            cwd=self._cwd,
+                            bufsize=0,
+                            **popen_kw,
+                        ),
+                    )
+                if self._stderr_name is not None:
+                    drain_name = f"{self._stderr_name}-{proc.pid}" if self._stderr_name_with_pid else self._stderr_name
+                else:
+                    drain_name = f"managed-stderr-{proc.pid}"
                 drain_kwargs: dict[str, Any] = {"name": drain_name}
                 if self._stderr_tail_chars is not None:
                     drain_kwargs["max_tail_chars"] = self._stderr_tail_chars
@@ -394,10 +425,13 @@ class ManagedSubprocess:
                             pass
                 self._proc = None
                 self._stderr_drain = None
-                log.exception("Failed to start managed subprocess")
-                raise RuntimeError(f"Failed to start managed subprocess: {e}") from e
+                if self._log_start_failure:
+                    log.exception("Failed to start managed subprocess")
+                    raise RuntimeError(f"Failed to start managed subprocess: {e}") from e
+                raise
 
-            _register_instance(self)
+            if self._register:
+                _register_instance(self)
 
     def _start_raw_locked(self) -> None:
         # TTS stdio is DEVNULL or a pipe that communicate reads itself; a stderr

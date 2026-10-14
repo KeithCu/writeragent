@@ -112,6 +112,8 @@ Multiple modules previously spawned `subprocess.Popen` manually and wrapped them
 
 `ManagedSubprocess` ([`plugin/framework/managed_subprocess.py`](../../plugin/framework/managed_subprocess.py)) wraps `subprocess.Popen` with automatic continuous stderr draining, bounded tail capture, graceful-then-SIGKILL lifecycle with process-tree termination (`kill_process_tree`), and central registry for clean LibreOffice shutdown via `shutdown_all()`. Used by ACP and Kokoro TTS. Compute `BaseProcessWorker` spawns through `ManagedSubprocess` (`scrub_env` when the slot has no explicit env, `optimize_pipes`, 64KiB stderr, `start_new_session` on POSIX). `Child.kill_tree` is the request-path signal. `close()` remains the graceful path for Kokoro and `shutdown_all`. One reaper thread serves `close()`'s single 5s wait and the compute abandon path's five 1s passes. ACP still tree-kills from its writer and does not call `close()` (stdout stays open for `readline`). Single-use: `start()` may only be called once.
 
+`text=True` opens the three pipes in text mode with `bufsize=1` and no `encoding` or `errors` argument. The default stays binary `bufsize=0` with no `text` argument. `register=False` skips `_register_instance`, so `shutdown_all()` does not `close()` that child. `log_start_failure=False` still runs the post-`Popen` cleanup, then re-raises the original exception with no `log.exception` and no `RuntimeError` wrap. `stderr_name_with_pid=True` appends `-{pid}` to a custom `stderr_name`. The default name is already `managed-stderr-{pid}`. The venv audio recorder uses those four settings. Its stop path still writes `{"command":"stop"}`, waits out the handoff, then waits 2s, `terminate`s, waits 1s, and only then `kill_process_tree`. It does not call `close()`, `kill_tree()`, or the reaper.
+
 `raw_spawn=True` is a separate `start()` path for short-lived children. It passes `stdin`, `stdout`, `stderr`, `text`, `encoding`, `errors`, `env`, and `cwd` through to `Popen` (`env=None` inherits the parent environment). It does not merge or scrub the environment, set `start_new_session` or Windows creation flags, set `bufsize`, drain stderr, or register the child for `shutdown_all()`. `command_wrapper`, `scrub_env`, `optimize_pipes`, a non-None `base_env`, and stderr-tail settings raise `ValueError` on that path. `ManagedSubprocess.run` is `subprocess.run` with the keywords that static method accepts and with none of the worker extras. TTS playback and one-shot synthesis use `raw_spawn` and return the `Popen`. Stop still closes stdin and SIGKILLs that direct child on Unix (`terminate()` on Windows), then reaps on a background thread. TTS does not call `close()` or `kill_tree()`.
 
 ### 2. Main Thread Execution (`queue_executor.py`)
@@ -155,7 +157,7 @@ CPython `ThreadPoolExecutor` workers are **non-daemon** from 3.9 on and would bl
 | `plugin/mcp/server.py` | `http-server` |
 | `plugin/acp/acp_connection.py` | `acp-reader` |
 | `plugin/scripting/editor_host.py` | `editor-pipe-reader`, `editor-stderr-drain` |
-| `plugin/scripting/audio_recorder_service.py` | `audio-rec-stdout-monitor` |
+| `plugin/scripting/audio_recorder_service.py` | `audio-rec-stdout-monitor`, `audio-rec-stderr-{pid}` |
 | `start_stderr_drain` / `AsyncProcess` | `stderr-drain`, `asyncproc-*` |
 | `plugin/framework/logging.py` | `watchdog` |
 | `plugin/embeddings/embeddings_periodic.py` | `embeddings_periodic_indexer` |

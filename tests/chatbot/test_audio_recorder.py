@@ -7,11 +7,16 @@ import pytest
 
 pytestmark = pytest.mark.xdist_group("audio_recorder_control")
 
+from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.chatbot.audio_recorder import (
     AudioRecorder,
     clear_stub_recorder_control,
     write_stub_recorder_control,
 )
+
+
+def _recording_child(proc: MagicMock, drain: object | None = None) -> ManagedSubprocess:
+    return ManagedSubprocess.wrap_existing(proc, label="audio-recorder", stderr_tail=drain)  # type: ignore[arg-type]
 
 
 @pytest.fixture
@@ -26,10 +31,11 @@ def recording_mocks(tmp_path):
     proc.stdin = MagicMock()
     proc.stdout = MagicMock()
     proc.poll.return_value = None  # simulate running subprocess; stop path calls stop_recording_process
+    child = _recording_child(proc)
     with (
         patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("/usr/bin/python", "")),
         patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=wav_path),
-        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=proc) as spawn,
+        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=child) as spawn,
         patch("plugin.chatbot.audio_recorder.wait_for_recording_ready") as wait_ready,
         patch("plugin.chatbot.audio_recorder.stop_recording_process", return_value=wav_path) as stop_proc,
     ):
@@ -241,10 +247,11 @@ def test_manual_stop_returns_path_while_silence_monitor_runs(ctx, tmp_path):
     proc.stdin = StringIO()
     proc.poll.return_value = None
     proc.wait.return_value = 0
+    child = _recording_child(proc)
     with (
         patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("/usr/bin/python", "")),
         patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=wav_path),
-        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=proc),
+        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=child),
     ):
         recorder = AudioRecorder(ctx)
         recorder.start_recording()
@@ -272,10 +279,11 @@ def test_stop_keeps_nonempty_wav_when_handshake_fails(ctx, tmp_path):
     proc = MagicMock()
     proc.poll.return_value = None
     proc.stdin = MagicMock()
+    child = _recording_child(proc)
     with (
         patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("/usr/bin/python", "")),
         patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=str(wav_path)),
-        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=proc),
+        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=child),
         patch("plugin.chatbot.audio_recorder.wait_for_recording_ready"),
         patch("plugin.chatbot.audio_recorder.monitor_recording_stdout", return_value=MagicMock()),
         patch(
@@ -297,10 +305,11 @@ def test_stop_deletes_empty_wav_when_handshake_fails(ctx, tmp_path):
     proc = MagicMock()
     proc.poll.return_value = None
     proc.stdin = MagicMock()
+    child = _recording_child(proc)
     with (
         patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("/usr/bin/python", "")),
         patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=str(wav_path)),
-        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=proc),
+        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=child),
         patch("plugin.chatbot.audio_recorder.wait_for_recording_ready"),
         patch("plugin.chatbot.audio_recorder.monitor_recording_stdout", return_value=MagicMock()),
         patch(
