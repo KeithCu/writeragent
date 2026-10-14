@@ -261,7 +261,7 @@ class EditorSessionState:
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
-    def target_key(self) -> tuple[str, str, str, str, str, str]:
+    def target_key(self) -> tuple[str, ...]:
         return target_identity_key(self.mode, self.target)
 
 

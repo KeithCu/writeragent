@@ -113,7 +113,7 @@ The Monaco **shell** (toolbar, status line, script picker, `prompt()`/`confirm()
 - **Injection:** [`launch_monaco_editor()`](../../plugin/scripting/editor_host.py) calls `enrich_monaco_load_message()` on every outbound `load` (including multi-cell reload), attaching a **`ui`** dict of pre-translated strings alongside `theme`.
 - **Frontend:** [`editor.js`](../../plugin/contrib/scripting/assets/editor/editor.js) and [`scripts_manager.js`](../../plugin/contrib/scripting/assets/editor/scripts_manager.js) read `load.ui` via `window.waEditorUi.t()` / `fmt()` — no gettext in JS.
 - **Parity:** Toolbar labels reuse the same msgids as [`PythonScriptDialog.xdl`](../../extension/WriterAgentDialogs/PythonScriptDialog.xdl) and [`python_runner_ui.py`](../../plugin/scripting/python_runner_ui.py) where wording matches.
-- **Calc cell save modes:** `plain_text_label` → **Save without =PY()**; plain-save status → `ui.saved_plain` / **Saved without =PY().** (LaTeX mode reuses the IPC key `plain_text_label` for a different checkbox — see [`editor_ui_strings.py`](../../plugin/scripting/editor_ui_strings.py).)
+- **Calc cell save modes:** `plain_text_label` → **Save without =PY()**; the plain-save status is the `saved` frame’s `status_ok_text` (`Saved without =PY().` from `plugin/calc/python/editor.py`), not a `ui` key. The native dialog uses the same msgid in `cell_editor_ui.py` when the outcome omits `status_ok_text`. Default formula-save status is `ui.saved_default` (`Saved.`) only when the saved frame has no `status_ok_text`. (LaTeX mode reuses the IPC key `plain_text_label` for a different checkbox — see [`editor_ui_strings.py`](../../plugin/scripting/editor_ui_strings.py).)
 
 **Out of scope:** Monaco’s built-in editor UI (Find/Replace, internal context menus) — that would require `monaco-nls` locale bundles.
 
@@ -665,7 +665,7 @@ The architecture challenge (unaddressed pipe, one `on_save`, process-global dirt
 |-------|----------|
 | Cell selection | Uses sheet controller selection ([`editor.py`](../../plugin/calc/python/editor.py)), same idea as Calc extend/edit |
 | Empty / non-PYTHON cells | Editor opens; Save (default) writes `=PY("code")` / `=PY("code")`; with **Save without =PY()** checked, writes raw script via `setString` |
-| **Save without =PY()** | Checkbox (`save_as_plain`): checked → `setString` only, **Data:** disabled; unchecked → rebuild `=PY("…")` formula with optional data suffix. The Data field stays enabled and is still saved while following a code-cell ref. User strings in [`editor_ui_strings.py`](../../plugin/scripting/editor_ui_strings.py). |
+| **Save without =PY()** | Checkbox (`save_as_plain`): checked → `setString` only, **Data:** disabled; unchecked → rebuild `=PY("…")` formula with optional data suffix. The Data field stays enabled and is still saved while following a code-cell ref. Checkbox label is `plain_text_label` in `editor_ui_strings.py`. Plain-save status is `status_ok_text` on the saved frame from `editor.py` (`Saved without =PY().`). |
 | Load source | Inline PYTHON → stripped `code`; code-only cell → `getString()`; Monaco never shows `=PY()` |
 | Data ranges | Editable toolbar textbox (`data_binding` on load/save); written into `=PY("code"; …)` suffix via [`formula_edit.py`](../../plugin/calc/python/formula_edit.py); single range → `data`, multiple comma/semicolon-separated → `ranges` |
 | Formula strings | Reads `getFormula()`, `FormulaLocal`, `Formula`; normalizes leading `=`, array braces, smart quotes |
