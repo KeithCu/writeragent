@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.embeddings.embeddings_fs import ParagraphChunk, WriterFileEntry
 from plugin.embeddings.venv import embeddings_folder_maintain as maintain
+from plugin.embeddings.venv.heartbeat_throttle import HeartbeatThrottle
 
 
 def _write_populated_meta(listing, model: str, *, sqlite: bool = True, collection: str | None = None, chunk_count: str = "4") -> None:
@@ -87,7 +88,7 @@ def test_cold_build_ingests_one_file_at_a_time(tmp_path):
             listing_root,
             "test-model",
             files,
-            maintain._HeartbeatThrottle(None),
+            HeartbeatThrottle(None),
             build_fts=True,
             build_vectors=True,
         )
@@ -117,7 +118,7 @@ def test_cold_build_skips_ingest_for_empty_files(tmp_path):
             listing_root,
             "test-model",
             files,
-            maintain._HeartbeatThrottle(None),
+            HeartbeatThrottle(None),
             build_fts=False,
             build_vectors=False,
         )
@@ -255,7 +256,7 @@ def test_incremental_same_model_vector_gap_requests_backfill(tmp_path):
             str(tmp_path),
             "all-MiniLM-L6-v2",
             [],
-            maintain._HeartbeatThrottle(None),
+            HeartbeatThrottle(None),
             build_fts=True,
             build_vectors=True,
             search_mode="embeddings",
@@ -284,7 +285,7 @@ def test_incremental_skips_backfill_when_vectors_present(tmp_path):
             str(tmp_path),
             "all-MiniLM-L6-v2",
             [],
-            maintain._HeartbeatThrottle(None),
+            HeartbeatThrottle(None),
             build_fts=False,
             build_vectors=True,
             search_mode="embeddings",

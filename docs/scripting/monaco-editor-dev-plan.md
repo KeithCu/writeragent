@@ -8,7 +8,7 @@ Architectural design for the **LibrePythonista-style Monaco editor** in WriterAg
 
 **`=PY()` is not localized:** The Calc add-in always registers the English function name `PYTHON` (programmatic `python`). Formulas stored by Calc must use that token in `getFormula()` / `FormulaLocal`. A localized alias (e.g. a translated function name) is a **bug** in add-in registration — do **not** add `FormulaOpCodeMapper` workarounds in the editor or formula parser.
 
-**Session 1 fixes (post-MVP):** venv path required (no LibreOffice embedded Python for the editor); `resolve_venv_python` tries `bin/python`, `bin/python3`, and `bin/python3.*`; `ready` is sent only after `window.events.loaded` / `shown` (not before `webview.start()`); child uses a WSGI static server in [`editor_main.py`](../../plugin/scripting/venv/editor_main.py) that serves **all** editor HTML/JS/CSS and Monaco `vs/` assets from packages installed in the configured venv (`rocher`); probe/save failures show child stderr + Python tracebacks via [`editor_ipc.py`](../../plugin/scripting/editor_ipc.py).
+**Session 1 fixes (post-MVP):** venv path required (no LibreOffice embedded Python for the editor); `resolve_venv_python` tries `bin/python`, `bin/python3`, and `bin/python3.*`; `ready` is sent only after `window.events.loaded` / `shown` (not before `webview.start()`); child uses a WSGI static server in [`editor_main.py`](../../plugin/scripting/venv/editor_main.py) that serves **all** editor HTML/JS/CSS and Monaco `vs/` assets from packages installed in the configured venv (`rocher`); probe/save failures show child stderr + Python tracebacks via [`editor_errors.py`](../../plugin/scripting/editor_errors.py).
 
 **Dual save modes:** Monaco always edits **stripped Python source** (inline `=PY("…")` code is parsed on load; code-only cells use `getString`). Toolbar checkbox **Save without =PY()** (`save_as_plain`) writes `cell.setString(code)` only — for **code-in-a-cell** workflows where another cell runs `=PY($A$1; …)`. Default **Save** wraps `=PY("…")` / `=PY("…")` via `setFormula`, preserving existing data-range suffixes; the **Data:** textbox is disabled while **Save without =PY()** is checked. Plain save shows status **Saved without =PY().** Opening unquoted `=PY($A$1; …)` on the formula cell follows the ref: the editor loads A1’s text, Save writes A1, and the formula stays a ref (`$` kept, including mixed `$A1` / `A$1`). Sheet-qualified refs (`Sheet2.A1`, `'My Sheet'.$B$2`) and the `=PYTHON()` alias follow the same way; a missing sheet shows an error and does not launch. Ranges (`A1:A10`) and unquoted Python (`A1+B1`, `sp.prime(100)`) are not followed. Quoted `=PY("A1")` is not followed. **Data:** stays enabled on a followed formula (ranges live on that cell); changing or clearing it rewrites only the data args and keeps a single closing `)`. Monaco sends the Data text on save while **Save without =PY()** stays checked, a changed range keeps the parsed prefix (`=PYTHON(`, `=py(`, `ORG.EXTENSION…(`) instead of forcing `=PY(`, and a non-formula cell whose text is `PY(…)` / `PYTHON(…)` is edited as plain text because `getFormula()` returns that literal.
 
@@ -21,9 +21,8 @@ The editor is a **separate native window** in the user's configured Python venv.
 ### Core components
 
 | Component | Module | Role |
-|-----------|--------|------|
 | Editor launcher | [`plugin/scripting/editor_host.py`](../../plugin/scripting/editor_host.py) | Require Settings venv, probe `import webview` via `ManagedSubprocess.run`, spawn via `ManagedSubprocess.start` |
-| Editor diagnostics | [`plugin/scripting/editor_ipc.py`](../../plugin/scripting/editor_ipc.py) | Msgbox text: stderr + `traceback.format_exception` |
+| Editor diagnostics | [`plugin/scripting/editor_errors.py`](../../plugin/scripting/editor_errors.py) | Msgbox text: stderr + `traceback.format_exception` |
 | Editor bridge | [`plugin/scripting/editor_host.py`](../../plugin/scripting/editor_host.py) | Pipe reader thread; UNO on main thread via [`QueueExecutor`](../../plugin/framework/queue_executor.py) |
 | Editor process | [`plugin/scripting/editor_main.py`](../../plugin/scripting/editor_main.py) | `pywebview` + Monaco (venv only) |
 | Calc integration | [`plugin/calc/python/editor.py`](../../plugin/calc/python/editor.py), [`formula_edit.py`](../../plugin/calc/python/formula_edit.py), [`editor_context_menu.py`](../../plugin/calc/python/editor_context_menu.py) | Active cell `=PY()` load/save; cell context menu |
@@ -158,8 +157,9 @@ plugin/
 │           └── style.css
 └── scripting/
     ├── document_scripts.py         # scripts_list IPC, document-attached scripts, Monaco picker handlers
+    ├── editor_errors.py              # failure_message / failure_detail
     ├── editor_host.py                # Spawn, PersistentEditor, session launch
-    ├── editor_ipc.py                 # Pickle protocol 5 + failure formatting
+    ├── editor_ipc.py                 # Pickle protocol 5 and session identity
     └── editor_main.py                # pywebview child entry (+ JediSession)
 
 tests/
@@ -672,7 +672,7 @@ The architecture challenge (unaddressed pipe, one `on_save`, process-global dirt
 | Unparsed PYTHON (e.g. `=PY(A1; B1)`) | Blocked with msgbox — cannot safely preserve data args |
 | Sessions | One **persistent child** process; **N host sessions** keyed by `session_id`. Simple UI: one **focused** view — switching editors sends `load` and ends the previous session. Any dirty mode confirms first (`request_save`, then load, or discard, or cancel). Same cell/script target reuses `session_id`. WM close hides the window, drops that session, process stays warm. |
 | Child stderr | `editor-stderr-drain` thread logs lines at debug; `read_stderr_tail()` uses ring buffer for failure dialogs. |
-| Child `sys.path` | [`editor_main.py`](../../plugin/scripting/editor_main.py) bootstraps repo root so `plugin.scripting.editor_protocol` imports |
+| Child `sys.path` | [`editor_main.py`](../../plugin/scripting/editor_main.py) bootstraps repo root so `plugin.scripting.editor_ipc` imports |
 | Save errors to UI | Bridge sends `error` + `traceback` to child; red toolbar status (Phase 2A) |
 | Formula function name | Always English `PYTHON`; localized tokens are a bug, not supported |
 

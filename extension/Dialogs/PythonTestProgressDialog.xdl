@@ -6,6 +6,6 @@
  <dlg:bulletinboard>
   <dlg:text dlg:id="StatusLbl" dlg:left="8" dlg:top="8" dlg:width="304" dlg:height="12" dlg:value="Testing Python environment..." dlg:align="left" dlg:multiline="false"/>
   <dlg:textfield dlg:id="LogArea" dlg:left="8" dlg:top="24" dlg:width="304" dlg:height="225" dlg:tabstop="true" dlg:readonly="true" dlg:multiline="true" dlg:vscroll="true"/>
-  <dlg:button dlg:id="BtnClose" dlg:left="252" dlg:top="255" dlg:width="60" dlg:height="14" dlg:value="Close" dlg:tabstop="true"/>
+  <dlg:button dlg:id="BtnClose" dlg:left="252" dlg:top="255" dlg:width="60" dlg:height="14" dlg:value="Close" dlg:disabled="true" dlg:tabstop="true"/>
  </dlg:bulletinboard>
 </dlg:window>

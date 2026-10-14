@@ -15,7 +15,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from plugin.scripting.calc_range import CalcRange, ensure_rectangular_2d
+from plugin.scripting.calc_range import (
+    CalcRange,
+    _is_pandas_frame_or_series,
+    ensure_rectangular_2d,
+)
 from plugin.scripting.venv.coerce import is_missing_value
 
 log = logging.getLogger(__name__)
@@ -38,7 +42,10 @@ class InspectedInput:
 
 
 class BroadcastResult(tuple[Any, ...]):
-    """Result tuple from broadcast_args supporting 3-element unpacking and vector metadata."""
+    """A 3-tuple (primary, b_args, b_kwargs) so callers can unpack, and it
+    carries vector_arg_indices and vector_kwarg_keys because map_over_range
+    needs them on the same object. broadcast_args always returns this type.
+    """
 
     primary: InspectedInput
     b_args: list[list[Any]]
@@ -64,26 +71,30 @@ class BroadcastResult(tuple[Any, ...]):
 
 
 def _to_plain_sequence(val: Any) -> Any:
-    """Unwrap NumPy ndarray, pandas Series/DataFrame to nested lists."""
+    """Unwrap a pandas DataFrame/Series or ndarray to plain Python values.
+
+    What was wrong: any object with ``to_numpy``, ``tolist``, or ``to_list``
+    was unwrapped, and a raised method was swallowed so the value became a
+    scalar. ``to_list`` has no caller in this repository.
+    How it happened: duck-typing plus ``except Exception: pass``.
+    Why this fixes it: only a pandas DataFrame or Series (via ``to_numpy``)
+    or an ``ndarray`` is a sequence, matching
+    ``calc_range._materialize_inner_grid``. Those conversions propagate.
+    An ``np.generic`` becomes a Python scalar via ``item()``. Anything else
+    stays one cell.
+    """
     if isinstance(val, CalcRange):
         return val
-    # DataFrame and Series have no tolist(). to_numpy().tolist() is the plain list.
-    if hasattr(val, "to_numpy") and callable(val.to_numpy):
-        try:
-            arr: Any = val.to_numpy()
-            return arr.tolist()
-        except Exception:
-            pass
-    if hasattr(val, "tolist") and callable(val.tolist):
-        try:
-            return val.tolist()
-        except Exception:
-            pass
-    if hasattr(val, "to_list") and callable(val.to_list):
-        try:
-            return val.to_list()
-        except Exception:
-            pass
+    if _is_pandas_frame_or_series(val):
+        val = val.to_numpy()
+    try:
+        import numpy as np
+    except ImportError:
+        return val
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    if isinstance(val, np.generic):
+        return val.item()
     return val
 
 
@@ -97,6 +108,7 @@ def inspect_input(val: Any) -> InspectedInput:
     - N x 1 CalcRange / 2D list (N >= 2) -> column (nrows=N, ncols=1).
     - 1 x N CalcRange / 2D list (N >= 2) -> row (nrows=1, ncols=N).
     - M x N 2D grid (M, N >= 2) -> grid (nrows=M, ncols=N).
+    - Any other object is one scalar cell, so a dict, set, or generator is a scalar parameter.
     """
     val = _to_plain_sequence(val)
 
@@ -161,7 +173,7 @@ def rewrap_output(results: list[Any], inspected: InspectedInput) -> Any:
 def broadcast_args(
     *args: Any,
     **kwargs: Any,
-) -> tuple[InspectedInput, list[list[Any]], dict[str, list[Any]]]:
+) -> BroadcastResult:
     """Inspect arguments and broadcast scalars across vector length.
 
     Returns:
@@ -241,9 +253,9 @@ def map_over_range(
         Scalar or list/nested list matching the primary vector shape.
     """
     broadcast = broadcast_args(*args, **kwargs)
-    primary, b_args, b_kwargs = broadcast[0], broadcast[1], broadcast[2]
-    vector_arg_indices = getattr(broadcast, "vector_arg_indices", [])
-    vector_kwarg_keys = getattr(broadcast, "vector_kwarg_keys", [])
+    primary, b_args, b_kwargs = broadcast
+    vector_arg_indices = broadcast.vector_arg_indices
+    vector_kwarg_keys = broadcast.vector_kwarg_keys
     n_items = primary.length
 
     results: list[Any] = []
@@ -252,8 +264,11 @@ def map_over_range(
         row_kwargs = {k: kwarg_list[i] for k, kwarg_list in b_kwargs.items()}
 
         if handle_blanks:
-            # A missing value in any vector argument blanks this row. When every
-            # argument is a scalar, only the primary input can blank the row.
+            # A missing value in any vector argument blanks this row; scalar
+            # parameters are passed through, including None and ""; when every
+            # argument is scalar, only the primary input (first positional,
+            # else first keyword) blanks the row, so an optional scalar such
+            # as format_spec="" does not.
             if vector_arg_indices or vector_kwarg_keys:
                 is_blank = any(is_missing_value(row_args[idx]) for idx in vector_arg_indices) or any(
                     is_missing_value(row_kwargs[k]) for k in vector_kwarg_keys

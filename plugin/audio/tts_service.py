@@ -15,7 +15,7 @@ import sys
 import tempfile
 import threading
 from collections import deque
-from typing import Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, cast
 
 from plugin.audio.kokoro_g2p import (
     KOKORO_ONNX_SCRIPT,
@@ -48,6 +48,7 @@ from plugin.audio.tts_voices import (
 )
 from plugin.framework import config
 from plugin.framework.i18n import _
+from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.worker_pool import run_in_background
 
 # Wrappers so tests can patch get_config on this module without replacing
@@ -93,7 +94,9 @@ _CHUNK_BREAK_RE = re.compile(r"[.!?。！？](?:\s+|$)")
 _KOKORO_CLI_MAX_CHARS = 32000
 
 # Playback and one-shot synthesis overlap during sentence prefetch, so they
-# cannot share one Popen slot. Stop kills both.
+# cannot share one Popen slot. Stop kills both. The objects in these slots are
+# the Popen from ManagedSubprocess(raw_spawn=True), and Stop still signals that
+# Popen directly.
 _play_proc: subprocess.Popen[Any] | None = None
 _synth_procs: list[subprocess.Popen[Any]] = []
 _speech_active: bool = False
@@ -258,7 +261,7 @@ def _reap_proc(proc: subprocess.Popen[Any] | None) -> None:
             try:
                 proc.wait(timeout=0.2)
             except subprocess.TimeoutExpired:
-                subprocess.run(
+                ManagedSubprocess.run(
                     ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                     check=False,
                     stdout=subprocess.DEVNULL,
@@ -400,7 +403,7 @@ def stop_speech() -> None:
             _reap_proc(proc)
         if stop_spd:
             try:
-                subprocess.run(
+                ManagedSubprocess.run(
                     ["spd-say", "-S"],
                     check=False,
                     stdout=subprocess.DEVNULL,
@@ -473,7 +476,7 @@ def _popen_for_speech(
     errors: str | None = None,
     env: dict[str, str] | None = None,
 ) -> subprocess.Popen[Any] | None:
-    """Spawn a play or synth process and register it so stop_speech can kill it.
+    """Spawn a play or synth process through ManagedSubprocess raw_spawn and return that Popen.
 
     Does not hold _speech_lock across Popen so is_speaking/_playback_blocked
     are not blocked during process startup.
@@ -484,8 +487,9 @@ def _popen_for_speech(
             log.info("Speech cancelled before process spawn")
             return None
 
-    proc = subprocess.Popen(
+    managed = ManagedSubprocess(
         cmd,
+        raw_spawn=True,
         stdin=stdin,
         stdout=stdout,
         stderr=stderr,
@@ -493,7 +497,11 @@ def _popen_for_speech(
         encoding=encoding,
         errors=errors,
         env=env,
+        label=f"tts-{slot}",
     )
+    managed.start()
+    proc = cast("subprocess.Popen[Any]", managed.popen)
+    assert proc is not None
 
     with _speech_lock:
         if _playback_blocked_locked(generation):

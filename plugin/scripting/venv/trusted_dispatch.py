@@ -21,13 +21,20 @@ from plugin.scripting.sheet_layout import extract_sheet_layout
 
 def _trusted_action_spec(helper: Any, params: Any, packet: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build a spec dict for spec-driven venv dispatchers."""
-    coerced_params = params if isinstance(params, dict) else {}
+    # The spec used to hold the packet's params object. A helper that pops
+    # or assigns keys would change the request. _require_str_list already
+    # returns a new list. Shallow copy only: nested values stay shared.
+    coerced_params = dict(params) if isinstance(params, dict) else {}
     spec: dict[str, Any] = {"helper": str(helper or ""), "params": coerced_params}
     spec.update(extract_sheet_layout(packet))
     return spec
 
 
 def _require_str(value: Any, label: str) -> str:
+    # Blank and whitespace-only values are rejected. The original string is
+    # returned: LanguageTool and Vale offsets point into this text, and
+    # strip() would move those spans. Callers that need a trimmed token
+    # strip it themselves.
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} is required")
     return value
@@ -60,15 +67,13 @@ def _dispatch_spec_data(run_fn: Callable[..., Any], data: dict[str, Any]) -> Any
 def dispatch_units(data: dict[str, Any]) -> Any:
     from plugin.scripting.venv.units import run_units
 
-    spec, _unused, context = _packet_parts(data)
-    return run_units(spec, context=context)
+    return _dispatch_spec_data(run_units, data)
 
 
 def dispatch_symbolic(data: dict[str, Any]) -> Any:
     from plugin.scripting.venv.symbolic import run_symbolic
 
-    spec, _unused, context = _packet_parts(data)
-    return run_symbolic(spec, context=context)
+    return _dispatch_spec_data(run_symbolic, data)
 
 
 def dispatch_viz(data: dict[str, Any]) -> Any:
@@ -105,7 +110,9 @@ def dispatch_text(data: dict[str, Any]) -> Any:
     from plugin.scripting.venv.text_analytics import run_text_analytics
 
     spec, data_range, context = _packet_parts(data)
-    text = data.get("text") if data.get("text") is not None else data_range
+    raw_text = data.get("text")
+    # Empty string is real text. Only a missing value falls back to data_range.
+    text = raw_text if raw_text is not None else data_range
     return run_text_analytics(spec, text, context)
 
 
@@ -119,6 +126,9 @@ def dispatch_vision(data: dict[str, Any]) -> Any:
 def dispatch_sql(data: dict[str, Any]) -> Any:
     from plugin.scripting.venv.duckdb_sql import query_folder_sql
 
+    # One implementation. `helper` is not a selector. Do not pass session_id:
+    # it is not on this packet, run_folder_sql does not send one, and
+    # trusted routing ids are not DuckDB kernels. Each call stays per-request.
     return query_folder_sql(
         data.get("scoped_dir"),
         _require_str(data.get("sql"), "sql"),

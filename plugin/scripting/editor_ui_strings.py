@@ -21,19 +21,17 @@ from typing import Any
 
 from plugin.framework.i18n import _
 
-# Top-level load keys copied into ``ui`` when present (caller overrides win).
-_LOAD_OVERRIDE_KEYS = (
-    "title",
-    "save_label",
-    "run_label",
-    "close_label",
-    "plain_text_label",
-    "saved_ok_text",
-    "status_ok_text",
-    "data_binding_title",
-)
-
-_OVERRIDE_KEY_MAP: dict[str, str] = {
+# Top-level load keys copied into ui. The value is the ui key.
+# saved_ok_text is the caller's name; editor.js reads ui.saved_default
+# via t("saved_default", ...). title and status_ok_text stay top-level:
+# document.title / window.title read msg.title, and the saved-status
+# fallback reads msg.saved_ok_text then msg.status_ok_text.
+_LOAD_UI_KEYS: dict[str, str] = {
+    "save_label": "save_label",
+    "run_label": "run_label",
+    "close_label": "close_label",
+    "plain_text_label": "plain_text_label",
+    "data_binding_title": "data_binding_title",
     "saved_ok_text": "saved_default",
 }
 
@@ -90,6 +88,15 @@ def _run_script_ui_strings() -> dict[str, str]:
             "new_script_title": _("New Python Script"),
             "script_name_label": _("Script name:"),
             "attach_to_document_label": _("Attach to this document"),
+            "attach_unavailable_no_document": _(
+                "Attach to this document (no document is open)"
+            ),
+            "attach_unavailable_readonly": _(
+                "Attach to this document (this document is read-only)"
+            ),
+            "attach_unavailable_stale": _(
+                "Attach to this document (this document changed)"
+            ),
             "create_label": _("Create"),
             "script_name_required": _("Script name cannot be empty."),
             "script_label": _("Script:"),
@@ -145,7 +152,12 @@ def _init_script_ui_strings() -> dict[str, str]:
 
 
 def build_monaco_ui_strings(*, mode: str) -> dict[str, str]:
-    """Return static Monaco shell strings for *calc_cell*, *run_script*, *init_script*, or *latex*."""
+    """Return static Monaco shell strings for one editor mode.
+
+    ``run_script``, ``latex``, and ``init_script`` have their own catalogs.
+    Any other mode, including ``calc_cell``, uses the calc_cell catalog.
+    A bad mode still gets labels.
+    """
     if mode == "run_script":
         return _run_script_ui_strings()
     if mode == "latex":
@@ -161,10 +173,9 @@ def enrich_monaco_load_message(msg: dict[str, Any]) -> dict[str, Any]:
     mode = str(enriched.get("mode") or "calc_cell")
     ui = build_monaco_ui_strings(mode=mode)
 
-    for key in _LOAD_OVERRIDE_KEYS:
-        value = enriched.get(key)
+    for src, ui_key in _LOAD_UI_KEYS.items():
+        value = enriched.get(src)
         if isinstance(value, str) and value:
-            ui_key = _OVERRIDE_KEY_MAP.get(key, key)
             ui[ui_key] = value
 
     enriched["ui"] = ui

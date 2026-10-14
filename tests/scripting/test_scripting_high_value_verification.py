@@ -11,7 +11,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.scripting.editor_ipc import failure_message
+from plugin.scripting.editor_errors import failure_message
 from plugin.scripting.excel_xl import make_xl
 
 

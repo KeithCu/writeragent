@@ -13,21 +13,25 @@ import signal
 import pickle
 import subprocess
 import sys
+import threading
 import time
 from unittest.mock import MagicMock
 
 import pytest
 
+import plugin.scripting.ipc
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
     IpcPartialFrameTimeout,
     pack_pickle_frame,
+    parse_worker_stdout_frame,
     read_frame_payload,
     read_json_line,
     read_pickle_frame,
     read_pickle_frame_with_timeout,
     unpack_pickle_frame,
+    write_child_ipc_frame,
     write_json_line,
     write_packed_frame_with_timeout,
     write_pickle_frame,
@@ -1431,3 +1435,54 @@ def test_exchange_tool_call_win32_drain_drops_raw_stdin_tail(monkeypatch):
                 closer.close()
             except OSError:
                 pass
+
+
+def test_parse_worker_stdout_frame_rejects_non_dict():
+    payload = pickle.dumps([1], protocol=5)
+    with pytest.raises(RuntimeError, match="Worker response must be a dict"):
+        parse_worker_stdout_frame(payload)
+
+
+def test_parse_worker_stdout_frame_returns_empty_dict():
+    payload = pickle.dumps({}, protocol=5)
+    assert parse_worker_stdout_frame(payload) == {}
+
+
+def test_parse_worker_stdout_frame_empty_bytes_raise():
+    with pytest.raises(ValueError):
+        parse_worker_stdout_frame(b"")
+
+
+def test_write_child_ipc_frame_holds_tool_call_lock():
+    class GateStream:
+        def __init__(self, buf: io.BytesIO) -> None:
+            self.buf = buf
+            self.first_write_entered = threading.Event()
+            self.release_write = threading.Event()
+
+        def write(self, b: bytes) -> int:
+            if not self.first_write_entered.is_set():
+                self.first_write_entered.set()
+                self.release_write.wait(timeout=5.0)
+            return self.buf.write(b)
+
+        def flush(self) -> None:
+            self.buf.flush()
+
+    buf = io.BytesIO()
+    stream = GateStream(buf)
+    msg = {"status": "ok", "value": 42}
+    t = threading.Thread(target=lambda: write_child_ipc_frame(stream, msg))
+    t.start()
+    try:
+        assert stream.first_write_entered.wait(timeout=2.0)
+        assert plugin.scripting.ipc._tool_call_lock.acquire(blocking=False) is False
+    finally:
+        stream.release_write.set()
+        t.join(timeout=2.0)
+
+    buf.seek(0)
+    payload = read_frame_payload(buf)
+    assert payload is not None
+    assert parse_worker_stdout_frame(payload) == msg
+

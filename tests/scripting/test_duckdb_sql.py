@@ -1120,7 +1120,10 @@ def test_host_duckdb_sql_exports_and_constants():
     from plugin.scripting import duckdb_sql as host_duckdb
 
     assert host_duckdb.MAX_TABLE_ROWS == MAX_TABLE_ROWS
-    assert str(MAX_TABLE_ROWS) in host_duckdb._SQL_ROW_CAP_NOTE
+    templates = host_duckdb.get_sql_script_templates()
+    assert str(MAX_TABLE_ROWS) in templates["query_folder_sql"]
+    assert str(MAX_TABLE_ROWS) in templates["query_sheet_sql"]
+    assert "MAX_TABLE_ROWS" in templates["query_folder_sql"]
     assert "SqlError" in host_duckdb._SQL_VENV_EXPORTS
 
 

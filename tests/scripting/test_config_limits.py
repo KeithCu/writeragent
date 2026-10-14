@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.errors import ConfigError
 from plugin.scripting.config_limits import (
     configured_python_exec_timeout,
     configured_python_max_data_cells,
@@ -70,6 +71,50 @@ def test_configured_python_exec_timeout(mock_get):
 def test_configured_python_exec_timeout_clamps_legacy_high(mock_get):
     # Above schema max (600) but within DEAL_MAX_ARGV (4096) so @deal.pre on _clamp_timeout still runs.
     assert configured_python_exec_timeout() == 600
+
+
+@patch("plugin.framework.config_schema._resolve_default", side_effect=ConfigError("no schema default"))
+@patch("plugin.framework.config.get_config_int", side_effect=ConfigError("read failed"))
+def test_configured_python_exec_timeout_failed_read_uses_default_not_min(mock_get, mock_resolve_default):
+    """Failed read uses the schema/fallback default, not the 1s floor.
+
+    The _resolve_default patch is not used by the fixed function. It is what
+    makes get_config_int_safe return 0 if the function goes back to that helper.
+    In this checkout the manifest is present, so without this patch the old
+    helper still returns 10 and the assertion would pass on the bug.
+    """
+    assert python_exec_timeout_default() != python_exec_timeout_min()
+    assert configured_python_exec_timeout() == python_exec_timeout_default()
+    mock_get.assert_called_once_with("scripting.python_exec_timeout")
+    assert mock_resolve_default.call_count == 0
+
+
+@patch("plugin.framework.config.get_config_int", return_value=0)
+def test_configured_python_exec_timeout_stored_zero_clamps_to_min(mock_get):
+    assert configured_python_exec_timeout() == python_exec_timeout_min()
+    mock_get.assert_called_once_with("scripting.python_exec_timeout")
+
+
+def test_schema_int_rejects_bool():
+    """A YAML bool must take the non-int path. bool is a subclass of int."""
+    import plugin.scripting.config_limits as cl
+
+    def _bool_field(field_name: str, *, required: bool = False) -> dict[str, object]:
+        del field_name, required
+        return {"default": True, "min": False}
+
+    original = cl._scripting_schema_field
+    cl._schema_int.cache_clear()
+    cl._scripting_schema_field = _bool_field
+    try:
+        assert cl._schema_int("bool_probe", "default", fallback=10) == 10
+        assert type(cl._schema_int("bool_probe", "default", fallback=10)) is int
+        with pytest.raises(RuntimeError, match=r"bool_probe\.min must be int"):
+            cl._schema_int("bool_probe", "min")
+    finally:
+        cl._scripting_schema_field = original
+        cl._schema_int.cache_clear()
+        original.cache_clear()
 
 
 def test_run_venv_python_script_schema_has_no_timeout_sec():

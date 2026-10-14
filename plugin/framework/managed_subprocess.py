@@ -4,9 +4,10 @@
 """Shared managed-subprocess bottom layer.
 
 Provides explicit start, environment merging, thread-guard refusal, bounded stderr,
-tree kill, reaping, and registered shutdown.
-
-ManagedSubprocess.run is one-shot subprocess.run plus Windows creation flags and does not drain, register, or merge an environment.
+tree kill, reaping, and registered shutdown. Stderr can be subprocess.DEVNULL (no drain),
+and registry membership and start-error wrapping are optional. `raw_spawn=True` is a pass-through
+Popen for short-lived children, and ManagedSubprocess.run is a pass-through subprocess.run.
+Worker start, stderr drain, tree kill, and shutdown_all stay the default.
 """
 
 from __future__ import annotations
@@ -43,8 +44,13 @@ _RealPopen = subprocess.Popen
 class ManagedSubprocess:
     """A managed child process providing explicit start, safe shutdown, and stderr tailing.
 
+    The default constructor is the worker (pipes, drain, registry, close()).
+    raw_spawn=True is the TTS path and does not do those things. Callers of raw mode
+    own stop and reap. run does not create an instance.
     Callers own the stdout and stdin pipes (e.g. for JSON-RPC or custom framing).
     This layer handles environment merging, process-tree killing, and cleanup.
+    These knobs are per instance; defaults match the pre-Harper spawn (explicit merged env,
+    POSIX start_new_session, stderr pipe + drain, registry, wrapped start errors).
     `drain_stderr`, `register`, and `log_start_failure` default to the worker spawn (stderr drain, `shutdown_all` registry, start failures logged and wrapped in `RuntimeError`).
     """
 
@@ -60,8 +66,18 @@ class ManagedSubprocess:
     _stderr_name: str | None
     _label: str
     _drain_stderr: bool
+    _inherit_env: bool
+    _new_session: bool
+    _stderr: int
     _register: bool
     _log_start_failure: bool
+    _raw_spawn: bool
+    _raw_stdin: Any
+    _raw_stdout: Any
+    _raw_stderr: Any
+    _raw_text: bool
+    _raw_encoding: str | None
+    _raw_errors: str | None
     _proc: Any | None
     _stderr_drain: StderrTail | None
     _reaper_passes: int
@@ -84,13 +100,34 @@ class ManagedSubprocess:
         stderr_name: str | None = None,
         label: str | None = None,
         drain_stderr: bool = True,
+        inherit_env: bool = False,
+        new_session: bool = True,
+        stderr: Any = None,
         register: bool = True,
         log_start_failure: bool = True,
+        raw_spawn: bool = False,
+        stdin: Any = None,
+        stdout: Any = None,
+        text: bool = False,
+        encoding: str | None = None,
+        errors: str | None = None,
     ) -> None:
+        if inherit_env and (env is not None or base_env is not None or scrub_env):
+            raise ValueError("inherit_env cannot be combined with env, base_env, or scrub_env")
         if not drain_stderr and (stderr_tail_chars is not None or stderr_name is not None):
             raise ValueError(
                 "drain_stderr=False does not take stderr_tail_chars or stderr_name"
             )
+        if not raw_spawn:
+            if stderr is None:
+                worker_stderr = subprocess.PIPE
+            elif stderr == subprocess.PIPE or stderr == subprocess.DEVNULL:
+                worker_stderr = stderr
+            else:
+                raise ValueError("stderr must be subprocess.PIPE or subprocess.DEVNULL")
+            self._stderr = worker_stderr
+        else:
+            self._stderr = subprocess.PIPE
         self._cmd_line = cmd_line
         self._cwd = cwd
         self._env = env
@@ -103,8 +140,17 @@ class ManagedSubprocess:
         self._stderr_name = stderr_name
         self._label = label if label else "Managed subprocess"
         self._drain_stderr = drain_stderr
+        self._inherit_env = inherit_env
+        self._new_session = new_session
         self._register = register
         self._log_start_failure = log_start_failure
+        self._raw_spawn = raw_spawn
+        self._raw_stdin = stdin
+        self._raw_stdout = stdout
+        self._raw_stderr = stderr
+        self._raw_text = text
+        self._raw_encoding = encoding
+        self._raw_errors = errors
         self._reaper_passes = 0
         self._stdio_closed = False
         self._proc = None
@@ -281,30 +327,42 @@ class ManagedSubprocess:
         return self._proc is not None and self._proc.poll() is None
 
     def start(self) -> None:
-        """Spawn the child process. Raises RuntimeError if already running, closed, or reused."""
+        """Spawn the child process.
+
+        Worker path is unchanged (pipes, drain, registry). In raw_spawn mode,
+        Popen runs with requested stdio and environment; OSError propagates.
+        A second start raises RuntimeError.
+        """
         with self._lock:
             # Single-use policy: a ManagedSubprocess cannot be respawned or restarted after exit/close.
             if self._closed or self._proc is not None:
                 raise RuntimeError("ManagedSubprocess is single-use")
 
+            if self._raw_spawn:
+                self._start_raw_locked()
+                return
+
             if self._thread_guard:
                 self._thread_guard()
 
-            # Environment merge:
-            # 1. merged = dict(os.environ) when base_env is None, else merged = dict(base_env).
-            # 2. If scrub_env is true, merged = scrub_subprocess_env(merged).
-            # 3. If self._env is non-empty, merged.update(self._env).
-            if self._base_env is None:
-                merged_env = dict(os.environ)
+            if self._inherit_env:
+                merged_env = None
             else:
-                merged_env = dict(self._base_env)
-            if self._scrub_env:
-                merged_env = scrub_subprocess_env(merged_env)
-            if self._env:
-                merged_env.update(self._env)
+                # Environment merge:
+                # 1. merged = dict(os.environ) when base_env is None, else merged = dict(base_env).
+                # 2. If scrub_env is true, merged = scrub_subprocess_env(merged).
+                # 3. If self._env is non-empty, merged.update(self._env).
+                if self._base_env is None:
+                    merged_env = dict(os.environ)
+                else:
+                    merged_env = dict(self._base_env)
+                if self._scrub_env:
+                    merged_env = scrub_subprocess_env(merged_env)
+                if self._env:
+                    merged_env.update(self._env)
 
             popen_kw = get_subprocess_creationflags()
-            if sys.platform != "win32":
+            if self._new_session and sys.platform != "win32":
                 popen_kw["start_new_session"] = True
 
             cmd = (
@@ -329,14 +387,14 @@ class ManagedSubprocess:
                         cmd,
                         stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
+                        stderr=self._stderr,
                         env=merged_env,
                         cwd=self._cwd,
                         bufsize=0,
                         **popen_kw,
                     ),
                 )
-                if self._drain_stderr:
+                if self._stderr == subprocess.PIPE and self._drain_stderr:
                     drain_name = self._stderr_name if self._stderr_name is not None else f"managed-stderr-{proc.pid}"
                     drain_kwargs: dict[str, Any] = {"name": drain_name}
                     if self._stderr_tail_chars is not None:
@@ -345,6 +403,8 @@ class ManagedSubprocess:
                         proc.stderr,
                         **drain_kwargs,
                     )
+                else:
+                    drain = None
                 if self._optimize_pipes:
                     optimize_popen_pipes(proc)
                 self._proc = proc
@@ -376,35 +436,90 @@ class ManagedSubprocess:
                             pass
                 self._proc = None
                 self._stderr_drain = None
-                if not self._log_start_failure:
-                    raise
-                log.exception("Failed to start managed subprocess")
-                raise RuntimeError(f"Failed to start managed subprocess: {e}") from e
+                if self._log_start_failure:
+                    log.exception("Failed to start managed subprocess")
+                    raise RuntimeError(f"Failed to start managed subprocess: {e}") from e
+                raise
 
             if self._register:
                 _register_instance(self)
+
+    def _start_raw_locked(self) -> None:
+        # TTS stdio is DEVNULL or a pipe that communicate reads itself; a stderr
+        # drain would swallow Kokoro and Piper stderr; stop is a direct-child
+        # signal, not close(); start_new_session would detach players from the
+        # LibreOffice process group.
+        if self._command_wrapper is not None:
+            raise ValueError("raw_spawn does not take a command_wrapper")
+        if self._scrub_env:
+            raise ValueError("raw_spawn does not scrub env")
+        if self._optimize_pipes:
+            raise ValueError("raw_spawn does not optimize pipes")
+        if self._base_env is not None:
+            raise ValueError("raw_spawn does not merge base_env")
+        if self._stderr_tail_chars is not None or self._stderr_name is not None or not self._drain_stderr:
+            raise ValueError("raw_spawn does not drain stderr")
+
+        if self._thread_guard:
+            self._thread_guard()
+
+        proc = subprocess.Popen(
+            list(self._cmd_line),
+            stdin=self._raw_stdin,
+            stdout=self._raw_stdout,
+            stderr=self._raw_stderr,
+            text=self._raw_text,
+            encoding=self._raw_encoding,
+            errors=self._raw_errors,
+            env=self._env,
+            cwd=self._cwd,
+        )
+        self._proc = proc
 
     @staticmethod
     def run(
         args: list[str],
         *,
+        check: bool = False,
         capture_output: bool = False,
+        stdout: Any = None,
+        stderr: Any = None,
+        stdin: Any = None,
         timeout: float | None = None,
         env: dict[str, str] | None = None,
+        cwd: str | None = None,
         text: bool = False,
+        encoding: str | None = None,
+        errors: str | None = None,
     ) -> subprocess.CompletedProcess[Any]:
-        """One-shot subprocess.run with Windows creation flags from get_subprocess_creationflags.
+        """One-shot subprocess.run with no env merge, session, creation flags, drain, or registry.
 
-        No env merge, session, drain, or registry. TimeoutExpired and OSError propagate.
-        check is omitted, so a non-zero status is returned.
+        Timeouts and OSError propagate.
         """
+        if capture_output:
+            return subprocess.run(
+                args,
+                capture_output=True,
+                env=env,
+                cwd=cwd,
+                text=text,
+                encoding=encoding,
+                errors=errors,
+                timeout=timeout,
+                check=check,
+            )
         return subprocess.run(
             args,
-            capture_output=capture_output,
-            timeout=timeout,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
             env=env,
+            cwd=cwd,
             text=text,
-            **get_subprocess_creationflags(),
+            encoding=encoding,
+            errors=errors,
+            timeout=timeout,
+            check=check,
         )
 
     def unregister(self) -> None:

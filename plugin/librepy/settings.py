@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from plugin.chatbot.dialogs import TabListener, get_optional, load_writeragent_dialog_detail, msgbox, set_control_text, set_control_visible, translate_dialog
 from plugin.framework.uno_listeners import BaseActionListener
-from plugin.framework.i18n import _
+from plugin.framework.i18n import N_, _
 from plugin.framework.logging import init_logging
 from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener, VenvProbeProgressDialog
 
@@ -57,7 +57,11 @@ class _DownloadVecPackListener(BaseActionListener):
                 execute_on_main_thread(bind_downloaded_vec_on_main)
             return ok, ""
 
-        VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(probe, title=_("Cython Accelerator Download"))
+        VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(
+            probe,
+            title=N_("Cython Accelerator Download"),
+            append_log=True,
+        )
 
 
 def _scripting_field_specs() -> list[dict[str, Any]]:

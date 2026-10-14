@@ -286,7 +286,7 @@ Required for NumPy domain helpers, Vision OCR, and any `run_trusted_worker_actio
 | [`plugin/scripting/sheet_layout.py`](../../plugin/scripting/sheet_layout.py) | `extract_sheet_layout` (host client and venv child; no `venv_worker` import) |
 | [`plugin/scripting/trusted_action_registry.py`](../../plugin/scripting/trusted_action_registry.py) | Domain → venv dispatcher wiring |
 | [`plugin/scripting/venv/trusted_dispatch.py`](../../plugin/scripting/venv/trusted_dispatch.py) | Routes `run_trusted_action` to domain `run_*` |
-| [`plugin/scripting/venv/worker_heartbeat.py`](../../plugin/scripting/venv/worker_heartbeat.py) | Heartbeat frames (long jobs) |
+| [`plugin/scripting/venv/worker_heartbeat.py`](../../plugin/scripting/venv/worker_heartbeat.py) | Child heartbeat emitter and result-frame writer. `FRAME_HEARTBEAT`, `FRAME_RESULT`, and `parse_worker_stdout_frame` live in `ipc.py`. |
 | [`plugin/scripting/_lazy_venv.py`](../../plugin/scripting/_lazy_venv.py) | Lazy `plugin.scripting.*` → `plugin.scripting.venv.*` |
 | [`plugin/scripting/helper_domain.py`](../../plugin/scripting/helper_domain.py) | Shared helper-domain glue |
 | [`plugin/scripting/domain_registry.py`](../../plugin/scripting/domain_registry.py) | RPS fast-path, picker origins, post-venv routing |
@@ -685,7 +685,7 @@ Registered as `org.extension.librepy.Main` in [`extension-core/Jobs.xcu`](../ext
 
 **Recommended:** keep **`writeragent.json`** for both extensions ([`CONFIG_FILENAME`](../../plugin/framework/config.py)) so venv path, session mode, and timeouts are shared. Core owns **Python Settings** ([`plugin/librepy/settings.py`](../../plugin/librepy/settings.py): Python tab only; General/Image tabs hidden); WriterAgent Settings focus on LLM / AI keys.
 
-Shared Settings helpers (both OXTs): [`plugin/scripting/venv_probe_ui.py`](../../plugin/scripting/venv_probe_ui.py) (venv Test / download progress modal) and [`plugin/chatbot/settings_fields.py`](../../plugin/chatbot/settings_fields.py) (module.yaml field-spec build/apply). LibrePy keeps Python-only chrome and Cython-only download local; list new shared files in [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py). The Cython download probe passes `bind_host=False` and then `execute_on_main_thread` runs `ensure_native_binaries_on_path` plus `invalidate_host_cython_accelerator` (the worker must not mutate `sys.path` or accelerator globals). `open_librepy_settings` disposes the dialog if chrome or populate raises, the same try/finally as chat `SettingsDialog.show`.
+Shared Settings helpers (both OXTs): [`plugin/scripting/venv_probe_ui.py`](../../plugin/scripting/venv_probe_ui.py) (venv Test / download progress modal) and [`plugin/chatbot/settings_fields.py`](../../plugin/chatbot/settings_fields.py) (module.yaml field-spec build/apply). LibrePy keeps Python-only chrome and Cython-only download local; list new shared files in [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py). The Cython download probe passes `bind_host=False` and then `execute_on_main_thread` runs `ensure_native_binaries_on_path` plus `invalidate_host_cython_accelerator` (the worker must not mutate `sys.path` or accelerator globals). `open_librepy_settings` disposes the dialog if chrome or populate raises, the same try/finally as chat `SettingsDialog.show`. Progress UI parents with createPeer before execute(), download probes pass append_log=True so each on_display line accumulates, opening and result titles are N_() msgids translated once in the dialog, and Close stays disabled until the probe finishes.
 
 WriterAgent-only `module.yaml` settings keys can carry **`librepy_exclude: true`** (e.g. `scripting.ppt_master_data_path`). LibrePy manifest generation (`make manifest-core` / `generate_manifest.py --skip-writeragent-extension`) omits those keys from `_manifest_librepy.py` and from generated `SettingsDialog.xdl` page 3 controls.
 
@@ -1051,7 +1051,8 @@ flowchart LR
 | File | Role |
 |------|------|
 | [`plugin/scripting/editor_host.py`](../../plugin/scripting/editor_host.py) | Spawn pywebview child, session, theme |
-| [`plugin/scripting/editor_ipc.py`](../../plugin/scripting/editor_ipc.py) | Pipe framing, errors |
+| [`plugin/scripting/editor_ipc.py`](../../plugin/scripting/editor_ipc.py) | Pipe framing and session identity |
+| [`plugin/scripting/editor_errors.py`](../../plugin/scripting/editor_errors.py) | Msgbox failure text |
 | [`plugin/calc/python/editor.py`](../../plugin/calc/python/editor.py) | Edit Python in Cell… |
 | [`plugin/calc/python/xl_static_rewrite.py`](../../plugin/calc/python/xl_static_rewrite.py) | Optional save-time `xl("A1")` → `data` args (flag default off) |
 | [`plugin/calc/python/formula_edit.py`](../../plugin/calc/python/formula_edit.py) | Parse/rebuild `=PY()` formulas |

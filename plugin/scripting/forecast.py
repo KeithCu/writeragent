@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
+from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.client import run_forecast as client_run_forecast
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
@@ -71,8 +71,7 @@ _FORECAST_VENV_EXPORTS = frozenset(
     }
 )
 
-__getattr__ = make_getattr("forecast", _FORECAST_VENV_EXPORTS)
-install_lazy_dir(globals(), _FORECAST_VENV_EXPORTS)
+install_lazy_exports(globals(), "forecast", _FORECAST_VENV_EXPORTS)
 
 
 # --- Templates ---

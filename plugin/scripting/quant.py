@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
+from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
@@ -45,8 +45,7 @@ _QUANT_VENV_EXPORTS = frozenset(
     }
 )
 
-__getattr__ = make_getattr("quant", _QUANT_VENV_EXPORTS)
-install_lazy_dir(globals(), _QUANT_VENV_EXPORTS)
+install_lazy_exports(globals(), "quant", _QUANT_VENV_EXPORTS)
 
 
 # --- Templates ---

@@ -98,10 +98,7 @@
     if (nameLabel) {
       nameLabel.textContent = t("script_name_label", "Script name:");
     }
-    var attachLabel = document.getElementById("new-script-attach-label");
-    if (attachLabel) {
-      attachLabel.textContent = t("attach_to_document_label", "Attach to this document");
-    }
+    attachCheckboxLabel();
     var btnCreate = document.getElementById("btn-new-script-create");
     if (btnCreate) {
       btnCreate.textContent = t("create_label", "Create");
@@ -109,6 +106,27 @@
     var btnCancelModal = document.getElementById("btn-new-script-cancel");
     if (btnCancelModal) {
       btnCancelModal.textContent = t("cancel_label", "Cancel");
+    }
+  }
+
+  function attachCheckboxLabel() {
+    var attachLabel = document.getElementById("new-script-attach-label");
+    var attachCheck = document.getElementById("new-script-attach-check");
+    var text;
+    if (!documentAvailable) {
+      text = t("attach_unavailable_no_document", "Attach to this document (no document is open)");
+    } else if (documentStale) {
+      text = t("attach_unavailable_stale", "Attach to this document (this document changed)");
+    } else if (documentReadonly) {
+      text = t("attach_unavailable_readonly", "Attach to this document (this document is read-only)");
+    } else {
+      text = t("attach_to_document_label", "Attach to this document");
+    }
+    if (attachLabel) {
+      attachLabel.textContent = text;
+    }
+    if (attachCheck) {
+      attachCheck.title = text;
     }
   }
 
@@ -407,6 +425,7 @@
       }
       attachCheck.disabled = !canWriteDocument;
     }
+    attachCheckboxLabel();
     modal.classList.remove("toolbar-hidden");
     if (nameInput) {
       setTimeout(function() {

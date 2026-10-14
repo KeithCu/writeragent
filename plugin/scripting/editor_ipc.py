@@ -22,19 +22,14 @@ from typing import Any, IO, Mapping
 from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
     DEAL_MAX_TOKEN,
+    _profile,
     ascii_bounded,
     deal,
-)
-from plugin.scripting.editor_errors import (
-    _profile,
-    exception_traceback,
-    failure_detail,
-    failure_message,
 )
 from plugin.scripting.ipc import (
     _write_all,
     DEFAULT_MAX_PAYLOAD_BYTES,
-    IpcFrameError,
+    IpcPayloadSizeError,
     pack_pickle_frame,
     read_frame_payload,
     unpack_pickle_frame,
@@ -43,9 +38,6 @@ from plugin.scripting.ipc import (
 __all__ = [
     "EDITOR_DEFAULT_TITLE",
     "PARENT_TO_CHILD_TYPES",
-    "exception_traceback",
-    "failure_detail",
-    "failure_message",
     "message_type",
     "new_session_id",
     "normalize_target",
@@ -57,6 +49,10 @@ __all__ = [
     "write_message",
 ]
 
+# Same placeholder as <title> </title> in
+# plugin/contrib/scripting/assets/editor/index.html. The localized title
+# arrives on the load frame: editor_main sets window.title when msg["title"]
+# is truthy, and editor.js sets document.title from that field.
 EDITOR_DEFAULT_TITLE = " "
 
 # Queued by the editor child for poll_messages. ``closed`` is not here:
@@ -96,8 +92,10 @@ def write_message(stream: IO[bytes], message: dict[str, Any]) -> None:
     # crosshair: off
     try:
         frame = pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-    except IpcFrameError as exc:
-        raise ValueError("Editor message exceeds maximum payload size") from exc
+    except IpcPayloadSizeError as exc:
+        # pack_pickle_frame's message includes the byte count. A fixed
+        # sentence here dropped that count from str(exc) at the host dialog.
+        raise ValueError(str(exc)) from exc
     _write_all(stream, frame)
 
 
@@ -116,8 +114,12 @@ def _deal_ipc_dict_ok_pytest(msg: object) -> bool:
     # Editor IPC carries script source, doc URLs, and stderr. The old pre
     # capped every string at DEAL_MAX_TOKEN (64) and the dict at 32 keys, so
     # stamp_session raised PreContractError before it copied the message.
-    # A dict of any size is in domain; the body reads the keys it knows.
-    return isinstance(msg, dict)
+    # A Mapping of any size is in domain; the body reads the keys it knows.
+    # Mapping, not dict: the signatures are Mapping so dict[str, str] targets
+    # typecheck (pyright dict is invariant). A dict-only pre raised
+    # PreContractError for any other Mapping while LibreOffice, where deal is
+    # stubbed, accepted it. CrossHair stays type(msg) is dict.
+    return isinstance(msg, Mapping)
 
 
 def _deal_ipc_dict_ok_crosshair(msg: object, allow_nested: bool = True) -> bool:
@@ -131,21 +133,28 @@ def _deal_ipc_dict_ok_crosshair(msg: object, allow_nested: bool = True) -> bool:
     )
 
 
-_deal_ipc_dict_ok = _profile(_deal_ipc_dict_ok_pytest, _deal_ipc_dict_ok_crosshair)
+_deal_ipc_dict_ok = _profile(_deal_ipc_dict_ok_crosshair, _deal_ipc_dict_ok_pytest)
 
 
 @deal.pre(lambda target: target is None or _deal_ipc_dict_ok(target))
 def normalize_target(target: Mapping[str, Any] | None) -> dict[str, str]:
-    """Keep only string identity fields; drop empty values and UNO objects."""
+    """Copy ``_TARGET_KEYS`` whose values are non-empty strings.
+
+    Drop None, whitespace-only strings, and every non-str, including UNO
+    objects. Do not stringify. Empty input returns ``{}``.
+    """
     # crosshair: off  # nested IPC dict domain still combinatoric despite _deal_ipc_dict_ok (cover-all 33293627157: ~7m, 113k lines). Doable later with a constructor domain.
     if not target:
         return {}
     out: dict[str, str] = {}
     for key in _TARGET_KEYS:
         raw = target.get(key)
-        if raw is None:
+        # str() on a UNO object or other non-str used to land in
+        # target_identity_key. Callers build these fields as str; a non-str
+        # must not become a session id.
+        if not isinstance(raw, str):
             continue
-        text = str(raw).strip()
+        text = raw.strip()
         if text:
             out[key] = text
     return out
@@ -169,9 +178,11 @@ def target_from_load(msg: Mapping[str, Any]) -> dict[str, str]:
         if dest in target:
             continue
         value = msg.get(src)
-        if value is None:
+        # Same string-only rule as normalize_target. Aliases must not
+        # stringify a value the nested target just dropped.
+        if not isinstance(value, str):
             continue
-        text = str(value).strip()
+        text = value.strip()
         if text:
             target[dest] = text
     return target
@@ -215,14 +226,20 @@ def stamp_session(
     mode: str = "",
     target: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Copy *msg* and attach ``session_id``, ``mode``, and ``target`` (always)."""
+    """Copy *msg* and attach routing fields.
+
+    ``session_id`` is always set. ``target`` is always set to the normalized
+    identity dict, which may be empty. ``mode`` is set only when *mode* or
+    the copied message's ``mode`` is a non-empty string.
+    """
     # crosshair: off  # nested IPC dict copy/merge (cover-all 33293627157: ~11m, 157k lines). Doable later with a constructor domain.
     out = dict(msg)
     out["session_id"] = str(session_id or "")
     use_mode = str(mode or out.get("mode") or "")
     if use_mode:
         out["mode"] = use_mode
-    merged = dict(out.get("target") or {}) if isinstance(out.get("target"), dict) else {}
+    raw_target = out.get("target")
+    merged = dict(raw_target) if isinstance(raw_target, Mapping) else {}
     if target:
         merged.update(dict(target))
     out["target"] = normalize_target(merged)

@@ -75,11 +75,20 @@ log = logging.getLogger("writeragent.dialogs")
 # ── Simple message box ──────────────────────────────────────────────
 
 
-def msgbox(ctx: Any, title: Any, message: Any, *, box_type: int = 1) -> None:
+def msgbox(
+    ctx: Any,
+    title: Any,
+    message: Any,
+    *,
+    box_type: int = 1,
+    parent_window: Any | None = None,
+) -> None:
     """Show a message box.
 
     Args:
         box_type: LO message box type (1=INFO, 2=WARNING, 3=ERROR, 4=QUERY).
+        parent_window: When not None, that object is the createMessageBox parent
+            and get_desktop is not called; None keeps the current frame lookup.
 
     *message* is shown as given: callers translate catalog strings. Runtime text
     (tracebacks, exception text) through ``_()`` breaks the DEAL_MAX_MSGID contract.
@@ -88,12 +97,17 @@ def msgbox(ctx: Any, title: Any, message: Any, *, box_type: int = 1) -> None:
         log.info("MSGBOX (no ctx) - %s: %s", title, message)
         return
     try:
-        desktop = get_desktop(ctx)
-        frame = desktop.getCurrentFrame()
-        if frame is None:
-            log.info("MSGBOX (no frame) - %s: %s", title, message)
-            return
-        window = frame.getContainerWindow()
+        # A dialog inside execute() passes its peer. The frame container
+        # window sits under that modal dialog, so a validation box parented
+        # there can open behind it. None keeps the frame lookup.
+        window = parent_window
+        if window is None:
+            desktop = get_desktop(ctx)
+            frame = desktop.getCurrentFrame()
+            if frame is None:
+                log.info("MSGBOX (no frame) - %s: %s", title, message)
+                return
+            window = frame.getContainerWindow()
         smgr = ctx.getServiceManager()
         toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
         box = toolkit.createMessageBox(window, box_type, 1, _(title), str(message))  # OK button

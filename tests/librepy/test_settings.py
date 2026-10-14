@@ -165,14 +165,17 @@ def test_download_vec_pack_listener_runs_vec_only_download() -> None:
     probe_displays: list[str] = []
     titles: list[str] = []
     order: list[str] = []
+    captured_kwargs: dict[str, object] = {}
 
     class _FakeProgress:
         def __init__(self, ctx, parent_dlg=None):
             self._dlg = MagicMock()
 
-        def run_modal_probe(self, probe_fn, *, title=None):
+        def run_modal_probe(self, probe_fn, *, title=None, append_log=False, **_kwargs):
             if title is not None:
                 titles.append(title)
+            captured_kwargs["title"] = title
+            captured_kwargs["append_log"] = append_log
             # The real dialog runs probe_fn on a worker. This stand-in calls it
             # here so a direct sys.path mutation in the probe is visible.
             probe_fn(probe_displays.append, lambda _status: None)
@@ -204,17 +207,21 @@ def test_download_vec_pack_listener_runs_vec_only_download() -> None:
         listener.on_action_performed(None)
 
     assert titles and "Cython" in titles[0]
+    assert captured_kwargs.get("title") == "Cython Accelerator Download"
+    assert captured_kwargs.get("append_log") is True
     assert order == ["download", "hop", "ensure", "invalidate"]
 
 
 def test_download_vec_pack_listener_skips_bind_when_download_fails() -> None:
     order: list[str] = []
+    captured_kwargs: dict[str, object] = {}
 
     class _FakeProgress:
         def __init__(self, ctx, parent_dlg=None):
             pass
 
-        def run_modal_probe(self, probe_fn, *, title=None):
+        def run_modal_probe(self, probe_fn, *, title=None, append_log=False, **_kwargs):
+            captured_kwargs["append_log"] = append_log
             probe_fn(lambda _text: None, lambda _status: None)
 
     def fake_download(_on_display, _on_status, **kwargs):
@@ -233,17 +240,29 @@ def test_download_vec_pack_listener_skips_bind_when_download_fails() -> None:
         listener.on_action_performed(None)
 
     assert order == ["download"]
+    assert captured_kwargs.get("append_log") is True
 
 
 def test_venv_test_listener_ensures_downloaded_vec_on_path() -> None:
     fake_ctx = MagicMock()
     fake_dlg = MagicMock()
+    captured_titles: dict[str, object] = {}
 
     class _FakeProgress:
         def __init__(self, ctx, parent_dlg=None):
             pass
 
-        def run_modal_probe(self, probe_fn, *, title=None):
+        def run_modal_probe(
+            self,
+            probe_fn,
+            *,
+            title=None,
+            success_title=None,
+            failure_title=None,
+            append_log=False,
+        ):
+            captured_titles["success_title"] = success_title
+            captured_titles["failure_title"] = failure_title
             probe_fn(lambda _text: None, lambda _status: None)
             return True
 
@@ -259,6 +278,8 @@ def test_venv_test_listener_ensures_downloaded_vec_on_path() -> None:
 
     mock_ensure.assert_called_once()
     mock_status.assert_called_once_with(reload=True)
+    assert captured_titles.get("success_title") == "Venv OK"
+    assert captured_titles.get("failure_title") == "Venv check failed"
 
 
 def test_open_librepy_settings_disposes_when_chrome_raises() -> None:
@@ -386,12 +407,23 @@ def test_configure_librepy_settings_overrides_download_label() -> None:
 
 def test_librepy_venv_test_listener_skips_embeddings_and_audio() -> None:
     captured: dict[str, object] = {}
+    captured_titles: dict[str, object] = {}
 
     class _FakeProgress:
         def __init__(self, ctx, parent_dlg=None):
             pass
 
-        def run_modal_probe(self, probe_fn, *, title=None):
+        def run_modal_probe(
+            self,
+            probe_fn,
+            *,
+            title=None,
+            success_title=None,
+            failure_title=None,
+            append_log=False,
+        ):
+            captured_titles["success_title"] = success_title
+            captured_titles["failure_title"] = failure_title
             probe_fn(lambda _text: None, lambda _status: None)
             return True
 
@@ -413,3 +445,5 @@ def test_librepy_venv_test_listener_skips_embeddings_and_audio() -> None:
 
     assert captured.get("include_vector_search") is False
     assert captured.get("include_audio") is False
+    assert captured_titles.get("success_title") == "Venv OK"
+    assert captured_titles.get("failure_title") == "Venv check failed"

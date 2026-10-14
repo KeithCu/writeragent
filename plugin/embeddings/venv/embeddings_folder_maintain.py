@@ -14,7 +14,8 @@ from plugin.embeddings.embeddings_cache import _load_meta_object, clear_folder_c
 from plugin.embeddings.embeddings_fs import WriterFileEntry, chunk_to_index_row, guess_indexable_paths, indexable_chunks_from_path
 from plugin.embeddings.venv.embeddings_ingest_graph import ingest_paragraphs
 from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count, delete_paragraph_keys, ensure_schema, insert_paragraph_rows, rebuild_fts_corpus_index, model_slug
-from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_INTERVAL_S, EMBEDDINGS_SCHEMA_VERSION
+from plugin.embeddings.venv.heartbeat_throttle import HeartbeatThrottle
+from plugin.framework.constants import EMBEDDINGS_SCHEMA_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -22,30 +23,6 @@ MaintainMode = Literal["auto", "cold", "incremental"]
 SearchMode = Literal["fts", "embeddings", "hybrid"]
 
 __all__ = ["MaintainMode", "SearchMode", "maintain_folder_corpus", "maintain_folder_index"]
-
-
-class _HeartbeatThrottle:
-    _fn: Callable[[dict[str, Any]], None] | None
-    _last: float
-
-    def __init__(self, heartbeat_fn: Callable[[dict[str, Any]], None] | None) -> None:
-        self._fn = heartbeat_fn
-        self._last = 0.0
-
-    def ping(self, payload: dict[str, Any]) -> None:
-        if self._fn is None:
-            return
-        now = time.monotonic()
-        if now - self._last < EMBEDDINGS_HEARTBEAT_INTERVAL_S:
-            return
-        self._last = now
-        self._fn(payload)
-
-    def force(self, payload: dict[str, Any]) -> None:
-        if self._fn is None:
-            return
-        self._last = time.monotonic()
-        self._fn(payload)
 
 
 def _build_flags(search_mode: str) -> tuple[bool, bool]:
@@ -123,7 +100,7 @@ def _extract_file_chunks(entry: WriterFileEntry) -> tuple[int, list[Any] | None]
     return indexable_chunks_from_path(entry.path, doc_url=entry.url, file_mtime=entry.modified)
 
 
-def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileEntry], hb: _HeartbeatThrottle, *, build_fts: bool, build_vectors: bool, search_mode: str = "embeddings") -> dict[str, Any]:
+def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileEntry], hb: HeartbeatThrottle, *, build_fts: bool, build_vectors: bool, search_mode: str = "embeddings") -> dict[str, Any]:
     clear_folder_cache(listing_root)
     try:
         from plugin.embeddings.embeddings_cache import zvec_collection_path
@@ -175,7 +152,7 @@ def _cold_build(listing_root: str, embedding_model: str, files: list[WriterFileE
     return {"mode": "cold", "indexed_paragraphs": indexed, "files": total, "upserted": upserted, "row_count": row_count}
 
 
-def _incremental_refresh(listing_root: str, embedding_model: str, files: list[WriterFileEntry], hb: _HeartbeatThrottle, *, build_fts: bool, build_vectors: bool, search_mode: str = "embeddings") -> dict[str, Any]:
+def _incremental_refresh(listing_root: str, embedding_model: str, files: list[WriterFileEntry], hb: HeartbeatThrottle, *, build_fts: bool, build_vectors: bool, search_mode: str = "embeddings") -> dict[str, Any]:
     db_path = corpus_db_path(listing_root)
     indexed = 0
     deleted = 0
@@ -293,7 +270,7 @@ def maintain_folder_corpus(listing_root: str, *, embedding_model: str = "", sear
 
     maybe_upgrade_legacy_index(root)
     resolved_mode = _resolve_mode(root, model, mode, build_vectors=build_vectors, search_mode=search_mode)
-    hb = _HeartbeatThrottle(heartbeat_fn)
+    hb = HeartbeatThrottle(heartbeat_fn)
     hb.force({"phase": "start", "mode": resolved_mode, "listing_root": root, "search_mode": search_mode})
 
     backend = str(search_mode or "").strip().lower()

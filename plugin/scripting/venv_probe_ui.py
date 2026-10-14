@@ -17,10 +17,10 @@ from plugin.chatbot.dialogs import (
     set_control_text,
 )
 from plugin.framework.uno_listeners import BaseActionListener
-from plugin.framework.i18n import _
+from plugin.framework.i18n import N_, _
 from plugin.framework.queue_executor import post_to_main_thread
 from plugin.framework.thread_guard import on_main_thread
-from plugin.framework.uno_context import process_events_to_idle
+from plugin.framework.uno_context import get_desktop, get_toolkit, process_events_to_idle
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
@@ -29,21 +29,59 @@ log = logging.getLogger(__name__)
 ProbeFn = Callable[[Callable[[str], None], Callable[[str], None]], tuple[bool, str]]
 
 
+def _dialog_parent_for_child(ctx: Any, parent_dlg: Any) -> Any:
+    """Resolve a parent window for a child modal opened above an executing dialog."""
+    if parent_dlg is not None:
+        try:
+            peer = parent_dlg.getPeer()
+            if peer is not None:
+                return peer
+        except Exception:
+            log.debug("parent_dlg.getPeer failed for child modal", exc_info=True)
+    try:
+        desktop = get_desktop(ctx)
+        frame = desktop.getCurrentFrame() if desktop else None
+        if frame is not None:
+            return frame.getContainerWindow()
+    except Exception:
+        log.debug("getCurrentFrame parent fallback failed for child modal", exc_info=True)
+    return None
+
+
 class VenvProbeProgressDialog:
     """Modal progress window for Settings → Python Test (probe runs in a worker thread)."""
 
     _ctx: Any
     _parent_dlg: Any
     _dlg: Any
+    _append_log: bool
+    _log_parts: list[str]
+    _pumping: bool
 
     def __init__(self, ctx: Any, parent_dlg: Any = None) -> None:
         self._ctx = ctx
         self._parent_dlg = parent_dlg
         self._dlg = None
+        self._append_log = False
+        self._log_parts = []
+        self._pumping = False
 
-    def run_modal_probe(self, probe_fn: ProbeFn, *, title: str | None = None) -> None:
+    def run_modal_probe(
+        self,
+        probe_fn: ProbeFn,
+        *,
+        title: str | None = None,
+        success_title: str | None = None,
+        failure_title: str | None = None,
+        append_log: bool = False,
+    ) -> None:
         """Show a modal dialog and run *probe_fn(on_display, on_status)* in a worker."""
         self._create_dialog(title=title)
+        self._append_log = append_log
+        self._log_parts = []
+        dlg = self._dlg
+        if dlg is None:
+            return
 
         def on_display(text: str) -> None:
             post_to_main_thread(lambda body=text: self.set_display(body))
@@ -56,7 +94,7 @@ class VenvProbeProgressDialog:
                 ok, _msg = probe_fn(on_display, on_status)
 
                 def finish_ui() -> None:
-                    self.finish(_("Venv OK") if ok else _("Venv check failed"), ok)
+                    self.finish(success_title if ok else failure_title, ok)
 
                 post_to_main_thread(finish_ui)
             except Exception as exc:
@@ -64,13 +102,11 @@ class VenvProbeProgressDialog:
 
                 def error_ui(exc: Exception = exc) -> None:
                     self.set_display(str(exc))
-                    self.finish(_("Venv check failed"), False)
+                    self.finish(failure_title, False)
 
                 post_to_main_thread(error_ui)
 
         run_in_background(work, name="settings-venv-test")
-        dlg = self._dlg
-        assert dlg is not None
         try:
             dlg.execute()
         finally:
@@ -88,7 +124,41 @@ class VenvProbeProgressDialog:
                 log.debug("Failed to set venv probe progress title", exc_info=True)
         btn_close = dlg.getControl("BtnClose")
         if btn_close is not None:
+            # Bugfix: Close was clickable during the probe, so execute() returned and
+            # _dispose() ran while the worker was still writing the download.
+            # The programmatic dialog passed enabled=False (5b3496e1). The XDL
+            # conversion (28bb44c1) dropped that and left the stock enabled button.
+            # finish() is what turns the button back on. The title bar stays closeable.
+            set_control_enabled(btn_close, False)
             btn_close.addActionListener(_VenvProbeCloseListener(self))
+        self._parent_progress_dialog(dlg)
+
+    def _parent_progress_dialog(self, dlg: Any) -> None:
+        """Parent this modal to Settings before execute().
+
+        Bugfix: the progress window was an unparented top-level dialog, so it
+        was not anchored to Settings. _parent_dlg was stored and never read.
+        The XDL conversion (28bb44c1) stopped calling createPeer. DialogProvider
+        does not create a peer; execute() then builds one with no parent.
+        setVisible(False) then createPeer matches LibreOffice
+        wizards/ui/UnoDialog.py createWindowPeer; executeDialog runs execute()
+        on that peer. A second createPeer throws, so an existing peer is left
+        alone. Failure here still leaves execute() able to open the dialog.
+        """
+        parent = _dialog_parent_for_child(self._ctx, self._parent_dlg)
+        try:
+            if dlg.getPeer() is not None:
+                return
+        except Exception:
+            log.debug("venv probe progress getPeer failed", exc_info=True)
+        try:
+            toolkit = get_toolkit(self._ctx)
+            if toolkit is None:
+                return
+            dlg.setVisible(False)
+            dlg.createPeer(toolkit, parent)
+        except Exception:
+            log.debug("venv probe progress createPeer failed", exc_info=True)
 
     def _pump_dialog(self) -> None:
         # finish() is posted from the probe worker via post_to_main_thread.
@@ -96,13 +166,34 @@ class VenvProbeProgressDialog:
         # finish() as a worker sink (uno-off-main-thread). A bare
         # if on_main_thread() is the documented sanitizer; pumping VCL
         # off-main is never correct.
-        if on_main_thread():
+        if not on_main_thread():
+            return
+        # Bugfix: processEventsToIdle from inside process_queue dispatches the
+        # next AsyncCallback. Download on_status fires every 64 KB, so the nested
+        # set_display -> pump chain grew with the queue. The flag lets the outer
+        # pump drain those callbacks without entering processEventsToIdle again.
+        if self._pumping:
+            return
+        self._pumping = True
+        try:
             process_events_to_idle(self._ctx)
+        finally:
+            self._pumping = False
 
     def set_display(self, text: str) -> None:
         if self._dlg is None:
             return
-        set_control_text(self._dlg.getControl("LogArea"), text)
+        # Bugfix: LogArea showed only the last download line.
+        # run_vec_pack_download and run_audio_download call on_display once per
+        # line. set_control_text replaces. The venv and PPT probes already pass
+        # a full body, so replace stays the default.
+        # append_log concatenates fragments on the dialog. The parts list is the
+        # source of truth so a failed getText cannot wipe earlier lines.
+        shown = text
+        if self._append_log:
+            self._log_parts.append(text)
+            shown = "".join(self._log_parts)
+        set_control_text(self._dlg.getControl("LogArea"), shown)
         self._pump_dialog()
 
     def set_status(self, text: str) -> None:
@@ -114,13 +205,19 @@ class VenvProbeProgressDialog:
         set_control_text(self._dlg.getControl("StatusLbl"), status)
         self._pump_dialog()
 
-    def finish(self, title: str, ok: bool) -> None:
+    def finish(self, title: str | None, ok: bool) -> None:
         if self._dlg is None:
             return
-        try:
-            self._dlg.getModel().Title = _(title)
-        except Exception:
-            log.debug("venv probe dialog title failed", exc_info=True)
+        # Bugfix: every caller ended as "Venv OK" / "Venv check failed", including
+        # the audio download, the Cython download, and the PPT-Master test.
+        # run_modal_probe always passed those two strings into finish, and finish
+        # wrote them over the title the caller had set.
+        # None keeps the opening title. A msgid is translated once here.
+        if title:
+            try:
+                self._dlg.getModel().Title = _(title)
+            except Exception:
+                log.debug("venv probe dialog title failed", exc_info=True)
         set_control_text(self._dlg.getControl("StatusLbl"), _("Done") if ok else _("Failed"))
         set_control_enabled(self._dlg.getControl("BtnClose"), True)
         self._pump_dialog()
@@ -196,4 +293,8 @@ class ScriptingVenvTestListener(BaseActionListener):
                 include_audio=self._include_audio,
             )
 
-        VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(probe)
+        VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(
+            probe,
+            success_title=N_("Venv OK"),
+            failure_title=N_("Venv check failed"),
+        )

@@ -78,9 +78,7 @@ def test_handle_request_maintain_heartbeat_without_stub_code(mock_dispatch) -> N
     return_value={"large": "x" * 17_000_000},
 )
 def test_handle_request_trusted_action_heartbeat_oversized_payload_writes_error_frame(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES
-    from plugin.scripting.venv.worker_heartbeat import parse_frame
-    from plugin.scripting.ipc import read_frame_payload
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
 
     stdout = BytesIO()
     res = _handle_request(
@@ -101,7 +99,7 @@ def test_handle_request_trusted_action_heartbeat_oversized_payload_writes_error_
     stdout.seek(0)
     raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     assert raw is not None
-    frame = parse_frame(raw)
+    frame = parse_worker_stdout_frame(raw)
     assert frame["id"] == "hb-oversize"
     assert frame["frame_type"] == "result"
     assert frame["status"] == "error"
@@ -113,9 +111,7 @@ def test_handle_request_trusted_action_heartbeat_oversized_payload_writes_error_
     side_effect=RuntimeError("Index corrupt"),
 )
 def test_handle_request_trusted_action_heartbeat_exception_writes_error_frame(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES
-    from plugin.scripting.venv.worker_heartbeat import parse_frame
-    from plugin.scripting.ipc import read_frame_payload
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
 
     stdout = BytesIO()
     res = _handle_request(
@@ -135,7 +131,7 @@ def test_handle_request_trusted_action_heartbeat_exception_writes_error_frame(mo
     stdout.seek(0)
     raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     assert raw is not None
-    frame = parse_frame(raw)
+    frame = parse_worker_stdout_frame(raw)
     assert frame["id"] == "hb-err"
     assert frame["frame_type"] == "result"
     assert frame["status"] == "error"
@@ -212,8 +208,7 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
     return_value={"helper": "describe_data"},
 )
 def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
-    from plugin.scripting.venv.worker_heartbeat import parse_frame
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
 
     stdout = BytesIO()
     res = _handle_request(
@@ -235,7 +230,7 @@ def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
     stdout.seek(0)
     raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     assert raw is not None
-    frame = parse_frame(raw)
+    frame = parse_worker_stdout_frame(raw)
     assert frame["frame_type"] == "result"
     assert frame["status"] == "ok"
     assert frame["id"] == "plain-hb"
@@ -248,8 +243,7 @@ def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
     side_effect=RuntimeError("bad spec"),
 )
 def test_allow_heartbeat_frames_non_heartbeat_error(mock_dispatch) -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
-    from plugin.scripting.venv.worker_heartbeat import parse_frame
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
 
     stdout = BytesIO()
     res = _handle_request(
@@ -269,7 +263,7 @@ def test_allow_heartbeat_frames_non_heartbeat_error(mock_dispatch) -> None:
     stdout.seek(0)
     raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     assert raw is not None
-    frame = parse_frame(raw)
+    frame = parse_worker_stdout_frame(raw)
     assert frame["frame_type"] == "result"
     assert frame["status"] == "error"
     assert "bad spec" in frame["message"]
@@ -277,8 +271,7 @@ def test_allow_heartbeat_frames_non_heartbeat_error(mock_dispatch) -> None:
 
 
 def test_allow_heartbeat_frames_unknown_domain() -> None:
-    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
-    from plugin.scripting.venv.worker_heartbeat import parse_frame
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
 
     stdout = BytesIO()
     res = _handle_request(
@@ -297,7 +290,7 @@ def test_allow_heartbeat_frames_unknown_domain() -> None:
     stdout.seek(0)
     raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     assert raw is not None
-    frame = parse_frame(raw)
+    frame = parse_worker_stdout_frame(raw)
     assert frame["status"] == "error"
     assert frame["frame_type"] == "result"
     assert "Unknown trusted action domain" in frame["message"]
@@ -359,4 +352,40 @@ def test_harness_library_import_does_not_claim_or_load_sandbox() -> None:
         timeout=30,
     )
     assert proc.returncode == 0, f"Child failed (stdout={proc.stdout}, stderr={proc.stderr})"
+
+
+def test_heartbeat_result_id_beats_resp_id() -> None:
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, parse_worker_stdout_frame, read_frame_payload
+
+    fake_err = {"id": "from-exception", "status": "error", "message": "boom", "traceback": "tb"}
+    with (
+        patch("plugin.scripting.venv.worker_harness._error_response", return_value=fake_err),
+        patch(
+            "plugin.embeddings.venv.embeddings_index_dispatch.dispatch_trusted",
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        stdout = BytesIO()
+        res = _handle_request(
+            {
+                "id": "req-1",
+                "action": "run_trusted_action",
+                "allow_heartbeat": True,
+                "data": {
+                    "domain": "embeddings_index",
+                    "helper": "maintain_folder_index",
+                    "params": {},
+                },
+            },
+            stdout=stdout,
+        )
+        assert res is None
+        stdout.seek(0)
+        raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+        assert raw is not None
+        frame = parse_worker_stdout_frame(raw)
+        assert frame["id"] == "req-1"
+        assert frame["frame_type"] == "result"
+        assert frame["status"] == "error"
+
 

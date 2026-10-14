@@ -28,8 +28,8 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ItemEvent, TextEvent
 
 from plugin.framework.errors import format_error_payload, UnoObjectError, ConfigValidationError
-from plugin.framework.uno_context import get_desktop, get_extension_url, menu_icon_asset_url
-from plugin.framework.i18n import _
+from plugin.framework.uno_context import get_extension_url, menu_icon_asset_url
+from plugin.framework.i18n import N_, _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int
 from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, get_tts_model, set_text_model
 from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control
@@ -855,25 +855,6 @@ class TestConnectionListener(BaseActionListener):
         run_in_background(_worker, name="settings-test-conn")
 
 
-def _dialog_parent_for_child(ctx: Any, parent_dlg: Any) -> Any:  # pyright: ignore[reportUnusedFunction]  # settings peer parent helper; used by tests
-    """Resolve a parent window for a child modal opened above an executing dialog."""
-    if parent_dlg is not None:
-        try:
-            peer = parent_dlg.getPeer()
-            if peer is not None:
-                return peer
-        except Exception:
-            log.debug("parent_dlg.getPeer failed for child modal", exc_info=True)
-    try:
-        desktop = get_desktop(ctx)
-        frame = desktop.getCurrentFrame() if desktop else None
-        if frame is not None:
-            return frame.getContainerWindow()
-    except Exception:
-        log.debug("getCurrentFrame parent fallback failed for child modal", exc_info=True)
-    return None
-
-
 class PptMasterDataTestListener(BaseActionListener):
     """Settings → Python: verify ppt-master skill tree at the path in the text field (saved or not)."""
 
@@ -893,7 +874,10 @@ class PptMasterDataTestListener(BaseActionListener):
         def probe(on_display: Callable[[str], None], on_status: Callable[[str], None] | None) -> Any:
             return probe_data_path_with_progress(raw, on_display, on_status=on_status)
 
-        VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(probe)
+        VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(
+            probe,
+            title=N_("PPT-Master"),
+        )
 
 
 def _dialog_endpoint_url(dlg: Any) -> str | None:
@@ -1896,7 +1880,9 @@ class DownloadAudioListener(BaseActionListener):
             return ok, ""
 
         VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(
-            probe, title=_("Audio Library Download")
+            probe,
+            title=N_("Audio Library Download"),
+            append_log=True,
         )
 
 

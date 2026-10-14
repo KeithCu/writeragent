@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
+from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.client import run_optimize as client_run_optimize
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
@@ -54,8 +54,7 @@ _OPTIMIZE_VENV_EXPORTS = frozenset(
     }
 )
 
-__getattr__ = make_getattr("optimize", _OPTIMIZE_VENV_EXPORTS)
-install_lazy_dir(globals(), _OPTIMIZE_VENV_EXPORTS)
+install_lazy_exports(globals(), "optimize", _OPTIMIZE_VENV_EXPORTS)
 
 
 # --- Templates ---

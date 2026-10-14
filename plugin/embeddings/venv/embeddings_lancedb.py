@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from plugin.embeddings.venv.heartbeat_throttle import HeartbeatThrottle
+
 log = logging.getLogger(__name__)
 
 try:
@@ -225,12 +227,11 @@ def lancedb_hybrid_search(db_path: str, query_text: str, k: int, *, model_name: 
     return {"hits": hits, "backend": "lancedb"}
 
 
-def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: str = "auto", heartbeat_fn: Callable[[dict[str, Any]], None] | None = None, hb: Any | None = None) -> dict[str, Any]:
+def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: str = "auto", heartbeat_fn: Callable[[dict[str, Any]], None] | None = None, hb: HeartbeatThrottle | None = None) -> dict[str, Any]:
     """LanceDB specific folder maintain."""
 
     from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta, lancedb_collection_path
     from plugin.embeddings.embeddings_fs import guess_indexable_paths, indexable_chunks_from_path
-    from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_INTERVAL_S
 
     root = str(listing_root or "").strip()
     if not root:
@@ -247,30 +248,7 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
 
     coll_path = str(lancedb_collection_path(root, create_parent=True))
 
-    class _HB:
-        _fn: Callable[[dict[str, Any]], None] | None
-        _last: float
-
-        def __init__(self, fn: Callable[[dict[str, Any]], None] | None) -> None:
-            self._fn = fn
-            self._last = 0.0
-
-        def ping(self, p: dict[str, Any]) -> None:
-            if not self._fn:
-                return
-            now = time.monotonic()
-            if now - self._last < EMBEDDINGS_HEARTBEAT_INTERVAL_S:
-                return
-            self._last = now
-            self._fn(p)
-
-        def force(self, p: dict[str, Any]) -> None:
-            if not self._fn:
-                return
-            self._last = time.monotonic()
-            self._fn(p)
-
-    _hb = hb or _HB(heartbeat_fn)
+    _hb = hb or HeartbeatThrottle(heartbeat_fn)
 
     files = guess_indexable_paths(root)
     total = len(files)

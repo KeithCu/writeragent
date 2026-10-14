@@ -753,13 +753,16 @@ def test_ppt_master_data_test_uses_modal_probe() -> None:
     fake_dlg = MagicMock()
     probe_displays: list[str] = []
 
+    captured_titles: list[str | None] = []
+
     class _FakeProgress:
         def __init__(self, ctx, parent_dlg=None):
             order.append("progress_ctor")
             assert parent_dlg is fake_dlg
 
-        def run_modal_probe(self, probe_fn, *, title=None):
+        def run_modal_probe(self, probe_fn, *, title=None, **_kwargs):
             order.append("progress_run_modal")
+            captured_titles.append(title)
             probe_fn(probe_displays.append, None)
             return True
 
@@ -779,15 +782,35 @@ def test_ppt_master_data_test_uses_modal_probe() -> None:
 
     assert "progress_run_modal" in order
     assert any("SKILL.md" in text for text in probe_displays)
+    assert captured_titles == ["PPT-Master"]
 
 
-def test_dialog_parent_for_child_prefers_settings_peer() -> None:
-    from plugin.chatbot.dialog_views import _dialog_parent_for_child
+def test_download_audio_listener_appends_and_keeps_title() -> None:
+    fake_ctx = MagicMock()
+    fake_dlg = MagicMock()
+    captured_calls: list[dict[str, object]] = []
 
-    parent = MagicMock()
-    parent.getPeer.return_value = "settings-peer"
-    assert _dialog_parent_for_child(MagicMock(), parent) == "settings-peer"
-    parent.getPeer.assert_called_once()
+    class _FakeProgress:
+        def __init__(self, ctx, parent_dlg=None):
+            assert parent_dlg is fake_dlg
+
+        def run_modal_probe(self, probe_fn, *, title=None, append_log=False, **_kwargs):
+            captured_calls.append({"title": title, "append_log": append_log})
+            probe_fn(lambda _text: None, lambda _status: None)
+            return True
+
+    from plugin.chatbot.dialog_views import DownloadAudioListener
+
+    listener = DownloadAudioListener(fake_ctx, fake_dlg)
+    with (
+        patch("plugin.chatbot.dialog_views.VenvProbeProgressDialog", _FakeProgress),
+        patch("plugin.scripting.native_binaries.run_audio_download", return_value=True),
+    ):
+        listener.on_action_performed(MagicMock())
+
+    assert len(captured_calls) == 1
+    assert captured_calls[0]["title"] == "Audio Library Download"
+    assert captured_calls[0]["append_log"] is True
 
 
 def test_populate_fields_skips_one_missing_control() -> None:
