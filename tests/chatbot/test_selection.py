@@ -115,11 +115,8 @@ def test_stream_completion_tasks_defers_next_task():
             # Simulate finishing later
             def finish():
                 completed_prompts.append(prompt)
-                # the issue was: release_drain_owner restores the previous owner if passed one, or None if depth is 0.
-                # Actually, release_drain_owner(None) on an acquired lock will make active_owner None when depth hits 0.
-                # However, acquire_drain_owner("stream") returns the PREVIOUS owner, which in our test might be None.
-                # But if we just call it, the depth increases. Wait, we call it in the fake. Let's trace.
-                release_drain_owner(None)
+                # release_drain_owner() decrements depth and clears active_owner when depth hits 0.
+                release_drain_owner()
                 on_done()
 
             # Store finish so we can call it after stream_completion returns
@@ -182,7 +179,7 @@ def test_stream_completion_tasks_waits_for_existing_owner():
 
             def finish():
                 completed_prompts.append(prompt)
-                release_drain_owner(None)
+                release_drain_owner()
                 on_done()
 
             ctx_arg.finish_callbacks.append(finish)
@@ -215,7 +212,7 @@ def test_stream_completion_tasks_waits_for_existing_owner():
                 assert len(ctx.finish_callbacks) == 0 # no new stream started
 
                 # Release the pump
-                release_drain_owner(None)
+                release_drain_owner()
 
                 # the resched was an add_drain_idle_callback. let's fire it.
                 _notify_drain_idle()

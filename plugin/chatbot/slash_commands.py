@@ -139,7 +139,7 @@ def load_slash_lru() -> list[str]:
 
 
 def record_slash_lru(name: str) -> None:
-    from plugin.chatbot.config_ui_helpers import update_lru_history
+    from plugin.framework.model_lru import update_lru_history
 
     clean = (name or "").lstrip("/").strip().lower()
     if not clean:

@@ -5,15 +5,15 @@ import threading
 import pytest
 from plugin.framework.async_drain_guard import (
     NestedDrainOwnerError,
+    acquire_drain_owner,
     add_drain_idle_callback,
     drain_owner_scope,
-    get_active_drain_owner,
     get_drain_depth,
     get_drain_owner,
-    get_suppressed_vcl_count,
     get_suppressed_vcl_pump_count,
     is_vcl_pump_allowed,
     note_suppressed_vcl_pump,
+    release_drain_owner,
     reset_sentry_state,
     reset_suppressed_vcl_pump_count,
 )
@@ -30,18 +30,15 @@ def _clean_sentry_state():
 
 def test_async_drain_guard_single_owner():
     assert get_drain_owner() is None
-    assert get_active_drain_owner() is None
     assert get_drain_depth() == 0
     assert is_vcl_pump_allowed() is True
 
     with drain_owner_scope("chat_stream"):
         assert get_drain_owner() == "chat_stream"
-        assert get_active_drain_owner() == "chat_stream"
         assert get_drain_depth() == 1
         assert is_vcl_pump_allowed() is True
 
     assert get_drain_owner() is None
-    assert get_active_drain_owner() is None
     assert get_drain_depth() == 0
 
 
@@ -64,13 +61,29 @@ def test_async_drain_guard_reentrant_same_owner_updates_depth():
         assert is_vcl_pump_allowed() is True
 
 
+def test_acquire_release_drain_owner_overlap_and_depth():
+    acquire_drain_owner("stream")
+    acquire_drain_owner("stream")
+    assert get_drain_owner() == "stream"
+    assert get_drain_depth() == 2
+
+    release_drain_owner()
+    assert get_drain_owner() == "stream"
+    assert get_drain_depth() == 1
+
+    with pytest.raises(NestedDrainOwnerError, match="Nested UI drain attempted by 'mcp'"):
+        acquire_drain_owner("mcp")
+
+    release_drain_owner()
+    assert get_drain_owner() is None
+    assert get_drain_depth() == 0
+
+
 def test_async_drain_guard_suppressed_vcl_counter():
     assert get_suppressed_vcl_pump_count() == 0
-    assert get_suppressed_vcl_count() == 0
     note_suppressed_vcl_pump("chat_stream")
     note_suppressed_vcl_pump()
     assert get_suppressed_vcl_pump_count() == 2
-    assert get_suppressed_vcl_count() == 2
 
     reset_suppressed_vcl_pump_count()
     assert get_suppressed_vcl_pump_count() == 0

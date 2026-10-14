@@ -4,12 +4,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """One warm Kokoro worker process, with an idle reaper.
 
-The child is ``plugin.framework.process_worker.BaseProcessWorker``. The
-20-second model load is that worker's ready timeout, not a second spawn
-loop. This pool keeps the cancel token and the single lazy slot: Stop
-during the handshake must see the object before ``respawn`` blocks.
-Kokoro and soundfile live in the configured venv, not in LibreOffice's
-runtime.
+The child is a ``ManagedSubprocess`` plus the Pickle 5 handshake in
+``_KokoroWorker``. The 20-second model load is that worker's ready timeout,
+not a second spawn loop. This pool keeps the cancel token and the single
+lazy slot: Stop during the handshake must see the object before ``respawn``
+blocks. Kokoro and soundfile live in the configured venv, not in
+LibreOffice's runtime.
 
 The process stays up across sentences so CPU Kokoro does not reload ONNX and
 the voices file every clip. ``cancel_inflight`` kills it while a job is
@@ -24,13 +24,20 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import threading
 import time
 from typing import Any, Callable
 
-from plugin.framework.process_worker import BaseProcessWorker
+from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.worker_pool import run_in_background
-from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env
+from plugin.scripting.ipc import (
+    IpcPartialFrameTimeout,
+    pack_pickle_frame,
+    read_pickle_frame_with_timeout,
+    write_packed_frame_with_timeout,
+)
+from plugin.scripting.sandbox import optimize_popen_pipes, resolve_venv_python, scrub_subprocess_env
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +61,149 @@ def _child_env() -> dict[str, str]:
     # breaks venv imports). Put it back as only the extension root.
     env["PYTHONPATH"] = root
     return env
+
+
+class _KokoroWorker:
+    """Subprocess worker executing Kokoro jobs over stdio Pickle 5 framing."""
+
+    python_executable: str
+    script_path: str
+    _env: dict[str, str] | None
+    _ready_timeout_sec: float
+    _managed: ManagedSubprocess
+    _shutting_down: bool
+
+    def __init__(
+        self,
+        python_executable: str,
+        script_path: str,
+        *,
+        env: dict[str, str] | None = None,
+        ready_timeout_sec: float = _SPAWN_READY_TIMEOUT_SEC,
+        **_extra: Any,
+    ) -> None:
+        self.python_executable = python_executable
+        self.script_path = script_path
+        self._env = env
+        self._ready_timeout_sec = ready_timeout_sec
+        self._managed = ManagedSubprocess(
+            [python_executable, script_path],
+            base_env=env,
+            command_wrapper=None,
+        )
+        self._shutting_down = False
+
+    def respawn(self) -> None:
+        if self._shutting_down:
+            return
+        try:
+            self._managed.start()
+        except Exception as exc:
+            log.error("Failed to start Kokoro worker: %s", exc)
+            self.kill()
+            return
+
+        if self._shutting_down:
+            self.kill()
+            return
+
+        proc = self._managed.popen
+        if proc is not None:
+            optimize_popen_pipes(proc)
+
+        stdout = self._managed.stdout
+        if stdout is None:
+            self.kill()
+            return
+
+        try:
+            ready_data = read_pickle_frame_with_timeout(
+                stdout,
+                self._ready_timeout_sec,
+                is_alive=self.is_alive,
+                require_dict=True,
+            )
+            if not isinstance(ready_data, dict) or ready_data.get("status") != "ready":
+                log.error("Kokoro spawn handshake was not ready: %r", ready_data)
+                self.kill()
+                return
+            log.info(
+                "Kokoro worker spawned (pid=%s, status=%s)",
+                ready_data.get("pid", getattr(proc, "pid", None)),
+                ready_data.get("status"),
+            )
+        except Exception as exc:
+            log.error("Kokoro spawn handshake timed out or failed: %s", exc)
+            self.kill()
+
+    def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
+        stdin = self._managed.stdin
+        stdout = self._managed.stdout
+        if stdin is None or stdout is None or not self.is_alive():
+            self.kill()
+            return {
+                "status": "error",
+                "code": "WORKER_CRASHED",
+                "error": "Kokoro worker has no stdio pipes or is not alive.",
+                "message": "Kokoro worker has no stdio pipes or is not alive.",
+            }
+
+        start_time = time.monotonic()
+        try:
+            frame = pack_pickle_frame(payload)
+        except Exception as exc:
+            return {
+                "status": "error",
+                "code": "REQUEST_NOT_SERIALIZABLE",
+                "error": str(exc),
+            }
+
+        try:
+            write_packed_frame_with_timeout(stdin, frame, timeout_sec, is_alive=self.is_alive)
+        except subprocess.TimeoutExpired:
+            self.kill()
+            msg = f"Execution exceeded maximum timeout of {timeout_sec} seconds."
+            return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": msg, "message": msg}
+        except Exception as exc:
+            self.kill()
+            msg = f"Failed to send request to Kokoro: {exc}"
+            return {"status": "error", "code": "WORKER_PIPE_BROKEN", "error": msg}
+
+        elapsed = time.monotonic() - start_time
+        remaining = timeout_sec - elapsed
+        if remaining <= 0:
+            self.kill()
+            msg = f"Execution exceeded maximum timeout of {timeout_sec} seconds."
+            return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": msg, "message": msg}
+
+        try:
+            resp = read_pickle_frame_with_timeout(stdout, remaining, is_alive=self.is_alive, require_dict=True)
+            if not isinstance(resp, dict):
+                self.kill()
+                msg = "No response returned from Kokoro."
+                return {"status": "error", "code": "EMPTY_RESPONSE", "error": msg}
+            return resp
+        except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
+            self.kill()
+            msg = f"Execution exceeded maximum timeout of {timeout_sec} seconds."
+            return {"status": "error", "code": "EXECUTION_TIMEOUT", "error": msg, "message": msg}
+        except Exception as exc:
+            self.kill()
+            msg = f"Kokoro error: {exc}"
+            return {"status": "error", "code": "WORKER_CRASHED", "error": msg, "message": msg}
+
+    def is_alive(self) -> bool:
+        return self._managed.is_alive()
+
+    def is_shutting_down(self) -> bool:
+        return self._shutting_down
+
+    def request_shutdown(self) -> None:
+        self._shutting_down = True
+
+    def kill(self) -> bool:
+        self._managed.close()
+        return True
 
 
 class KokoroProcessPool:
@@ -83,7 +233,7 @@ class KokoroProcessPool:
         self.idle_worker_ttl_sec = idle_worker_ttl_sec
         self.job_timeout_sec = job_timeout_sec
         self.num_workers = 1
-        self._worker: BaseProcessWorker | None = None
+        self._worker: _KokoroWorker | None = None
         self._lock = threading.Lock()
         self._inflight = False
         # Identifies the execute() call that set ``_inflight``. cancel() must
@@ -147,7 +297,12 @@ class KokoroProcessPool:
                     self._worker = None
         worker = existing if reuse else None
         if worker is None:
-            spawned = BaseProcessWorker(1, self.script_path, worker_name="Kokoro", executable=self.python_executable, env=_child_env(), ready_timeout_sec=_SPAWN_READY_TIMEOUT_SEC, start=False)
+            spawned = _KokoroWorker(
+                self.python_executable,
+                self.script_path,
+                env=_child_env(),
+                ready_timeout_sec=_SPAWN_READY_TIMEOUT_SEC,
+            )
             with self._lock:
                 # Cancel during the gap before Popen: do not start the child.
                 if self._shutdown or self._exec_token is not token:
@@ -256,7 +411,7 @@ class KokoroProcessPool:
         log.info("Kokoro worker idle for >%.0fs; releasing the ONNX model", ttl)
         self._retire_worker(worker)
 
-    def _retire_worker(self, worker: BaseProcessWorker) -> None:
+    def _retire_worker(self, worker: _KokoroWorker) -> None:
         """Signal *worker*. A child that survives is abandoned by the supervisor.
 
         The slot drops that child, so the next job may spawn. The module

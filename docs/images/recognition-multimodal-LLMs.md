@@ -46,7 +46,7 @@ Status as of PR #364 and related multimodal work. Code paths below are live; do 
 
 | Item | Location | Notes |
 |------|----------|-------|
-| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` (explicit False wins) → `DEFAULT_MODELS` `ModelCapability.VISION` (defaults only) → OpenRouter/Together `input_modalities`. A process-cache miss GETs `/v1/models` once and persists yes or no only when the row listed `input_modalities`. A missing field is not stored as no. Ollama uses `POST /api/show`. No name heuristics. |
+| `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` (explicit False wins) → `DEFAULT_MODELS` `ModelCapability.VISION` (defaults only) → OpenRouter/Together `input_modalities`. A process-cache miss GETs `/v1/models` once and persists yes or no only when the row listed `input_modalities`. A missing field is not stored as no. A non-dict `architecture` skips that row's modalities and does not fail the catalog. Ollama uses `POST /api/show`. No name heuristics. |
 | `set_native_vision_support(model_id, endpoint, supported)` | same | Persists to `vision_support_map` |
 | `query_ollama_model_capabilities` | same | Cached Ollama `/api/show` probe (shared cache also keeps runtime `num_ctx` for the #570 crash sentence; never trained `model_info["*.context_length"]`) |
 | Vision models in catalog | [`default_models.py`](../../plugin/framework/default_models.py) | e.g. Gemini 3.1 Flash Lite, Mistral Large 3 declare `ModelCapability.VISION` |

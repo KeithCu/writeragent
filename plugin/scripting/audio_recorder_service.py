@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.config import get_config_str
 from plugin.framework.worker_pool import BackgroundHandle, StderrTail, run_in_background, start_stderr_drain
+from plugin.framework.managed_subprocess import kill_process_tree
 from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
 if TYPE_CHECKING:
@@ -199,9 +200,7 @@ def _reap_recording_process(proc: subprocess.Popen[str], timeout_sec: float) -> 
         try:
             proc.wait(timeout=1.0)
         except subprocess.TimeoutExpired:
-            from plugin.scripting.venv_worker import _kill_process_tree
-
-            _kill_process_tree(proc)
+            kill_process_tree(proc)
             try:
                 proc.wait(timeout=2.0)
             except subprocess.TimeoutExpired:
@@ -509,15 +508,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
             if host.session.messages and host.session.messages[-1].get("role") == "user":
                 host.session.messages[-1]["content"] = combined
                 if getattr(host.session, "db", None):
-                    rows = host.session.db.get_messages()
-                    # Find the last user row and replace it
-                    for row in reversed(rows):
-                        if row.get("role") == "user":
-                            row["content"] = combined
-                            break
-                    else:
-                        rows.append({"role": "user", "content": combined})
-                    host.session.db.replace_messages(rows)
+                    host.session.db.update_last_user_content(combined)
             else:
                 host.session.add_user_message(combined)
             host._active_query_text = combined

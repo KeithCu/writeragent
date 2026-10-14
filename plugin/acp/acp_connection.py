@@ -26,17 +26,16 @@ from plugin.framework.thread_guard import background
 import json
 import logging
 import math
-import os
 import queue
 import subprocess
-import sys
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.worker_pool import BackgroundHandle, StderrTail, get_subprocess_creationflags, run_in_background, start_stderr_drain
+from plugin.framework.worker_pool import BackgroundHandle, StderrTail, run_in_background
+from plugin.framework.managed_subprocess import ManagedSubprocess, kill_process_tree
 
 log = logging.getLogger(__name__)
 
@@ -155,10 +154,8 @@ def _kill_acp_tree(proc: subprocess.Popen[bytes]) -> None:
     stdout, so ``readline`` never sees EOF. ``BufferedReader.close()`` does
     not unblock that read: it waits on the same lock ``readline`` holds.
     """
-    from plugin.scripting.venv_worker import _kill_process_tree
-
     try:
-        _kill_process_tree(proc)
+        kill_process_tree(proc)
     except Exception:
         log.debug("ACP process tree kill failed", exc_info=True)
         try:
@@ -182,12 +179,14 @@ class ACPConnection:
     _write_queue: queue.Queue[Any]
     _writer_thread: BackgroundHandle | None
     _last_inbound: float
+    _managed: ManagedSubprocess | None
 
     def __init__(self, cmd_line: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> None:
         self._cmd_line = cmd_line
         self._env = env
         self._cwd = cwd
         self._proc: subprocess.Popen[bytes] | None = None
+        self._managed = None
         self._lock = threading.Lock()
         self._request_id = 0
         self._pending: dict[Any, _Pending] = {}
@@ -206,23 +205,17 @@ class ACPConnection:
         """Spawn the ACP subprocess."""
         log.info(f"Spawning: {' '.join(self._cmd_line)}")
 
-        env = dict(os.environ)
-        if self._env:
-            env.update(self._env)
-
         from plugin.scripting.sandbox import wrap_command_for_sandbox
 
-        # preexec_fn=os.setsid runs Python between fork and exec. Another
-        # LibreOffice thread can hold a lock the child inherits, so the spawn
-        # deadlocks before exec. start_new_session asks the C spawn path to
-        # call setsid. The child is its own session, so killing that group
-        # does not signal LibreOffice. Windows has no start_new_session;
-        # taskkill /T covers the tree there.
-        popen_kw = get_subprocess_creationflags()
-        if sys.platform != "win32":
-            popen_kw["start_new_session"] = True
-        self._proc = cast("subprocess.Popen[bytes]", subprocess.Popen(wrap_command_for_sandbox(self._cmd_line), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd, **popen_kw))
-        self._stderr_drain = start_stderr_drain(self._proc.stderr, name=f"acp-stderr-{self._proc.pid}")
+        self._managed = ManagedSubprocess(
+            self._cmd_line,
+            env=self._env,
+            cwd=self._cwd,
+            command_wrapper=wrap_command_for_sandbox,
+        )
+        self._managed.start()
+        self._proc = self._managed.popen
+        self._stderr_drain = self._managed.stderr_tail
         self._running = True
         # One thread owns stdin for the life of the child. Request writes,
         # notifications, and the kill all go through it.
@@ -407,6 +400,8 @@ class ACPConnection:
                             proc.wait(timeout=3)
                         except Exception:
                             log.debug("ACP process wait failed", exc_info=True)
+                    if self._managed is not None:
+                        self._managed.unregister()
                     break
                 try:
                     stdin = item.proc.stdin if item.proc is not None else None

@@ -66,7 +66,14 @@ def test_provider_requires_api_key_contracts(provider: str | None) -> None:
     assert isinstance(provider_requires_slug_model_id(provider), bool)
 
 
-@given(api_key=st.text(min_size=1, max_size=50).map(lambda s: s.strip()).filter(lambda s: len(s) > 0 and not any(ord(c) < 32 for c in s)), style=st.sampled_from(["bearer", "x-api-key", "none"]))
+@given(
+    api_key=st.text(
+        alphabet=st.characters(min_codepoint=33, max_codepoint=126),
+        min_size=1,
+        max_size=50,
+    ),
+    style=st.sampled_from(["bearer", "x-api-key", "none"]),
+)
 def test_build_auth_headers_contracts(api_key: str, style: str) -> None:
     auth_info = {"api_key": api_key, "header_style": style, "headers": {"custom-header": "value"}}
     headers = build_auth_headers(auth_info)

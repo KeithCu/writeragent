@@ -1391,8 +1391,8 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         from plugin.framework.config import get_api_key_for_endpoint
         from plugin.chatbot.config_ui_helpers import (
             populate_combobox_with_lru, populate_image_model_selector, endpoint_from_selector_text,
-            _sanitize_model_combobox_value,
         )
+        from plugin.framework.model_lru import _sanitize_model_combobox_value
         from plugin.framework.client.provider_detection import get_provider_from_endpoint
         from plugin.framework.client.model_fetcher import (
             cached_image_models, cached_stt_models, cached_text_models, cached_tts_models,
@@ -1520,7 +1520,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     def _apply_dropdowns(self, resolved: str, models: Any = None, skip_fetch: bool = False) -> None:
         api_key_ov = self._live_api_key()
         skip_remote = bool(skip_fetch)
-        resolved_provider = self.get_provider_from_endpoint(resolved)
+        resolved_provider = (
+            self.get_provider_from_endpoint(resolved)
+            if resolved and self.endpoint_url_suitable_for_v1_models_fetch(resolved)
+            else None
+        )
         # The first fill compares against the saved endpoint's provider.
         # Later fills compare against the provider this listener last filled
         # for (_painted_provider). Comparing against the saved endpoint on
@@ -1721,7 +1725,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         models = None
         if resolved and self.endpoint_url_suitable_for_v1_models_fetch(resolved):
             models = self.fetch_available_models(resolved, api_key_override=key_ov)
-        provider = self.get_provider_from_endpoint(resolved) if resolved else None
+            provider = self.get_provider_from_endpoint(resolved)
+        else:
+            provider = None
         # These GETs used to run in _apply_dropdowns on the UI thread after the
         # text list returned. OpenRouter image is GET /v1/images/models; speech
         # and transcription are separate modality queries; Together voices are

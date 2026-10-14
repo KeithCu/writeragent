@@ -190,6 +190,11 @@ class _DaemonWorkPool:
             try:
                 fn()
             except BaseException as exc:
+                # Bugfix: BaseException (SystemExit, KeyboardInterrupt, GeneratorExit)
+                # in a pooled fire-and-forget job was set on the Future and never logged,
+                # silently swallowing unexpected exits if no caller called join().
+                # Log it with log.exception before setting on the Future so it is visible.
+                log.exception("Unhandled %s in pooled background job", type(exc).__name__)
                 # Pool workers must complete the Future even on SystemExit/KeyboardInterrupt.
                 # Dedicated run_in_background threads catch Exception only (those must unwind).
                 fut.set_exception(exc)
@@ -288,19 +293,18 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
     # and survived cancel_pending_work.
     caller_ctx = contextvars.copy_context()
 
-    def _worker() -> Any:
+    def _worker() -> None:
         task_id = str(uuid.uuid4())
         task_name = name or getattr(func, "__name__", "anon")
-        log.debug(f"Starting task {task_id}: {task_name}")
+        log.debug("Starting task %s: %s", task_id, task_name)
 
         # Tag this background thread for the UNO thread-safety guard (Layer A).
         # This lets violations report the specific worker (e.g. "run_search") instead of a generic thread name.
         thread_guard.set_background_task(task_name)
 
         try:
-            result = func(*args, **kwargs)
-            log.debug(f"Task {task_id} completed successfully")
-            return result
+            func(*args, **kwargs)
+            log.debug("Task %s completed successfully", task_id)
         except Exception as e:
             # Not BaseException: SystemExit/KeyboardInterrupt must still unwind on
             # dedicated threads. Pool _run catches BaseException to finish the Future.
@@ -317,8 +321,8 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
         finally:
             thread_guard.set_background_task(None)
 
-    def _run_in_caller_context() -> Any:
-        return caller_ctx.run(_worker)
+    def _run_in_caller_context() -> None:
+        caller_ctx.run(_worker)
 
     use_dedicated = dedicated or (daemon is False)
     if use_dedicated:
@@ -327,7 +331,23 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
         t.start()
         return BackgroundHandle(thread=t)
 
-    fut = _get_pool().submit(_run_in_caller_context)
+    while True:
+        pool = _get_pool()
+        try:
+            fut = pool.submit(_run_in_caller_context)
+            break
+        except RuntimeError as exc:
+            # Bugfix: A caller that received an old pool handle from _get_pool()
+            # can lose a race to reset_background_pool_for_tests(), which sets
+            # _pool = None and shuts down the old pool outside _pool_lock.
+            # When submit() fails because that pool was shut down during reset,
+            # retry against the new replacement pool published under _pool_lock.
+            if "background pool is shut down" not in str(exc):
+                raise
+            with _pool_lock:
+                if _pool is pool:
+                    raise
+
     return BackgroundHandle(future=fut)
 
 
@@ -648,15 +668,23 @@ class AsyncProcess:
                 continue
             handle.join(timeout=timeout)
 
-    def _close_child_pipes(self) -> None:
+    def _close_child_pipes(self, stdout_thread: BackgroundHandle | None = None, stderr_thread: BackgroundHandle | None = None) -> None:
         proc = self.process
         if proc is None:
             return
-        for stream in (proc.stdout, proc.stderr, proc.stdin):
-            if stream is None:
-                continue
+        if proc.stdin is not None:
             try:
-                stream.close()
+                proc.stdin.close()
+            except OSError:
+                pass
+        if stdout_thread is None and proc.stdout is not None:
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
+        if stderr_thread is None and proc.stderr is not None:
+            try:
+                proc.stderr.close()
             except OSError:
                 pass
 
@@ -712,13 +740,17 @@ class AsyncProcess:
     def terminate(self, timeout: float = 5.0) -> None:
         """Signal the child and return. Reap on a dedicated thread.
 
-        Signal the child, close its pipes so reads return, and reap after
-        the caller can drop its lock. Waiting up to 5s twice, then joining
-        the stdout, stderr, and wait threads, freezes LibreOffice: MCP
-        tunnel stop calls this while holding the lock those line callbacks
-        need, including from the UI thread. A callback that called
-        terminate joined itself. The timed wait stays on the reaper so a
-        stuck SIGKILL cannot block forever.
+        Signal the child, close stdin (and close stdout/stderr only if that
+        stream has no reader thread), and reap after the caller can drop its
+        lock. On Linux, close of the read fd from this thread does not
+        interrupt a reader blocked in os.read (bufsize=0). The child's exit
+        produces the EOF that wakes the read. Closing the read end first
+        discards unread bytes and makes the child's shutdown write fail with
+        EPIPE. Waiting up to 5s twice, then joining the stdout, stderr, and
+        wait threads, freezes LibreOffice: MCP tunnel stop calls this while
+        holding the lock those line callbacks need, including from the UI
+        thread. A callback that called terminate joined itself. The timed
+        wait stays on the reaper so a stuck SIGKILL cannot block forever.
         """
         proc = self.process
         if proc is None:
@@ -731,5 +763,12 @@ class AsyncProcess:
                 proc.terminate()
             except OSError:
                 log.debug("terminate: process already gone", exc_info=True)
-        self._close_child_pipes()
+        # Bugfix: On Linux, close() of a read fd does not interrupt a reader
+        # blocked in os.read (bufsize=0). The child's exit produces the EOF that
+        # wakes the read. Closing the read end prematurely discards unread bytes
+        # and causes the child's shutdown write to fail with EPIPE. Always close
+        # stdin, but close stdout/stderr only if there is no reader thread
+        # attached; reader threads close their pipe in their own finally block
+        # upon reaching EOF.
+        self._close_child_pipes(stdout_thread=stdout_thread, stderr_thread=stderr_thread)
         run_in_background(self._reap, proc, stdout_thread, stderr_thread, wait_thread, timeout, name="asyncproc-reap", dedicated=True)

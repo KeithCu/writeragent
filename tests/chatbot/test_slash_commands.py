@@ -91,7 +91,7 @@ def test_help_text_lists_wired_and_mocks():
 
 
 def test_record_slash_lru_uses_existing_config_helper():
-    with patch("plugin.chatbot.config_ui_helpers.update_lru_history") as update:
+    with patch("plugin.framework.model_lru.update_lru_history") as update:
         record_slash_lru("/Help")
         update.assert_called_once_with("help", SLASH_LRU_KEY, "")
 

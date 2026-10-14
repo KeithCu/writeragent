@@ -518,6 +518,7 @@ def test_failure_leaves_history_intact():
         "too large for model with 32000 maximum context length",
         "exceeds the limit of",
         "greater than the context length",
+        "prompt is too long (see footpm notes)",
     ],
 )
 def test_is_context_overflow_error_true(text):
@@ -532,6 +533,9 @@ def test_is_context_overflow_error_true(text):
         "Rate limited (429)",
         "TPM",
         "too many requests",
+        "context length exceeded; check your TPM",
+        # Hyphen is a word boundary, so foo-tpm-70b matches \btpm\b
+        "maximum context length exceeded for model foo-tpm-70b",
     ],
 )
 def test_is_context_overflow_error_false(text):
@@ -1230,4 +1234,136 @@ def test_resolve_context_window_provider_exceptions():
             raise RuntimeError("endpoint failed")
 
     assert C.resolve_context_window(BadEndpointClient()) is None
+
+
+def test_compaction_cut_on_assistant_omits_ack():
+    # Transcript where cut lands on an assistant and tail begins with assistant
+    messages = [
+        _system_doc(50),
+        _msg("user", 20),
+        _msg("assistant", 30),
+        _msg("user", 20),
+        _msg("assistant", 30),
+        _msg("user", 20),
+        _msg("assistant", 30),
+    ]
+    # Keep budget fits from index 4 (assistant) onwards
+    # Index 4 is assistant, index 5 is user, index 6 is assistant
+    keep = (
+        C.estimate_message_tokens(messages[4])
+        + C.estimate_message_tokens(messages[5])
+        + C.estimate_message_tokens(messages[6])
+    )
+    cut = C.find_cut_index(messages, keep, start_index=1)
+    assert cut == 4
+    cut = C.ensure_last_user_in_tail(messages, cut, 1, keep)
+    assert cut == 4  # last user (index 5) is already in tail
+
+    session = DummySession(messages)
+    session.compaction = C.CompactionState(
+        summary="Test Summary",
+        first_kept_index=cut,
+        tokens_before=100,
+        window=4096,
+        kept_message_id=id(messages[cut]),
+    )
+    view = C.messages_for_llm(session)
+
+    roles = [m.get("role") for m in view]
+    # No two adjacent assistant roles anywhere in view
+    for r1, r2 in zip(roles[:-1], roles[1:]):
+        assert not (r1 == "assistant" and r2 == "assistant"), f"Adjacent assistants: {roles}"
+
+    # Summary user is present
+    summary_rows = [m for m in view if "[CONVERSATION SUMMARY]" in m.get("content", "")]
+    assert len(summary_rows) == 1
+    assert summary_rows[0]["role"] == "user"
+
+    # Dummy ack string is absent
+    ack_rows = [m for m in view if "Acknowledged. I will continue from the summary above." in m.get("content", "")]
+    assert len(ack_rows) == 0
+
+
+def test_compaction_cut_on_user_includes_ack():
+    messages = [
+        _system_doc(50),
+        _msg("user", 20),
+        _msg("assistant", 30),
+        _msg("user", 20),
+        _msg("assistant", 30),
+    ]
+    cut = 3  # user
+    session = DummySession(messages)
+    session.compaction = C.CompactionState(
+        summary="Test Summary",
+        first_kept_index=cut,
+        tokens_before=100,
+        window=4096,
+        kept_message_id=id(messages[cut]),
+    )
+    view = C.messages_for_llm(session)
+
+    # Ack string is present
+    ack_rows = [m for m in view if "Acknowledged. I will continue from the summary above." in m.get("content", "")]
+    assert len(ack_rows) == 1
+    assert ack_rows[0]["role"] == "assistant"
+
+
+def test_stale_first_kept_index_past_len_drops_compaction():
+    session = DummySession([_system_doc(10), _msg("user", 10)])
+    session.compaction = C.CompactionState(
+        summary="OLD CHAT",
+        first_kept_index=50,
+        tokens_before=100,
+        window=4096,
+        kept_message_id=None,
+    )
+    view = C.messages_for_llm(session)
+    assert session.compaction is None
+    assert view == session.messages
+    assert not any("OLD CHAT" in m.get("content", "") for m in view)
+
+
+def test_stale_anchor_mismatch_drops_compaction_and_resummarizes():
+    messages = [_system_doc(10), _msg("user", 10), _msg("assistant", 10), _msg("user", 10), _msg("assistant", 10)]
+    cut = 3
+    session = DummySession(list(messages))
+    session.compaction = C.CompactionState(
+        summary="OLD CHAT",
+        first_kept_index=cut,
+        tokens_before=100,
+        window=4096,
+        kept_message_id=id(session.messages[cut]),
+    )
+    # Insert new system row at 0, moving the row that index names
+    session.messages.insert(0, {"role": "system", "content": "NEW DOC"})
+
+    view = C.messages_for_llm(session)
+    assert session.compaction is None
+    assert not any("OLD CHAT" in m.get("content", "") for m in view)
+
+    # Follow-up compact_session summarizes from index 1 (not mid-tail)
+    client = DummyClient(content="new summary")
+    result = C.compact_session(session, client, window=4096, force=True, enabled=True)
+    assert result.compacted is True
+    # The prompt body in client call should summarize slice from index 1
+    prompt_body = client.calls[0]["messages"][1]["content"]
+    # Contains the message at index 1 (proving it summarized from index 1, not mid-tail)
+    assert "SYSTEM: base" in prompt_body
+
+
+def test_matched_anchor_keeps_compaction():
+    messages = [_system_doc(10), _msg("user", 10), _msg("assistant", 10)]
+    cut = 1
+    session = DummySession(messages)
+    session.compaction = C.CompactionState(
+        summary="VALID SUMMARY",
+        first_kept_index=cut,
+        tokens_before=100,
+        window=4096,
+        kept_message_id=id(messages[cut]),
+    )
+    view = C.messages_for_llm(session)
+    assert session.compaction is not None
+    assert any("VALID SUMMARY" in m.get("content", "") for m in view)
 

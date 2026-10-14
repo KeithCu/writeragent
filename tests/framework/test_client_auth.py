@@ -98,10 +98,10 @@ def test_build_auth_headers_x_api_key():
 
 
 def test_build_auth_headers_none():
-    """Test generating headers for no-auth providers."""
+    """Test generating headers for no-auth providers without an API key."""
     auth_info = {
         "header_style": "none",
-        "api_key": "this-key-will-be-ignored"
+        "api_key": ""
     }
 
     headers = build_auth_headers(auth_info)
@@ -143,16 +143,44 @@ def test_build_auth_headers_empty_key():
 
 def test_build_auth_headers_non_str_style_coerced():
     """Non-str header_style must not AttributeError (CrossHair int case)."""
+    headers_empty = build_auth_headers({"header_style": 2, "api_key": ""})
+    assert "Authorization" not in headers_empty
     headers = build_auth_headers({"header_style": 2, "api_key": "k"})
-    assert "Authorization" not in headers  # "2" is not bearer/x-api-key
+    assert headers["Authorization"] == "Bearer k"  # unknown style falls back to Bearer when key is present
     headers_bearer = build_auth_headers({"header_style": "BEARER", "api_key": "k"})
     assert headers_bearer["Authorization"] == "Bearer k"
+
+
+def test_build_auth_headers_style_none_with_key_fallback():
+    # Style none plus key -> Authorization: Bearer <key>
+    headers = build_auth_headers({"header_style": "none", "api_key": "secret"})
+    assert headers["Authorization"] == "Bearer secret"
+
+    # Style none plus empty key -> no Authorization
+    headers_empty = build_auth_headers({"header_style": "none", "api_key": ""})
+    assert "Authorization" not in headers_empty
+
+    # Style bearer still produces one Bearer header, not two
+    headers_bearer = build_auth_headers({"header_style": "bearer", "api_key": "secret"})
+    assert headers_bearer["Authorization"] == "Bearer secret"
+    assert len([k for k in headers_bearer if k.lower() == "authorization"]) == 1
 
 
 def test_build_auth_headers_rejects_control_chars():
     with pytest.raises(AuthError) as err:
         build_auth_headers({"header_style": "bearer", "api_key": "sk-\r\ninject"})
     assert err.value.code == "invalid_api_key"
+
+    # Smart quote, interior NBSP, DEL, and interior space reject
+    for bad_key in ("sk-\u201csmart", "sk-\u00a0nbsp", "sk-\x7fdel", "sk interior space"):
+        with pytest.raises(AuthError) as exc_info:
+            build_auth_headers({"header_style": "bearer", "api_key": bad_key})
+        assert exc_info.value.code == "invalid_api_key"
+        assert "printable ASCII" in str(exc_info.value)
+
+    # Whitespace padding is stripped cleanly
+    padded = build_auth_headers({"header_style": "bearer", "api_key": "  sk-abc  "})
+    assert padded["Authorization"] == "Bearer sk-abc"
 
 
 @patch("plugin.framework.client.auth.normalize_endpoint_url")
@@ -270,4 +298,10 @@ def test_resolve_provider_id_does_not_substring_match_host():
     assert _resolve_provider_id("https://notollama.example/v1") == "custom"
     assert _resolve_provider_id("https://example.com/openrouter.ai/v1") == "custom"
     assert _resolve_provider_id("https://api.openai.com/v1") == "openai"
+
+
+def test_resolve_provider_id_deal_contract_endpoints():
+    """Real endpoints with IPv6 brackets or query strings must not fail @deal.pre in dev/pytest."""
+    assert _resolve_provider_id("http://[::1]:11434") == "ollama"
+    assert _resolve_provider_id("https://example.com/v1?x=1") == "custom"
 

@@ -42,8 +42,8 @@ class NestedDrainOwnerError(RuntimeError):
     """Raised when a second drain owner attempts to start while another is active."""
 
 
-def acquire_drain_owner(owner_name: str) -> str | None:
-    """Mark *owner_name* as the pump owner. Return the previous owner.
+def acquire_drain_owner(owner_name: str) -> None:
+    """Mark *owner_name* as the pump owner.
 
     A different owner raises :class:`NestedDrainOwnerError`. The same name
     re-enters and increments the depth counter. Pair with
@@ -57,13 +57,11 @@ def acquire_drain_owner(owner_name: str) -> str | None:
             msg = f"[SENTRY VIOLATION] Nested UI drain attempted by {owner_name!r} while {_active_owner_name!r} owns event loop"
             log.warning(msg)
             raise NestedDrainOwnerError(msg)
-        previous_owner = _active_owner_name
         _active_owner_name = owner_name
         _drain_depth += 1
-        return previous_owner
 
 
-def release_drain_owner(previous_owner: str | None) -> None:
+def release_drain_owner() -> None:
     """Undo one :func:`acquire_drain_owner`. Idle callbacks run at depth 0.
 
     While depth is still above zero the current owner name stays. Event-driven
@@ -80,9 +78,6 @@ def release_drain_owner(previous_owner: str | None) -> None:
             _drain_depth = 0
             _active_owner_name = None
             became_idle = True
-        elif _active_owner_name is None:
-            # Defensive: never leave a held pump without a name.
-            _active_owner_name = previous_owner
     if became_idle:
         _notify_drain_idle()
 
@@ -100,21 +95,17 @@ def drain_owner_scope(owner_name: str) -> Generator[None, None, None]:
     may call :func:`pump_ui_idle`; other code must use
     :func:`process_events_to_idle`, which no-ops VCL while owned.
     """
-    previous_owner = acquire_drain_owner(owner_name)
+    acquire_drain_owner(owner_name)
     try:
         yield
     finally:
-        release_drain_owner(previous_owner)
+        release_drain_owner()
 
 
 def get_drain_owner() -> str | None:
     """Return the active drain owner name, or None if idle."""
     with _drain_lock:
         return _active_owner_name
-
-
-# Alias for backward compatibility
-get_active_drain_owner = get_drain_owner
 
 
 def get_drain_depth() -> int:
@@ -142,10 +133,6 @@ def get_suppressed_vcl_pump_count() -> int:
     """Diagnostic helper: return total suppressed secondary VCL pumps."""
     with _drain_lock:
         return _suppressed_vcl_count
-
-
-# Alias for backward compatibility
-get_suppressed_vcl_count = get_suppressed_vcl_pump_count
 
 
 def reset_suppressed_vcl_pump_count() -> None:
@@ -187,6 +174,8 @@ def _notify_drain_idle() -> None:
         try:
             cb()
         except RecursionError:
+            # RecursionError subclasses Exception; re-raise explicitly so recursive
+            # callbacks propagate instead of being logged and swallowed.
             raise
         except Exception:
             log.exception("drain idle callback failed")
