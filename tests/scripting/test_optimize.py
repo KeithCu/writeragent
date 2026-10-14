@@ -301,6 +301,10 @@ def test_scheduling_skips_worker_id():
     col_idx = cols.index("assigned_column")
     for row in table["rows"]:
         assert row[col_idx] in ["t1", "t2"]
+    assert result["flags"] == [
+        "Skipped column worker_id (looks like an id); pass the column list explicitly to include it.",
+        "1 rows were not assigned because there are more rows than columns",
+    ]
 
 
 def test_scheduling_unassigned_rows():
@@ -357,6 +361,177 @@ def test_auto_numeric_keeps_runtime_update_consolidated():
     assert "Consolidated" in res
     assert "Amount" in res
     assert "Date" not in res
+
+
+def test_portfolio_flags_skipped_date_and_id_columns():
+    df = pd.DataFrame({
+        "Date": [45292.0, 45293.0, 45294.0],
+        "worker_id": [1, 2, 3],
+        "A": [0.01, 0.02, 0.03],
+        "B": [0.02, 0.01, 0.04],
+    })
+    result = optimize_portfolio(df)
+    assert result["status"] == "ok", result
+    assert result["flags"] == [
+        "Skipped column Date (looks like a date); pass the column list explicitly to include it.",
+        "Skipped column worker_id (looks like an id); pass the column list explicitly to include it.",
+    ]
+    table = result["tables"][0]
+    assert [row[0] for row in table["rows"]] == ["A", "B"]
+
+
+def test_explicit_column_list_includes_date_and_emits_no_skip_flag():
+    df = pd.DataFrame({
+        "Date": [45292.0, 45293.0, 45294.0],
+        "A": [0.01, 0.02, 0.03],
+        "B": [0.02, 0.01, 0.04],
+    })
+    result = optimize_portfolio(df, returns_col=["Date", "A", "B"])
+    assert result["status"] == "ok", result
+    table = result["tables"][0]
+    assert [row[0] for row in table["rows"]] == ["Date", "A", "B"]
+    assert not any(f.startswith("Skipped column") for f in result.get("flags", []))
+
+
+def test_skipped_columns_are_on_the_insufficient_data_error():
+    df = pd.DataFrame({
+        "Date": [45292.0, 45293.0, 45294.0],
+        "worker_id": [1, 2, 3],
+    })
+    res_port = optimize_portfolio(df)
+    assert res_port["status"] == "error"
+    assert res_port["code"] == "INSUFFICIENT_DATA"
+    assert res_port["message"] == "Need at least two numeric columns (assets)."
+    assert res_port["flags"] == [
+        "Skipped column Date (looks like a date); pass the column list explicitly to include it.",
+        "Skipped column worker_id (looks like an id); pass the column list explicitly to include it.",
+    ]
+
+    df_sched = pd.DataFrame({"worker_id": [1, 2, 3]})
+    res_sched = solve_scheduling_problem(df_sched)
+    assert res_sched["status"] == "error"
+    assert res_sched["code"] == "INSUFFICIENT_DATA"
+    assert res_sched["message"] == "Need numeric columns for cost matrix."
+    assert res_sched["flags"] == [
+        "Skipped column worker_id (looks like an id); pass the column list explicitly to include it.",
+    ]
+
+
+def test_auto_numeric_integer_labels_do_not_key_error():
+    from plugin.scripting.venv.optimize import _auto_numeric
+
+    df = pd.DataFrame({0: [0.01, 0.02, -0.01], 1: [0.03, -0.02, 0.01]})
+    assert _auto_numeric(df, None) == [0, 1]
+    result = optimize_portfolio(df)
+    assert result["status"] == "ok", result
+    assert [row[0] for row in result["tables"][0]["rows"]] == [0, 1]
+    assert "flags" not in result
+
+
+def test_linear_programming_rejects_duplicate_columns():
+    data = pd.DataFrame({
+        "c": [3, 2, 1],
+        "a1": [1, 1, 1],
+        "b": [10, 10, 10],
+    })
+    cases = [
+        ({"c_col": "c", "b_col": "b", "a_cols": ["c"]}, "c"),
+        ({"c_col": "c", "b_col": "c", "a_cols": ["a1"]}, "c"),
+        ({"c_col": "c", "b_col": "b", "a_cols": ["a1", "a1"]}, "a1"),
+        ({"c_col": "c", "b_col": "b", "a_cols": ["a1", "b"]}, "b"),
+    ]
+    for params, expected_repeat in cases:
+        result = linear_programming(data, **params)
+        assert result["status"] == "error"
+        assert result["code"] == "INVALID_PARAM"
+        assert result["message"] == f"c_col, b_col, and a_cols must name distinct columns; repeated: {expected_repeat}"
+
+
+def test_optimize_facade_does_not_import_client_at_module_scope():
+    import ast
+    from pathlib import Path
+
+    facade_path = Path(__file__).resolve().parents[2] / "plugin" / "scripting" / "optimize.py"
+    tree = ast.parse(facade_path.read_text(encoding="utf-8"))
+
+    forbidden = {
+        "plugin.scripting.client",
+        "plugin.scripting.trusted_rpc",
+        "plugin.scripting.venv_worker",
+    }
+
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                for f in forbidden:
+                    assert alias.name != f and not alias.name.startswith(f + "."), (
+                        f"Module-level import of {alias.name} forbidden in optimize facade"
+                    )
+        elif isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            for f in forbidden:
+                assert mod != f and not mod.startswith(f + "."), (
+                    f"Module-level import from {mod} forbidden in optimize facade"
+                )
+
+
+def test_optimize_facade_import_does_not_load_host_worker():
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = str(Path(__file__).resolve().parents[2])
+    env = dict(os.environ)
+    existing_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{repo_root}:{existing_pp}" if existing_pp else repo_root
+
+    child_code = (
+        "import sys\n"
+        "import plugin.scripting.optimize as host\n"
+        "forbidden = [\n"
+        "    'plugin.scripting.client',\n"
+        "    'plugin.scripting.trusted_rpc',\n"
+        "    'plugin.scripting.venv_worker',\n"
+        "    'plugin.framework.config',\n"
+        "    'plugin.framework.worker_pool',\n"
+        "    'plugin.framework.thread_guard',\n"
+        "    'plugin.scripting.sandbox',\n"
+        "]\n"
+        "loaded = [m for m in forbidden if m in sys.modules]\n"
+        "if loaded:\n"
+        "    sys.stderr.write(f'Forbidden modules loaded after import: {loaded}\\n')\n"
+        "    sys.exit(1)\n"
+        "_ = host.linear_programming\n"
+        "loaded_after_access = [m for m in forbidden if m in sys.modules]\n"
+        "if loaded_after_access:\n"
+        "    sys.stderr.write(f'Forbidden modules loaded after attribute access: {loaded_after_access}\\n')\n"
+        "    sys.exit(1)\n"
+        "from plugin.framework.errors import ToolExecutionError\n"
+        "try:\n"
+        "    host.run_trusted_optimize(None, None, helper='not-a-helper')\n"
+        "    sys.stderr.write('Expected ToolExecutionError not raised\\n')\n"
+        "    sys.exit(1)\n"
+        "except ToolExecutionError as exc:\n"
+        "    if 'not-a-helper' not in str(exc):\n"
+        "        sys.stderr.write(f'Unexpected error message: {exc}\\n')\n"
+        "        sys.exit(1)\n"
+        "if 'plugin.scripting.client' not in sys.modules:\n"
+        "    sys.stderr.write('Expected plugin.scripting.client in sys.modules after run_trusted_optimize\\n')\n"
+        "    sys.exit(1)\n"
+        "sys.exit(0)\n"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", child_code],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, f"Child failed (stdout={proc.stdout}, stderr={proc.stderr})"
+
 
 
 

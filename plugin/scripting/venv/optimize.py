@@ -52,11 +52,35 @@ def _id_like(series: Any) -> bool:
     return False
 
 
-def _auto_numeric(df: Any, requested: list[str] | None) -> list[str]:
+def _auto_numeric(
+    df: Any,
+    requested: list[str] | None,
+    flags: list[str] | None = None,
+) -> list[Any]:
     if requested is not None:
         return _numeric_columns(df, requested)
-    cols = _numeric_columns(df, None)
-    return [col for col in cols if not _is_date_like_column_name(col) and not _id_like(df[col])]
+    # What was wrong: numeric_columns stringifies labels, so column 0 became "0"
+    # and df["0"] raised KeyError on a DataFrame passed into the helper. Skipped
+    # date and id columns were also silent, so a scheduling solve could drop a
+    # real cost column and still return status: ok.
+    # How it happened: resolve_df keeps a DataFrame's columns, and the auto path
+    # indexed with the stringified name. dropped_rows already appends to flags;
+    # this path did not.
+    # Why this change: select select_dtypes(include="number") labels as they are,
+    # and append one flag per skipped column when the caller passes a list.
+    cols = list(df.select_dtypes(include="number").columns)
+    kept: list[Any] = []
+    for col in cols:
+        name = str(col)
+        if _is_date_like_column_name(name):
+            if flags is not None:
+                flags.append(f"Skipped column {name} (looks like a date); pass the column list explicitly to include it.")
+        elif _id_like(df[col]):
+            if flags is not None:
+                flags.append(f"Skipped column {name} (looks like an id); pass the column list explicitly to include it.")
+        else:
+            kept.append(col)
+    return kept
 
 
 def _is_bound_scalar(x: Any) -> bool:
@@ -154,6 +178,19 @@ def linear_programming(
     if not a_cols_list:
         return _error_result("INVALID_PARAM", "a_cols is required", helper=helper)
 
+    all_lp_cols = [c_col, b_col, *a_cols_list]
+    counts: dict[str, int] = {}
+    for col_name in all_lp_cols:
+        counts[col_name] = counts.get(col_name, 0) + 1
+    duplicates = [col_name for col_name, count in counts.items() if count > 1]
+    if duplicates:
+        names = ", ".join(duplicates)
+        return _error_result(
+            "INVALID_PARAM",
+            f"c_col, b_col, and a_cols must name distinct columns; repeated: {names}",
+            helper=helper,
+        )
+
     try:
         maximize_val = coerce_bool(maximize, name="maximize", default=False)
     except ValueError as exc:
@@ -188,16 +225,10 @@ def linear_programming(
 
     # a-columns are constraints, so transpose to linprog's (constraints, variables).
     coeff = clean_df[a_cols_list].to_numpy(dtype=float)
-    if getattr(coeff, "ndim", 0) != 2 or coeff.shape[1] == 0:
-        return _error_result(
-            "SHAPE_MISMATCH",
-            "linear_programming needs at least one constraint column in a_cols.",
-            helper=helper,
-        )
     n_constraints = int(coeff.shape[1])
     A_ub = coeff.T
     b_ub = _constraint_bounds(clean_df[b_col].to_numpy(dtype=float), n_constraints)
-    if b_ub is None or A_ub.shape[1] != len(c) or A_ub.shape[0] != len(b_ub):
+    if b_ub is None:
         return _error_result(
             "SHAPE_MISMATCH",
             (
@@ -259,7 +290,9 @@ def optimize_portfolio(
 
     Weights are in [0, 1] and sum to 1. target_return is an optional
     per-period equality constraint. risk_free_rate does not affect weights;
-    not annualized; no short sales.
+    not annualized; no short sales. When returns_col is omitted, date-named
+    columns and monotonic unique integer columns are skipped, and each skip
+    is a flags entry.
     """
     import math
     import numpy as np
@@ -287,19 +320,22 @@ def optimize_portfolio(
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
 
+    flags: list[str] = []
     try:
-        numeric_cols = _auto_numeric(df, returns_col_list)
+        numeric_cols = _auto_numeric(df, returns_col_list, flags)
     except ValueError as exc:
         return _error_result("UNKNOWN_COLUMN", str(exc), helper=helper)
 
     if not numeric_cols or len(numeric_cols) < 2:
-        return _error_result("INSUFFICIENT_DATA", "Need at least two numeric columns (assets).", helper=helper)
+        err = _error_result("INSUFFICIENT_DATA", "Need at least two numeric columns (assets).", helper=helper)
+        if flags:
+            err["flags"] = flags
+        return err
 
     returns_raw = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     n_before_drop = len(returns_raw)
     returns = returns_raw.dropna()
     dropped_rows = n_before_drop - len(returns)
-    flags: list[str] = []
     if dropped_rows > 0:
         flags.append(f"Dropped {dropped_rows} return rows with a missing value")
 
@@ -393,7 +429,11 @@ def solve_scheduling_problem(
     header_row: int = 0,
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
-    """Solve an assignment problem (e.g. workers to tasks) using linear_sum_assignment."""
+    """Solve an assignment problem (e.g. workers to tasks) using linear_sum_assignment.
+
+    When cost_cols is omitted, date-named columns and monotonic unique integer
+    columns are skipped, and each skip is a flags entry.
+    """
     import pandas as pd
     from scipy import optimize as scipy_optimize
 
@@ -406,13 +446,17 @@ def solve_scheduling_problem(
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
 
+    flags: list[str] = []
     try:
-        numeric_cols = _auto_numeric(df, cost_cols_list)
+        numeric_cols = _auto_numeric(df, cost_cols_list, flags)
     except ValueError as exc:
         return _error_result("UNKNOWN_COLUMN", str(exc), helper=helper)
 
     if not numeric_cols:
-        return _error_result("INSUFFICIENT_DATA", "Need numeric columns for cost matrix.", helper=helper)
+        err = _error_result("INSUFFICIENT_DATA", "Need numeric columns for cost matrix.", helper=helper)
+        if flags:
+            err["flags"] = flags
+        return err
 
     df_cost = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
     df_clean = df_cost.dropna()
@@ -423,7 +467,6 @@ def solve_scheduling_problem(
     n_cols = len(numeric_cols)
     unassigned_rows = max(0, n_rows - n_cols)
     unassigned_columns = max(0, n_cols - n_rows)
-    flags: list[str] = []
     if unassigned_rows > 0:
         flags.append(f"{unassigned_rows} rows were not assigned because there are more rows than columns")
     if unassigned_columns > 0:
