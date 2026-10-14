@@ -13,7 +13,7 @@ import threading
 import time
 
 from plugin.writer.locale.grammar_ignore_rules import LANGUAGETOOL_RULE_PREFIX, make_rule_identifier
-from plugin.writer.locale.languagetool import _match_wrong_text, run_languagetool_check
+from plugin.scripting.venv.languagetool import _match_wrong_text, run_languagetool_check
 
 
 def test_run_languagetool_check_prefixes_rule_identifier() -> None:
@@ -32,7 +32,7 @@ def test_run_languagetool_check_prefixes_rule_identifier() -> None:
 
     with (
         patch.dict(sys.modules, {"language_tool_python": MagicMock()}),
-        patch("plugin.writer.locale.languagetool._LT_CACHE", {"en-US": tool}),
+        patch("plugin.scripting.venv.languagetool._LT_CACHE", {"en-US": tool}),
     ):
         res = run_languagetool_check("teh word", "en-US")
 
@@ -102,7 +102,7 @@ def test_lt_cache_constructs_one_client_under_contention() -> None:
             errors.append(exc)
 
     with patch.dict(sys.modules, {"language_tool_python": fake_mod}), patch(
-        "plugin.writer.locale.languagetool._LT_CACHE", {}
+        "plugin.scripting.venv.languagetool._LT_CACHE", {}
     ):
         first = threading.Thread(target=worker)
         second = threading.Thread(target=worker)

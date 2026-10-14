@@ -36,6 +36,8 @@ def test_venv_authorized_includes_json_numpy_matplotlib():
     assert "plugin.embeddings.venv.embeddings_index" not in allowed
     assert "plugin.writer.locale.vale" not in allowed
     assert "plugin.writer.locale.languagetool" not in allowed
+    assert "plugin.scripting.venv.vale" not in allowed
+    assert "plugin.scripting.venv.languagetool" not in allowed
 
 
 def test_venv_authorized_excludes_requests():

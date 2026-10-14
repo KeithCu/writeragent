@@ -11,28 +11,32 @@ from typing import Any
 from .grammar_proofread_cache import ignored_rules_snapshot
 from .grammar_proofread_locale import normalize_reason
 
-WA_G_RULE_PREFIX = "wa_g_rule||"
-HARPER_RULE_PREFIX = "harper||"
-LANGUAGETOOL_RULE_PREFIX = "languagetool||"
-STABLE_RULE_PREFIXES = (HARPER_RULE_PREFIX, LANGUAGETOOL_RULE_PREFIX)
+# The venv LanguageTool checker imports this leaf, not this module, because
+# this module imports grammar_proofread_cache, which imports config.
+from plugin.scripting.grammar_rule_ids import (
+    HARPER_RULE_PREFIX,
+    LANGUAGETOOL_RULE_PREFIX,
+    STABLE_RULE_PREFIXES,
+    WA_G_RULE_PREFIX,
+    bare_code_for_persistence,
+    make_rule_identifier,
+    parse_prefixed_rule_identifier,
+)
 
-
-def make_rule_identifier(prefix: str, rule_code: str) -> str:
-    """Build a prefixed grammar rule id for UNO ``aRuleIdentifier``."""
-    return f"{prefix}{rule_code}"
-
-
-def parse_prefixed_rule_identifier(rule_identifier: str, prefix: str) -> str | None:
-    """Return rule code suffix for a prefixed id, or ``None`` when prefix does not match."""
-    if not rule_identifier.startswith(prefix):
-        return None
-    code = rule_identifier[len(prefix) :].strip()
-    return code or None
-
-
-def bare_code_for_persistence(rule_identifier: str, prefix: str) -> str:
-    """Bare rule code stored in document ``ignored_rules`` (fallback: full id)."""
-    return parse_prefixed_rule_identifier(rule_identifier, prefix) or rule_identifier
+__all__ = [
+    "HARPER_RULE_PREFIX",
+    "LANGUAGETOOL_RULE_PREFIX",
+    "STABLE_RULE_PREFIXES",
+    "WA_G_RULE_PREFIX",
+    "bare_code_for_persistence",
+    "canonical_rule_keys",
+    "collect_ignored_reasons",
+    "doc_ignored_rules",
+    "is_prefixed_rule_ignored",
+    "is_rule_ignored",
+    "make_rule_identifier",
+    "parse_prefixed_rule_identifier",
+]
 
 
 def canonical_rule_keys(rule_identifier: str) -> tuple[str, ...]:

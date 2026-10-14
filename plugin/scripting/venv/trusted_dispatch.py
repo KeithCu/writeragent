@@ -139,7 +139,7 @@ def dispatch_sql(data: dict[str, Any]) -> Any:
 
 
 def dispatch_languagetool(data: dict[str, Any]) -> Any:
-    from plugin.writer.locale.languagetool import run_languagetool_check
+    from plugin.scripting.venv.languagetool import run_languagetool_check
 
     return run_languagetool_check(
         _require_str(data.get("text"), "text"),
@@ -148,7 +148,7 @@ def dispatch_languagetool(data: dict[str, Any]) -> Any:
 
 
 def dispatch_vale(data: dict[str, Any]) -> Any:
-    from plugin.writer.locale.vale import run_vale_check
+    from plugin.scripting.venv.vale import run_vale_check
 
     return run_vale_check(
         _require_str(data.get("text"), "text"),

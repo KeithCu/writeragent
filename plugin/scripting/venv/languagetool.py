@@ -8,7 +8,7 @@ import logging
 import threading
 from typing import Any, Dict
 
-from plugin.writer.locale.grammar_ignore_rules import LANGUAGETOOL_RULE_PREFIX, make_rule_identifier
+from plugin.scripting.grammar_rule_ids import LANGUAGETOOL_RULE_PREFIX, make_rule_identifier
 
 # Global cache of initialized LanguageTool clients to avoid JVM startup/restart overhead.
 # Check-then-set must be locked: two threads both missing the key used to each
