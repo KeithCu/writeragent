@@ -22,6 +22,7 @@ Page styles, margins, headers/footers, columns, and page breaks.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import is_disposed_exception, make_tool_error
@@ -541,6 +542,24 @@ def _copy_page_regions(
     return shapes_copied, skipped_shapes
 
 
+# Page-style UNO objects created by copy_page_style, held on purpose.
+#
+# LibreOffice race (crash seen as "Binary URP bridge disposed" on the next
+# pages.getByName(new_name), soffice "Fatal exception: Signal 6", frame
+# ImplInheritanceHelper<SwXBaseStyle,...>::queryInterface in libswlo):
+# when Python drops its last reference to the created SwXPageStyle, the
+# release goes out as a oneway URP call and runs on a separate threadpool
+# thread. Its refcount reaches 0 and the destructor queues for the
+# SolarMutex. A getByName for the same name that already holds the mutex
+# finds that dying object through the style pool's listeners
+# (SwXStyleFamily FindStyle), takes a new reference to it and returns it.
+# The destructor then frees it, and the caller's first call on the result
+# (the bridge's queryInterface) jumps through a freed vtable.
+# If we keep the proxy alive, the final release never meets a lookup. The
+# bound only caps memory. An evicted entry is many clones old.
+_PAGE_STYLE_KEEPALIVE: deque[Any] = deque(maxlen=256)
+
+
 def copy_page_style(
     doc: Any,
     source_name: str,
@@ -577,6 +596,7 @@ def copy_page_style(
     # is in the family. Direct props are copied after insert so FollowStyle has
     # already defaulted to the new name and the skip list can leave it there.
     styles.insertByName(new_name, clone)
+    _PAGE_STYLE_KEEPALIVE.append(clone)
     try:
         copied, skipped = _copy_direct_style_properties(source, clone)
         shapes_copied, skipped_shapes = _copy_page_regions(
