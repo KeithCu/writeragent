@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 # Handles Calc-escaped double-quotes ("") inside string literals and optional add-in
 # OriginalNames (WriterAgent / LibrePy, or Collabora GETPY before open-rewrite).
 _PY_FORMULA_CODE_REGEX = re.compile(
+    r"^\{?\s*=?\s*"
     r"(?:ORG\.(?:EXTENSION\.[A-Z0-9_.]+|COLLABORAOFFICE\.SHEET\.ADDIN\.PYTHONCOMPUTEFUNCTIONS)\.)?"
     r'(?:GETPYTHON|GETPY|PYTHON|PY)\s*\(\s*"((?:[^"]|"")*)"',
     re.IGNORECASE,
@@ -27,7 +28,7 @@ def extract_code_from_py_formula(formula: str) -> str | None:
     """Extract and unescape the Python code string argument from a =PY() / =PYTHON() formula."""
     if not formula:
         return None
-    match = _PY_FORMULA_CODE_REGEX.search(formula)
+    match = _PY_FORMULA_CODE_REGEX.match(formula)
     if match:
         raw_code = match.group(1)
         return raw_code.replace('""', '"')
@@ -39,7 +40,7 @@ def is_matching_py_formula(formula: str, code_str: str) -> bool:
     if not formula or not code_str:
         return False
     upper = formula.upper()
-    if "PYTHON" not in upper and "PY" not in upper:
+    if "PY" not in upper:
         return False
     extracted = extract_code_from_py_formula(formula)
     if extracted is None:

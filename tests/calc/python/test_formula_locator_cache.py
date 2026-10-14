@@ -59,6 +59,10 @@ def test_extract_code_from_py_formula():
     )
     assert extract_code_from_py_formula("=SUM(A1:A10)") is None
     assert extract_code_from_py_formula("") is None
+    assert extract_code_from_py_formula('XPY("hello")') is None
+    assert extract_code_from_py_formula('=CONCAT("PY(""x"")")') is None
+    assert extract_code_from_py_formula('{=PY("result = 1")}') == "result = 1"
+    assert extract_code_from_py_formula('=PY("x")+1') == "x"
 
 
 def test_locate_formula_cell_convenience_helper():
