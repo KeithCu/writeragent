@@ -1,5 +1,8 @@
+import io
 import json
 import subprocess
+import sys
+import threading
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
@@ -204,6 +207,39 @@ def test_audio_record_main_accepts_json_and_legacy_stop_commands():
     assert _is_stop_command(json.dumps({"command": "stop"}))
     assert _is_stop_command("stop\n")
     assert not _is_stop_command(json.dumps({"command": "continue"}))
+
+
+def test_stdin_stop_reader_sets_event_on_eof(monkeypatch):
+    from plugin.scripting.venv.audio_record_main import _stdin_stop_reader
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    stop_event = threading.Event()
+    _stdin_stop_reader(stop_event)
+    assert stop_event.is_set()
+
+
+def test_stdin_stop_reader_sets_event_on_stop_and_returns(monkeypatch):
+    from plugin.scripting.venv.audio_record_main import _stdin_stop_reader
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("stop\nNEXT\n"))
+    stop_event = threading.Event()
+    _stdin_stop_reader(stop_event)
+    assert stop_event.is_set()
+
+
+def test_stdin_stop_reader_sets_event_when_read_raises(monkeypatch):
+    from plugin.scripting.venv.audio_record_main import _stdin_stop_reader
+
+    class _RaisingStdin:
+        def __iter__(self):
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(sys, "stdin", _RaisingStdin())
+    stop_event = threading.Event()
+    with pytest.raises(UnicodeDecodeError):
+        _stdin_stop_reader(stop_event)
+    assert stop_event.is_set()
+
 
 
 def test_native_audio_stt_fallback_replaces_db_row():

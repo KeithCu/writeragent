@@ -219,13 +219,27 @@ def _download_url_to_file(
     # and the background worker) clobber each other. mkstemp gives each
     # download its own partial file.
     fd, partial_path = tempfile.mkstemp(dir=dest_dir, suffix=".partial")
+    # Bugfix:
+    # What was wrong: fd was closed only by os.fdopen, which ran only after urlopen returned.
+    # How it happened: urlopen raises HTTPError, URLError, or timeout, and finally unlinks while
+    # the fd is still open — Windows then leaves the mkstemp partial because os.remove fails and is swallowed.
+    # Why this change: own the fd before the request so with fh closes it before the unlink.
     try:
-        with urllib.request.urlopen(req, timeout=_NATIVE_DOWNLOAD_TIMEOUT_SEC) as response:
-            total_size = int(response.headers.get("content-length", 0))
-            block_size = 65536
-            downloaded = 0
-            digest = hashlib.sha256() if expected_sha256 is not None else None
-            with os.fdopen(fd, "wb") as fh:
+        fh = os.fdopen(fd, "wb")
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
+
+    try:
+        with fh:
+            with urllib.request.urlopen(req, timeout=_NATIVE_DOWNLOAD_TIMEOUT_SEC) as response:
+                total_size = int(response.headers.get("content-length", 0))
+                block_size = 65536
+                downloaded = 0
+                digest = hashlib.sha256() if expected_sha256 is not None else None
                 while True:
                     buffer = response.read(block_size)
                     if not buffer:
@@ -241,10 +255,10 @@ def _download_url_to_file(
                     if total_size:
                         percent = int(downloaded * 100 / total_size)
                         on_status(f"Downloading {os.path.basename(dest_path)}: {percent}%")
-            if total_size and downloaded != total_size:
-                raise RuntimeError(
-                    f"Download of {os.path.basename(dest_path)} stopped at {downloaded} of {total_size} bytes"
-                )
+                if total_size and downloaded != total_size:
+                    raise RuntimeError(
+                        f"Download of {os.path.basename(dest_path)} stopped at {downloaded} of {total_size} bytes"
+                    )
         if digest is not None and expected_sha256 is not None:
             actual = digest.hexdigest()
             if actual != expected_sha256.lower():

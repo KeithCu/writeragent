@@ -49,10 +49,10 @@ Host spawns `{venv_python} audio_record_main.py --output /tmp/….wav` with stdi
 | Direction | Payload |
 |-----------|---------|
 | child → host | `{"status":"ready"}` after the input stream starts |
-| host → child | `{"command":"stop"}` on stdin; legacy plain `stop` is still accepted by the child |
+| host → child | `{"command":"stop"}` on stdin; legacy plain `stop` is still accepted by the child. The stdin thread sets the stop event from a `finally`: stop command, EOF, and a raised read (`UnicodeDecodeError` or `OSError`). A dead reader must not sit in the 4-hour cap. |
 | child → host | `{"status":"ok","path":"/abs/path.wav"}` or `{"status":"error","message":"…"}` |
 
-The JSON-line framing uses [`plugin/scripting/ipc.py`](../../plugin/scripting/ipc.py), which also enforces the host-side ready/stop read timeouts so a hung recorder cannot block forever waiting on `readline()`.
+The JSON-line framing uses [`plugin/scripting/ipc.py`](../../plugin/scripting/ipc.py), which also enforces the host-side ready/stop read timeouts so a hung recorder cannot block forever waiting on `readline()`. The child does not write `silence_progress` until `on_stream_started` has returned, because that callback writes `ready` and `wait_for_recording_ready` reads one line. The PortAudio callback may run inside `RawInputStream.start()`; those samples are written and fed to the silence detector, and the progress line is held.
 
 Capture uses `sounddevice.RawInputStream` with `dtype='int16'` and Python's built-in `wave` module — no NumPy required for recording. Future **analysis** helpers (librosa, spectrograms) stay in the venv per [scripting/numpy-domains.md § Audio / Signal](../scripting/numpy-domains.md#audio-signal).
 

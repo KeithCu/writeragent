@@ -76,6 +76,17 @@ def record_to_wav(
     except Exception as exc:
         raise RuntimeError(f"Failed to create audio WAV file at {output_path}: {exc}") from exc
 
+    # Bugfix:
+    # What was wrong: wait_for_recording_ready rejects a first line that is not ready or error.
+    # How it happened: Pa_StartStream can invoke this callback before start() returns, and
+    # should_emit_silence_progress is true once silence_ms clears both 100 and max(100, silence_stop_ms // 4)
+    # — that step is 100 whenever silence_stop_ms is 1..400.
+    # Why this change: PCM and VAD still run, but should_emit_silence_progress / on_ipc_emit
+    # wait until on_stream_started has returned so the first line is ready.
+    progress_after_ready = threading.Event()
+    if on_stream_started is None:
+        progress_after_ready.set()
+
     stream = None
 
     def callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
@@ -92,8 +103,14 @@ def record_to_wav(
         if vad is None or auto_stopped:
             return
         result = vad.process_chunk(pcm)
-        if on_ipc_emit is not None and vad.should_emit_silence_progress(result):
-            on_ipc_emit({"status": "silence_progress", "ms": result.silence_ms, "rms": round(result.rms, 5)})
+        if (
+            progress_after_ready.is_set()
+            and on_ipc_emit is not None
+            and vad.should_emit_silence_progress(result)
+        ):
+            on_ipc_emit(
+                {"status": "silence_progress", "ms": result.silence_ms, "rms": round(result.rms, 5)}
+            )
         if result.should_stop:
             auto_stopped = True
             stop_event.set()
@@ -108,6 +125,7 @@ def record_to_wav(
         stream.start()
         if on_stream_started is not None:
             on_stream_started()
+        progress_after_ready.set()
         stop_event.wait(timeout=MAX_RECORDING_DURATION_SEC)
     except AssertionError as exc:
         raise RuntimeError(

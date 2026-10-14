@@ -1,5 +1,8 @@
+import email
+import io
 import os
 import sys
+import urllib.error
 from unittest.mock import patch
 
 import pytest
@@ -87,7 +90,7 @@ def test_download_url_to_file_atomic_replace_preserves_inode(tmp_path):
         if fd is not None:
             os.lseek(fd, 0, os.SEEK_SET)
             assert os.read(fd, 100) == b"OLD_NATIVE_BYTES"
-        assert not (tmp_path / "pack.so.partial").exists()
+        assert list(tmp_path.glob("*.partial")) == []
     finally:
         if fd is not None:
             os.close(fd)
@@ -114,7 +117,7 @@ def test_download_url_to_file_cleans_partial_on_failure(tmp_path):
             _download_url_to_file("https://example.test/pack.so", str(dest), lambda _s: None)
 
     assert dest.read_bytes() == b"KEEP"
-    assert not (tmp_path / "pack.so.partial").exists()
+    assert list(tmp_path.glob("*.partial")) == []
 
 
 def test_download_rejects_bad_sha_and_keeps_dest(tmp_path):
@@ -147,7 +150,7 @@ def test_download_rejects_bad_sha_and_keeps_dest(tmp_path):
             )
 
     assert dest.read_bytes() == b"KEEP"
-    assert not (tmp_path / "pack.so.partial").exists()
+    assert list(tmp_path.glob("*.partial")) == []
 
 
 def test_download_stops_when_body_exceeds_cap(tmp_path):
@@ -177,7 +180,45 @@ def test_download_stops_when_body_exceeds_cap(tmp_path):
             )
 
     assert dest.read_bytes() == b"KEEP"
-    assert not (tmp_path / "pack.so.partial").exists()
+    assert list(tmp_path.glob("*.partial")) == []
+
+
+@pytest.mark.parametrize(
+    ("side_effect", "match"),
+    [
+        (urllib.error.URLError("timed out"), "Failed to download"),
+        (
+            urllib.error.HTTPError(
+                "https://example.test/pack.so",
+                404,
+                "Not Found",
+                email.message_from_string(""),
+                io.BytesIO(),
+            ),
+            "HTTP Error 404",
+        ),
+    ],
+)
+def test_download_urlopen_failure_closes_fd_and_removes_partial(tmp_path, side_effect, match):
+    dest = tmp_path / "pack.so"
+    dest.write_bytes(b"KEEP")
+
+    def _get_fd_count() -> int | None:
+        if not os.path.isdir("/proc/self/fd"):
+            return None
+        return len(os.listdir("/proc/self/fd"))
+
+    count_before = _get_fd_count()
+    with patch("urllib.request.urlopen", side_effect=side_effect):
+        with pytest.raises(RuntimeError, match=match):
+            _download_url_to_file("https://example.test/pack.so", str(dest), lambda _s: None)
+    count_after = _get_fd_count()
+
+    assert dest.read_bytes() == b"KEEP"
+    assert list(tmp_path.glob("*.partial")) == []
+    if count_before is not None:
+        assert count_after == count_before
+
 
 
 def test_run_vec_pack_download_invalidates_accelerator(tmp_path):

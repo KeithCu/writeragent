@@ -54,11 +54,24 @@ def _is_stop_command(line: str) -> bool:
 
 
 def _stdin_stop_reader(stop_event: threading.Event) -> None:
-    for line in sys.stdin:
-        if _is_stop_command(line):
-            stop_event.set()
-            return
-    stop_event.set()
+    """Read stdin commands until stop, EOF, or read error.
+
+    Bugfix:
+    What was wrong: a read exception (e.g. UnicodeDecodeError or OSError) killed
+    the thread without setting stop_event.
+    How it happened: only the explicit command return or the fall-through after
+    a finished iterator set the event.
+    Why this change: record_to_wav waits up to MAX_RECORDING_DURATION_SEC, so every
+    exit from this function must set the event, and the exception still propagates
+    so stderr shows the read failure.
+    """
+    try:
+        for line in sys.stdin:
+            if _is_stop_command(line):
+                return
+    finally:
+        stop_event.set()
+
 
 
 def main(argv: list[str] | None = None) -> int:

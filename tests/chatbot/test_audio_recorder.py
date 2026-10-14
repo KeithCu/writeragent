@@ -394,6 +394,62 @@ def test_venv_record_to_wav_writes_file(tmp_path):
         assert wf.getframerate() == var.SAMPLE_RATE
 
 
+def test_record_to_wav_holds_silence_progress_until_ready(tmp_path):
+    from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
+    import plugin.scripting.venv.audio_recorder as var
+
+    stop_event = threading.Event()
+    output_path = str(tmp_path / "out.wav")
+    config = SilenceDetectorConfig(silence_stop_ms=100)
+    pcm = b"\x00" * 3200
+    recorded: list[str] = []
+
+    mock_sd = MagicMock()
+    mock_stream = MagicMock()
+    stored_callback = None
+
+    def fake_raw_input_stream(*args, **kwargs):
+        nonlocal stored_callback
+        stored_callback = kwargs.get("callback")
+
+        def start():
+            if stored_callback is not None:
+                stored_callback(pcm, 1600, None, None)
+
+        mock_stream.start.side_effect = start
+        mock_stream.stop.side_effect = lambda: None
+        mock_stream.close.side_effect = lambda: None
+        return mock_stream
+
+    mock_sd.RawInputStream.side_effect = fake_raw_input_stream
+
+    def fake_wait(timeout=None):
+        if stored_callback is not None:
+            stored_callback(pcm, 1600, None, None)
+        stop_event.set()
+        return True
+
+    original_wait = stop_event.wait
+    stop_event.wait = fake_wait
+
+    try:
+        with patch.object(var, "_import_sounddevice", return_value=mock_sd):
+            var.record_to_wav(
+                output_path,
+                stop_event,
+                on_stream_started=lambda: recorded.append("ready"),
+                silence_config=config,
+                on_ipc_emit=lambda payload: recorded.append(str(payload["status"])),
+            )
+    finally:
+        stop_event.wait = original_wait
+
+    assert recorded == ["ready", "silence_progress"]
+    with wave.open(output_path, "rb") as wf:
+        assert wf.getnframes() == 3200
+
+
+
 def test_venv_record_write_error_stops_instead_of_waiting(tmp_path):
     import plugin.scripting.venv.audio_recorder as var
 
