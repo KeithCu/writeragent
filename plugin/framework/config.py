@@ -693,12 +693,19 @@ def _validated_config_for_write(data: dict[str, Any], keys_label: str) -> _confi
     so a later one-key save would erase keys an earlier writer had stored.
     The file patch is applied separately, and only for keys this call changed.
     """
+    # What was wrong: Writing or removing any valid setting failed if an
+    # unrelated, pre-existing setting in writeragent.json was out-of-range.
+    # How it happened: _validated_config_for_write called validate() with strict
+    # range checks across the whole file, rejecting the entire write.
+    # Why this change fixes it: It validates with coerce_out_of_range=True so
+    # pre-existing neighbor values are coerced into valid bounds while newly
+    # assigned values remain strictly validated in _stage_config_assignment.
     try:
         # deepcopy: validate() mutates nested dicts in place (saved scripts).
         # Sharing them with the loaded file would write those mutations
         # into keys this call did not change.
         cfg = _config_schema.WriterAgentConfig.from_dict(copy.deepcopy(data))
-        cfg.validate()
+        cfg.validate(coerce_out_of_range=True)
         return cfg
     except ConfigValidationError:
         raise
@@ -756,7 +763,7 @@ def _patch_changed_keys(loaded: dict[str, Any], staged: dict[str, Any], changed:
     """
     keys_label = ", ".join(key for key, _coerced, _prev in changed)
     cfg = _validated_config_for_write(staged, keys_label)
-    out = dict(loaded)
+    out = _repaired_file_dict(loaded, cfg)
     effective: list[tuple[str, Any, Any]] = []
     for key, _coerced, previous in changed:
         for alias in _alias_keys_for_write(key):
@@ -912,34 +919,43 @@ class ConfigStore:
             except OSError:
                 log.exception("remove_config skipped: config file could not be read")
                 return False
-            out = dict(loaded)
+            remaining = dict(loaded)
             removed = False
-            if key in out:
-                out.pop(key, None)
+            if key in remaining:
+                remaining.pop(key, None)
                 removed = True
             for dotted in _config_schema._dotted_fallback_keys(key):
-                if dotted in out:
-                    out.pop(dotted, None)
+                if dotted in remaining:
+                    remaining.pop(dotted, None)
                     removed = True
             # A dotted key's flat alias is the pre-move name (stt_model for
             # audio.stt_model). Removing the dotted key removes that alias too.
             if "." in key:
                 field_name = key.split(".", 1)[1]
-                if field_name in out:
-                    out.pop(field_name, None)
+                if field_name in remaining:
+                    remaining.pop(field_name, None)
                     removed = True
-            if not removed or out == loaded:
+            if not removed or remaining == loaded:
                 return False
             try:
-                _validated_config_for_write(out, key)
+                cfg = _validated_config_for_write(remaining, key)
             except ConfigValidationError as e:
                 log.warning("remove_config skipped write: remaining config is invalid: %s", e)
                 return False
             except Exception:
                 log.exception("remove_config validation failed; not writing unvalidated dict")
                 return False
+            to_write = _repaired_file_dict(loaded, cfg)
+            to_write.pop(key, None)
+            for dotted in _config_schema._dotted_fallback_keys(key):
+                to_write.pop(dotted, None)
+            if "." in key:
+                field_name = key.split(".", 1)[1]
+                to_write.pop(field_name, None)
+            if to_write == loaded:
+                return False
             try:
-                _write_config_file(path, out)
+                _write_config_file(path, to_write)
                 _invalidate_config_cache()
             except OSError as e:
                 log.exception("Error writing to %s", path)

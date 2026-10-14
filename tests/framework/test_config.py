@@ -492,16 +492,31 @@ class TestConfigSyncFileIO:
                 set_api_key_for_endpoint("https://api.openai.com", "sk-new")
         assert (get_api_key_for_endpoint("https://api.openai.com")) == ("")
 
-    def test_remove_config_skips_write_when_remaining_invalid(self):
+    def test_remove_config_heals_out_of_range_neighbor(self):
         from plugin.framework.config import remove_config
 
         with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"temperature": 1.5, "text_model": "keep-me"}, f)
+            json.dump({
+                "temperature": 1.5,
+                "text_model": "keep-me",
+                "api_keys_by_endpoint": {"https://api.openai.com": "sk-keep"},
+            }, f)
         reset_config_for_tests()
         remove_config("text_model")
         data = self._load_written()
-        assert (data.get("text_model")) == ("keep-me")
-        assert (data.get("temperature")) == (1.5)
+        assert "text_model" not in data
+        assert data.get("temperature") == 1.0
+        assert data.get("api_keys_by_endpoint") == {"https://api.openai.com": "sk-keep"}
+
+    def test_set_config_heals_out_of_range_neighbor(self):
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"temperature": 1.5, "text_model": "keep-me"}, f)
+        reset_config_for_tests()
+        set_config("seed", "42")
+        data = self._load_written()
+        assert data.get("seed") == "42"
+        assert data.get("text_model") == "keep-me"
+        assert data.get("temperature") == 1.0
 
     def test_get_config_default_resolution(self):
         if os.path.exists(self.config_path):
