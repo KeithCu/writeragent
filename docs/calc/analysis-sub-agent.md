@@ -259,7 +259,7 @@ These are the primary replacements: stop reimplementing what these stacks alread
 | `describe_data`, `clean_and_prepare`, `pivot_aggregate`, `group_summary`, `correlation_matrix`, `compare_periods` | **pandas**: `describe()`, `pivot_table()`, `groupby().agg()`, `corr()`, cleaning |
 | `run_regression` | **statsmodels** OLS (coefficients, std error, p-value, interval) |
 | `cluster_numeric` | **sklearn** KMeans on standardized columns |
-| `detect_outliers` (IQR / z-score paths) | **pandas** / **scipy.stats** vectorized patterns |
+| `detect_outliers` | IQR is pandas quantiles; z-score is `scipy.stats.zscore`; `isolation_forest` is sklearn |
 
 Prefer calling library APIs directly; copy snippets only when there is no stable package API.
 
@@ -291,7 +291,7 @@ Replace hand-rolled IQR/z-score/isolation logic with vetted implementations wher
 
 | Source | Notes |
 |--------|-------|
-| Current impl | Vectorized **pandas** / **scipy.stats** IQR and z-score; **sklearn** `IsolationForest` |
+| Current impl | IQR is pandas quantiles; z-score is `scipy.stats.zscore`; `isolation_forest` is sklearn; unknown method returns `INVALID_PARAM` |
 | [PandasVault](https://github.com/firmai/pandasvault) | Advanced pandas utilities including outlier helpers |
 | scikit-learn | `IsolationForest`, `EllipticEnvelope`, etc. |
 | Community recipes | e.g. GitHub `vbelz/Outliers_detection`; pandas issues / Stack Overflow vectorized IQR/z-score |
@@ -362,7 +362,6 @@ result = run_analysis(spec, data, context)
 | `params` | object | Helper-specific kwargs |
 | `headers` | bool | Default `true` — first row is column names |
 | `header_row` | int | Default `0` |
-| `return_data` | bool | Default `false` — when true, some helpers add `data_records` |
 
 **Required venv packages** (install into `scripting.python_venv_path`; no in-code fallbacks):
 
@@ -376,11 +375,11 @@ Settings → Python **Test** reports **Data Analysis / EDA Libraries** and sugge
 
 | Helper | Purpose |
 |--------|---------|
-| `describe_data` | Extended EDA + column quality via **fg-data-profiling** + optional IQR outlier counts |
+| `describe_data` | Extended EDA + column quality via **fg-data-profiling** + optional IQR outlier counts. When the frame is wider than `max_cols` (default 40), `col_count` is the full width, `cols_analyzed` is how many leading columns were profiled, and a flag states both numbers |
 | `kpi_summary` | Aggregate mean/min/max/sum for selected metrics |
-| `detect_outliers` | IQR (default), z-score, or `isolation_forest` (pandas/scipy/sklearn) |
+| `detect_outliers` | IQR (default), z-score, or `isolation_forest` (pandas/scipy/sklearn); unknown method is `INVALID_PARAM`; a named non-numeric column is `NON_NUMERIC_COLUMN` |
 | `quick_stats` | `QuickStats(...).tooltip()` compact metric card |
-| `format_currency` / `format_percent` | Display formatters |
+| `format_currency` / `format_percent` | Display formatters; spec output is a one-column `value` table, one row per input cell, row-major. Direct calls still preserve orientation |
 | `clean_and_prepare` | Dedupe, simple imputation |
 | `pivot_aggregate` | `pd.pivot_table` wrapper |
 | `group_summary` | Group-by aggregates |
@@ -388,7 +387,7 @@ Settings → Python **Test** reports **Data Analysis / EDA Libraries** and sugge
 | `correlation_matrix` | Top correlated pairs |
 | `run_regression` | **statsmodels** OLS (coefficients plus std error, p-value, interval) |
 | `cluster_numeric` | sklearn KMeans on standardized columns, plus a row-label table |
-| `monte_carlo` | **pandas-montecarlo** resampling (`params.sims`, `params.bust`, `params.goal`) |
+| `monte_carlo` | **pandas-montecarlo** order-shuffle simulation (`final_value`, `bust_prob`, `goal_prob`, `worst_trough`; `params.sims`, `params.bust`, `params.goal`) |
 
 *WriterAgent keeps coercion + result shaping; numeric work delegates to the libraries above. See [External code sources](#external-code-sources--planned-foss-replacements).*
 

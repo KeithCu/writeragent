@@ -57,7 +57,7 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "correlation_matrix": "Pairwise correlations and top pairs",
     "run_regression": "OLS linear regression (coefficients, standard errors, p-values, intervals)",
     "cluster_numeric": "KMeans on standardized numeric columns, with a row-to-cluster table",
-    "monte_carlo": "Resampling simulation on a numeric series",
+    "monte_carlo": "Order-shuffle simulation: bust and goal from the cumulative path",
 }
 
 

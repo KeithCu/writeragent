@@ -54,7 +54,7 @@ Product overview lives in the root [README](../README.md). This page maps each a
 | `correlation_matrix` | Top correlated pairs |
 | `run_regression` | OLS via statsmodels |
 | `cluster_numeric` | KMeans centroids |
-| `monte_carlo` | Monte Carlo resampling |
+| `monte_carlo` | Order-shuffle path simulation (bust, goal, trough) |
 | `calc_goal_seek` | Single-variable what-if (native Calc) |
 | `calc_solver` | Constrained optimization on formulas (native Calc) |
 

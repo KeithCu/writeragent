@@ -44,13 +44,13 @@ uv pip install numpy pandas scipy scikit-learn statsmodels fg-data-profiling pan
 | Package | Used by |
 |---------|---------|
 | `numpy`, `pandas` | All helpers (coercion, tables, aggregates) |
-| `scipy` | `detect_outliers` (IQR, z-score) |
+| `scipy` | `detect_outliers` z-score |
 | `scikit-learn` | `detect_outliers` (`isolation_forest`), `cluster_numeric` |
 | [fg-data-profiling](https://github.com/Data-Centric-AI-Community/fg-data-profiling) (`data_profiling`) | `describe_data` |
 | `statsmodels` | `run_regression`, [`forecast_time_series` / `decompose_time_series`](../../plugin/scripting/forecast.py) |
 | [pandas-montecarlo](https://github.com/ranaroussi/pandas-montecarlo) | `monte_carlo` |
 
-Helpers that need a missing package return `MISSING_PACKAGE` with the install line above — there is no in-code fallback to alternate libraries. See [Analysis Sub-Agent](../calc/analysis-sub-agent.md).
+Helpers that need a missing package return `MISSING_PACKAGE` with the install line above — there is no in-code fallback to alternate libraries. See [Analysis Sub-Agent](../calc/analysis-sub-agent.md). IQR uses pandas quantiles and does not import scipy. `monte_carlo` permutes series order and does not draw with replacement; its metrics are `final_value`, `bust_prob`, `goal_prob`, and `worst_trough`.
 
 ### Demo workbook (all NumPy domains)
 

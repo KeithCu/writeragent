@@ -11,16 +11,20 @@ import logging
 from typing import Any, cast
 
 from plugin.scripting.venv.coerce import (
+    coerce_bool,
+    coerce_float,
+    coerce_int,
+    coerce_str_list,
     ok_result as _ok_result,
     error_result as _error_result,
     parse_trusted_spec as _parse_trusted_spec,
     missing_package_error as _missing_package_error,
     numeric_columns as _numeric_columns,
-    records_from_df as _records_from_df,
     resolve_df as _resolve_df,
     table_from_df as _table_from_df,
     _NUMERIC_PROFILE_KEYS,
 )
+from plugin.scripting.venv.map_range import map_over_range
 
 from plugin.scripting.calc_functions_common import (
     ANALYSIS_HELPER_NAMES as HELPER_NAMES,
@@ -40,7 +44,37 @@ def _markdown_table(columns: list[str], rows: list[list[Any]]) -> str:
     return "\n".join([header, sep, *body])
 
 
-from plugin.scripting.venv.map_range import map_over_range
+def _coerce_columns(value: Any, name: str, helper: str) -> list[str] | None | dict[str, Any]:
+    # A string column list was previously iterated as characters (e.g.
+    # metrics="Sales" -> S, a, l, e, s; agg="mean" -> tuple of letters).
+    if value is None:
+        return None
+    try:
+        return coerce_str_list(value, name=name)
+    except ValueError as exc:
+        return _error_result("INVALID_PARAM", str(exc), helper=helper)
+
+
+def _reject_non_numeric(df: Any, names: list[str], *, helper: str) -> dict[str, Any] | None:
+    # _numeric_columns returns requested names without checking dtype, so
+    # .astype(float) raised and run_analysis reported ANALYSIS_FAILED.
+    numeric_set = set(df.select_dtypes(include="number").columns)
+    bad = [n for n in names if n not in numeric_set]
+    if bad:
+        return _error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {', '.join(bad)}", helper=helper)
+    return None
+
+
+def _resolve_numeric(df: Any, columns: list[str] | None, *, helper: str) -> list[str] | dict[str, Any]:
+    try:
+        numeric_cols = _numeric_columns(df, columns)
+    except ValueError as exc:
+        return _error_result("UNKNOWN_COLUMN", str(exc), helper=helper)
+    if columns is not None:
+        rejected = _reject_non_numeric(df, numeric_cols, helper=helper)
+        if rejected is not None:
+            return rejected
+    return numeric_cols
 
 
 def _format_single_currency(value: Any, symbol: str = "$", decimals: int = 2) -> str:
@@ -84,6 +118,20 @@ def format_percent(values: Any, *, decimals: int = 1) -> Any:
     )
 
 
+def _formatted_cells(formatted: Any) -> list[str]:
+    # The spec path previously iterated a scalar string (counting characters)
+    # and wrapped each grid row as a single cell, which egress stored as a tuple.
+    if isinstance(formatted, (list, tuple)):
+        cells: list[str] = []
+        for item in formatted:
+            if isinstance(item, (list, tuple)):
+                cells.extend(str(cell) for cell in item)
+            else:
+                cells.append(str(item))
+        return cells
+    return [str(formatted)]
+
+
 def _describe_columns_from_profile(
     limited: Any,
     variables: dict[str, Any],
@@ -125,19 +173,27 @@ def describe_data(
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
     """Extended EDA summary — Excel Data Analysis / describe() plus column quality."""
+    try:
+        max_cols_val = coerce_int(max_cols, name="max_cols")
+        include_outliers_val = coerce_bool(include_outliers, name="include_outliers", default=True)
+    except ValueError as exc:
+        return _error_result("INVALID_PARAM", str(exc), helper="describe_data")
+    if max_cols_val < 1:
+        return _error_result("INVALID_PARAM", f"max_cols must be an integer >= 1, got {max_cols_val!r}", helper="describe_data")
+
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
     if df.empty:
         return _ok_result(
             "describe_data",
-            metrics={"row_count": 0, "col_count": 0},
+            metrics={"row_count": 0, "col_count": 0, "cols_analyzed": 0},
             columns=[],
             tables=[],
             flags=["Empty dataset"],
             metadata=coerced.metadata,
         )
 
-    cols = list(df.columns)[:max_cols]
+    cols = list(df.columns)[:max_cols_val]
     limited = df[cols]
     column_summaries: list[dict[str, Any]] = []
     flags: list[str] = []
@@ -155,18 +211,21 @@ def describe_data(
     column_summaries, flags = _describe_columns_from_profile(
         limited,
         variables,
-        include_outliers=include_outliers,
+        include_outliers=include_outliers_val,
     )
 
     for alert in profile_messages:
         if isinstance(alert, str):
             flags.append(alert)
 
+    if len(df.columns) > len(cols):
+        flags.append(f"Analyzed the first {len(cols)} of {len(df.columns)} columns")
+
     stats_table = _table_from_df(limited.describe(include="all").transpose().reset_index().rename(columns={"index": "column"}), name="describe")
 
     return _ok_result(
         "describe_data",
-        metrics={"row_count": int(len(df)), "col_count": int(len(df.columns))},
+        metrics={"row_count": int(len(df)), "col_count": int(len(df.columns)), "cols_analyzed": int(len(cols))},
         columns=column_summaries,
         tables=[stats_table],
         flags=flags,
@@ -196,31 +255,43 @@ def _safe_float(value: Any) -> float | None:
 
 def kpi_summary(
     data: Any,
-    metrics: list[str],
+    metrics: Any,
     *,
-    agg: tuple[str, ...] = ("mean", "min", "max", "sum"),
+    agg: Any = ("mean", "min", "max", "sum"),
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
     """Aggregate KPI table for selected numeric columns (Python-in-Excel init helper)."""
+    coerced_metrics = _coerce_columns(metrics, "metrics", "kpi_summary")
+    if isinstance(coerced_metrics, dict):
+        return coerced_metrics
+    if not coerced_metrics:
+        return _error_result("MISSING_PARAM", "kpi_summary requires metrics", helper="kpi_summary")
+
+    if agg is None:
+        return _error_result("INVALID_PARAM", "agg must list at least one aggregation", helper="kpi_summary")
+    coerced_agg = _coerce_columns(agg, "agg", "kpi_summary")
+    if isinstance(coerced_agg, dict):
+        return coerced_agg
+    if not coerced_agg:
+        return _error_result("INVALID_PARAM", "agg must list at least one aggregation", helper="kpi_summary")
+
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    missing = [m for m in metrics if m not in df.columns]
+    missing = [m for m in coerced_metrics if m not in df.columns]
     if missing:
         return _error_result("UNKNOWN_COLUMN", f"Unknown metrics: {', '.join(missing)}", helper="kpi_summary")
-    numeric = _numeric_columns(df, metrics)
-    if len(numeric) != len(metrics):
-        bad = [m for m in metrics if m not in numeric]
-        return _error_result("NON_NUMERIC_COLUMN", f"Non-numeric metrics: {', '.join(bad)}", helper="kpi_summary")
-    if not numeric:
-        return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to analyze.", helper="kpi_summary")
 
-    summary = df[numeric].agg(list(agg)).round(6)
+    rejected = _reject_non_numeric(df, coerced_metrics, helper="kpi_summary")
+    if rejected is not None:
+        return rejected
+
+    summary = df[coerced_metrics].agg(list(coerced_agg)).round(6)
     table = _table_from_df(summary.reset_index().rename(columns={"index": "metric"}), name="kpi_summary")
     return _ok_result(
         "kpi_summary",
-        metrics={"metrics": numeric, "aggregations": list(agg)},
+        metrics={"metrics": coerced_metrics, "aggregations": list(coerced_agg)},
         tables=[table],
         metadata=coerced.metadata,
         writer_cleanup_hints={"markdown_table": _markdown_table(cast("list[str]", table["columns"]), cast("list[list[Any]]", table["rows"]))},
@@ -238,19 +309,33 @@ def detect_outliers(
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
     """Flag outliers using IQR, z-score, or sklearn IsolationForest."""
+    if not isinstance(method, str):
+        return _error_result("INVALID_PARAM", f"method must be iqr, zscore, or isolation_forest, got {method!r}", helper="detect_outliers")
+    method_name = method.strip().lower()
+    if method_name not in ("iqr", "zscore", "isolation_forest"):
+        return _error_result("INVALID_PARAM", f"method must be iqr, zscore, or isolation_forest, got {method!r}", helper="detect_outliers")
+
+    try:
+        threshold_val = coerce_float(threshold, name="threshold")
+    except ValueError as exc:
+        return _error_result("INVALID_PARAM", str(exc), helper="detect_outliers")
+
+    coerced_cols = _coerce_columns(columns, "columns", "detect_outliers")
+    if isinstance(coerced_cols, dict):
+        return coerced_cols
+
     import numpy as np
     import pandas as pd
-    from scipy import stats as scipy_stats
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
     if df.empty:
         return _ok_result("detect_outliers", metrics={"outlier_count": 0}, tables=[], flags=[], metadata=coerced.metadata)
 
-    try:
-        numeric_cols = _numeric_columns(df, columns)
-    except ValueError as exc:
-        return _error_result("UNKNOWN_COLUMN", str(exc), helper="detect_outliers")
+    resolved_cols = _resolve_numeric(df, coerced_cols, helper="detect_outliers")
+    if isinstance(resolved_cols, dict):
+        return resolved_cols
+    numeric_cols = resolved_cols
 
     if not numeric_cols:
         return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to analyze.", helper="detect_outliers")
@@ -259,12 +344,18 @@ def detect_outliers(
     mask = pd.Series(False, index=df.index)
     per_column: dict[str, int] = {col: 0 for col in numeric_cols}
 
-    if method == "zscore":
+    if method_name == "zscore":
+        try:
+            from scipy import stats as scipy_stats
+        except ImportError:
+            # The import sat above every method, so IQR required scipy even though
+            # only zscore calls scipy.stats.zscore.
+            return _missing_package_error("detect_outliers", "scipy")
         z = np.abs(cast("Any", scipy_stats.zscore(sample.values, axis=0, nan_policy="omit")))
-        col_mask = pd.DataFrame(z > threshold, index=sample.index, columns=sample.columns).fillna(False)
+        col_mask = pd.DataFrame(z > threshold_val, index=sample.index, columns=sample.columns).fillna(False)
         mask = col_mask.any(axis=1)
         per_column = {str(col): int(cast("Any", col_mask[col].sum())) for col in numeric_cols}
-    elif method == "isolation_forest":
+    elif method_name == "isolation_forest":
         from sklearn.ensemble import IsolationForest
         if not sample.empty:
             filled = sample.fillna(sample.median())
@@ -278,8 +369,8 @@ def detect_outliers(
         q3 = sample.quantile(0.75)
         iqr = q3 - q1
         zero_iqr = iqr == 0
-        lower = q1 - threshold * iqr
-        upper = q3 + threshold * iqr
+        lower = q1 - threshold_val * iqr
+        upper = q3 + threshold_val * iqr
         col_mask = sample.lt(lower) | sample.gt(upper)
         col_mask = col_mask.mul(~zero_iqr, axis=1)
         mask = col_mask.any(axis=1)
@@ -288,10 +379,10 @@ def detect_outliers(
     outlier_rows = df.loc[mask].copy()
     outlier_rows["_outlier"] = True
     table = _table_from_df(outlier_rows, name="outliers") if not outlier_rows.empty else {"name": "outliers", "columns": [], "rows": [], "truncated": False, "total_rows": 0}
-    flags = [f"{count} outliers in {col} ({method})" for col, count in per_column.items() if count]
+    flags = [f"{count} outliers in {col} ({method_name})" for col, count in per_column.items() if count]
     return _ok_result(
         "detect_outliers",
-        metrics={"outlier_count": int(np.asarray(mask, dtype=bool).sum()), "method": method, "per_column": per_column},
+        metrics={"outlier_count": int(np.asarray(mask, dtype=bool).sum()), "method": method_name, "per_column": per_column},
         tables=[table],
         flags=flags,
         metadata=coerced.metadata,
@@ -305,16 +396,41 @@ class QuickStats:
     metadata: dict[str, Any]
     numeric_columns: list[str]
     record_count: int
+    _requested_columns: Any
 
-    def __init__(self, data: Any, *, numeric_columns: list[str] | None = None, headers: bool = True, header_row: int = 0, sheet_hint: str | None = None) -> None:
+    def __init__(
+        self,
+        data: Any,
+        *,
+        numeric_columns: Any = None,
+        headers: bool = True,
+        header_row: int = 0,
+        sheet_hint: str | None = None,
+    ) -> None:
         coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
         self.df = coerced.df
         self.metadata = coerced.metadata
-        cols = numeric_columns or coerced.metadata.get("numeric_cols") or _numeric_columns(self.df)
-        self.numeric_columns = [c for c in cols if c in self.df.columns]
+        self.numeric_columns = []
+        self._requested_columns = numeric_columns
         self.record_count = int(len(self.df))
 
     def tooltip(self) -> dict[str, Any]:
+        if self._requested_columns is not None:
+            coerced_cols = _coerce_columns(self._requested_columns, "numeric_columns", "quick_stats")
+            if isinstance(coerced_cols, dict):
+                return coerced_cols
+            cols_list = coerced_cols or []
+            missing = [c for c in cols_list if c not in self.df.columns]
+            if missing:
+                return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper="quick_stats")
+            rejected = _reject_non_numeric(self.df, cols_list, helper="quick_stats")
+            if rejected is not None:
+                return rejected
+            self.numeric_columns = list(cols_list)
+        else:
+            cols = self.metadata.get("numeric_cols") or _numeric_columns(self.df)
+            self.numeric_columns = [c for c in cols if c in self.df.columns]
+
         columns: list[str] = ["Metric", "Value"]
         rows: list[list[Any]] = [["Records", self.record_count]]
         for col in self.numeric_columns[:8]:
@@ -337,7 +453,7 @@ class QuickStats:
 def quick_stats(
     data: Any,
     *,
-    numeric_columns: list[str] | None = None,
+    numeric_columns: Any = None,
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
@@ -363,11 +479,21 @@ def clean_and_prepare(
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
     """Lightweight cleaning — type coercion, optional dedupe, simple imputation."""
+    try:
+        drop_duplicates_val = coerce_bool(drop_duplicates, name="drop_duplicates", default=False)
+    except ValueError as exc:
+        return _error_result("INVALID_PARAM", str(exc), helper="clean_and_prepare")
+
+    if not isinstance(fill_numeric, str):
+        return _error_result("INVALID_PARAM", f"fill_numeric must be a string, got {fill_numeric!r}", helper="clean_and_prepare")
+    if not isinstance(fill_categorical, str):
+        return _error_result("INVALID_PARAM", f"fill_categorical must be a string, got {fill_categorical!r}", helper="clean_and_prepare")
+
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df.copy()
     actions: list[str] = []
 
-    if drop_duplicates:
+    if drop_duplicates_val:
         before = len(df)
         df = df.drop_duplicates()
         removed = before - len(df)
@@ -439,20 +565,37 @@ def pivot_aggregate(
 def group_summary(
     data: Any,
     *,
-    by: str | list[str],
-    metrics: list[str],
+    by: Any,
+    metrics: Any,
     aggfunc: str | list[str] | dict[str, str] = "sum",
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
     """Group-by aggregate summary (Excel SUBTOTAL / pivot rows)."""
+    coerced_by = _coerce_columns(by, "by", "group_summary")
+    if isinstance(coerced_by, dict):
+        return coerced_by
+    if not coerced_by:
+        return _error_result("MISSING_PARAM", "group_summary requires by and metrics", helper="group_summary")
+
+    coerced_metrics = _coerce_columns(metrics, "metrics", "group_summary")
+    if isinstance(coerced_metrics, dict):
+        return coerced_metrics
+    if not coerced_metrics:
+        return _error_result("MISSING_PARAM", "group_summary requires by and metrics", helper="group_summary")
+
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    missing = [m for m in ([by] if isinstance(by, str) else list(by)) + metrics if m not in df.columns]
+    missing = [m for m in coerced_by + coerced_metrics if m not in df.columns]
     if missing:
         return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper="group_summary")
-    grouped = df.groupby(by)[metrics].agg(aggfunc).reset_index()
+
+    rejected = _reject_non_numeric(df, coerced_metrics, helper="group_summary")
+    if rejected is not None:
+        return rejected
+
+    grouped = df.groupby(coerced_by)[coerced_metrics].agg(aggfunc).reset_index()
     table = _table_from_df(grouped, name="group_summary", max_rows=DATA_TABLE_ROWS)
     return _ok_result(
         "group_summary",
@@ -484,21 +627,42 @@ def compare_periods(
     df = coerced.df.copy()
     if date_col not in df.columns or value_col not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Need columns {date_col!r} and {value_col!r}", helper="compare_periods")
+
+    rejected = _reject_non_numeric(df, [value_col], helper="compare_periods")
+    if rejected is not None:
+        return rejected
+
     agg_name = str(agg or "sum").strip().lower()
     if agg_name not in ("sum", "mean", "last"):
         return _error_result("INVALID_PARAM", f"agg must be sum, mean, or last, got {agg_name!r}", helper="compare_periods")
+
+    if not isinstance(period, str):
+        return _error_result("INVALID_PARAM", f"period must be Y, Q, M, YE, QE, or ME, got {period!r}", helper="compare_periods")
+    period_upper = period.strip().upper()
+    freq_map = {"Y": "YE", "Q": "QE", "M": "ME", "YE": "YE", "QE": "QE", "ME": "ME"}
+    if period_upper not in freq_map:
+        return _error_result("INVALID_PARAM", f"period must be Y, Q, M, YE, QE, or ME, got {period!r}", helper="compare_periods")
+    freq = freq_map[period_upper]
+
+    if not isinstance(calc, str):
+        return _error_result("INVALID_PARAM", f"calc must be pct_change or diff, got {calc!r}", helper="compare_periods")
+    calc_lower = calc.strip().lower()
+    if calc_lower not in ("pct_change", "diff"):
+        return _error_result("INVALID_PARAM", f"calc must be pct_change or diff, got {calc!r}", helper="compare_periods")
+
+    # An unknown period was previously handed to resample and raised; any calc
+    # other than pct_change silently took diff.
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
     df = df.dropna(subset=[date_col, value_col])
-    freq = {"Y": "YE", "Q": "QE", "M": "ME"}.get(period.upper(), period)
     grouped = df.set_index(date_col).sort_index()[value_col].resample(freq).agg(agg_name).reset_index()
-    if calc == "pct_change":
+    if calc_lower == "pct_change":
         grouped["change"] = grouped[value_col].pct_change()
     else:
         grouped["change"] = grouped[value_col].diff()
     table = _table_from_df(grouped, name="period_comparison", max_rows=DATA_TABLE_ROWS)
     return _ok_result(
         "compare_periods",
-        metrics={"periods": int(len(grouped)), "period": period, "calc": calc, "agg": agg_name},
+        metrics={"periods": int(len(grouped)), "period": period_upper, "calc": calc_lower, "agg": agg_name},
         tables=[table],
         metadata=coerced.metadata,
     )
@@ -514,12 +678,25 @@ def correlation_matrix(
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
     """Pairwise correlations — Excel CORREL matrix, top pairs above threshold."""
+    if not isinstance(method, str):
+        return _error_result("INVALID_PARAM", f"method must be pearson, spearman, or kendall, got {method!r}", helper="correlation_matrix")
+    method_name = method.strip().lower()
+    if method_name not in ("pearson", "spearman", "kendall"):
+        return _error_result("INVALID_PARAM", f"method must be pearson, spearman, or kendall, got {method!r}", helper="correlation_matrix")
+
+    try:
+        min_abs_val = coerce_float(min_abs, name="min_abs")
+    except ValueError as exc:
+        return _error_result("INVALID_PARAM", str(exc), helper="correlation_matrix")
+
+    import pandas as pd
+
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
     numeric = df.select_dtypes(include="number")
     if numeric.shape[1] < 2:
         return _error_result("NOT_ENOUGH_NUMERIC", "Need at least two numeric columns.", helper="correlation_matrix")
-    corr = numeric.corr(method=method)
+    corr = numeric.corr(method=method_name)
     pairs: list[dict[str, Any]] = []
     cols = list(corr.columns)
     for i, col_a in enumerate(cols):
@@ -527,20 +704,18 @@ def correlation_matrix(
             value = corr.loc[col_a, col_b]
             if value != value:
                 continue
-            if abs(float(value)) >= min_abs:
+            if abs(float(value)) >= min_abs_val:
                 pairs.append({"column_a": str(col_a), "column_b": str(col_b), "correlation": round(float(value), 6)})
     pairs.sort(key=lambda item: abs(item["correlation"]), reverse=True)
-    pairs = pairs[:MAX_TABLE_ROWS]
-    table = {
-        "name": "correlations",
-        "columns": ["column_a", "column_b", "correlation"],
-        "rows": [[p["column_a"], p["column_b"], p["correlation"]] for p in pairs],
-        "truncated": len(pairs) >= MAX_TABLE_ROWS,
-        "total_rows": len(pairs),
-    }
+
+    # Slicing happened before pair_count and total_rows were recorded, and
+    # truncated used >=, so the true pair count was replaced by 50.
+    pairs_df = pd.DataFrame(pairs, columns=["column_a", "column_b", "correlation"])
+    table = _table_from_df(pairs_df, name="correlations", max_rows=MAX_TABLE_ROWS)
+
     return _ok_result(
         "correlation_matrix",
-        metrics={"pair_count": len(pairs), "method": method},
+        metrics={"pair_count": table["total_rows"], "method": method_name},
         tables=[table],
         metadata=coerced.metadata,
     )
@@ -550,23 +725,48 @@ def run_regression(
     data: Any,
     *,
     target: str,
-    features: list[str] | None = None,
+    features: Any = None,
     add_constant: bool = True,
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
     """OLS / linear regression — Excel LINEST / trendline equivalent."""
+    if not isinstance(target, str) or not target.strip():
+        return _error_result("INVALID_PARAM", "target must be a column name", helper="run_regression")
+
+    try:
+        add_constant_val = coerce_bool(add_constant, name="add_constant", default=True)
+    except ValueError as exc:
+        return _error_result("INVALID_PARAM", str(exc), helper="run_regression")
+
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
     if target not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Unknown target {target!r}", helper="run_regression")
-    feature_cols = features or [c for c in _numeric_columns(df) if c != target]
+
+    rejected_target = _reject_non_numeric(df, [target], helper="run_regression")
+    if rejected_target is not None:
+        return rejected_target
+
+    if features is None:
+        feature_cols = [c for c in _numeric_columns(df) if c != target]
+    else:
+        coerced_features = _coerce_columns(features, "features", "run_regression")
+        if isinstance(coerced_features, dict):
+            return coerced_features
+        feature_cols = list(coerced_features or [])
+
     if not feature_cols:
         return _error_result("NO_FEATURES", "No feature columns available.", helper="run_regression")
+
     missing = [c for c in feature_cols if c not in df.columns]
     if missing:
         return _error_result("UNKNOWN_COLUMN", f"Unknown features: {', '.join(missing)}", helper="run_regression")
+
+    rejected_features = _reject_non_numeric(df, feature_cols, helper="run_regression")
+    if rejected_features is not None:
+        return rejected_features
 
     sample = df[[target, *feature_cols]].dropna()
     if len(sample) < len(feature_cols) + 1:
@@ -580,7 +780,7 @@ def run_regression(
     except ImportError:
         return _missing_package_error("run_regression", "statsmodels")
 
-    design = sm.add_constant(x) if add_constant else x
+    design = sm.add_constant(x) if add_constant_val else x
     model = sm.OLS(y, design).fit()
     # The fit already has uncertainty. A coefficient alone reads as exact.
     ci = model.conf_int()
@@ -645,15 +845,29 @@ def cluster_numeric(
     column in the tens, so the clusters follow magnitude instead of shape.
     ``scale=True`` standardizes first and reports centroids in the original units.
     """
+    try:
+        n_clusters_val = coerce_int(n_clusters, name="n_clusters")
+        scale_val = coerce_bool(scale, name="scale", default=True)
+    except ValueError as exc:
+        return _error_result("INVALID_PARAM", str(exc), helper="cluster_numeric")
+
+    coerced_cols = _coerce_columns(columns, "columns", "cluster_numeric")
+    if isinstance(coerced_cols, dict):
+        return coerced_cols
+
     import pandas as pd
     from sklearn.cluster import KMeans
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    try:
-        numeric_cols = _numeric_columns(df, columns)
-    except ValueError as exc:
-        return _error_result("UNKNOWN_COLUMN", str(exc), helper="cluster_numeric")
+
+    # _numeric_columns returns requested names without checking dtype, so
+    # .astype(float) raised and run_analysis reported ANALYSIS_FAILED.
+    resolved_cols = _resolve_numeric(df, coerced_cols, helper="cluster_numeric")
+    if isinstance(resolved_cols, dict):
+        return resolved_cols
+    numeric_cols = resolved_cols
+
     if not numeric_cols:
         return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to cluster.", helper="cluster_numeric")
 
@@ -661,14 +875,14 @@ def cluster_numeric(
     if sample.empty:
         return _error_result("INSUFFICIENT_DATA", "No rows available for clustering.", helper="cluster_numeric")
 
-    n_clusters = max(1, min(int(n_clusters), len(sample)))
+    n_clusters_val = max(1, min(n_clusters_val, len(sample)))
     if method != "kmeans":
         return _error_result("UNSUPPORTED_METHOD", f"Unsupported method {method!r}", helper="cluster_numeric")
 
     values = sample.to_numpy(dtype=float)
     scaler = None
     fitted = values
-    if scale and values.shape[0] >= 2:
+    if scale_val and values.shape[0] >= 2:
         from sklearn.preprocessing import StandardScaler
 
         scaler = StandardScaler()
@@ -677,7 +891,7 @@ def cluster_numeric(
     # n_init="auto" is a single k-means++ start on current sklearn, which can
     # lock onto a high-range column even after scaling. A few restarts find
     # the standardized groups.
-    model = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)  # pyright: ignore[reportArgumentType]
+    model = KMeans(n_clusters=n_clusters_val, random_state=42, n_init=10)  # pyright: ignore[reportArgumentType]
     labels = model.fit_predict(fitted)
     counts: dict[int, int] = {}
     for label in labels:
@@ -698,10 +912,10 @@ def cluster_numeric(
     labels_table = _table_from_df(labels_df, name="labels", max_rows=DATA_TABLE_ROWS)
 
     metrics: dict[str, Any] = {
-        "n_clusters": n_clusters,
+        "n_clusters": n_clusters_val,
         "cluster_sizes": counts,
         "method": method,
-        "scale": bool(scale),
+        "scale": bool(scale_val),
     }
     n_labels = len(counts)
     if n_labels >= 2 and len(labels) > n_labels:
@@ -731,6 +945,13 @@ def monte_carlo(
 ) -> dict[str, Any]:
     """Monte Carlo simulation on a numeric series (pandas-montecarlo)."""
     try:
+        sims_val = coerce_int(sims, name="sims")
+        bust_val = coerce_float(bust, name="bust")
+        goal_val = coerce_float(goal, name="goal")
+    except ValueError as exc:
+        return _error_result("INVALID_PARAM", str(exc), helper="monte_carlo")
+
+    try:
         from pandas_montecarlo import montecarlo as pmc_montecarlo
     except ImportError:
         return _missing_package_error("monte_carlo", "pandas-montecarlo")
@@ -749,41 +970,38 @@ def monte_carlo(
     if len(series) < 2:
         return _error_result("INSUFFICIENT_DATA", "Need at least 2 data points", helper="monte_carlo")
 
-    sims = max(2, min(int(sims), 1_000_000))
-    result = pmc_montecarlo(series, sims=sims)
+    sims_val = max(2, min(sims_val, 1_000_000))
+    result = pmc_montecarlo(series, sims=sims_val, bust=bust_val, goal=goal_val)
     total = getattr(result, "data", None)
     if total is None or not hasattr(total, "cumsum"):
         return _error_result("MONTE_CARLO_FAILED", "pandas-montecarlo returned unexpected result", helper="monte_carlo")
 
     cumsum = total.cumsum()
-    final = cumsum.iloc[-1:].T.reset_index()
-    first_col = final.columns[0] if final.columns[0] != 0 else "final_value"
-    total_df = final.rename(columns={"index": "simulation", first_col: "final_value"})
-    table = _table_from_df(total_df, name="monte_carlo_totals")
+    if "original" not in cumsum.columns:
+        return _error_result("MONTE_CARLO_FAILED", "pandas-montecarlo returned unexpected result", helper="monte_carlo")
 
-    col_mins = cumsum.min(axis=0)
-    bust_threshold = abs(float(bust))
-    goal_threshold = abs(float(goal))
+    import pandas as pd
 
-    dd = col_mins[col_mins < 0]
-    bust_prob = float((dd <= -bust_threshold).sum() / sims) if len(dd) else 0.0
-
-    safe_cols = col_mins[col_mins > -bust_threshold]
-    if len(safe_cols):
-        nobust = cumsum[safe_cols.index].iloc[-1:]
-        goal_prob = float((nobust >= goal_threshold).sum().sum() / sims)
-    else:
-        goal_prob = 0.0
+    # The rename dict previously collapsed two "index" keys, and the summary
+    # stats were taken over the whole cumulative grid of an order shuffle whose
+    # terminal value does not vary.
+    rows_data = []
+    for col in cumsum.columns:
+        path = cumsum[col]
+        rows_data.append({
+            "simulation": str(col),
+            "final_value": round(float(path.iloc[-1]), 6),
+            "trough": round(float(path.min()), 6),
+        })
+    totals_df = pd.DataFrame(rows_data, columns=["simulation", "final_value", "trough"])
+    table = _table_from_df(totals_df, name="monte_carlo_totals", max_rows=MAX_TABLE_ROWS)
 
     metrics = {
-        "min": float(cumsum.min().min()),
-        "max": float(cumsum.max().max()),
-        "mean": float(cumsum.mean().mean()),
-        "median": float(cumsum.median().median()),
-        "std": float(cumsum.std().std()),
-        "bust_prob": bust_prob,
-        "goal_prob": goal_prob,
-        "simulations": sims,
+        "simulations": sims_val,
+        "final_value": round(float(cumsum["original"].iloc[-1]), 6),
+        "bust_prob": float(result.stats["bust"]),
+        "goal_prob": float(result.stats["goal"]),
+        "worst_trough": round(float(cumsum.min(axis=0).min()), 6),
     }
 
     return _ok_result(
@@ -804,20 +1022,57 @@ def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: b
         metrics = params.get("metrics")
         if not metrics:
             return _error_result("MISSING_PARAM", "kpi_summary requires params.metrics", helper=name)
-        return kpi_summary(data, metrics, agg=tuple(params.get("agg", ("mean", "min", "max", "sum"))), **common)
+        return kpi_summary(data, metrics, agg=params.get("agg", ("mean", "min", "max", "sum")), **common)
     if name == "detect_outliers":
         return detect_outliers(data, columns=params.get("columns"), method=params.get("method", "iqr"), threshold=params.get("threshold", 1.5), **common)
     if name == "quick_stats":
         qs = QuickStats(data, numeric_columns=params.get("numeric_columns"), **common)
         return qs.tooltip()
     if name == "format_currency":
+        symbol = params.get("symbol", "$")
+        if not isinstance(symbol, str):
+            return _error_result("INVALID_PARAM", f"symbol must be a string, got {symbol!r}", helper=name)
+        try:
+            decimals = coerce_int(params.get("decimals", 2), name="decimals")
+        except ValueError as exc:
+            return _error_result("INVALID_PARAM", str(exc), helper=name)
+        if decimals < 0:
+            return _error_result("INVALID_PARAM", f"decimals must be an integer >= 0, got {decimals!r}", helper=name)
         values = params.get("values", data)
-        formatted = format_currency(values, symbol=params.get("symbol", "$"), decimals=params.get("decimals", 2))
-        return _ok_result(name, metrics={"count": len(formatted)}, tables=[{"name": "formatted", "columns": ["value"], "rows": [[v] for v in formatted], "truncated": False, "total_rows": len(formatted)}])
+        formatted = format_currency(values, symbol=symbol, decimals=decimals)
+        cells = _formatted_cells(formatted)
+        return _ok_result(
+            name,
+            metrics={"count": len(cells)},
+            tables=[{
+                "name": "formatted",
+                "columns": ["value"],
+                "rows": [[c] for c in cells],
+                "truncated": False,
+                "total_rows": len(cells),
+            }],
+        )
     if name == "format_percent":
+        try:
+            decimals = coerce_int(params.get("decimals", 1), name="decimals")
+        except ValueError as exc:
+            return _error_result("INVALID_PARAM", str(exc), helper=name)
+        if decimals < 0:
+            return _error_result("INVALID_PARAM", f"decimals must be an integer >= 0, got {decimals!r}", helper=name)
         values = params.get("values", data)
-        formatted = format_percent(values, decimals=params.get("decimals", 1))
-        return _ok_result(name, metrics={"count": len(formatted)}, tables=[{"name": "formatted", "columns": ["value"], "rows": [[v] for v in formatted], "truncated": False, "total_rows": len(formatted)}])
+        formatted = format_percent(values, decimals=decimals)
+        cells = _formatted_cells(formatted)
+        return _ok_result(
+            name,
+            metrics={"count": len(cells)},
+            tables=[{
+                "name": "formatted",
+                "columns": ["value"],
+                "rows": [[c] for c in cells],
+                "truncated": False,
+                "total_rows": len(cells),
+            }],
+        )
     if name == "clean_and_prepare":
         return clean_and_prepare(data, drop_duplicates=params.get("drop_duplicates", False), fill_numeric=params.get("fill_numeric", "median"), fill_categorical=params.get("fill_categorical", "mode"), **common)
     if name == "pivot_aggregate":
@@ -869,7 +1124,7 @@ def run_analysis(
     parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
     if isinstance(parsed, dict):
         return parsed
-    helper, params, headers, header_row, ctx, spec_dict = parsed
+    helper, params, headers, header_row, ctx, _spec = parsed
 
     try:
         result = _dispatch_helper(helper, data, params, headers=headers, header_row=header_row, context=ctx)
@@ -879,9 +1134,5 @@ def run_analysis(
 
     if isinstance(result, dict) and result.get("status") == "ok" and ctx:
         result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
-
-    if isinstance(result, dict) and result.get("status") == "ok" and spec_dict.get("return_data") and helper in {"clean_and_prepare", "pivot_aggregate", "group_summary"}:
-        coerced = _resolve_df(data, headers=headers, header_row=header_row)
-        result["data_records"] = _records_from_df(coerced.df)
 
     return result

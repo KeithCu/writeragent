@@ -112,8 +112,46 @@ def test_describe_data_basic():
     assert result["status"] == "ok"
     assert result["helper"] == "describe_data"
     assert result["metrics"]["row_count"] == 4
+    assert result["metrics"]["col_count"] == 3
+    assert result["metrics"]["cols_analyzed"] == 3
+    assert not any(f.startswith("Analyzed the first") for f in result.get("flags", []))
     assert any(col["name"] == "Sales" for col in result["columns"])
     assert result["tables"][0]["name"] == "describe"
+
+
+def test_describe_data_empty_and_bad_max_cols():
+    res_empty = analysis.describe_data([])
+    assert res_empty["status"] == "ok"
+    assert res_empty["metrics"]["col_count"] == 0
+    assert res_empty["metrics"]["cols_analyzed"] == 0
+    assert "Empty dataset" in res_empty["flags"]
+
+    res_bad1 = analysis.describe_data([], max_cols="no")
+    assert res_bad1["status"] == "error"
+    assert res_bad1["code"] == "INVALID_PARAM"
+
+    res_bad2 = analysis.describe_data(SALES_GRID, max_cols="no")
+    assert res_bad2["status"] == "error"
+    assert res_bad2["code"] == "INVALID_PARAM"
+
+    res_bad3 = analysis.describe_data(SALES_GRID, max_cols=0)
+    assert res_bad3["status"] == "error"
+    assert res_bad3["code"] == "INVALID_PARAM"
+
+    res_bad4 = analysis.describe_data(SALES_GRID, include_outliers="nope")
+    assert res_bad4["status"] == "error"
+    assert res_bad4["code"] == "INVALID_PARAM"
+
+
+def test_describe_data_flags_column_cap():
+    if not _has_working_data_profiling():
+        pytest.skip("fg-data-profiling not usable on this platform")
+    res = analysis.describe_data(SALES_GRID, max_cols=1)
+    assert res["status"] == "ok"
+    assert res["metrics"]["cols_analyzed"] == 1
+    assert res["metrics"]["col_count"] == 3
+    assert len(res["columns"]) == 1
+    assert "Analyzed the first 1 of 3 columns" in res["flags"]
 
 
 def test_describe_data_without_profiling():
@@ -156,7 +194,31 @@ def test_kpi_summary():
 def test_kpi_summary_empty_metrics():
     result = analysis.kpi_summary(SALES_GRID, [])
     assert result["status"] == "error"
-    assert result["code"] == "NO_NUMERIC_COLUMNS"
+    assert result["code"] == "MISSING_PARAM"
+
+
+def test_kpi_summary_string_metric_and_agg():
+    res1 = analysis.kpi_summary(SALES_GRID, "Sales")
+    assert res1["status"] == "ok"
+    assert res1["metrics"]["metrics"] == ["Sales"]
+
+    res2 = analysis.run_analysis(
+        {"helper": "kpi_summary", "params": {"metrics": "Sales", "agg": "mean"}},
+        SALES_GRID,
+    )
+    assert res2["status"] == "ok"
+    assert res2["metrics"]["aggregations"] == ["mean"]
+    table_cols = res2["tables"][0]["columns"]
+    assert "Sales" in table_cols
+    assert "S" not in table_cols
+
+    res3 = analysis.run_analysis({"helper": "kpi_summary"}, SALES_GRID)
+    assert res3["status"] == "error"
+    assert res3["code"] == "MISSING_PARAM"
+
+    res4 = analysis.kpi_summary(SALES_GRID, ["Region"])
+    assert res4["status"] == "error"
+    assert res4["code"] == "NON_NUMERIC_COLUMN"
 
 
 def test_detect_outliers_iqr():
@@ -190,12 +252,68 @@ def test_detect_outliers_zscore():
     assert result["metrics"]["method"] == "zscore"
 
 
+def test_detect_outliers_rejects_unknown_method():
+    res1 = analysis.detect_outliers(SALES_GRID, method="bogus")
+    assert res1["status"] == "error"
+    assert res1["code"] == "INVALID_PARAM"
+
+    res2 = analysis.detect_outliers(SALES_GRID, method="IQR", columns=["Sales"])
+    assert res2["status"] == "ok"
+    assert res2["metrics"]["method"] == "iqr"
+
+    res3 = analysis.run_analysis(
+        {"helper": "detect_outliers", "params": {"method": "bogus", "columns": ["Note"]}},
+        [["Note", "Sales"], ["a", 10], ["b", 20]],
+    )
+    assert res3["status"] == "error"
+    assert res3["code"] == "INVALID_PARAM"
+
+    res4 = analysis.detect_outliers(SALES_GRID, threshold="no")
+    assert res4["status"] == "error"
+    assert res4["code"] == "INVALID_PARAM"
+
+    z_grid = [["Value"]] + [[i] for i in range(1, 21)] + [[500]]
+    res5 = analysis.detect_outliers(z_grid, method="zscore", threshold="2")
+    assert res5["status"] == "ok"
+
+
+def test_detect_outliers_rejects_non_numeric_column():
+    grid = [["Note", "Sales"], ["a", 10], ["b", 20]]
+    res1 = analysis.detect_outliers(grid, columns=["Note"])
+    assert res1["status"] == "error"
+    assert res1["code"] == "NON_NUMERIC_COLUMN"
+
+    res2 = analysis.detect_outliers(grid, columns=["Missing"])
+    assert res2["status"] == "error"
+    assert res2["code"] == "UNKNOWN_COLUMN"
+
+    res3 = analysis.run_analysis(
+        {"helper": "detect_outliers", "params": {"columns": ["Note"]}},
+        grid,
+    )
+    assert res3["status"] == "error"
+    assert res3["code"] == "NON_NUMERIC_COLUMN"
+
+    res4 = analysis.detect_outliers(grid, columns=["Sales"])
+    assert res4["status"] == "ok"
+
+
 def test_quick_stats_tooltip():
     qs = analysis.QuickStats(SALES_GRID)
     result = qs.tooltip()
     assert result["status"] == "ok"
     assert result["metrics"]["record_count"] == 4
     assert result["tables"][0]["columns"] == ["Metric", "Value"]
+
+
+def test_quick_stats_string_column():
+    res1 = analysis.QuickStats(SALES_GRID, numeric_columns="Sales").tooltip()
+    assert res1["status"] == "ok"
+    assert any("Avg Sales" in str(row[0]) for row in res1["tables"][0]["rows"])
+
+    res2 = analysis.QuickStats(SALES_GRID, numeric_columns="Region").tooltip()
+    assert res2["status"] == "error"
+    assert res2["code"] == "NON_NUMERIC_COLUMN"
 
 
 def test_format_currency_and_percent():
@@ -235,6 +353,21 @@ def test_group_summary():
     assert result["metrics"]["group_count"] >= 2
 
 
+def test_group_summary_string_metrics():
+    res1 = analysis.group_summary(SALES_GRID, by="Region", metrics="Sales")
+    assert res1["status"] == "ok"
+
+    res2 = analysis.group_summary(SALES_GRID, by="Region", metrics=["Region"])
+    assert res2["status"] == "error"
+    assert res2["code"] == "NON_NUMERIC_COLUMN"
+
+    res3 = analysis.run_analysis(
+        {"helper": "group_summary", "params": {"by": "Region", "metrics": "Sales"}},
+        SALES_GRID,
+    )
+    assert res3["status"] == "ok"
+
+
 def test_compare_periods_yoy():
     result = analysis.compare_periods(DATE_GRID, date_col="Date", value_col="Revenue", period="Y")
     assert result["status"] == "ok"
@@ -258,11 +391,81 @@ def test_compare_periods_rejects_unknown_agg():
     assert result["code"] == "INVALID_PARAM"
 
 
+def test_compare_periods_rejects_bad_period_and_calc():
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        res1 = analysis.compare_periods(DATE_GRID, date_col="Date", value_col="Revenue", period="bogus")
+        assert res1["status"] == "error"
+        assert res1["code"] == "INVALID_PARAM"
+
+    res2 = analysis.compare_periods(DATE_GRID, date_col="Date", value_col="Revenue", period="W")
+    assert res2["status"] == "error"
+    assert res2["code"] == "INVALID_PARAM"
+
+    res3 = analysis.compare_periods(DATE_GRID, date_col="Date", value_col="Revenue", calc="nope")
+    assert res3["status"] == "error"
+    assert res3["code"] == "INVALID_PARAM"
+
+    res4 = analysis.compare_periods(DATE_GRID, date_col="Date", value_col="Revenue", period="m")
+    assert res4["status"] == "ok"
+    assert res4["metrics"]["period"] == "M"
+
+    res5 = analysis.compare_periods(DATE_GRID, date_col="Date", value_col="Revenue", period="YE")
+    assert res5["status"] == "ok"
+    assert res5["metrics"]["period"] == "YE"
+
+    res6 = analysis.compare_periods(DATE_GRID, date_col="Date", value_col="Revenue", calc="DIFF")
+    assert res6["status"] == "ok"
+    assert res6["metrics"]["calc"] == "diff"
+
+    text_grid = [["Date", "Label"], ["2023-01-15", "a"], ["2024-01-15", "b"]]
+    res7 = analysis.compare_periods(text_grid, date_col="Date", value_col="Label")
+    assert res7["status"] == "error"
+    assert res7["code"] == "NON_NUMERIC_COLUMN"
+
+
 def test_correlation_matrix():
     grid = [["a", "b", "c"], [1, 2, 3], [2, 4, 6], [3, 6, 9]]
     result = analysis.correlation_matrix(grid)
     assert result["status"] == "ok"
     assert result["metrics"]["pair_count"] >= 1
+
+
+def test_correlation_pair_count_survives_the_cap():
+    import numpy as np
+
+    rng = np.random.default_rng(42)
+    cols12 = [f"c{i}" for i in range(12)]
+    data12 = [cols12] + rng.normal(size=(8, 12)).tolist()
+    res12 = analysis.correlation_matrix(data12)
+    assert res12["status"] == "ok"
+    assert res12["metrics"]["pair_count"] == 66
+    assert res12["tables"][0]["total_rows"] == 66
+    assert len(res12["tables"][0]["rows"]) == MAX_TABLE_ROWS
+    assert res12["tables"][0]["truncated"] is True
+
+    cols10 = [f"c{i}" for i in range(10)]
+    data10 = [cols10] + rng.normal(size=(8, 10)).tolist()
+    res10 = analysis.correlation_matrix(data10)
+    assert res10["status"] == "ok"
+    assert res10["metrics"]["pair_count"] == 45
+    assert res10["tables"][0]["total_rows"] == 45
+    assert len(res10["tables"][0]["rows"]) == 45
+    assert res10["tables"][0]["truncated"] is False
+
+    res_pearson = analysis.correlation_matrix(data10, method="Pearson")
+    assert res_pearson["status"] == "ok"
+    assert res_pearson["metrics"]["method"] == "pearson"
+
+    res_bogus = analysis.correlation_matrix(data10, method="bogus")
+    assert res_bogus["status"] == "error"
+    assert res_bogus["code"] == "INVALID_PARAM"
+
+    res_bad_min = analysis.correlation_matrix(data10, min_abs="no")
+    assert res_bad_min["status"] == "error"
+    assert res_bad_min["code"] == "INVALID_PARAM"
 
 
 def test_run_regression_linear():
@@ -294,6 +497,41 @@ def test_run_regression_missing_statsmodels(monkeypatch):
     assert "statsmodels" in result["message"]
 
 
+def test_run_regression_string_feature_and_types():
+    import importlib.util
+
+    if importlib.util.find_spec("statsmodels") is None:
+        pytest.skip("statsmodels not installed")
+
+    res1 = analysis.run_regression(REGRESSION_GRID, target="y", features="x")
+    assert res1["status"] == "ok"
+    assert res1["metrics"]["r_squared"] == pytest.approx(1.0, abs=1e-4)
+
+    res2 = analysis.run_regression(REGRESSION_GRID, target="y")
+    assert res2["status"] == "ok"
+    assert res2["metrics"]["r_squared"] == pytest.approx(1.0, abs=1e-4)
+
+    res3 = analysis.run_regression(REGRESSION_GRID, target="y", features=[])
+    assert res3["status"] == "error"
+    assert res3["code"] == "NO_FEATURES"
+
+    res4 = analysis.run_regression(REGRESSION_GRID, target="y", features="x", add_constant="false")
+    assert res4["status"] == "ok"
+
+    res5 = analysis.run_regression(REGRESSION_GRID, target="y", features="x", add_constant="nope")
+    assert res5["status"] == "error"
+    assert res5["code"] == "INVALID_PARAM"
+
+    text_grid = [["x", "y", "text"], [1, 2, "a"], [2, 4, "b"], [3, 6, "c"], [4, 8, "d"]]
+    res6 = analysis.run_regression(text_grid, target="y", features=["text"])
+    assert res6["status"] == "error"
+    assert res6["code"] == "NON_NUMERIC_COLUMN"
+
+    res7 = analysis.run_regression(REGRESSION_GRID, target=1)  # type: ignore[arg-type]
+    assert res7["status"] == "error"
+    assert res7["code"] == "INVALID_PARAM"
+
+
 def test_cluster_numeric():
     grid = [["a", "b"], [1, 1], [1.1, 1.2], [5, 5], [5.2, 4.8]]
     result = analysis.cluster_numeric(grid, n_clusters=2)
@@ -302,6 +540,34 @@ def test_cluster_numeric():
     assert result["metrics"]["scale"] is True
     names = [table["name"] for table in result["tables"]]
     assert names == ["centroids", "labels"]
+
+
+def test_cluster_numeric_params():
+    grid = [["a", "b", "Note"], [1, 1, "x"], [1.1, 1.2, "y"], [5, 5, "z"], [5.2, 4.8, "w"]]
+    res1 = analysis.cluster_numeric(grid, columns=["Note"])
+    assert res1["status"] == "error"
+    assert res1["code"] == "NON_NUMERIC_COLUMN"
+
+    four_pt = [["a", "b"], [1, 1], [1.1, 1.2], [5, 5], [5.2, 4.8]]
+    res2 = analysis.cluster_numeric(four_pt, n_clusters="no")
+    assert res2["status"] == "error"
+    assert res2["code"] == "INVALID_PARAM"
+
+    res3 = analysis.cluster_numeric(four_pt, n_clusters=2.5)  # type: ignore[arg-type]
+    assert res3["status"] == "error"
+    assert res3["code"] == "INVALID_PARAM"
+
+    res4 = analysis.cluster_numeric(four_pt, n_clusters="2")
+    assert res4["status"] == "ok"
+    assert res4["metrics"]["n_clusters"] == 2
+
+    res5 = analysis.cluster_numeric(four_pt, scale="false")
+    assert res5["status"] == "ok"
+    assert res5["metrics"]["scale"] is False
+
+    res6 = analysis.cluster_numeric(four_pt, method="KMeans")
+    assert res6["status"] == "error"
+    assert res6["code"] == "UNSUPPORTED_METHOD"
 
 
 def test_cluster_numeric_scaling_follows_the_small_column():
@@ -346,6 +612,60 @@ def test_clean_and_prepare_keeps_rows_past_the_old_50_cap():
     assert table["total_rows"] == extra
 
 
+def test_format_dispatch_flattens_cells():
+    res1 = analysis.run_analysis({"helper": "format_currency"}, [[1234.5], [500.0]])
+    assert res1["status"] == "ok"
+    assert res1["metrics"]["count"] == 2
+    assert res1["tables"][0]["rows"] == [["$1,234.50"], ["$500.00"]]
+
+    res2 = analysis.run_analysis({"helper": "format_currency"}, 1234.5)
+    assert res2["status"] == "ok"
+    assert res2["metrics"]["count"] == 1
+    assert res2["tables"][0]["rows"] == [["$1,234.50"]]
+
+    res3 = analysis.run_analysis({"helper": "format_currency"}, [[1234.5, 500]])
+    assert res3["status"] == "ok"
+    assert res3["metrics"]["count"] == 2
+    assert res3["tables"][0]["rows"] == [["$1,234.50"], ["$500.00"]]
+
+    res4 = analysis.run_analysis({"helper": "format_percent"}, 0.125)
+    assert res4["status"] == "ok"
+    assert res4["metrics"]["count"] == 1
+    assert res4["tables"][0]["rows"] == [["12.5%"]]
+
+    res5 = analysis.run_analysis(
+        {"helper": "format_percent", "params": {"values": [0.125]}},
+        [[999.0]],
+    )
+    assert res5["status"] == "ok"
+    assert res5["metrics"]["count"] == 1
+    assert res5["tables"][0]["rows"] == [["12.5%"]]
+
+    res6 = analysis.run_analysis({"helper": "format_currency", "params": {"decimals": "no"}}, [[1234.5]])
+    assert res6["status"] == "error"
+    assert res6["code"] == "INVALID_PARAM"
+
+    res7 = analysis.run_analysis({"helper": "format_currency", "params": {"decimals": -1}}, [[1234.5]])
+    assert res7["status"] == "error"
+    assert res7["code"] == "INVALID_PARAM"
+
+    res8 = analysis.run_analysis({"helper": "format_currency", "params": {"symbol": 1}}, [[1234.5]])
+    assert res8["status"] == "error"
+    assert res8["code"] == "INVALID_PARAM"
+
+
+def test_run_analysis_ignores_return_data():
+    grid = [["Region", "Sales"], ["N", None], ["S", 10], ["E", 30]]
+    result = analysis.run_analysis(
+        {"helper": "clean_and_prepare", "params": {"fill_numeric": "median"}, "return_data": True},
+        grid,
+    )
+    assert result["status"] == "ok"
+    assert "data_records" not in result
+    sales_val = result["tables"][0]["rows"][0][1]
+    assert sales_val in (20, 20.0)
+
+
 def test_monte_carlo_resample_metrics():
     import importlib.util
 
@@ -355,15 +675,20 @@ def test_monte_carlo_resample_metrics():
     assert result["status"] == "ok"
     metrics = result["metrics"]
     assert metrics["simulations"] == 50
-    assert "min" in metrics
-    assert "max" in metrics
-    assert "mean" in metrics
-    assert "median" in metrics
-    assert "std" in metrics
-    assert "bust_prob" in metrics
-    assert "goal_prob" in metrics
-    assert metrics["min"] <= metrics["max"]
-    assert result["tables"][0]["name"] == "monte_carlo_totals"
+    assert metrics["final_value"] == pytest.approx(0.03)
+    assert 0 <= metrics["bust_prob"] <= 1
+    assert 0 <= metrics["goal_prob"] <= 1
+    assert metrics["worst_trough"] == pytest.approx(-0.06)
+    for bad_key in ("min", "max", "mean", "median", "std"):
+        assert bad_key not in metrics
+    table = result["tables"][0]
+    assert table["name"] == "monte_carlo_totals"
+    assert table["columns"] == ["simulation", "final_value", "trough"]
+    assert table["rows"][0][0] == "original"
+    for row in table["rows"]:
+        assert row[1] == pytest.approx(0.03)
+    assert table["total_rows"] == 50
+    assert table["truncated"] is False
 
 
 def test_monte_carlo_small_series():
@@ -375,6 +700,10 @@ def test_monte_carlo_small_series():
     result = analysis.monte_carlo(grid, sims=10)
     assert result["status"] == "ok"
     assert result["metrics"]["simulations"] == 10
+    assert result["metrics"]["final_value"] == pytest.approx(15)
+    assert result["metrics"]["worst_trough"] > 0
+    table = result["tables"][0]
+    assert table["columns"] == ["simulation", "final_value", "trough"]
 
 
 def test_monte_carlo_missing_pandas_montecarlo(monkeypatch):
@@ -405,6 +734,27 @@ def test_run_analysis_monte_carlo_dispatch():
     assert result["status"] == "ok"
     assert result["helper"] == "monte_carlo"
     assert result["metrics"]["simulations"] == 20
+
+    res_str = analysis.run_analysis(
+        {"helper": "monte_carlo", "params": {"sims": "20"}},
+        MONTE_CARLO_GRID,
+    )
+    assert res_str["status"] == "ok"
+    assert res_str["metrics"]["simulations"] == 20
+
+    res_bad_sims = analysis.run_analysis(
+        {"helper": "monte_carlo", "params": {"sims": "no"}},
+        MONTE_CARLO_GRID,
+    )
+    assert res_bad_sims["status"] == "error"
+    assert res_bad_sims["code"] == "INVALID_PARAM"
+
+    res_bad_bust = analysis.run_analysis(
+        {"helper": "monte_carlo", "params": {"bust": "no"}},
+        MONTE_CARLO_GRID,
+    )
+    assert res_bad_bust["status"] == "error"
+    assert res_bad_bust["code"] == "INVALID_PARAM"
 
 
 def test_run_analysis_dispatches_helper():
@@ -456,7 +806,7 @@ def test_table_row_cap():
         (
             "monte_carlo",
             lambda: analysis.monte_carlo(MONTE_CARLO_GRID, sims=25),
-            ("simulations", "mean", "bust_prob"),
+            ("simulations", "final_value", "bust_prob", "goal_prob", "worst_trough"),
             "pandas_montecarlo",
         ),
         (
