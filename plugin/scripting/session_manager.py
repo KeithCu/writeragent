@@ -23,7 +23,6 @@ from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_desktop
-from plugin.scripting.venv_worker import reset_python_session
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +33,13 @@ def _msgbox(ctx: Any, message: str) -> None:
     from plugin.framework.uno_context import product_display_name
 
     msgbox(ctx, product_display_name(ctx), message)
+
+
+def _call_reset_python_session(ctx: Any, session_id: str) -> dict[str, Any]:
+    """Lazy: LibrePy sidebar and document_scripts import this module for ids only."""
+    from plugin.scripting.venv_worker import reset_python_session
+
+    return reset_python_session(ctx, session_id)
 
 
 def _has_notebook_registry(doc: Any) -> bool:
@@ -68,12 +74,19 @@ def _doc_url(raw_doc: Any) -> str:
 
 
 def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:
-    """False when *enum* is exhausted or past ``_ENUM_CAP``."""
+    """False when *enum* is exhausted (value is not ``True`` and not ``1``) or past ``_ENUM_CAP``."""
     try:
         has_more = enum.hasMoreElements()
     except Exception:
         return False
-    if has_more is not True:
+    # What was wrong: is not True treats SAL integer 1 as the end of the enum,
+    # so _iter_desktop_models yields nothing and session lookup/reset misses
+    # every open model.
+    # How: 8a8e33d42 replaced not has_more, which treated 1 as more, while
+    # stopping MagicMock.
+    # Why: != 1 matches iter_open_models, and a mock still stops because its
+    # inequality is truthy.
+    if has_more is not True and has_more != 1:
         return False
     if seen >= _ENUM_CAP:
         log.error("%s: desktop enum hit cap=%s; stopping", label, _ENUM_CAP)
@@ -94,7 +107,7 @@ def _iter_desktop_models(ctx: Any, *, label: str = "session_manager") -> Generat
         return
     enum = comps.createEnumeration()
     seen = 0
-    while enum:
+    while True:
         if not _enumeration_should_continue(enum, seen, label=label):
             break
         seen += 1
@@ -115,6 +128,23 @@ def _iter_desktop_models(ctx: Any, *, label: str = "session_manager") -> Generat
                 yield model
             except Exception:
                 pass
+
+
+def _enumerated_matching_models(ctx: Any, predicate: Any) -> list[Any]:
+    from plugin.framework.thread_guard import guard_uno
+
+    matches: list[Any] = []
+    try:
+        for model in _iter_desktop_models(ctx, label="session_manager"):
+            try:
+                if predicate(model):
+                    matches.append(guard_uno(model))
+            except Exception:
+                pass
+    except Exception:
+        log.debug("session_manager: document enumeration failed", exc_info=True)
+        return []
+    return matches
 
 
 def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
@@ -144,16 +174,9 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
             except Exception:
                 pass
 
-        matches = []
-        for model in _iter_desktop_models(ctx, label="session_manager"):
-            try:
-                if predicate(model):
-                    matches.append(model)
-            except Exception:
-                pass
-
+        matches = _enumerated_matching_models(ctx, predicate)
         if matches:
-            return guard_uno(matches[-1])
+            return matches[-1]
 
     except Exception:
         log.debug("session_manager: document resolution failed", exc_info=True)
@@ -165,6 +188,7 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
 # when the call returns. The token is not a worker namespace id.
 _SCRIPT_DOC_PINS: dict[str, Any] = {}
 _SCRIPT_DOC_PIN_LOCK = threading.Lock()
+_reset_marshal_tls = threading.local()
 
 
 def existing_calc_session_id(doc: Any) -> str | None:
@@ -223,14 +247,23 @@ def _workbook_session_key(doc: Any) -> str:
                 from plugin.doc.udprops import remove_document_property
 
                 remove_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
-                # Reset orphaned unsaved worker sessions so old state does not leak
-                if str(existing).startswith("unsaved:"):
+                # What was wrong: a swallowed remove leaves the unsaved: property,
+                # and every later key lookup fired three worker resets.
+                # How: remove_document_property uses except Exception: pass.
+                # Why: a second read that is still truthy means the id is not orphaned
+                # yet, so skip IPC until a later call actually removes it.
+                still_present = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
+                if still_present:
+                    log.debug("session_manager: session property still present after remove; skipping reset")
+                elif str(existing).startswith("unsaved:"):
                     from plugin.framework.uno_context import get_ctx
+
                     try:
                         ctx = get_ctx()
-                        reset_python_session(ctx, f"calc:{existing}")
-                        reset_python_session(ctx, f"rps:{existing}")
-                        reset_python_session(ctx, f"notebook:{existing}")
+                        _call_reset_python_session(ctx, f"calc:{existing}")
+                        _call_reset_python_session(ctx, f"rps:{existing}")
+                        _call_reset_python_session(ctx, f"notebook:{existing}")
+                        _call_reset_python_session(ctx, f"ppt_master:{existing}")
                     except Exception:
                         log.debug("session_manager: cleanup of unsaved session failed", exc_info=True)
             except Exception:
@@ -414,12 +447,21 @@ def reset_notebook_python_session(ctx: Any, doc: Any | None = None) -> None:
         _msgbox(ctx, _("This Writer document has no imported notebook registry. File → Open a Jupyter notebook (.ipynb) first."))
         return
 
-    session_id = notebook_session_id(ctx, target)
-    if not session_id:
-        _msgbox(ctx, _("Could not resolve notebook Python session."))
+    key = _existing_workbook_session_key(target)
+    if key is None:
+        try:
+            from plugin.notebook.cell_registry import load_registry, save_registry
+
+            state = load_registry(target)
+            if state is not None:
+                state.next_execution_count = 1
+                save_registry(target, state)
+        except Exception:
+            log.debug("notebook reset: could not reset execution counter", exc_info=True)
+        _msgbox(ctx, _("This notebook has no Python worker session yet. The execution counter was reset."))
         return
 
-    res = reset_python_session(ctx, session_id)
+    res = _call_reset_python_session(ctx, f"notebook:{key}")
     # Restart Kernel: next In count is 1 even if the worker reset fails (timeout).
     try:
         from plugin.notebook.cell_registry import load_registry, save_registry
@@ -451,9 +493,9 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     from plugin.scripting.document_scripts import build_python_eval_init_kwargs, get_calc_init_script
 
     session_id = f"calc:{key}"
-    res = reset_python_session(ctx, session_id)
+    res = _call_reset_python_session(ctx, session_id)
     # Also reset the persistent :init session so worker state from previous init script is cleared
-    reset_python_session(ctx, f"{session_id}:init")
+    res_init = _call_reset_python_session(ctx, f"{session_id}:init")
     try:
         from plugin.calc.python.function import clear_python_addin_cache
 
@@ -463,6 +505,16 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
         log.debug("session_manager: clear_python_addin_cache failed", exc_info=True)
     if res.get("status") != "ok":
         msg = res.get("message") or _("Could not reset Python session.")
+        _msgbox(ctx, _("Error: {0}").format(msg))
+        return
+
+    # What was wrong: only the base res was tested, so a failed :init reset still
+    # reseeded and showed "Python session reset" / the isolated-mode text.
+    # How: the :init call's return value was discarded.
+    # Why: init state lives in the :init session, and a non-ok reset means that
+    # state is still there, so the dialog must be the error and the reseed must not run.
+    if res_init.get("status") != "ok":
+        msg = res_init.get("message") or _("Could not reset Python session.")
         _msgbox(ctx, _("Error: {0}").format(msg))
         return
 
@@ -493,7 +545,7 @@ def _reset_rps_python_session(ctx: Any, doc: Any, *, notify: bool = True) -> Non
     if not key:
         return
     sid = f"rps:{key}"
-    res = reset_python_session(ctx, sid)
+    res = _call_reset_python_session(ctx, sid)
     if not notify:
         return
     if res.get("status") == "ok":
@@ -517,16 +569,26 @@ def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
     from plugin.framework.thread_guard import on_main_thread
 
     if not on_main_thread():
-        from plugin.framework.queue_executor import execute_on_main_thread
+        if getattr(_reset_marshal_tls, "active", False):
+            raise RuntimeError("reset_workbook_python_session cannot run off the main thread")
+        _reset_marshal_tls.active = True
+        try:
+            from plugin.framework.queue_executor import execute_on_main_thread
 
-        return execute_on_main_thread(reset_workbook_python_session, ctx, doc)
+            res = execute_on_main_thread(reset_workbook_python_session, ctx, doc)
+        finally:
+            _reset_marshal_tls.active = False
+        return res
 
     # Resetting a session on an unsaved/clean document must not mint a key:
     # _workbook_session_key wrote a UserDefinedProperties entry when none
     # existed. Check _existing_workbook_session_key and return when it is
-    # None. A focused Base, Math, or Start Center window is not Writer, Draw,
-    # or Calc; falling through to desktop enumeration cleared a background
-    # Calc document. Tell the user and return.
+    # None. A Writer notebook registry does not mint either;
+    # reset_notebook_python_session uses _existing_workbook_session_key and,
+    # when that is None, only resets the execution counter. A focused Base,
+    # Math, or Start Center window is not Writer, Draw, or Calc; falling
+    # through to desktop enumeration cleared a background Calc document.
+    # Tell the user and return.
     if doc is not None:
         if is_writer(doc):
             if not _has_notebook_registry(doc) and _existing_workbook_session_key(doc) is None:
@@ -563,13 +625,20 @@ def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
         return
 
     # No current component (headless): keep the open-document search.
-    calc_doc = _calc_document(ctx)
-    if calc_doc is not None:
-        _reset_calc_python_sessions(ctx, calc_doc)
+    calc_matches = _enumerated_matching_models(ctx, is_calc)
+    if len(calc_matches) > 1:
+        _msgbox(ctx, _("Several Calc spreadsheets are open and none is focused. Switch to the spreadsheet to reset and try again."))
+        return
+    if len(calc_matches) == 1:
+        _reset_calc_python_sessions(ctx, calc_matches[0])
         return
 
-    writer_doc = _writer_document(ctx)
-    if writer_doc is not None:
+    writer_matches = _enumerated_matching_models(ctx, is_writer)
+    if len(writer_matches) > 1:
+        _msgbox(ctx, _("Several Writer documents are open and none is focused. Switch to the document to reset and try again."))
+        return
+    if len(writer_matches) == 1:
+        writer_doc = writer_matches[0]
         if not _has_notebook_registry(writer_doc) and _existing_workbook_session_key(writer_doc) is None:
             return
         _reset_writer_sessions(ctx, writer_doc)

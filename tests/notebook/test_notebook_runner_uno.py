@@ -587,7 +587,7 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
 
     with (
         patch.object(sm, "_msgbox", lambda *args, **kwargs: None),
-        patch.object(sm, "reset_python_session", return_value={"status": "ok"}),
+        patch.object(sm, "_call_reset_python_session", return_value={"status": "ok"}),
     ):
         sm.reset_workbook_python_session(ctx, doc)
     state = load_registry(doc)

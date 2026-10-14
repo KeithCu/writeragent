@@ -21,6 +21,7 @@ def test_session_manager_module_avoids_document_helpers_and_dialogs() -> None:
     assert "plugin.doc.document_helpers" not in mods
     assert "plugin.calc.analyzer" not in mods
     assert "plugin.chatbot.dialogs" not in mods
+    assert "plugin.scripting.venv_worker" not in mods
     assert "plugin.doc.doc_type" in mods
     assert "plugin.doc.udprops" in mods
 
@@ -122,17 +123,86 @@ def test_reset_workbook_python_session_prefers_calc() -> None:
     ctx = MagicMock()
     mock_calc = MagicMock()
     mock_writer = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [mock_calc, mock_writer]
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
     desktop = MagicMock()
     desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value = comps
 
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
-        patch("plugin.scripting.session_manager._calc_document", return_value=mock_calc),
-        patch("plugin.scripting.session_manager._writer_document", return_value=mock_writer),
+        patch("plugin.scripting.session_manager.is_calc", side_effect=lambda doc: doc is mock_calc),
+        patch("plugin.scripting.session_manager.is_writer", side_effect=lambda doc: doc is mock_writer),
         patch("plugin.scripting.session_manager._reset_calc_python_sessions") as mock_reset_calc,
+        patch("plugin.scripting.session_manager._reset_writer_sessions") as mock_reset_writer,
     ):
         session_manager.reset_workbook_python_session(ctx)
         mock_reset_calc.assert_called_once_with(ctx, mock_calc)
+        mock_reset_writer.assert_not_called()
+
+
+def test_reset_headless_refuses_several_calc_documents() -> None:
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    calc1 = MagicMock()
+    calc2 = MagicMock()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [calc1, calc2]
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value = comps
+
+    with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_calc", return_value=True),
+        patch("plugin.scripting.session_manager._reset_calc_python_sessions") as mock_reset_calc,
+        patch("plugin.scripting.session_manager._msgbox") as mock_msgbox,
+    ):
+        session_manager.reset_workbook_python_session(ctx)
+
+    mock_msgbox.assert_called_once()
+    assert "Several Calc spreadsheets are open and none is focused." in mock_msgbox.call_args[0][1]
+    mock_reset_calc.assert_not_called()
+
+
+def test_reset_headless_refuses_several_writer_documents() -> None:
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    writer1 = MagicMock()
+    writer2 = MagicMock()
+
+    def _create_enum():
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True, True, False]
+        enum.nextElement.side_effect = [writer1, writer2]
+        return enum
+
+    comps = MagicMock()
+    comps.createEnumeration.side_effect = _create_enum
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value = comps
+
+    with (
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_calc", return_value=False),
+        patch("plugin.scripting.session_manager.is_writer", return_value=True),
+        patch("plugin.scripting.session_manager.reset_notebook_python_session") as mock_reset_nb,
+        patch("plugin.scripting.session_manager._msgbox") as mock_msgbox,
+    ):
+        session_manager.reset_workbook_python_session(ctx)
+
+    mock_msgbox.assert_called_once()
+    assert "Several Writer documents are open and none is focused." in mock_msgbox.call_args[0][1]
+    mock_reset_nb.assert_not_called()
 
 
 def test_reset_workbook_python_session_uses_focused_writer() -> None:
@@ -256,7 +326,7 @@ def test_reset_reports_init_reseed_failure() -> None:
     with (
         patch("plugin.scripting.session_manager._calc_document", return_value=doc),
         patch("plugin.scripting.session_manager.calc_workbook_base_session_id", return_value="calc:wb"),
-        patch("plugin.scripting.session_manager.reset_python_session", return_value={"status": "ok"}),
+        patch("plugin.scripting.venv_worker.reset_python_session", return_value={"status": "ok"}),
         patch("plugin.scripting.document_scripts.build_python_eval_init_kwargs", return_value={"init_script": "FACTOR = 1", "init_session_id": "calc:wb:init", "init_script_hash": "h"}),
         patch("plugin.scripting.document_scripts.get_calc_init_script", return_value="FACTOR = 1"),
         patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
@@ -268,6 +338,29 @@ def test_reset_reports_init_reseed_failure() -> None:
         _reset_calc_python_sessions(ctx, doc)
     msgbox.assert_called_once()
     assert "init boom" in msgbox.call_args[0][1]
+
+
+def test_reset_calc_reports_init_session_failure() -> None:
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.scripting.session_manager._calc_document", return_value=doc),
+        patch("plugin.scripting.session_manager.calc_workbook_base_session_id", return_value="calc:wb"),
+        patch("plugin.scripting.venv_worker.reset_python_session", side_effect=[{"status": "ok"}, {"status": "error", "message": "init session busy"}]),
+        patch("plugin.scripting.document_scripts.build_python_eval_init_kwargs", return_value={"init_script": "FACTOR = 1", "init_session_id": "calc:wb:init", "init_script_hash": "h"}),
+        patch("plugin.scripting.document_scripts.get_calc_init_script", return_value="FACTOR = 1"),
+        patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+        patch("plugin.scripting.venv_worker.run_code_in_user_venv") as mock_run_code,
+        patch("plugin.scripting.session_manager._msgbox") as msgbox,
+    ):
+        from plugin.scripting.session_manager import _reset_calc_python_sessions
+
+        _reset_calc_python_sessions(ctx, doc)
+    msgbox.assert_called_once()
+    assert "init session busy" in msgbox.call_args[0][1]
+    mock_run_code.assert_not_called()
 
 
 def test_workbook_session_id_resilient_when_is_calc_fails() -> None:
@@ -411,6 +504,28 @@ def test_document_for_script_session_stops_on_magicmock_enum() -> None:
     enum.nextElement.assert_not_called()
 
 
+def test_document_for_script_session_accepts_has_more_integer_one() -> None:
+    from unittest.mock import MagicMock, patch
+
+    first = MagicMock()
+    first.getURL.return_value = "file:///first.ods"
+    second = MagicMock()
+    second.getURL.return_value = "file:///other.ods"
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [1, 1, False]
+    enum.nextElement.side_effect = [first, second]
+    comps = MagicMock()
+    comps.createEnumeration.return_value = enum
+    desktop = MagicMock()
+    desktop.getComponents.return_value = comps
+
+    with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
+        found = session_manager.document_for_script_session(MagicMock(), "calc:file:///other.ods")
+    from plugin.framework.thread_guard import _unwrap_uno
+
+    assert _unwrap_uno(found) is second
+
+
 def test_document_for_script_session_stops_at_enum_cap(caplog) -> None:
     import logging
     from unittest.mock import MagicMock, patch
@@ -490,7 +605,7 @@ def test_reset_workbook_python_session_returns_early_without_existing_key():
         patch("plugin.scripting.session_manager.is_calc", return_value=False),
         patch("plugin.scripting.session_manager._existing_workbook_session_key", return_value=None) as mock_existing,
         patch("plugin.scripting.session_manager.set_document_property") as mock_set_prop,
-        patch("plugin.scripting.session_manager.reset_python_session") as mock_reset,
+        patch("plugin.scripting.venv_worker.reset_python_session") as mock_reset,
     ):
         from plugin.scripting.session_manager import reset_workbook_python_session
 
@@ -531,6 +646,33 @@ def test_reset_workbook_python_session_rejects_non_writer_calc_draw():
 
 def test_save_as_url_resets_orphaned_unsaved_session():
     """Save As: When document transitions from unsaved to URL, old unsaved session is reset."""
+    from unittest.mock import MagicMock, call, patch
+
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///saved_doc.ods"
+    ctx = MagicMock()
+
+    with (
+        patch("plugin.scripting.session_manager.get_document_property", side_effect=["unsaved:1234-uuid", None]),
+        patch("plugin.doc.udprops.remove_document_property") as mock_remove,
+        patch("plugin.scripting.venv_worker.reset_python_session") as mock_reset,
+        patch("plugin.framework.uno_context.get_ctx", return_value=ctx),
+    ):
+        from plugin.scripting.session_manager import _workbook_session_key
+
+        key = _workbook_session_key(doc)
+
+    assert key == "file:///saved_doc.ods"
+    mock_remove.assert_called_once()
+    assert mock_reset.call_args_list == [
+        call(ctx, "calc:unsaved:1234-uuid"),
+        call(ctx, "rps:unsaved:1234-uuid"),
+        call(ctx, "notebook:unsaved:1234-uuid"),
+        call(ctx, "ppt_master:unsaved:1234-uuid"),
+    ]
+
+
+def test_save_as_skips_orphan_reset_when_property_remains() -> None:
     from unittest.mock import MagicMock, patch
 
     doc = MagicMock()
@@ -539,16 +681,56 @@ def test_save_as_url_resets_orphaned_unsaved_session():
     with (
         patch("plugin.scripting.session_manager.get_document_property", return_value="unsaved:1234-uuid"),
         patch("plugin.doc.udprops.remove_document_property") as mock_remove,
-        patch("plugin.scripting.session_manager.reset_python_session") as mock_reset,
-        patch("plugin.framework.uno_context.get_ctx"),
+        patch("plugin.scripting.venv_worker.reset_python_session") as mock_reset,
     ):
         from plugin.scripting.session_manager import _workbook_session_key
 
-        key = _workbook_session_key(doc)
+        key1 = _workbook_session_key(doc)
+        key2 = _workbook_session_key(doc)
 
-    assert key == "file:///saved_doc.ods"
-    mock_remove.assert_called_once()
-    assert mock_reset.call_count >= 1
+    assert key1 == "file:///saved_doc.ods"
+    assert key2 == "file:///saved_doc.ods"
+    assert mock_remove.call_count == 2
+    mock_reset.assert_not_called()
+
+
+def test_reset_off_main_inline_does_not_recurse() -> None:
+    from unittest.mock import MagicMock, patch
+    import pytest
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.scripting.session_manager.get_desktop") as mock_get_desktop,
+    ):
+        with pytest.raises(RuntimeError) as exc_info:
+            session_manager.reset_workbook_python_session(ctx)
+        assert "reset_workbook_python_session cannot run off the main thread" in str(exc_info.value)
+    mock_get_desktop.assert_not_called()
+
+
+def test_reset_off_main_runs_body_when_hop_lands_on_main() -> None:
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    non_target_doc = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = non_target_doc
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", side_effect=[False, True]),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)) as mock_exec,
+        patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
+        patch("plugin.scripting.session_manager.is_writer", return_value=False),
+        patch("plugin.scripting.session_manager.is_draw", return_value=False),
+        patch("plugin.scripting.session_manager.is_calc", return_value=False),
+        patch("plugin.scripting.session_manager._msgbox") as mock_msgbox,
+    ):
+        session_manager.reset_workbook_python_session(ctx)
+
+    mock_exec.assert_called_once()
+    mock_msgbox.assert_called_once()
 
 
 

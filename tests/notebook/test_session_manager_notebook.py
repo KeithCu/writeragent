@@ -61,8 +61,7 @@ def test_reset_notebook_python_session_calls_worker():
     with (
         patch("plugin.scripting.session_manager._writer_document", return_value=doc),
         patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),
-        patch("plugin.scripting.session_manager.notebook_session_id", return_value="notebook:file:///tmp/nb.odt"),
-        patch("plugin.scripting.session_manager.reset_python_session", return_value={"status": "ok"}) as mock_reset,
+        patch("plugin.scripting.venv_worker.reset_python_session", return_value={"status": "ok"}) as mock_reset,
         patch("plugin.scripting.session_manager._msgbox"),
     ):
         reset_notebook_python_session(ctx)
@@ -77,8 +76,7 @@ def test_reset_notebook_python_session_resets_execution_counter():
     with (
         patch("plugin.scripting.session_manager._writer_document", return_value=doc),
         patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),
-        patch("plugin.scripting.session_manager.notebook_session_id", return_value="notebook:file:///tmp/nb.odt"),
-        patch("plugin.scripting.session_manager.reset_python_session", return_value={"status": "ok"}),
+        patch("plugin.scripting.venv_worker.reset_python_session", return_value={"status": "ok"}),
         patch("plugin.scripting.session_manager._msgbox"),
         patch("plugin.notebook.cell_registry.load_registry", return_value=state) as load,
         patch("plugin.notebook.cell_registry.save_registry") as save,
@@ -97,8 +95,7 @@ def test_reset_notebook_python_session_resets_count_when_worker_fails():
     with (
         patch("plugin.scripting.session_manager._writer_document", return_value=doc),
         patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),
-        patch("plugin.scripting.session_manager.notebook_session_id", return_value="notebook:file:///tmp/nb.odt"),
-        patch("plugin.scripting.session_manager.reset_python_session", return_value={"status": "error"}),
+        patch("plugin.scripting.venv_worker.reset_python_session", return_value={"status": "error"}),
         patch("plugin.scripting.session_manager._msgbox"),
         patch("plugin.notebook.cell_registry.load_registry", return_value=state),
         patch("plugin.notebook.cell_registry.save_registry") as save,
@@ -108,15 +105,50 @@ def test_reset_notebook_python_session_resets_count_when_worker_fails():
     save.assert_called_once_with(doc, state)
 
 
+def test_reset_notebook_does_not_mint_without_existing_key():
+    ctx = MagicMock()
+    doc = _writer_doc("")
+    state = MagicMock()
+    state.next_execution_count = 5
+    with (
+        patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),
+        patch("plugin.scripting.session_manager.get_document_property", return_value=None),
+        patch("plugin.scripting.session_manager.set_document_property") as mock_set_prop,
+        patch("plugin.scripting.venv_worker.reset_python_session") as mock_reset,
+        patch("plugin.notebook.cell_registry.load_registry", return_value=state) as mock_load,
+        patch("plugin.notebook.cell_registry.save_registry") as mock_save,
+        patch("plugin.scripting.session_manager._msgbox") as mock_msgbox,
+    ):
+        reset_notebook_python_session(ctx, doc)
+
+    mock_load.assert_called_once_with(doc)
+    assert state.next_execution_count == 1
+    mock_save.assert_called_once_with(doc, state)
+    mock_set_prop.assert_not_called()
+    mock_reset.assert_not_called()
+    mock_msgbox.assert_called_once()
+    assert "This notebook has no Python worker session yet. The execution counter was reset." in mock_msgbox.call_args[0][1]
+
+
 def test_reset_workbook_python_session_dispatches_to_notebook():
     ctx = MagicMock()
     doc = _writer_doc()
+
+    def _create_enum():
+        enum = MagicMock()
+        enum.hasMoreElements.side_effect = [True, False]
+        enum.nextElement.return_value = doc
+        return enum
+
+    comps = MagicMock()
+    comps.createEnumeration.side_effect = _create_enum
     desktop = MagicMock()
     desktop.getCurrentComponent.return_value = None
+    desktop.getComponents.return_value = comps
     with (
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
-        patch("plugin.scripting.session_manager._calc_document", return_value=None),
-        patch("plugin.scripting.session_manager._writer_document", return_value=doc),
+        patch("plugin.scripting.session_manager.is_calc", return_value=False),
+        patch("plugin.scripting.session_manager.is_writer", return_value=True),
         patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),
         patch("plugin.scripting.session_manager.reset_notebook_python_session") as mock_nb_reset,
         patch("plugin.scripting.session_manager._reset_rps_python_session") as mock_rps,
