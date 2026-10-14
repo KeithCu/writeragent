@@ -197,9 +197,9 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     # silent return was treated as success.
                     inserted = 0
                     failure: Exception | None = None
-                    for img in images:
+                    for i, img in enumerate(images):
                         try:
-                            execute_on_main_thread(insert_image_result_on_sheet, ctx.ctx, img, doc=ctx.doc)
+                            execute_on_main_thread(insert_image_result_on_sheet, ctx.ctx, img, doc=ctx.doc, image_index=i)
                         except Exception as exc:
                             log.warning("run_venv_python_script: plot insert failed: %s", exc)
                             failure = exc

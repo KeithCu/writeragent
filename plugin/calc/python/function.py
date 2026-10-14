@@ -1545,8 +1545,8 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             images = find_image_payloads(result)
             if images:
                 t_img = time.perf_counter() if timings else 0.0
-                for img in images:
-                    insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc)
+                for i, img in enumerate(images):
+                    insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i)
                 if timings:
                     image_ms = int(round((time.perf_counter() - t_img) * 1000))
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")

@@ -2,7 +2,10 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Insert matplotlib image payloads on Calc sheets (=PYTHON / chat tool)."""
+"""Insert matplotlib image payloads on Calc sheets (=PYTHON / chat tool).
+
+Supports multiple plot shapes per cell via indexed shape slots with reuse.
+"""
 
 from __future__ import annotations
 
@@ -29,6 +32,11 @@ MIN_CHART_PLACEHOLDER_HEIGHT = 3000
 # image is also a GraphicObjectShape; matching the anchor alone overwrote it.
 _DRAW_GRAPHIC_SERVICE = "com.sun.star.drawing.GraphicObjectShape"
 _PLOT_SHAPE_NAME_PREFIX = "WriterAgentPlot"
+
+
+def _plot_slot_name(image_index: int) -> str:
+    """Slot name for a plot shape: WriterAgentPlot for 0, WriterAgentPlot_{index+1} for rest."""
+    return _PLOT_SHAPE_NAME_PREFIX if image_index == 0 else f"{_PLOT_SHAPE_NAME_PREFIX}_{image_index + 1}"
 
 
 class ImageEgressError(Exception):
@@ -111,17 +119,16 @@ def _is_plot_shape_name(name: str) -> bool:
     return name.startswith(_PLOT_SHAPE_NAME_PREFIX + "_")
 
 
-def _is_reusable_plot_shape(shape: Any, target_cell: Any) -> bool:
-    """Graphic we previously inserted at *target_cell*, not a user image or other shape.
+def _is_reusable_plot_shape(shape: Any, target_cell: Any, slot_name: str = _PLOT_SHAPE_NAME_PREFIX) -> bool:
+    """Graphic we previously inserted at *target_cell* in *slot_name*, not a user image or other shape.
 
-    Require GraphicObjectShape plus the WriterAgentPlot name prefix. An
+    Require GraphicObjectShape plus matching the specific slot name. An
     anchor match alone replaces GraphicURL on a rectangle or a photo the
-    user placed on the formula cell. Plots from before the prefix stay in
-    place (one extra shape) rather than guessing which graphic is ours.
+    user placed on the formula cell. Other WriterAgentPlot* shapes stay put.
     """
     if not _supports_draw_graphic(shape):
         return False
-    if not _is_plot_shape_name(_shape_name(shape)):
+    if _shape_name(shape) != slot_name:
         return False
     return _shape_anchor_matches_cell(shape, target_cell)
 
@@ -165,7 +172,7 @@ def _unlink_temp_image(path: str | None) -> None:
         log.debug("insert_image_result_on_sheet: temp image cleanup failed for %s", path, exc_info=True)
 
 
-def insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any], *, code: str | None = None, doc: Any | None = None) -> None:
+def insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any], *, code: str | None = None, doc: Any | None = None, image_index: int = 0) -> None:
     """Write image payload bytes to a temp file and insert as a cell-anchored shape on the target sheet.
 
     Posts execution asynchronously to the main VCL UI thread if invoked from a background worker thread.
@@ -183,16 +190,16 @@ def insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any], *, code: str
     # must run on LibreOffice's main VCL thread to prevent internal C++ state corruption and deadlocks.
     # If called from a background recalculation or script worker thread, post asynchronously to the main thread.
     if not on_main_thread():
-        post_to_main_thread(_insert_image_result_on_sheet_impl, ctx, payload, code, doc)
+        post_to_main_thread(_insert_image_result_on_sheet_impl, ctx, payload, code, doc, image_index)
         return
 
-    _insert_image_result_on_sheet_impl(ctx, payload, code, doc)
+    _insert_image_result_on_sheet_impl(ctx, payload, code, doc, image_index)
 
 
-def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: str | None = None, doc: Any | None = None) -> None:
+def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: str | None = None, doc: Any | None = None, image_index: int = 0) -> None:
     """Main-thread implementation of graphic shape creation and anchoring."""
     import uno
-    from com.sun.star.awt import Size
+    from com.sun.star.awt import Point, Size
 
     # Resolve the target sheet and cell from the formula when the code is
     # known. During a workbook recalc (Ctrl+Shift+F9, or file open) the
@@ -275,6 +282,7 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
         tmp_path = write_image_payload_to_temp(payload)
         file_url = uno.systemPathToFileUrl(os.path.abspath(tmp_path))
 
+        slot_name = _plot_slot_name(image_index)
         shape = None
         if target_cell is not None:
             try:
@@ -282,22 +290,39 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
                 if isinstance(raw_count, int) and raw_count > 0:
                     for index in range(raw_count):
                         candidate = draw_page.getByIndex(index)
-                        if _is_reusable_plot_shape(candidate, target_cell):
+                        if _is_reusable_plot_shape(candidate, target_cell, slot_name=slot_name):
                             shape = candidate
                             break
             except Exception:
                 shape = None
 
+        created_shape = False
         default_size = Size(DEFAULT_CHART_SIZE_WIDTH, DEFAULT_CHART_SIZE_HEIGHT)
         if shape is None:
             shape = doc.createInstance(_DRAW_GRAPHIC_SERVICE)
-            shape.setSize(default_size)
+            if hasattr(shape, "setSize"):
+                shape.setSize(default_size)
             draw_page.add(shape)
-            _assign_plot_shape_name(shape, draw_page)
+            created_shape = True
+            try:
+                shape.setPropertyValue("Name", slot_name)
+            except Exception:
+                log.debug("insert_image_result_on_sheet: could not name plot shape", exc_info=True)
 
-        # Setter loads the file into the shape's Graphic before returning.
-        # _unlink_temp_image runs in finally, after this call.
-        shape.setPropertyValue("GraphicURL", file_url)
+        try:
+            # Setter loads the file into the shape's Graphic before returning.
+            # _unlink_temp_image runs in finally, after this call.
+            shape.setPropertyValue("GraphicURL", file_url)
+        except Exception:
+            # The add already published the shape to the draw page; the GraphicURL
+            # setter is what embeds the bitmap. If embedding fails on a shape we
+            # just created, remove it so we do not leave an empty blank shape behind.
+            if created_shape and hasattr(draw_page, "remove"):
+                try:
+                    draw_page.remove(shape)
+                except Exception:
+                    log.debug("insert_image_result_on_sheet: failed to remove failed shape", exc_info=True)
+            raise
 
         if target_cell is not None:
             try:
@@ -309,7 +334,12 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
 
                 shape.setPropertyValue("Anchor", target_cell)
                 if hasattr(shape, "setPosition"):
-                    shape.setPosition(cell_pos)
+                    if image_index == 0:
+                        shape.setPosition(cell_pos)
+                    else:
+                        pos_x = getattr(cell_pos, "X", 0) + (image_index * DEFAULT_CHART_SIZE_WIDTH)
+                        pos_y = getattr(cell_pos, "Y", 0)
+                        shape.setPosition(Point(pos_x, pos_y) if Point is not None else cell_pos)
 
                 if is_large_placeholder:
                     shape.setPropertyValue("ResizeWithCell", True)
@@ -320,7 +350,7 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
                     if hasattr(shape, "setSize"):
                         shape.setSize(default_size)
             except Exception:
-                log.debug("insert_image_result_on_sheet: could not anchor to cell", exc_info=True)
+                log.warning("insert_image_result_on_sheet: could not anchor to cell", exc_info=True)
     except ImageEgressError:
         raise
     except Exception as exc:
