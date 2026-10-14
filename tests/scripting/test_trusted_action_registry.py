@@ -10,7 +10,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.trusted_action_registry import TrustedActionWiring, get_trusted_action_wiring
+from plugin.scripting.trusted_action_registry import (
+    TrustedActionWiring,
+    _index_by_domain,
+    _split_handler,
+    get_trusted_action_wiring,
+)
 
 
 def test_get_trusted_action_wiring_known_domains() -> None:
@@ -33,7 +38,7 @@ def test_all_trusted_action_wirings_resolve_and_match_heartbeat() -> None:
     from plugin.scripting.trusted_action_registry import _TRUSTED_ACTION_WIRING
 
     for wiring in _TRUSTED_ACTION_WIRING:
-        mod_name, attr_name = wiring.handler.rsplit(":", 1)
+        mod_name, attr_name = _split_handler(wiring.handler)
         mod = importlib.import_module(mod_name)
         fn = getattr(mod, attr_name)
         assert callable(fn), f"{wiring.handler} is not callable"
@@ -49,10 +54,28 @@ def test_get_trusted_action_wiring_unknown_domain() -> None:
     assert get_trusted_action_wiring("not_a_domain") is None
 
 
-def test_dispatch_rejects_handler_without_colon() -> None:
-    wiring = TrustedActionWiring("t", "plugin.scripting.venv.trusted_dispatch")
+@pytest.mark.parametrize(
+    "handler",
+    [
+        "plugin.scripting.venv.trusted_dispatch",
+        "pkg:mod:attr",
+        ":attr",
+        "pkg:",
+        ":",
+        "",
+    ],
+)
+def test_dispatch_rejects_handler_that_is_not_module_attr(handler: str) -> None:
+    wiring = TrustedActionWiring("t", handler)
     with pytest.raises(ValueError, match="module:attr"):
         wiring.dispatch({})
+
+
+def test_index_by_domain_rejects_duplicates() -> None:
+    first = TrustedActionWiring("units", "plugin.scripting.venv.trusted_dispatch:dispatch_units")
+    second = TrustedActionWiring("units", "plugin.scripting.venv.trusted_dispatch:dispatch_symbolic")
+    with pytest.raises(ValueError, match="Duplicate trusted action domain"):
+        _index_by_domain((first, second))
 
 
 def test_dispatch_passes_heartbeat_only_when_supported() -> None:
