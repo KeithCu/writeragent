@@ -2,27 +2,29 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for editor IPC protocol and failure formatting."""
+"""Tests for editor IPC protocol and session identity."""
 
 from __future__ import annotations
 
+from collections import UserDict
 import io
+from pathlib import Path
 import pickle
+import re
 import struct
 
 import pytest
 
 from plugin.scripting.editor_ipc import (
     PARENT_TO_CHILD_TYPES,
-    exception_traceback,
-    failure_detail,
-    failure_message,
+    normalize_target,
     read_message,
     stamp_session,
     target_from_load,
     target_identity_key,
     write_message,
 )
+from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcPayloadSizeError
 
 
 def test_roundtrip_simple():
@@ -82,65 +84,61 @@ def test_non_dict_pickle_raises():
         read_message(buf)
 
 
-def test_exception_traceback_includes_frame():
-    try:
-        raise ValueError("probe failure")
-    except ValueError as e:
-        tb = exception_traceback(e)
-    assert "ValueError: probe failure" in tb
-    assert "test_exception_traceback_includes_frame" in tb
+def test_write_message_reports_payload_byte_count():
+    buf = io.BytesIO()
+    msg = {"code": "x" * (DEFAULT_MAX_PAYLOAD_BYTES + 1)}
+    with pytest.raises(ValueError, match=r"Pickle frame exceeds maximum payload size: \d+") as exc_info:
+        write_message(buf, msg)
+    assert isinstance(exc_info.value.__cause__, IpcPayloadSizeError)
 
 
-def test_failure_message_combines_summary_and_detail():
-    msg = failure_message("Summary", detail="stderr line")
-    assert msg.startswith("Summary\n\n")
-    assert "stderr line" in msg
-
-
-def test_failure_message_accepts_none_detail():
-    msg = failure_message("Summary", detail=None)
-    assert msg == "Summary"
-
-
-def test_failure_message_empty_summary():
-    assert failure_message("", detail="", exc=None) == ""
-
-
-def test_failure_detail_formats_exception_under_deal():
-    """The body formats exc. Deal must allow that call; CrossHair still forces exc is None."""
-    from plugin.framework.deal_shim import UNDER_CROSSHAIR
-
-    try:
-        raise RuntimeError("boom")
-    except RuntimeError as e:
-        if UNDER_CROSSHAIR:
-            import deal
-
-            with pytest.raises(deal.PreContractError):
-                failure_detail(detail="stderr line", exc=e)
-            return
-        detail = failure_detail(detail="stderr line", exc=e)
-        msg = failure_message("Summary", detail=None, exc=e)
-        tb = exception_traceback(e)
-    assert "stderr line" in detail
-    assert "RuntimeError: boom" in detail
-    assert detail == f"stderr line\n\n{tb.rstrip()}"
-    assert msg.startswith("Summary\n\n")
-    assert "RuntimeError: boom" in msg
-    assert failure_detail(detail="stderr line", exc=None) == "stderr line"
-    assert "ValueError: boom" in failure_detail(exc=ValueError("boom"))
-
-
-def test_stamp_session_always_sends_id_mode_and_target():
+def test_stamp_session_sets_id_mode_and_target_when_mode_is_set():
     msg = stamp_session({"type": "save", "code": "x"}, session_id="abc", mode="calc_cell", target={"cell_address": "A1"})
     assert msg["session_id"] == "abc"
     assert msg["mode"] == "calc_cell"
     assert msg["target"] == {"cell_address": "A1"}
 
 
+def test_stamp_session_omits_empty_mode():
+    msg = stamp_session({"type": "dirty"}, session_id="abc", mode="")
+    assert msg["session_id"] == "abc"
+    assert msg["target"] == {}
+    assert "mode" not in msg
+
+
+def test_stamp_session_keeps_message_mode_when_argument_empty():
+    msg = stamp_session({"type": "dirty", "mode": "latex"}, session_id="abc", mode="")
+    assert msg["mode"] == "latex"
+
+
 def test_stamp_session_drops_empty_target_keys():
     msg = stamp_session({"type": "dirty"}, session_id="x", mode="run_script", target={"script_name": "foo", "doc_url": ""})
     assert msg["target"] == {"script_name": "foo"}
+
+
+def test_stamp_session_copies_mapping_target():
+    msg = stamp_session({"type": "dirty", "target": UserDict({"cell_address": "C3"})}, session_id="abc", mode="calc_cell")
+    assert msg["target"] == {"cell_address": "C3"}
+
+
+def test_normalize_target_drops_non_strings():
+    class UnoObject:
+        def __str__(self) -> str:
+            return "uno:Object"
+
+    # str() of a UNO object or other non-str must not become the identity.
+    raw = {
+        "cell_address": " A1 ",
+        "script_name": "  ",
+        "script_origin": None,
+        "doc_url": 12,
+        "resource": UnoObject(),
+    }
+    assert normalize_target(raw) == {"cell_address": "A1"}
+
+
+def test_normalize_target_accepts_non_dict_mapping():
+    assert normalize_target(UserDict({"cell_address": "A1", "nope": "x"})) == {"cell_address": "A1"}
 
 
 def test_target_from_load_aliases_cell_and_script():
@@ -149,16 +147,18 @@ def test_target_from_load_aliases_cell_and_script():
     assert t["script_name"] == "demo"
 
 
-def test_stamp_session_and_failure_detail_accept_long_text():
-    """Script source and probe stderr are longer than the old deal caps."""
-    from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
+def test_target_from_load_does_not_stringify_aliases():
+    assert target_from_load({"cell_address": object(), "script_name": " demo "}) == {"script_name": "demo"}
+    assert target_from_load({"target": {"cell_address": object()}, "cell_address": "B2"}) == {"cell_address": "B2"}
+
+
+def test_stamp_session_accepts_long_text():
+    """Script source is longer than the old deal caps."""
+    from plugin.framework.deal_shim import DEAL_MAX_TOKEN
 
     code = "x" * (DEAL_MAX_TOKEN + 50)
     msg = stamp_session({"type": "save", "code": code}, session_id="abc", mode="run_script")
     assert msg["code"] == code
-    detail = failure_detail(detail="e" * (DEAL_MAX_SOURCE + 1))
-    assert detail.startswith("e" * 20)
-    assert len(detail) == DEAL_MAX_SOURCE + 1
 
 
 def test_target_identity_key_same_cell_matches():
@@ -175,5 +175,16 @@ def test_target_identity_key_distinguishes_script_origin():
     assert target_identity_key("run_script", user_script) != target_identity_key("run_script", doc_script)
 
 
-def test_parent_to_child_types_are_the_queued_set():
-    assert PARENT_TO_CHILD_TYPES == frozenset({"saved", "error", "load", "request_save", "theme", "scripts_list"})
+def test_parent_to_child_types_match_js_handlers():
+    repo_root = Path(__file__).resolve().parents[2]
+    editor_js = repo_root / "plugin/contrib/scripting/assets/editor/editor.js"
+    scripts_manager_js = repo_root / "plugin/contrib/scripting/assets/editor/scripts_manager.js"
+
+    # The module header is not CI; a handler added or renamed in those two files fails here.
+    # On this tree the set is load, request_save, saved, error, theme, scripts_list.
+    pattern = re.compile(r"""msg\.type\s*[!=]==\s*["']([A-Za-z0-9_]+)["']""")
+    found: set[str] = set()
+    for js_path in (editor_js, scripts_manager_js):
+        found.update(pattern.findall(js_path.read_text(encoding="utf-8")))
+
+    assert found == set(PARENT_TO_CHILD_TYPES)

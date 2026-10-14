@@ -48,6 +48,12 @@ FRAME_HEADER_SIZE = 4
 # still a failed start and may be retried.
 EXEC_STARTED = "exec_started"
 
+# frame_type values on venv-worker stdout when the request set allow_heartbeat.
+# Absent frame_type is a bare dict: exec_started, tool_call, llm_request,
+# worker_event, or a non-heartbeat terminal reply.
+FRAME_HEARTBEAT = "heartbeat"
+FRAME_RESULT = "result"
+
 # Shared cap for editor IPC and the venv-worker host read path. A corrupt 4-byte
 # length prefix without this bound can OOM the LibreOffice process. Keep editor
 # and worker on the same inventory — do not pass unbounded read_frame_payload
@@ -763,6 +769,21 @@ def unpack_pickle_frame(payload: bytes) -> Any:
         raise ValueError(str(exc)) from exc
 
 
+def parse_worker_stdout_frame(payload: bytes) -> dict[str, Any]:
+    """Parse one Pickle5 frame from child stdout into a dictionary.
+
+    Empty and non-dict payloads raise: empty bytes raise ValueError from
+    unpack_pickle_frame, and a decoded object that is not a dict raises
+    RuntimeError. A missing frame_type is still a valid dict (bare dict for
+    exec_started, tool_call, llm_request, worker_event, or non-heartbeat
+    terminal responses).
+    """
+    data = unpack_pickle_frame(payload)
+    if not isinstance(data, dict):
+        raise RuntimeError("Worker response must be a dict")
+    return data
+
+
 def _decode_pickle_payload(
     payload: bytes | None,
     *,
@@ -792,9 +813,21 @@ def read_pickle_frame(
     return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict, unpacker=unpacker)
 
 
-# One lock for every venv → host tool_call on this pipe. The LibrePy named-script
+# One lock for every venv → host tool_call on this pipe, as well as heartbeat
+# and result frames written by write_child_ipc_frame. The LibrePy named-script
 # fallback used to write a frame with no lock, so two calls could interleave.
 _tool_call_lock = threading.Lock()
+
+
+def write_child_ipc_frame(
+    stream: IO[bytes],
+    message: Any,
+    *,
+    max_payload_bytes: int | None = DEFAULT_MAX_PAYLOAD_BYTES,
+) -> None:
+    """Write one Pickle5 length-prefixed frame to child stdout holding _tool_call_lock."""
+    with _tool_call_lock:
+        write_pickle_frame(stream, message, max_payload_bytes=max_payload_bytes)
 
 
 def _pause_script_alarm() -> tuple[float, float, float] | None:

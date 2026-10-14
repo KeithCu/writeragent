@@ -1586,3 +1586,91 @@ def test_target_key_follows_mode_and_target():
     assert state.target_key == launch_mod.target_identity_key("run_script", {"script_name": "MyScript"})
 
 
+def test_launch_enriches_once_when_the_load_is_sent():
+    from plugin.scripting.editor_ui_strings import enrich_monaco_load_message as real_enrich
+
+    ctx = MagicMock()
+    sent_messages: list[dict] = []
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    pe = launch_mod._PERSISTENT_EDITOR
+    pe.sessions.clear()
+    pe.focused_id = None
+
+    def fake_send(msg: dict) -> None:
+        sent_messages.append(msg)
+
+    with patch.object(type(pe), "is_running", new=property(lambda self: True)):
+        pe._proc = mock_proc
+        with patch.object(launch_mod, "EditorSession") as mock_session_cls:
+            session = MagicMock()
+            session.is_running = True
+            session.send = fake_send
+            mock_session_cls.return_value = session
+            with patch("plugin.scripting.editor_ui_strings.enrich_monaco_load_message", wraps=real_enrich) as mock_enrich:
+                ok = launch_mod.launch_monaco_editor(
+                    ctx,
+                    exe="/venv/bin/python",
+                    load_message={"type": "load", "code": "print(1)", "mode": "calc_cell", "cell_address": "A1"},
+                    on_save=MagicMock(),
+                )
+
+    assert ok is True
+    assert mock_enrich.call_count == 1
+    assert sent_messages[0]["type"] == "load"
+    assert "ui" in sent_messages[0]
+    assert "theme" in sent_messages[0]
+    pe.sessions.clear()
+    pe.focused_id = None
+    pe._proc = None
+
+
+def test_launch_enriches_once_when_save_is_queued():
+    from plugin.scripting.editor_ui_strings import enrich_monaco_load_message as real_enrich
+
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    state = launch_mod.EditorSessionState(
+        "sid-cell",
+        "calc_cell",
+        {"cell_address": "C3"},
+        on_save=MagicMock(),
+    )
+    state.dirty = True
+    pe.register_session(state)
+    sent: list[dict] = []
+
+    def _send(message: dict, session: object = None) -> None:
+        sent.append(dict(message))
+
+    pe.send = _send  # type: ignore[method-assign]
+    try:
+        mock_doc = object()
+        with patch("plugin.scripting.editor_ui_strings.enrich_monaco_load_message", wraps=real_enrich) as mock_enrich:
+            with patch.object(launch_mod, "confirm_unsaved_monaco_edit", return_value="save"):
+                ok = launch_mod.launch_monaco_editor(
+                    MagicMock(),
+                    exe="/venv/bin/python",
+                    load_message={
+                        "type": "load",
+                        "mode": "run_script",
+                        "script_name": "Demo",
+                        "code": "print(1)",
+                        "run_script_doc": mock_doc,
+                    },
+                    on_save=MagicMock(),
+                )
+        assert ok is True
+        assert mock_enrich.call_count == 1
+        assert [msg["type"] for msg in sent] == ["request_save"]
+        assert state.pending_load is not None
+        assert "ui" in state.pending_load
+        assert state.pending_load["mode"] == "run_script"
+        assert state.pending_load["run_script_doc"] is mock_doc
+    finally:
+        _reset_persistent_editor()
+
+

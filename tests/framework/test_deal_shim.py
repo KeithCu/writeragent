@@ -36,6 +36,8 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_TOKEN,
     DEAL_MAX_URL,
     DEAL_MAX_XL_EXPR,
+    UNDER_CROSSHAIR,
+    _profile,
     ascii_bounded,
     deal,
     deal_maxima,
@@ -356,3 +358,13 @@ def test_cover_all_workers_bind_short_deal_table(monkeypatch) -> None:
     assert DEAL_MAX_COL_INDEX == 18277
     assert DEAL_MAX_ROW_INDEX == 1_048_575
     assert DEAL_MAX_CELL_REF == 256
+
+
+def test_profile_argument_order_is_crosshair_then_pytest() -> None:
+    crosshair_sentinel = object()
+    pytest_sentinel = object()
+    chosen = _profile(crosshair_sentinel, pytest_sentinel)
+    if UNDER_CROSSHAIR:
+        assert chosen is crosshair_sentinel
+    else:
+        assert chosen is pytest_sentinel

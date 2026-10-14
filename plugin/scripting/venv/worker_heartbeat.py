@@ -9,13 +9,11 @@ from typing import Any, BinaryIO
 
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
+    FRAME_HEARTBEAT,
+    FRAME_RESULT,
     get_child_ipc_stream,
-    unpack_pickle_frame,
-    write_pickle_frame,
+    write_child_ipc_frame,
 )
-
-FRAME_HEARTBEAT = "heartbeat"
-FRAME_RESULT = "result"
 
 
 class HeartbeatEmitter:
@@ -27,7 +25,11 @@ class HeartbeatEmitter:
         self._stream = stream if stream is not None else get_child_ipc_stream()
 
     def emit(self, payload: dict[str, Any]) -> None:
-        write_pickle_frame(
+        # Heartbeat and result frames share _tool_call_lock with exchange_tool_call.
+        # _write_all's header and payload are separate writes; a second thread in
+        # a host tool_call would otherwise split the length prefix. The lock is not
+        # reentrant: do not call emit on the thread that is inside exchange_tool_call.
+        write_child_ipc_frame(
             self._stream,
             {"frame_type": FRAME_HEARTBEAT, "payload": dict(payload)},
             max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
@@ -38,11 +40,4 @@ def write_result_frame(stream: BinaryIO, response: dict[str, Any]) -> None:
     """Write the terminal result frame for a heartbeat-enabled worker request."""
     frame = dict(response)
     frame["frame_type"] = FRAME_RESULT
-    write_pickle_frame(stream, frame, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-
-
-def parse_frame(frame_bytes: bytes) -> dict[str, Any]:
-    if not frame_bytes:
-        return {}
-    data = unpack_pickle_frame(frame_bytes)
-    return data if isinstance(data, dict) else {}
+    write_child_ipc_frame(stream, frame, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)

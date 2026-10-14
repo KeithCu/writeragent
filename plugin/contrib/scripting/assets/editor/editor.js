@@ -11,7 +11,7 @@
 // If you modify message parsing, shortcuts, save/run dispatch, or UI strings handling,
 // you MUST also update the corresponding Python modules:
 //   - Python Host Bridge:        plugin/scripting/editor_host.py
-//   - IPC Message Protocol:      plugin/scripting/editor_protocol.py
+//   - IPC Message Protocol:      plugin/scripting/editor_ipc.py
 //   - UI Strings Catalog:        plugin/scripting/editor_ui_strings.py
 //   - Script Manager Frontend:   plugin/contrib/scripting/assets/editor/scripts_manager.js
 //   - Native Cell Editor:        plugin/calc/python/cell_editor_ui.py

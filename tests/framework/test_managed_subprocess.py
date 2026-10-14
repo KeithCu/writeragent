@@ -1005,4 +1005,280 @@ def test_log_start_failure_false_reraises_original(
         sub_twice.start()
 
 
+def test_raw_spawn_passes_stdio_env_and_skips_worker_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    captured_cmds: list[list[str]] = []
+    captured_kwargs: list[dict[str, Any]] = []
+    fake_proc = MagicMock()
+    fake_proc.pid = 4242
+    fake_proc.poll.return_value = None
+
+    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+        captured_cmds.append(list(cmd))
+        captured_kwargs.append(dict(kwargs))
+        return fake_proc
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        ms, "start_stderr_drain", lambda *args, **kwargs: pytest.fail("drain should not be called")
+    )
+
+    env = {"WA_AUDIO_PATH": "clip.wav", "PATH": "/bin"}
+    subp = ms.ManagedSubprocess(
+        ["ffplay", "clip.wav"],
+        raw_spawn=True,
+        stdin=None,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=False,
+        encoding=None,
+        errors=None,
+        env=env,
+    )
+    subp.start()
+
+    assert captured_cmds[0] == ["ffplay", "clip.wav"]
+    kwargs = captured_kwargs[0]
+    assert kwargs == {
+        "stdin": None,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "text": False,
+        "encoding": None,
+        "errors": None,
+        "env": env,
+        "cwd": None,
+    }
+    assert kwargs["env"] is env
+    assert "start_new_session" not in kwargs
+    assert "creationflags" not in kwargs
+    assert "bufsize" not in kwargs
+    assert subp not in ms._instances
+    assert subp.stderr_tail is None
+    assert subp.popen is fake_proc
+
+
+def test_raw_spawn_text_pipes_for_communicate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    captured_cmds: list[list[str]] = []
+    captured_kwargs: list[dict[str, Any]] = []
+    fake_proc = MagicMock()
+    fake_proc.pid = 4242
+    fake_proc.poll.return_value = None
+
+    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+        captured_cmds.append(list(cmd))
+        captured_kwargs.append(dict(kwargs))
+        return fake_proc
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        ms, "start_stderr_drain", lambda *args, **kwargs: pytest.fail("drain should not be called")
+    )
+
+    subp = ms.ManagedSubprocess(
+        ["piper", "--model", "m"],
+        raw_spawn=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=None,
+    )
+    subp.start()
+
+    assert captured_cmds[0] == ["piper", "--model", "m"]
+    kwargs = captured_kwargs[0]
+    assert kwargs == {
+        "stdin": subprocess.PIPE,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "env": None,
+        "cwd": None,
+    }
+    assert kwargs["env"] is None
+    assert kwargs["cwd"] is None
+    assert subp not in ms._instances
+
+
+def test_raw_spawn_popen_oserror_propagates_and_is_reusable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 4242
+    fake_proc.poll.return_value = None
+    calls = 0
+
+    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise FileNotFoundError(2, "No such file", "missing-bin")
+        return fake_proc
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+
+    subp = ms.ManagedSubprocess(["missing-bin"], raw_spawn=True)
+    with pytest.raises(FileNotFoundError):
+        subp.start()
+
+    assert subp.popen is None
+    assert subp not in ms._instances
+
+    # Second start returns and popen is the mock. No RuntimeError.
+    subp.start()
+    assert subp.popen is fake_proc
+
+
+def test_raw_spawn_single_use_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 4242
+    fake_proc.poll.return_value = None
+    popen_calls = 0
+
+    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+        nonlocal popen_calls
+        popen_calls += 1
+        return fake_proc
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+
+    subp = ms.ManagedSubprocess(["echo"], raw_spawn=True)
+    subp.start()
+    with pytest.raises(RuntimeError, match="ManagedSubprocess is single-use"):
+        subp.start()
+
+    assert popen_calls == 1
+
+
+def test_raw_spawn_rejects_worker_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    def fail_popen(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("Popen should not be called")
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fail_popen)
+
+    bad_cases: list[tuple[dict[str, Any], str]] = [
+        ({"command_wrapper": lambda cmd, **_k: cmd}, "raw_spawn does not take a command_wrapper"),
+        ({"scrub_env": True}, "raw_spawn does not scrub env"),
+        ({"optimize_pipes": True}, "raw_spawn does not optimize pipes"),
+        ({"base_env": {}}, "raw_spawn does not merge base_env"),
+        ({"stderr_tail_chars": 100}, "raw_spawn does not drain stderr"),
+        ({"stderr_name": "x"}, "raw_spawn does not drain stderr"),
+    ]
+
+    for extra_kwargs, expected_msg in bad_cases:
+        subp = ms.ManagedSubprocess(["echo"], raw_spawn=True, **extra_kwargs)
+        with pytest.raises(ValueError) as excinfo:
+            subp.start()
+        assert str(excinfo.value) == expected_msg
+
+
+def test_worker_start_ignores_raw_stdio_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    captured_kwargs: list[dict[str, Any]] = []
+    fake_proc = MagicMock()
+    fake_proc.pid = 4242
+    fake_proc.poll.return_value = None
+
+    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+        captured_kwargs.append(dict(kwargs))
+        return fake_proc
+
+    drain_called = False
+
+    def fake_drain(*args: Any, **kwargs: Any) -> MagicMock:
+        nonlocal drain_called
+        drain_called = True
+        return MagicMock()
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(ms, "start_stderr_drain", fake_drain)
+
+    subp = ms.ManagedSubprocess(
+        ["echo"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+    )
+    try:
+        subp.start()
+        assert drain_called
+        kwargs = captured_kwargs[0]
+        assert kwargs["stdin"] == subprocess.PIPE
+        assert kwargs["stdout"] == subprocess.PIPE
+        assert kwargs["stderr"] == subprocess.PIPE
+        assert kwargs["bufsize"] == 0
+        if sys.platform == "win32":
+            assert "creationflags" in kwargs
+            assert "start_new_session" not in kwargs
+        else:
+            assert kwargs["start_new_session"] is True
+            assert "creationflags" not in kwargs
+    finally:
+        subp.close()
+
+
+def test_managed_subprocess_run_is_subprocess_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    captured_args: list[Any] = []
+    captured_kwargs: list[dict[str, Any]] = []
+
+    def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+        captured_args.append(args)
+        captured_kwargs.append(dict(kwargs))
+        return subprocess.CompletedProcess(args[0], 0)
+
+    monkeypatch.setattr(ms.subprocess, "run", fake_run)
+
+    res = ms.ManagedSubprocess.run(
+        ["spd-say", "-S"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=2,
+    )
+    assert res.returncode == 0
+    assert captured_args[0] == (["spd-say", "-S"],)
+    assert captured_kwargs[0] == {
+        "stdin": None,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "env": None,
+        "cwd": None,
+        "text": False,
+        "encoding": None,
+        "errors": None,
+        "timeout": 2,
+        "check": False,
+    }
+    assert "creationflags" not in captured_kwargs[0]
+    assert "start_new_session" not in captured_kwargs[0]
+
+
 

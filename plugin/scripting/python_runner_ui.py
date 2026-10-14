@@ -136,7 +136,7 @@ def start_native_script_run(
     thread.
     """
     from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
-    from plugin.scripting.editor_ipc import exception_traceback
+    from plugin.scripting.editor_errors import exception_traceback
     from plugin.scripting.helper_domain import rps_error_outcome
     from plugin.scripting.python_runner import (
         _finish_rps_execution,
@@ -439,7 +439,7 @@ class NativePythonScriptDialog:
                 log.debug("native script dialog: modal dispose after execute", exc_info=True)
             return True
         except Exception as exc:
-            from plugin.scripting.editor_ipc import exception_traceback
+            from plugin.scripting.editor_errors import exception_traceback
 
             log.exception("NativePythonScriptDialog._open failed")
             self._open_failure_detail = exception_traceback(exc)
@@ -766,7 +766,7 @@ def show_python_input_dialog(
             modeless=modeless,
         )
     except Exception as exc:
-        from plugin.scripting.editor_ipc import exception_traceback
+        from plugin.scripting.editor_errors import exception_traceback
 
         log.exception("show_python_input_dialog failed")
         return False, exception_traceback(exc)

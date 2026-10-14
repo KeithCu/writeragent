@@ -19,6 +19,21 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
+def _split_handler(handler: str) -> tuple[str, str]:
+    """Return ``(module, attr)`` for a ``module:attr`` handler string.
+
+    ``rsplit(':', 1)`` keeps extra colons in the module, so ``a:b:c`` was
+    ``importlib.import_module('a:b')`` and failed as ModuleNotFoundError.
+    The contract is exactly one colon and both sides non-empty.
+    """
+    mod_name, sep, attr_name = handler.partition(":")
+    if sep != ":" or not mod_name or not attr_name or ":" in attr_name:
+        raise ValueError(
+            f"Trusted action handler must be 'module:attr', got {handler!r}"
+        )
+    return mod_name, attr_name
+
+
 @dataclass(frozen=True)
 class TrustedActionWiring:
     """One trusted-action domain routed inside the venv worker."""
@@ -28,15 +43,7 @@ class TrustedActionWiring:
     supports_heartbeat: bool = False
 
     def dispatch(self, data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
-        parts = self.handler.rsplit(":", 1)
-        # A handler string with no colon makes rsplit return one element, and
-        # the unpack raises a bare ValueError. The wiring contract is
-        # module:attr; anything else fails here with that shape.
-        if len(parts) != 2:
-            raise ValueError(
-                f"Trusted action handler must be 'module:attr', got {self.handler!r}"
-            )
-        mod_name, attr_name = parts
+        mod_name, attr_name = _split_handler(self.handler)
         mod = importlib.import_module(mod_name)
         fn = getattr(mod, attr_name)
         # supports_heartbeat is the contract that the handler accepts
@@ -74,9 +81,20 @@ _TRUSTED_ACTION_WIRING: tuple[TrustedActionWiring, ...] = (
     ),
 )
 
-_WIRING_BY_DOMAIN: dict[str, TrustedActionWiring] = {
-    w.domain: w for w in _TRUSTED_ACTION_WIRING
-}
+
+def _index_by_domain(
+    entries: tuple[TrustedActionWiring, ...],
+) -> dict[str, TrustedActionWiring]:
+    """Index wiring by domain. A repeated domain shadows today; fail instead."""
+    by_domain: dict[str, TrustedActionWiring] = {}
+    for wiring in entries:
+        if wiring.domain in by_domain:
+            raise ValueError(f"Duplicate trusted action domain: {wiring.domain!r}")
+        by_domain[wiring.domain] = wiring
+    return by_domain
+
+
+_WIRING_BY_DOMAIN: dict[str, TrustedActionWiring] = _index_by_domain(_TRUSTED_ACTION_WIRING)
 
 
 @deal.post(lambda result: result is None or isinstance(result, TrustedActionWiring))

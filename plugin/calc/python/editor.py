@@ -40,7 +40,7 @@ from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name
 from plugin.scripting.editor_host import get_active_session, launch_monaco_editor, monaco_editor_available, set_active_session
 from plugin.framework.config import get_config
-from plugin.scripting.editor_ipc import exception_traceback, failure_message
+from plugin.scripting.editor_errors import exception_traceback, failure_message
 
 log = logging.getLogger("writeragent.scripting")
 

@@ -2180,7 +2180,7 @@ def test_ppt_master_llm_request_still_dispatches(monkeypatch):
 
 def test_heartbeats_cannot_extend_past_absolute_cap():
     """A heartbeat loop must stop at the ceiling, not reset the wait by grace_sec."""
-    from plugin.scripting.venv.worker_heartbeat import FRAME_HEARTBEAT
+    from plugin.scripting.ipc import FRAME_HEARTBEAT
 
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = "python"
@@ -2191,7 +2191,7 @@ def test_heartbeats_cannot_extend_past_absolute_cap():
     started = time.monotonic()
     with (
         patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"),
-        patch("plugin.scripting.venv.worker_heartbeat.parse_frame", side_effect=parse),
+        patch("plugin.scripting.ipc.parse_worker_stdout_frame", side_effect=parse),
     ):
         with pytest.raises(subprocess.TimeoutExpired):
             mgr._read_response_with_heartbeats(
@@ -2215,7 +2215,7 @@ def test_unknown_frame_does_not_extend_heartbeat_deadline(caplog: pytest.LogCapt
     with caplog.at_level(logging.WARNING):
         with (
             patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"),
-            patch("plugin.scripting.venv.worker_heartbeat.parse_frame", side_effect=parse),
+            patch("plugin.scripting.ipc.parse_worker_stdout_frame", side_effect=parse),
         ):
             with pytest.raises(subprocess.TimeoutExpired):
                 mgr._read_response_with_heartbeats(
@@ -2382,7 +2382,7 @@ def test_terminate_worker_race_condition(monkeypatch):
 
 def test_read_response_with_heartbeats_swallows_callback_exceptions():
     from plugin.scripting.venv_worker import PythonWorkerManager
-    from plugin.scripting.venv.worker_heartbeat import FRAME_HEARTBEAT, FRAME_RESULT
+    from plugin.scripting.ipc import FRAME_HEARTBEAT, FRAME_RESULT
     import io
 
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
@@ -2404,9 +2404,9 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
         raise RuntimeError("simulated ui callback error")
 
     with patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"), \
-         patch("plugin.scripting.venv.worker_heartbeat.parse_frame", side_effect=mock_parse_frame):
+         patch("plugin.scripting.ipc.parse_worker_stdout_frame", side_effect=mock_parse_frame):
 
-        # The terminal frame is the dict parse_frame already built.
+        # The terminal frame is the dict parse_worker_stdout_frame already built.
         result = mgr._read_response_with_heartbeats(
             stdout=io.BytesIO(),
             timeout_sec=10.0,
@@ -2894,3 +2894,109 @@ def test_harness_main_reads_claimed_stdin(monkeypatch):
     stdout.seek(0)
     started = read_pickle_frame(stdout, require_dict=True)
     assert started == {"type": "exec_started", "id": "req-claim-in"}
+
+
+def test_first_frame_stall_uses_timeout_not_grace():
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = "python"
+
+    def parse(_frame: bytes) -> dict[str, str]:
+        return {"frame_type": "not-a-real-frame"}
+
+    started = time.monotonic()
+    with (
+        patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"),
+        patch("plugin.scripting.ipc.parse_worker_stdout_frame", side_effect=parse),
+    ):
+        with pytest.raises(subprocess.TimeoutExpired) as excinfo:
+            mgr._read_response_with_heartbeats(
+                io.BytesIO(),
+                timeout_sec=0.2,
+                grace_sec=2.0,
+                on_heartbeat=None,
+                absolute_cap_sec=30,
+            )
+    elapsed = time.monotonic() - started
+    assert elapsed < 1.0
+    assert excinfo.value.timeout == pytest.approx(0.2)
+
+
+def test_heartbeat_then_stall_uses_grace():
+    from plugin.scripting.ipc import FRAME_HEARTBEAT
+
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = "python"
+
+    call_count = 0
+
+    def parse(_frame: bytes) -> dict[str, object]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {"frame_type": FRAME_HEARTBEAT, "payload": {"phase": "test"}}
+        return {"frame_type": "not-a-real-frame"}
+
+    started = time.monotonic()
+    with (
+        patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"),
+        patch("plugin.scripting.ipc.parse_worker_stdout_frame", side_effect=parse),
+    ):
+        with pytest.raises(subprocess.TimeoutExpired) as excinfo:
+            mgr._read_response_with_heartbeats(
+                io.BytesIO(),
+                timeout_sec=0.2,
+                grace_sec=0.4,
+                on_heartbeat=None,
+                absolute_cap_sec=30,
+            )
+    elapsed = time.monotonic() - started
+    assert elapsed >= 0.35
+    assert elapsed < 1.5
+    assert excinfo.value.timeout == pytest.approx(0.4)
+
+
+def test_read_response_non_dict_raises_once():
+    from plugin.scripting.ipc import pack_pickle_frame, read_frame_payload, unpack_pickle_frame
+
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = "python"
+
+    payload = read_frame_payload(io.BytesIO(pack_pickle_frame([1])))
+    assert payload is not None
+
+    with (
+        patch.object(mgr, "_read_frame_bytes", return_value=payload),
+        patch("plugin.scripting.ipc.unpack_pickle_frame", wraps=unpack_pickle_frame) as mock_unpack,
+    ):
+        with pytest.raises(RuntimeError, match="must be a dict"):
+            mgr._read_response_with_heartbeats(
+                io.BytesIO(),
+                timeout_sec=1.0,
+                grace_sec=1.0,
+                on_heartbeat=None,
+            )
+        assert mock_unpack.call_count == 1
+
+
+def test_read_response_empty_dict_is_terminal():
+    from plugin.scripting.ipc import pack_pickle_frame, read_frame_payload, unpack_pickle_frame
+
+    mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr.exe = "python"
+
+    payload = read_frame_payload(io.BytesIO(pack_pickle_frame({})))
+    assert payload is not None
+
+    with (
+        patch.object(mgr, "_read_frame_bytes", return_value=payload),
+        patch("plugin.scripting.ipc.unpack_pickle_frame", wraps=unpack_pickle_frame) as mock_unpack,
+    ):
+        res = mgr._read_response_with_heartbeats(
+            io.BytesIO(),
+            timeout_sec=1.0,
+            grace_sec=1.0,
+            on_heartbeat=None,
+        )
+        assert res == {}
+        assert mock_unpack.call_count == 1
+

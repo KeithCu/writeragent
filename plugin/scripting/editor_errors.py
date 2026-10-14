@@ -7,20 +7,14 @@
 from __future__ import annotations
 
 import traceback
-from typing import TypeVar
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_SOURCE,
     UNDER_CROSSHAIR,
+    _profile,
     deal,
     str_bounded,
 )
-
-T = TypeVar("T")
-
-
-def _profile(pytest_val: T, crosshair_val: T) -> T:
-    return crosshair_val if UNDER_CROSSHAIR else pytest_val
 
 
 def _deal_exc_ok_pytest(exc: object) -> bool:
@@ -31,7 +25,7 @@ def _deal_exc_ok_crosshair(exc: object) -> bool:
     return exc is None
 
 
-_deal_exc_ok = _profile(_deal_exc_ok_pytest, _deal_exc_ok_crosshair)
+_deal_exc_ok = _profile(_deal_exc_ok_crosshair, _deal_exc_ok_pytest)
 
 
 def _deal_optional_exc_ok_pytest(exc: object) -> bool:
@@ -42,7 +36,7 @@ def _deal_optional_exc_ok_crosshair(exc: object) -> bool:
     return exc is None
 
 
-_deal_optional_exc_ok = _profile(_deal_optional_exc_ok_pytest, _deal_optional_exc_ok_crosshair)
+_deal_optional_exc_ok = _profile(_deal_optional_exc_ok_crosshair, _deal_optional_exc_ok_pytest)
 
 
 def _deal_failure_detail_ok_pytest(detail: object = None, exc: object = None) -> bool:
@@ -53,7 +47,7 @@ def _deal_failure_detail_ok_crosshair(detail: object = None, exc: object = None)
     return (detail is None or str_bounded(detail, DEAL_MAX_SOURCE)) and exc is None
 
 
-_deal_failure_detail_ok = _profile(_deal_failure_detail_ok_pytest, _deal_failure_detail_ok_crosshair)
+_deal_failure_detail_ok = _profile(_deal_failure_detail_ok_crosshair, _deal_failure_detail_ok_pytest)
 
 
 def _deal_failure_message_ok(summary: object, detail: object = None, exc: object = None) -> bool:

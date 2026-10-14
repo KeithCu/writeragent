@@ -21,7 +21,7 @@ from plugin.framework.uno_context import get_ctx, get_desktop
 from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import msgbox
-from plugin.scripting.editor_ipc import exception_traceback
+from plugin.scripting.editor_errors import exception_traceback
 from plugin.scripting.editor_host import DeferredEditorResult, launch_monaco_editor, monaco_open_expected
 from plugin.scripting.venv_worker import run_code_in_user_venv
 from plugin.scripting.python_runner_ui import show_python_input_dialog, start_native_script_run
@@ -688,7 +688,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
 
 def _report_run_python_open_failed(ctx: Any, reason: str, *, detail: str | None = None, exc: BaseException | None = None) -> None:
     from plugin.chatbot.dialogs import msgbox_with_report
-    from plugin.scripting.editor_ipc import failure_message
+    from plugin.scripting.editor_errors import failure_message
 
     full_detail = "\n\n".join(filter(None, [(detail or "").strip(), exception_traceback(exc).rstrip() if exc is not None else ""]))
     message = failure_message(reason, detail=full_detail or None)

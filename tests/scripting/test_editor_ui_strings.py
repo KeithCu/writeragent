@@ -59,10 +59,25 @@ def test_enrich_monaco_load_message_adds_ui_and_merges_overrides():
         }
     )
     assert "ui" in msg
-    assert msg["ui"]["title"] == _("Python cell editor")
+    assert "title" not in msg["ui"]
     assert msg["ui"]["save_label"] == _("Save")
     assert msg["ui"]["data_binding_title"] == _("Custom tooltip")
     assert msg["title"] == _("Python cell editor")
+
+
+def test_enrich_leaves_status_ok_text_at_top_level():
+    msg = enrich_monaco_load_message(
+        {
+            "type": "load",
+            "mode": "calc_cell",
+            "title": "Python cell editor",
+            "status_ok_text": "Saved code.",
+        }
+    )
+    assert msg["title"] == "Python cell editor"
+    assert msg["status_ok_text"] == "Saved code."
+    assert "title" not in msg["ui"]
+    assert "status_ok_text" not in msg["ui"]
 
 
 def test_enrich_maps_saved_ok_text_to_saved_default():
@@ -78,7 +93,11 @@ def test_enrich_maps_saved_ok_text_to_saved_default():
 
 def test_all_modes_return_non_empty_required_keys():
     required = ("status_prefix", "ready", "error", "saving", "running", "save_label", "close_label", "jedi_missing")
-    for mode in ("calc_cell", "run_script", "latex"):
+    for mode in ("calc_cell", "run_script", "latex", "init_script"):
         ui = build_monaco_ui_strings(mode=mode)
         for key in required:
             assert ui.get(key), f"missing {key} for mode {mode}"
+
+
+def test_unknown_mode_uses_calc_cell_catalog():
+    assert build_monaco_ui_strings(mode="not-a-mode") == build_monaco_ui_strings(mode="calc_cell")

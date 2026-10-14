@@ -32,11 +32,13 @@ from plugin.framework.event_bus import global_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import QueueExecutor, default_executor
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
-from plugin.scripting.editor_ipc import (
-    PARENT_TO_CHILD_TYPES,
+from plugin.scripting.editor_errors import (
     exception_traceback,
     failure_detail,
     failure_message,
+)
+from plugin.scripting.editor_ipc import (
+    PARENT_TO_CHILD_TYPES,
     message_type,
     new_session_id,
     session_id_of,
@@ -1221,6 +1223,7 @@ def queue_save_then_load(
     focused = _PERSISTENT_EDITOR.focused()
     if focused is None:
         return False
+    # Only enrich on this path. launch_monaco_editor has not attached ui yet.
     focused.pending_load = enrich_monaco_load_message(dict(load_message))
     focused.pending_on_save = on_save
     focused.pending_on_closed = on_closed
@@ -1257,8 +1260,9 @@ def launch_monaco_editor(
     title = product_display_name(ctx)
 
     _PERSISTENT_EDITOR.ctx = ctx
-    # Host-only keys (e.g. pyuno document refs) must not cross the pickle IPC boundary.
-    ipc_message = enrich_monaco_load_message(dict(load_message))
+    # ui is attached later, once. Enriching before the unsaved-changes gate
+    # and again in queue_save_then_load rebuilt the same catalog.
+    ipc_message = dict(load_message)
     closed_handler = on_closed if on_closed is not None else (lambda: None)
 
     # Inject current LO theme so the child Monaco + toolbar chrome automatically
@@ -1344,6 +1348,7 @@ def launch_monaco_editor(
         return False
 
     try:
+        ipc_message = enrich_monaco_load_message(ipc_message)
         state, stamped = _register_load_session(ipc_message, on_save, closed_handler)
         session.session_id = state.session_id
         session.send(stamped)

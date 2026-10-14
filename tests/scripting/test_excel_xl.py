@@ -74,4 +74,30 @@ class TestExcelXlShim:
         with pytest.raises(ValueError):
             xl("%P2%")
 
+    def test_omit_headers_returns_non_calcrange(self):
+        raw = [[1, 2], [3, 4]]
+        xl = make_xl((raw,))
+        assert xl("%P2%") is raw
+
+    def test_headers_true_on_list_raises(self):
+        xl = make_xl(([[1, 2], [3, 4]],))
+        with pytest.raises(ValueError) as ctx:
+            xl("%P2%", headers=True)
+        assert str(ctx.value) == "xl('%P2%', headers=True) requires a CalcRange binding; got list"
+
+    def test_headers_false_on_str_raises(self):
+        xl = make_xl(("r1",))
+        with pytest.raises(ValueError) as ctx:
+            xl("%P2%", headers=False)
+        assert str(ctx.value) == "xl('%P2%', headers=False) requires a CalcRange binding; got str"
+
+    def test_headers_rejects_non_builtin_bool(self):
+        xl = make_xl((CalcRange([["a", "b"], [1, 2]]),))
+        with pytest.raises(ValueError, match="headers must be True or False"):
+            xl("%P2%", headers=1)
+        np = pytest.importorskip("numpy")
+        with pytest.raises(ValueError, match="headers must be True or False"):
+            xl("%P2%", headers=np.bool_(True))
+
+
 

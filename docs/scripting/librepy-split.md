@@ -286,7 +286,7 @@ Required for NumPy domain helpers, Vision OCR, and any `run_trusted_worker_actio
 | [`plugin/scripting/sheet_layout.py`](../../plugin/scripting/sheet_layout.py) | `extract_sheet_layout` (host client and venv child; no `venv_worker` import) |
 | [`plugin/scripting/trusted_action_registry.py`](../../plugin/scripting/trusted_action_registry.py) | Domain → venv dispatcher wiring |
 | [`plugin/scripting/venv/trusted_dispatch.py`](../../plugin/scripting/venv/trusted_dispatch.py) | Routes `run_trusted_action` to domain `run_*` |
-| [`plugin/scripting/venv/worker_heartbeat.py`](../../plugin/scripting/venv/worker_heartbeat.py) | Heartbeat frames (long jobs) |
+| [`plugin/scripting/venv/worker_heartbeat.py`](../../plugin/scripting/venv/worker_heartbeat.py) | Child heartbeat emitter and result-frame writer. `FRAME_HEARTBEAT`, `FRAME_RESULT`, and `parse_worker_stdout_frame` live in `ipc.py`. |
 | [`plugin/scripting/_lazy_venv.py`](../../plugin/scripting/_lazy_venv.py) | Lazy `plugin.scripting.*` → `plugin.scripting.venv.*` |
 | [`plugin/scripting/helper_domain.py`](../../plugin/scripting/helper_domain.py) | Shared helper-domain glue |
 | [`plugin/scripting/domain_registry.py`](../../plugin/scripting/domain_registry.py) | RPS fast-path, picker origins, post-venv routing |
@@ -1051,7 +1051,8 @@ flowchart LR
 | File | Role |
 |------|------|
 | [`plugin/scripting/editor_host.py`](../../plugin/scripting/editor_host.py) | Spawn pywebview child, session, theme |
-| [`plugin/scripting/editor_ipc.py`](../../plugin/scripting/editor_ipc.py) | Pipe framing, errors |
+| [`plugin/scripting/editor_ipc.py`](../../plugin/scripting/editor_ipc.py) | Pipe framing and session identity |
+| [`plugin/scripting/editor_errors.py`](../../plugin/scripting/editor_errors.py) | Msgbox failure text |
 | [`plugin/calc/python/editor.py`](../../plugin/calc/python/editor.py) | Edit Python in Cell… |
 | [`plugin/calc/python/xl_static_rewrite.py`](../../plugin/calc/python/xl_static_rewrite.py) | Optional save-time `xl("A1")` → `data` args (flag default off) |
 | [`plugin/calc/python/formula_edit.py`](../../plugin/calc/python/formula_edit.py) | Parse/rebuild `=PY()` formulas |

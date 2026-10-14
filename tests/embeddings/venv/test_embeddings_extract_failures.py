@@ -3,7 +3,8 @@ from unittest.mock import patch, MagicMock
 import sqlite3
 
 from plugin.embeddings.venv import embeddings_odf_extract
-from plugin.embeddings.venv.embeddings_folder_maintain import _extract_file_chunks, _incremental_refresh, _HeartbeatThrottle, clear_folder_cache
+from plugin.embeddings.venv.embeddings_folder_maintain import _extract_file_chunks, _incremental_refresh, clear_folder_cache
+from plugin.embeddings.venv.heartbeat_throttle import HeartbeatThrottle
 from plugin.embeddings.embeddings_fs import WriterFileEntry
 from tests.scripting.ods_fixtures import write_budget_ods
 
@@ -33,7 +34,7 @@ def test_failed_extract_cold_build_skips(tmp_path: Path):
     write_budget_ods(ods)
     entry = WriterFileEntry(path=str(ods), url="file:///fake.ods", modified=1.0, name="Budget.ods")
 
-    hb = _HeartbeatThrottle(lambda x: None)
+    hb = HeartbeatThrottle(lambda x: None)
 
     with patch("plugin.embeddings.venv.embeddings_folder_maintain._extract_file_chunks", return_value=(0, None)):
         with patch("plugin.embeddings.venv.embeddings_folder_maintain.sync_file_paragraph_state") as mock_sync:
@@ -46,7 +47,7 @@ def test_failed_extract_incremental_refresh_skips(tmp_path: Path):
     write_budget_ods(ods)
     entry = WriterFileEntry(path=str(ods), url="file:///fake.ods", modified=1.0, name="Budget.ods")
 
-    hb = _HeartbeatThrottle(lambda x: None)
+    hb = HeartbeatThrottle(lambda x: None)
 
     with patch("plugin.embeddings.venv.embeddings_folder_maintain.file_is_stale", return_value=True):
         with patch("plugin.embeddings.venv.embeddings_folder_maintain._extract_file_chunks", return_value=(0, None)):
