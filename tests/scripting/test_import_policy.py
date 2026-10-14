@@ -288,3 +288,26 @@ def test_venv_policy_omits_internal_writeragent_modules() -> None:
     assert import_authorized("writeragent.scripting.writeragent_api", VENV_AUTHORIZED_IMPORTS) is True
     assert import_authorized("writeragent.scripting.writeragent_namespace", VENV_AUTHORIZED_IMPORTS) is True
 
+
+def test_policy_module_lists_pass_import_authorized() -> None:
+    from plugin.scripting.import_policy import (
+        _venv_package_modules,
+        _venv_stdlib_modules,
+        _venv_writeragent_helpers,
+    )
+    from plugin.scripting.sandbox import (
+        BASE_BUILTIN_MODULES,
+        VENV_AUTHORIZED_IMPORTS,
+        import_authorized,
+    )
+
+    allow = list(set(BASE_BUILTIN_MODULES) | set(VENV_AUTHORIZED_IMPORTS))
+    names = (
+        _venv_stdlib_modules()
+        + _venv_package_modules()
+        + _venv_writeragent_helpers()
+    )
+    denied = [name for name in names if not import_authorized(name, allow)]
+    assert denied == []
+
+

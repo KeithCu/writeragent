@@ -156,3 +156,58 @@ def test_match_forbidden_when_present() -> None:
     if hasattr(ast, "Match"):
         assert ast.Match in _FORBIDDEN_NODE_TYPES
     assert getattr(HotEntry, "__dataclass_params__").slots is False
+
+
+def test_value_error_from_parse_is_cached_parse_error() -> None:
+    imports = list(BASE_BUILTIN_MODULES)
+    with patch(
+        "ast.parse",
+        side_effect=ValueError("source code string cannot contain null bytes"),
+    ) as mock_parse:
+        e1 = get_hot_entry("result = 1", imports)
+        assert e1.module is None
+        assert (
+            e1.error
+            == "Code parsing failed due to: ValueError: source code string cannot contain null bytes"
+        )
+
+        e2 = get_hot_entry("result = 1", imports)
+        assert mock_parse.call_count == 1
+        assert e2.error == e1.error
+
+
+def test_syntax_error_caret_is_under_offset() -> None:
+    entry = get_hot_entry("def f(:", list(BASE_BUILTIN_MODULES))
+    assert entry.error is not None
+    assert entry.error.startswith("Code parsing failed on line 1 due to: SyntaxError:")
+    assert entry.error.endswith("def f(:\n" + (" " * 6) + "^")
+    assert "line None" not in entry.error
+
+
+def test_null_byte_source_is_parse_error() -> None:
+    build = getattr(hot_cache._build_entry, "__wrapped__", hot_cache._build_entry)
+    source = "result = 1\0"
+    try:
+        ast.parse(source)
+    except (SyntaxError, ValueError) as exc:
+        expected = f"Code parsing failed due to: {type(exc).__name__}: {exc}"
+    else:
+        raise AssertionError("ast.parse accepted a null byte")
+    entry = build(source, list(BASE_BUILTIN_MODULES))
+    assert entry.module is None
+    assert entry.error == expected
+    assert "line None" not in entry.error
+    assert "\n" not in entry.error
+
+
+def test_allowlist_entries_fit_cache_key() -> None:
+    from plugin.contrib.smolagents.utils import BASE_BUILTIN_MODULES as SMOL_BASE_BUILTIN_MODULES
+    from plugin.framework.deal_shim import DEAL_MAX_TOKEN
+    from plugin.scripting.sandbox import CALC_AUTHORIZED_IMPORTS, VENV_AUTHORIZED_IMPORTS
+
+    for seq in (SMOL_BASE_BUILTIN_MODULES, VENV_AUTHORIZED_IMPORTS, CALC_AUTHORIZED_IMPORTS):
+        for name in seq:
+            assert "\0" not in name
+            assert "\n" not in name
+            assert len(name) <= DEAL_MAX_TOKEN
+
