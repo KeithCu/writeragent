@@ -1873,10 +1873,29 @@ class DownloadAudioListener(BaseActionListener):
         self._dlg = dlg
 
     def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.scripting.native_binaries import run_audio_download
+        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.scripting.native_binaries import ensure_native_binaries_on_path, run_audio_download
+        from plugin.scripting.payload_codec import invalidate_host_cython_accelerator
+
+        def bind_downloaded_audio_on_main() -> None:
+            # sys.path insert plus sys.modules and accelerator globals.
+            # ScriptingVenvTestListener does the same work on this thread
+            # before its probe; the download cannot, because the files are
+            # not on disk yet.
+            ensure_native_binaries_on_path()
+            invalidate_host_cython_accelerator()
 
         def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> tuple[bool, str]:
-            ok = run_audio_download(on_display, on_status)
+            # The download stays on the probe worker. Appending audio_binaries
+            # to sys.path and clearing the Cython accelerator must run on the
+            # main thread via execute_on_main_thread. VenvProbeProgressDialog
+            # runs probe_fn with run_in_background while execute() pumps VCL;
+            # that nested loop already dispatches AsyncCallback for the
+            # progress lines, so the bind does not wait on a thread blocked
+            # outside the message loop.
+            ok = run_audio_download(on_display, on_status, bind_host=False)
+            if ok:
+                execute_on_main_thread(bind_downloaded_audio_on_main)
             return ok, ""
 
         VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(
