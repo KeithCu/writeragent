@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""UI Dialog logic for 'Run Python Script...' in Writer."""
+"""Plain-text Run Python Script dialog (Writer, Calc, and Draw/Impress)."""
 
 # =========================================================================================
 # WARNING: PARITY INVARIANT WITH MONACO JAVASCRIPT FRONTEND
@@ -49,6 +49,10 @@ class _ActionListener(unohelper.Base, XActionListener):
 
 
 def _action(fn: Callable[[], Any], name: str = "") -> XActionListener:
+    # The class name is how tests find a button listener (_RunListener, _SaveListener,
+    # and the other _{Button}Listener names from btn_name[3:]).
+    # tests/scripting/test_python_runner_ui.py and tests/scripting/test_python_runner_monaco.py
+    # look up type(listener).__name__. Do not collapse these into _ActionListener.
     cls = type(name, (_ActionListener,), {}) if name else _ActionListener
     return cls(fn)
 
@@ -133,7 +137,9 @@ def start_native_script_run(
     it empty and uses the current selection. Document prep and result insert
     stay on the main thread (``execute_on_main_thread``). Only the venv IPC
     wait runs in the background. ``on_complete`` is posted back to the main
-    thread.
+    thread. After the worker is scheduled, ``on_complete`` is called exactly
+    once on the main thread. A non-dict from preparation is an error outcome,
+    not a silent return.
     """
     from plugin.framework.queue_executor import execute_on_main_thread, post_to_main_thread
     from plugin.scripting.editor_errors import exception_traceback
@@ -157,6 +163,11 @@ def start_native_script_run(
                 _prepare_rps_execution, ctx, doc, code, data_range=data_range
             )
             if not isinstance(prepared, dict):
+                # What was wrong: a non-dict from prepare returned without on_complete, so BtnRun stayed disabled.
+                # How it happened: the isinstance guard avoided calling .get on a bad value and returned before _deliver.
+                # Why this change fixes it: the worker still posts one error outcome. A non-dict has no script_session_id, so nothing is released.
+                log.error("native script run: prepare returned %s", type(prepared).__name__)
+                _deliver({"ok": False, "message": _("Script preparation failed.")})
                 return
             early = prepared.get("early_outcome")
             if early is not None:
@@ -196,7 +207,7 @@ def start_native_script_run(
         raise
 
 
-def native_run_script_modeless_enabled(ctx: Any = None) -> bool:
+def native_run_script_modeless_enabled() -> bool:
     """When True, the plain-text Run Python Script dialog floats (document stays editable)."""
     return bool(get_config("scripting.native_run_script_modeless"))
 
@@ -220,10 +231,25 @@ def _picker_select_name(select_ctrl: Any, name: str, names: list[str]) -> None:
     if hasattr(select_ctrl, "selectItemPos"):
         for idx, nm in enumerate(names):
             if nm == name:
-                select_ctrl.selectItemPos(idx, True)
-                return
+                # What was wrong: the combobox could show the XDL default empty label, or the previous name,
+                # while the editor and the selected index were the script just chosen.
+                # How it happened: ScriptSelect is a spin="true" combobox (extension/Dialogs/PythonScriptDialog.xdl,
+                # dlg:value=""). selectItemPos does not reliably update that text field, and this function returned
+                # before setText. set_selector_mode in plugin/chatbot/chat_sidebar_mode.py calls both for that reason.
+                # test_picker_select_name_combobox_uses_set_text uses MagicMock(spec=[]), which has no selectItemPos,
+                # so it never took the return.
+                # Why this change fixes it: selectItemPos still runs when the name is in the list, and setText
+                # still runs when the control has it, including when selectItemPos raises.
+                try:
+                    select_ctrl.selectItemPos(idx, True)
+                except Exception as e:
+                    log.debug("script picker: selectItemPos failed: %s", e)
+                break
     if hasattr(select_ctrl, "setText"):
-        select_ctrl.setText(name)
+        try:
+            select_ctrl.setText(name)
+        except Exception as e:
+            log.debug("script picker: setText failed: %s", e)
 
 
 class NativePythonScriptDialog:
@@ -395,7 +421,7 @@ class NativePythonScriptDialog:
             self._wire_listeners(dlg, select_ctrl)
 
             code_ctrl = dlg.getControl("CodeEdit")
-            if code_ctrl is not None:
+            if code_ctrl is not None and not self._modeless:
                 code_ctrl.setFocus()
 
             if self._modeless:
@@ -429,6 +455,16 @@ class NativePythonScriptDialog:
                 self._top_listener = _TopWindowListener()
                 dlg.addTopWindowListener(self._top_listener)
                 dlg.setVisible(True)
+                # What was wrong: the editor did not take focus on the floating dialog.
+                # How it happened: setFocus ran before setVisible(True). Modal execute() is different:
+                # it shows the dialog and blocks, so focus stays before execute().
+                # Why this change fixes it: the modeless dialog focuses CodeEdit after it is visible,
+                # and a focus error is logged instead of disposing the dialog.
+                if code_ctrl is not None:
+                    try:
+                        code_ctrl.setFocus()
+                    except Exception:
+                        log.debug("native script dialog: setFocus after show failed", exc_info=True)
                 return True
             dlg.execute()
             self._closed = True
@@ -759,7 +795,7 @@ def show_python_input_dialog(
     Selection and editor text come from ``last_python_script_name_*`` and the picker.
     """
     try:
-        modeless = native_run_script_modeless_enabled(ctx)
+        modeless = native_run_script_modeless_enabled()
         return NativePythonScriptDialog.show(
             ctx,
             doc=doc,

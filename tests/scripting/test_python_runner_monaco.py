@@ -22,11 +22,12 @@ def _patch_modeless_native():
 
 
 def test_native_run_script_modeless_enabled_reads_config():
-    ctx = MagicMock()
-    with patch.object(ui, "get_config", return_value=True):
-        assert ui.native_run_script_modeless_enabled(ctx) is True
-    with patch.object(ui, "get_config", return_value=False):
-        assert ui.native_run_script_modeless_enabled(ctx) is False
+    with patch.object(ui, "get_config", return_value=True) as mock_get:
+        assert ui.native_run_script_modeless_enabled() is True
+        mock_get.assert_called_once_with("scripting.native_run_script_modeless")
+    with patch.object(ui, "get_config", return_value=False) as mock_get:
+        assert ui.native_run_script_modeless_enabled() is False
+        mock_get.assert_called_once_with("scripting.native_run_script_modeless")
 
 
 def test_run_python_dialog_uses_monaco_when_available():
@@ -601,6 +602,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
 
                             with patch.object(ui, "run_in_background", side_effect=_capture_background):
                                 def fake_execute_dialog():
+                                    assert code_edit.setFocus.called
                                     for listener in listeners:
                                         if "RunListener" in type(listener).__name__:
                                             listener.actionPerformed(MagicMock())
@@ -902,6 +904,10 @@ def test_show_python_input_dialog_modeless_uses_set_visible():
     script_select = MagicMock()
     dlg.getControl.side_effect = lambda name: code_edit if name == "CodeEdit" else script_select
 
+    order = []
+    dlg.setVisible.side_effect = lambda visible: order.append(("visible", visible))
+    code_edit.setFocus.side_effect = lambda: order.append("focus")
+
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modeless_native():
             with patch.object(ui, "get_user_scripts", return_value={}):
@@ -912,6 +918,9 @@ def test_show_python_input_dialog_modeless_uses_set_visible():
     dlg.execute.assert_not_called()
     dlg.setVisible.assert_called_once_with(True)
     dlg.addTopWindowListener.assert_called_once()
+    assert ("visible", True) in order
+    assert "focus" in order
+    assert order.index(("visible", True)) < order.index("focus")
 
 
 def test_picker_select_name_combobox_uses_set_text():
@@ -919,6 +928,27 @@ def test_picker_select_name_combobox_uses_set_text():
     ctrl.setText = MagicMock()
     ui._picker_select_name(ctrl, "MyScript", ["ScriptA", "MyScript"])
     ctrl.setText.assert_called_once_with("MyScript")
+
+
+def test_picker_select_name_set_text_follows_select_item_pos():
+    ctrl = MagicMock()
+    ui._picker_select_name(ctrl, "B", ["A", "B"])
+    ctrl.selectItemPos.assert_called_once_with(1, True)
+    ctrl.setText.assert_called_once_with("B")
+
+
+def test_picker_select_name_set_text_when_select_item_pos_raises():
+    ctrl = MagicMock()
+    ctrl.selectItemPos.side_effect = RuntimeError("uno")
+    ui._picker_select_name(ctrl, "B", ["A", "B"])
+    ctrl.setText.assert_called_once_with("B")
+
+
+def test_picker_select_name_unknown_name_skips_select_item_pos():
+    ctrl = MagicMock()
+    ui._picker_select_name(ctrl, "Missing", ["A", "B"])
+    ctrl.selectItemPos.assert_not_called()
+    ctrl.setText.assert_called_once_with("Missing")
 
 
 def test_picker_selected_name_combobox_uses_get_text():
