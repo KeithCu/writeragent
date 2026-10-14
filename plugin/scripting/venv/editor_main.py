@@ -404,6 +404,14 @@ class MonacoEditorApi:
             log.warning("Jedi completions timed out or failed")
             return {"items": []}
 
+        # Bugfix: When completions finish within the timeout, the worker thread
+        # signalled `done` from its `finally:` block, but `done.wait()` unblocked
+        # the caller while the worker was still unwinding. A subsequent completion
+        # request arriving immediately after observed `_jedi_thread.is_alive()` as
+        # True and was rejected as in-flight. Joining the finished worker ensures
+        # its thread lifecycle has completed before returning.
+        worker.join()
+
         return box.get("result", {"items": []})
 
     def get_completions(self, code: str, line: int, column: int) -> dict[str, Any]:

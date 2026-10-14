@@ -198,6 +198,9 @@ def test_get_completions_returns_empty_while_a_call_is_in_flight():
         t1.start()
         assert started_ev.wait(timeout=5.0)
 
+        first_worker = api._jedi_thread
+        assert first_worker is not None
+
         # Second get_completions on the test thread
         second_res = api.get_completions("def ", 1, 5)
         assert second_res == {"items": []}
@@ -206,6 +209,8 @@ def test_get_completions_returns_empty_while_a_call_is_in_flight():
         release_ev.set()
         t1.join(timeout=2.0)
         assert not t1.is_alive()
+        first_worker.join(timeout=2.0)
+        assert not first_worker.is_alive()
         assert first_result.get("res") == {"items": []}
 
         third_res = api.get_completions("def ", 1, 5)
@@ -216,6 +221,8 @@ def test_get_completions_returns_empty_while_a_call_is_in_flight():
     finally:
         release_ev.set()
         t1.join(timeout=2.0)
+        if api._jedi_thread is not None and api._jedi_thread.is_alive():
+            api._jedi_thread.join(timeout=2.0)
 
 
 def test_get_completions_abandons_a_stuck_worker(monkeypatch):
