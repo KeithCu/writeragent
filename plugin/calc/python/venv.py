@@ -10,12 +10,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
 from plugin.calc.calc_addin_data import resolve_python_data_on_main_thread
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
-from plugin.scripting.payload_codec import find_image_payloads, write_image_payload_to_temp
+from plugin.scripting.payload_codec import find_image_payloads, is_image_payload, write_image_payload_to_temp
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 if TYPE_CHECKING:
@@ -110,6 +111,29 @@ def _venv_tool_description(doc_type: str | None) -> str:
     return _with_import_note(text)
 
 
+def _strip_image_payloads(obj: Any) -> Any:
+    """Return non-image scalar, string, or collection from result, dropping image payloads."""
+    if is_image_payload(obj):
+        return None
+    if isinstance(obj, (list, tuple)):
+        cleaned = [_strip_image_payloads(x) for x in obj]
+        cleaned_non_null = [x for x in cleaned if x is not None]
+        if not cleaned_non_null:
+            return None
+        return cleaned_non_null if len(cleaned_non_null) > 1 else cleaned_non_null[0]
+    if isinstance(obj, dict):
+        cleaned_dict = {
+            str(k): _strip_image_payloads(v)
+            for k, v in obj.items()
+            if not is_image_payload(v)
+        }
+        cleaned_dict = {k: v for k, v in cleaned_dict.items() if v is not None}
+        if not cleaned_dict:
+            return None
+        return cleaned_dict
+    return obj
+
+
 class RunVenvPythonScript(ToolCalcPythonBase):
     """Registered once; visible in Writer/Calc/Draw specialized ``domain=python`` via ``specialized_cross_cutting``."""
 
@@ -181,7 +205,15 @@ class RunVenvPythonScript(ToolCalcPythonBase):
             images = find_image_payloads(result)
             if images:
                 img_paths = [write_image_payload_to_temp(img) for img in images]
-                out: dict[str, Any] = {"status": "ok", "message": f"{len(images)} plot(s) generated", "image_paths": img_paths}
+                out: dict[str, Any] = {"status": "ok", "message": f"{len(images)} plot(s) generated"}
+                stdout_val = res.get("stdout")
+                if stdout_val:
+                    out["stdout"] = stdout_val
+                stripped_result = _strip_image_payloads(result)
+                if stripped_result is not None:
+                    out["result"] = stripped_result
+
+                out["image_paths"] = img_paths
                 if len(img_paths) == 1:
                     out["image_path"] = img_paths[0]
                 else:
@@ -197,9 +229,16 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     # silent return was treated as success.
                     inserted = 0
                     failure: Exception | None = None
-                    for i, img in enumerate(images):
+                    for i, (img, path) in enumerate(zip(images, img_paths)):
                         try:
-                            execute_on_main_thread(insert_image_result_on_sheet, ctx.ctx, img, doc=ctx.doc, image_index=i)
+                            execute_on_main_thread(
+                                insert_image_result_on_sheet,
+                                ctx.ctx,
+                                img,
+                                doc=ctx.doc,
+                                image_index=i,
+                                image_path=path,
+                            )
                         except Exception as exc:
                             log.warning("run_venv_python_script: plot insert failed: %s", exc)
                             failure = exc
@@ -217,6 +256,15 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     else:
                         out["message"] = f"{len(images)} plot(s) inserted on active sheet"
                         out["image_inserted"] = True
+                        # After a successful Calc embed, the bitmap is embedded on the shape.
+                        # Remove the temp file(s) and omit image_path/image_paths.
+                        for p in img_paths:
+                            try:
+                                os.unlink(p)
+                            except OSError:
+                                pass
+                        out.pop("image_path", None)
+                        out.pop("image_paths", None)
                 return out
 
         return res

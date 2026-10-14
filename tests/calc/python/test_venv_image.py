@@ -42,15 +42,73 @@ def test_calc_image_result_inserts_on_sheet():
         ) as main_thread,
         patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
         patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("os.unlink") as mock_unlink,
     ):
         out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
 
     assert out["status"] == "ok"
     assert out.get("image_inserted") is True
-    assert out["image_path"] == "/tmp/plot.svg"
+    assert "image_path" not in out
+    assert "image_paths" not in out
     assert "active sheet" in out["message"]
     assert main_thread.call_count == 1
-    insert.assert_called_once_with(ctx.ctx, _IMAGE_PAYLOAD, doc=target, image_index=0)
+    insert.assert_called_once_with(ctx.ctx, _IMAGE_PAYLOAD, doc=target, image_index=0, image_path="/tmp/plot.svg")
+    mock_unlink.assert_called_once_with("/tmp/plot.svg")
+
+
+def test_stdout_and_result_survives_image_result():
+    tool = RunVenvPythonScript()
+    ctx = MagicMock()
+    ctx.doc_type = "calc"
+    ctx.ctx = MagicMock()
+    target = MagicMock(name="target_doc")
+    ctx.doc = target
+
+    payload = {"status": "ok", "result": [_IMAGE_PAYLOAD, 42], "stdout": "printed output\n"}
+    with (
+        patch("plugin.calc.python.venv.run_code_in_user_venv", return_value=payload),
+        patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
+        patch(
+            "plugin.framework.queue_executor.execute_on_main_thread",
+            side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+        ),
+        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet"),
+        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("os.unlink"),
+    ):
+        out = tool.execute(ctx, code="print('printed output'); plt.plot([1]); result = 42")
+
+    assert out["status"] == "ok"
+    assert out["stdout"] == "printed output\n"
+    assert out["result"] == 42
+
+
+def test_write_image_payload_to_temp_not_called_from_egress_when_image_path_supplied():
+    ctx = MagicMock()
+    doc = MagicMock()
+    sheet = MagicMock()
+    draw_page = MagicMock()
+    sheet.DrawPage = draw_page
+    sheets = MagicMock()
+    sheets.getCount.return_value = 1
+    sheets.getByIndex.return_value = sheet
+    doc.getSheets.return_value = sheets
+    doc.getCurrentController.return_value = None
+    shape = MagicMock()
+    doc.createInstance.return_value = shape
+
+    with (
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp") as mock_write,
+        patch("plugin.calc.python.image_egress._unlink_temp_image") as mock_unlink,
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/supplied.svg"),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, doc=doc, image_path="/tmp/supplied.svg")
+
+    mock_write.assert_not_called()
+    shape.setPropertyValue.assert_called_with("GraphicURL", "file:///tmp/supplied.svg")
+    # Egress did not create the temp file, so it must not unlink it
+    mock_unlink.assert_not_called()
+
 
 
 def test_calc_image_insert_failure_is_not_success():

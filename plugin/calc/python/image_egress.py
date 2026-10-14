@@ -145,7 +145,7 @@ def _unlink_temp_image(path: str | None) -> None:
         log.debug("insert_image_result_on_sheet: temp image cleanup failed for %s", path, exc_info=True)
 
 
-def insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any], *, code: str | None = None, doc: Any | None = None, image_index: int = 0) -> None:
+def insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any], *, code: str | None = None, doc: Any | None = None, image_index: int = 0, image_path: str | None = None) -> None:
     """Write image payload bytes to a temp file and insert as a cell-anchored shape on the target sheet.
 
     Posts execution asynchronously to the main VCL UI thread if invoked from a background worker thread.
@@ -163,13 +163,13 @@ def insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any], *, code: str
     # must run on LibreOffice's main VCL thread to prevent internal C++ state corruption and deadlocks.
     # If called from a background recalculation or script worker thread, post asynchronously to the main thread.
     if not on_main_thread():
-        post_to_main_thread(_insert_image_result_on_sheet_impl, ctx, payload, code, doc, image_index)
+        post_to_main_thread(_insert_image_result_on_sheet_impl, ctx, payload, code, doc, image_index, image_path=image_path)
         return
 
-    _insert_image_result_on_sheet_impl(ctx, payload, code, doc, image_index)
+    _insert_image_result_on_sheet_impl(ctx, payload, code, doc, image_index, image_path=image_path)
 
 
-def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: str | None = None, doc: Any | None = None, image_index: int = 0) -> None:
+def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: str | None = None, doc: Any | None = None, image_index: int = 0, *, image_path: str | None = None) -> None:
     """Main-thread implementation of graphic shape creation and anchoring."""
     import uno
     try:
@@ -193,6 +193,7 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
     # missing, or when UNO throws. Logging and returning made =PY(), the
     # venv, and plot_data report the picture as inserted.
     tmp_path: str | None = None
+    we_created_temp = False
     try:
         from plugin.framework.thread_guard import on_main_thread
 
@@ -260,7 +261,14 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
             except Exception:
                 log.debug("insert_image_result_on_sheet: selection fallback failed", exc_info=True)
 
-        tmp_path = write_image_payload_to_temp(payload)
+        we_created_temp = False
+        if image_path:
+            tmp_path = image_path
+        elif payload is not None and isinstance(payload, dict) and payload.get("image_path"):
+            tmp_path = str(payload["image_path"])
+        else:
+            tmp_path = write_image_payload_to_temp(payload)
+            we_created_temp = True
         file_url = uno.systemPathToFileUrl(os.path.abspath(tmp_path))
 
         slot_name = _plot_slot_name(image_index)
@@ -338,4 +346,5 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
         log.exception("insert_image_result_on_sheet failed to insert graphic shape")
         raise ImageEgressError("insert_image_result_on_sheet failed to insert graphic shape") from exc
     finally:
-        _unlink_temp_image(tmp_path)
+        if we_created_temp:
+            _unlink_temp_image(tmp_path)
