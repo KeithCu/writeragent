@@ -98,7 +98,14 @@ def _handle_trusted_action(
     if emit_result_frame:
         assert stdout is not None
         req_id = str(request.get("id", ""))
-        payload = {"id": req_id, **resp}
+        # What was wrong: {"id": req_id, **resp} let a top-level id inside resp
+        # replace the request id. The host treats that as a mismatched terminal
+        # frame and kills the worker.
+        # How it happened: the heartbeat payload was built with id first. The
+        # non-heartbeat path already assigns response["id"] after the dict exists.
+        # Why this change: id is written after the spread, matching that path.
+        # resp today is only status, result, message, and traceback.
+        payload = {**resp, "id": req_id}
         # Packing fails before any byte hits stdout, so the pipe is still in
         # sync. An oversized result is a small error frame. Letting
         # IpcFrameError escape after EXEC_STARTED ends the worker with no

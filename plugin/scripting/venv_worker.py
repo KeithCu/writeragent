@@ -1223,7 +1223,7 @@ class PythonWorkerManager:
         stop_checker: Callable[[], bool] | None = None,
         absolute_cap_sec: float | None = None,
     ) -> dict[str, Any] | None:
-        from plugin.scripting.venv.worker_heartbeat import FRAME_HEARTBEAT, FRAME_RESULT, parse_frame
+        from plugin.scripting.ipc import FRAME_HEARTBEAT, FRAME_RESULT, parse_worker_stdout_frame
 
         # Each heartbeat used to set the deadline to now+grace with no end.
         # Trusted actions do not use the sandbox alarm, so a loop that kept
@@ -1236,7 +1236,16 @@ class PythonWorkerManager:
         cap = float(HEARTBEAT_ABSOLUTE_CAP_SEC if absolute_cap_sec is None else absolute_cap_sec)
         start = time.monotonic()
         ceiling = start + cap
-        window = float(max(timeout_sec, grace_sec))
+        # What was wrong: the first-frame deadline was max(timeout_sec, grace_sec),
+        # so a grace longer than the caller timeout became the wait, and
+        # TimeoutExpired reported grace.
+        # How it happened: the heartbeat reader in 13301df45 used that max so a
+        # short timeout could not fire before grace. Production grace is 90s and
+        # the long trusted timeout is 300s, so the max was a no-op there.
+        # Why this change: grace is silence allowed after a heartbeat. The first
+        # byte is bounded by timeout_sec, then each heartbeat sets
+        # deadline = min(now + grace, ceiling).
+        window = float(timeout_sec)
         deadline = start + window
         if deadline > ceiling:
             deadline = ceiling
@@ -1257,7 +1266,7 @@ class PythonWorkerManager:
             frame_bytes = self._read_frame_bytes(stdout, _read_exact)
             if not frame_bytes:
                 return None
-            data = parse_frame(frame_bytes)
+            data = parse_worker_stdout_frame(frame_bytes)
             frame_type = data.get("frame_type")
             if frame_type == FRAME_HEARTBEAT:
                 payload = data.get("payload")
@@ -1275,14 +1284,6 @@ class PythonWorkerManager:
                     timeout_label = float(grace_sec)
                 continue
             if frame_type == FRAME_RESULT or frame_type is None:
-                if not data:
-                    # parse_frame turns a non-dict into {}. Re-read only that
-                    # empty case so a bad payload stays a read error. A real
-                    # result is the dict already parsed above.
-                    raw = unpack_pickle_frame(frame_bytes)
-                    if not isinstance(raw, dict):
-                        raise RuntimeError("Worker response must be a dict")
-                    return raw
                 return data
             # Unknown frames must not extend the deadline. A protocol drift
             # then fails as a timeout instead of looking like a silent stall.
