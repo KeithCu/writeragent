@@ -7,7 +7,13 @@
 import pytest
 
 from plugin.framework.tool import ToolContext
-from plugin.tests.testing_utils import CalcDocStub, MockContext, TestingFactory, WriterDocStub
+from plugin.tests.testing_utils import (
+    CalcDocStub,
+    MockContext,
+    TestingFactory,
+    WriterDocStub,
+    _exception_leaving_native_doc,
+)
 
 
 def test_calc_doc_stub_defaults():
@@ -2351,3 +2357,85 @@ def test_native_doc_pool_clean_tracking():
     pool.clear()
     assert len(pool) == 0
     assert pool.is_clean(doc1) is False
+
+
+def _uno_struct__setattr__(self: object, name: str, value: object) -> None:
+    if name == "__traceback__":
+        raise RuntimeError("Couldn't convert <traceback object> to a UNO type")
+    object.__setattr__(self, name, value)
+
+
+class _UnoTracebackTrap(Exception):
+    __setattr__ = _uno_struct__setattr__  # type: ignore[assignment]
+
+
+def test_native_doc_wraps_uno_setattr_exception(monkeypatch):
+    from unittest.mock import MagicMock
+
+    sentinel = object()
+    monkeypatch.setattr(TestingFactory, "create_native_doc", lambda ctx, **kwargs: sentinel)
+    mock_close = MagicMock(return_value=None)
+    monkeypatch.setattr(TestingFactory, "close_doc", mock_close)
+
+    def _no_desktop(ctx):
+        raise RuntimeError("no office")
+
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", _no_desktop)
+
+    trap = _UnoTracebackTrap("Binary URP bridge disposed during call")
+    wrapped = _exception_leaving_native_doc(trap)
+    assert type(wrapped) is RuntimeError
+    assert wrapped.__cause__ is trap
+
+    ctx = MockContext()
+    with pytest.raises(RuntimeError) as ei:
+        with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False):
+            raise trap
+
+    assert "Binary URP bridge disposed during call" in str(ei.value)
+    assert "Couldn't convert" not in str(ei.value)
+    assert ei.value.__cause__ is trap
+    assert type(ei.value) is RuntimeError
+
+
+def test_native_doc_reraises_plain_exception_unchanged(monkeypatch):
+    from unittest.mock import MagicMock
+
+    sentinel = object()
+    monkeypatch.setattr(TestingFactory, "create_native_doc", lambda ctx, **kwargs: sentinel)
+    mock_close = MagicMock(return_value=None)
+    monkeypatch.setattr(TestingFactory, "close_doc", mock_close)
+
+    def _no_desktop(ctx):
+        raise RuntimeError("no office")
+
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", _no_desktop)
+
+    ctx = MockContext()
+    with pytest.raises(ValueError) as ei:
+        with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False):
+            raise ValueError("plain")
+
+    assert str(ei.value) == "plain"
+    assert type(ei.value).__name__ != "RuntimeError"
+
+
+def test_native_doc_yields_doc_when_body_succeeds(monkeypatch):
+    from unittest.mock import MagicMock
+
+    sentinel = object()
+    monkeypatch.setattr(TestingFactory, "create_native_doc", lambda ctx, **kwargs: sentinel)
+    mock_close = MagicMock(return_value=None)
+    monkeypatch.setattr(TestingFactory, "close_doc", mock_close)
+
+    def _no_desktop(ctx):
+        raise RuntimeError("no office")
+
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", _no_desktop)
+
+    ctx = MockContext()
+    with TestingFactory.native_doc(ctx, doc_type="writer", reuse=False) as doc:
+        assert doc is sentinel
+
+    mock_close.assert_called_once_with(sentinel)
+

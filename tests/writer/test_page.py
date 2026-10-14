@@ -1063,6 +1063,48 @@ def test_copy_page_style_inserts_without_touching_follow_style():
         assert call.args[0] != "FollowStyle"
 
 
+def test_copy_page_regions_does_not_export_html():
+    from plugin.writer.page import _copy_page_regions
+
+    src_text = MagicMock()
+    src_text.getString.return_value = "Annex "
+
+    dest_text = MagicMock()
+    dest_text.getString.return_value = "Annex "
+
+    def _src_get_prop(name: str):
+        if name == "FooterIsOn":
+            return True
+        if name.endswith("IsOn"):
+            return False
+        if name == "FooterText":
+            return src_text
+        return 0
+
+    source = MagicMock()
+    source.getPropertyValue.side_effect = _src_get_prop
+
+    def _clone_get_prop(name: str):
+        if name == "FooterText":
+            return dest_text
+        return 0
+
+    clone = MagicMock()
+    clone.getPropertyValue.side_effect = _clone_get_prop
+
+    doc = MagicMock()
+    doc.getDrawPage.return_value.getCount.return_value = 0
+
+    with patch("plugin.writer.html_export._copy_flow_into_xtext", return_value=1) as mock_flow, \
+         patch("plugin.writer.html_export.xtext_to_content") as mock_xtext_to_content, \
+         patch("plugin.writer.html_import.replace_xtext_with_html") as mock_replace_html:
+        _copy_page_regions(doc, source, clone, uno_ctx=object(), services=None)
+
+    mock_flow.assert_called_once_with(doc, src_text, dest_text)
+    mock_xtext_to_content.assert_not_called()
+    mock_replace_html.assert_not_called()
+
+
 # --- header/footer: replace one substring, leave fields and graphics -----------
 
 

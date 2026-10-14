@@ -197,7 +197,25 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         if res.get("status") == "ok":
             images = find_image_payloads(result)
             if images:
-                img_paths = [write_image_payload_to_temp(img) for img in images]
+                # Bugfix: What was wrong: a write failure on a later image payload abandoned
+                # earlier temp files and leaked them on disk.
+                # How it happened: the list comprehension aborted on exception, but
+                # write_image_payload_to_temp only unlinks a file whose own write failed,
+                # leaving earlier successes uncollected before out exists.
+                # Why this change fixes it: we append each successful path in a loop and,
+                # on any exception, unlink all paths already written before re-raising.
+                # Paths that later sit on out stay the caller's.
+                img_paths: list[str] = []
+                try:
+                    for img in images:
+                        img_paths.append(write_image_payload_to_temp(img))
+                except Exception:
+                    for p in img_paths:
+                        try:
+                            os.unlink(p)
+                        except OSError:
+                            log.debug("run_venv_python_script: temp image cleanup failed for %s", p, exc_info=True)
+                    raise
                 out: dict[str, Any] = {"status": "ok", "message": f"{len(images)} plot(s) generated"}
                 stdout_val = res.get("stdout")
                 if stdout_val:

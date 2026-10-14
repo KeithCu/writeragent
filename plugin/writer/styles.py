@@ -528,6 +528,13 @@ _CLONE_SKIP_PROPS = frozenset({
     "Name", "DisplayName", "IsPhysical", "IsUserDefined", "Category",
     "ParentStyle", "FollowStyle", "IsInUse", "UserDefinedAttributes",
     "CharDiffHeight", "CharDiffHeightAsian", "CharDiffHeightComplex",
+    # Header/footer XText is read-only (PropertyAttribute.READONLY, attrs 17)
+    # and must not be assigned onto the clone. Listing the names here keeps
+    # that true if a future LibreOffice drops READONLY. Flow is copied by
+    # page._copy_page_regions, not by setPropertyValue. No TypeClass.INTERFACE
+    # filter: this walk also clones paragraph and character styles.
+    "HeaderText", "HeaderTextLeft", "HeaderTextRight", "HeaderTextFirst",
+    "FooterText", "FooterTextLeft", "FooterTextRight", "FooterTextFirst",
 })
 
 _CLONE_FAMILIES = ("ParagraphStyles", "PageStyles", "CharacterStyles")

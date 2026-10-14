@@ -420,13 +420,21 @@ def test_monaco_follow_ref_load_shows_code_cell_and_keeps_data():
     assert load_msg["cell_address"] == "A1"
     assert load_msg["data_binding"] == "C1:C10"
     with patch.object(ed, "_apply_cell_save", return_value={"type": "saved", "ok": True}) as mock_save:
-        captured["on_save"]("result = 99", False, "D1:D5")
+        captured["on_save"]("result = 99", True, "C1:C10")
     kwargs = mock_save.call_args.kwargs
     assert kwargs["save_as_plain"] is True
     assert kwargs["code_cell"] is code_cell
     assert kwargs["code_ref"] == "$A$1"
-    assert kwargs["data_binding_text"] == "D1:D5"
+    assert kwargs["data_binding_text"] == "C1:C10"
     assert kwargs["new_code"] == "result = 99"
+
+
+def test_monaco_calc_cell_save_keeps_data_binding_in_follow_mode():
+    from pathlib import Path
+
+    js_file = Path(__file__).resolve().parents[3] / "plugin" / "contrib" / "scripting" / "assets" / "editor" / "editor.js"
+    assert js_file.is_file()
+    assert "var dataBinding = (followCodeRef || !saveAsPlain)" in js_file.read_text(encoding="utf-8")
 
 
 def test_open_unquoted_ref_loads_followed_cell_text():

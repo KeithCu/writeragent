@@ -1,4 +1,5 @@
 import sys
+import types
 from plugin.framework.constants import get_plugin_dir
 import unittest
 from unittest.mock import MagicMock, patch
@@ -14,6 +15,13 @@ class XToolPanel: pass
 class XSidebarPanel: pass
 class XUIElementFactory: pass
 class XTextComponent: pass
+
+for _module_name in (
+    "com.sun.star.awt",
+    "com.sun.star.ui",
+    "com.sun.star.ui.UIElementType",
+):
+    sys.modules.setdefault(_module_name, types.ModuleType(_module_name))
 
 sys.modules['com.sun.star.awt'].XTextListener = XTextListener
 sys.modules['com.sun.star.awt'].XWindowListener = XWindowListener

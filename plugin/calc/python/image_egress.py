@@ -43,18 +43,29 @@ def _plot_slot_name(image_index: int) -> str:
 
 
 def _plot_slot_index(name: str) -> int | None:
-    """Slot index for a plot shape: 0 for WriterAgentPlot, N-1 for WriterAgentPlot_N (N>=2)."""
+    """Slot index for a plot shape: 0 for WriterAgentPlot, N-1 for WriterAgentPlot_N (N>=2).
+
+    The suffix is a decimal integer N >= 2 with no sign, whitespace, underscore,
+    or leading zero. _plot_slot_name is the only writer of names that are
+    stored on the shape.
+    """
     if name == _PLOT_SHAPE_NAME_PREFIX:
         return 0
     prefix = f"{_PLOT_SHAPE_NAME_PREFIX}_"
     if name.startswith(prefix):
         suffix = name[len(prefix):]
-        try:
-            n = int(suffix)
-            if n >= 2:
-                return n - 1
-        except ValueError:
+        if not re.fullmatch(r"[1-9][0-9]*", suffix):
             return None
+        # Bugfix: What was wrong: a shape named WriterAgentPlot_1_0, WriterAgentPlot_+2,
+        # or WriterAgentPlot_02 was treated as a plot slot and could be removed or reused.
+        # How it happened: int(suffix) accepts underscores, a leading plus, surrounding
+        # whitespace, and leading zeros (int("1_0") == 10, int("+2") == 2, int("02") == 2).
+        # Why this change fixes it: the suffix must be a full match of [1-9][0-9]* and
+        # the value must be >= 2. Names _plot_slot_name writes are unchanged, and those
+        # strings are what the document stores.
+        n = int(suffix)
+        if n >= 2:
+            return n - 1
     return None
 
 
@@ -85,10 +96,7 @@ def _intrinsic_aspect(data: bytes) -> tuple[int, int] | None:
             return (w, h)
         return None
 
-    try:
-        text = data[:8192].decode("utf-8", "ignore")
-    except Exception:
-        return None
+    text = data[:8192].decode("utf-8", "ignore")
 
     svg_match = re.search(r"<svg\b([^>]*)>", text, re.IGNORECASE)
     if svg_match:
@@ -186,9 +194,37 @@ def _set_image_cell_annotation(ctx: Any, doc: Any, code: str | None, error_messa
         sheet, cell, (row, col) = located
         text = f"{_IMAGE_ANNOTATION_PREFIX}{error_message}"
         ann = cell.getAnnotation() if hasattr(cell, "getAnnotation") else None
-        if ann is not None and hasattr(ann, "setString") and hasattr(ann, "getString") and ann.getString():
+        note_str = ""
+        if ann is not None and hasattr(ann, "getString"):
+            val = ann.getString()
+            if val is None:
+                note_str = ""
+            elif isinstance(val, str):
+                note_str = val
+            else:
+                log.debug("_set_image_cell_annotation: note text is not a string")
+                return
+
+        if note_str.startswith(_IMAGE_ANNOTATION_PREFIX) and ann is not None and hasattr(ann, "setString"):
             ann.setString(text)
-        elif hasattr(sheet, "getAnnotations"):
+            return
+
+        if note_str and not note_str.startswith(_IMAGE_ANNOTATION_PREFIX):
+            # Bugfix: What was wrong: a failed off-main plot overwrote whatever comment was
+            # already on the =PY() cell, and a later success deleted that note.
+            # How it happened: the branch was "getAnnotation() returned an object and
+            # getString() was non-empty", so any user comment took setString. The other
+            # branch calls insertNew. ScCellObj::getAnnotation (cellsuno.cxx) always returns
+            # a ScAnnotationObj, and ScAnnotationsObj::insertNew (docuno.cxx) calls
+            # ScDocFunc::ReplaceNote, which releases the cell's only note and creates a new
+            # one. There is no second comment to write into.
+            # Why this change fixes it: setString runs only when the note already starts
+            # with the WriterAgent image prefix. Any other non-empty text is left as-is.
+            # insertNew runs only for an empty note, which is what creates the error comment.
+            log.debug("_set_image_cell_annotation: user annotation left in place")
+            return
+
+        if hasattr(sheet, "getAnnotations"):
             annotations = sheet.getAnnotations()
             if hasattr(annotations, "insertNew"):
                 addr: Any = None
@@ -199,14 +235,9 @@ def _set_image_cell_annotation(ctx: Any, doc: Any, code: str | None, error_messa
                         addr = None
                 if addr is None:
                     sheet_idx = getattr(sheet.getRangeAddress(), "Sheet", 0) if hasattr(sheet, "getRangeAddress") else 0
-                    try:
-                        from com.sun.star.table import CellAddress
+                    from com.sun.star.table import CellAddress
 
-                        addr = CellAddress(Sheet=sheet_idx, Column=col, Row=row)
-                    except Exception:
-                        from types import SimpleNamespace
-
-                        addr = SimpleNamespace(Sheet=sheet_idx, Column=col, Row=row)
+                    addr = CellAddress(Sheet=sheet_idx, Column=col, Row=row)
                 annotations.insertNew(addr, text)
     except Exception:
         log.debug("_set_image_cell_annotation failed", exc_info=True)
@@ -368,7 +399,12 @@ def insert_image_result_on_sheet(
 
     Raises:
         ImageEgressError: the synchronous (main-thread) insert did not place a graphic.
-            The off-main path only posts; the posted call raises on the main thread.
+            Off-main, this function posts and returns. The posted call raises on the main
+            thread when notify_cell is false. When notify_cell is true, a posted
+            ImageEgressError is written to the formula cell's note only if that note is
+            empty or already starts with "WriterAgent image: "; any other note is left
+            unchanged and the exception is not raised. post_to_main_thread can still raise
+            TimeoutError or RuntimeError to this caller.
     """
     from plugin.framework.queue_executor import post_to_main_thread
     from plugin.framework.thread_guard import on_main_thread
@@ -376,6 +412,8 @@ def insert_image_result_on_sheet(
     # Thread safety invariant: Drawing layer manipulation (DrawPage, GraphicObjectShape, cell geometry)
     # must run on LibreOffice's main VCL thread to prevent internal C++ state corruption and deadlocks.
     # If called from a background recalculation or script worker thread, post asynchronously to the main thread.
+    # The main-thread path lets ImageEgressError propagate and the off-main notify_cell path annotates
+    # instead, because the formula has already been answered by the time the posted callable runs.
     if not on_main_thread():
         def _off_main_wrapper() -> None:
             try:
@@ -387,7 +425,6 @@ def insert_image_result_on_sheet(
                     image_index=image_index,
                     image_path=image_path,
                     image_count=image_count,
-                    notify_cell=notify_cell,
                 )
                 if notify_cell:
                     _clear_image_cell_annotation(ctx, doc, code)
@@ -408,7 +445,6 @@ def insert_image_result_on_sheet(
         image_index=image_index,
         image_path=image_path,
         image_count=image_count,
-        notify_cell=notify_cell,
     )
     if notify_cell:
         _clear_image_cell_annotation(ctx, doc, code)
@@ -423,7 +459,6 @@ def _insert_image_result_on_sheet_impl(
     *,
     image_path: str | None = None,
     image_count: int | None = None,
-    notify_cell: bool = False,
 ) -> None:
     """Main-thread implementation of graphic shape creation and anchoring."""
     import uno
@@ -508,6 +543,11 @@ def _insert_image_result_on_sheet_impl(
             except Exception:
                 log.debug("insert_image_result_on_sheet: selection fallback failed", exc_info=True)
 
+        # Only a caller that passes image_count owns the slot family. =PY() and
+        # run_venv_python_script pass it and enumerate image_index from 0, so the
+        # sweep runs once on index 0. Omitting image_count (chat plot_data / viz)
+        # must not remove sibling WriterAgentPlot_N shapes; they may belong to a
+        # formula on the selected cell.
         if image_count is not None and image_index == 0 and target_cell is not None:
             _drop_extra_plot_slots(draw_page, target_cell, image_count)
 
@@ -581,7 +621,7 @@ def _insert_image_result_on_sheet_impl(
                     else:
                         pos_x = getattr(cell_pos, "X", 0) + (image_index * aspect_size.Width)
                         pos_y = getattr(cell_pos, "Y", 0)
-                        shape.setPosition(Point(pos_x, pos_y) if Point is not None else cell_pos)
+                        shape.setPosition(Point(pos_x, pos_y))
 
                 if is_large_placeholder:
                     shape.setPropertyValue("ResizeWithCell", True)

@@ -45,8 +45,41 @@ from plugin.scripting.editor_ipc import exception_traceback, failure_message
 log = logging.getLogger("writeragent.scripting")
 
 
+def _cell_formula_content(cell: Any) -> bool | None:
+    if not hasattr(cell, "getType"):
+        return None
+    try:
+        kind = cell.getType()
+    except Exception:
+        return None
+    if kind == 3:
+        return True
+    try:
+        from com.sun.star.table import CellContentType
+
+        if kind == CellContentType.FORMULA:
+            return True
+        if kind in (CellContentType.EMPTY, CellContentType.VALUE, CellContentType.TEXT):
+            return False
+    except Exception:
+        pass
+    if isinstance(kind, int):
+        return False
+    return None
+
+
 def _cell_formula_strings(cell: Any) -> list[str]:
-    """Collect formula strings LibreOffice may expose for the cell."""
+    """Collect formula strings LibreOffice may expose for the cell.
+
+    Bugfix: Text cells containing PY(...) were incorrectly treated as PY formulas
+    because ScCellObj::getFormula (cellsuno.cxx lcl_GetInputString) returns the
+    literal input text for non-formula cells, which normalize_formula_string then
+    prepended '=' to. We now check getType() to return [] for non-formula cells, and
+    for untyped proxies/mocks, drop strings whose lstrip() does not start with '=' or '{'.
+    """
+    content = _cell_formula_content(cell)
+    if content is False:
+        return []
     out: list[str] = []
     try:
         f = cell.getFormula()
@@ -61,6 +94,8 @@ def _cell_formula_strings(cell: Any) -> list[str]:
                 out.append(str(val))
         except Exception:
             pass
+    if content is None:
+        out = [s for s in out if s.lstrip().startswith(("=", "{"))]
     return out
 
 
@@ -218,17 +253,23 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
         log.warning("python_editor: selection has no RangeAddress", exc_info=True)
         return None
     bridge = CalcBridge(model)
-    sheet = None
-    if hasattr(addr, "Sheet") and hasattr(model, "getSheets"):
-        try:
-            sheets = model.getSheets()
-            sheet_idx = int(addr.Sheet)
-            if hasattr(sheets, "getCount") and 0 <= sheet_idx < sheets.getCount() and hasattr(sheets, "getByIndex"):
-                sheet = sheets.getByIndex(sheet_idx)
-        except Exception:
-            sheet = None
+    # Selection sheet and the active sheet can differ. Falling back to
+    # get_active_sheet() when getByIndex failed read a different sheet at
+    # the same column and row. Refuse; the caller already explains that
+    # no cell was selected.
+    try:
+        sheet_idx = int(addr.Sheet)
+        sheets = model.getSheets()
+        if sheets is None or not (0 <= sheet_idx < int(sheets.getCount())):
+            log.warning("python_editor: selection sheet index %s out of range", sheet_idx)
+            return None
+        sheet = sheets.getByIndex(sheet_idx)
+    except Exception:
+        log.warning("python_editor: could not resolve selection sheet", exc_info=True)
+        return None
     if sheet is None:
-        sheet = bridge.get_active_sheet()
+        log.warning("python_editor: selection sheet missing")
+        return None
     cell = bridge.get_cell(sheet, addr.StartColumn, addr.StartRow)
     formulas = _cell_formula_strings(cell)
     formula = formulas[0] if formulas else ""
@@ -309,7 +350,11 @@ def _apply_followed_ref_save(doc: Any, formula_cell: Any, *, code_cell: Any, cod
             # Keep the original ref token ($A$1). format_py_data_range strips $
             # which would make an absolute code ref relative after save.
             # build_data_suffix already includes the closing ')'.
-            formula_cell.setFormula(f"={CALC_PYTHON_FN}({code_ref.strip()}{build_data_suffix(data_args)}")
+            # Bugfix: hardcoding PY rewrote =PYTHON( / =py( / add-in prefixes
+            # on a data change; rebuild_python_formula already keeps parts.prefix;
+            # this branch did not.
+            prefix = parsed_parts.prefix if parsed_parts is not None and parsed_parts.prefix else f"={CALC_PYTHON_FN}("
+            formula_cell.setFormula(f"{prefix}{code_ref.strip()}{build_data_suffix(data_args)}")
     from plugin.calc.python.geometric_recalc import after_py_cell_save
 
     after_py_cell_save(doc, formula_cell)

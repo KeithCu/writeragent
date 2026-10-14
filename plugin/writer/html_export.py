@@ -1074,7 +1074,12 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
         new_field = dest_doc.createInstance(svc)
     except Exception:
         return False
-    for prop in ("NumberingType", "SubType", "IsDate", "IsFixed", "Format"):
+    # Page-style clone copies header/footer fields through this helper
+    # (test_copy_page_style_clones_next_page_number_and_roman). The old XHTML
+    # path re-injected data-offset; this tuple omitted Offset, so a NEXT field
+    # with Offset 1 was cloned as Offset 0. Properties the service does not
+    # have still fail the try/except below and are skipped.
+    for prop in ("NumberingType", "SubType", "Offset", "IsDate", "IsFixed", "Format"):
         try:
             new_field.setPropertyValue(prop, src_field.getPropertyValue(prop))
         except Exception as e:
@@ -1334,6 +1339,119 @@ def _copy_xtext_by_portions(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
                     chunk = ""
                 if chunk:
                     dest_text.insertString(dest_cursor, chunk, False)
+
+
+def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # pyright: ignore[reportUnusedFunction]
+    """Copy paragraphs, tables, fields, and direct char/para props inside *doc*.
+
+    Used by page-style clone. Does not select the source, does not use the
+    clipboard, and does not open a scratch Writer or run XHTML / flat ODF.
+    Returns how many fields were inserted.
+
+    Bugfix: xtext_to_content used to controller.select the live header or
+    footer, getTransferable / insertTransferable into a hidden Writer, export
+    XHTML (in-process libxslt, stderr "XSL Vendor: 'libxslt'") and flat ODF,
+    then temp_doc.close(True) while that selection and clipboard could still
+    alias header nodes, fields, and titled draw frames. A titled AT_PARAGRAPH
+    graphic makes the ODF export hit the default rule in LibreOffice
+    filter/source/xslt/odf2xhtml/export/common/body.xsl (match="*"), which
+    logs "Using default element rule for ODF element 'svg:title'.". glibc
+    then reported "malloc(): unsorted double linked list corrupted", or
+    soffice died SIGSEGV 139 / VCL SalAbort. Python usually saw that on a
+    later pages.getByName ("Binary URP bridge disposed"), sometimes many
+    tests later in the pooled soffice (GHA 38526445257, 38584920511,
+    38584636315). This walk never selects and never exports.
+    """
+    cursor = dest_text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEnd(True)
+    cursor.setString("")
+    cursor.gotoStart(False)
+    fields_copied = 0
+    try:
+        enum = src_text.createEnumeration()
+    except Exception:
+        try:
+            dest_text.insertString(cursor, src_text.getString() if src_text else "", False)
+        except Exception:
+            pass
+        return 0
+    if not enum:
+        return 0
+
+    first_para = True
+    while enum.hasMoreElements() is True:
+        try:
+            el = enum.nextElement()
+        except Exception:
+            break
+        if _supports_service(el, "com.sun.star.text.TextTable"):
+            _copy_table(doc, el, doc, dest_text)
+            cursor = dest_text.createTextCursor()
+            cursor.gotoEnd(False)
+            first_para = False
+            continue
+        if not first_para:
+            try:
+                dest_text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+            except Exception:
+                pass
+            try:
+                cursor.gotoNextParagraph(False)
+            except Exception:
+                pass
+        first_para = False
+        try:
+            portions = el.createEnumeration()
+        except Exception:
+            try:
+                dest_text.insertString(cursor, el.getString() if el else "", False)
+            except Exception:
+                pass
+            para_cursor = dest_text.createTextCursor()
+            para_cursor.gotoEnd(False)
+            para_cursor.gotoStartOfParagraph(False)
+            para_cursor.gotoEndOfParagraph(True)
+            _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES)
+            cursor.gotoRange(para_cursor.getEnd(), False)
+            continue
+        while portions.hasMoreElements() is True:
+            try:
+                portion = portions.nextElement()
+                kind = portion.getPropertyValue("TextPortionType")
+            except Exception:
+                break
+            if kind == "TextField":
+                try:
+                    field = portion.getPropertyValue("TextField")
+                except Exception:
+                    continue
+                if _copy_field_into(doc, dest_text, cursor, field):
+                    fields_copied += 1
+                cursor.gotoEnd(False)
+            elif kind == "Text":
+                try:
+                    chunk = portion.getString()
+                except Exception:
+                    chunk = ""
+                if not chunk:
+                    continue
+                start = cursor.getStart()
+                dest_text.insertString(cursor, chunk, False)
+                run = dest_text.createTextCursorByRange(start)
+                run.gotoRange(cursor.getEnd(), True)
+                _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES)
+                cursor.gotoRange(run.getEnd(), False)
+            else:
+                continue
+        para_cursor = dest_text.createTextCursor()
+        para_cursor.gotoEnd(False)
+        para_cursor.gotoStartOfParagraph(False)
+        para_cursor.gotoEndOfParagraph(True)
+        _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES)
+        cursor.gotoRange(para_cursor.getEnd(), False)
+
+    return fields_copied
 
 
 def _copy_xtext_into_doc(src_doc: Any, src_text: Any, dest_doc: Any) -> None:

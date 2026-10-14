@@ -225,9 +225,14 @@ class TestGuardUnoBoundaries:
         mock_guard.assert_not_called()
 
     def test_get_active_calc_cell_wraps_model(self) -> None:
+        sheet = MagicMock()
+        sheets = MagicMock()
+        sheets.getCount.return_value = 1
+        sheets.getByIndex.return_value = sheet
         model = MagicMock()
-        model.getSheets = MagicMock()
+        model.getSheets.return_value = sheets
         addr = MagicMock()
+        addr.Sheet = 0
         addr.StartColumn = 0
         addr.StartRow = 0
         selection = MagicMock()
@@ -249,7 +254,6 @@ class TestGuardUnoBoundaries:
             patch("plugin.calc.python.editor._cell_formula_strings", return_value=["=PY(\"1\")"]),
             patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
         ):
-            mock_bridge.return_value.get_active_sheet.return_value = MagicMock()
             mock_bridge.return_value.get_cell.return_value = cell
             from plugin.calc.python.editor import _get_active_calc_cell
 
@@ -258,6 +262,8 @@ class TestGuardUnoBoundaries:
         assert out is not None
         assert (out[0]) is (model)
         mock_guard.assert_called_once_with(model)
+        mock_bridge.return_value.get_cell.assert_called_once_with(sheet, 0, 0)
+        mock_bridge.return_value.get_active_sheet.assert_not_called()
         mock_bridge.assert_called_once()
         assert (mock_bridge.call_args[0][0]) is (model)
 
