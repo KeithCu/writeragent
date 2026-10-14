@@ -1203,19 +1203,20 @@ def _read_bytes_with_timeout_win32(
     Polls ``PeekNamedPipe`` until bytes are queued, then reads only what is
     available. Raises ``TimeoutExpired`` on deadline. Falls back to a blocking
     ``read`` when ``fileno()`` is not a real pipe fd (BytesIO / mocks).
+    A dead child is EOF only when the peek is empty; queued bytes are read
+    first; a stream with no pipe fd still returns ``b""`` when ``is_alive`` is
+    false, without reading.
     """
-    if is_alive is not None and not is_alive():
-        return b""
     fd = _stream_fileno(stream)
     if fd is None:
+        if is_alive is not None and not is_alive():
+            return b""
         return stream.read(n)
 
     buf = bytearray()
     while len(buf) < n:
         if _stop_requested(stop_checker):
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
-        if is_alive is not None and not is_alive():
-            break
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             if len(buf) > 0:
@@ -1234,6 +1235,14 @@ def _read_bytes_with_timeout_win32(
                 return bytes(buf)
             buf.extend(chunk)
             continue
+        # What was wrong: is_alive() ran before PeekNamedPipe, at function entry
+        # and at the top of the loop. A child that wrote a frame and exited was
+        # reported as EOF, and those bytes stayed in the pipe.
+        # How it happened: the early return avoided waiting out the deadline on
+        # a dead child. The POSIX reader only applies that shortcut when
+        # select is not ready.
+        # Why this change: peek first. A zero peek and a dead child is the short
+        # read. A positive peek, or a closed pipe (None), is still read.
         if is_alive is not None and not is_alive():
             break
         # Re-read the clock: PeekNamedPipe can cross the deadline.
@@ -1244,6 +1253,10 @@ def _read_bytes_with_timeout_win32(
 # PeekNamedPipe is rebuilt on every poll (up to once a millisecond) if this
 # stays inside the function. One WinDLL is enough for the process.
 _peek_named_pipe: Any = None
+# PeekNamedPipe failures for a gone peer; ERROR_NO_DATA is 232 and is not
+# one of them; an empty pipe is a successful peek of 0.
+_WIN_ERROR_BROKEN_PIPE = 109
+_WIN_ERROR_PIPE_NOT_CONNECTED = 233
 
 
 def _peek_pipe_bytes_available(fd: int) -> int | None:
@@ -1274,7 +1287,7 @@ def _peek_pipe_bytes_available(fd: int) -> int | None:
     handle = msvcrt.get_osfhandle(fd)
     if peek_named_pipe(handle, None, 0, None, ctypes.byref(avail), None):
         return int(avail.value)
-    if ctypes.get_last_error() in (109, 233):  # BROKEN_PIPE / NO_DATA
+    if ctypes.get_last_error() in (_WIN_ERROR_BROKEN_PIPE, _WIN_ERROR_PIPE_NOT_CONNECTED):
         return None
     raise OSError(ctypes.get_last_error(), ctypes.FormatError(ctypes.get_last_error()))
 

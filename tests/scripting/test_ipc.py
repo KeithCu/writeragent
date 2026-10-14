@@ -541,9 +541,10 @@ def test_win32_pickle_read_timeout_clamps_when_peek_crosses_deadline(monkeypatch
 
 
 def test_win32_pickle_read_breaks_when_child_exits_before_ready(monkeypatch):
-    """When child exits (is_alive() is False), win32 read breaks to EOF rather than timing out."""
+    """When peek is empty and child exits (is_alive() is False), win32 read breaks to EOF rather than timing out."""
     from plugin.scripting import ipc
 
+    monkeypatch.setattr(ipc.time, "monotonic", lambda: 0.0)
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 0)
     stream = MagicMock()
     stream.fileno.return_value = 3
@@ -553,6 +554,38 @@ def test_win32_pickle_read_breaks_when_child_exits_before_ready(monkeypatch):
     # Becoming false inside polling loop breaks out and returns b""
     alive_iter = iter([True, False])
     assert ipc._read_bytes_with_timeout_win32(stream, 4, 10.0, 10.0, cmd="IPC frame", is_alive=lambda: next(alive_iter)) == b""
+
+
+def test_win32_read_drains_queued_bytes_when_child_already_dead(monkeypatch):
+    from unittest.mock import MagicMock
+    from plugin.scripting import ipc
+
+    slept: list[float] = []
+    monkeypatch.setattr(ipc.time, "sleep", lambda sec: slept.append(sec))
+    monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", MagicMock(side_effect=[2, 2]))
+
+    stream = MagicMock()
+    stream.fileno.return_value = 3
+    stream.read.side_effect = [b"ab", b"cd"]
+
+    res = ipc._read_bytes_with_timeout_win32(
+        stream,
+        4,
+        ipc.time.monotonic() + 100.0,
+        100.0,
+        cmd="IPC frame",
+        is_alive=lambda: False,
+    )
+    assert res == b"abcd"
+    assert slept == []
+
+
+def test_peek_closed_pipe_errors_exclude_no_data():
+    from plugin.scripting import ipc
+
+    assert ipc._WIN_ERROR_BROKEN_PIPE == 109
+    assert ipc._WIN_ERROR_PIPE_NOT_CONNECTED == 233
+    assert 232 not in (ipc._WIN_ERROR_BROKEN_PIPE, ipc._WIN_ERROR_PIPE_NOT_CONNECTED)
 
 
 
@@ -1227,14 +1260,23 @@ def test_read_pickle_frame_with_timeout_win32_is_alive_honored(monkeypatch):
     monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 4)
     monkeypatch.setattr(ipc, "_decode_pickle_payload", lambda p, *args, **kwargs: None if p is None else {"ok": 1})
 
-
     # is_alive returning True should NOT cause TimeoutExpired
     res = ipc.read_pickle_frame_with_timeout(stream, 1.0, is_alive=lambda: True)
     assert res == {"ok": 1}
 
-    # is_alive returning False should return None (EOF), matching POSIX behavior
+    # is_alive returning False drains queued bytes when peek > 0
     stream.read.side_effect = [b"\x00\x00\x00\x04", b"\x00\x00\x00\x00"]
-    assert ipc.read_pickle_frame_with_timeout(stream, 1.0, is_alive=lambda: False) is None
+    assert ipc.read_pickle_frame_with_timeout(stream, 1.0, is_alive=lambda: False) == {"ok": 1}
+
+    # When peek is 0 and is_alive is False, it returns None without sleeping out the deadline
+    slept: list[float] = []
+    monkeypatch.setattr(ipc.time, "sleep", lambda sec: slept.append(sec))
+    stream.read.reset_mock()
+    monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", lambda fd: 0)
+    assert ipc.read_pickle_frame_with_timeout(stream, 10.0, is_alive=lambda: False) is None
+    stream.read.assert_not_called()
+    assert slept == []
+
 
 
 
