@@ -278,36 +278,94 @@ def kill_process_tree(proc: subprocess.Popen[Any]) -> None:
     # the desktop session. Only a real pid above 1 is safe to look up.
     if type(pid) is not int or pid <= 1:
         if proc.poll() is None:
-            proc.kill()
+            try:
+                proc.kill()
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
         return
+
+    # What was wrong: in containerized environments (such as CI containers or restricted
+    # sandboxes) or when dealing with recycled PIDs or foreign process groups, os.getpgid(pid)
+    # or os.killpg(pgid, signal.SIGKILL) could fail with PermissionError [Errno 1] Operation not permitted.
+    # Furthermore, if pgid != pid, signalling pgid would attempt to kill a process group the child
+    # does not own.
+    # How it happened: kill_process_tree only caught ProcessLookupError and lacked an ownership check
+    # against pgid != pid.
+    # Why this change fixes it: catches (PermissionError, OSError) when querying or signalling groups,
+    # verifies ownership (pgid == pid) for session leaders, and safely falls back to killing only the direct child.
     try:
         pgid = os.getpgid(pid)
         fallback = False
     except ProcessLookupError:
         pgid = pid
         fallback = True
+    except (PermissionError, OSError):
+        if proc.poll() is None:
+            try:
+                proc.kill()
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+        return
 
     try:
         if fallback and proc.poll() is None:
-            proc.kill()
+            try:
+                proc.kill()
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
         elif type(pgid) is not int or pgid <= 1 or pgid == os.getpgrp():
             # killpg on the host's own group (a reused pid, or a child without
             # its own session) would kill LibreOffice. killpg(0) signals that
             # same group. killpg(1) is kill(-1, SIGKILL). Kill only proc.
             if proc.poll() is None:
-                proc.kill()
+                try:
+                    proc.kill()
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+        elif pgid != pid:
+            # Avoid killpg on groups we don't own. Workers are spawned with
+            # start_new_session=True, so their process group ID equals pid.
+            # If pgid != pid, the process joined another group or the pid was
+            # recycled into a foreign group. Kill only proc.
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
         else:
-            os.killpg(pgid, signal.SIGKILL)
-    except ProcessLookupError:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                if proc.poll() is None:
+                    try:
+                        proc.kill()
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+            except (PermissionError, OSError):
+                # PermissionError [Errno 1] Operation not permitted in restricted
+                # container environments or when group ownership prevents killpg.
+                # Fall back to killing the direct child.
+                if proc.poll() is None:
+                    try:
+                        proc.kill()
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+    except (ProcessLookupError, PermissionError, OSError):
         if proc.poll() is None:
-            proc.kill()
+            try:
+                proc.kill()
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
 
 
 def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
     """Terminate the Windows process tree; ``TerminateProcess`` does not kill grandchildren."""
     pid = proc.pid
     if not pid:
-        proc.kill()
+        try:
+            proc.kill()
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
         return
     try:
         subprocess.run(
@@ -319,10 +377,16 @@ def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
             **get_subprocess_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired):
-        proc.kill()
+        try:
+            proc.kill()
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
         return
     if proc.poll() is None:
-        proc.kill()
+        try:
+            proc.kill()
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
 
 _instances: set[ManagedSubprocess] = set()

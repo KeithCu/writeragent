@@ -184,7 +184,7 @@ def test_pool_cancel_during_spawn_handshake_kills_child(tmp_path):
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline:
             worker = pool._worker
-            proc = worker.process if worker is not None else None
+            proc = worker._managed.popen if worker is not None else None
             if proc is not None and proc.pid:
                 pid = proc.pid
                 break

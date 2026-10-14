@@ -93,11 +93,6 @@ class _KokoroWorker:
         )
         self._shutting_down = False
 
-    @property
-    def process(self) -> subprocess.Popen[bytes] | None:
-        """Return the underlying subprocess.Popen instance for monitoring and cancellation."""
-        return self._managed.popen
-
     def respawn(self) -> None:
         if self._shutting_down:
             return

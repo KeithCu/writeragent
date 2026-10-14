@@ -287,6 +287,7 @@ def test_managed_subprocess_env_and_wrapper(monkeypatch):
         captured_kw.update(kwargs)
         mock = MagicMock()
         mock.pid = 1111
+        mock.poll.return_value = 0
         mock.stderr = MagicMock()
         return mock
 
@@ -539,3 +540,70 @@ def test_kill_process_tree_refuses_process_group_one(monkeypatch):
     managed_subprocess.kill_process_tree(reused)
     killpg.assert_not_called()
     reused.kill.assert_called_once()
+
+
+def test_kill_process_tree_avoids_foreign_group(monkeypatch):
+    """Never killpg a process group that does not match the session leader's pid."""
+    import plugin.framework.managed_subprocess as managed_subprocess
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX process groups")
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.poll.return_value = None
+    killpg = MagicMock()
+    # Process has joined a foreign group (e.g. pgid=5555 != pid 4242)
+    monkeypatch.setattr(managed_subprocess.os, "getpgid", lambda _pid: 5555)
+    monkeypatch.setattr(managed_subprocess.os, "getpgrp", lambda: 9999)
+    monkeypatch.setattr(managed_subprocess.os, "killpg", killpg)
+
+    managed_subprocess.kill_process_tree(proc)
+
+    killpg.assert_not_called()
+    proc.kill.assert_called_once()
+
+
+def test_kill_process_tree_handles_permission_error_on_getpgid(monkeypatch):
+    """Handle PermissionError during getpgid (e.g. container sandboxes) without raising."""
+    import plugin.framework.managed_subprocess as managed_subprocess
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX process groups")
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.poll.return_value = None
+    killpg = MagicMock()
+
+    def _getpgid(pid: int) -> int:
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(managed_subprocess.os, "getpgid", _getpgid)
+    monkeypatch.setattr(managed_subprocess.os, "killpg", killpg)
+
+    managed_subprocess.kill_process_tree(proc)
+
+    killpg.assert_not_called()
+    proc.kill.assert_called_once()
+
+
+def test_kill_process_tree_handles_permission_error_on_killpg(monkeypatch):
+    """Handle PermissionError during killpg (e.g. group owned by another user) without raising."""
+    import plugin.framework.managed_subprocess as managed_subprocess
+
+    if sys.platform == "win32":
+        pytest.skip("POSIX process groups")
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.poll.return_value = None
+
+    def _killpg(pgid: int, sig: int) -> None:
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(managed_subprocess.os, "getpgid", lambda _pid: 4242)
+    monkeypatch.setattr(managed_subprocess.os, "getpgrp", lambda: 9999)
+    monkeypatch.setattr(managed_subprocess.os, "killpg", _killpg)
+
+    # Must not raise PermissionError; falls back to direct child kill.
+    managed_subprocess.kill_process_tree(proc)
+    proc.kill.assert_called_once()
+

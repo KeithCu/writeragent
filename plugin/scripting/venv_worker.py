@@ -1077,7 +1077,7 @@ class PythonWorkerManager:
             # by another thread (malloc, logging) deadlocks the child before
             # exec. start_new_session asks the C spawn path to call setsid,
             # which is the same new process group without that Python callback.
-            # pgid stays equal to pid for _kill_process_tree.
+            # pgid stays equal to pid for kill_process_tree.
             popen_kw["start_new_session"] = True
         # The top-of-function check can pass, then shutdown_all (or get())
         # sets _retired, and this call would still Popen. Re-check immediately
