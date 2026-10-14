@@ -9,8 +9,11 @@ import pytest
 
 from plugin.calc.python.image_egress import (
     _DRAW_GRAPHIC_SERVICE,
+    _IMAGE_ANNOTATION_PREFIX,
     _PLOT_SHAPE_NAME_PREFIX,
     ImageEgressError,
+    _plot_slot_index,
+    _plot_slot_name,
     _shape_anchor_matches_cell,
     insert_image_result_on_sheet,
 )
@@ -690,4 +693,284 @@ def test_reused_shape_not_removed_on_failure():
 
     # Reused shape must still remain on the draw page
     assert plot in page.shapes
+
+
+def test_off_main_failure_does_not_replace_user_annotation():
+    """A user comment (including whitespace) is never replaced by an egress failure."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    sheet = MagicMock()
+    cell = CalcCellStub(col=0, row=0)
+    ann = MagicMock()
+    ann.getString.return_value = "keep me"
+    cell.getAnnotation = lambda: ann
+
+    annotations = MagicMock()
+    sheet.getAnnotations.return_value = annotations
+
+    posted_calls = []
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: posted_calls.append(fn)),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (0, 0)),
+        ),
+        patch(
+            "plugin.calc.python.image_egress._insert_image_result_on_sheet_impl",
+            side_effect=ImageEgressError("test egress failure"),
+        ),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, notify_cell=True)
+        assert len(posted_calls) == 1
+        posted_calls[0]()
+
+        ann.setString.assert_not_called()
+        annotations.insertNew.assert_not_called()
+
+        # Second case with whitespace comment
+        ann.getString.return_value = " "
+        posted_calls.clear()
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, notify_cell=True)
+        assert len(posted_calls) == 1
+        posted_calls[0]()
+
+        ann.setString.assert_not_called()
+        annotations.insertNew.assert_not_called()
+
+
+def test_off_main_failure_updates_existing_writeragent_annotation():
+    """An existing WriterAgent image: note is updated in place via setString without calling insertNew."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    sheet = MagicMock()
+    cell = CalcCellStub(col=0, row=0)
+    ann = MagicMock()
+    ann.getString.return_value = f"{_IMAGE_ANNOTATION_PREFIX}old"
+    cell.getAnnotation = lambda: ann
+
+    annotations = MagicMock()
+    sheet.getAnnotations.return_value = annotations
+
+    posted_calls = []
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: posted_calls.append(fn)),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (0, 0)),
+        ),
+        patch(
+            "plugin.calc.python.image_egress._insert_image_result_on_sheet_impl",
+            side_effect=ImageEgressError("new error text"),
+        ),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, notify_cell=True)
+        assert len(posted_calls) == 1
+        posted_calls[0]()
+
+    ann.setString.assert_called_once()
+    called_text = ann.setString.call_args[0][0]
+    assert called_text.startswith(_IMAGE_ANNOTATION_PREFIX)
+    assert "new error text" in called_text
+    annotations.insertNew.assert_not_called()
+
+
+def test_off_main_annotation_does_not_invent_an_address():
+    """When both getCellAddress and CellAddress constructor fail, insertNew is not called with a stand-in."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    sheet = MagicMock()
+    cell = MagicMock()
+    ann = MagicMock()
+    ann.getString.return_value = ""
+    cell.getAnnotation = lambda: ann
+    cell.getCellAddress.side_effect = RuntimeError("no address")
+
+    annotations = MagicMock()
+    sheet.getAnnotations.return_value = annotations
+
+    posted_calls = []
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: posted_calls.append(fn)),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (0, 0)),
+        ),
+        patch(
+            "plugin.calc.python.image_egress._insert_image_result_on_sheet_impl",
+            side_effect=ImageEgressError("test egress failure"),
+        ),
+        patch("com.sun.star.table.CellAddress", side_effect=RuntimeError("cannot construct CellAddress"), create=True),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, notify_cell=True)
+        assert len(posted_calls) == 1
+        posted_calls[0]()
+
+    annotations.insertNew.assert_not_called()
+
+
+def test_off_main_success_clears_only_writeragent_annotation():
+    """Success clears only annotations starting with WriterAgent image:, leaving user notes intact."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    sheet = MagicMock()
+    cell = CalcCellStub(col=2, row=5)
+    ann = MagicMock()
+    ann.getString.return_value = "keep me"
+    cell.getAnnotation = lambda: ann
+
+    annotations = MagicMock()
+    sheet.getAnnotations.return_value = annotations
+
+    posted_calls = []
+
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: posted_calls.append(fn)),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (5, 2)),
+        ),
+        patch("plugin.calc.python.image_egress._insert_image_result_on_sheet_impl"),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, notify_cell=True)
+        assert len(posted_calls) == 1
+        posted_calls[0]()
+
+        annotations.removeByIndex.assert_not_called()
+        ann.setString.assert_not_called()
+
+        # Other case: note starts with prefix, annotations list has matching item
+        ann.getString.return_value = f"{_IMAGE_ANNOTATION_PREFIX}old error"
+        item = MagicMock()
+        item.getPosition.return_value = SimpleNamespace(Column=2, Row=5)
+        annotations.getCount.return_value = 1
+        annotations.getByIndex.return_value = item
+
+        posted_calls.clear()
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, notify_cell=True)
+        assert len(posted_calls) == 1
+        posted_calls[0]()
+
+        annotations.removeByIndex.assert_called_once_with(0)
+
+
+def test_main_thread_failure_raises_without_annotation():
+    """Main-thread insert failure raises ImageEgressError without setting cell annotations."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    sheet = MagicMock()
+    cell = CalcCellStub(col=0, row=0)
+    ann = MagicMock()
+    cell.getAnnotation = lambda: ann
+    annotations = MagicMock()
+    sheet.getAnnotations.return_value = annotations
+
+    with (
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (0, 0)),
+        ),
+        patch(
+            "plugin.calc.python.image_egress._insert_image_result_on_sheet_impl",
+            side_effect=ImageEgressError("boom"),
+        ),
+        pytest.raises(ImageEgressError, match="boom"),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, notify_cell=True)
+
+    ann.setString.assert_not_called()
+    annotations.insertNew.assert_not_called()
+
+
+def test_plot_slot_index_round_trip_and_rejects_int_junk():
+    assert _plot_slot_name(0) == "WriterAgentPlot"
+    assert _plot_slot_index("WriterAgentPlot") == 0
+    assert _plot_slot_name(1) == "WriterAgentPlot_2"
+    assert _plot_slot_index("WriterAgentPlot_2") == 1
+    assert _plot_slot_index("WriterAgentPlot_10") == 9
+
+    assert _plot_slot_index("WriterAgentPlot_1") is None
+    assert _plot_slot_index("WriterAgentPlot_02") is None
+    assert _plot_slot_index("WriterAgentPlot_+2") is None
+    assert _plot_slot_index("WriterAgentPlot_1_0") is None
+    assert _plot_slot_index("WriterAgentPlot_ 2") is None
+    assert _plot_slot_index("WriterAgentPlot_2 ") is None
+
+
+def test_image_count_keeps_non_decimal_names():
+    """Only valid decimal plot slot names >= image_count are dropped; non-decimal names are preserved."""
+    cell = CalcCellStub(col=3, row=6)
+    slot0 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
+    slot2 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_2", cell)
+    slot10 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_10", cell)
+
+    junk_1_0 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_1_0", cell)
+    junk_plus = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_+2", cell)
+    junk_02 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_02", cell)
+    junk_1 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_1", cell)
+    user_photo = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "UserPhoto", cell)
+
+    page = _DrawPage([slot0, slot2, slot10, junk_1_0, junk_plus, junk_02, junk_1, user_photo])
+
+    ctx = MagicMock()
+    target = MagicMock(name="target")
+    sheet = MagicMock()
+    sheet.DrawPage = page
+    target.getCurrentController.return_value = None
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(MagicMock(), MagicMock(Width=5000, Height=4000))),
+    ):
+        target.createInstance.return_value = MagicMock()
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=0, image_count=1)
+
+    assert slot2 not in page.shapes
+    assert slot10 not in page.shapes
+    assert slot0 in page.shapes
+    assert junk_1_0 in page.shapes
+    assert junk_plus in page.shapes
+    assert junk_02 in page.shapes
+    assert junk_1 in page.shapes
+    assert user_photo in page.shapes
+
+
+def test_temp_images_unlinked_when_a_later_write_fails():
+    tool = RunVenvPythonScript()
+    ctx = MagicMock()
+    ctx.doc_type = "calc"
+    ctx.ctx = MagicMock()
+    target = MagicMock(name="target_doc")
+    ctx.doc = target
+
+    img1 = dict(_IMAGE_PAYLOAD)
+    img2 = dict(_IMAGE_PAYLOAD)
+
+    with (
+        patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": [img1, img2]}),
+        patch("plugin.calc.python.venv.write_image_payload_to_temp", side_effect=["/tmp/plot0.svg", OSError("second write failed")]),
+        patch(
+            "plugin.framework.queue_executor.execute_on_main_thread",
+            side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+        ),
+        patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as mock_insert,
+        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
+        patch("os.unlink") as mock_unlink,
+        pytest.raises(OSError, match="second write failed"),
+    ):
+        tool.execute(ctx, code="plt.plot([1]); plt.plot([2])")
+
+    mock_unlink.assert_called_once_with("/tmp/plot0.svg")
+    mock_insert.assert_not_called()
 
