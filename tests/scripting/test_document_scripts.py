@@ -31,6 +31,7 @@ from plugin.scripting.document_scripts import (
     get_calc_init_script,
     get_document_scripts,
     handle_editor_script_message,
+    new_script_name_error,
     parse_document_script_display_name,
     resolve_run_script_selection,
     resolve_script_picker_entry,
@@ -40,6 +41,7 @@ from plugin.scripting.document_scripts import (
     set_calc_init_script,
     set_document_scripts,
 )
+from plugin.framework.i18n import _
 from plugin.scripting.domain_registry import (
     ANALYSIS_SCRIPT_DISPLAY_PREFIX,
     DOC_SCRIPT_DISPLAY_PREFIX,
@@ -298,6 +300,42 @@ def test_attach_rejects_workbook_init_name():
     err_init = attach_document_script(doc, "Init", "result = 1")
     assert err_init is not None
     assert get_document_scripts(doc) == {}
+
+
+def test_new_script_name_error_matches_attach_and_allows_user_init():
+    assert new_script_name_error("", attach=True) == _("Script name cannot be empty.")
+    assert new_script_name_error("", attach=False) == _("Script name cannot be empty.")
+    assert new_script_name_error("  ", attach=True) is None
+
+    err_prefix = new_script_name_error("[Doc] x", attach=False)
+    assert err_prefix is not None
+    assert "reserved prefix" in err_prefix and "[Doc] x" in err_prefix
+
+    err_init_upper = new_script_name_error("INIT", attach=True)
+    assert err_init_upper is not None and "workbook init" in err_init_upper
+    err_init_title = new_script_name_error("Init", attach=True)
+    assert err_init_title is not None and "workbook init" in err_init_title
+
+    assert new_script_name_error("INIT", attach=False) is None
+    assert new_script_name_error("Init", attach=False) is None
+    assert new_script_name_error("init", attach=True) is None
+    assert new_script_name_error("MyScript", attach=True) is None
+
+    doc = MagicMock()
+    err_attach = attach_document_script(doc, "INIT", "result = 1")
+    assert err_attach is not None
+    assert err_attach.code == DocumentScriptErrorCode.RESERVED_NAME
+    assert "workbook init" in err_attach
+
+    with (
+        patch("plugin.framework.config.get_config", return_value={}),
+        patch("plugin.framework.config.set_config") as mock_set,
+    ):
+        assert save_user_script("INIT", "x = 1") is None
+        mock_set.assert_called_once()
+        cfg_key, cfg_val = mock_set.call_args[0]
+        assert cfg_key == "saved_python_scripts"
+        assert "INIT" in cfg_val
 
 
 def test_delete_document_script():

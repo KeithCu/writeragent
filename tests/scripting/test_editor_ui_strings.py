@@ -44,6 +44,16 @@ def test_run_script_ui_matches_native_dialog_labels():
     assert ui["save_as_label"] == _("Save As...")
     assert ui["save_as_title"] == _("Save Script As")
     assert ui["delete_label"] == _("Delete")
+    assert ui["attach_to_document_label"] == _("Attach to this document")
+    assert ui["attach_unavailable_no_document"] == _(
+        "Attach to this document (no document is open)"
+    )
+    assert ui["attach_unavailable_readonly"] == _(
+        "Attach to this document (this document is read-only)"
+    )
+    assert ui["attach_unavailable_stale"] == _(
+        "Attach to this document (this document changed)"
+    )
     assert ui["builtin_readonly"] == _("Built-in helpers are read-only. Use Save As to copy one into My Scripts.")
     assert "copying_script" not in ui
     assert "copy_prompt" not in ui
