@@ -13,12 +13,27 @@ class TestEndpointUrlSuitableForModelFetch:
         assert not (endpoint_url_suitable_for_v1_models_fetch('http://'))
         assert not (endpoint_url_suitable_for_v1_models_fetch('ftp://api.openai.com'))
         assert not (endpoint_url_suitable_for_v1_models_fetch('not-a-url'))
+        assert not (endpoint_url_suitable_for_v1_models_fetch('http://localhost:1a'))
+        assert not (endpoint_url_suitable_for_v1_models_fetch('http://localhost:99999'))
 
     def test_complete_urls_accepted(self):
         assert (endpoint_url_suitable_for_v1_models_fetch('http://localhost:1234'))
         assert (endpoint_url_suitable_for_v1_models_fetch('https://api.openai.com/v1'))
         assert (endpoint_url_suitable_for_v1_models_fetch('http://127.0.0.1:11434'))
         assert (endpoint_url_suitable_for_v1_models_fetch('http://[::1]:8080'))
+
+    def test_bad_port_helpers_return_none_or_false_without_raising(self):
+        from plugin.framework.client.model_fetcher import (
+            fetch_available_models,
+            cached_image_models,
+            settings_catalog_is_warm,
+            fetch_available_image_models,
+        )
+        bad_url = 'http://localhost:1a'
+        assert fetch_available_models(bad_url) is None
+        assert cached_image_models(bad_url) is None
+        assert settings_catalog_is_warm(bad_url) is False
+        assert fetch_available_image_models(bad_url) is None
 
 
 class TestFetchAvailableModelsCache:
@@ -79,6 +94,27 @@ class TestFetchAvailableModelsCache:
         assert 'typed-a' not in k_a
         assert 'typed-b' not in k_b
         assert len({k_saved, k_a, k_b}) == 3
+
+    def test_fetch_available_models_returns_copy_preventing_mutation(self):
+        from plugin.framework.client import model_fetcher as cfg
+        with patch('plugin.framework.client.requests.sync_request') as mock_sync:
+            mock_sync.return_value = {'data': [{'id': 'm1'}, {'id': 'm2'}]}
+            r1 = cfg.fetch_available_models('http://127.0.0.1:58902')
+            assert r1 == ['m1', 'm2']
+            r1.append('mutated')
+            r2 = cfg.fetch_available_models('http://127.0.0.1:58902')
+            assert r2 == ['m1', 'm2']
+            assert 'mutated' not in r2
+
+    def test_fetch_available_models_unexpected_body_logs_warning(self, caplog):
+        import logging
+        from plugin.framework.client import model_fetcher as cfg
+        caplog.set_level(logging.WARNING, logger="plugin.framework.client.model_fetcher")
+        with patch('plugin.framework.client.requests.sync_request') as mock_sync:
+            mock_sync.return_value = {'unexpected': True}
+            result = cfg.fetch_available_models('http://127.0.0.1:58909')
+            assert result is None
+            assert any("unexpected body structure" in r.message for r in caplog.records)
 
 
 class TestTextModelPlaceholderGuards:
@@ -321,7 +357,7 @@ class TestHasNativeVision:
     def setup_method(self):
         import plugin.framework.client.model_fetcher as mf
         mf._model_fetch_vision_cache.clear()
-        mf._ollama_capabilities_cache.clear()
+        mf._ollama_show_cache.clear()
         # A prior test may have memoized a failed OpenRouter GET as None.
         # has_native_vision treats that as "already fetched" and will not HTTP again.
         for cache in (mf._model_fetch_cache, mf._model_fetch_image_cache, mf._model_context_cache):
@@ -343,12 +379,12 @@ class TestHasNativeVision:
                 return cache_dict
             return {}
 
-        def mock_set_config(key, val):
+        def mock_update_config_mapping(key, mutator, event_key=None):
             if key == "vision_support_map":
-                cache_dict.update(val)
+                mutator(cache_dict)
 
         with patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
             set_native_vision_support('my-custom-model', 'http://localhost:11434', True)
             assert (has_native_vision('my-custom-model', 'http://localhost:11434'))
 
@@ -364,7 +400,7 @@ class TestHasNativeVision:
             url = 'https://openrouter.ai/api/v1/models'
             from plugin.framework.client.model_fetcher import _model_fetch_cache_key
             ck = _model_fetch_cache_key(url, 'https://openrouter.ai/api')
-            _model_fetch_vision_cache[ck] = ['custom-openrouter-vision-model']
+            _model_fetch_vision_cache[ck] = {'custom-openrouter-vision-model': True}
 
             assert (has_native_vision('custom-openrouter-vision-model', 'https://openrouter.ai/api'))
             assert not (has_native_vision('some-other-model', 'https://openrouter.ai/api'))
@@ -416,15 +452,14 @@ class TestHasNativeVision:
                 return dict(saved)
             return {}
 
-        def mock_set_config(key, val):
+        def mock_update_config_mapping(key, mutator, event_key=None):
             if key == 'vision_support_map':
-                saved.clear()
-                saved.update(val)
+                mutator(saved)
 
         with patch('plugin.framework.client.requests.sync_request', return_value=payload) as mock_sync, \
              patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
              patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
             assert (has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api'))
             assert (mock_sync.call_count) == (1)
             assert (saved['https://openrouter.ai/api@google/gemini-3.8-flash']) is True
@@ -457,16 +492,15 @@ class TestHasNativeVision:
                 return dict(saved)
             return {}
 
-        def mock_set_config(key, val):
+        def mock_update_config_mapping(key, mutator, event_key=None):
             if key == 'vision_support_map':
-                saved.clear()
-                saved.update(val)
+                mutator(saved)
 
         endpoint = 'https://openrouter.ai/api'
         with patch('plugin.framework.client.requests.sync_request', return_value=payload) as mock_sync, \
              patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
              patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
             assert not (has_native_vision('google/gemini-3.8-flash', endpoint))
             assert (saved) == ({})
             assert (has_native_vision('google/gemini-3.8-flash', endpoint, unknown_is_vision=True))
@@ -491,16 +525,15 @@ class TestHasNativeVision:
                 return dict(saved)
             return {}
 
-        def mock_set_config(key, val):
+        def mock_update_config_mapping(key, mutator, event_key=None):
             if key == 'vision_support_map':
-                saved.clear()
-                saved.update(val)
+                mutator(saved)
 
         endpoint = 'https://openrouter.ai/api'
         with patch('plugin.framework.client.requests.sync_request', return_value=payload), \
              patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
              patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
             assert not (has_native_vision('text-only-a', endpoint))
             assert (saved['https://openrouter.ai/api@text-only-a']) is False
             # A stored no still wins over the UI fail-open flag.
@@ -525,16 +558,15 @@ class TestHasNativeVision:
                 return dict(saved)
             return {}
 
-        def mock_set_config(key, val):
+        def mock_update_config_mapping(key, mutator, event_key=None):
             if key == 'vision_support_map':
-                saved.clear()
-                saved.update(val)
+                mutator(saved)
 
         endpoint = 'https://openrouter.ai/api'
         with patch('plugin.framework.client.requests.sync_request', return_value=payload), \
              patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
              patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
             assert (has_native_vision('sees', endpoint))
             assert (saved['https://openrouter.ai/api@sees']) is True
             assert not (has_native_vision('blind', endpoint))
@@ -555,15 +587,14 @@ class TestHasNativeVision:
                 return dict(saved)
             return {}
 
-        def mock_set_config(key, val):
+        def mock_update_config_mapping(key, mutator, event_key=None):
             if key == 'vision_support_map':
-                saved.clear()
-                saved.update(val)
+                mutator(saved)
 
         with patch('plugin.framework.client.requests.sync_request', side_effect=OSError('down')), \
              patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=''), \
              patch('plugin.framework.client.model_fetcher.get_config', side_effect=mock_get_config), \
-             patch('plugin.framework.client.model_fetcher.set_config', side_effect=mock_set_config):
+             patch('plugin.framework.client.model_fetcher.update_config_mapping', side_effect=mock_update_config_mapping):
             assert not (has_native_vision('google/gemini-3.8-flash', 'https://openrouter.ai/api'))
             assert (saved) == ({})
 
@@ -1096,3 +1127,96 @@ def test_catalog_truncated_json_is_not_a_model_list():
     conn.getresponse.return_value = response
     with patch("http.client.HTTPSConnection", return_value=conn):
         assert cfg.fetch_available_models(endpoint, api_key_override="sk-catalog-trunc") is None
+
+
+class TestAuthenticatedLocalModelsFetch:
+    def teardown_method(self):
+        import plugin.framework.client.model_fetcher as mf
+        for k in list(mf._model_fetch_cache):
+            if "11434" in k or "1234" in k:
+                mf._model_fetch_cache.pop(k, None)
+        mf._ollama_show_cache.clear()
+
+    def test_fetch_available_models_sends_bearer_key_for_ollama(self):
+        from plugin.framework.client.model_fetcher import fetch_available_models
+        with patch('plugin.framework.client.requests.sync_request') as mock_sync:
+            mock_sync.return_value = {'data': [{'id': 'llama3'}]}
+            fetch_available_models("http://127.0.0.1:11434", api_key_override="secret")
+            mock_sync.assert_called_once()
+            headers = mock_sync.call_args[1]["headers"]
+            assert headers.get("Authorization") == "Bearer secret"
+
+    def test_fetch_available_models_sends_bearer_key_for_lmstudio(self):
+        from plugin.framework.client.model_fetcher import fetch_available_models
+        with patch('plugin.framework.client.requests.sync_request') as mock_sync:
+            mock_sync.return_value = {'data': [{'id': 'qwen'}]}
+            fetch_available_models("http://127.0.0.1:1234", api_key_override="lm-secret")
+            mock_sync.assert_called_once()
+            headers = mock_sync.call_args[1]["headers"]
+            assert headers.get("Authorization") == "Bearer lm-secret"
+
+    def test_query_ollama_show_with_key_sends_bearer(self):
+        from plugin.framework.client.model_fetcher import query_ollama_show
+        with patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value="ollama-key"), \
+             patch('plugin.framework.client.requests.sync_request') as mock_sync:
+            mock_sync.return_value = {"capabilities": ["vision"], "model_info": {}}
+            info = query_ollama_show("http://127.0.0.1:11434", "llava")
+            mock_sync.assert_called_once()
+            args, kwargs = mock_sync.call_args
+            assert args[0] == "http://127.0.0.1:11434/api/show"
+            assert kwargs["headers"].get("Authorization") == "Bearer ollama-key"
+            assert kwargs["headers"].get("Content-Type") == "application/json"
+            assert json.loads(kwargs["data"].decode("utf-8")) == {"model": "llava"}
+            assert info["capabilities"] == ["vision"]
+
+    def test_query_ollama_show_without_key_sends_no_auth(self):
+        from plugin.framework.client.model_fetcher import query_ollama_show
+        with patch('plugin.framework.client.model_fetcher.get_api_key_for_endpoint', return_value=""), \
+             patch('plugin.framework.client.requests.sync_request') as mock_sync:
+            mock_sync.return_value = {"capabilities": []}
+            query_ollama_show("http://127.0.0.1:11434", "llama3")
+            mock_sync.assert_called_once()
+            kwargs = mock_sync.call_args[1]
+            assert "Authorization" not in kwargs["headers"]
+
+
+class TestMalformedArchitectureHandling:
+    def teardown_method(self):
+        import plugin.framework.client.model_fetcher as mf
+        for k in list(mf._model_fetch_cache):
+            if "58999" in k:
+                mf._model_fetch_cache.pop(k, None)
+
+    def test_parse_v1_models_response_handles_string_architecture(self):
+        from plugin.framework.client.model_fetcher import _parse_v1_models_response
+        body = {
+            "data": [
+                {"id": "good", "architecture": {"input_modalities": ["image"]}},
+                {"id": "bad-arch", "architecture": "nope"},
+                {"id": "text-only", "input_modalities": ["text"]},
+            ]
+        }
+        parsed = _parse_v1_models_response(body)
+        assert parsed is not None
+        models, image_models, vision_declared = parsed
+        assert models == ["good", "bad-arch", "text-only"]
+        assert vision_declared.get("good") is True
+        assert vision_declared.get("text-only") is False
+        assert "bad-arch" not in vision_declared
+        assert image_models == []
+
+    def test_fetch_available_models_with_string_architecture_does_not_log_exception(self, caplog):
+        import logging
+        from plugin.framework.client.model_fetcher import fetch_available_models
+        caplog.set_level(logging.ERROR, logger="plugin.framework.client.model_fetcher")
+        body = {
+            "data": [
+                {"id": "good", "architecture": {"input_modalities": ["image"]}},
+                {"id": "bad-arch", "architecture": "nope"},
+                {"id": "text-only", "input_modalities": ["text"]},
+            ]
+        }
+        with patch('plugin.framework.client.requests.sync_request', return_value=body):
+            res = fetch_available_models("http://127.0.0.1:58999")
+            assert res == ["good", "bad-arch", "text-only"]
+            assert not any(r.levelno >= logging.ERROR for r in caplog.records)

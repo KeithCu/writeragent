@@ -67,7 +67,7 @@ from plugin.framework.async_stream import accumulate_delta, coalesce_split_tool_
 from plugin.framework.constants import USER_AGENT
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
-from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers, reject_control_chars_in_api_key
+from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers
 from plugin.framework.errors import NetworkError, WriterAgentException, is_disposed_exception
 from plugin.framework.url_utils import get_api_version_suffix, normalize_endpoint_url
 
@@ -532,16 +532,6 @@ class LlmClient:
         if auth_info:
             auth_headers = build_auth_headers(auth_info)
             h.update(auth_headers)
-
-        # Legacy fallback for simple/manual endpoints: if an api_key exists and no
-        # auth header was added (e.g. style='none' or unknown provider), add Bearer.
-        # ``.get("api_key", "")`` still returns None when the key is present and
-        # null, and str.strip on None raises AttributeError. Treat null like a
-        # missing key and omit Bearer. Other call sites already use ``str(... or "")``.
-        api_key = str(self.config.get("api_key") or "").strip()
-        if api_key and "Authorization" not in h and "x-api-key" not in h:
-            reject_control_chars_in_api_key(api_key)
-            h["Authorization"] = f"Bearer {api_key}"
 
         return h
 

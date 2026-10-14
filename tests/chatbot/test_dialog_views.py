@@ -285,6 +285,18 @@ class TestEndpointCombinedListener:
         assert (apply_calls[0][1].get('skip_fetch'))
         listener._bg_fetch.assert_called_once()
 
+    def test_debounced_fetch_with_bad_port_does_not_raise(self):
+        from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+        dialog = MagicMock()
+        ctx = MagicMock()
+        combo = MagicMock()
+        combo.getText.return_value = 'http://localhost:1a'
+        listener = EndpointCombinedListener(dialog, ctx, combo)
+        listener.run_in_background = lambda fn, name=None: fn()
+        listener.post_to_main_thread = lambda fn: fn()
+        listener._run_fetch(listener._debounce_gen)
+
     def test_apply_dropdowns_openrouter_stt_uses_transcription_models(self):
         from plugin.chatbot.dialog_views import EndpointCombinedListener
 

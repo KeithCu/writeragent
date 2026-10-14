@@ -9,7 +9,7 @@
 
 `tool_loop` passes `window=resolve_context_window(client)` into `compact_session`. Order:
 
-1. **Ollama:** live `num_ctx` from cached `POST /api/show` (`parameters` / Modelfile only). Missing → `None`. No `/v1/models` cache, no catalog, no trained `model_info["*.context_length"]` (#570).
+1. **Ollama:** live `num_ctx` from cached `POST /api/show` (`parameters` / Modelfile only; when a key is saved for that endpoint, the probe sends the same Bearer header as chat). Missing → `None`. No `/v1/models` cache, no catalog, no trained `model_info["*.context_length"]` (#570).
 2. **Cached live metadata:** `cached_v1_context_tokens(endpoint, model_id, provider)` reads the process memo filled when Settings/sidebar already fetched `/v1/models`. Accepts `context_length` **or** `context_window` (prefer `context_length` if both). OpenRouter `:nitro` / dynamic-suffix equivalence. **Does not HTTP.**
 3. **`DEFAULT_MODELS`:** provider-keyed walk, then any-id match for custom (`writeragent-mock` → 32768).
 4. **`None`** → `compact_session` returns `reason="no_window"` (proactive **and** force compact skip).

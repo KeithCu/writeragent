@@ -19,7 +19,7 @@ from plugin.framework.client.model_fetcher import (
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.default_models import DEFAULT_MODELS, resolve_model_id, together_speech_ids
 from plugin.framework.constants import ModelCapability
-from plugin.framework.client.model_fetcher import fetch_available_models, _filter_fetched_models
+from plugin.framework.client.model_fetcher import fetch_available_models, _filter_fetched_models, endpoint_url_suitable_for_v1_models_fetch
 
 def _default_model_row_matches_combo(capability: Any, req_cap: str) -> bool:
     """True if a DEFAULT_MODELS row applies to this combobox (text/image/audio).
@@ -277,7 +277,10 @@ def populate_combobox_with_lru(
     if lru_key in _PLAIN_LRU_KEYS:
         return _populate_plain_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint)
 
-    provider = get_provider_from_endpoint(endpoint)
+    if endpoint and not endpoint_url_suitable_for_v1_models_fetch(endpoint):
+        provider = None
+    else:
+        provider = get_provider_from_endpoint(endpoint)
     req_cap = (
         "tts"
         if "tts" in lru_key.lower()

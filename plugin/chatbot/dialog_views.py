@@ -1520,7 +1520,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
     def _apply_dropdowns(self, resolved: str, models: Any = None, skip_fetch: bool = False) -> None:
         api_key_ov = self._live_api_key()
         skip_remote = bool(skip_fetch)
-        resolved_provider = self.get_provider_from_endpoint(resolved)
+        resolved_provider = (
+            self.get_provider_from_endpoint(resolved)
+            if resolved and self.endpoint_url_suitable_for_v1_models_fetch(resolved)
+            else None
+        )
         # The first fill compares against the saved endpoint's provider.
         # Later fills compare against the provider this listener last filled
         # for (_painted_provider). Comparing against the saved endpoint on
@@ -1721,7 +1725,9 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         models = None
         if resolved and self.endpoint_url_suitable_for_v1_models_fetch(resolved):
             models = self.fetch_available_models(resolved, api_key_override=key_ov)
-        provider = self.get_provider_from_endpoint(resolved) if resolved else None
+            provider = self.get_provider_from_endpoint(resolved)
+        else:
+            provider = None
         # These GETs used to run in _apply_dropdowns on the UI thread after the
         # text list returned. OpenRouter image is GET /v1/images/models; speech
         # and transcription are separate modality queries; Together voices are
