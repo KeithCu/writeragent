@@ -64,7 +64,7 @@ The same 14 trusted helpers are available as **read-only pre-built scripts** in 
 4. Edit `params={...}` in the script header if needed (e.g. column names for `kpi_summary`)
 5. Click **Run** — results are written as a multi-cell report starting at the selection anchor (metrics, flags, tables)
 
-Built-in helpers use the same trusted `run_analysis` path as `analyze_data` (not arbitrary sandbox code). Use **Copy to My Scripts** to customize a helper; **Attach** is disabled for built-ins.
+Built-in helpers use the same trusted `run_analysis` path as `analyze_data` (not arbitrary sandbox code). Use **Save As** and leave **Attach to this document** unchecked to copy a helper into My Scripts. Built-in rows cannot be saved or deleted in place.
 
 See [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoffice.md) for venv setup.
 

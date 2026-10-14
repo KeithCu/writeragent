@@ -31,8 +31,7 @@ from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework import config
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.i18n import _
-from plugin.framework.json_utils import safe_json_loads
-from plugin.framework.uno_context import get_active_document, get_desktop, normalize_doc_url
+from plugin.framework.uno_context import get_desktop, normalize_doc_url
 from plugin.scripting.domain_registry import (
     DOC_SCRIPT_DISPLAY_PREFIX,
     SCRIPT_ORIGIN_DOCUMENT,
@@ -41,7 +40,7 @@ from plugin.scripting.domain_registry import (
     parse_picker_display_name,
     picker_display_name,
 )
-from plugin.scripting.session_manager import calc_init_session_id
+from plugin.scripting.session_manager import _enumeration_should_continue, calc_init_session_id
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +63,7 @@ class DocumentScriptErrorCode(str, Enum):
     ALREADY_EXISTS = "already_exists"
     EMPTY_NAME = "empty_name"
     NOT_FOUND = "not_found"
+    UNREADABLE = "unreadable"
 
 
 class DocumentScriptError(str):
@@ -87,21 +87,6 @@ def document_scripts_identity(doc: Any) -> str:
     return ""
 
 
-def get_active_document_for_scripts(ctx: Any) -> Any | None:
-    """Active Writer, Calc, or Draw model.
-
-    Uses ``get_active_document`` so a disposed document is not reported as
-    Start Center (``None``). ``None`` remains the answer when nothing is open
-    or the active component is another type.
-    """
-    doc = get_active_document(ctx)
-    if doc is None:
-        return None
-    if is_writer(doc) or is_calc(doc) or is_draw(doc):
-        return doc
-    return None
-
-
 def is_document_readonly_for_scripts(doc: Any) -> bool:
     if doc is None:
         return True
@@ -121,51 +106,64 @@ def _envelope_to_json(scripts: dict[str, str]) -> str:
     )
 
 
-def _envelope_from_json(raw: str) -> dict[str, str] | None:
-    if not (raw or "").strip():
-        return None
-    parsed = safe_json_loads(raw.strip())
+def _unreadable_document_scripts() -> DocumentScriptError:
+    return DocumentScriptError(
+        _("Stored document scripts are unreadable, so they were left unchanged."),
+        DocumentScriptErrorCode.UNREADABLE,
+    )
+
+
+def _load_document_script_map(doc: Any) -> tuple[dict[str, str], DocumentScriptError | None]:
+    if doc is None:
+        return {}, None
+    raw = get_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, default=None)
+    if raw is None:
+        return {}, None
+    text = str(raw).strip()
+    if not text:
+        return {}, None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        log.warning("document_scripts: failed to parse JSON envelope", exc_info=True)
+        return {}, _unreadable_document_scripts()
     if not isinstance(parsed, dict):
         log.warning("document_scripts: expected object, got %s", type(parsed).__name__)
-        return None
+        return {}, _unreadable_document_scripts()
     if parsed.get("version") != _ENVELOPE_VERSION:
         log.warning("document_scripts: unsupported version %r", parsed.get("version"))
-        return None
+        return {}, _unreadable_document_scripts()
     scripts_raw = parsed.get("scripts")
     if not isinstance(scripts_raw, dict):
         log.warning("document_scripts: missing scripts map")
-        return None
+        return {}, _unreadable_document_scripts()
     out: dict[str, str] = {}
     for key, value in scripts_raw.items():
-        if isinstance(key, str) and isinstance(value, str):
-            out[key] = value
-    return out
+        if not isinstance(key, str) or not isinstance(value, str):
+            log.warning("document_scripts: non-string script entry")
+            return {}, _unreadable_document_scripts()
+        out[key] = value
+    return out, None
 
 
 def get_document_scripts(doc: Any) -> dict[str, str]:
-    if doc is None:
-        return {}
-    raw = get_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, default=None)
-    if raw is None:
-        return {}
-    scripts = _envelope_from_json(str(raw))
-    if scripts is None:
-        return {}
+    scripts, _err = _load_document_script_map(doc)
     return scripts
 
 
-def _check_payload_size(scripts: dict[str, str]) -> DocumentScriptError | None:
-    encoded = _envelope_to_json(scripts).encode("utf-8")
-    if len(encoded) > _MAX_DOCUMENT_SCRIPTS_BYTES:
-        return DocumentScriptError(
-            _("Document scripts are too large to store in the document ({0} bytes).").format(len(encoded)),
+def _encoded_envelope(scripts: dict[str, str]) -> tuple[str, DocumentScriptError | None]:
+    payload = _envelope_to_json(scripts)
+    nbytes = len(payload.encode("utf-8"))
+    if nbytes > _MAX_DOCUMENT_SCRIPTS_BYTES:
+        return payload, DocumentScriptError(
+            _("Document scripts are too large to store in the document ({0} bytes).").format(nbytes),
             DocumentScriptErrorCode.TOO_LARGE,
         )
     for name, code in scripts.items():
-        nbytes = len((code or "").encode("utf-8"))
-        if nbytes > _SOFT_WARN_SCRIPT_BYTES:
-            log.warning("document_scripts: script %r is large (%d bytes)", name, nbytes)
-    return None
+        script_bytes = len((code or "").encode("utf-8"))
+        if script_bytes > _SOFT_WARN_SCRIPT_BYTES:
+            log.warning("document_scripts: script %r is large (%d bytes)", name, script_bytes)
+    return payload, None
 
 
 def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptError | None:
@@ -174,7 +172,7 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
             _("No document is open to save scripts."),
             DocumentScriptErrorCode.NO_DOCUMENT,
         )
-    err = _check_payload_size(scripts)
+    payload, err = _encoded_envelope(scripts)
     if err:
         return err
     if is_document_readonly_for_scripts(doc):
@@ -186,7 +184,6 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
             DocumentScriptErrorCode.READONLY,
         )
     try:
-        payload = _envelope_to_json(scripts)
         set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, payload)
     except DocumentDisposedError:
         raise
@@ -231,7 +228,10 @@ def get_calc_init_script(doc: Any, *, default: str = "") -> str:
 
 def set_calc_init_script(doc: Any, code: str) -> DocumentScriptError | None:
     """Persist init script on *doc* under the name 'INIT' in document scripts."""
-    scripts = dict(get_document_scripts(doc))
+    loaded, err = _load_document_script_map(doc)
+    if err:
+        return err
+    scripts = dict(loaded)
     # If both 'INIT' and 'Init' exist, a write to 'Init' while reads prefer
     # 'INIT' makes saves look like no-ops. Drop both keys and store one 'INIT'.
     scripts.pop("INIT", None)
@@ -253,13 +253,19 @@ def _enumerate_calc_documents(desktop: Any) -> list[Any]:
         enum = comps.createEnumeration()
         if not enum:
             return matches
+        # _enumerate_calc_documents used to continue when nextElement() raised
+        # while hasMoreElements() stayed true, so a stuck desktop enum spun
+        # on the UI thread. There was no cap, and any truthy hasMoreElements()
+        # counted as more. session_manager._enumeration_should_continue stops
+        # at _ENUM_CAP and accepts only True or 1. Counting every attempt, then
+        # continuing, stops the spin and still keeps a later Calc model when one
+        # element's getURL throws. _iter_desktop_models breaks on nextElement
+        # and would drop that later model.
+        seen = 0
         while True:
-            try:
-                has_more = enum.hasMoreElements()
-            except Exception:
+            if not _enumeration_should_continue(enum, seen, label="document_scripts"):
                 break
-            if not has_more:
-                break
+            seen += 1
             try:
                 elem = enum.nextElement()
             except Exception:
@@ -305,6 +311,8 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
         # With Writer focused and a Calc file open, enumerating the desktop
         # bound that Calc. The Python deck already refuses this.
         return None
+    # Impress, Base, and Math still enumerate. This helper is the init-script lookup.
+    # The Python deck refusal that returned None for Writer and Draw does not apply to them.
     if doc is None or not is_calc(doc):
         return _select_enumerated_calc_document(_enumerate_calc_documents(desktop))
     from plugin.framework.thread_guard import guard_uno
@@ -356,7 +364,10 @@ def attach_document_script(
             _("'{0}' is reserved for the workbook init script.").format(name),
             DocumentScriptErrorCode.RESERVED_NAME,
         )
-    scripts = dict(get_document_scripts(doc))
+    loaded, err = _load_document_script_map(doc)
+    if err:
+        return err
+    scripts = dict(loaded)
     if name in scripts and not overwrite:
         return DocumentScriptError(
             _("A script named '{0}' already exists in this document.").format(name),
@@ -375,7 +386,10 @@ def delete_document_script(doc: Any, name: str) -> DocumentScriptError | None:
             _("'{0}' is reserved for the workbook init script.").format(name),
             DocumentScriptErrorCode.RESERVED_NAME,
         )
-    scripts = dict(get_document_scripts(doc))
+    loaded, err = _load_document_script_map(doc)
+    if err:
+        return err
+    scripts = dict(loaded)
     # Deleting a script that is not there must not report success or rewrite
     # document properties. Return NOT_FOUND and skip set_document_scripts.
     if name not in scripts:
@@ -549,17 +563,13 @@ def build_scripts_list_message(
     user_scripts = get_user_scripts()
 
     doc = session_doc
-    if doc is None:
-        doc = get_active_document_for_scripts(ctx)
 
     document_available = doc is not None
     document_stale = False
-    document_readonly = is_document_readonly_for_scripts(doc) if doc else False
+    document_readonly = is_document_readonly_for_scripts(doc)
 
-    # Same predicate as save/attach/delete. An untitled capture of "" becomes
-    # a file URL on File -> Save; that is not a different document. Pass doc,
-    # not session_doc: when session_doc is None this function already
-    # substituted the active document, and None would hide a real URL change.
+    # The list and the writes both use the launch document;
+    # None is not a document, so it is not stale and not writable.
     if document_scripts_write_is_stale(doc, session_doc_url):
         document_stale = True
         document_readonly = True
@@ -571,10 +581,15 @@ def build_scripts_list_message(
         # reopen loaded the wrong row and Save wrote a different script.
         # scripts_manager.js documentScriptListKey must probe these keys for
         # the New / Save As overwrite check. The typed name is not a key.
-        doc_scripts = {
-            document_script_display_name(name): code
-            for name, code in picker_document_scripts(get_document_scripts(doc)).items()
-        }
+        loaded, load_err = _load_document_script_map(doc)
+        if load_err is None:
+            doc_scripts = {
+                document_script_display_name(name): code
+                for name, code in picker_document_scripts(loaded).items()
+            }
+        else:
+            if not status_ok_text and not status_error_text:
+                status_error_text = str(load_err)
 
     sections: list[dict[str, Any]] = [
         {"id": SCRIPT_ORIGIN_USER, "title": _("My Scripts"), "scripts": user_scripts},
@@ -593,7 +608,7 @@ def build_scripts_list_message(
     # That returned a '[Doc] X' selection missing from sections and wrote a
     # selection config entry against the stale doc. Pass None so selection
     # only considers user scripts and templates.
-    selection_doc = None if document_stale else doc
+    selection_doc = None if document_stale or doc is None else doc
     selected_name, _selected_code, _merged_scripts = resolve_run_script_selection(
         ctx, selection_doc, user_scripts
     )
@@ -618,8 +633,6 @@ SCRIPT_PICKER_MESSAGE_TYPES = frozenset(
         "request_scripts",
         "select_script",
         "save_script",
-        "attach_script",
-        "copy_script_to_user",
         "delete_script",
     }
 )
@@ -642,13 +655,23 @@ def get_user_scripts() -> dict[str, str]:
     return dict(scripts)
 
 
-def save_user_script(name: str, code: str) -> str | None:
+def read_only_helper_message() -> str:
+    return _("Built-in helpers are read-only. Use Save As to copy one into My Scripts.")
+
+
+def save_user_script(name: str, code: str) -> DocumentScriptError | None:
     from plugin.scripting.domain_registry import is_reserved_script_name
 
-    # Names starting with a reserved prefix such as "[Doc] " collide with
-    # document-script display keys. Reject them with ValueError.
+    # What was wrong: A reserved name raised ValueError. Monaco New does not
+    # pre-check prefixes, and _on_save_script did not catch it, so
+    # editor_host._handle_picker showed str(ValueError).
+    # Why this change fixes it: attach_document_script already returns RESERVED_NAME.
+    # Returning that error writes nothing and gives the picker a translated sentence.
     if is_reserved_script_name(name):
-        raise ValueError(f"Script name {name!r} starts with a reserved prefix")
+        return DocumentScriptError(
+            _("'{0}' starts with a reserved prefix.").format(name),
+            DocumentScriptErrorCode.RESERVED_NAME,
+        )
     scripts = get_user_scripts()
     scripts[name] = code
     config.set_config("saved_python_scripts", scripts)
@@ -695,24 +718,32 @@ def save_selected_script(
         if isinstance(save_err, str) and save_err:
             return save_err
         return None
-    doc_scripts = get_document_scripts(doc) if doc is not None else {}
-    real_doc_name = parse_document_script_display_name(display_name) or display_name
-    if real_doc_name in doc_scripts:
-        return save_document_script(doc, real_doc_name, code)
+    if doc is not None:
+        stored, load_err = _load_document_script_map(doc)
+    else:
+        stored, load_err = {}, None
     check_builtin = is_builtin_fn if is_builtin_fn is not None else is_picker_template_name
     if check_builtin(display_name):
         if allow_builtin_skip:
             return None
-        return _("Built-in helpers are read-only. Use Copy to My Scripts to customize.")
+        return read_only_helper_message()
+    if load_err is not None:
+        return str(load_err)
+    real_doc_name = parse_document_script_display_name(display_name) or display_name
+    if real_doc_name in stored:
+        return save_document_script(doc, real_doc_name, code)
     return _("Script '{0}' is not in My Scripts or this document, so it was not saved.").format(display_name)
 
 
 def _closed_document_scripts_list(status_error_text: str) -> dict[str, Any]:
     """Script list when the document is already gone and cannot be read again."""
+    # The second disposal happens while rebuilding the list. User scripts
+    # are config and need no document. Template supports() can touch the
+    # closed document, so they are omitted.
     return {
         "type": "scripts_list",
         "sections": [
-            {"id": SCRIPT_ORIGIN_USER, "title": _("My Scripts"), "scripts": {}},
+            {"id": SCRIPT_ORIGIN_USER, "title": _("My Scripts"), "scripts": get_user_scripts()},
             {"id": SCRIPT_ORIGIN_DOCUMENT, "title": _("This Document"), "scripts": {}},
         ],
         "document_available": False,
@@ -733,8 +764,6 @@ def _require_writable_session(
     if session_doc is None:
         if action_label == "save":
             return _("No document is open to save scripts.")
-        if action_label == "attach":
-            return _("No document is open to attach scripts.")
         return _("No document is open.")
     if document_scripts_write_is_stale(session_doc, session_doc_url):
         return _("Document changed — close and reopen Run Python Script to edit document scripts.")
@@ -785,11 +814,7 @@ def _on_save_script(
         send_list(status_error_text=_("Script name cannot be empty."))
         return True
     if not script_origin_is_writable(origin):
-        send_list(
-            status_error_text=_(
-                "Built-in helpers are read-only. Use Copy to My Scripts to customize."
-            )
-        )
+        send_list(status_error_text=read_only_helper_message())
         return True
     if origin == SCRIPT_ORIGIN_DOCUMENT:
         err = _require_writable_session(session_doc, session_doc_url, action_label="save")
@@ -803,14 +828,17 @@ def _on_save_script(
             # unwritable properties). Other save errors, including 'INIT' and
             # too-large, go back to the user. A blanket fallback skipped validation.
             if getattr(save_err, "code", None) == DocumentScriptErrorCode.READONLY:
-                if storage_name in get_user_scripts() and not bool(msg.get("overwrite")):
+                if storage_name in get_user_scripts():
                     send_list(
                         status_error_text=_(
                             "A script named '{0}' already exists in My Scripts. {1}"
                         ).format(storage_name, save_err)
                     )
                     return True
-                save_user_script(storage_name, script_code)
+                user_err = save_user_script(storage_name, script_code)
+                if isinstance(user_err, str) and user_err:
+                    send_list(status_error_text=str(user_err))
+                    return True
                 _remember_selection(session_doc, storage_name)
                 send_list(
                     status_ok_text=_("Saved script '{0}' to My Scripts. {1}").format(storage_name, save_err),
@@ -822,59 +850,13 @@ def _on_save_script(
         _remember_selection(session_doc, display_name)
         send_list(status_ok_text=_("Saved script '{0}' to this document.").format(storage_name))
         return True
-    save_user_script(name, script_code)
+    user_err = save_user_script(name, script_code)
+    if isinstance(user_err, str) and user_err:
+        send_list(status_error_text=str(user_err))
+        return True
     _remember_selection(session_doc, name)
     log.info("scripts picker: save_script '%s' (user)", name)
     send_list(status_ok_text=_("Saved script '{0}'.").format(name))
-    return True
-
-
-def _on_attach_script(
-    msg: dict[str, Any],
-    *,
-    session_doc: Any | None,
-    session_doc_url: str | None,
-    send_list: Callable[..., None],
-    **_unused: Any,
-) -> bool:
-    name = str(msg.get("name", "") or "").strip()
-    script_code = _script_code_from_message(msg)
-    overwrite = bool(msg.get("overwrite"))
-    err = _require_writable_session(session_doc, session_doc_url, action_label="attach")
-    if err:
-        send_list(status_error_text=err)
-        return True
-    storage_name = _document_script_storage_name(name)
-    attach_err = attach_document_script(session_doc, storage_name, script_code, overwrite=overwrite)
-    if attach_err:
-        send_list(status_error_text=str(attach_err))
-        return True
-    send_list(status_ok_text=_("Attached script '{0}' to this document.").format(storage_name))
-    return True
-
-
-def _on_copy_script_to_user(
-    msg: dict[str, Any],
-    *,
-    session_doc: Any | None,
-    send_list: Callable[..., None],
-    **_unused: Any,
-) -> bool:
-    name = str(msg.get("name", "") or "").strip()
-    script_code = _script_code_from_message(msg)
-    overwrite = bool(msg.get("overwrite"))
-    if not name:
-        send_list(status_error_text=_("Script name cannot be empty."))
-        return True
-    scripts = get_user_scripts()
-    if name in scripts and not overwrite:
-        send_list(
-            status_error_text=_("A script named '{0}' already exists in My Scripts.").format(name)
-        )
-        return True
-    save_user_script(name, script_code)
-    _remember_selection(session_doc, name)
-    send_list(status_ok_text=_("Copied script '{0}' to My Scripts.").format(name))
     return True
 
 
@@ -892,11 +874,7 @@ def _on_delete_script(
         send_list(status_error_text=_("Script name cannot be empty."))
         return True
     if not script_origin_is_writable(origin):
-        send_list(
-            status_error_text=_(
-                "Built-in helpers are read-only. Use Copy to My Scripts to customize."
-            )
-        )
+        send_list(status_error_text=read_only_helper_message())
         return True
     if origin == SCRIPT_ORIGIN_DOCUMENT:
         err = _require_writable_session(session_doc, session_doc_url)
@@ -923,8 +901,6 @@ _PICKER_HANDLERS: dict[str, Callable[..., bool]] = {
     "request_scripts": _on_request_scripts,
     "select_script": _on_select_script,
     "save_script": _on_save_script,
-    "attach_script": _on_attach_script,
-    "copy_script_to_user": _on_copy_script_to_user,
     "delete_script": _on_delete_script,
 }
 
@@ -983,14 +959,10 @@ def handle_editor_script_message(
             send_list=_send_list,
         )
     except DocumentDisposedError:
-        # set_document_scripts and get_active_document_for_scripts re-raise
-        # DocumentDisposedError. An uncaught raise looks like a dead child to
-        # the pipe reader, which terminate()s Monaco. Save/close in editor_host
-        # swallow handler failures and answer the webview, so disposal becomes
-        # a script-list error and this message stays handled. A second disposal
-        # while rebuilding the list uses a payload that does not touch the document.
-        if kind not in SCRIPT_PICKER_MESSAGE_TYPES:
-            return False
+        # Known handlers and set_document_scripts re-raise DocumentDisposedError.
+        # An unknown kind never enters this except because _apply_script_picker_message
+        # returns False first. A second disposal uses _closed_document_scripts_list,
+        # which does not touch the document.
         log.exception("scripts picker: document disposed during %s", kind)
         closed = _("The document was closed.")
         try:

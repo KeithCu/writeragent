@@ -6,21 +6,31 @@
 
 from __future__ import annotations
 
-import sys
 import uuid
 from typing import Any
 
 from plugin.scripting.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
+    get_child_ipc_stdin,
+    get_child_ipc_stream,
     read_pickle_frame,
     write_pickle_frame,
 )
 
 
 def _write_frame(payload: dict[str, Any]) -> None:
+    # What was wrong: sys.stdout.buffer writes fd 1, and claim_ipc_channel has
+    # dup2'd fd 1 onto stderr, so worker_event / tool_call / llm_request never
+    # reach proc.stdout and the child blocks in _read_host_response until the
+    # host read budget.
+    # How it happened: b476c6899 claimed stdout in the harness and did not
+    # update this file.
+    # Why this change: get_child_ipc_stream is the dup of the original stdout,
+    # same as exchange_tool_call.
+    stream = get_child_ipc_stream()
     try:
-        write_pickle_frame(sys.stdout.buffer, payload)
+        write_pickle_frame(stream, payload)
     except IpcFrameError as exc:
         # write_pickle_frame now defaults to the read cap. An omitted write
         # used to be uncapped, so a too-large child frame left unread bytes
@@ -33,7 +43,7 @@ def _write_frame(payload: dict[str, Any]) -> None:
         if "id" in payload:
             error_frame["id"] = payload["id"]
         write_pickle_frame(
-            sys.stdout.buffer,
+            stream,
             error_frame,
             max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
         )
@@ -41,7 +51,7 @@ def _write_frame(payload: dict[str, Any]) -> None:
 
 def _read_host_response(context: str) -> dict[str, Any]:
     response = read_pickle_frame(
-        sys.stdin.buffer, require_dict=True, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES
+        get_child_ipc_stdin(), require_dict=True, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES
     )
     if response is None:
         raise ConnectionError(f"Lost connection to LibreOffice host during {context}")

@@ -12,7 +12,10 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from plugin.scripting import editor_host as launch_mod
 from plugin.scripting.editor_host import PersistentEditor, _ASSETS_DIR
@@ -1355,5 +1358,231 @@ def test_send_warns_for_a_type_the_child_does_not_queue(caplog):
     pe.send({"type": "load", "code": "x"})
     assert "is not queued by the editor child" not in caplog.text
     assert len(mock_proc.stdin.getvalue()) > initial_len
+
+
+def test_send_sees_none_proc_as_runtimeerror():
+    pe = PersistentEditor()
+    assert pe._proc is None
+    with pytest.raises(RuntimeError, match="No editor process is running"):
+        pe.send({"type": "load"})
+
+
+def test_terminate_during_send_does_not_raise_attributeerror():
+    pe = PersistentEditor()
+    poll_started = threading.Event()
+    unblock_poll = threading.Event()
+
+    proc = MagicMock()
+
+    def fake_poll():
+        poll_started.set()
+        unblock_poll.wait(timeout=5.0)
+        return None
+
+    proc.poll.side_effect = fake_poll
+    proc.stdin = io.BytesIO()
+    pe._proc = proc
+
+    send_exc: list[Exception] = []
+
+    def _do_send():
+        try:
+            pe.send({"type": "load", "code": "pass"})
+        except Exception as e:
+            send_exc.append(e)
+
+    def _do_terminate():
+        pe.terminate()
+
+    t_send = threading.Thread(target=_do_send)
+    t_term = threading.Thread(target=_do_terminate)
+
+    t_send.start()
+    assert poll_started.wait(timeout=5.0)
+    t_term.start()
+    time.sleep(0.05)
+    unblock_poll.set()
+
+    t_send.join(timeout=5.0)
+    t_term.join(timeout=5.0)
+
+    assert not t_send.is_alive()
+    assert not t_term.is_alive()
+    assert all(not isinstance(e, AttributeError) for e in send_exc)
+    for e in send_exc:
+        assert isinstance(e, RuntimeError)
+    assert pe._proc is None
+
+
+def test_is_running_captures_proc_once():
+    pe = PersistentEditor()
+    proc = MagicMock()
+
+    def null_proc():
+        pe._proc = None
+        return None
+
+    proc.poll.side_effect = null_proc
+    pe._proc = proc
+    # First access captures proc before poll nulls pe._proc; returns True and does not raise AttributeError.
+    assert pe.is_running is True
+    # Now that pe._proc is None, subsequent access returns False.
+    assert pe.is_running is False
+
+    # Same shape for one wait_for_ready iteration: patch process_events_to_idle
+    # and use a timeout so the loop body runs; poll nulls _proc; no AttributeError.
+    pe._proc = proc
+    with patch("plugin.framework.uno_context.process_events_to_idle"):
+        assert pe.wait_for_ready(MagicMock(), timeout_sec=0.1) is False
+
+
+def test_start_drops_stderr_from_previous_generation():
+    editor = PersistentEditor()
+    editor._append_stderr_line("stale")
+    proc = _FakeProc(stderr=None)
+    with patch("plugin.scripting.editor_host.run_in_background", return_value=MagicMock()):
+        editor.start(proc)  # type: ignore[arg-type]
+    editor._append_stderr_line("stale-late", generation=0)
+    editor._append_stderr_line("fresh", generation=editor._stderr_generation)
+    tail = editor.read_stderr_tail()
+    assert "fresh" in tail
+    assert "stale" not in tail
+    assert "stale-late" not in tail
+    assert editor._stderr_generation == 1
+
+
+def test_editor_session_ctor_does_not_replace_persistent_executor():
+    pe = launch_mod._PERSISTENT_EDITOR
+    sentinel = MagicMock()
+    pe.executor = sentinel
+    try:
+        proc = MagicMock()
+        _session = launch_mod.EditorSession(proc, on_save=MagicMock(), on_closed=lambda: None)
+        assert pe.executor is sentinel
+    finally:
+        pe.executor = launch_mod.default_executor
+        _reset_persistent_editor()
+
+
+def test_queue_save_then_load_false_without_focused_session():
+    _reset_persistent_editor()
+    res = launch_mod.queue_save_then_load(
+        {"type": "load", "mode": "calc_cell", "code": "x = 1"},
+        MagicMock(),
+        lambda: None,
+    )
+    assert res is False
+    assert launch_mod._PERSISTENT_EDITOR.sessions == {}
+
+
+def test_prepare_save_cancel_when_focused_session_disappears():
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    state = launch_mod.EditorSessionState(
+        "sid-cell",
+        "calc_cell",
+        {"cell_address": "C3"},
+        on_save=MagicMock(),
+    )
+    state.dirty = True
+    pe.register_session(state)
+    sent: list[dict] = []
+
+    def _send(message: dict, session: object = None) -> None:
+        sent.append(dict(message))
+
+    pe.send = _send  # type: ignore[method-assign]
+
+    def _confirm_and_clear(_ctx: object, _label: str) -> str:
+        pe.sessions.clear()
+        pe.focused_id = None
+        return "save"
+
+    try:
+        with patch.object(launch_mod, "confirm_unsaved_monaco_edit", side_effect=_confirm_and_clear):
+            ok = launch_mod.launch_monaco_editor(
+                MagicMock(),
+                exe="/venv/bin/python",
+                load_message={
+                    "type": "load",
+                    "mode": "run_script",
+                    "script_name": "Demo",
+                    "code": "print(1)",
+                },
+                on_save=MagicMock(),
+            )
+        assert ok is True
+        assert sent == []
+        assert state.pending_load is None
+    finally:
+        _reset_persistent_editor()
+
+
+def test_queue_save_then_load_true_when_request_sent():
+    pe = launch_mod._PERSISTENT_EDITOR
+    _reset_persistent_editor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    state = launch_mod.EditorSessionState("sid", "calc_cell", {"cell_address": "A1"})
+    state.dirty = True
+    pe.register_session(state)
+    sent: list[dict] = []
+
+    def _send(message: dict, session: object = None) -> None:
+        sent.append(dict(message))
+
+    pe.send = _send  # type: ignore[method-assign]
+    try:
+        res = launch_mod.queue_save_then_load(
+            {"type": "load", "mode": "run_script", "script_name": "Demo", "code": "print(1)"},
+            MagicMock(),
+            lambda: None,
+        )
+        assert res is True
+        assert state.pending_load is not None
+        assert [m["type"] for m in sent] == ["request_save"]
+    finally:
+        _reset_persistent_editor()
+
+
+def test_force_internal_change_terminates_without_clearing_probe_cache():
+    exe = "/tmp/writeragent-probe-force-internal"
+    launch_mod._PROBE_CACHE[exe] = (True, "ok")
+    try:
+        with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
+            launch_mod._on_config_changed(key="scripting.force_internal_script_editor")
+            mock_term.assert_called_once()
+            assert exe in launch_mod._PROBE_CACHE
+
+        with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
+            launch_mod._on_config_changed(key="", keys=("scripting.force_internal_script_editor",))
+            mock_term.assert_called_once()
+            assert exe in launch_mod._PROBE_CACHE
+    finally:
+        launch_mod._PROBE_CACHE.pop(exe, None)
+
+
+def test_unrelated_config_key_does_not_terminate_editor():
+    exe = "/tmp/writeragent-probe-unrelated"
+    launch_mod._PROBE_CACHE[exe] = (True, "ok")
+    try:
+        with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
+            launch_mod._on_config_changed(key="audio.tts_enabled")
+            mock_term.assert_not_called()
+            assert exe in launch_mod._PROBE_CACHE
+    finally:
+        launch_mod._PROBE_CACHE.pop(exe, None)
+
+
+def test_target_key_follows_mode_and_target():
+    state = launch_mod.EditorSessionState("sid", "calc_cell", {"cell_address": "A1"})
+    assert state.target_key == launch_mod.target_identity_key("calc_cell", {"cell_address": "A1"})
+    state.mode = "run_script"
+    state.target = {"script_name": "MyScript"}
+    assert state.target_key == launch_mod.target_identity_key("run_script", {"script_name": "MyScript"})
 
 

@@ -457,12 +457,6 @@ class MonacoEditorApi:
     def save_script(self, name: str, code: str, origin: str = "user") -> None:
         self._forward("save_script", name=name, code=code, origin=origin)
 
-    def attach_script(self, name: str, code: str, overwrite: bool = False) -> None:
-        self._forward("attach_script", name=name, code=code, overwrite=overwrite)
-
-    def copy_script_to_user(self, name: str, code: str, overwrite: bool = False) -> None:
-        self._forward("copy_script_to_user", name=name, code=code, overwrite=overwrite)
-
     def delete_script(self, name: str, origin: str = "user") -> None:
         self._forward("delete_script", name=name, origin=origin)
 

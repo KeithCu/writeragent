@@ -34,6 +34,7 @@ from plugin.scripting.ipc import (
     IpcPayloadSizeError,
     UserStopped,
     claim_ipc_channel,
+    claim_ipc_stdin,
     read_pickle_frame,
     write_pickle_frame,
 )
@@ -230,7 +231,8 @@ def main() -> None:
     _init_logging()
     log.info("Worker process %d starting up with python %s", os.getpid(), sys.version)
 
-    stdin = sys.stdin.buffer
+    # First read of stdin, so detach cannot drop a frame already buffered.
+    stdin = claim_ipc_stdin()
     # Idempotent. The script entry already claimed before later imports. This
     # call is the one in-process tests replace.
     stdout = claim_ipc_channel()
