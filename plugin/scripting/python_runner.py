@@ -357,7 +357,7 @@ def _prepare_rps_execution(ctx: Any, doc: Any, code: str, *, data_range: str | N
     except Exception as e:
         if pin_token:
             release_script_document(pin_token)
-        log.exception("execute_and_insert_result failed")
+        log.exception("prepare Run Python Script failed")
         return _early(rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e)))
 
     return {
@@ -611,11 +611,15 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         if action != "save" and run_busy["on"]:
             return {"type": "error", "message": _("A script is already running.")}
         # Save the edited code back to the currently selected script
-        from plugin.scripting.python_runner import resolve_run_script_name_config_key
-
         name_config_key = resolve_run_script_name_config_key(doc)
-        last_name = get_config_str(name_config_key)
-        if last_name:
+        last_name = get_config_str(name_config_key).strip()
+        if not last_name:
+            if action == "save":
+                # What was wrong: Saving with an empty script selection returned success and cleared dirty state without saving.
+                # How it happened: Blank or whitespace last_name skipped save_selected_script and fell through to the saved frame.
+                # Why this change fixes it: Return an error frame on Save when no script is selected, preserving the dirty buffer.
+                return {"type": "error", "message": _("No script is selected. Use New or Save As to keep this code.")}
+        else:
             from plugin.scripting.document_scripts import save_selected_script
 
             err = save_selected_script(
@@ -733,6 +737,8 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
         if not user_alerted:
             _report_run_python_open_failed(uno_ctx, _("Could not open the built-in script dialog."), detail=native_detail)
     except Exception as exc:
+        # What was wrong: Unexpected dialog open failures on the native-only path were silently swallowed without user feedback.
+        # How it happened: The outer except block guarded the error dialog with if monaco_expected, skipping it when Monaco was disabled.
+        # Why this change fixes it: Always call _report_run_python_open_failed so early setup errors are shown regardless of Monaco availability.
         log.exception("run_python_dialog failed")
-        if monaco_expected:
-            _report_run_python_open_failed(uno_ctx, _("An unexpected error occurred while opening Run Python Script."), exc=exc)
+        _report_run_python_open_failed(uno_ctx, _("An unexpected error occurred while opening Run Python Script."), exc=exc)

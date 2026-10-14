@@ -268,7 +268,7 @@ def test_start_native_script_run_reports_venv_failure():
     assert "venv down" in seen[0]["message"]
 
 
-def test_start_native_script_run_scheduling_failure_delivers_outcome_and_raises():
+def test_start_native_script_run_scheduling_failure_raises_without_delivering():
     ctx = MagicMock()
     doc = MagicMock()
     seen = []
@@ -280,8 +280,38 @@ def test_start_native_script_run_scheduling_failure_delivers_outcome_and_raises(
         with pytest.raises(RuntimeError, match="thread pool full"):
             ui.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
 
+    assert seen == []
+
+
+def test_start_native_script_run_releases_pin_when_finish_is_not_run():
+    ctx = MagicMock()
+    doc = MagicMock()
+    seen = []
+
+    def _inline(func, *args, **kwargs):
+        func()
+        return MagicMock()
+
+    prepared = {"early_outcome": None, "script_session_id": "doc:leak"}
+
+    with (
+        _deliver_posted_native_run(),
+        patch.object(ui, "run_in_background", side_effect=_inline),
+        patch(
+            "plugin.framework.queue_executor.execute_on_main_thread",
+            side_effect=[
+                prepared,
+                TimeoutError("Main-thread execution of _finish_rps_execution timed out after 30.0s"),
+            ],
+        ),
+        patch("plugin.scripting.python_runner._run_prepared_rps", return_value={"status": "ok", "result": 1}),
+        patch("plugin.scripting.session_manager.release_script_document") as mock_release,
+    ):
+        ui.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
+
+    mock_release.assert_called_once_with("doc:leak")
     assert seen and seen[0]["ok"] is False
-    assert "thread pool full" in seen[0]["message"]
+    assert "timed out" in seen[0]["message"]
 
 
 

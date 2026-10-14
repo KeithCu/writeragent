@@ -195,6 +195,23 @@ def test_run_python_dialog_native_failure_detail_in_msgbox():
     assert mock_report.call_args.kwargs.get("detail") == native_detail
 
 
+def test_run_python_dialog_reports_setup_error_when_monaco_not_expected():
+    ctx = MagicMock()
+    err = RuntimeError("no desktop")
+
+    with patch.object(pr, "get_ctx", return_value=ctx):
+        with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
+            with patch.object(pr, "get_desktop", side_effect=err):
+                with patch.object(pr, "show_python_input_dialog") as mock_native:
+                    with patch.object(pr, "_report_run_python_open_failed") as mock_report:
+                        pr.run_python_dialog()
+
+    mock_report.assert_called_once()
+    assert "unexpected error" in mock_report.call_args.args[1].lower()
+    assert mock_report.call_args.kwargs.get("exc") is err
+    mock_native.assert_not_called()
+
+
 def test_show_python_input_dialog_returns_false_when_xdl_missing():
     ctx = MagicMock()
 
@@ -363,6 +380,46 @@ def test_run_python_monaco_on_save_persists_and_executes():
                         assert mock_run.call_args.args[2] == "result = 2"
                         assert mock_run.call_args.kwargs["data_range"] == "A1:B2"
                         mock_execute.assert_not_called()
+
+
+@pytest.mark.parametrize("empty_name", ["", "   "])
+def test_run_python_monaco_empty_name_save_errors_run_still_starts(empty_name):
+    ctx = MagicMock()
+    doc = MagicMock()
+    captured: dict = {}
+
+    def fake_launch(_ctx, *, exe, load_message, on_save, on_closed=None):
+        captured["exe"] = exe
+        captured["load_message"] = load_message
+        captured["on_save"] = on_save
+        return True
+
+    with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch):
+        with patch("plugin.scripting.document_scripts.save_selected_script") as mock_save_selected:
+            with patch.object(pr, "get_config_str", return_value=empty_name):
+                ok = pr._run_python_monaco(
+                    ctx,
+                    doc,
+                    initial_code="result = 1",
+                    selected_script_name="",
+                    exe="/venv/bin/python",
+                )
+                assert ok is True
+
+                save_res = captured["on_save"]("result = 2", False, None, "save")
+                assert save_res == {
+                    "type": "error",
+                    "message": "No script is selected. Use New or Save As to keep this code.",
+                }
+                mock_save_selected.assert_not_called()
+
+                run_res = captured["on_save"]("result = 3", False, None, "run")
+                payload, mock_run = _complete_monaco_run(
+                    run_res, {"ok": True, "status_ok_text": "done"}
+                )
+                assert payload == {"type": "saved", "ok": True, "status_ok_text": "done"}
+                assert mock_run.call_args.args[2] == "result = 3"
+                mock_save_selected.assert_not_called()
 
 
 @pytest.mark.parametrize(

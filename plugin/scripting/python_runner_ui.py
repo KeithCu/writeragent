@@ -152,7 +152,16 @@ def start_native_script_run(
                 log.exception("native script run failed")
                 _deliver(rps_error_outcome(str(exc), t0=prepared["t0"], traceback=exception_traceback(exc)))
                 return
-            outcome = execute_on_main_thread(_finish_rps_execution, prepared, response)
+            try:
+                outcome = execute_on_main_thread(_finish_rps_execution, prepared, response)
+            except Exception:
+                # What was wrong: Main-thread execution failure or timeout leaked the pinned document token.
+                # How it happened: When execute_on_main_thread raised (e.g. timeout), _finish_rps_execution's finally never ran.
+                # Why this change fixes it: Catch exceptions around finish marshal, release the pinned document token, and re-raise.
+                from plugin.scripting.session_manager import release_script_document
+
+                release_script_document(prepared.get("script_session_id"))
+                raise
             _deliver(outcome)
         except Exception as exc:
             log.exception("native script run failed")
@@ -160,9 +169,11 @@ def start_native_script_run(
 
     try:
         run_in_background(_native_script_run_worker, name="native-run-python-script", dedicated=True)
-    except Exception as exc:
+    except Exception:
+        # What was wrong: Delivering an error outcome on scheduling failure resulted in duplicate error reporting.
+        # How it happened: run_in_background raised, and the except block both delivered to on_complete and re-raised to caller.
+        # Why this change fixes it: Log and re-raise without calling _deliver, leaving error reporting solely to the caller.
         log.exception("start_native_script_run: failed to schedule background worker")
-        _deliver({"ok": False, "message": str(exc), "traceback": exception_traceback(exc)})
         raise
 
 
@@ -507,6 +518,7 @@ class NativePythonScriptDialog:
 
         def _on_run() -> None:
             btn_run = None
+            lbl = None
             try:
                 ec = dlg.getControl("CodeEdit")
                 t = (ec.getModel().Text or "").rstrip()
@@ -534,6 +546,8 @@ class NativePythonScriptDialog:
                     set_control_enabled(btn_run, True)
                 log.exception("Run failed in dialog")
                 msgbox(ctx, _("Error"), str(e))
+                if lbl is not None:
+                    set_control_text(lbl, str(e))
 
         def _on_save() -> None:
             try:
