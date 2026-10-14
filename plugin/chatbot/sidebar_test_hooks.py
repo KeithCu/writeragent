@@ -13,14 +13,21 @@ See docs/chat/rich-text-control-sidebar.md (Hooks).
 from __future__ import annotations
 
 import dataclasses
+import errno
 import json
 import logging
 import os
+import signal
+import sys
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 from weakref import WeakSet
+
+if TYPE_CHECKING:
+    import subprocess
 
 from plugin.chatbot.panel import (
     StopButtonListener,
@@ -30,6 +37,7 @@ from plugin.chatbot.panel import (
 )
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
+from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger("writeragent.sidebar_test_hooks")
 
@@ -199,12 +207,388 @@ def _tts_snapshot_fields() -> dict[str, Any]:
                 break
         except Exception:
             log.debug("tts snapshot: chk_voice getState failed", exc_info=True)
+    fake_st = read_fake_tts_state()
+    try:
+        import plugin.audio.tts_service as tts_service
+
+        is_speaking = bool(tts_service.is_speaking())
+    except Exception:
+        is_speaking = False
     return {
         "tts_enabled": enabled,
         "chk_voice_state": chk_state,
         "tts_sidebar_in_sync": (chk_state is None) or (bool(chk_state) == enabled),
         "tts_live_panels": len(panels),
+        "tts_fake_mode": fake_st.get("mode", "off"),
+        "tts_fake_spawn_count": int(fake_st.get("spawn_count", 0) or 0),
+        "tts_fake_alive": list(fake_st.get("alive", []) or []),
+        "tts_speaking": is_speaking,
     }
+
+
+_FAKE_TTS_NAME = "writeragent_fake_tts.json"
+_FAKE_TTS_LOCK = threading.Lock()
+_FAKE_TTS_MODE = "off"
+_FAKE_TTS_SAVED: dict[str, Any] | None = None
+_FAKE_TTS_ORIG: dict[str, Any] | None = None
+_FAKE_TTS_PROCS: dict[int, subprocess.Popen[Any]] = {}
+_FAKE_TTS_STATE: dict[str, Any] = {}
+
+
+def fake_tts_state_path() -> str:
+    return os.path.join(tempfile.gettempdir(), _FAKE_TTS_NAME)
+
+
+def read_fake_tts_state() -> dict[str, Any]:
+    path = fake_tts_state_path()
+    for attempt in range(2):
+        if not os.path.isfile(path):
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                return data
+            return {}
+        except (json.JSONDecodeError, OSError):
+            if attempt == 0:
+                time.sleep(0.01)
+                continue
+            return {}
+    return {}
+
+
+def _fake_tts_refresh_locked() -> None:
+    alive: list[int] = []
+    rcs = _FAKE_TTS_STATE.setdefault("returncodes", {})
+    for pid, proc in list(_FAKE_TTS_PROCS.items()):
+        rc = proc.poll()
+        if rc is None:
+            alive.append(pid)
+        else:
+            rcs[str(pid)] = rc
+    _FAKE_TTS_STATE["alive"] = alive
+    _FAKE_TTS_STATE["mode"] = _FAKE_TTS_MODE
+    _FAKE_TTS_STATE["interpreter"] = sys.executable
+    _FAKE_TTS_STATE.setdefault("spawn_count", 0)
+    _FAKE_TTS_STATE.setdefault("pids", [])
+    _FAKE_TTS_STATE.setdefault("overlap_spawns", 0)
+    _FAKE_TTS_STATE.setdefault("max_alive", 0)
+    _FAKE_TTS_STATE.setdefault("argv0s", [])
+    _FAKE_TTS_STATE.setdefault("requested_basenames", [])
+    _FAKE_TTS_STATE.setdefault("speak_calls", 0)
+    if _FAKE_TTS_SAVED is not None:
+        _FAKE_TTS_STATE["saved"] = dict(_FAKE_TTS_SAVED)
+    else:
+        _FAKE_TTS_STATE.setdefault("saved", None)
+    try:
+        import plugin.audio.tts_service as tts_service
+
+        _FAKE_TTS_STATE["speaking"] = bool(tts_service.is_speaking())
+    except Exception:
+        _FAKE_TTS_STATE["speaking"] = False
+
+    path = fake_tts_state_path()
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(_FAKE_TTS_STATE, handle)
+        handle.flush()
+    os.replace(tmp_path, path)
+
+
+def _fake_tts_note_spawn_locked(requested: list[str], proc: subprocess.Popen[Any]) -> None:
+    earlier_alive = any(p.poll() is None for p in _FAKE_TTS_PROCS.values())
+    if earlier_alive:
+        _FAKE_TTS_STATE["overlap_spawns"] = _FAKE_TTS_STATE.get("overlap_spawns", 0) + 1
+
+    current_alive = sum(1 for p in _FAKE_TTS_PROCS.values() if p.poll() is None) + 1
+    _FAKE_TTS_STATE["max_alive"] = max(_FAKE_TTS_STATE.get("max_alive", 0), current_alive)
+
+    pid = proc.pid
+    _FAKE_TTS_PROCS[pid] = proc
+    _FAKE_TTS_STATE.setdefault("pids", []).append(pid)
+    _FAKE_TTS_STATE["spawn_count"] = _FAKE_TTS_STATE.get("spawn_count", 0) + 1
+    _FAKE_TTS_STATE.setdefault("argv0s", []).append(sys.executable)
+    base = os.path.basename(requested[0]) if requested else ""
+    _FAKE_TTS_STATE.setdefault("requested_basenames", []).append(base)
+    _fake_tts_refresh_locked()
+
+
+def _clear_fake_tts_in_process() -> None:
+    global _FAKE_TTS_MODE, _FAKE_TTS_SAVED, _FAKE_TTS_ORIG, _FAKE_TTS_PROCS, _FAKE_TTS_STATE
+    with _FAKE_TTS_LOCK:
+        if _FAKE_TTS_ORIG is None and _FAKE_TTS_SAVED is None:
+            return
+
+        try:
+            if _FAKE_TTS_ORIG is not None:
+                _FAKE_TTS_ORIG["stop_speech"]()
+            else:
+                import plugin.audio.tts_service as tts_service
+
+                tts_service.stop_speech()
+        except Exception:
+            log.debug("clear_fake_tts: stop_speech failed", exc_info=True)
+
+        for pid, proc in list(_FAKE_TTS_PROCS.items()):
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                if sys.platform != "win32":
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if all(p.poll() is not None for p in _FAKE_TTS_PROCS.values()):
+                break
+            time.sleep(0.02)
+
+        if _FAKE_TTS_ORIG is not None:
+            try:
+                import plugin.audio.tts_service as tts_service
+
+                setattr(tts_service.subprocess, "Popen", _FAKE_TTS_ORIG["Popen"])
+                setattr(tts_service.shutil, "which", _FAKE_TTS_ORIG["which"])
+                setattr(tts_service, "stop_speech", _FAKE_TTS_ORIG["stop_speech"])
+                setattr(tts_service, "_speak_system", _FAKE_TTS_ORIG["speak_system"])
+            except Exception:
+                log.warning("clear_fake_tts: error restoring patches", exc_info=True)
+            _FAKE_TTS_ORIG = None
+
+        if _FAKE_TTS_SAVED is not None:
+            from plugin.framework.config import set_config
+
+            for k, v in _FAKE_TTS_SAVED.items():
+                set_config(k, v)
+            _FAKE_TTS_SAVED = None
+
+        try:
+            path = fake_tts_state_path()
+            if os.path.isfile(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+        _FAKE_TTS_MODE = "off"
+        _FAKE_TTS_PROCS = {}
+        _FAKE_TTS_STATE = {}
+
+
+def _apply_fake_tts(mode: str) -> None:
+    """Apply fake TTS backend.
+
+    The child is a real process so stop_speech's kill is the production kill,
+    the argv is rewritten so no player binary and no audio device is opened,
+    and the state file exists because a URP SNAPSHOT loop hangs the pipe.
+    """
+    _require_debug()
+    if mode == "off":
+        _clear_fake_tts_in_process()
+        return
+
+    from plugin.framework.config import get_config, set_config
+    import plugin.audio.tts_service as tts_service
+
+    global _FAKE_TTS_MODE, _FAKE_TTS_SAVED, _FAKE_TTS_ORIG, _FAKE_TTS_STATE
+
+    with _FAKE_TTS_LOCK:
+        if _FAKE_TTS_SAVED is None:
+            _FAKE_TTS_SAVED = {
+                "audio.tts_enabled": get_config("audio.tts_enabled"),
+                "audio.tts_provider": get_config("audio.tts_provider"),
+                "audio.tts_sentence_mode": get_config("audio.tts_sentence_mode"),
+            }
+
+        set_config("audio.tts_enabled", True)
+        set_config("audio.tts_provider", "system")
+        set_config("audio.tts_sentence_mode", False)
+
+        _FAKE_TTS_MODE = mode
+
+        if not _FAKE_TTS_STATE or _FAKE_TTS_STATE.get("mode") != mode:
+            _FAKE_TTS_STATE = {
+                "mode": mode,
+                "interpreter": sys.executable,
+                "spawn_count": 0,
+                "pids": [],
+                "alive": [],
+                "returncodes": {},
+                "overlap_spawns": 0,
+                "max_alive": 0,
+                "argv0s": [],
+                "requested_basenames": [],
+                "speak_calls": 0,
+                "speaking": False,
+                "saved": dict(_FAKE_TTS_SAVED) if _FAKE_TTS_SAVED is not None else None,
+            }
+        else:
+            _FAKE_TTS_STATE["mode"] = mode
+            _FAKE_TTS_STATE["saved"] = dict(_FAKE_TTS_SAVED) if _FAKE_TTS_SAVED is not None else None
+
+        if _FAKE_TTS_ORIG is None:
+            _FAKE_TTS_ORIG = {
+                "Popen": tts_service.subprocess.Popen,
+                "which": tts_service.shutil.which,
+                "stop_speech": tts_service.stop_speech,
+                "speak_system": tts_service._speak_system,
+            }
+
+        orig_popen = _FAKE_TTS_ORIG["Popen"]
+        orig_which = _FAKE_TTS_ORIG["which"]
+        orig_stop_speech = _FAKE_TTS_ORIG["stop_speech"]
+        orig_speak_system = _FAKE_TTS_ORIG["speak_system"]
+
+        if not getattr(tts_service.subprocess.Popen, "_writeragent_fake_tts", False):
+            def fake_which(cmd: str, *args: Any, **kwargs: Any) -> str | None:
+                if _FAKE_TTS_MODE == "missing":
+                    return None
+                if _FAKE_TTS_MODE in ("hold", "crash"):
+                    if os.path.basename(cmd) == "espeak":
+                        return sys.executable
+                return orig_which(cmd, *args, **kwargs)
+
+            setattr(fake_which, "_writeragent_fake_tts", True)
+
+            def fake_popen(*args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
+                if _FAKE_TTS_MODE == "missing":
+                    cmd_arg = args[0] if args else kwargs.get("args")
+                    target_name = "tts"
+                    if isinstance(cmd_arg, (list, tuple)) and cmd_arg:
+                        target_name = str(cmd_arg[0])
+                    elif isinstance(cmd_arg, str):
+                        target_name = cmd_arg
+                    raise FileNotFoundError(errno.ENOENT, "No such file or directory", target_name)
+
+                if _FAKE_TTS_MODE == "hold":
+                    script = "import time; time.sleep(120)"
+                elif _FAKE_TTS_MODE == "crash":
+                    script = "import sys; sys.exit(2)"
+                else:
+                    return orig_popen(*args, **kwargs)
+
+                cmd_arg = args[0] if args else kwargs.get("args")
+                if isinstance(cmd_arg, (list, tuple)):
+                    requested_cmd = list(cmd_arg)
+                elif isinstance(cmd_arg, str):
+                    requested_cmd = [cmd_arg]
+                else:
+                    requested_cmd = []
+
+                new_cmd = [sys.executable, "-c", script]
+                new_args = list(args)
+                if new_args:
+                    new_args[0] = new_cmd
+                else:
+                    kwargs["args"] = new_cmd
+
+                proc = orig_popen(*new_args, **kwargs)
+                with _FAKE_TTS_LOCK:
+                    _fake_tts_note_spawn_locked(requested_cmd, proc)
+                return proc
+
+            setattr(fake_popen, "_writeragent_fake_tts", True)
+
+            def fake_stop_speech(*args: Any, **kwargs: Any) -> None:
+                try:
+                    cur_gen = getattr(tts_service, "_speech_generation", None)
+                    orig_stop_speech(*args, **kwargs)
+                    if cur_gen is not None:
+                        tts_service._speech_generation = cur_gen
+                finally:
+                    with _FAKE_TTS_LOCK:
+                        for p in list(_FAKE_TTS_PROCS.values()):
+                            if p.poll() is None:
+                                try:
+                                    p.kill()
+                                except Exception:
+                                    pass
+                        for _ in range(50):
+                            if all(p.poll() is not None for p in _FAKE_TTS_PROCS.values()):
+                                break
+                            time.sleep(0.01)
+                        _fake_tts_refresh_locked()
+
+            setattr(fake_stop_speech, "_writeragent_fake_tts", True)
+
+            def fake_speak_system(*args: Any, **kwargs: Any) -> None:
+                with _FAKE_TTS_LOCK:
+                    _FAKE_TTS_STATE["speak_calls"] = _FAKE_TTS_STATE.get("speak_calls", 0) + 1
+                    _fake_tts_refresh_locked()
+                try:
+                    orig_speak_system(*args, **kwargs)
+                finally:
+                    with _FAKE_TTS_LOCK:
+                        _fake_tts_refresh_locked()
+
+                    def _poll_idle() -> None:
+                        for _ in range(100):
+                            time.sleep(0.02)
+                            with _FAKE_TTS_LOCK:
+                                if _FAKE_TTS_MODE == "off":
+                                    break
+                            try:
+                                if not tts_service.is_speaking():
+                                    with _FAKE_TTS_LOCK:
+                                        if _FAKE_TTS_MODE != "off":
+                                            _fake_tts_refresh_locked()
+                                    break
+                            except Exception:
+                                break
+
+                    run_in_background(_poll_idle)
+
+            setattr(fake_speak_system, "_writeragent_fake_tts", True)
+
+            setattr(tts_service.shutil, "which", fake_which)
+            setattr(tts_service.subprocess, "Popen", fake_popen)
+            setattr(tts_service, "stop_speech", fake_stop_speech)
+            setattr(tts_service, "_speak_system", fake_speak_system)
+
+        _fake_tts_refresh_locked()
+
+
+def install_fake_tts(mode: str) -> None:
+    _require_debug()
+    if mode not in ("hold", "crash", "missing"):
+        raise ValueError(f"Invalid fake TTS mode: {mode}")
+    sl = send_listener()
+    if sl is None:
+        execute_debug_sidebar_op("FAKE_TTS_" + mode.upper())
+        return
+    _apply_fake_tts(mode)
+
+
+def clear_fake_tts() -> None:
+    _require_debug()
+    sl = send_listener()
+    if sl is None:
+        execute_debug_sidebar_op("FAKE_TTS_OFF")
+        st = read_fake_tts_state()
+        if os.path.isfile(fake_tts_state_path()) and st.get("mode") != "off":
+            pids = st.get("pids", [])
+            for pid in pids:
+                if sys.platform != "win32":
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+            saved = st.get("saved")
+            if isinstance(saved, dict):
+                from plugin.framework.config import set_config
+
+                for k, v in saved.items():
+                    set_config(k, v)
+            try:
+                os.remove(fake_tts_state_path())
+            except OSError:
+                pass
+    else:
+        _apply_fake_tts("off")
 
 
 def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
@@ -375,6 +759,11 @@ def handle_debug_sidebar_command(command: str) -> None:
             except Exception:
                 log.exception("TOGGLE_SIDEBAR_TTS setState failed")
             break
+        _write_debug_snapshot(sl)
+        return
+    if op in ("FAKE_TTS_HOLD", "FAKE_TTS_CRASH", "FAKE_TTS_MISSING", "FAKE_TTS_OFF"):
+        mode = op.removeprefix("FAKE_TTS_").lower()
+        _apply_fake_tts(mode)
         _write_debug_snapshot(sl)
         return
     # Slash ops only touch the Ask ListBox. Run inline like SNAPSHOT —
@@ -1406,11 +1795,15 @@ def wait_controls_send_finished(
                     found = wait_for.lower() in body[asst_idx:].lower()
                 elif "[" in body:
                     found = wait_for.lower() in body.lower()
-            if found and not busy:
+            fake_st = read_fake_tts_state()
+            speech_busy = bool(fake_st.get("speaking") or fake_st.get("alive"))
+            if found and (not busy or speech_busy):
                 return True
         else:
             found = bool(suffix.strip()) or (not before and bool(body.strip()))
-            if (saw_busy or found) and not busy:
+            fake_st = read_fake_tts_state()
+            speech_busy = bool(fake_st.get("speaking") or fake_st.get("alive"))
+            if (saw_busy or found) and (not busy or (found and speech_busy)):
                 return True
         time.sleep(0.15)
     if wait_for and transcript_fn is not None:
