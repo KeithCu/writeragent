@@ -34,14 +34,17 @@ VENV_IPC_WRITE_TIMEOUT_SEC = 10
 # destroying shared workbook sessions) on soft timeouts.
 HOST_IPC_READ_GRACE_SEC = 2.0
 
-# Single long budget for trusted helpers known to take a long time
-# (OCR/layout via vision resolver, spaCy text analytics, SymPy symbolic,
-# embeddings, and any future additions in the LONG_TRUSTED_PREFIXES list).
-# These bypass the (often small) user-configured python_exec_timeout.
+# Opt-in wall clock for helpers that call long_trusted_worker_timeout_sec():
+# SymPy (run_symbolic), spaCy (run_text_analytics), Docling vision, and
+# embeddings / langdetect (via embeddings_worker_timeout_sec). There is no
+# prefix list. Paddle uses VISION_WORKER_TIMEOUT_SEC. LanguageTool and Vale
+# use their own constants below. Bypasses scripting.python_exec_timeout.
 LONG_TRUSTED_WORKER_TIMEOUT_SEC = 300
 
-# Vision-specific execution budgets (used by the vision resolver in client.py).
-# The general long trusted list (spaCy, SymPy, vision, etc.) uses LONG_TRUSTED_WORKER_TIMEOUT_SEC.
+# Paddle budget. Docling uses the long budget above (same 300s as the
+# vision.worker_timeout_sec schema default). client._resolve_vision_timeout_sec
+# treats that default as the engine budget; any other positive value overrides
+# both engines.
 VISION_WORKER_TIMEOUT_SEC = 120
 DOCLING_WORKER_TIMEOUT_SEC = 300
 LANGUAGETOOL_WORKER_TIMEOUT_SEC = 15
@@ -49,7 +52,7 @@ VALE_WORKER_TIMEOUT_SEC = 25
 
 
 def long_trusted_worker_timeout_sec() -> int:
-    """Single long budget for the list of known long-running trusted helpers."""
+    """Wall-clock seconds for helpers that opt into the long trusted budget."""
     return LONG_TRUSTED_WORKER_TIMEOUT_SEC
 
 # Settings → Python Test: per-package sandbox import probe (independent of scripting.python_exec_timeout).
@@ -97,7 +100,11 @@ def _schema_int(field_name: str, name: str, *, fallback: int | None = None, requ
             return fallback
         raise RuntimeError(f"{field_name}.{name} must be int in module.yaml/manifest")
     val = field.get(name)
-    if isinstance(val, int):
+    # bool is an int subclass. isinstance(True, int) is True, so a module.yaml
+    # true/false was returned as bool and later passed isinstance(..., int)
+    # posts. type(val) is int matches _timeout_int_ok. Non-ints keep the
+    # fallback-or-RuntimeError path below.
+    if type(val) is int:
         return val
     if fallback is not None:
         return fallback
@@ -193,13 +200,23 @@ def resolve_python_exec_timeout(
     return _clamp_timeout(parsed)
 
 
-# get_config_int_safe reads from global config storage and does not take a UNO
-# context. Dropping ctx removes misleading parameter coupling across callers.
 def configured_python_exec_timeout() -> int:
     """Read Settings value for scripting.python_exec_timeout and clamp to schema bounds."""
-    from plugin.framework.config import get_config_int_safe
+    # What was wrong: a failed read clamped to 1s (schema min), not the 10s default.
+    # How it happened: get_config_int_safe returns 0 when get_config_int and
+    # _resolve_default both fail (no plugin._manifest, and this key is not a
+    # WriterAgentConfig field). _clamp_timeout(0) is python_exec_timeout_min().
+    # Why this change fixes it: on get_config_int failure, use
+    # python_exec_timeout_default() (manifest default, or _TIMEOUT_FALLBACK_DEFAULT)
+    # and then clamp. A stored 0 still returns from get_config_int and clamps
+    # to the min. Do not treat 0 as a failed read.
+    from plugin.framework.config import get_config_int
 
-    return _clamp_timeout(get_config_int_safe(_TIMEOUT_CONFIG_KEY))
+    try:
+        value = get_config_int(_TIMEOUT_CONFIG_KEY)
+    except Exception:
+        value = python_exec_timeout_default()
+    return _clamp_timeout(value)
 
 
 def embeddings_worker_timeout_sec() -> int:
