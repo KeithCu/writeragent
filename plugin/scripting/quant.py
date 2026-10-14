@@ -22,7 +22,10 @@ from plugin.scripting.helper_domain import (
 QUANT_HEADER_PREFIX = header_prefix("quant")
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    "fetch_historical_data": {"tickers": "data", "start_date": "2023-01-01", "end_date": "2024-01-01", "interval": "1d"},
+    # Runner templates embed params in a Python literal, so "data" was the ticker symbol
+    # "data". The sheet variable is the second argument to run_quant, and fetch_historical_data
+    # does not read it. AAPL is a real symbol in the default date window.
+    "fetch_historical_data": {"tickers": "AAPL", "start_date": "2023-01-01", "end_date": "2024-01-01", "interval": "1d"},
     "technical_analysis": {"indicators": ["macd", "rsi", "bbands"]},
     "portfolio_tearsheet": {},
     "efficient_frontier": {},

@@ -480,7 +480,19 @@ def parse_date_column(series: Any) -> Any:
     not_num = ~is_num_cell
     if not_num.any():
         str_slice = series[not_num]
-        parsed_str = pd.to_datetime(str_slice, errors="coerce")
+        # What was wrong: without format="mixed", pandas locks onto the first cell,
+        # so "2024-01-03" plus "01/01/2024" plus "2024-01-02 15:30:00" parsed as one
+        # timestamp and three NaTs (verified on this series through resolve_df, which leaves
+        # the column as object because "notes" blocks promotion). _order_by_date then sorted
+        # those rows last and portfolio_tearsheet dropped them.
+        # How it happened: pd.to_datetime guesses a single format across the series by default.
+        # Why this change fixes it: format="mixed" parses each cell individually, matching
+        # _coerce_column_types. Mixed offsets return object and .dt raises; when the result
+        # is not datetime64, the fallback calls pd.to_datetime without format to keep one
+        # offset and NaT for the rest without raising AttributeError.
+        parsed_str = pd.to_datetime(str_slice, errors="coerce", format="mixed")
+        if not pd.api.types.is_datetime64_any_dtype(parsed_str):
+            parsed_str = pd.to_datetime(str_slice, errors="coerce")
         if getattr(parsed_str.dt, "tz", None) is not None:
             parsed_str = parsed_str.dt.tz_localize(None)
         result.loc[not_num] = parsed_str.astype("datetime64[ns]")

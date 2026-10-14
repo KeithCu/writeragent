@@ -147,6 +147,19 @@ def _returns_frame_from_df(df: Any) -> tuple[Any, Any]:
         dates = parse_date_column(df[date_col])
         df = df.drop(columns=[date_col])
 
+    # What was wrong: pd.to_numeric turns datetime64, timezone-aware datetimes, and
+    # timedeltas into int64 nanoseconds (pandas 2.3.3: 2024-01-01 becomes 1704067200000000000).
+    # How it happened: resolve_df promotes every all-date object column regardless of name
+    # (Period, Unnamed: 0), and a DataFrame argument is copied with its dtypes kept, so
+    # that column was averaged into the tearsheet and into mean_historical_return / Ledoit-Wolf.
+    # Why this change fixes it: dropping those dtypes after the named date column is removed
+    # keeps the date index and leaves real return columns, including a numeric Year.
+    extra_time = list(
+        df.select_dtypes(include=["datetime64", "datetimetz", "timedelta64"]).columns
+    )
+    if len(extra_time) > 0:
+        df = df.drop(columns=extra_time)
+
     numeric_df = df.apply(pd.to_numeric, errors="coerce")
     numeric_df = numeric_df.dropna(how="all")
     return numeric_df, dates
@@ -365,7 +378,12 @@ def portfolio_tearsheet(
             returns.index = pd.date_range("2024-01-01", periods=len(returns), freq="D")
 
         metrics = qs.reports.metrics(returns, display=False)
-        if hasattr(metrics, "iloc") and metrics.shape[1] >= 1:
+        # What was wrong: a Series has .iloc but shape is (n,), so shape[1] raised
+        # IndexError and the outer handler returned EXECUTION_ERROR instead of to_dict().
+        # How it happened: the guard was written for quantstats' one-column DataFrame.
+        # Why this change fixes it: isinstance(..., pd.DataFrame) keeps that path and
+        # lets a Series hit the existing else.
+        if isinstance(metrics, pd.DataFrame) and metrics.shape[1] >= 1:
             metrics_dict = {str(k): v for k, v in metrics.iloc[:, 0].to_dict().items()}
         elif isinstance(metrics, dict):
             metrics_dict = metrics

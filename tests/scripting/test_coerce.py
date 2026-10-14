@@ -124,6 +124,29 @@ def test_parse_date_column_serial_year_iso_and_mixed():
     assert pd.isna(s_neg.iloc[0])
     assert pd.isna(s_neg.iloc[1])
 
+    s_mixed_formats = parse_date_column(pd.Series(["2024-01-01", "01/02/2024", "not-a-date"]))
+    assert s_mixed_formats.iloc[0] == pd.Timestamp("2024-01-01")
+    assert s_mixed_formats.iloc[1] == pd.Timestamp("2024-01-02")
+    assert pd.isna(s_mixed_formats.iloc[2])
+
+    s_date_time = parse_date_column(pd.Series(["2024-01-01", "2024-01-02 15:30:00"]))
+    assert s_date_time.iloc[0] == pd.Timestamp("2024-01-01")
+    assert s_date_time.iloc[1] == pd.Timestamp("2024-01-02 15:30:00")
+
+    s_year_strs = parse_date_column(pd.Series(["2024", "2025"]))
+    assert s_year_strs.iloc[0] == pd.Timestamp("2024-01-01")
+    assert s_year_strs.iloc[1] == pd.Timestamp("2025-01-01")
+
+    s_utc = parse_date_column(pd.Series(["2024-01-01T00:00:00Z", "2024-06-01T00:00:00Z"]))
+    assert s_utc.iloc[0] == pd.Timestamp("2024-01-01")
+    assert s_utc.iloc[1] == pd.Timestamp("2024-06-01")
+    assert s_utc.dt.tz is None
+
+    s_mixed_tz = parse_date_column(pd.Series(["2024-01-01T00:00:00Z", "01/02/2024"]))
+    assert s_mixed_tz.iloc[0] == pd.Timestamp("2024-01-01")
+    assert pd.isna(s_mixed_tz.iloc[1])
+    assert s_mixed_tz.dt.tz is None
+
 
 def test_table_from_df_nan_is_none():
     import json

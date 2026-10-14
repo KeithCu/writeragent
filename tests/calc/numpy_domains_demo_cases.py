@@ -557,7 +557,7 @@ def _math_cases() -> list[DomainDemoCase]:
 
 def _quant_cases() -> list[DomainDemoCase]:
     fetch_params = {
-        "tickers": "data",
+        "tickers": "AAPL",
         "start_date": "2023-01-01",
         "end_date": "2024-01-01",
         "interval": "1d",

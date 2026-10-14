@@ -31,6 +31,8 @@ def test_quant_template_is_executable():
     assert "from writeragent.scripting.quant import run_quant" in code
     assert "fetch_historical_data" in code
     assert QUANT_HEADER_PREFIX not in code.splitlines()[0]
+    assert "'tickers': 'AAPL'" in code
+    assert "'tickers': 'data'" not in code
 
 
 def test_run_quant_missing_package(monkeypatch):
@@ -329,6 +331,87 @@ def test_portfolio_tearsheet_parses_year_column(monkeypatch):
     assert list(passed_series.values) == [0.20, 0.10]
     assert [ts.strftime("%Y-%m-%d") for ts in passed_series.index] == ["2019-01-01", "2020-01-01"]
 
+
+def test_portfolio_tearsheet_drops_extra_datetime_column(monkeypatch):
+    import sys
+    import pandas as pd
+
+    mock_qs = MagicMock()
+    mock_qs.reports.metrics.return_value = pd.DataFrame({"val": [0.05]}, index=["Cumulative Return"])
+    monkeypatch.setitem(sys.modules, "quantstats", mock_qs)
+
+    grid = [
+        ["Date", "Period", "AAPL", "MSFT"],
+        ["2024-01-02", "2024-01-02", 0.02, 0.04],
+        ["2024-01-01", "2024-01-01", 0.01, 0.03],
+    ]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {}}, data=grid)
+    assert result["status"] == "ok"
+    assert "warning" not in result
+    passed_series = mock_qs.reports.metrics.call_args[0][0]
+    assert len(passed_series) == 2
+    assert list(passed_series.values) == [0.02, 0.03]
+    assert all(abs(v) < 1 for v in passed_series.values)
+    assert [ts.strftime("%Y-%m-%d") for ts in passed_series.index] == ["2024-01-01", "2024-01-02"]
+
+
+def test_portfolio_tearsheet_period_without_date_name_is_not_a_return(monkeypatch):
+    import sys
+    import pandas as pd
+
+    mock_qs = MagicMock()
+    mock_qs.reports.metrics.return_value = pd.DataFrame({"val": [0.05]}, index=["Cumulative Return"])
+    monkeypatch.setitem(sys.modules, "quantstats", mock_qs)
+
+    grid = [["Period", "AAPL"], ["2024-01-01", 0.01], ["2024-01-02", 0.02]]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {}}, data=grid)
+    assert result["status"] == "ok"
+    assert "warning" in result
+    assert "synthetic" in result["warning"].lower()
+    passed_series = mock_qs.reports.metrics.call_args[0][0]
+    assert list(passed_series.values) == [0.01, 0.02]
+
+
+def test_portfolio_tearsheet_mixed_date_formats_with_junk(monkeypatch):
+    import sys
+    import pandas as pd
+
+    mock_qs = MagicMock()
+    mock_qs.reports.metrics.return_value = pd.DataFrame({"val": [0.05]}, index=["Cumulative Return"])
+    monkeypatch.setitem(sys.modules, "quantstats", mock_qs)
+
+    grid = [
+        ["Date", "AAPL"],
+        ["2024-01-03", 0.03],
+        ["01/01/2024", 0.01],
+        ["notes", 0.09],
+        ["2024-01-02 15:30:00", 0.02],
+    ]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {}}, data=grid)
+    assert result["status"] == "ok"
+    passed_series = mock_qs.reports.metrics.call_args[0][0]
+    assert len(passed_series) == 3
+    assert list(passed_series.values) == [0.01, 0.02, 0.03]
+    assert [ts.strftime("%Y-%m-%d %H:%M:%S") for ts in passed_series.index] == [
+        "2024-01-01 00:00:00",
+        "2024-01-02 15:30:00",
+        "2024-01-03 00:00:00",
+    ]
+
+
+def test_portfolio_tearsheet_metrics_series(monkeypatch):
+    import sys
+    import pandas as pd
+
+    mock_qs = MagicMock()
+    mock_qs.reports.metrics.return_value = pd.Series({"Cumulative Return": 0.05, "Sharpe": 1.2})
+    monkeypatch.setitem(sys.modules, "quantstats", mock_qs)
+
+    grid = [["AAPL"], [0.01], [0.02]]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {}}, data=grid)
+    assert result["status"] == "ok", result
+    assert result["metrics"]["Cumulative Return"] == 0.05
+    assert result["metrics"]["Sharpe"] == 1.2
 
 
 def test_technical_analysis_string_indicator_and_headers_false(monkeypatch):
@@ -746,3 +829,25 @@ def test_efficient_frontier_accepts_none_bounds(monkeypatch):
     assert result["status"] == "ok", result
     assert mock_ef_class.call_args[1]["weight_bounds"] == (None, None)
     assert "warning" not in result
+
+
+def test_efficient_frontier_drops_datetime_and_keeps_year(monkeypatch):
+    import sys
+    import pandas as pd
+
+    _install_frontier_mocks(monkeypatch)
+    mean = sys.modules["pypfopt.expected_returns"].mean_historical_return
+    df = pd.DataFrame({
+        "Date": pd.to_datetime(["2024-01-01", "2024-01-02"]),
+        "When": pd.to_datetime(["2024-01-01", "2024-01-02"], utc=True),
+        "Delta": pd.to_timedelta(["1 days", "2 days"]),
+        "Year": [2024, 2024],
+        "AAPL": [0.01, 0.02],
+        "MSFT": [0.03, 0.04],
+    })
+    result = venv_run_quant({"helper": "efficient_frontier", "params": {}}, data=df)
+    assert result["status"] == "ok", result
+    passed = mean.call_args[0][0]
+    assert list(passed.columns) == ["Year", "AAPL", "MSFT"]
+    assert list(passed["AAPL"]) == [0.01, 0.02]
+
