@@ -47,7 +47,12 @@ def _is_package_available(package_name: str) -> bool:
 
 
 BASE_BUILTIN_MODULES = [
+    # WriterAgent: leading "from __future__ import" is valid user source
+    # (helper_domain inserts bindings after it). "collections" does not
+    # authorize "collections.abc"; the submodule is listed exactly.
+    "__future__",
     "collections",
+    "collections.abc",
     "datetime",
     "itertools",
     "math",

@@ -1135,6 +1135,9 @@ def test_slice10_import_authorized_drift():
         assert check_fn("matplotlib.pyplot", ["matplotlib"]) is False
         # With star wildcard it is allowed
         assert check_fn("matplotlib.pyplot", ["matplotlib.*"]) is True
+        assert check_fn("os", ["*"]) is False
+        assert check_fn("plugin.framework.config", ["*"]) is False
+        assert check_fn("math", ["*", "math"]) is True
 
 
 def test_slice10_dotted_import_with_allowlist():
@@ -1176,6 +1179,29 @@ def test_b3_parent_module_rejected_when_only_child_listed():
     # Importing the allowed child module succeeds
     executor("import plugin.scripting.viz as viz\nloaded = str(viz)")
     assert "plugin.scripting.viz" in executor.state["loaded"]
+
+
+def test_future_annotations_and_collections_abc_execute():
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    code_future = (
+        "from __future__ import annotations\n"
+        "def f(x: int) -> int:\n"
+        "    return x\n"
+        "result = f(1)\n"
+    )
+    executor(code_future)
+    assert executor.state["result"] == 1
+
+    executor("from collections.abc import Mapping\nresult = issubclass(dict, Mapping)\n")
+    assert executor.state["result"] is True
+
+    executor("import collections.abc as cabc\nresult = issubclass(list, cabc.Sequence)\n")
+    assert executor.state["result"] is True
+
+    with pytest.raises(InterpreterError) as exc_info:
+        executor("import os")
+    assert str(exc_info.value) == "Import of os is not allowed."
 
 
 

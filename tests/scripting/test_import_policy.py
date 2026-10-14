@@ -36,6 +36,8 @@ def test_venv_authorized_includes_json_numpy_matplotlib():
     assert "plugin.embeddings.venv.embeddings_index" not in allowed
     assert "plugin.writer.locale.vale" not in allowed
     assert "plugin.writer.locale.languagetool" not in allowed
+    assert "__future__" in venv_authorized_top_level_modules()
+    assert "collections.abc" not in venv_authorized_top_level_modules()
 
 
 def test_venv_authorized_excludes_requests():
@@ -57,6 +59,8 @@ def test_venv_policy_prefix_before_module_lists():
     policy = format_venv_import_policy_for_prompt(compact=False)
     assert policy.startswith("PYTHON VENV SANDBOX:")
     assert policy.index("Allowed stdlib") > policy.index("PYTHON VENV SANDBOX")
+    assert "__future__" in policy
+    assert "collections.abc" not in policy
 
 
 def test_venv_policy_compact_mentions_blocked_categories():
@@ -98,6 +102,8 @@ def test_inprocess_policy_is_stdlib_focused():
     assert "IN-PROCESS SANDBOX" in policy
     assert "json" in policy
     assert "numpy" not in inprocess_authorized_modules()
+    assert "__future__" in policy
+    assert "collections.abc" in policy
 
 
 @pytest.mark.parametrize(

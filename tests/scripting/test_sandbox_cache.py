@@ -123,6 +123,14 @@ def test_validate_sandbox_ast_writeragent_star_does_not_allow_secrets() -> None:
     assert validate_sandbox_ast(ast.parse("import duckdb.functional"), allowed) is None
 
 
+def test_validate_sandbox_ast_allows_future_and_collections_abc() -> None:
+    imports = list(BASE_BUILTIN_MODULES)
+    assert validate_sandbox_ast(ast.parse("from __future__ import annotations\nresult = 1\n"), imports) is None
+    assert validate_sandbox_ast(ast.parse("import collections.abc\n"), imports) is None
+    assert validate_sandbox_ast(ast.parse("from collections.abc import Mapping\n"), imports) is None
+    assert validate_sandbox_ast(ast.parse("import os\n"), ["*"]) == "Import of os is not allowed."
+
+
 def test_recursion_error_is_parse_error() -> None:
     imports = list(BASE_BUILTIN_MODULES)
     with patch("ast.parse", side_effect=RecursionError("too deep")) as mock_parse:

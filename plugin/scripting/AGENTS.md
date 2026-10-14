@@ -31,6 +31,7 @@ Topic docs: [docs/scripting/librepy-split.md](../../docs/scripting/librepy-split
 - Do **not** drop `plugin/calc/analyzer.py` from the LibrePy bundle.
 - Jupyter import (`plugin/notebook/`, vendored `plugin/contrib/nbformat/`) ships in LibrePy; do not exclude it from the allowlist.
 - ``writeragent.X`` is allowed only when ``plugin.X`` is on ``VENV_AUTHORIZED_IMPORTS``, or the alias is an explicit entry (``writeragent.vision``, ``writeragent.scripting.duckdb_sql``). Do not put back a blanket ``writeragent.*``. Leave ``duckdb`` / ``duckdb.*`` on the list and ``plugin.scripting.duckdb_sql`` off it.
+- ``BASE_BUILTIN_MODULES`` includes ``__future__`` and ``collections.abc``. Do not add ``collections.*`` or other stdlib-root wildcards, and do not add ``concurrent.futures``. A bare ``*`` allowlist entry is ignored; do not restore the empty-prefix match.
 - Host domain facades (`analysis.py`, `duckdb_sql.py`, `forecast.py`, `optimize.py`, `quant.py`, `symbolic.py`, `text_analytics.py`, `units.py`, `viz.py`) publish venv names only through `install_lazy_exports` in `_lazy_venv.py`. Do not import `plugin.scripting.venv.*` at module level in those files. `calc_functions.py` is a separate full forwarder of `HELPER_NAMES` and stays that way.
 - The =PY blurb omits `payload_codec`, `writeragent_api`, and `writeragent_namespace` via `_PROMPT_OMIT_PACKAGE_MARKERS`; they stay on `VENV_AUTHORIZED_IMPORTS`.
 - Shipped LibrePy (`make deploy-core`) defaults to `log_level` WARN; a checkout that still has `plugin/tests/` defaults to DEBUG.

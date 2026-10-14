@@ -39,7 +39,12 @@ try:
     BASE_BUILTIN_MODULES: tuple[str, ...] = tuple(_BASE_BUILTIN)
 except (ImportError, ModuleNotFoundError):
     BASE_BUILTIN_MODULES = (
+        # WriterAgent: leading "from __future__ import" is valid user source
+        # (helper_domain inserts bindings after it). "collections" does not
+        # authorize "collections.abc"; the submodule is listed exactly.
+        "__future__",
         "collections",
+        "collections.abc",
         "datetime",
         "itertools",
         "math",
@@ -219,12 +224,11 @@ def _compile_allowlist(authorized_imports: tuple[str, ...]) -> tuple[frozenset[s
     exact: set[str] = set()
     wildcards: list[str] = []
     for entry in authorized_imports:
-        if entry == "writeragent.*":
-            # The blanket authorized every alias, including plugin.framework.config,
-            # so it is not an allow. Explicit writeragent.X entries still compile.
+        if entry == "writeragent.*" or entry == "*":
+            # writeragent.* authorized every alias, including plugin.framework.config.
+            # "*" compiled to prefix "" and matched every name, including os.
+            # Explicit writeragent.X and name.* entries still compile.
             continue
-        if entry == "*":
-            wildcards.append("")
         elif entry.endswith(".*"):
             prefix = entry[:-2]
             exact.add(prefix)
@@ -253,8 +257,10 @@ def import_authorized(name: str, authorized_imports: Sequence[str]) -> bool:
     AliasImporter would load is on the same list, or the alias itself is an
     explicit entry. The blanket pattern ``writeragent.*`` is ignored: it
     authorized every alias, and the hook then loaded ``plugin.framework.config``
-    and ``LlmClient``. Names that are not aliases, including ``duckdb`` and
-    ``duckdb.*``, are checked against the precomputed allowlist.
+    and ``LlmClient``. A bare ``*`` entry is ignored; it used to compile to a
+    wildcard prefix of ``""`` and authorize every module, including ``os``.
+    ``name.*`` entries are unchanged. Names that are not aliases, including
+    ``duckdb`` and ``duckdb.*``, are checked against the precomputed allowlist.
     """
     # crosshair: off
     tuple_imports = tuple(authorized_imports)

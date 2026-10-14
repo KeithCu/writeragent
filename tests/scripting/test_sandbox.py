@@ -594,6 +594,21 @@ def test_import_authorized_intermediate_nodes_rejected() -> None:
     assert import_authorized("a.bc", policy) is False
 
 
+def test_import_authorized_ignores_bare_star_and_allows_future_and_collections_abc() -> None:
+    from plugin.scripting.sandbox import BASE_BUILTIN_MODULES, import_authorized
+
+    assert import_authorized("__future__", BASE_BUILTIN_MODULES) is True
+    assert import_authorized("collections.abc", BASE_BUILTIN_MODULES) is True
+    assert import_authorized("collections", BASE_BUILTIN_MODULES) is True
+    assert import_authorized("concurrent.futures", BASE_BUILTIN_MODULES) is False
+    assert import_authorized("json.tool", BASE_BUILTIN_MODULES) is False
+    assert import_authorized("os", ["*"]) is False
+    assert import_authorized("plugin.framework.config", ["*"]) is False
+    assert import_authorized("math", ["*", "math"]) is True
+    assert import_authorized("matplotlib.pyplot", ["matplotlib"]) is False
+    assert import_authorized("matplotlib.pyplot", ["matplotlib.*"]) is True
+
+
 def test_env_name_is_credential_matches_suffixes_and_dsn() -> None:
     """Tokens ending with blocked words, DATABASE_URL, and *_DSN must be detected while keeping KEYBOARD/XAUTHORITY."""
     from plugin.scripting.sandbox import _env_name_is_credential

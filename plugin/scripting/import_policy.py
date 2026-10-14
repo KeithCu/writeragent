@@ -84,7 +84,7 @@ def venv_authorized_top_level_modules() -> tuple[str, ...]:
     """Top-level module names allowed in the venv worker sandbox."""
     # Return real top-level module names, not dotted paths (plugin.scripting.*).
     # Intermediate nodes such as 'plugin' are not authorized top-level imports.
-    roots: set[str] = set(BASE_BUILTIN_MODULES)
+    roots: set[str] = {entry.split(".", 1)[0] for entry in BASE_BUILTIN_MODULES}
     for entry in VENV_AUTHORIZED_IMPORTS:
         if entry.startswith("plugin."):
             continue
@@ -105,13 +105,14 @@ def _known_stdlib_names() -> frozenset[str]:
     if isinstance(names, frozenset):
         # getattr does not preserve the frozenset[str] parameter.
         return frozenset(name for name in names if isinstance(name, str))
-    return frozenset(BASE_BUILTIN_MODULES) | _VENV_STDLIB_EXTRA
+    return frozenset({entry.split(".", 1)[0] for entry in BASE_BUILTIN_MODULES}) | _VENV_STDLIB_EXTRA
 
 
 def _venv_stdlib_modules() -> tuple[str, ...]:
     stdlib = _known_stdlib_names()
     authorized_stdlib = {name for name in venv_authorized_top_level_modules() if name in stdlib}
-    return tuple(sorted(set(BASE_BUILTIN_MODULES) | authorized_stdlib))
+    base_roots = {entry.split(".", 1)[0] for entry in BASE_BUILTIN_MODULES}
+    return tuple(sorted(base_roots | authorized_stdlib))
 
 
 def _venv_package_modules() -> tuple[str, ...]:

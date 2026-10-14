@@ -414,3 +414,14 @@ def test_capture_closes_figures_when_figure_lookup_raises(monkeypatch: pytest.Mo
         vs._capture_open_figures_payload()
     assert closed == ["all"]
 
+
+def test_run_sandboxed_code_allows_future_and_collections_abc() -> None:
+    res1 = run_sandboxed_code("from __future__ import annotations\nresult = 1 + 1\n")
+    assert res1["status"] == "ok"
+    assert res1["result"] == 2
+
+    res2 = run_sandboxed_code("from collections.abc import Mapping\nresult = issubclass(dict, Mapping)\n")
+    assert res2["status"] == "ok"
+    assert res2["result"] is True
+
+

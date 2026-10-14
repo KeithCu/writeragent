@@ -1711,8 +1711,8 @@ def evaluate_ast(
         custom_tools (`Dict[str, Callable]`):
             Functions that may be called during the evaluation. These custom_tools can be overwritten.
         authorized_imports (`List[str]`):
-            The list of modules that can be imported by the code. By default, only a few safe modules are allowed.
-            If it contains "*", it will authorize any import. Use this at your own risk!
+            The list of modules the code may import; default is the small safe set;
+            a bare "*" entry is ignored; package wildcards use the "name.*" form.
     """
     if state.setdefault("_operations_count", {"counter": 0})["counter"] >= MAX_OPERATIONS:
         raise InterpreterError(
