@@ -379,6 +379,7 @@ def test_n_text_returns_zero():
     assert calc.n(False) == 0.0
     assert calc.n(np.int64(42)) == 42.0
     assert calc.n(np.float64(3.5)) == 3.5
+    assert math.isnan(calc.n(10**400))
 
 
 def test_error_predicates_i_m():
@@ -405,6 +406,11 @@ def test_error_predicates_i_m():
     assert calc.isnumber(np.float64(3.14)) is True
     assert calc.isnumber(True) is False
     assert calc.isnumber(np.bool_(True)) is False
+    assert calc.islogical(True) is True
+    assert calc.islogical(False) is True
+    assert calc.islogical(np.bool_(True)) is True
+    assert calc.islogical(np.bool_(False)) is True
+    assert calc.islogical(1) is False
     assert calc.isnumber(10) is True
 
     # iferror on token strings and NaN
@@ -582,6 +588,19 @@ def test_munit_zero_and_cap():
     assert calc.munit(0.9) == "#VALUE!"
     assert calc.munit(1025) == "#VALUE!"
     assert calc.munit(2.9) == [[1.0, 0.0], [0.0, 1.0]]
+
+
+def test_multinomial_bounds_float_range():
+    # comb(2e9, 1e9) must not run. A sum cap would reject the finite cases below.
+    assert math.isnan(calc.multinomial(1e9, 1e9))
+    assert calc.multinomial(1e6, 1) == 1000001.0
+    assert calc.multinomial(1e308) == 1.0
+    assert calc.multinomial(1e308, 1) == 1e308
+    assert calc.multinomial(2, 3, 4) == 1260.0
+    assert math.isfinite(calc.multinomial(500, 500))
+    assert math.isnan(calc.multinomial(600, 600))
+    # Each C(600, 100), C(500, 100), ... fits; the product does not.
+    assert math.isnan(calc.multinomial(*([100] * 6)))
 
 
 def test_ispmt_and_mirr_huge_int_is_nan():
