@@ -30,6 +30,7 @@ from plugin.scripting.document_scripts import (
     get_calc_document_from_ctx,
     get_calc_init_script,
     get_document_scripts,
+    get_user_scripts,
     handle_editor_script_message,
     new_script_name_error,
     parse_document_script_display_name,
@@ -89,6 +90,37 @@ def test_get_calc_document_from_ctx_does_not_fall_back_from_writer():
     ):
         assert get_calc_document_from_ctx(MagicMock()) is None
     desktop.getComponents.assert_not_called()
+
+
+def test_get_calc_document_from_ctx_does_not_fall_back_from_impress():
+    impress = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = impress
+    with (
+        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
+        patch("plugin.scripting.document_scripts.is_writer", return_value=False),
+        patch("plugin.scripting.document_scripts.is_draw", return_value=True),
+        patch("plugin.scripting.document_scripts.is_calc", return_value=False),
+    ):
+        assert get_calc_document_from_ctx(MagicMock()) is None
+    desktop.getComponents.assert_not_called()
+
+
+def test_get_calc_document_from_ctx_enumerates_from_base():
+    base_doc = MagicMock()
+    calc = MagicMock()
+    calc.getURL.return_value = "file:///only.ods"
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = base_doc
+    desktop.getComponents.return_value = _calc_component_enum(calc)
+    with (
+        patch("plugin.scripting.document_scripts.get_desktop", return_value=desktop),
+        patch("plugin.scripting.document_scripts.is_writer", return_value=False),
+        patch("plugin.scripting.document_scripts.is_draw", return_value=False),
+        patch("plugin.scripting.document_scripts.is_calc", side_effect=lambda model: model is calc),
+    ):
+        assert get_calc_document_from_ctx(MagicMock()) is calc
+    desktop.getComponents.assert_called_once()
 
 
 def test_get_calc_document_from_ctx_returns_only_enumerated_workbook():
@@ -246,6 +278,27 @@ def test_blank_property_is_not_unreadable():
     assert get_document_scripts(doc2) == {"B": "y"}
 
 
+def test_missing_version_stays_unreadable_and_unsupported_version_names_the_version():
+    raw_missing = json.dumps({"scripts": {"A": "x"}})
+    props1 = _UserDefinedProperties()
+    props1.values[DOCUMENT_SCRIPTS_UDPROP] = raw_missing
+    doc1 = _DocWithUserDefinedProperties(props1)
+    err1 = attach_document_script(doc1, "B", "y")
+    assert getattr(err1, "code", None) == DocumentScriptErrorCode.UNREADABLE
+    assert "unreadable" in str(err1).lower()
+    assert "unsupported format" not in str(err1).lower()
+    assert props1.values[DOCUMENT_SCRIPTS_UDPROP] == raw_missing
+
+    raw_v99 = json.dumps({"version": 99, "scripts": {"Keep": "x = 1"}})
+    props2 = _UserDefinedProperties()
+    props2.values[DOCUMENT_SCRIPTS_UDPROP] = raw_v99
+    doc2 = _DocWithUserDefinedProperties(props2)
+    err2 = attach_document_script(doc2, "B", "y")
+    assert getattr(err2, "code", None) == DocumentScriptErrorCode.UNREADABLE
+    assert str(err2) == "Stored document scripts are in an unsupported format (version 99), so they were left unchanged."
+    assert props2.values[DOCUMENT_SCRIPTS_UDPROP] == raw_v99
+
+
 def test_scripts_list_reports_unreadable_envelope():
     raw = json.dumps({"version": 99, "scripts": {"Keep": "x = 1"}})
     props = _UserDefinedProperties()
@@ -265,7 +318,9 @@ def test_scripts_list_reports_unreadable_envelope():
     assert msg["document_available"] is True
     doc_section = [s for s in msg["sections"] if s["id"] == "document"][0]
     assert doc_section["scripts"] == {}
-    assert "unreadable" in msg.get("status_error_text", "").lower()
+    err_text = msg.get("status_error_text", "").lower()
+    assert "unsupported format" in err_text
+    assert "version 99" in err_text
 
     with (
         patch("plugin.framework.config.get_config", return_value={}),
@@ -280,6 +335,39 @@ def test_scripts_list_reports_unreadable_envelope():
         )
     assert msg_ok.get("status_ok_text") == "All good"
     assert "status_error_text" not in msg_ok
+
+    props_corrupt = _UserDefinedProperties()
+    props_corrupt.values[DOCUMENT_SCRIPTS_UDPROP] = "not-json"
+    doc_corrupt = _DocWithUserDefinedProperties(props_corrupt)
+    with (
+        patch("plugin.framework.config.get_config", return_value={}),
+        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch("plugin.scripting.domain_registry.get_picker_domains", return_value=()),
+    ):
+        msg_corrupt = build_scripts_list_message(
+            MagicMock(),
+            session_doc=doc_corrupt,
+            session_doc_url=None,
+        )
+    corrupt_section = [s for s in msg_corrupt["sections"] if s["id"] == "document"][0]
+    assert corrupt_section["scripts"] == {}
+    assert "unreadable" in msg_corrupt.get("status_error_text", "").lower()
+
+
+def test_attach_empty_and_reserved_name_do_not_store_the_error_code():
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    err_empty = attach_document_script(doc, "", "body")
+    assert getattr(err_empty, "code", None) == DocumentScriptErrorCode.EMPTY_NAME
+    assert DOCUMENT_SCRIPTS_UDPROP not in props.values
+    assert get_document_scripts(doc) == {}
+
+    err_reserved = attach_document_script(doc, "[Doc] x", "body")
+    assert getattr(err_reserved, "code", None) == DocumentScriptErrorCode.RESERVED_NAME
+    assert DOCUMENT_SCRIPTS_UDPROP not in props.values
+    scripts = get_document_scripts(doc)
+    assert "empty_name" not in scripts
+    assert "reserved_name" not in scripts
 
 
 def test_attach_without_overwrite_errors_on_collision():
@@ -767,8 +855,10 @@ def test_doc_save_fallback_sends_success_with_migration_note_only():
     msg = sent[-1]
     assert msg["type"] == "scripts_list"
     assert "status_error_text" not in msg
-    assert "Saved script 'DocReport' to My Scripts." in msg["status_ok_text"]
-    assert "Document is read-only." in msg["status_ok_text"]
+    assert (
+        msg["status_ok_text"]
+        == "Could not save 'DocReport' to this document (Document is read-only.). Saved it to My Scripts instead."
+    )
 
 
 def test_doc_save_fallback_does_not_overwrite_my_scripts():
@@ -804,8 +894,10 @@ def test_doc_save_fallback_does_not_overwrite_my_scripts():
     assert written == []
     msg = sent[-1]
     assert "status_ok_text" not in msg
-    assert "already exists" in msg["status_error_text"]
-    assert "Document is read-only." in msg["status_error_text"]
+    assert (
+        msg["status_error_text"]
+        == "Could not save 'DocReport' to this document (Document is read-only.). A script named 'DocReport' already exists in My Scripts."
+    )
     assert store["DocReport"] == "keep-me"
 
 
@@ -1014,6 +1106,9 @@ def test_init_script_omitted_from_picker():
 
 
 def test_script_picker_message_types():
+    from plugin.scripting import document_scripts
+
+    assert SCRIPT_PICKER_MESSAGE_TYPES == frozenset(document_scripts._PICKER_HANDLERS)
     assert "request_scripts" in SCRIPT_PICKER_MESSAGE_TYPES
     assert "save" not in SCRIPT_PICKER_MESSAGE_TYPES
     assert "attach_script" not in SCRIPT_PICKER_MESSAGE_TYPES
@@ -1162,6 +1257,44 @@ def test_monaco_overwrite_check_uses_document_display_key():
     assert not exists_in_section(sections, "user", document_script_display_name("Regional"))
 
 
+def test_monaco_save_as_prefills_storage_name():
+    from plugin.scripting.domain_registry import is_reserved_script_name
+
+    js_path = (
+        Path(__file__).resolve().parents[2]
+        / "plugin/contrib/scripting/assets/editor/scripts_manager.js"
+    )
+    js = js_path.read_text(encoding="utf-8")
+    assert "function storageNameForSaveAs(displayName)" in js
+    assert (
+        'nameInput.value = currentModalAction === "save_as" ? storageNameForSaveAs(currentSelectedName || "") : "";'
+        in js
+    )
+
+    def py_storage_name_for_save_as(display_name: str, origin: str) -> str:
+        if origin == "user" or origin == "":
+            return display_name
+        marker = "] "
+        at = display_name.find(marker)
+        if at > 0 and display_name.startswith("["):
+            return display_name[at + len(marker) :]
+        return display_name
+
+    doc_res = py_storage_name_for_save_as("[Doc] Regional", "document")
+    user_res = py_storage_name_for_save_as("Regional", "user")
+    vision_res = py_storage_name_for_save_as("[Vision] Blur", "vision")
+
+    assert doc_res == "Regional"
+    assert user_res == "Regional"
+    assert vision_res == "Blur"
+
+    assert not is_reserved_script_name(doc_res)
+    assert not is_reserved_script_name(user_res)
+    assert not is_reserved_script_name(vision_res)
+
+    assert 'var lookup = sectionId === "document" ? documentScriptListKey(name) : name;' in js
+
+
 def test_set_calc_init_script_returns_the_property_write_result() -> None:
     """No host-side init cache to refresh: the result is the document write's."""
     from plugin.scripting import document_scripts as ds
@@ -1194,6 +1327,86 @@ def test_calc_init_script_empty_init_does_not_fall_through_to_stale_init():
     doc = _DocWithUserDefinedProperties(props)
     set_document_scripts(doc, {"INIT": "", "Init": "stale_init"})
     assert get_calc_init_script(doc) == ""
+
+
+def test_build_scripts_list_message_loads_once_when_the_document_is_current():
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
+    attach_document_script(doc, "Regional", "doc-code")
+
+    import plugin.scripting.document_scripts as ds
+
+    real_load = ds._load_document_script_map
+    real_domain = ds._domain_template_entries
+    load_counts = 0
+    domain_counts = 0
+
+    def counting_load(d):
+        nonlocal load_counts
+        load_counts += 1
+        return real_load(d)
+
+    def counting_domain(d):
+        nonlocal domain_counts
+        domain_counts += 1
+        return real_domain(d)
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.config.get_config", return_value={}),
+        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch("plugin.framework.config.set_config"),
+        patch("plugin.scripting.document_scripts._load_document_script_map", side_effect=counting_load),
+        patch("plugin.scripting.document_scripts._domain_template_entries", side_effect=counting_domain),
+    ):
+        msg = build_scripts_list_message(
+            ctx,
+            session_doc=doc,
+            session_doc_url=None,
+        )
+
+    assert load_counts == 1
+    assert domain_counts == 1
+
+    with (
+        patch("plugin.framework.config.get_config", return_value={}),
+        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch("plugin.framework.config.set_config"),
+    ):
+        expected_selected, _, _ = resolve_run_script_selection(ctx, doc, get_user_scripts())
+
+    assert msg["selected_script_name"] == expected_selected
+
+
+def test_stale_list_selection_ignores_templates_of_the_stale_document():
+    domain = MagicMock()
+    domain.origin = "viz"
+    domain.display_prefix = "[Viz] "
+    domain.title_fn = lambda: "Viz"
+    domain.supports = lambda d: d is not None
+    domain.templates = lambda: {"Plot": "result = 1"}
+
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+    doc.getURL = MagicMock(return_value="file:///tmp/current.odt")
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.config.get_config", return_value={}),
+        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch("plugin.framework.config.set_config") as mock_set_config,
+        patch("plugin.scripting.document_scripts.get_picker_domains", return_value=[domain]),
+    ):
+        msg = build_scripts_list_message(
+            ctx,
+            session_doc=doc,
+            session_doc_url="file:///tmp/stale.odt",
+        )
+
+    assert any(s["id"] == "viz" for s in msg["sections"])
+    assert msg["selected_script_name"] == ""
+    mock_set_config.assert_not_called()
 
 
 def test_build_scripts_list_message_stale_doc_does_not_select_doc_script():

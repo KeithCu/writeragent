@@ -162,7 +162,7 @@ The extension ships a **Monaco-based code editor** (pywebview child in the confi
 
 **Requirements:** Settings → Python → venv path with `pywebview` installed (Linux also needs `PyQt6 PyQt6-WebEngine qtpy`) for the Monaco UI. **Edit Python in Cell…** and **Run Python Script…** both fall back to native LibreOffice dialogs when pywebview is missing or `scripting.force_internal_script_editor` is true. Native cell edit does not need a venv.
 
-**Document-attached scripts:** Named scripts live in document properties so they travel with the file. New and Save As can attach a script to the document. A read-only document falls back to the personal library (**My Scripts** in `writeragent.json`) when that name is free.
+**Document-attached scripts:** Named scripts live in document properties so they travel with the file. New and Save As can attach a script to the document. A read-only document falls back to the personal library (**My Scripts** in `writeragent.json`) when that name is free. Save As starts from the script's stored name, without a `[Doc]` or helper prefix. If the stored envelope is damaged or uses a version this release does not read, it is left unchanged.
 
 **Undo behavior:** In Calc, running a Python script that inserts tabular or structured results registers a native undo action in LibreOffice Calc's internal undo manager. Pressing **Ctrl+Z** (`Edit → Undo`) immediately removes all inserted titles, headers, and rows in a single step.
 
