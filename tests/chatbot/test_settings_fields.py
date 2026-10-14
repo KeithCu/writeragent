@@ -261,6 +261,7 @@ def test_set_configs_one_write_one_emit_and_validation_writes_nothing(tmp_path):
             assert emit.call_args.args[0] == "config:changed"
             assert emit.call_args.kwargs["key"] == ""
             assert emit.call_args.kwargs["keys"] == ("text_model", "request_timeout")
+            assert emit.call_args.kwargs["old_value"] is None
             assert get_config("text_model") == "alpha"
             assert get_config_int("request_timeout") == 45
             # An unrelated batch leaves the flat alias alone. Only staging the

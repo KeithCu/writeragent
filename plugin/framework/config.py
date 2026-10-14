@@ -549,7 +549,7 @@ def get_config_int(key: str) -> int:
     # Empty string or None from JSON/UI: use schema default (same as missing key).
     if v == "" or v is None:
         v = _config_schema._resolve_default(key)
-    # _resolve_default returns "" for unknown keys that slip through without a dataclass default.
+    # Unknown keys raise from get_config / _resolve_default. "" is a known key whose value and default are empty; CONFIG_KEY_NOT_FOUND keeps that empty string from being parsed as 0.
     if v == "":
         raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", "CONFIG_KEY_NOT_FOUND", details={"key": key})
     try:
@@ -661,7 +661,12 @@ def _stage_config_assignment(config_data: dict[str, Any], key: str, value: Any) 
     or the schema default when the key is omitted) leaves the dict alone.
     """
     current_value = _raw_config_value_for_key(config_data, key)
-    previous = None if current_value is _config_schema._MISSING_VALUE else current_value
+    # What was wrong: config:changed events reported old_value=None when a key
+    # was omitted from writeragent.json, even though its effective value was the schema default.
+    # How it happened: _stage_config_assignment assigned previous=None on _MISSING_VALUE.
+    # Why this change fixes it: It resolves previous via _value_for_update, returning
+    # the schema default for omitted keys.
+    previous = _value_for_update(config_data, key)
     # strict: an unparseable write must not look like success by snapping back
     # to the previous value. Load/repair stays non-strict.
     coerced = _config_schema.coerce_config_value(key, value, fallback_value=current_value, strict=True)
@@ -925,6 +930,7 @@ class ConfigStore:
             except OSError:
                 log.exception("remove_config skipped: config file could not be read")
                 return False
+            old_value = _value_for_update(loaded, key)
             aliases = _alias_keys_for_write(key, honor_keep_flat=False)
             remaining = dict(loaded)
             removed = False
@@ -958,7 +964,7 @@ class ConfigStore:
                 log.exception("Error writing to %s", path)
                 raise ConfigError(f"Failed to remove config key: {e}", "CONFIG_SAVE_ERROR") from e
             if emit:
-                pending = _PendingConfigEvent(event_key or key, (key,), None, None, False)
+                pending = _PendingConfigEvent(event_key or key, (key,), None, old_value, False)
         if pending is not None:
             _emit_pending(pending)
         return True

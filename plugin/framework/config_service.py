@@ -310,6 +310,7 @@ class ConfigService(ServiceBase):
         if self._config_path:
             # Same store as production remove_config. emit=False so this
             # method emits the one event (test files have no UNO ctx).
+            old_value = self.get(key)
             try:
                 changed = _config_store.remove(self._config_path, key, emit=False)
             except ConfigError as e:
@@ -317,7 +318,7 @@ class ConfigService(ServiceBase):
                 return
             if changed:
                 bus = self._events or global_event_bus
-                bus.emit("config:changed", key=key, value=None, old_value=None, ctx=None)
+                bus.emit("config:changed", key=key, value=None, old_value=old_value, ctx=None)
         else:
             remove_config(key)
 

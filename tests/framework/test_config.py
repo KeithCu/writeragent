@@ -538,6 +538,41 @@ class TestConfigSyncFileIO:
         assert "audio.stt_model" not in data
         assert "stt_model" not in data
 
+    def test_set_config_omitted_key_old_value_is_schema_default(self):
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"text_model": "test-model"}, f)
+        reset_config_for_tests()
+        with patch("plugin.framework.event_bus.global_event_bus.emit") as emit:
+            set_config("request_timeout", 45)
+            assert emit.call_count == 1
+            assert emit.call_args.kwargs["key"] == "request_timeout"
+            assert emit.call_args.kwargs["value"] == 45
+            assert emit.call_args.kwargs["old_value"] == 120
+
+    def test_set_config_stored_key_old_value_is_stored(self):
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"request_timeout": 30}, f)
+        reset_config_for_tests()
+        with patch("plugin.framework.event_bus.global_event_bus.emit") as emit:
+            set_config("request_timeout", 45)
+            assert emit.call_count == 1
+            assert emit.call_args.kwargs["key"] == "request_timeout"
+            assert emit.call_args.kwargs["value"] == 45
+            assert emit.call_args.kwargs["old_value"] == 30
+
+    def test_remove_config_old_value_is_stored(self):
+        from plugin.framework.config import remove_config
+
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump({"text_model": "keep"}, f)
+        reset_config_for_tests()
+        with patch("plugin.framework.event_bus.global_event_bus.emit") as emit:
+            remove_config("text_model")
+            assert emit.call_count == 1
+            assert emit.call_args.kwargs["key"] == "text_model"
+            assert emit.call_args.kwargs["value"] is None
+            assert emit.call_args.kwargs["old_value"] == "keep"
+
     def test_get_config_default_resolution(self):
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
