@@ -547,7 +547,7 @@ def _reject_host_unpickleable(obj: Any, *, depth: int = 0) -> None:
     )
 
 
-def serialize_result(obj: Any) -> Any:
+def serialize_result(obj: Any, *, log_failure: bool = True) -> Any:
     """Convert numpy/pandas and containers to JSON-safe values (split_grid for large numeric/mixed arrays).
 
     DataFrames (and named Series) are returned as a dataframe envelope with 'columns' and 'data'
@@ -562,10 +562,11 @@ def serialize_result(obj: Any) -> Any:
         _reject_host_unpickleable(out)
         return out
     except Exception:
-        log.exception(
-            "venv_sandbox serialize_result failed for value %s",
-            describe_wire_value(obj),
-        )
+        if log_failure:
+            log.exception(
+                "venv_sandbox serialize_result failed for value %s",
+                describe_wire_value(obj),
+            )
         raise
 
 
@@ -578,9 +579,9 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
     if not fignums:
         return None, ""
 
-    figs = [plt_mod.figure(num) for num in fignums]
     note = ""
     try:
+        figs = [plt_mod.figure(num) for num in fignums]
         if len(figs) > 1:
             items = [_figure_to_image_payload(fig, fmt=fmt) for fig in figs]
             payload = {
@@ -592,9 +593,12 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
             payload = _figure_to_image_payload(figs[0], fmt=fmt)
         return payload, note
     finally:
-        # Close even when rendering raises. A leftover figure is what the
-        # next cell returns. A close failure must not replace the payload
-        # or the original render error (same swallow as _close_open_figures).
+        # Close even when rendering raises or figure(num) fails. A figure(num)
+        # failure used to skip close("all") because the list was built outside
+        # the try, and the next cell then returned that leftover figure.
+        # A leftover figure is what the next cell returns. A close failure must
+        # not replace the payload or the original render error (same swallow as
+        # _close_open_figures).
         try:
             plt_mod.close("all")
         except Exception:
@@ -691,6 +695,65 @@ def _strip_datetime_tz(dt: datetime.datetime) -> datetime.datetime:
     return dt
 
 
+_TD64_US_PER_COUNT: dict[str, fractions.Fraction] = {
+    "ns": fractions.Fraction(1, 1000),
+    "us": fractions.Fraction(1, 1),
+    "ms": fractions.Fraction(1000, 1),
+    "s": fractions.Fraction(10**6, 1),
+    "m": fractions.Fraction(60 * 10**6, 1),
+    "h": fractions.Fraction(3600 * 10**6, 1),
+    "D": fractions.Fraction(86400 * 10**6, 1),
+    "W": fractions.Fraction(7 * 86400 * 10**6, 1),
+    "ps": fractions.Fraction(1, 10**6),
+    "fs": fractions.Fraction(1, 10**9),
+    "as": fractions.Fraction(1, 10**12),
+    "Y": fractions.Fraction(31556952000000, 1),
+    "M": fractions.Fraction(2629746000000, 1),
+}
+
+
+def _timedelta64_to_stdlib(value: Any) -> datetime.timedelta | None:
+    """Convert numpy.timedelta64 to datetime.timedelta or None.
+
+    What was wrong: without pandas, and for units pandas rejects, .item() is a
+    raw int and _coerce_host_pickle_scalar returned that int, so
+    timedelta64[ns] of 90 became 90 instead of fractional days.
+    How: the kind == "m" branch called pandas.Timedelta and on failure
+    trusted .item().
+    Why this fixes it: units that already yield a datetime.timedelta keep it;
+    every other unit uses the microsecond Fraction table and never returns the
+    count.
+    """
+    item_fn = getattr(value, "item", None)
+    item = item_fn() if callable(item_fn) else None
+    if str(value) == "NaT" or item is None:
+        return None
+    if isinstance(item, datetime.timedelta):
+        return item
+
+    dtype = getattr(value, "dtype", None)
+    dtype_name = getattr(dtype, "name", "")
+    if dtype_name == "timedelta64":
+        unit = "ns"
+    elif dtype_name.startswith("timedelta64[") and dtype_name.endswith("]"):
+        unit = dtype_name[len("timedelta64[") : -1]
+    else:
+        unit = ""
+
+    scale = _TD64_US_PER_COUNT.get(unit)
+    if scale is None or not isinstance(item, int):
+        raise ValueError(
+            f"numpy.timedelta64 value {value!r} cannot cross the LibreOffice pickle boundary"
+        )
+    try:
+        us = float(item * scale)
+        return datetime.timedelta(microseconds=us)
+    except OverflowError as err:
+        raise ValueError(
+            f"numpy.timedelta64 value {value!r} cannot cross the LibreOffice pickle boundary"
+        ) from err
+
+
 def _temporal_cell_to_stdlib(value: Any, pd_mod: Any) -> Any:
     """Convert pandas/numpy temporal values to stdlib types the host can pickle.
 
@@ -738,22 +801,7 @@ def _temporal_cell_to_stdlib(value: Any, pd_mod: Any) -> Any:
         text = str(value)
         return None if text == "NaT" else text
     if kind == "m":
-        try:
-            if pd_mod is not None:
-                td = pd_mod.Timedelta(value)
-                if pd_mod.isna(td):
-                    return None
-                return td.to_pytimedelta()
-        except Exception:
-            pass
-        item = getattr(value, "item", None)
-        if callable(item):
-            try:
-                py_item = item()
-                if isinstance(py_item, datetime.timedelta):
-                    return py_item
-            except Exception:
-                pass
+        return _timedelta64_to_stdlib(value)
     return value
 
 
@@ -1162,7 +1210,7 @@ def _ensure_init_executed(
         return _budget_timeout_error(timeout_sec)
     init_executor.timeout_seconds = left
     inject_auto_imports(init_executor, script)
-    result = _run_on_executor(init_executor, script)
+    result = _run_on_executor(init_executor, script, result_optional=True)
     if result.get("status") != "ok":
         with _SESSION_LOCK:
             _clear_init_session_unlocked(init_session_id)
@@ -1256,8 +1304,26 @@ def _sync_custom_tools(executor: LocalPythonExecutor) -> None:
             executor.custom_tools[k] = v
 
 
-def _is_defined_function(obj: Any) -> bool:
-    return isinstance(obj, (types.FunctionType, types.BuiltinFunctionType, types.BuiltinMethodType, types.MethodType))
+def _is_non_value_result(obj: Any) -> bool:
+    """True for a function or class the executor returns as the cell value.
+
+    A ``def`` or ``class`` statement evaluates to the object it created.
+    Those objects cannot cross the LibreOffice pickle boundary. Nulling
+    them keeps a helper-only script (and an init session) successful.
+    Instances stay values: a cell that ends on an instance still errors.
+    Import statements already return None, so a module expression still
+    errors on purpose.
+    """
+    return isinstance(
+        obj,
+        (
+            types.FunctionType,
+            types.BuiltinFunctionType,
+            types.BuiltinMethodType,
+            types.MethodType,
+            type,
+        ),
+    )
 
 
 def _is_mpl_artist_result(obj: Any) -> bool:
@@ -1300,27 +1366,28 @@ def _error_result(
     return out
 
 
-def _serialize_cell_result(result: Any) -> tuple[Any, str]:
+def _serialize_cell_result(result: Any, *, log_failure: bool = True) -> tuple[Any, str]:
     """Serialize *result*, swapping in open matplotlib figures when that is the output.
 
     A helper-only init script evaluates to the function, and plt.plot()
     evaluates to Line2D artists. Capture open figures before the pickle
     check rejects those objects, or the figures stay open and the next
-    script returns that SVG.
+    script returns that SVG. A class statement is the same kind of
+    non-value as a function statement.
     """
-    if _is_defined_function(result):
+    if _is_non_value_result(result):
         result = None
 
     extra_stdout = ""
     if _is_mpl_artist_result(result):
         captured, note = _capture_open_figures_payload()
         if captured is None:
-            serialized = serialize_result(result)
+            serialized = serialize_result(result, log_failure=log_failure)
         else:
             serialized = captured
             extra_stdout = note
     else:
-        serialized = serialize_result(result)
+        serialized = serialize_result(result, log_failure=log_failure)
         if not find_image_payloads(serialized):
             captured, note = _capture_open_figures_payload()
             if captured is not None:
@@ -1348,7 +1415,9 @@ def _fail_cell(
     )
 
 
-def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]:
+def _run_on_executor(
+    executor: LocalPythonExecutor, code: str, *, result_optional: bool = False
+) -> dict[str, Any]:
     # Keep ``result`` in the namespace. Egress uses it when this cell stored
     # the name. Popping it after every cell would make ``result * 2`` in a
     # later cell a NameError, and a leftover binding would also be the egress
@@ -1381,7 +1450,24 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         else:
             result = code_output.output
 
-        serialized, extra_stdout = _serialize_cell_result(result)
+        try:
+            serialized, extra_stdout = _serialize_cell_result(
+                result, log_failure=not result_optional
+            )
+        except Exception:
+            if not result_optional:
+                raise
+            # The init result is discarded. The executor had already stored the
+            # names. Failing here used to make _ensure_init_executed clear the
+            # init session, so the first cell never saw a helper instance the
+            # script had built (``h = Helper()`` is the cell value).
+            log.debug(
+                "dropping unpickleable init result %s.%s",
+                type(result).__module__,
+                type(result).__name__,
+                exc_info=True,
+            )
+            serialized, extra_stdout = None, ""
 
         if is_split_grid(serialized):
             log.debug("venv_sandbox worker result %s", describe_wire_value(serialized))
@@ -1413,7 +1499,15 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
             stdout=str(executor.state.get("_print_outputs", "")),
         )
     except Exception as e:
-        return _fail_cell(executor, prior_result, str(e), include_traceback=True)
+        # A pickle-boundary failure is raised after the executor returns, so
+        # prints are already in _print_outputs and were dropped.
+        return _fail_cell(
+            executor,
+            prior_result,
+            str(e),
+            stdout=str(executor.state.get("_print_outputs", "")),
+            include_traceback=True,
+        )
     except BaseException as e:
         # SystemExit and KeyboardInterrupt are BaseException. The vendored
         # executor only catches Exception, so they would leave
@@ -1427,7 +1521,13 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
         _close_open_figures()
         if isinstance(e, GeneratorExit):
             raise
-        return _error_result(str(e), include_traceback=True)
+        # SystemExit and KeyboardInterrupt skip the executor's except Exception,
+        # which is what copies prints, but the text is already in _print_outputs.
+        return _error_result(
+            str(e),
+            stdout=str(executor.state.get("_print_outputs", "")),
+            include_traceback=True,
+        )
 
 
 def _restore_prior_result(executor: LocalPythonExecutor, prior_result: Any) -> None:

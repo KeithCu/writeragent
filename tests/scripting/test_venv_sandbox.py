@@ -10,6 +10,7 @@ import io
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from typing import Any
 
 import pytest
 
@@ -64,6 +65,7 @@ def test_zero_dim_temporal_ndarray_matches_scalar():
     wire_ns = serialize_result(raw_ns)
     assert wire_ns == serialize_result(np.timedelta64(90, "ns"))
     assert wire_ns != 90
+    assert wire_ns == 0.0
 
     raw_day = np.array(1, dtype="timedelta64[D]")
     assert serialize_result(raw_day) == serialize_result(np.timedelta64(1, "D"))
@@ -316,3 +318,99 @@ def test_clongdouble_scalar_names_the_type():
     np = pytest.importorskip("numpy")
     with pytest.raises(ValueError, match=r"clongdouble.*builtin complex"):
         serialize_result(np.clongdouble(1 + 2j))
+
+
+def test_class_statement_result_is_none():
+    res1 = run_sandboxed_code("class Foo:\n    pass", timeout_sec=8)
+    assert res1["status"] == "ok", res1
+    assert res1["result"] is None
+
+    res2 = run_sandboxed_code("class Foo:\n    pass\nresult = Foo", timeout_sec=8)
+    assert res2["status"] == "ok", res2
+    assert res2["result"] is None
+
+
+def test_instance_result_errors_and_keeps_stdout():
+    res = run_sandboxed_code(
+        'print("hello world")\nclass Box:\n    pass\nbox = Box()\n',
+        timeout_sec=8,
+    )
+    assert res["status"] == "error", res
+    assert "cannot cross" in res.get("message", "")
+    assert res.get("stdout") == "hello world\n"
+
+
+def test_system_exit_keeps_stdout():
+    res = run_sandboxed_code('print("hi")\nraise SystemExit(1)', timeout_sec=8)
+    assert res["status"] == "error", res
+    assert res.get("stdout") == "hi\n"
+
+
+def test_module_expression_still_cannot_cross():
+    res = run_sandboxed_code("import math\nresult = math", timeout_sec=8)
+    assert res["status"] == "error", res
+    assert "cannot cross" in res.get("message", "")
+
+
+def test_timedelta64_without_pandas_is_fractional_days(monkeypatch: pytest.MonkeyPatch) -> None:
+    np = pytest.importorskip("numpy")
+    import datetime
+    from plugin.scripting.venv import venv_sandbox as vs
+
+    real_opt = vs.optional_module
+
+    def fake_opt(name: str) -> Any:
+        if name == "pandas":
+            return None
+        return real_opt(name)
+
+    monkeypatch.setattr(vs, "optional_module", fake_opt)
+
+    assert vs.serialize_result(np.timedelta64(90, "ns")) == 0.0
+    assert vs.serialize_result(np.array(90, dtype="timedelta64[ns]")) == 0.0
+    assert vs.serialize_result(np.timedelta64(500, "ns")) == 0.0
+    assert vs.serialize_result(np.timedelta64(1500, "ns")) == (
+        datetime.timedelta(microseconds=1500 / 1000).total_seconds() / 86400.0
+    )
+    assert vs.serialize_result(np.timedelta64(-1500, "ns")) == (
+        datetime.timedelta(microseconds=-1500 / 1000).total_seconds() / 86400.0
+    )
+    assert vs.serialize_result(np.timedelta64(1, "D")) == 1.0
+    assert vs.serialize_result(np.timedelta64(1, "Y")) == 365.2425
+    assert vs.serialize_result(np.timedelta64(1, "M")) == 30.436875
+    assert vs.serialize_result(np.timedelta64(90)) == 0.0
+    assert vs.serialize_result(np.timedelta64(2, "ps")) == 0.0
+    assert vs.serialize_result(np.timedelta64("NaT", "ns")) is None
+    with pytest.raises(ValueError, match="pickle boundary"):
+        vs.serialize_result(np.timedelta64(10**18, "D"))
+
+
+def test_capture_closes_figures_when_figure_lookup_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting.venv import venv_sandbox as vs
+
+    closed: list[Any] = []
+
+    class FakePyplot:
+        @staticmethod
+        def get_fignums() -> list[int]:
+            return [1]
+
+        @staticmethod
+        def figure(num: int) -> Any:
+            raise RuntimeError("backend gone")
+
+        @staticmethod
+        def close(arg: Any) -> None:
+            closed.append(arg)
+
+    def fake_opt(name: str) -> Any:
+        if name == "matplotlib.pyplot":
+            return FakePyplot
+        return None
+
+    monkeypatch.setattr(vs, "optional_module", fake_opt)
+
+    with pytest.raises(RuntimeError, match="backend gone"):
+        vs._capture_open_figures_payload()
+    assert closed == ["all"]
+

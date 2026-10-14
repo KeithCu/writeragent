@@ -543,3 +543,36 @@ def test_missing_init_hash_isolated_sees_edited_script():
     assert second["status"] == "ok", second.get("message")
     assert second["result"] == 4
 
+
+def test_init_class_instance_is_seeded():
+    init_code = (
+        "class Helper:\n"
+        "    def scale(self, x):\n"
+        "        return x * 2\n"
+        "h = Helper()\n"
+    )
+    h_digest = init_script_hash(init_code)
+
+    shared = run_sandboxed_code(
+        "result = h.scale(3)",
+        session_id="calc:init-class",
+        init_script=init_code,
+        init_session_id="calc:init-class:init",
+        init_script_hash=h_digest,
+        timeout_sec=8,
+    )
+    assert shared["status"] == "ok", shared.get("message")
+    assert shared["result"] == 6
+
+    isolated = run_sandboxed_code(
+        "result = h.scale(4)",
+        session_id=None,
+        init_script=init_code,
+        init_session_id="calc:init-class-iso:init",
+        init_script_hash=h_digest,
+        timeout_sec=8,
+    )
+    assert isolated["status"] == "ok", isolated.get("message")
+    assert isolated["result"] == 8
+
+
