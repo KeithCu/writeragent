@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -236,7 +237,8 @@ def test_speak_kokoro_local_uses_misaki_script_for_non_english(tmp_path):
              patch("plugin.audio.tts_service._venv_python", return_value=str(py)), \
              patch("plugin.audio.tts_models._resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
              patch("plugin.audio.tts_service.ensure_kokoro_misaki", ensure), \
-             patch("plugin.audio.tts_service.subprocess.Popen", side_effect=fake_popen), \
+             patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), \
+             patch("plugin.audio.tts_service.get_kokoro_pool", return_value=None), \
              patch("plugin.audio.tts_service._play_audio_file") as play:
             _speak_kokoro_local(text, voice=voice, speed=1.0)
         assert play.called
@@ -268,7 +270,7 @@ def test_speak_kokoro_local_skips_synthesis_when_phonemizer_install_cancelled(tm
          patch("plugin.audio.tts_service._venv_python", return_value=str(tmp_path / "python")), \
          patch("plugin.audio.tts_models._resolve_kokoro_model_files", return_value=(str(model), str(voices))), \
          patch("plugin.audio.tts_service.ensure_kokoro_misaki", return_value=None), \
-         patch("plugin.audio.tts_service.subprocess.Popen") as popen, \
+         patch("plugin.framework.managed_subprocess.subprocess.Popen") as popen, \
          patch("plugin.audio.tts_service._speak_system") as system:
         _speak_kokoro_local("こんにちは", voice="jf_alpha", speed=1.0)
 
@@ -1000,3 +1002,176 @@ def test_remember_misaki_ready_ignores_stale_generation():
         assert generation not in tts._reply_misaki_ready
     finally:
         tts.stop_speech()
+
+
+def test_run_synth_uses_raw_spawn_and_returns_communicate_stderr() -> None:
+    import plugin.audio.tts_service as tts
+    import plugin.framework.managed_subprocess as ms
+
+    tts._speech_cancelled.clear()
+    tts._speech_active = False
+
+    snapshot_instances = set(ms._instances)
+
+    captured_kwargs: list[dict[str, Any]] = []
+
+    class _FakeProc:
+        def __init__(self) -> None:
+            self.returncode = 7
+            self.communicate_calls: list[tuple[Any, Any]] = []
+
+        def communicate(self, input: Any = None, timeout: Any = None) -> tuple[str, str]:
+            self.communicate_calls.append((input, timeout))
+            return ("", "piper-err")
+
+        def poll(self) -> int:
+            return 7
+
+    fake_proc = _FakeProc()
+
+    def fake_popen(cmd: list[str], **kwargs: Any) -> _FakeProc:
+        captured_kwargs.append(dict(kwargs))
+        return fake_proc
+
+    try:
+        with patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), \
+             patch("plugin.framework.managed_subprocess.start_stderr_drain", side_effect=AssertionError("drain")):
+            res = tts._run_synth(["piper", "--model", "m"], None, stdin_text="hello", timeout=12.5, capture_stdout=True)
+
+        assert res == (7, "", "piper-err")
+        assert fake_proc.communicate_calls == [("hello", 12.5)]
+        kwargs = captured_kwargs[0]
+        assert kwargs["stdin"] is subprocess.PIPE
+        assert kwargs["stdout"] is subprocess.PIPE
+        assert kwargs["stderr"] is subprocess.PIPE
+        assert kwargs["text"] is True
+        assert kwargs["encoding"] == "utf-8"
+        assert kwargs["errors"] == "replace"
+        assert kwargs["env"] is None
+        assert kwargs["cwd"] is None
+        assert "start_new_session" not in kwargs
+        assert "creationflags" not in kwargs
+        assert "bufsize" not in kwargs
+        assert set(ms._instances) == snapshot_instances
+    finally:
+        ms._instances.clear()
+        ms._instances.update(snapshot_instances)
+        tts._synth_procs = []
+        tts._play_proc = None
+
+
+def test_popen_for_speech_raw_env_object_and_devnull() -> None:
+    import plugin.audio.tts_service as tts
+    import plugin.framework.managed_subprocess as ms
+
+    tts._speech_cancelled.clear()
+    tts._speech_active = False
+
+    env = {"WA_AUDIO_PATH": "C:\\clip.wav", "PATH": "/bin"}
+    captured_kwargs: list[dict[str, Any]] = []
+    fake_proc = MagicMock()
+    fake_proc.poll.return_value = None
+
+    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+        captured_kwargs.append(dict(kwargs))
+        return fake_proc
+
+    run_calls: list[Any] = []
+    try:
+        with patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen), \
+             patch.object(ms.ManagedSubprocess, "run", side_effect=lambda *a, **k: run_calls.append((a, k))):
+            res = tts._popen_for_speech(
+                ["powershell", "-NoProfile", "-Command", "x"],
+                None,
+                slot="play",
+                env=env,
+            )
+
+        assert res is fake_proc
+        kwargs = captured_kwargs[0]
+        assert kwargs["env"] is env
+        assert kwargs["stdout"] == subprocess.DEVNULL
+        assert kwargs["stderr"] == subprocess.DEVNULL
+        assert kwargs["stdin"] is None
+        assert kwargs["cwd"] is None
+        assert "start_new_session" not in kwargs
+        assert "creationflags" not in kwargs
+        assert "bufsize" not in kwargs
+        assert tts._play_proc is fake_proc
+        assert run_calls == []
+    finally:
+        tts._play_proc = None
+
+
+def test_reap_proc_windows_taskkill_timeout_stays_five() -> None:
+    import plugin.audio.tts_service as tts
+
+    wait_calls: list[Any] = []
+
+    def fake_wait(timeout: float | None = None) -> int:
+        wait_calls.append(timeout)
+        if len(wait_calls) == 1:
+            raise subprocess.TimeoutExpired(cmd="x", timeout=0.2)
+        return 0
+
+    proc = MagicMock()
+    proc.wait.side_effect = fake_wait
+    proc.pid = 4242
+
+    recorded: list[tuple[Any, dict[str, Any]]] = []
+
+    def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+        recorded.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0)
+
+    with patch.object(tts.sys, "platform", "win32"), \
+         patch.object(tts.ManagedSubprocess, "run", side_effect=fake_run):
+        tts._reap_proc(proc)
+
+    assert len(recorded) == 1
+    args, kwargs = recorded[0]
+    assert args == ["taskkill", "/F", "/T", "/PID", "4242"]
+    assert kwargs == {
+        "check": False,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "timeout": 5,
+    }
+    assert wait_calls == [0.2, 5]
+
+
+def test_stop_speech_spd_say_stop_uses_managed_run() -> None:
+    import plugin.audio.tts_service as tts
+
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.args = ["spd-say", "-w", "--", "hi"]
+    proc.stdin = None
+
+    recorded: list[tuple[Any, dict[str, Any]]] = []
+
+    def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+        recorded.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0)
+
+    with patch.object(tts, "_play_proc", proc), \
+         patch.object(tts, "run_in_background", side_effect=lambda fn, **_kw: fn()), \
+         patch.object(tts.ManagedSubprocess, "run", side_effect=fake_run):
+        tts.stop_speech()
+
+    assert len(recorded) == 1
+    args, kwargs = recorded[0]
+    assert args == ["spd-say", "-S"]
+    assert kwargs == {
+        "check": False,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "timeout": 2,
+    }
+
+    if sys.platform == "win32":
+        proc.terminate.assert_called_once()
+        proc.kill.assert_not_called()
+    else:
+        proc.kill.assert_called_once()
+        proc.terminate.assert_not_called()

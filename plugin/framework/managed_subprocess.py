@@ -4,7 +4,9 @@
 """Shared managed-subprocess bottom layer.
 
 Provides explicit start, environment merging, thread-guard refusal, bounded stderr,
-tree kill, reaping, and registered shutdown.
+tree kill, reaping, and registered shutdown. `raw_spawn=True` is a pass-through
+Popen for short-lived children, and ManagedSubprocess.run is a pass-through subprocess.run.
+Worker start, stderr drain, tree kill, and shutdown_all stay the default.
 """
 
 from __future__ import annotations
@@ -41,6 +43,9 @@ _RealPopen = subprocess.Popen
 class ManagedSubprocess:
     """A managed child process providing explicit start, safe shutdown, and stderr tailing.
 
+    The default constructor is the worker (pipes, drain, registry, close()).
+    raw_spawn=True is the TTS path and does not do those things. Callers of raw mode
+    own stop and reap. run does not create an instance.
     Callers own the stdout and stdin pipes (e.g. for JSON-RPC or custom framing).
     This layer handles environment merging, process-tree killing, and cleanup.
     """
@@ -56,6 +61,13 @@ class ManagedSubprocess:
     _stderr_tail_chars: int | None
     _stderr_name: str | None
     _label: str
+    _raw_spawn: bool
+    _raw_stdin: Any
+    _raw_stdout: Any
+    _raw_stderr: Any
+    _raw_text: bool
+    _raw_encoding: str | None
+    _raw_errors: str | None
     _proc: Any | None
     _stderr_drain: StderrTail | None
     _reaper_passes: int
@@ -77,6 +89,13 @@ class ManagedSubprocess:
         stderr_tail_chars: int | None = None,
         stderr_name: str | None = None,
         label: str | None = None,
+        raw_spawn: bool = False,
+        stdin: Any = None,
+        stdout: Any = None,
+        stderr: Any = None,
+        text: bool = False,
+        encoding: str | None = None,
+        errors: str | None = None,
     ) -> None:
         self._cmd_line = cmd_line
         self._cwd = cwd
@@ -89,6 +108,13 @@ class ManagedSubprocess:
         self._stderr_tail_chars = stderr_tail_chars
         self._stderr_name = stderr_name
         self._label = label if label else "Managed subprocess"
+        self._raw_spawn = raw_spawn
+        self._raw_stdin = stdin
+        self._raw_stdout = stdout
+        self._raw_stderr = stderr
+        self._raw_text = text
+        self._raw_encoding = encoding
+        self._raw_errors = errors
         self._reaper_passes = 0
         self._stdio_closed = False
         self._proc = None
@@ -265,11 +291,20 @@ class ManagedSubprocess:
         return self._proc is not None and self._proc.poll() is None
 
     def start(self) -> None:
-        """Spawn the child process. Raises RuntimeError if already running, closed, or reused."""
+        """Spawn the child process.
+
+        Worker path is unchanged (pipes, drain, registry). In raw_spawn mode,
+        Popen runs with requested stdio and environment; OSError propagates.
+        A second start raises RuntimeError.
+        """
         with self._lock:
             # Single-use policy: a ManagedSubprocess cannot be respawned or restarted after exit/close.
             if self._closed or self._proc is not None:
                 raise RuntimeError("ManagedSubprocess is single-use")
+
+            if self._raw_spawn:
+                self._start_raw_locked()
+                return
 
             if self._thread_guard:
                 self._thread_guard()
@@ -363,6 +398,71 @@ class ManagedSubprocess:
                 raise RuntimeError(f"Failed to start managed subprocess: {e}") from e
 
             _register_instance(self)
+
+    def _start_raw_locked(self) -> None:
+        # TTS stdio is DEVNULL or a pipe that communicate reads itself; a stderr
+        # drain would swallow Kokoro and Piper stderr; stop is a direct-child
+        # signal, not close(); start_new_session would detach players from the
+        # LibreOffice process group.
+        if self._command_wrapper is not None:
+            raise ValueError("raw_spawn does not take a command_wrapper")
+        if self._scrub_env:
+            raise ValueError("raw_spawn does not scrub env")
+        if self._optimize_pipes:
+            raise ValueError("raw_spawn does not optimize pipes")
+        if self._base_env is not None:
+            raise ValueError("raw_spawn does not merge base_env")
+        if self._stderr_tail_chars is not None or self._stderr_name is not None:
+            raise ValueError("raw_spawn does not drain stderr")
+
+        if self._thread_guard:
+            self._thread_guard()
+
+        proc = subprocess.Popen(
+            list(self._cmd_line),
+            stdin=self._raw_stdin,
+            stdout=self._raw_stdout,
+            stderr=self._raw_stderr,
+            text=self._raw_text,
+            encoding=self._raw_encoding,
+            errors=self._raw_errors,
+            env=self._env,
+            cwd=self._cwd,
+        )
+        self._proc = proc
+
+    @staticmethod
+    def run(
+        args: list[str],
+        *,
+        check: bool = False,
+        stdout: Any = None,
+        stderr: Any = None,
+        stdin: Any = None,
+        timeout: float | None = None,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+        text: bool = False,
+        encoding: str | None = None,
+        errors: str | None = None,
+    ) -> subprocess.CompletedProcess[Any]:
+        """One-shot subprocess.run with no env merge, session, creation flags, drain, or registry.
+
+        Timeouts and OSError propagate.
+        """
+        return subprocess.run(
+            args,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            env=env,
+            cwd=cwd,
+            text=text,
+            encoding=encoding,
+            errors=errors,
+            timeout=timeout,
+            check=check,
+        )
 
     def unregister(self) -> None:
         """Unregister this instance from shutdown_all without closing pipes or killing processes."""
