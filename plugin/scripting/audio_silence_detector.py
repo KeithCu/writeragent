@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import math
 import struct
+from collections import deque
 from dataclasses import dataclass
 
 from plugin.framework.deal_shim import DEAL_MAX_ARGV, UNDER_CROSSHAIR, deal
@@ -37,6 +38,9 @@ SPEECH_HYSTERESIS_FACTOR = 1.8
 PEAK_SILENCE_FACTOR = 1.5
 NOISE_FLOOR_MULTIPLIER = 1.5
 NOISE_EMA_TAU_SEC = 0.25
+# Flat sub-loud energy of this length is room noise, not a held speech run.
+# It stays under MIN_SPEECH_MS so the stretch cannot arm auto-stop by itself.
+STEADY_NOISE_MS = 400
 DEFAULT_SILENCE_STOP_MS = 3000
 
 
@@ -122,6 +126,8 @@ class SilenceDetector:
     _last_reported_silence_ms: int
     _session_max_rms: float
     _session_max_peak: float
+    _level_window: deque[tuple[int, float]]
+    _level_samples: int
 
     def __init__(self, config: SilenceDetectorConfig, *, sample_rate: int = 16000) -> None:
         self._config = config
@@ -136,6 +142,8 @@ class SilenceDetector:
         self._last_reported_silence_ms = -1
         self._session_max_rms = 0.0
         self._session_max_peak = 0.0
+        self._level_window = deque()
+        self._level_samples = 0
 
     @property
     def silence_ms(self) -> int:
@@ -175,12 +183,22 @@ class SilenceDetector:
         rms, peak = pcm_energy_int16(pcm)
         self._session_max_rms = max(self._session_max_rms, rms)
         self._session_max_peak = max(self._session_max_peak, peak)
+        self._push_level(sample_count, rms)
 
         # The old code froze the 0.003 floor on the first chunk at or above 0.0054,
         # including ordinary room noise, so later noise was still speech and auto-stop
         # never fired. This classifies only energy at or above LOUD_ONSET_RMS, or
         # energy above the floor learned from quieter chunks, and it ignores runs
         # shorter than SPEECH_ONSET_MS.
+        # Bugfix: a quieter chunk snapped _noise_ema down (a leading silent
+        # callback snaps it to 0) and _adapt_floor returned while is_speech was
+        # true, so the floor could not rise. Energy above the speech threshold
+        # (0.0054 at MIN_SILENCE_FLOOR), including amplitude-328 room noise,
+        # stayed speech and auto-stop never fired. A full STEADY_NOISE_MS window
+        # of similar RMS below LOUD_ONSET_RMS is ambient: _is_speech returns
+        # False and _adapt_floor snaps _noise_ema to that window's minimum.
+        # Hysteresis still covers a shorter dip, because the window still holds
+        # the louder audio.
         is_speech = self._is_speech(rms, peak)
         self._adapt_floor(rms, is_speech, sample_count)
 
@@ -262,7 +280,28 @@ class SilenceDetector:
             return True
         return False
 
+    def _push_level(self, sample_count: int, rms: float) -> None:
+        self._level_window.append((sample_count, rms))
+        self._level_samples += sample_count
+        limit = STEADY_NOISE_MS * self._sample_rate // 1000
+        while len(self._level_window) > 1 and self._level_samples - self._level_window[0][0] >= limit:
+            dropped, _dropped_rms = self._level_window.popleft()
+            self._level_samples -= dropped
+
+    def _steady_ambient(self) -> bool:
+        limit = STEADY_NOISE_MS * self._sample_rate // 1000
+        if self._level_samples < limit:
+            return False
+        low = min(level for _count, level in self._level_window)
+        high = max(level for _count, level in self._level_window)
+        if high >= LOUD_ONSET_RMS:
+            return False
+        return high <= low * NOISE_FLOOR_MULTIPLIER
+
     def _adapt_floor(self, rms: float, is_speech: bool, sample_count: int) -> None:
+        if self._steady_ambient():
+            self._noise_ema = min(level for _count, level in self._level_window)
+            return
         if is_speech:
             return
         if self._noise_ema is None:
@@ -278,10 +317,12 @@ class SilenceDetector:
     def _is_speech(self, rms: float, peak: float) -> bool:
         if rms >= LOUD_ONSET_RMS:
             return True
+        if self._steady_ambient():
+            return False
         if self._noise_ema is None:
             return False
-        silence_thr = max(MIN_SILENCE_FLOOR, self._noise_ema * NOISE_FLOOR_MULTIPLIER)
-        speech_thr = silence_thr * SPEECH_HYSTERESIS_FACTOR
+        silence_thr = self._silence_threshold
+        speech_thr = self._speech_threshold
         if rms >= speech_thr:
             return True
         if rms <= silence_thr and peak <= silence_thr * PEAK_SILENCE_FACTOR:
