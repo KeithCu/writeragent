@@ -118,7 +118,7 @@ def test_native_helpers():
     inspector = MagicMock()
     
     manipulator.safe_get_cell_value.return_value = "HELLO"
-    inspector.read_range.return_value = [[{"value": 1}, {"value": 2}]]
+    inspector.read_range.side_effect = lambda addr: [[{"value": "HELLO"}]] if addr == "A1" else [[{"value": 1}, {"value": 2}]]
     
     executor.inject_helpers(bridge, manipulator, inspector)
     
@@ -185,14 +185,33 @@ def test_lp_helper_reraises_execution_timeout():
         lp("A1:B2")
 
 
-def test_lp_helper_still_swallows_cell_errors():
+def test_lp_helper_raises_on_cell_read_errors():
+    from plugin.framework.errors import WriterAgentException
+
     executor = PythonExecutor("test")
     bridge = MagicMock()
     manipulator = MagicMock()
     inspector = MagicMock()
-    manipulator.safe_get_cell_value.side_effect = RuntimeError("missing sheet")
+    inspector.read_range.side_effect = RuntimeError("missing sheet")
     executor.inject_helpers(bridge, manipulator, inspector)
-    assert executor.executor.state["lp"]("A1") is None
+    with pytest.raises(WriterAgentException) as excinfo:
+        executor.executor.state["lp"]("A1")
+    assert "A1" in str(excinfo.value)
+    assert "missing sheet" in str(excinfo.value)
+
+
+def test_lp_helper_sheet_prefix_invokes_read_range():
+    executor = PythonExecutor("test")
+    bridge = MagicMock()
+    manipulator = MagicMock()
+    inspector = MagicMock()
+    inspector.read_range.return_value = [[{"value": 42}]]
+    executor.inject_helpers(bridge, manipulator, inspector)
+
+    val = executor.executor.state["lp"]("Sheet2.A1")
+    assert val == 42
+    inspector.read_range.assert_called_once_with("Sheet2.A1")
+    manipulator.safe_get_cell_value.assert_not_called()
 
 
 def test_format_result_stringifies_non_json_values():

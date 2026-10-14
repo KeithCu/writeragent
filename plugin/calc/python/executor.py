@@ -95,20 +95,21 @@ class PythonExecutor:
             """Read values from the spreadsheet. Generic for cells or ranges."""
             _require_calc("lp")
             try:
+                data = inspector.read_range(addr)
                 if ":" in addr:
-                    data = inspector.read_range(addr)
                     return [[cell["value"] for cell in row] for row in data]
-                sheet = bridge.get_active_sheet()
-                return manipulator.safe_get_cell_value(sheet, addr)
+                if data and data[0]:
+                    return data[0][0]["value"]
+                return None
             except ExecutionTimeoutError:
                 # Let ExecutionTimeoutError leave the cell. The sandbox arms
                 # SIGALRM once (local_python_executor.timeout). Swallowing it
                 # here leaves the alarm unset, and a loop of lp('A1') never
                 # returns to the UI thread.
                 raise
-            except Exception:
+            except Exception as exc:
                 log.exception("lp_helper failed for address %s", addr)
-                return None
+                raise WriterAgentException(f"lp failed to read address '{addr}': {exc}", code="CALC_READ_ERROR") from exc
 
         def set_range_helper(addr: str, data: Any) -> str | dict[str, Any]:
             """Write values back to the spreadsheet."""
