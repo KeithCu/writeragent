@@ -290,7 +290,7 @@ def _thinking_text_from_delta(delta: dict[str, Any]) -> str:
     return ""
 
 
-def _extract_thinking_from_delta(chunk_or_delta: object) -> str:  # pyright: ignore[reportUnusedFunction]  # used by stream normalizer tests
+def extract_thinking_from_delta(chunk_or_delta: object) -> str:
     """Extract reasoning/thinking text from a stream chunk or bare delta for display in UI."""
     delta = _normalize_stream_delta(chunk_or_delta)
     result = _thinking_text_from_delta(delta)
@@ -303,7 +303,7 @@ def _extract_thinking_from_delta(chunk_or_delta: object) -> str:  # pyright: ign
     return result
 
 
-def _normalize_message_content(raw: Any) -> str | None:  # pyright: ignore[reportUnusedFunction]  # used by llm_client / response_normalizers
+def normalize_message_content(raw: Any) -> str | None:
     """Return a single string from API message content (string or list of parts)."""
     # crosshair: off
     # Unbounded str | list[dict[Any]] join (cover-all 35546602462: ~14k examples / largest stream_normalizer sink). Doable later with DEAL_MAX_SHAPE_DIM part list + short ASCII text domain.
@@ -326,7 +326,7 @@ def _normalize_message_content(raw: Any) -> str | None:  # pyright: ignore[repor
 def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:
     """Postcondition helper: Mistral/Azure null type/arguments repaired on dict tool_calls."""
     # crosshair: off
-    # Nested tool_calls Any dicts as a cover entry (cover-all 35546602462: ~400 examples); _normalize_delta stays on and exercises the repair. Doable later with a closed tool_call schema.
+    # Nested tool_calls Any dicts as a cover entry (cover-all 35546602462: ~400 examples); normalize_delta stays on and exercises the repair. Doable later with a closed tool_call schema.
     tool_calls = delta.get("tool_calls")
     if type(tool_calls) is not list:
         return True
@@ -344,7 +344,7 @@ def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:
 @deal.pre(lambda delta: type(delta) is not dict or (len(delta) <= DEAL_MAX_SHAPE_DIM and (not isinstance(delta.get("tool_calls"), list) or len(delta["tool_calls"]) <= DEAL_MAX_SHAPE_DIM)))
 @deal.ensure(lambda delta, result: type(delta) is not dict or "role" not in delta or delta.get("role") is not None)
 @deal.ensure(lambda delta, result: type(delta) is not dict or _normalize_delta_tool_calls_ok(delta))
-def _normalize_delta(delta: object) -> None:  # pyright: ignore[reportUnusedFunction]  # used by llm_client / response_normalizers
+def normalize_delta(delta: object) -> None:
     """Normalize delta for Mistral/Azure compat before accumulate_delta.
     LiteLLM: streaming_handler.py ~L847 (role), ~L853 (type), ~L820 (arguments).
     """

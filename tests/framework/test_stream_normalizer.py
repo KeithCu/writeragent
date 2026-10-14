@@ -5,7 +5,7 @@
 
 
 from plugin.framework.client import stream_normalizer as sn
-from plugin.framework.client.stream_normalizer import _extract_thinking_from_delta, iterate_sse
+from plugin.framework.client.stream_normalizer import extract_thinking_from_delta, iterate_sse, normalize_delta, normalize_message_content
 from plugin.tests.testing_utils import create_mock_http_response
 import pytest
 
@@ -20,7 +20,7 @@ import pytest
 )
 def test_extract_thinking_from_delta_reasoning_field(value, value_2, expected):
     chunk = {"choices": [{"delta": {value: value_2}}]}
-    assert _extract_thinking_from_delta(chunk) == expected
+    assert extract_thinking_from_delta(chunk) == expected
 
 def test_extract_thinking_from_delta_prefers_reasoning_content_over_reasoning():
     chunk = {
@@ -33,16 +33,16 @@ def test_extract_thinking_from_delta_prefers_reasoning_content_over_reasoning():
             }
         ]
     }
-    assert _extract_thinking_from_delta(chunk) == "official trace"
+    assert extract_thinking_from_delta(chunk) == "official trace"
 
 
 def test_extract_thinking_from_delta_nested_delta_only():
     delta = {"thinking": "native thinking chunk"}
-    assert _extract_thinking_from_delta(delta) == "native thinking chunk"
+    assert extract_thinking_from_delta(delta) == "native thinking chunk"
 
 
 def test_extract_thinking_from_delta_empty_when_no_fields():
-    assert _extract_thinking_from_delta({"choices": [{"delta": {"content": "hello"}}]}) == ""
+    assert extract_thinking_from_delta({"choices": [{"delta": {"content": "hello"}}]}) == ""
 
 
 @pytest.mark.parametrize(
@@ -65,12 +65,30 @@ def test_extract_thinking_from_delta_reasoning_details_text(value, value_2, expe
             }
         ]
     }
-    assert _extract_thinking_from_delta(chunk) == expected
+    assert extract_thinking_from_delta(chunk) == expected
 
 def test_extract_thinking_from_delta_nested_choices_one_level_only():
     """Pathological nested choices: one normalize step, no recursion hang."""
     chunk = {"choices": [{"delta": {"choices": [{"delta": {"reasoning": "deep"}}]}}]}
-    assert _extract_thinking_from_delta(chunk) == ""
+    assert extract_thinking_from_delta(chunk) == ""
+
+
+def test_normalize_message_content_shapes():
+    assert normalize_message_content(None) is None
+    assert normalize_message_content("plain text") == "plain text"
+    assert normalize_message_content(123) == "123"
+    assert normalize_message_content(["hello", " world"]) == "hello world"
+    assert normalize_message_content([{"type": "text", "text": "foo"}, {"type": "text", "text": "bar"}]) == "foobar"
+    assert normalize_message_content(["prefix: ", {"type": "text", "text": "mixed"}]) == "prefix: mixed"
+    assert normalize_message_content([{"type": "image_url"}]) is None
+
+
+def test_normalize_delta_basic():
+    delta = {"role": None, "tool_calls": [{"id": "call_1", "function": {"arguments": None}}]}
+    normalize_delta(delta)
+    assert delta["role"] == "assistant"
+    assert delta["tool_calls"][0]["type"] == "function"
+    assert delta["tool_calls"][0]["function"]["arguments"] == ""
 
 
 def test_extract_reasoning_replay_reasoning_content_only():
