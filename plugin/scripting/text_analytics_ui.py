@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, set_control_enabled
 from plugin.doc.doc_type import is_writer
+from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import post_to_main_thread
 from plugin.framework.uno_context import get_active_document
@@ -67,7 +68,7 @@ class TextAnalyticsDialog:
       - Key Phrases                 → noun chunks
       - Topics                      → NMF topic model (uses sections for structure)
       - Sentiment                   → multilingual transformers sentiment by section (whole doc)
-      - Check Venv                  → reports status of spacy, textdescriptives, transformers (for new features)
+      - Check Venv                  → reports status of spacy, textdescriptives, transformers, torch, scikit-learn
       - Insert report here          → appends a clean table after the caret/selection
     """
 
@@ -242,7 +243,11 @@ class TextAnalyticsDialog:
                 res_ctrl.getModel().Text = _("Open a Writer document to analyze.")
                 return
 
-            raw, context = resolve_text_analytics_document_inputs(doc, helper, scope=scope)
+            try:
+                raw, context = resolve_text_analytics_document_inputs(doc, helper, scope=scope)
+            except DocumentDisposedError:
+                res_ctrl.getModel().Text = _("The document was closed.")
+                return
 
             if scope == "selection" and (not raw or (isinstance(raw, str) and not raw.strip())):
                 res_ctrl.getModel().Text = _("Nothing is selected.")

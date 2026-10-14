@@ -263,6 +263,36 @@ def test_short_text_keeps_not_enough_text_message(monkeypatch):
     assert fake_dlg.controls["ResultsEdit"].getModel().Text == "Not enough text in the chosen scope."
 
 
+def test_compute_disposed_document_sets_closed_message(monkeypatch):
+    from plugin.framework.errors import DocumentDisposedError
+
+    dlg_obj, fake_dlg = _make_dialog()
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
+
+    def fake_resolve(*args, **kwargs):
+        raise DocumentDisposedError("document closed")
+
+    monkeypatch.setattr(
+        "plugin.scripting.text_analytics_ui.resolve_text_analytics_document_inputs",
+        fake_resolve,
+    )
+
+    called_background = False
+
+    def fake_run_in_background(*args, **kwargs):
+        nonlocal called_background
+        called_background = True
+
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_in_background", fake_run_in_background)
+
+    dlg_obj._compute(fake_dlg, "readability", "whole")
+    assert fake_dlg.controls["ResultsEdit"].getModel().Text == "The document was closed."
+    assert dlg_obj._last_result is None
+    assert called_background is False
+
+
+
 def test_busy_click_does_not_clear_or_reschedule(monkeypatch):
     dlg_obj, fake_dlg = _make_dialog()
     sentinel = {"status": "ok", "result": {"sentinel": True}}

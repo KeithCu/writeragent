@@ -399,9 +399,10 @@ class WriterAgentConfig:
     last_python_script_name_draw: str = "Universal Sample"
 
     # Text analytics (sentiment etc.) — see plugin/scripting/text_analytics.py.
-    # engine is "transformers" for now (good multilingual default); model can be overridden
-    # via JSON for a different HF model or future engines.
-    text_analytics_sentiment_engine: str = "transformers"
+    # Only the transformers engine is implemented; this key overrides the Hugging Face model id (read by plugin/scripting/client.py).
+    # What was wrong: text_analytics_sentiment_engine was an unused config field.
+    # How it happened: it was added for speculative future engines, but only transformers is implemented.
+    # Why this change: removed the dead field; text_analytics_sentiment_model remains the single JSON override.
     text_analytics_sentiment_model: str = "cardiffnlp/twitter-xlm-roberta-base-sentiment"
 
     # Persists the last entries for inserting LaTeX math

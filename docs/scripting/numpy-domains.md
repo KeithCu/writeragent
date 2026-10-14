@@ -591,7 +591,7 @@ This gives writers an at-a-glance "map" of the major themes and where they appea
 
 **Sentiment (by section)**
 
-`sentiment` helper uses `transformers` + a strong multilingual model (default: `cardiffnlp/twitter-xlm-roberta-base-sentiment`, an XLM-RoBERTa model with good cross-lingual performance). `score` is signed polarity in [-1, 1] (positive confidence, negative confidence, or 0 for neutral) and the same number is used for the average and for each `per_section` entry. `LABEL_n` uses the model’s `num_labels` and the midpoint rule. `"N star"` / `"N stars"` uses that rule with five classes. The default Cardiff NLP model already returns the words `negative`, `neutral`, and `positive`. When run on the whole document it uses heading-based section extraction and returns both overall sentiment and per-section results. This delivers the "sentiment by section" goal for reports and long-form Writer content across 34 locales.
+`sentiment` helper uses `transformers` + a strong multilingual model (default: `cardiffnlp/twitter-xlm-roberta-base-sentiment`, an XLM-RoBERTa model with good cross-lingual performance). `score` is signed polarity in [-1, 1] (positive confidence, negative confidence, or 0 for neutral) and the same number is used for the average and for each `per_section` entry. `LABEL_n` uses the model’s `num_labels` and the midpoint rule. The `sentiment` object is always `score` and `label`. `section_index` is only on `per_section` entries. The worker keeps the last successfully loaded sentiment pipeline and does not keep a failed load. `"N star"` / `"N stars"` uses that rule with five classes. The default Cardiff NLP model already returns the words `negative`, `neutral`, and `positive`. When run on the whole document it uses heading-based section extraction and returns both overall sentiment and per-section results. This delivers the "sentiment by section" goal for reports and long-form Writer content across 34 locales.
 
 The old spacytextblob implementation has been removed (it provided only limited multilingual support).
 
@@ -599,13 +599,13 @@ Install hint (CPU wheels recommended for broad compatibility):
 
     uv pip install transformers torch --index-url https://download.pytorch.org/whl/cpu
 
-Override the model (or engine in future) via the JSON setting `text_analytics_sentiment_model` (see config).
+Override the model via the JSON setting `text_analytics_sentiment_model` (see config).
 
 Results are inserted as compact tables and usable from scripts.
 
 **Module:** Host facade [`text_analytics.py`](../../plugin/scripting/text_analytics.py); compute in [`venv/text_analytics.py`](../../plugin/scripting/venv/text_analytics.py) (spaCy + textdescriptives; runs inside the user venv).
 
-**UI (minimal):** WriterAgent → **Text Analytics...** opens a modeless dialog with buttons for Readability (doc/sel), Entities, Key Phrases, **Topics**, Check Venv, and "Insert report here". All work is done with real spaCy pipelines (or sklearn for topics) in your configured Python venv (Settings → Python).
+**UI (minimal):** WriterAgent → **Text Analytics...** opens a modeless dialog with buttons for Readability (doc/sel), Entities, Key Phrases, **Topics**, Check Venv, and "Insert report here". All work is done with real spaCy pipelines (or sklearn for topics) in your configured Python venv (Settings → Python). Check Venv's install command includes `scikit-learn`, and the report says whether scikit-learn is installed.
 
 **Advanced scripting:** Run Python Script **Text Helpers** templates call `run_text_analytics(...)`. Edit the helper and `params` in that call; on Run the host injects `text` and `document_context` from the Writer document, then inserts results as a compact HTML table after the caret/selection.
 
