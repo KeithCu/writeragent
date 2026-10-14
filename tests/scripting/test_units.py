@@ -14,6 +14,7 @@ from plugin.scripting.calc_range import CalcRange
 from plugin.scripting.units import (
     format_units_for_calc,
     insert_units_result_into_writer,
+    is_units_result,
     resolve_output_style,
     split_helper_params,
     units_display_text,
@@ -464,3 +465,124 @@ def test_whitespace_unit_is_missing_param():
     res_blanks = convert_quantity([10, 20], "m", ["km", " "])
     assert res_blanks[0] == pytest.approx(0.01)
     assert res_blanks[1] == ""
+
+
+def test_conflicting_unit_aliases_are_invalid_spec():
+    res1 = run_units(
+        {"helper": "convert_quantity", "params": {"value": "10", "from": "m", "from_unit": "km", "to": "ft"}},
+        None,
+        {},
+    )
+    assert res1["status"] == "error"
+    assert res1["code"] == "INVALID_SPEC"
+    assert res1["message"] == "from and from_unit disagree"
+    assert res1["helper"] == "convert_quantity"
+
+    res2 = run_units(
+        {"helper": "convert_quantity", "params": {"value": "10", "from": "m", "to": "km", "to_unit": "ft"}},
+        None,
+        {},
+    )
+    assert res2["status"] == "error"
+    assert res2["code"] == "INVALID_SPEC"
+    assert res2["message"] == "to and to_unit disagree"
+    assert res2["helper"] == "convert_quantity"
+
+    res3 = run_units(
+        {
+            "helper": "convert_quantity",
+            "params": {"value": "10", "from": "m", "from_unit": "km", "to": "ft", "to_unit": "m"},
+        },
+        None,
+        {},
+    )
+    assert res3["status"] == "error"
+    assert res3["code"] == "INVALID_SPEC"
+    assert res3["message"] == "from and from_unit disagree"
+
+    res4 = convert_quantity(10, from_unit="m", **{"from": "km", "to": "ft"})
+    assert isinstance(res4, dict)
+    assert res4["status"] == "error"
+    assert res4["code"] == "INVALID_SPEC"
+    assert res4["message"] == "from and from_unit disagree"
+    assert res4["helper"] == "convert_quantity"
+
+    res5 = convert_quantity(10, "m", to_unit="km", **{"to": "ft"})
+    assert isinstance(res5, dict)
+    assert res5["status"] == "error"
+    assert res5["code"] == "INVALID_SPEC"
+    assert res5["message"] == "to and to_unit disagree"
+    assert res5["helper"] == "convert_quantity"
+
+    res6 = run_units(
+        {
+            "helper": "convert_quantity",
+            "params": {"value": [10], "from": ["m/s"], "from_unit": ["km/h"], "to": "km/h"},
+        },
+        None,
+        {},
+    )
+    assert res6["status"] == "error"
+    assert res6["code"] == "INVALID_SPEC"
+    assert "values" not in res6
+
+    res7 = run_units(
+        {
+            "helper": "convert_quantity",
+            "params": {"value": "10", "from": "m/s", "from_unit": " m/s ", "to": "km/h"},
+        },
+        None,
+        {},
+    )
+    assert res7["status"] == "ok"
+    assert res7["magnitude"] == pytest.approx(36.0)
+
+    res8 = run_units(
+        {
+            "helper": "convert_quantity",
+            "params": {"value": [10], "from": ["m/s"], "from_unit": ["m/s"], "to": "km/h"},
+        },
+        None,
+        {},
+    )
+    assert res8["status"] == "ok"
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_run_units_blank_parse_quantity_is_missing_param(value):
+    res_rpc = run_units({"helper": "parse_quantity", "params": {"quantity": value}}, None, {})
+    assert res_rpc["code"] == "MISSING_PARAM"
+    assert res_rpc["message"] == "quantity is required"
+
+    res_direct = parse_quantity(quantity=value)
+    assert isinstance(res_direct, dict)
+    assert res_direct["code"] == "MISSING_PARAM"
+    assert res_direct["message"] == "quantity is required"
+
+    # Lock the whitespace split:
+    res_ws = run_units({"helper": "parse_quantity", "params": {"quantity": "   "}}, None, {})
+    assert res_ws["code"] == "PARSE_ERROR"
+    assert res_ws["message"] == "empty quantity"
+    assert parse_quantity(quantity="   ") == ""
+
+    # A blank cell inside a range stays blank:
+    res_range = parse_quantity(quantity=["", "5 km/h"])
+    assert res_range[0] == ""
+    assert res_range[1] == pytest.approx(5.0)
+
+
+def test_units_display_text_drops_blank_cells():
+    assert units_display_text({"formatted": ["36 km/h", "", "72 km/h"]}) == "36 km/h, 72 km/h"
+    assert units_display_text({"formatted": ["36 km/h", "  ", "72 km/h"]}) == "36 km/h, 72 km/h"
+    assert units_display_text({"formatted": ["36 km/h", "#VALUE!", "72 km/h"]}) == "36 km/h, #VALUE!, 72 km/h"
+    assert units_display_text({"formatted": ["", ""], "text": "2 quantities converted"}) == ""
+
+
+def test_is_units_result_uses_helper_names():
+    assert is_units_result({"status": "ok", "helper": "convert_quantity", "formatted": "36 km/h"}) is True
+    assert is_units_result({"status": "error", "helper": "parse_quantity", "code": "PARSE_ERROR"}) is True
+    assert is_units_result({"status": "error", "code": "UNITS_ERROR"}) is True
+    assert is_units_result({"status": "ok", "formatted": "36 km/h", "magnitude": 36.0}) is False
+    assert is_units_result({"status": "ok", "values": [[36.0]], "magnitudes": [36.0]}) is False
+    assert is_units_result({"status": "error", "code": "PARSE_ERROR"}) is False
+    assert is_units_result("36 km/h") is False

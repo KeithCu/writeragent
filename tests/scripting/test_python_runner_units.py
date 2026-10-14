@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for Run Python Script units venv path (fast path disabled)."""
+"""Tests for Run Python Script units execution through the user venv."""
 
 from __future__ import annotations
 
@@ -13,9 +13,8 @@ from plugin.scripting.units import get_units_script_templates
 
 
 @patch("plugin.scripting.units.insert_units_result_into_doc")
-@patch("plugin.scripting.units.run_trusted_units")
 @patch("plugin.scripting.python_runner.run_code_in_user_venv")
-def test_execute_and_insert_units_skips_fast_path(mock_venv, mock_run, mock_insert):
+def test_execute_and_insert_units_skips_fast_path(mock_venv, mock_insert):
     ctx = MagicMock()
     doc = MagicMock()
 
@@ -35,7 +34,6 @@ def test_execute_and_insert_units_skips_fast_path(mock_venv, mock_run, mock_inse
 
     assert outcome["ok"] is True
     assert "convert_quantity" in outcome["status_ok_text"]
-    mock_run.assert_not_called()
     mock_venv.assert_called_once()
     mock_insert.assert_called_once()
 

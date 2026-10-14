@@ -135,17 +135,37 @@ def _is_missing_unit(value: Any) -> bool:
     return isinstance(value, str) and value.strip() == ""
 
 
-def _first_nonblank(*vals: Any) -> Any:
-    """First argument that was actually passed.
+def _aliases_agree(left: Any, right: Any) -> bool:
+    if isinstance(left, str) and isinstance(right, str):
+        return left.strip() == right.strip()
+    if type(left) is type(right) and isinstance(left, (list, tuple)):
+        if len(left) != len(right):
+            return False
+        return all(_aliases_agree(l_item, r_item) for l_item, r_item in zip(left, right))
+    try:
+        same = left == right
+        return same is True
+    except Exception:
+        return False
 
-    ``from_unit != ""`` is true for None, so a missing unit used to fall through
-    to ``map_over_range`` and come back ``#VALUE!``. The same comparison raises
-    on a NumPy array. Blank is only None or ``""``.
-    """
-    for val in vals:
-        if not _is_blank_param(val):
-            return val
-    return ""
+
+def _resolve_unit_alias(primary: Any, alias: Any) -> tuple[Any, bool]:
+    # What was wrong: convert_quantity kept from_unit over from, and
+    # _dispatch_convert kept from over from_unit (same for to / to_unit).
+    # How: each call site passed the keys to _first_nonblank in its own order.
+    # Why this fixes it: both sites share this helper, and two non-blank aliases
+    # that disagree are INVALID_SPEC instead of a silent pick.
+    primary_blank = _is_blank_param(primary)
+    alias_blank = _is_blank_param(alias)
+    if primary_blank and alias_blank:
+        return "", False
+    if primary_blank:
+        return alias, False
+    if alias_blank:
+        return primary, False
+    if not _aliases_agree(primary, alias):
+        return None, True
+    return primary, False
 
 
 def _finite_magnitude(value: Any, *, empty_message: str) -> float:
@@ -255,8 +275,13 @@ def convert_quantity(
     if _require_pint() is None:
         return _missing_package(helper)
 
-    from_text = _first_nonblank(from_unit, kwargs.get("from"))
-    to_text = _first_nonblank(to_unit, kwargs.get("to"))
+    from_text, from_conflict = _resolve_unit_alias(from_unit, kwargs.get("from"))
+    if from_conflict:
+        return _error_result("INVALID_SPEC", "from and from_unit disagree", helper=helper)
+    to_text, to_conflict = _resolve_unit_alias(to_unit, kwargs.get("to"))
+    if to_conflict:
+        return _error_result("INVALID_SPEC", "to and to_unit disagree", helper=helper)
+
     if _is_missing_unit(from_text) or _is_missing_unit(to_text):
         return _error_result("MISSING_PARAM", "from and to units are required", helper=helper)
 
@@ -444,9 +469,13 @@ def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
     name = "convert_quantity"
     if _require_pint() is None:
         return _missing_package(name)
+    raw_from, from_conflict = _resolve_unit_alias(params.get("from_unit"), params.get("from"))
+    if from_conflict:
+        return _error_result("INVALID_SPEC", "from and from_unit disagree", helper=name)
+    raw_to, to_conflict = _resolve_unit_alias(params.get("to_unit"), params.get("to"))
+    if to_conflict:
+        return _error_result("INVALID_SPEC", "to and to_unit disagree", helper=name)
     raw_val = params.get("value")
-    raw_from = _first_nonblank(params.get("from"), params.get("from_unit"))
-    raw_to = _first_nonblank(params.get("to"), params.get("to_unit"))
     if inspect_input(raw_val).is_scalar and inspect_input(raw_from).is_scalar and inspect_input(raw_to).is_scalar:
         from_text = "" if _is_blank_param(raw_from) else str(_scalar_cell(raw_from) or "").strip()
         to_text = "" if _is_blank_param(raw_to) else str(_scalar_cell(raw_to) or "").strip()
@@ -489,6 +518,15 @@ def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
     name = "parse_quantity"
     if _require_pint() is None:
         return _missing_package(name)
+    # What was wrong: parse_quantity("") and parse_quantity(quantity=None)
+    # returned MISSING_PARAM, while run_units with quantity "" or None returned
+    # PARSE_ERROR / empty quantity.
+    # How: _dispatch_parse had no blank check, so _parse_quantity_value raised
+    # and _guarded labeled it a parse error.
+    # Why this fixes it: omitted quantity uses the same MISSING_PARAM check as
+    # the direct function. Whitespace-only text is still parsed.
+    if _is_blank_param(params.get("quantity")):
+        return _error_result("MISSING_PARAM", "quantity is required", helper=name)
     raw_qty = params.get("quantity")
     if inspect_input(raw_qty).is_scalar:
         def _run() -> dict[str, Any]:

@@ -15,10 +15,10 @@ from plugin.doc.doc_type import is_calc, is_writer
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.client import run_units as client_run_units
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     header_prefix,
+    is_status_helper_result,
     make_template_api,
 )
 
@@ -94,35 +94,6 @@ def supports_units_manual(doc: Any) -> bool:
         return False
 
 
-def run_trusted_units(
-    uno_ctx: Any,
-    doc: Any,
-    *,
-    helper: str,
-    params: dict[str, Any] | None = None,
-    task_hint: str | None = None,
-) -> dict[str, Any]:
-    """Run a trusted units helper in the user venv."""
-    name = str(helper or "").strip()
-    if not name:
-        raise ToolExecutionError("helper is required", code="UNITS_ERROR")
-    if name not in HELPER_NAMES:
-        raise ToolExecutionError(f"Unknown helper {name!r}", code="UNITS_ERROR")
-    if not is_calc(doc) and not is_writer(doc):
-        raise ToolExecutionError("Units helpers require a Writer or Calc document.", code="UNITS_ERROR")
-
-    spec: dict[str, Any] = {"helper": name}
-    clean_params, _output_style = split_helper_params(params if isinstance(params, dict) else None)
-    if clean_params:
-        spec["params"] = clean_params
-
-    context: dict[str, Any] = {}
-    if task_hint:
-        context["task_hint"] = str(task_hint)
-
-    return client_run_units(uno_ctx, spec, None, context=context or None)
-
-
 # --- Egress ---
 
 def resolve_output_style(helper: str, output_style: str | None) -> str:
@@ -158,24 +129,22 @@ def extract_units_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     return {}
 
 
+# Ordinary dicts with formatted and magnitude are not units results:
+# match HELPER_NAMES and UNITS_ERROR through is_status_helper_result.
 def is_units_result(value: Any) -> bool:
     """True when *value* matches the compact units helper result contract."""
-    if not isinstance(value, dict):
-        return False
-    if "status" not in value:
-        return False
-    helper = value.get("helper")
-    if isinstance(helper, str) and helper in HELPER_NAMES:
-        return True
-    return ("formatted" in value and "magnitude" in value) or ("values" in value and "magnitudes" in value)
+    return is_status_helper_result(value, HELPER_NAMES, frozenset({"UNITS_ERROR"}))
 
 
 def units_display_text(result: dict[str, Any]) -> str:
     # str of the vector formatted list is a Python repr, and that repr was
     # inserted into Writer and shown on the Run Python Script status line.
+    # A blank cell from map_over_range is "", and joining it produced
+    # 36 km/h, , 72 km/h in Writer and on the Run Python Script status line.
+    # Empty pieces are dropped. #VALUE! stays.
     formatted = result.get("formatted")
     if isinstance(formatted, (list, tuple)) and formatted:
-        return ", ".join(str(item).strip() for item in formatted)
+        return ", ".join(part for part in (str(item).strip() for item in formatted) if part)
     return str(formatted or result.get("text") or "").strip()
 
 
@@ -250,8 +219,7 @@ def insert_units_result_into_calc(
     """Write units result rows on the active Calc sheet."""
     from plugin.calc.tabular_egress import insert_tabular_result_into_calc
 
-    helper = str(result.get("helper") or "")
-    grid = format_units_for_calc(result, output_style=resolve_output_style(helper, output_style))
+    grid = format_units_for_calc(result, output_style=output_style)
     return insert_tabular_result_into_calc(doc, ctx, grid)
 
 
