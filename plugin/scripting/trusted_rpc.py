@@ -59,19 +59,6 @@ _RESERVED_PAYLOAD_KEYS = frozenset({
 })
 
 
-def extract_sheet_layout(source: dict[str, Any] | None) -> dict[str, Any]:
-    """Extract ``headers`` and ``header_row`` from a spec or packet dictionary."""
-    layout: dict[str, Any] = {}
-    if isinstance(source, dict):
-        # Do not bool() or int() these fields on the host: bool("false") is True,
-        # and int("abc") / int(None) raise before worker validation. Copy raw values.
-        if "headers" in source:
-            layout["headers"] = source["headers"]
-        if "header_row" in source:
-            layout["header_row"] = source["header_row"]
-    return layout
-
-
 def run_trusted_worker_action(
     ctx: Any,
     *,

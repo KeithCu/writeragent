@@ -205,3 +205,158 @@ def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
     assert terminal["id"] == "req-1"
     assert terminal["status"] == "error"
     assert "SystemExit" in terminal.get("traceback", "")
+
+
+@patch(
+    "plugin.scripting.venv.trusted_dispatch.dispatch_analysis",
+    return_value={"helper": "describe_data"},
+)
+def test_allow_heartbeat_frames_non_heartbeat_success(mock_dispatch) -> None:
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.scripting.venv.worker_heartbeat import parse_frame
+
+    stdout = BytesIO()
+    res = _handle_request(
+        {
+            "id": "plain-hb",
+            "action": "run_trusted_action",
+            "allow_heartbeat": True,
+            "data": {
+                "domain": "analysis",
+                "helper": "describe_data",
+                "params": {},
+            },
+        },
+        stdout=stdout,
+    )
+    assert res is None
+    mock_dispatch.assert_called_once()
+    assert "heartbeat_fn" not in mock_dispatch.call_args.kwargs
+    stdout.seek(0)
+    raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+    assert raw is not None
+    frame = parse_frame(raw)
+    assert frame["frame_type"] == "result"
+    assert frame["status"] == "ok"
+    assert frame["id"] == "plain-hb"
+    assert frame["result"] == {"helper": "describe_data"}
+    assert read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES) is None
+
+
+@patch(
+    "plugin.scripting.venv.trusted_dispatch.dispatch_analysis",
+    side_effect=RuntimeError("bad spec"),
+)
+def test_allow_heartbeat_frames_non_heartbeat_error(mock_dispatch) -> None:
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.scripting.venv.worker_heartbeat import parse_frame
+
+    stdout = BytesIO()
+    res = _handle_request(
+        {
+            "id": "plain-hb-err",
+            "action": "run_trusted_action",
+            "allow_heartbeat": True,
+            "data": {
+                "domain": "analysis",
+                "helper": "describe_data",
+                "params": {},
+            },
+        },
+        stdout=stdout,
+    )
+    assert res is None
+    stdout.seek(0)
+    raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+    assert raw is not None
+    frame = parse_frame(raw)
+    assert frame["frame_type"] == "result"
+    assert frame["status"] == "error"
+    assert "bad spec" in frame["message"]
+    assert "traceback" in frame
+
+
+def test_allow_heartbeat_frames_unknown_domain() -> None:
+    from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_frame_payload
+    from plugin.scripting.venv.worker_heartbeat import parse_frame
+
+    stdout = BytesIO()
+    res = _handle_request(
+        {
+            "id": "missing-hb",
+            "action": "run_trusted_action",
+            "allow_heartbeat": True,
+            "data": {
+                "domain": "missing_domain",
+                "helper": "demo",
+            },
+        },
+        stdout=stdout,
+    )
+    assert res is None
+    stdout.seek(0)
+    raw = read_frame_payload(stdout, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+    assert raw is not None
+    frame = parse_frame(raw)
+    assert frame["status"] == "error"
+    assert frame["frame_type"] == "result"
+    assert "Unknown trusted action domain" in frame["message"]
+
+
+@patch(
+    "plugin.scripting.venv.trusted_dispatch.dispatch_analysis",
+    return_value={"helper": "describe_data"},
+)
+def test_stdout_without_allow_heartbeat_returns_dict(mock_dispatch) -> None:
+    stdout = BytesIO()
+    res = _handle_request(
+        {
+            "id": "no-hb",
+            "action": "run_trusted_action",
+            "data": {
+                "domain": "analysis",
+                "helper": "describe_data",
+                "params": {},
+            },
+        },
+        stdout=stdout,
+    )
+    assert res == {"status": "ok", "result": {"helper": "describe_data"}}
+    assert stdout.getvalue() == b""
+
+
+def test_harness_library_import_does_not_claim_or_load_sandbox() -> None:
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = str(Path(__file__).resolve().parents[2])
+    env = dict(os.environ)
+    existing_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{repo_root}:{existing_pp}" if existing_pp else repo_root
+
+    child_code = (
+        "import sys\n"
+        "import plugin.scripting.ipc as ipc\n"
+        "initial_stream = ipc._child_ipc_stream\n"
+        "import plugin.scripting.venv.worker_harness\n"
+        "if ipc._child_ipc_stream is not initial_stream:\n"
+        "    sys.stderr.write('ipc._child_ipc_stream changed during harness import\\n')\n"
+        "    sys.exit(1)\n"
+        "if 'plugin.scripting.venv.venv_sandbox' in sys.modules:\n"
+        "    sys.stderr.write('plugin.scripting.venv.venv_sandbox loaded during harness import\\n')\n"
+        "    sys.exit(1)\n"
+        "sys.exit(0)\n"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", child_code],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, f"Child failed (stdout={proc.stdout}, stderr={proc.stderr})"
+

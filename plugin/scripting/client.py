@@ -20,7 +20,8 @@ from plugin.scripting.config_limits import (
     VALE_WORKER_TIMEOUT_SEC,
     VISION_WORKER_TIMEOUT_SEC,
 )
-from plugin.scripting.trusted_rpc import extract_sheet_layout, run_trusted_worker_action
+from plugin.scripting.sheet_layout import extract_sheet_layout
+from plugin.scripting.trusted_rpc import run_trusted_worker_action
 from plugin.vision.vision_common import resolve_engine
 
 log = logging.getLogger(__name__)

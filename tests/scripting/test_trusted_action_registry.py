@@ -71,3 +71,47 @@ def test_dispatch_passes_heartbeat_only_when_supported() -> None:
     with patch("importlib.import_module", return_value=mod):
         assert plain.dispatch({"k": 1}, heartbeat_fn=sentinel) == "no:1"
         assert beating.dispatch({"k": 1}, heartbeat_fn=sentinel) == "yes:True"
+
+
+def test_trusted_dispatch_import_does_not_load_host_worker() -> None:
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = str(Path(__file__).resolve().parents[2])
+    env = dict(os.environ)
+    existing_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{repo_root}:{existing_pp}" if existing_pp else repo_root
+
+    child_code = (
+        "import sys\n"
+        "import plugin.scripting.venv.trusted_dispatch\n"
+        "forbidden = [\n"
+        "    'plugin.scripting.trusted_rpc',\n"
+        "    'plugin.scripting.venv_worker',\n"
+        "    'plugin.framework.config',\n"
+        "    'plugin.framework.worker_pool',\n"
+        "    'plugin.framework.thread_guard',\n"
+        "    'plugin.scripting.sandbox',\n"
+        "]\n"
+        "loaded_forbidden = [m for m in forbidden if m in sys.modules]\n"
+        "if 'plugin.scripting.sheet_layout' not in sys.modules:\n"
+        "    sys.stderr.write('Missing plugin.scripting.sheet_layout in sys.modules\\n')\n"
+        "    sys.exit(1)\n"
+        "if loaded_forbidden:\n"
+        "    sys.stderr.write(f'Forbidden modules loaded: {loaded_forbidden}\\n')\n"
+        "    sys.exit(1)\n"
+        "sys.exit(0)\n"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", child_code],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, f"Child failed (stdout={proc.stdout}, stderr={proc.stderr})"
+

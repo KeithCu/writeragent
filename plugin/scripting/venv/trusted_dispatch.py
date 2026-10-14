@@ -9,7 +9,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from plugin.scripting.trusted_rpc import extract_sheet_layout
+# What was wrong: importing extract_sheet_layout from trusted_rpc loaded
+# venv_worker in the child. venv_worker imports config, which imports uno at
+# module scope, plus thread_guard, worker_pool, and sandbox.
+# How it happened: b476c6899 placed the raw header copy in trusted_rpc and
+# pointed this module at it.
+# Why this change: sheet_layout is a leaf, so a trusted action does not import
+# the host worker.
+from plugin.scripting.sheet_layout import extract_sheet_layout
 
 
 def _trusted_action_spec(helper: Any, params: Any, packet: dict[str, Any] | None = None) -> dict[str, Any]:
