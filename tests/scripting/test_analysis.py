@@ -852,3 +852,223 @@ def test_insert_analysis_result_into_calc() -> None:
     grid = mock_insert.call_args.args[2]
     assert grid
     assert res == len(grid)
+
+
+def test_compare_periods_parses_calc_serials_and_years():
+    grid_serials = [
+        ["Date", "Revenue"],
+        [44927, 100],
+        [45292, 150],
+        [45658, 200],
+    ]
+    res_serials = analysis.compare_periods(grid_serials, date_col="Date", value_col="Revenue", period="Y")
+    assert res_serials["status"] == "ok"
+    assert res_serials["metrics"]["periods"] == 3
+    rows = res_serials["tables"][0]["rows"]
+    assert [row[0].year for row in rows] == [2023, 2024, 2025]
+    assert [row[1] for row in rows] == [100, 150, 200]
+
+    grid_years = [
+        ["Date", "Revenue"],
+        [2023, 100],
+        [2024, 150],
+        [2025, 200],
+    ]
+    res_years = analysis.compare_periods(grid_years, date_col="Date", value_col="Revenue", period="Y")
+    assert res_years["status"] == "ok"
+    assert res_years["metrics"]["periods"] == 3
+    rows_y = res_years["tables"][0]["rows"]
+    assert [row[0].year for row in rows_y] == [2023, 2024, 2025]
+    assert [row[1] for row in rows_y] == [100, 150, 200]
+
+
+def test_clean_and_prepare_extension_dtypes():
+    import numpy as np
+    import pandas as pd
+
+    # Float64 series [1.0, NA, 3.0]
+    df_float = pd.DataFrame({"x": pd.Series([1.0, pd.NA, 3.0], dtype="Float64")})
+    res_float = analysis.clean_and_prepare(df_float)
+    assert any("Filled numeric column x with median" in f for f in res_float["flags"])
+    assert not any("categorical" in f and "x" in f for f in res_float["flags"])
+    assert res_float["tables"][0]["rows"][1][0] == 2.0
+
+    # UInt64 series [1, NA, 3]
+    df_uint = pd.DataFrame({"x": pd.Series([1, pd.NA, 3], dtype="UInt64")})
+    res_uint = analysis.clean_and_prepare(df_uint)
+    assert any("Filled numeric column x with median" in f for f in res_uint["flags"])
+    assert res_uint["tables"][0]["rows"][1][0] == 2
+
+    # pandas boolean series [True, NA, True]
+    df_bool = pd.DataFrame({"x": pd.Series([True, pd.NA, True], dtype="boolean")})
+    res_bool = analysis.clean_and_prepare(df_bool)
+    assert any("Filled categorical column x with mode" in f for f in res_bool["flags"])
+    assert not any("numeric" in f and "x" in f for f in res_bool["flags"])
+
+    # complex128 series [1+1j, nan, 1+1j]
+    df_c = pd.DataFrame({"x": pd.Series([1 + 1j, np.nan, 1 + 1j], dtype="complex128")})
+    res_c = analysis.clean_and_prepare(df_c)
+    assert any("Filled categorical column x with mode" in f for f in res_c["flags"])
+    assert res_c["tables"][0]["rows"][1][0] == 1 + 1j
+
+
+def test_detect_outliers_isolation_forest_is_row_level():
+    grid = [["a", "b"]] + [[1.0, 1.0] for _ in range(20)] + [[1000.0, 1000.0]]
+    result = analysis.detect_outliers(grid, method="isolation_forest")
+    assert result["status"] == "ok"
+    outlier_count = result["metrics"]["outlier_count"]
+    assert outlier_count >= 1
+    assert result["metrics"]["per_column"] == {}
+    assert result["flags"] == [f"{outlier_count} outlier rows (isolation_forest)"]
+    assert not any("outliers in" in f for f in result["flags"])
+    assert result["tables"][0]["total_rows"] == outlier_count
+
+
+def test_sklearn_helpers_report_missing_package(monkeypatch):
+    import sys
+
+    # 1. sklearn.ensemble set to None
+    monkeypatch.setitem(sys.modules, "sklearn.ensemble", None)
+    grid = [["a", "b"], [1, 1], [2, 2], [3, 3], [100, 100]]
+    res_forest = analysis.detect_outliers(grid, method="isolation_forest")
+    assert res_forest["status"] == "error"
+    assert res_forest["code"] == "MISSING_PACKAGE"
+    assert "scikit-learn" in res_forest["message"]
+
+    res_iqr = analysis.detect_outliers(grid, method="iqr")
+    assert res_iqr["status"] == "ok"
+
+    # 2. sklearn.cluster set to None
+    four_pt = [["a", "b"], [1, 1], [1.1, 1.2], [5, 5], [5.2, 4.8]]
+    monkeypatch.undo()
+    monkeypatch.setitem(sys.modules, "sklearn.cluster", None)
+    res_kmeans = analysis.cluster_numeric(four_pt)
+    assert res_kmeans["status"] == "error"
+    assert res_kmeans["code"] == "MISSING_PACKAGE"
+    assert "scikit-learn" in res_kmeans["message"]
+
+    # 3. sklearn.preprocessing set to None and scale left at default True
+    monkeypatch.undo()
+    monkeypatch.setitem(sys.modules, "sklearn.preprocessing", None)
+    res_scaler = analysis.cluster_numeric(four_pt, scale=True)
+    assert res_scaler["status"] == "error"
+    assert res_scaler["code"] == "MISSING_PACKAGE"
+    assert "scikit-learn" in res_scaler["message"]
+
+
+def test_run_regression_drops_non_finite_rows():
+    import importlib.util
+
+    if importlib.util.find_spec("statsmodels") is None:
+        pytest.skip("statsmodels not installed")
+
+    grid_inf = [["x", "y"], [1, 2], [2, 4], [3, float("inf")], [4, 8]]
+    res = analysis.run_regression(grid_inf, target="y", features=["x"])
+    assert res["status"] == "ok"
+    assert res["metrics"]["n_obs"] == 3
+    assert res["metrics"]["r_squared"] == pytest.approx(1.0, abs=1e-4)
+
+    grid_all_inf = [["x", "y"], [1, float("inf")], [2, float("-inf")]]
+    res_insuf = analysis.run_regression(grid_all_inf, target="y", features=["x"])
+    assert res_insuf["status"] == "error"
+    assert res_insuf["code"] == "INSUFFICIENT_DATA"
+
+
+def test_correlation_matrix_rejects_negative_min_abs():
+    grid = [["a", "b", "c"], [1, 2, 3], [2, 4, 6], [3, 6, 9]]
+    res_neg = analysis.correlation_matrix(grid, min_abs=-0.1)
+    assert res_neg["status"] == "error"
+    assert res_neg["code"] == "INVALID_PARAM"
+
+    res_default = analysis.correlation_matrix(grid)
+    res_zero = analysis.correlation_matrix(grid, min_abs=0)
+    assert res_zero["status"] == "ok"
+    assert res_zero["metrics"]["pair_count"] == res_default["metrics"]["pair_count"]
+
+    res_high = analysis.correlation_matrix(grid, min_abs=1.1)
+    assert res_high["status"] == "ok"
+    assert res_high["metrics"]["pair_count"] == 0
+
+
+def test_pivot_and_group_aggfunc_and_headers():
+    res1 = analysis.pivot_aggregate(PIVOT_GRID, index="Region", columns="Quarter", values="Sales", aggfunc="not_an_agg")
+    assert res1["status"] == "error"
+    assert res1["code"] == "INVALID_PARAM"
+
+    res2 = analysis.pivot_aggregate(PIVOT_GRID, index="Region", columns="Quarter", values="Sales", aggfunc="SUM")
+    assert res2["status"] == "ok"
+
+    res3 = analysis.group_summary(SALES_GRID, by="Region", metrics=["Sales"], aggfunc="not_an_agg")
+    assert res3["status"] == "error"
+    assert res3["code"] == "INVALID_PARAM"
+
+    res4 = analysis.run_analysis(
+        {"helper": "group_summary", "params": {"by": "Region", "metrics": ["Sales"], "aggfunc": "not_an_agg"}},
+        SALES_GRID,
+    )
+    assert res4["status"] == "error"
+    assert res4["code"] == "INVALID_PARAM"
+
+    res5 = analysis.group_summary(SALES_GRID, by="Region", metrics=["Sales"], aggfunc={"Sales": "nope"})
+    assert res5["status"] == "error"
+    assert res5["code"] == "INVALID_PARAM"
+
+    res6 = analysis.group_summary(SALES_GRID, by="Region", metrics=["Sales"], aggfunc={"Nope": "sum"})
+    assert res6["status"] == "error"
+    assert res6["code"] == "INVALID_PARAM"
+
+    res7 = analysis.group_summary(SALES_GRID, by="Region", metrics=["Sales"], aggfunc=["sum", "mean"])
+    assert res7["status"] == "ok"
+    cols7 = res7["tables"][0]["columns"]
+    assert "Region" in cols7
+    assert "Sales_sum" in cols7
+    assert "Sales_mean" in cols7
+    for col_name in cols7:
+        assert "(" not in str(col_name)
+
+    fixture = [
+        ["Region", "Quarter", "Sales", "Units"],
+        ["North", "Q1", 10, 1],
+        ["North", "Q2", 20, 2],
+        ["South", "Q1", 30, 3],
+    ]
+    res8 = analysis.pivot_aggregate(fixture, index="Region", columns="Quarter", values=["Sales", "Units"], aggfunc="sum")
+    assert res8["status"] == "ok"
+    assert res8["tables"][0]["columns"] == ["Region", "Sales_Q1", "Sales_Q2", "Units_Q1", "Units_Q2"]
+    rows8 = {r[0]: r[1:] for r in res8["tables"][0]["rows"]}
+    # South's Q2 sales (idx 1) and units (idx 3) are 0
+    assert rows8["South"][1] == 0
+    assert rows8["South"][3] == 0
+
+    res9 = analysis.pivot_aggregate(fixture, index="Region", columns="Quarter", values="Sales", aggfunc="mean")
+    assert res9["status"] == "ok"
+    rows9 = {r[0]: r[1:] for r in res9["tables"][0]["rows"]}
+    # South/Q2 is None, not 0
+    assert rows9["South"][1] is None
+
+    res10 = analysis.pivot_aggregate(fixture, index="Region", columns="Quarter", values="Sales", aggfunc=["sum", "mean"])
+    assert res10["status"] == "ok"
+    assert res10["tables"][0]["columns"] == ["Region", "sum_Q1", "sum_Q2", "mean_Q1", "mean_Q2"]
+    rows10 = {r[0]: r[1:] for r in res10["tables"][0]["rows"]}
+    # South mean_Q2 (idx 3) is None
+    assert rows10["South"][3] is None
+
+
+def test_analysis_lazy_exports_resolve():
+    from plugin.scripting.analysis import _ANALYSIS_VENV_EXPORTS, _ANALYSIS_COERCE_EXPORTS
+    import plugin.scripting.analysis as host_facade
+    import plugin.scripting.venv.analysis as venv_analysis
+    import plugin.scripting.venv.coerce as venv_coerce
+
+    assert len(_ANALYSIS_VENV_EXPORTS) > 0
+    assert len(_ANALYSIS_COERCE_EXPORTS) > 0
+
+    for name in _ANALYSIS_VENV_EXPORTS:
+        venv_obj = getattr(venv_analysis, name)
+        host_obj = getattr(host_facade, name)
+        assert venv_obj is host_obj, f"Export {name} did not resolve to same object"
+
+    for name in _ANALYSIS_COERCE_EXPORTS:
+        venv_obj = getattr(venv_coerce, name)
+        host_obj = getattr(host_facade, name)
+        assert venv_obj is host_obj, f"Coerce export {name} did not resolve to same object"

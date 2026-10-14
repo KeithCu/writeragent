@@ -15,6 +15,7 @@ from plugin.scripting.venv.coerce import (
     coerce_float,
     coerce_int,
     coerce_str_list,
+    parse_date_column,
     ok_result as _ok_result,
     error_result as _error_result,
     parse_trusted_spec as _parse_trusted_spec,
@@ -22,6 +23,8 @@ from plugin.scripting.venv.coerce import (
     numeric_columns as _numeric_columns,
     resolve_df as _resolve_df,
     table_from_df as _table_from_df,
+    _dedupe_column_names,
+    _is_numeric_dtype,
     _NUMERIC_PROFILE_KEYS,
 )
 from plugin.scripting.venv.map_range import map_over_range
@@ -34,6 +37,27 @@ from plugin.scripting.calc_functions_common import (
 )
 
 log = logging.getLogger(__name__)
+
+_AGG_FUNCS = frozenset(
+    (
+        "count",
+        "first",
+        "last",
+        "max",
+        "mean",
+        "median",
+        "min",
+        "nunique",
+        "prod",
+        "quantile",
+        "sem",
+        "skew",
+        "std",
+        "sum",
+        "var",
+    )
+)
+_ZERO_FILL_AGGS = frozenset({"sum", "count", "prod", "nunique"})
 
 # --- Core Helper Implementations (Venv Execution Path) ---
 
@@ -356,14 +380,24 @@ def detect_outliers(
         mask = col_mask.any(axis=1)
         per_column = {str(col): int(cast("Any", col_mask[col].sum())) for col in numeric_cols}
     elif method_name == "isolation_forest":
-        from sklearn.ensemble import IsolationForest
+        # Missing scikit-learn previously raised an unhandled ImportError when
+        # isolation_forest was requested, failing the run_analysis contract.
+        # Catching ImportError and returning MISSING_PACKAGE with package name
+        # "scikit-learn" matches the shared helper contract.
+        try:
+            from sklearn.ensemble import IsolationForest
+        except ImportError:
+            return _missing_package_error("detect_outliers", "scikit-learn")
+
+        # per_column counted non-null cells after fillna(median), so every column
+        # got the row count and the flags blamed each column; IsolationForest
+        # scores rows; empty per_column plus one row flag says that.
+        per_column = {}
         if not sample.empty:
             filled = sample.fillna(sample.median())
             model = IsolationForest(random_state=42, contamination="auto")
             preds = model.fit_predict(filled)
             mask = pd.Series(preds == -1, index=df.index)
-            outlier_rows = filled.loc[mask]
-            per_column = {col: int(outlier_rows[col].notna().sum()) for col in numeric_cols} if not outlier_rows.empty else {col: 0 for col in numeric_cols}
     else:
         q1 = sample.quantile(0.25)
         q3 = sample.quantile(0.75)
@@ -379,10 +413,14 @@ def detect_outliers(
     outlier_rows = df.loc[mask].copy()
     outlier_rows["_outlier"] = True
     table = _table_from_df(outlier_rows, name="outliers") if not outlier_rows.empty else {"name": "outliers", "columns": [], "rows": [], "truncated": False, "total_rows": 0}
-    flags = [f"{count} outliers in {col} ({method_name})" for col, count in per_column.items() if count]
+    outlier_count = int(np.asarray(mask, dtype=bool).sum())
+    if method_name == "isolation_forest":
+        flags = [f"{outlier_count} outlier rows (isolation_forest)"] if outlier_count > 0 else []
+    else:
+        flags = [f"{count} outliers in {col} ({method_name})" for col, count in per_column.items() if count]
     return _ok_result(
         "detect_outliers",
-        metrics={"outlier_count": int(np.asarray(mask, dtype=bool).sum()), "method": method_name, "per_column": per_column},
+        metrics={"outlier_count": outlier_count, "method": method_name, "per_column": per_column},
         tables=[table],
         flags=flags,
         metadata=coerced.metadata,
@@ -500,9 +538,17 @@ def clean_and_prepare(
         if removed:
             actions.append(f"Dropped {removed} duplicate rows")
 
+    import pandas as pd
+
     for col in df.columns:
         series = df[col]
-        if str(series.dtype).startswith(("float", "int", "Int", "uint")):
+        # Prefix check missed Float64 and UInt64 (capital F/U), so a DataFrame
+        # passed straight through resolve_df (grids usually infer plain float64)
+        # was mode-filled and labeled categorical; _is_numeric_dtype matches
+        # those extension dtypes, and complex stays categorical so median cannot
+        # drop the imaginary part.
+        is_num = _is_numeric_dtype(series.dtype) and not pd.api.types.is_complex_dtype(series.dtype)
+        if is_num:
             if fill_numeric == "median":
                 fill_value = series.median()
             elif fill_numeric == "mean":
@@ -533,13 +579,137 @@ def clean_and_prepare(
     return result
 
 
+def _normalize_aggfunc(
+    aggfunc: Any,
+    *,
+    helper: str,
+    key_columns: list[str] | None,
+) -> tuple[str | list[str] | dict[str, str], None] | tuple[None, dict[str, Any]]:
+    allowed_str = ", ".join(sorted(_AGG_FUNCS))
+    if aggfunc is None:
+        return None, _error_result(
+            "INVALID_PARAM",
+            f"aggfunc must be a string, list of strings, or dict of column to string, got {aggfunc!r}",
+            helper=helper,
+        )
+
+    if isinstance(aggfunc, str):
+        val = aggfunc.strip().lower()
+        if val not in _AGG_FUNCS:
+            return None, _error_result(
+                "INVALID_PARAM",
+                f"aggfunc must be one of {allowed_str}, got {aggfunc!r}",
+                helper=helper,
+            )
+        return val, None
+
+    if isinstance(aggfunc, list):
+        if not aggfunc:
+            return None, _error_result(
+                "INVALID_PARAM",
+                f"aggfunc must name at least one aggregation, got {aggfunc!r}",
+                helper=helper,
+            )
+        normalized_list: list[str] = []
+        for item in aggfunc:
+            if not isinstance(item, str):
+                return None, _error_result(
+                    "INVALID_PARAM",
+                    f"aggfunc must be a string, list of strings, or dict of column to string, got {item!r}",
+                    helper=helper,
+                )
+            val = item.strip().lower()
+            if val not in _AGG_FUNCS:
+                return None, _error_result(
+                    "INVALID_PARAM",
+                    f"aggfunc must be one of {allowed_str}, got {item!r}",
+                    helper=helper,
+                )
+            normalized_list.append(val)
+        return normalized_list, None
+
+    if isinstance(aggfunc, dict):
+        if not aggfunc:
+            return None, _error_result(
+                "INVALID_PARAM",
+                f"aggfunc must name at least one aggregation, got {aggfunc!r}",
+                helper=helper,
+            )
+        if key_columns is None:
+            return None, _error_result(
+                "INVALID_PARAM",
+                "aggfunc dict requires aggregated columns",
+                helper=helper,
+            )
+        normalized_dict: dict[str, str] = {}
+        for k, v in aggfunc.items():
+            if not isinstance(k, str):
+                return None, _error_result(
+                    "INVALID_PARAM",
+                    f"aggfunc keys must be column names, got {k!r}",
+                    helper=helper,
+                )
+            key = k.strip()
+            if key not in key_columns:
+                return None, _error_result(
+                    "INVALID_PARAM",
+                    f"aggfunc key {key!r} is not in {', '.join(key_columns)}",
+                    helper=helper,
+                )
+            if not isinstance(v, str):
+                return None, _error_result(
+                    "INVALID_PARAM",
+                    f"aggfunc must be a string, list of strings, or dict of column to string, got {v!r}",
+                    helper=helper,
+                )
+            val = v.strip().lower()
+            if val not in _AGG_FUNCS:
+                return None, _error_result(
+                    "INVALID_PARAM",
+                    f"aggfunc must be one of {allowed_str}, got {v!r}",
+                    helper=helper,
+                )
+            normalized_dict[key] = val
+        return normalized_dict, None
+
+    return None, _error_result(
+        "INVALID_PARAM",
+        f"aggfunc must be a string, list of strings, or dict of column to string, got {aggfunc!r}",
+        helper=helper,
+    )
+
+
+def _flatten_result_columns(df: Any) -> Any:
+    # str of a MultiIndex tuple became "('Sales', 'Q1')" and "('Region', '')",
+    # which is what egress writes as a header.
+    import pandas as pd
+
+    if not isinstance(df.columns, pd.MultiIndex):
+        return df
+
+    out_cols: list[str] = []
+    for col_tuple in df.columns:
+        parts = [
+            str(part).strip()
+            for part in col_tuple
+            if part is not None and str(part).strip() != ""
+        ]
+        joined = "_".join(parts) if parts else "value"
+        out_cols.append(joined)
+
+    deduped = _dedupe_column_names(out_cols)
+    res = df.copy()
+    res.columns = deduped
+    return res
+
+
 def pivot_aggregate(
     data: Any,
     *,
     index: str | list[str],
     columns: str | list[str] | None = None,
     values: str | list[str],
-    aggfunc: str = "sum",
+    aggfunc: str | list[str] | dict[str, str] = "sum",
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
@@ -547,11 +717,43 @@ def pivot_aggregate(
     """Excel PivotTable wrapper around pandas pivot_table."""
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
+
+    key_cols: list[str] | None = None
+    if isinstance(aggfunc, dict):
+        if isinstance(values, str):
+            key_cols = [values]
+        elif isinstance(values, list) and all(isinstance(v, str) for v in values):
+            key_cols = list(values)
+        else:
+            return _error_result(
+                "INVALID_PARAM",
+                "aggfunc dict requires values to be a column name or list of column names",
+                helper="pivot_aggregate",
+            )
+
+    norm_agg, err = _normalize_aggfunc(aggfunc, helper="pivot_aggregate", key_columns=key_cols)
+    if err is not None:
+        return err
+    assert norm_agg is not None
+
+    # fill_value=0 wrote 0 into missing mean/median groups (South with no Q2 became 0).
+    # Zero is an honest empty sum/count/prod/nunique and a lie for the others.
+    if isinstance(norm_agg, str):
+        all_zero_fill = norm_agg in _ZERO_FILL_AGGS
+    elif isinstance(norm_agg, list):
+        all_zero_fill = all(a in _ZERO_FILL_AGGS for a in norm_agg)
+    elif isinstance(norm_agg, dict):
+        all_zero_fill = all(a in _ZERO_FILL_AGGS for a in norm_agg.values())
+    else:
+        all_zero_fill = False
+    fill_value: int | None = 0 if all_zero_fill else None
+
     try:
-        pivoted = df.pivot_table(index=index, columns=columns, values=values, aggfunc=aggfunc, fill_value=0)
+        pivoted = df.pivot_table(index=index, columns=columns, values=values, aggfunc=norm_agg, fill_value=fill_value)
     except Exception as exc:
         return _error_result("PIVOT_FAILED", str(exc), helper="pivot_aggregate")
     flat = pivoted.reset_index()
+    flat = _flatten_result_columns(flat)
     table = _table_from_df(flat, name="pivot", max_rows=DATA_TABLE_ROWS)
     return _ok_result(
         "pivot_aggregate",
@@ -595,7 +797,13 @@ def group_summary(
     if rejected is not None:
         return rejected
 
-    grouped = df.groupby(coerced_by)[coerced_metrics].agg(aggfunc).reset_index()
+    norm_agg, err = _normalize_aggfunc(aggfunc, helper="group_summary", key_columns=coerced_metrics)
+    if err is not None:
+        return err
+    assert norm_agg is not None
+
+    grouped = df.groupby(coerced_by)[coerced_metrics].agg(norm_agg).reset_index()
+    grouped = _flatten_result_columns(grouped)
     table = _table_from_df(grouped, name="group_summary", max_rows=DATA_TABLE_ROWS)
     return _ok_result(
         "group_summary",
@@ -622,7 +830,6 @@ def compare_periods(
     ``agg`` defaults to ``sum`` (revenue). A price or a rate needs ``mean`` or
     ``last`` — summing those was a silent wrong answer.
     """
-    import pandas as pd
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df.copy()
     if date_col not in df.columns or value_col not in df.columns:
@@ -650,9 +857,13 @@ def compare_periods(
     if calc_lower not in ("pct_change", "diff"):
         return _error_result("INVALID_PARAM", f"calc must be pct_change or diff, got {calc!r}", helper="compare_periods")
 
-    # An unknown period was previously handed to resample and raised; any calc
-    # other than pct_change silently took diff.
-    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    # pd.to_datetime on a Calc serial or a year integer is nanoseconds since 1970,
+    # not NaT, so three years became one 1970 period (confirmed: serials 44927,
+    # 45292, 45658 and years 2023–2025 each return periods == 1 and revenue 450).
+    # read_range leaves serials as floats and resolve_df does not set date_cols.
+    # parse_date_column is the same epoch and year window forecast and quant
+    # already use. #1486 tightened period / calc / agg and left this line in place.
+    df[date_col] = parse_date_column(df[date_col])
     df = df.dropna(subset=[date_col, value_col])
     grouped = df.set_index(date_col).sort_index()[value_col].resample(freq).agg(agg_name).reset_index()
     if calc_lower == "pct_change":
@@ -688,6 +899,11 @@ def correlation_matrix(
         min_abs_val = coerce_float(min_abs, name="min_abs")
     except ValueError as exc:
         return _error_result("INVALID_PARAM", str(exc), helper="correlation_matrix")
+
+    # A negative threshold is below every absolute correlation, so the
+    # filter kept every finite pair.
+    if min_abs_val < 0:
+        return _error_result("INVALID_PARAM", f"min_abs must be >= 0, got {min_abs_val!r}", helper="correlation_matrix")
 
     import pandas as pd
 
@@ -768,7 +984,15 @@ def run_regression(
     if rejected_features is not None:
         return rejected_features
 
-    sample = df[[target, *feature_cols]].dropna()
+    # dropna keeps ±inf; statsmodels then returned status: ok with r_squared nan
+    # and coefficients ±inf (reproduced with y = inf on the third row of
+    # 1,2 / 2,4 / 3,inf / 4,8). Replacing inf with NaN and dropping those rows
+    # fits the finite sample, or returns INSUFFICIENT_DATA when too few rows remain.
+    sample = (
+        df[[target, *feature_cols]]
+        .replace([float("inf"), float("-inf")], float("nan"))
+        .dropna()
+    )
     if len(sample) < len(feature_cols) + 1:
         return _error_result("INSUFFICIENT_DATA", "Not enough rows after dropping missing values.", helper="run_regression")
 
@@ -856,7 +1080,11 @@ def cluster_numeric(
         return coerced_cols
 
     import pandas as pd
-    from sklearn.cluster import KMeans
+    # See missing-package comment above IsolationForest import in detect_outliers.
+    try:
+        from sklearn.cluster import KMeans
+    except ImportError:
+        return _missing_package_error("cluster_numeric", "scikit-learn")
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
@@ -883,7 +1111,11 @@ def cluster_numeric(
     scaler = None
     fitted = values
     if scale_val and values.shape[0] >= 2:
-        from sklearn.preprocessing import StandardScaler
+        # See missing-package comment above IsolationForest import in detect_outliers.
+        try:
+            from sklearn.preprocessing import StandardScaler
+        except ImportError:
+            return _missing_package_error("cluster_numeric", "scikit-learn")
 
         scaler = StandardScaler()
         fitted = scaler.fit_transform(values)

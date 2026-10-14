@@ -45,6 +45,8 @@ Runs curated numpy/pandas/scipy helpers in the user venv via a fixed RPC stub (n
 
 **Returns:** Compact JSON with `status`, `helper`, `metrics`, `tables`, `flags`, etc. See [analysis-sub-agent.md](analysis-sub-agent.md) for the full result contract.
 
+`compare_periods` uses the Calc serial and year rules in [numpy-domains.md](../scripting/numpy-domains.md). `isolation_forest` reports outlier rows only (`per_column` is empty). `pivot_aggregate` and `group_summary` reject an unknown `aggfunc` with `INVALID_PARAM`. A missing pivot group is 0 only for `sum`, `count`, `prod`, and `nunique`; other aggregations leave the cell empty. Multi-level headers are joined with `_`. `min_abs` below 0 is `INVALID_PARAM`. `run_regression` drops non-finite rows. Missing scikit-learn is `MISSING_PACKAGE` for `isolation_forest` and `cluster_numeric`.
+
 **Example:** "Describe the sales table in A1:C50."
 
 ```
