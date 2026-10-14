@@ -30,7 +30,7 @@ import threading
 import time
 from typing import Callable, Literal
 
-from .ssl_helpers import _is_certificate_verify_error
+from .ssl_helpers import is_certificate_verify_error
 from .provider_detection import is_local_host
 
 log = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ def _apply_jitter_ms(delay_ms: float, jitter: float | Literal["full"], mode: Lit
     return max(0.0, math.ceil(raw) if mode == "positive" else round(raw))
 
 
-def backoff_delay_sec(*, attempt: int = 1, retry_after_sec: float | None = None, min_delay: float = RETRY_MIN_DELAY_SEC, max_delay: float = RETRY_MAX_DELAY_SEC, jitter: float | Literal["full"] = "full", random: Callable[[], float] = random.random) -> float:
+def backoff_delay_sec(*, attempt: int = 1, retry_after_sec: float | None = None, min_delay: float = RETRY_MIN_DELAY_SEC, max_delay: float = RETRY_MAX_DELAY_SEC, jitter: float | Literal["full"] = "full", rng: Callable[[], float] = random.random) -> float:
     """Jittered delay before the next attempt. ``attempt`` is 1-based (first wait = min_delay)."""
     retry_after_value = retry_after_sec if retry_after_sec is not None and math.isfinite(retry_after_sec) else None
     if retry_after_value is not None:
@@ -120,7 +120,7 @@ def backoff_delay_sec(*, attempt: int = 1, retry_after_sec: float | None = None,
     has_retry_after = retry_after_value is not None
     wants_positive = (not has_retry_after or can_honor) if jitter == "full" else can_honor
     delay_ms = delay * 1000.0
-    delay_ms = _apply_jitter_ms(delay_ms, jitter, "positive" if wants_positive else "symmetric", random)
+    delay_ms = _apply_jitter_ms(delay_ms, jitter, "positive" if wants_positive else "symmetric", rng)
     delay = min(max(delay_ms / 1000.0, min_delay), delay_cap)
     return delay
 
@@ -179,7 +179,7 @@ def request_model_from_body(body: object) -> str | None:
         return None
     try:
         payload = json.loads(raw)
-    except (ValueError, TypeError, UnicodeDecodeError):
+    except (ValueError, TypeError):
         return None
     if isinstance(payload, dict):
         model = payload.get("model")
@@ -199,8 +199,8 @@ def reset_host_pacing_for_tests() -> None:
     with _host_gap_lock:
         _host_gap_sec.clear()
         _host_last_sent.clear()
-
-
+        
+        
 def remember_host_gap(host: str, delay_sec: float) -> None:
     """Stick the retry delay as the minimum gap before the next send to *host*."""
     if not host or not math.isfinite(delay_sec) or delay_sec <= 0:
@@ -263,6 +263,7 @@ def claim_host_send_slot(host: str, *, monotonic: Callable[[], float] | None = N
 
 
 def remaining_host_gap(host: str, *, monotonic: Callable[[], float] | None = None) -> float:
+    """Read-only view of the remaining host gap without reserving a slot; senders use claim_host_send_slot."""
     if not host:
         return 0.0
     now = (monotonic or time.monotonic)()
@@ -279,12 +280,33 @@ def wait_host_gap(host: str, stop_checker: Callable[[], bool] | None = None, sta
     remaining = claim_host_send_slot(host, monotonic=monotonic)
     if remaining <= 0:
         return True
-    emit_retry_status(status_callback, remaining)
+    if status_callback is not None:
+        with _host_gap_lock:
+            stored_gap = _host_gap_sec.get(host, 0.0)
+        # Bugfix: Previously wait_host_gap unconditionally called emit_retry_status,
+        # showing "Provider busy, retrying in {0}s…" even during initial pre-send pacing
+        # for free-tier models (3s floor seeded by ensure_free_model_pacing).
+        # What was wrong: False "Provider busy" warning appeared before any failure occurred.
+        # How it happened: Both rate-limit retries and proactive rate pacing used the same status formatter.
+        # Why this change fixes it: If the pacing key is a :free model and stored gap is <= the free floor,
+        # show a dedicated pacing message; real retry delays (> 3s) still show "Provider busy".
+        if host.endswith(":free") and stored_gap <= OPENROUTER_FREE_MIN_GAP_SEC:
+            from plugin.framework.i18n import _
+
+            shown = int(round(remaining)) if remaining >= 1 else round(max(remaining, 0.0), 1)
+            status_callback(_("Spacing free-model requests, next send in {0}s…").format(shown))
+        else:
+            emit_retry_status(status_callback, remaining)
     return wait_abortable(remaining, stop_checker, monotonic=monotonic)
 
 
 class RequestPacer:
-    """Sleep before rapid repeat sends on the same client."""
+    """Sleep before rapid repeat sends on the same client.
+
+    Note: RequestPacer is per-transport (short 0.05s intervals on one client).
+    Process-wide host pacing (for 429 cooldowns and OpenRouter :free 20 rpm rate limits)
+    is handled across clients by claim_host_send_slot / wait_host_gap.
+    """
 
     min_interval_sec: float
     _monotonic: Callable[[], float] | None
@@ -349,11 +371,11 @@ class LocalHttpsCertificateFallback:
 
     def enable_if_applicable(self, host: str, err: BaseException) -> bool:
         """Enable unverified retry for a local host after certificate validation fails."""
-        if not host or not is_local_host(host) or not _is_certificate_verify_error(err):
+        if not host or not is_local_host(host) or not is_certificate_verify_error(err):
             return False
         with _local_unverified_lock:
             if host in _local_unverified_hosts:
                 return False
             _local_unverified_hosts.add(host)
-        log.error("Local HTTPS certificate verification failed for %s; retrying unverified." % host)
+        log.warning("Local HTTPS certificate verification failed for %s; retrying unverified.", host)
         return True

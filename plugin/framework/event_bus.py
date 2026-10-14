@@ -208,10 +208,17 @@ class EventBus:
             self._dispatching.events = active
         return active
 
+    # Bugfix: A payload key 'event' or 'self' previously bound the parameter
+    # and raised TypeError ("got multiple values for argument 'event'" or
+    # "... unexpected keyword argument 'self'") before any subscriber ran.
+    # Making self and event positional-only ensures that payload keys named
+    # 'event' or 'self' land safely in **data.
     @deal.post(lambda result: result is None)
-    def emit(self, event: str, **data: Any) -> None:
+    def emit(self, event: str, /, **data: Any) -> None:
         """Emit *event*, calling all subscribers with **data as kwargs.
 
+        The event name is positional-only so a payload may contain keys named
+        'event' or 'self'.
         Exceptions in subscribers are logged and swallowed.
         Re-entrant emit of the same event on this thread is dropped.
         ``config:changed`` is dropped only when the key matches, so a handler
@@ -240,9 +247,9 @@ class EventBus:
                     continue
                 try:
                     resolved(**data)
-                except Exception as e:
+                except Exception:
                     # One bad listener must not stop the rest of the fan-out.
-                    log.exception("Unhandled error in event handler %s for %s: %s", resolved, event, e)
+                    log.exception("Unhandled error in event handler %s for %s", resolved, event)
         finally:
             active.discard(token)
 

@@ -203,7 +203,10 @@ def test_follow_code_ref_save_writes_a1_keeps_formula_ref():
         code_ref=parts.code,
     )
     assert result["ok"] is True
-    assert result["save_as_plain"] is True
+    assert result["save_as_plain"] is False
+    assert "without =PY()" not in result.get("status_ok_text", "")
+    assert "Saved code in $A$1" in result.get("status_ok_text", "")
+    assert formula_cell.getFormula().startswith("=PY(")
     assert code_cell.getString() == "result = 99"
     reparsed = parse_python_formula(formula_cell.getFormula())
     assert reparsed is not None
@@ -375,6 +378,37 @@ def test_follow_quoted_sheet_name_resolves():
     assert formula.count(")") == 1
 
 
+def test_follow_apostrophe_sheet_name_resolves():
+    data_sheet = CalcSheetStub("O'Brien")
+    formula_sheet = CalcSheetStub("Sheet1")
+    doc = CalcDocStub(sheets=[formula_sheet, data_sheet])
+    code_cell = data_sheet.getCellByPosition(1, 1)
+    code_cell.setString("result = 3")
+    formula_cell = formula_sheet.getCellByPosition(0, 0)
+    formula_cell.setFormula("=PY('O''Brien'.$B$2; C1:C10)")
+    parts = parse_python_formula(formula_cell.getFormula())
+    assert parts is not None
+    resolved = _resolve_code_ref_cell(doc, parts.code)
+    assert resolved is code_cell
+
+    result = _apply_cell_save(
+        doc,
+        formula_cell,
+        parsed_parts=parts,
+        new_code="result = 4",
+        save_as_plain=False,
+        data_binding_text="D1:D2",
+        code_cell=code_cell,
+        code_ref=parts.code,
+    )
+    assert result["ok"] is True
+    assert code_cell.getString() == "result = 4"
+    formula = formula_cell.getFormula()
+    assert "'O''Brien'.$B$2" in formula
+    assert "D1:D2" in formula
+    assert formula.count(")") == 1
+
+
 def test_follow_missing_sheet_resolves_none():
     doc = CalcDocStub()
     assert _resolve_code_ref_cell(doc, "Missing.A1") is None
@@ -429,4 +463,42 @@ def test_follow_python_alias_empty_data_keeps_formula():
     assert code_cell.getString() == "result = 4"
     assert formula_cell.getFormula() == "=PYTHON($A$1)"
     assert formula_cell.getFormula().count(")") == 1
+
+
+def test_get_active_calc_cell_uses_selection_sheet_index():
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from plugin.calc.python.editor import _get_active_calc_cell
+
+    sheet0 = CalcSheetStub("Sheet1")
+    sheet1 = CalcSheetStub("Sheet2")
+    sheet1.getCellByPosition(0, 0).setFormula('=PY("result = 2")')
+
+    doc = CalcDocStub(sheets=[sheet0, sheet1], active_sheet=sheet0)
+
+    ctrl = MagicMock()
+    ctrl.getActiveSheet.return_value = sheet0
+    ctrl.getModel.return_value = doc
+
+    sel = MagicMock()
+    sel.getRangeAddress.return_value = SimpleNamespace(
+        Sheet=1, StartColumn=0, StartRow=0, EndColumn=0, EndRow=0
+    )
+    ctrl.getSelection.return_value = sel
+    doc.getCurrentController = lambda: ctrl
+
+    ctx = MagicMock()
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = doc
+    desktop.getCurrentFrame.return_value.getController.return_value.getModel.return_value = doc
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = desktop
+    ctx.ServiceManager = smgr
+
+    res = _get_active_calc_cell(ctx)
+    assert res is not None
+    model, cell, formula = res
+    assert formula == '=PY("result = 2")'
+    assert cell._sheet is sheet1
+
 

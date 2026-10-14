@@ -122,10 +122,7 @@ def set_background_task(name: str | None) -> None:
     is not blamed under a stale task id, and so a reused pool thread can show
     another violation popup.
     """
-    try:
-        _bg.task_name = name
-    except Exception:
-        pass
+    _bg.task_name = name
     if name is None:
         tid = threading.get_ident()
         with _violation_ui_lock:
@@ -138,14 +135,14 @@ def get_background_task_name() -> str | None:
 
 def _notify_thread_violation(msg: str) -> None:
     """Log and post a main-thread message box for guard-on violations (dev only)."""
+    if os.environ.get("WRITERAGENT_TESTING") == "1":
+        return
     log.error(msg, stack_info=True)
     # Capture full stack trace for display
     import traceback
 
     stack_trace = "".join(traceback.format_stack())
     full_msg = f"{msg}\n\nStack trace:\n{stack_trace}"
-    if os.environ.get("WRITERAGENT_TESTING") == "1":
-        return
     # Marshal bootstrap (_get_async_callback) holds QueueExecutor._init_lock.
     # A blocking execute() from here deadlocks if the UI thread is waiting or if
     # the calling thread was dispatched synchronously from an external UNO call (#402).
@@ -153,7 +150,7 @@ def _notify_thread_violation(msg: str) -> None:
     try:
         from plugin.framework.queue_executor import default_executor
 
-        if not default_executor._initialized or default_executor._async_callback_service is None:
+        if not default_executor.is_marshal_ready():
             return
     except Exception:
         return
@@ -270,11 +267,22 @@ class _UnoThreadGuardProxy:
 
     # --- Attribute access (methods and properties) ---
     def __getattr__(self, name: str) -> Any:
+        # Bugfix: copy.copy and pickle.loads call hasattr on an instance built
+        # with object.__new__ before __dict__ is restored. Reading self._target
+        # from __getattr__ when _target is absent called __getattr__ again and
+        # raised RecursionError. Raising AttributeError immediately lets hasattr
+        # return False so copy/unpickle machinery can apply the saved state.
+        if name == "_target":
+            raise AttributeError(name)
         # hasattr() uses this path. Returning False off-thread would hide UNO
         # probes from the guard (including pickle/IPython dunder lookups).
         assert_main_thread(f"UNO.{name}")
         val = getattr(self._target, name)
         return _wrap_uno(val)
+
+    def __dir__(self) -> list[str]:
+        assert_main_thread("UNO dir")
+        return dir(self._target)
 
     # --- Assignment to properties (e.g. para.NumberingRules = rules) ---
     def __setattr__(self, name: str, value: Any) -> None:

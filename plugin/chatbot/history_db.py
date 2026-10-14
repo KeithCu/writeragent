@@ -51,7 +51,7 @@ def _get_db_path() -> str:
     return "writeragent_history.db"
 
 
-# LangChain-compatible JSON conversion
+# Local {role, content, tool_calls?} row for SQLite and JSON.
 def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str, Any]:
     # Don't persist MBs of base64 audio or images to history db.
     if isinstance(content, list):
@@ -121,7 +121,36 @@ class SQLite3History:
         with closing(sqlite3.connect(self.db_path)) as conn:
             conn.execute("INSERT INTO message_store (session_id, message) VALUES (?, ?)", (self.session_id, json.dumps(msg_dict)))
             conn.commit()
-            log.info(f"SQLite3: Added message for session {self.session_id}")
+            log.debug(f"SQLite3: Added message for session {self.session_id}")
+
+    def update_last_user_content(self, content: Any) -> None:
+        assert sqlite3 is not None
+        msg_dict = message_to_dict("user", content)
+        with closing(sqlite3.connect(self.db_path)) as conn:
+            cursor = conn.execute(
+                "SELECT id, message FROM message_store WHERE session_id = ? ORDER BY id DESC",
+                (self.session_id,),
+            )
+            target_id = None
+            for row_id, raw in cursor.fetchall():
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict) and parsed.get("role") == "user":
+                        target_id = row_id
+                        break
+                except json.JSONDecodeError:
+                    continue
+            if target_id is not None:
+                conn.execute(
+                    "UPDATE message_store SET message = ? WHERE id = ?",
+                    (json.dumps(msg_dict), target_id),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO message_store (session_id, message) VALUES (?, ?)",
+                    (self.session_id, json.dumps(msg_dict)),
+                )
+            conn.commit()
 
     def get_messages(self) -> list[dict[str, Any]]:
         assert sqlite3 is not None
@@ -195,9 +224,7 @@ def _json_history_filename(session_id: str, history_dir: str) -> str:
                 exact_match_found = f"{name}.json" in os.listdir(history_dir)
             except OSError:
                 pass
-        if exact_match_found:
-            pass
-        else:
+        if not exact_match_found:
             name = hashed_name
     return f"{name}.json"
 
@@ -236,11 +263,30 @@ class JSONHistory:
         messages.append(msg_dict)
         try:
             self._replace_messages(messages)
-            log.info(f"JSONHistory: Added message for session {self.session_id}")
+            log.debug(f"JSONHistory: Added message for session {self.session_id}")
         except (OSError, TypeError):
             # The turn is already in ChatSession.messages. Swallowing the save
             # left the next open without that row. get_messages already re-raises.
             log.exception("JSONHistory: Error saving message")
+            raise
+
+    def update_last_user_content(self, content: Any) -> None:
+        msg_dict = message_to_dict("user", content)
+        try:
+            messages = self.get_messages()
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            log.exception("JSONHistory: refusing to overwrite unreadable session %s", self.session_id)
+            return
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "user":
+                messages[i] = msg_dict
+                break
+        else:
+            messages.append(msg_dict)
+        try:
+            self._replace_messages(messages)
+        except (OSError, TypeError):
+            log.exception("JSONHistory: Error updating last user message")
             raise
 
     def _replace_messages(self, messages: list[dict[str, Any]]) -> None:

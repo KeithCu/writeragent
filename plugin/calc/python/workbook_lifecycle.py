@@ -254,12 +254,6 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
         if self._calc_cleanup:
             try:
-                from plugin.calc.python.formula_locator_cache import FORMULA_LOCATION_CACHE
-
-                FORMULA_LOCATION_CACHE.clear_document(lifecycle_key)
-            except Exception:
-                log.debug("python_workbook_lifecycle: formula cache clear failed", exc_info=True)
-            try:
                 from plugin.calc.python.function import clear_in_memory_spill_state
 
                 # Deduplicate doc URLs and skip empty strings. Unsaved workbooks

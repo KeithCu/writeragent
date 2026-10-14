@@ -960,3 +960,108 @@ def test_run_in_background_keeps_submit_time_send_cancellation():
 
     assert seen["scope"] is old
 
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX SIGTERM handler test")
+def test_async_process_terminate_delivers_sigterm_output():
+    ready = threading.Event()
+    lines: list[str] = []
+
+    def on_stdout(line: str) -> None:
+        lines.append(line)
+        if line == "ready":
+            ready.set()
+
+    script = (
+        "import sys, signal, time\n"
+        "def on_term(signum, frame):\n"
+        "    time.sleep(0.2)\n"
+        "    sys.stdout.write('after-term\\n')\n"
+        "    sys.stdout.flush()\n"
+        "    sys.exit(0)\n"
+        "signal.signal(signal.SIGTERM, on_term)\n"
+        "sys.stdout.write('ready\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(30)\n"
+    )
+    ap = AsyncProcess([sys.executable, "-c", script], stdout_cb=on_stdout)
+    ap.start()
+    try:
+        assert ready.wait(timeout=5)
+        ap.terminate()
+        if ap._wait_thread is not None:
+            ap._wait_thread.join(timeout=5)
+        assert "after-term" in lines
+    finally:
+        if ap.process is not None and ap.process.poll() is None:
+            ap.process.kill()
+            ap.process.wait(timeout=3)
+
+
+def test_run_in_background_retries_when_reset_shuts_down_pool():
+    reset_background_pool_for_tests(max_workers=2)
+    stop_event = threading.Event()
+    errors: list[Exception] = []
+    completed: list[int] = []
+
+    def submitter() -> None:
+        count = 0
+        while not stop_event.is_set() and count < 40:
+            count += 1
+            try:
+                handle = run_in_background(lambda: 1)
+                handle.join(timeout=2.0)
+                completed.append(count)
+            except Exception as exc:
+                errors.append(exc)
+                break
+
+    try:
+        t_submit = threading.Thread(target=submitter)
+        t_submit.start()
+        for _ in range(4):
+            time.sleep(0.02)
+            reset_background_pool_for_tests(max_workers=2)
+        stop_event.set()
+        t_submit.join(timeout=5.0)
+        assert not t_submit.is_alive()
+        assert errors == [], f"Unexpected error during reset race: {errors}"
+        assert len(completed) > 0
+    finally:
+        stop_event.set()
+        reset_background_pool_for_tests()
+
+
+def test_daemon_work_pool_logs_base_exception_and_keeps_worker_alive(caplog):
+    pool = _DaemonWorkPool(1)
+    started = threading.Event()
+    release = threading.Event()
+    try:
+        def raise_system_exit() -> None:
+            started.set()
+            release.wait(2.0)
+            raise SystemExit(42)
+
+        import logging
+        with caplog.at_level(logging.ERROR):
+            fut = pool.submit(raise_system_exit)
+            assert started.wait(2.0)
+            handle = BackgroundHandle(future=fut)
+            release_thread = threading.Timer(0.05, release.set)
+            release_thread.start()
+            try:
+                with pytest.raises(SystemExit):
+                    handle.join()
+            finally:
+                release.set()
+                release_thread.join()
+
+        assert any("Unhandled SystemExit in pooled background job" in r.message for r in caplog.records)
+
+        # Worker thread must still be alive and process subsequent jobs
+        second_ran = []
+        fut2 = pool.submit(lambda: second_ran.append(True))
+        BackgroundHandle(future=fut2).join()
+        assert second_ran == [True]
+    finally:
+        pool.shutdown(wait=True)
+

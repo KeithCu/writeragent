@@ -396,7 +396,7 @@ def _stage_lru(dest: dict[str, Any], val: Any, lru_key: str, endpoint: str) -> N
     is the list this compare sees. A key already staged in *dest* is the
     current list, so two fields that share a list compose in one dict.
     """
-    from plugin.chatbot.config_ui_helpers import lru_config_key, next_lru_list
+    from plugin.framework.model_lru import lru_config_key, next_lru_list
     from plugin.framework.config import LRU_MAX_ITEMS
 
     scoped = lru_config_key(lru_key, endpoint)

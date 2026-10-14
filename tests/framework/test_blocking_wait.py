@@ -29,7 +29,7 @@ def test_run_blocking_in_thread():
 def test_run_blocking_in_thread_pump_idle_false_does_not_pump():
     ctx = MagicMock()
     with patch("plugin.framework.blocking_wait.pump_ui_idle") as pump:
-        with patch("plugin.framework.queue_executor.pump_main_thread_work_queue") as pump_queue:
+        with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue") as pump_queue:
             def slow_worker():
                 time.sleep(0.3)
                 return "ok"
@@ -124,3 +124,99 @@ def test_run_blocking_in_thread_pump_idle_uses_get_toolkit():
     with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit) as get_tk:
         assert run_blocking_in_thread(ctx, lambda: "ok") == "ok"
     get_tk.assert_called_once_with(ctx)
+
+
+def test_run_blocking_in_thread_pump_idle_true_toolkit_none_drains_marshal_queue():
+    """Missing toolkit when pump_idle=True must poll and call pump_main_thread_work_queue instead of hanging."""
+    ctx = MagicMock()
+    unblock_worker = threading.Event()
+    result_holder: list[str] = []
+
+    def worker_func() -> str:
+        # Simulate worker waiting for main thread marshal queue to be drained
+        if not unblock_worker.wait(timeout=2):
+            raise TimeoutError("worker timed out waiting for marshal queue pump")
+        return "unblocked_result"
+
+    def fake_pump_main_thread_work_queue() -> None:
+        unblock_worker.set()
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=None):
+        with patch("plugin.framework.blocking_wait.pump_ui_idle") as mock_pump_ui:
+            with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue", side_effect=fake_pump_main_thread_work_queue) as mock_pump_marshal:
+                def waiter() -> None:
+                    res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
+                    result_holder.append(res)
+
+                waiter_thread = threading.Thread(target=waiter, daemon=True)
+                waiter_thread.start()
+                waiter_thread.join(timeout=2)
+                assert not waiter_thread.is_alive(), "waiter thread hung with toolkit=None"
+
+    assert result_holder == ["unblocked_result"]
+    mock_pump_ui.assert_not_called()
+    mock_pump_marshal.assert_called()
+
+
+def test_run_blocking_in_thread_pump_idle_true_toolkit_raises_drains_marshal_queue():
+    """get_toolkit raising when pump_idle=True must poll and call pump_main_thread_work_queue instead of hanging."""
+    ctx = MagicMock()
+    unblock_worker = threading.Event()
+    result_holder: list[str] = []
+
+    def worker_func() -> str:
+        if not unblock_worker.wait(timeout=2):
+            raise TimeoutError("worker timed out waiting for marshal queue pump")
+        return "unblocked_from_raise"
+
+    def fake_pump_main_thread_work_queue() -> None:
+        unblock_worker.set()
+
+    with patch("plugin.framework.uno_context.get_toolkit", side_effect=RuntimeError("toolkit failed")):
+        with patch("plugin.framework.blocking_wait.pump_ui_idle") as mock_pump_ui:
+            with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue", side_effect=fake_pump_main_thread_work_queue) as mock_pump_marshal:
+                def waiter() -> None:
+                    res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
+                    result_holder.append(res)
+
+                waiter_thread = threading.Thread(target=waiter, daemon=True)
+                waiter_thread.start()
+                waiter_thread.join(timeout=2)
+                assert not waiter_thread.is_alive(), "waiter thread hung when get_toolkit raised"
+
+    assert result_holder == ["unblocked_from_raise"]
+    mock_pump_ui.assert_not_called()
+    mock_pump_marshal.assert_called()
+
+
+def test_run_blocking_in_thread_pump_idle_true_toolkit_present_calls_pump_ui_idle():
+    """Present toolkit when pump_idle=True calls pump_ui_idle and not pump_main_thread_work_queue."""
+    toolkit = DummyToolkit()
+    ctx = MagicMock()
+    unblock_worker = threading.Event()
+    result_holder: list[str] = []
+
+    def worker_func() -> str:
+        if not unblock_worker.wait(timeout=2):
+            raise TimeoutError("worker timed out waiting for pump_ui_idle")
+        return "unblocked_by_ui_idle"
+
+    def fake_pump_ui_idle(_tk: object) -> None:
+        unblock_worker.set()
+
+    with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+        with patch("plugin.framework.blocking_wait.pump_ui_idle", side_effect=fake_pump_ui_idle) as mock_pump_ui:
+            with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue") as mock_pump_marshal:
+                def waiter() -> None:
+                    res = run_blocking_in_thread(ctx, worker_func, pump_idle=True)
+                    result_holder.append(res)
+
+                waiter_thread = threading.Thread(target=waiter, daemon=True)
+                waiter_thread.start()
+                waiter_thread.join(timeout=2)
+                assert not waiter_thread.is_alive(), "waiter thread hung"
+
+    assert result_holder == ["unblocked_by_ui_idle"]
+    mock_pump_ui.assert_called()
+    mock_pump_marshal.assert_not_called()
+

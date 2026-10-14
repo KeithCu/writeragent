@@ -61,18 +61,18 @@ Main chat: `LlmClient._run_streaming_loop` → `OpenAIShim.parse_response_chunk`
 
 | Wire source | Code path | Sidebar appearance |
 |-------------|-----------|-------------------|
-| `delta.reasoning_content`, `delta.reasoning`, `delta.thinking`, `delta.thought`, `delta.reasoning_details` | `_extract_thinking_from_delta` in [`stream_normalizer.py`](../../plugin/framework/client/stream_normalizer.py) → `append_thinking_callback` → `StreamQueueKind.THINKING` | Drain loop prefixes `[Thinking] ` then text; closes with ` /thinking\n` |
-| `delta.content` (including `` … `` text) | `delta.get("content")` → `append_callback` → `StreamQueueKind.CHUNK` | Plain assistant stream — **no** `[Thinking]` wrapper |
+| `delta.reasoning_content`, `delta.reasoning`, `delta.thinking`, `delta.thought`, `delta.reasoning_details` | `extract_thinking_from_delta` in [`stream_normalizer.py`](../../plugin/framework/client/stream_normalizer.py) → `append_thinking_callback` → `StreamQueueKind.THINKING` | Drain loop prefixes `[Thinking] ` then text; closes with ` /thinking\n` |
+| `delta.content` (including `<think>` … `</think>` text) | `ThinkTagStreamSplitter` / `strip_think_tags` in [`stream_normalizer.py`](../../plugin/framework/client/stream_normalizer.py) | Tags stripped; thinking routed to `StreamQueueKind.THINKING` and clean content to `StreamQueueKind.CHUNK` |
 
-**Remaining gap:** There is **no** parser for think tags inside `content` (LM Studio with separation off, some Ollama fallbacks). Enable `enable_agent_log` / debug logging: when a chunk has thinking-shaped delta keys but no extractable text, `_extract_thinking_from_delta` logs `stream thinking: no extractable text; delta hints=...` to `writeragent_debug.log`.
+**Tag parsing and remaining edge cases:** `ThinkTagStreamSplitter` runs in `llm_client._run_streaming_loop` and `strip_think_tags` runs on completed responses. Both handle standard `<think>...</think>`, unclosed `<think>` (all text after `<think>` is treated as thinking, a deliberate tradeoff so models that omit closing tags do not dump thinking into the document/chat), and close-only `</think>` (where text preceding a lone `</think>` is routed to thinking and text following it to visible content). Alternate tags like `<thinking>` or case variations (`<THINK>`) are intentionally left untouched to avoid eating ordinary prose that mentions those tags.
 
 ### Root cause (web research, revised)
 
 **Primary (Ollama + Qwen3 / thinking models):** On `/v1/chat/completions`, Ollama often streams thinking in **`delta.reasoning`**, not `delta.reasoning_content`. WriterAgent reads both (see `_THINKING_STRING_FIELDS` in [`stream_normalizer.py`](../../plugin/framework/client/stream_normalizer.py)).
 
-**Why LM Studio often works:** Developer setting **“When applicable, separate reasoning_content and content in API responses”** maps reasoning into `reasoning_content`, which WriterAgent already reads ([LM Studio #480](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/480)). Without it, models still emit `` inside `content` ([LM Studio #1569](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/1569)).
+**Why LM Studio often works:** Developer setting **“When applicable, separate reasoning_content and content in API responses”** maps reasoning into `reasoning_content`, which WriterAgent already reads ([LM Studio #480](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/480)). Without it, models still emit `<think>` inside `content` ([LM Studio #1569](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/1569)).
 
-**Secondary (both backends):** When separation fails, thinking stays in `content` between think tags; WriterAgent shows it as answer text (no `[Thinking]`). Tag parsing is a fallback, not the main Ollama fix.
+**Secondary (both backends):** When separation fails, thinking stays in `content` between think tags; `ThinkTagStreamSplitter` strips it from visible text and routes it to `[Thinking]`.
 
 **Other context:**
 
@@ -88,7 +88,7 @@ Compare full SSE deltas (not a single packet):
 |-------|------------------------|--------------------------------|
 | `delta.reasoning` | Non-empty during think phase | Often empty |
 | `delta.reasoning_content` | Often empty | Non-empty during think phase |
-| `delta.content` | Answer + sometimes `` markers | Answer + sometimes `` markers |
+| `delta.content` | Answer + sometimes `<think>` markers | Answer + sometimes `<think>` markers |
 
 If Ollama has `reasoning` and LM Studio has `reasoning_content`, the one-line field fix below is sufficient for many reports.
 
@@ -96,7 +96,7 @@ If Ollama has `reasoning` and LM Studio has `reasoning_content`, the one-line fi
 
 **Step 1 (done):** `delta.reasoning` is in the string field list; chunks are normalized via `choices[0].delta` once (no recursion). Tests in `tests/framework/test_stream_normalizer.py`.
 
-**Step 2 (if capture still shows tags-only `content`):** Stateful `ThinkTagStreamSplitter` in `stream_normalizer.py` to split `` / `` inside `content`; strip markers from visible text. Needed when LM Studio setting is off or Ollama falls back to tag-in-content.
+**Step 2 (done):** Stateful `ThinkTagStreamSplitter` and `strip_think_tags` in `stream_normalizer.py` split `<think>` / `</think>` inside `content`, including close-only markers and split tags across chunk boundaries. Chunks are normalized via `choices[0].delta`.
 
 **Step 3 (optional):** `OllamaShim.build_chat_request` — `"think": true` or `reasoning_effort` for thinking-capable models (gate by model name); only if separated fields still missing.
 

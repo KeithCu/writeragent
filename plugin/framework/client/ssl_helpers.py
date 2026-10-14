@@ -19,7 +19,7 @@ def get_verified_ssl_context() -> ssl.SSLContext:
     return ssl.create_default_context()
 
 
-def _is_certificate_verify_error(e: BaseException) -> bool:  # pyright: ignore[reportUnusedFunction]  # used by requests / request_controls
+def is_certificate_verify_error(e: BaseException) -> bool:  # used by request_controls
     """Return True when an exception points to certificate validation failure."""
     if isinstance(e, ssl.SSLCertVerificationError):
         return True

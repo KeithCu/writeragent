@@ -1207,7 +1207,7 @@ def validate_api_config(config: Any) -> tuple[bool, str]:
     if not model:
         return (False, _("Please set Model in Settings."))
     try:
-        from plugin.chatbot.config_ui_helpers import _is_model_combobox_placeholder
+        from plugin.framework.model_lru import _is_model_combobox_placeholder
     except ImportError:
         # LibrePy has no chat model combobox; skip placeholder rejection.
         return (True, "")

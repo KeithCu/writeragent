@@ -12,7 +12,8 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.dirname(get_plugin_dir()))
 
 # Import; tests patch core.logging and init_logging per test
-from plugin.framework.client.llm_client import LlmClient, _normalize_message_content
+from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.client.stream_normalizer import normalize_message_content
 
 
 def _make_sse_lines(*chunks, done=True):
@@ -272,8 +273,8 @@ class TestNormalizeDelta:
             [{"role": "user", "content": "hi"}],
             max_tokens=100,
         )
-        # Delta had role=None; _normalize_delta sets role='assistant' before accumulate_delta.
-        assert (_normalize_message_content(result.get("content"))) == ("ok")
+        # Delta had role=None; normalize_delta sets role='assistant' before accumulate_delta.
+        assert (normalize_message_content(result.get("content"))) == ("ok")
 
 
 class TestFinishReasonRemap:

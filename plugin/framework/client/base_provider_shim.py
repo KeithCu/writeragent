@@ -274,7 +274,7 @@ class BaseProviderShim:
         return self._post(self._url("/chat/completions"), data)
 
     def parse_response_chunk(self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None) -> tuple[str, str | None, str | None, dict[str, Any]]:
-        from .stream_normalizer import _extract_thinking_from_delta, _normalize_message_content
+        from .stream_normalizer import extract_thinking_from_delta, normalize_message_content
 
         choices = chunk.get("choices", [])
         # Unexpected schema (string "choices", non-dict first element) used to
@@ -300,12 +300,12 @@ class BaseProviderShim:
         # ``delta`` is always a dict here. ``if delta`` never failed: an empty
         # dict is truthy, so the else branch was dead.
         raw_content = delta.get("content")
-        content = _normalize_message_content(raw_content) or ""
-        thinking = _extract_thinking_from_delta(chunk)
+        content = normalize_message_content(raw_content) or ""
+        thinking = extract_thinking_from_delta(chunk)
         return content, finish_reason, thinking, delta
 
     def parse_sync_response(self, response_data: dict[str, Any]) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
-        from .stream_normalizer import _normalize_delta, _normalize_message_content
+        from .stream_normalizer import normalize_delta, normalize_message_content
 
         # Local models (Ollama) can return {"done_reason": "stop", "message": ...}
         # with no top-level "choices". Prefer choices[0] when present, and fall
@@ -315,7 +315,7 @@ class BaseProviderShim:
         message = choice.get("message") or response_data.get("message") or {}
         if not isinstance(message, dict):
             message = {}
-        _normalize_delta(message)
+        normalize_delta(message)
         finish_reason = choice.get("finish_reason") or response_data.get("finish_reason") or response_data.get("done_reason")
         err_obj = choice.get("error") or response_data.get("error")
         if finish_reason == "error" or err_obj:
@@ -332,7 +332,7 @@ class BaseProviderShim:
             raise NetworkError(err_msg, code="STREAM_ERROR")
 
         raw_content = message.get("content")
-        content = _normalize_message_content(raw_content) or ""
+        content = normalize_message_content(raw_content) or ""
         # A string ``images`` used to be returned as-is. ``image_utils`` iterates
         # that value, so each character was treated as an image URL.
         images = message.get("images")

@@ -570,6 +570,10 @@ class QueueExecutor:
         with self._pending_lock:
             return any(row[0] is fn for row in self._pending_posts)
 
+    def is_marshal_ready(self) -> bool:
+        """True when AsyncCallback initialization has completed successfully."""
+        return bool(self._initialized and self._async_callback_service is not None)
+
     def _await_pending_slot_locked(self) -> bool:
         """True when the pending list can take one post. Caller holds the lock.
 
@@ -632,7 +636,7 @@ class QueueExecutor:
     #   1. _unwrap_uno() strips the guard proxy so UNO calls below don't
     #      trigger assert_main_thread at all.
     #   2. _notify_thread_violation (thread_guard.py) bails early when
-    #      ``not default_executor._initialized``, which is exactly the state
+    #      ``not default_executor.is_marshal_ready()``, which is exactly the state
     #      while this lock is held.
     # If you refactor here, preserve both or the bootstrap deadlocks.
     def _get_async_callback(self) -> Any:

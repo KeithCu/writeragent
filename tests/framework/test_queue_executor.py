@@ -1565,3 +1565,21 @@ def test_llm_request_lane_stop_while_waiting():
                 pass
     finally:
         _LLM_REQUEST_LOCK.release()
+
+
+def test_is_marshal_ready():
+    from plugin.framework.queue_executor import QueueExecutor
+
+    qe = QueueExecutor()
+    assert qe.is_marshal_ready() is False
+
+    qe._initialized = True
+    assert qe.is_marshal_ready() is False
+
+    qe._initialized = False
+    qe._async_callback_service = MagicMock()
+    assert qe.is_marshal_ready() is False
+
+    qe._initialized = True
+    assert qe.is_marshal_ready() is True
+

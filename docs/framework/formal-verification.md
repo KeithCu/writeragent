@@ -521,7 +521,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 40. **`plugin/calc/calc_addin_data.py`** — `_unwrap_cell`, `normalize_python_data_shape`, `finalize_python_data`, `calc_addin_data_to_python` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../../tests/calc/test_calc_dep_and_filter_verification.py))
 41. **`plugin/scripting/audio_silence_detector.py`** — `pcm_energy_int16` (pytest `@deal` / Hypothesis; CrossHair `# crosshair: off` — deep check-all run 32877875221 hung on the RMS post) ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py), [`tests/scripting/test_audio_silence_detector.py`](../../tests/scripting/test_audio_silence_detector.py))
 42. **`plugin/calc/cells.py`** — `_parse_color` (string-only wrapper over [`plugin/doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) `parse_color_to_uno_int`) ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py))
-43. **`plugin/framework/client/stream_normalizer.py`** — `accumulate_streaming_thinking`, `_merge_reasoning_details`, `_normalize_stream_delta`, `_thinking_text_from_delta`, `_normalize_delta` ([`tests/framework/test_stream_normalizer_verification.py`](../../tests/framework/test_stream_normalizer_verification.py))
+43. **`plugin/framework/client/stream_normalizer.py`** — `accumulate_streaming_thinking`, `_merge_reasoning_details`, `_normalize_stream_delta`, `_thinking_text_from_delta`, `normalize_delta` ([`tests/framework/test_stream_normalizer_verification.py`](../../tests/framework/test_stream_normalizer_verification.py))
 44. **`plugin/framework/client/response_normalizers.py`** — `strip_leaked_chat_template_control_tokens`, `extract_and_strip_images_from_message` ([`tests/framework/test_response_normalizers_verification.py`](../../tests/framework/test_response_normalizers_verification.py))
 45. **`plugin/calc/python/formula_edit.py`** — quoted/unquoted `=PY()` parse, sanitize/escape, rebuild, data-range formatters, data-binding display/text helpers ([`tests/calc/python/test_formula_edit_verification.py`](../../tests/calc/python/test_formula_edit_verification.py))
 46. **`plugin/calc/spreadsheet_import/preprocess.py`** — `normalize_lo_formula_for_parse` ([`tests/calc/python/test_formula_edit_verification.py`](../../tests/calc/python/test_formula_edit_verification.py))
@@ -641,9 +641,9 @@ Under LibreOffice, `deal_shim` is a no-op — `@deal.pre` does **not** run. If y
 
 #### C. Hypothesis oracles vs greedy production regexes
 
-When fuzzing extractors that use greedy character classes (e.g. base64 `data:image/...;base64,([A-Za-z0-9+/=\s]+)`), random **suffix/prefix** text often uses the same alphabet. The regex then consumes past your intended payload and the oracle fails even though production is correct.
+When fuzzing extractors that match base64 data URIs, random **suffix/prefix** text often uses the same alphabet. The URI regex uses a continuation rule (requiring whitespace followed by >=40 base64 chars for wrapped MIME lines or a short padded tail) so normal prose is not absorbed, but unrestricted random text from the same alphabet can still trigger continuation oracles.
 
-**Wrong:** `content = prefix + uri + suffix` with unrestricted `st.text()` around a greedy URI match, then assert exact `b64` equality.
+**Wrong:** `content = prefix + uri + suffix` with unrestricted `st.text()` around a URI match, then assert exact `b64` equality.
 
 **Right:** force a delimiter outside the regex alphabet (e.g. suffix = `"!" + …`), or assert weaker invariants (`mime_type` present, URI gone, `[Image Ref]` inserted) without requiring exact greedy-span equality.
 

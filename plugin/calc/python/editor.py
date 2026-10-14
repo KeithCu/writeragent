@@ -64,9 +64,10 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     return out
 
 
-def _parse_cell_python_formula(cell: Any) -> tuple[str, PythonFormulaParts | None, str | None]:
+def _parse_cell_python_formula(cell: Any, formulas: list[str] | None = None) -> tuple[str, PythonFormulaParts | None, str | None]:
     """Return (code, parts, source formula string that parsed) from the cell."""
-    for raw in _cell_formula_strings(cell):
+    f_list = formulas if formulas is not None else _cell_formula_strings(cell)
+    for raw in f_list:
         parts = parse_python_formula(raw)
         if parts is not None:
             return parts.code, parts, raw
@@ -88,7 +89,6 @@ def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
     """Resolve ``$A$1`` / ``Sheet.A1`` to a cell, or None if the address is bad."""
     try:
         from plugin.calc.address_utils import split_sheet_prefix
-        from plugin.calc.bridge import CalcBridge
 
         sheet, rest = split_sheet_prefix(code_ref.strip())
         bare = rest.replace("$", "").strip()
@@ -96,7 +96,8 @@ def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
             return None
         if sheet:
             needs_quotes = any(not (c.isalnum() or c == "_") for c in sheet) or sheet[:1].isdigit()
-            addr = f"'{sheet}'.{bare}" if needs_quotes else f"{sheet}.{bare}"
+            escaped_sheet = sheet.replace("'", "''")
+            addr = f"'{escaped_sheet}'.{bare}" if needs_quotes else f"{sheet}.{bare}"
         else:
             addr = bare
         return CalcBridge(doc).get_cell_by_address(addr)
@@ -105,12 +106,12 @@ def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
         return None
 
 
-def _load_cell_editor_code(cell: Any) -> tuple[str, PythonFormulaParts | None, str | None]:
+def _load_cell_editor_code(cell: Any, formulas: list[str] | None = None) -> tuple[str, PythonFormulaParts | None, str | None]:
     """Return Monaco source: stripped PYTHON code or plain cell text."""
-    code, parts, source = _parse_cell_python_formula(cell)
+    code, parts, source = _parse_cell_python_formula(cell, formulas=formulas)
     if parts is not None:
         return code, parts, source
-    if _cell_has_unparsed_python(cell):
+    if _cell_has_unparsed_python(cell, formulas=formulas):
         return "", None, None
     try:
         plain = cell.getString()
@@ -133,9 +134,10 @@ def build_editor_formula_save(*, parsed_parts: PythonFormulaParts | None, new_co
     return build_new_python_formula(new_code)
 
 
-def _cell_has_unparsed_python(cell: Any) -> bool:
+def _cell_has_unparsed_python(cell: Any, formulas: list[str] | None = None) -> bool:
     """True when the cell looks like PYTHON but strict parse failed (data binding at risk)."""
-    for raw in _cell_formula_strings(cell):
+    f_list = formulas if formulas is not None else _cell_formula_strings(cell)
+    for raw in f_list:
         if cell_looks_python_like(raw) and parse_python_formula(raw) is None:
             return True
     return False
@@ -156,8 +158,6 @@ def format_cell_a1(cell: Any) -> str:
 @main_thread_only
 def confirm_unsaved_cell_edit(ctx: Any, cell_addr: str) -> str:
     """Ask Save / Don't save / Cancel. Returns ``save``, ``discard``, or ``cancel``."""
-    from plugin.framework.uno_context import get_desktop
-
     title = product_display_name(ctx)
     where = cell_addr or _("this cell")
     message = _("Save changes to {0}?\n\nYes saves. No discards and opens the new cell. Cancel keeps editing {0}.").format(where)
@@ -218,7 +218,17 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
         log.warning("python_editor: selection has no RangeAddress", exc_info=True)
         return None
     bridge = CalcBridge(model)
-    sheet = bridge.get_active_sheet()
+    sheet = None
+    if hasattr(addr, "Sheet") and hasattr(model, "getSheets"):
+        try:
+            sheets = model.getSheets()
+            sheet_idx = int(addr.Sheet)
+            if hasattr(sheets, "getCount") and 0 <= sheet_idx < sheets.getCount() and hasattr(sheets, "getByIndex"):
+                sheet = sheets.getByIndex(sheet_idx)
+        except Exception:
+            sheet = None
+    if sheet is None:
+        sheet = bridge.get_active_sheet()
     cell = bridge.get_cell(sheet, addr.StartColumn, addr.StartRow)
     formulas = _cell_formula_strings(cell)
     formula = formulas[0] if formulas else ""
@@ -228,6 +238,7 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
 
 def _recalculate_after_save(doc: Any) -> None:
     try:
+        # Switching to calculate() needs a live UNO probe confirming edited =PY() is recalculated (not done).
         doc.calculateAll()
     except Exception:
         log.debug("calculateAll after editor save failed", exc_info=True)
@@ -303,7 +314,7 @@ def _apply_followed_ref_save(doc: Any, formula_cell: Any, *, code_cell: Any, cod
 
     after_py_cell_save(doc, formula_cell)
     _recalculate_after_save(doc)
-    return {"type": "saved", "ok": True, "save_as_plain": True, "status_ok_text": _("Saved without =PY().")}
+    return {"type": "saved", "ok": True, "save_as_plain": False, "status_ok_text": _("Saved code in {0}.").format(code_ref)}
 
 
 def editor_load_save_as_plain(*, parsed_parts: PythonFormulaParts | None, initial_code: str, follow_code_ref: bool = False) -> bool:
@@ -393,7 +404,8 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
     # Prompting the LLM to emit this two-cell pattern is deferred: auto-imports
     # and helpers usually fit in Calc MAXSTRLEN (1024). Revisit CALC_FORMULA_SYNTAX
     # if Err:513 shows up for generated =PY("…").
-    initial_code, parsed_parts, source_formula = _load_cell_editor_code(cell)
+    formulas = _cell_formula_strings(cell)
+    initial_code, parsed_parts, source_formula = _load_cell_editor_code(cell, formulas=formulas)
     code_cell: Any | None = None
     code_ref: str | None = None
     if parsed_parts is not None and source_formula and py_formula_has_unquoted_code_ref(source_formula):
@@ -412,7 +424,7 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
 
     log.info("python_editor: initial_code len=%s parsed=%s source=%r follow=%s", len(initial_code), parsed_parts is not None, (source_formula or "")[:80], code_ref)
 
-    if parsed_parts is None and _cell_has_unparsed_python(cell):
+    if parsed_parts is None and _cell_has_unparsed_python(cell, formulas=formulas):
         msgbox(ctx, product_display_name(ctx), _('This PY formula uses a form the editor cannot safely rewrite (e.g. code in another cell). Edit it in the formula bar, or use =PY("code"; range) with quoted code.'))
         return
 

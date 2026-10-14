@@ -458,12 +458,12 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
     """
 
     ctx: Any
-    doc_url: str
+    doc_key: str
     sheet_name: str
 
-    def __init__(self, ctx: Any, doc_url: str, sheet_name: str) -> None:
+    def __init__(self, ctx: Any, doc_key: str, sheet_name: str) -> None:
         self.ctx = ctx
-        self.doc_url = doc_url
+        self.doc_key = doc_key
         self.sheet_name = sheet_name
 
     def modified(self, aEvent: Any) -> None:
@@ -496,12 +496,12 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
             with _undo_lock(doc):
                 to_remove = []
                 for key, value in list(SPILL_REGISTRY.items()):
-                    doc_url, sheet_name, frow, fcol = key
+                    reg_doc_key, sheet_name, frow, fcol = key
                     # Callers pass the file URL or the lifecycle id. An empty
                     # string is not an identity: it matches every unsaved
                     # workbook, so a modify on one untitled book cleared the
                     # other's spill cells when the sheet names matched.
-                    if self.doc_url and doc_url == self.doc_url and sheet_name == self.sheet_name:
+                    if self.doc_key and reg_doc_key == self.doc_key and sheet_name == self.sheet_name:
                         try:
                             cell = sheet.getCellByPosition(fcol, frow)
                             formula = cell.getFormula()
@@ -527,7 +527,7 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
             log.exception("Error in CalcSpillModifyListener.modified")
 
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
+        SHEET_MODIFY_LISTENERS.pop((self.doc_key, self.sheet_name), None)
 
 
 def _spill_registry_doc_key(doc: Any) -> str:
@@ -723,7 +723,19 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date) -> tuple[Any, dict[str
     return to_calc_compatible(val), {"is_temporal": False, "is_empty": False}
 
 
-def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row: int, formula_col: int, grid: list[list[Any]], doc: Any | None = None, *, code: str = "", lifecycle_key: str = "") -> None:
+def perform_deferred_spill(
+    ctx: Any,
+    doc_url: str,
+    sheet_name: str,
+    formula_row: int,
+    formula_col: int,
+    grid: list[list[Any]],
+    doc: Any | None = None,
+    sheet: Any | None = None,
+    *,
+    code: str = "",
+    lifecycle_key: str = "",
+) -> None:
     """Clear old spilled cells and write new values deferred (collision check is done synchronously)."""
     try:
         from plugin.framework.thread_guard import on_main_thread
@@ -764,9 +776,42 @@ def perform_deferred_spill(ctx: Any, doc_url: str, sheet_name: str, formula_row:
                     log.debug("perform_deferred_spill: lifecycle key check failed", exc_info=True)
                     return
 
-            sheet = doc.getSheets().getByName(sheet_name)
-            if sheet is None:
+            target_sheet: Any = None
+            try:
+                if hasattr(doc, "getSheets"):
+                    target_sheet = doc.getSheets().getByName(sheet_name)
+            except Exception:
+                target_sheet = None
+
+            if target_sheet is None and sheet is not None:
+                target_sheet = sheet
+
+            if target_sheet is None:
                 return
+
+            sheet = target_sheet
+            assert sheet is not None
+            try:
+                # If that object is disposed, return as today
+                if hasattr(sheet, "getName"):
+                    _ = sheet.getName()
+            except Exception:
+                return
+
+            live_sheet_name = ""
+            try:
+                if hasattr(sheet, "getName"):
+                    live_sheet_name = str(sheet.getName() or "")
+            except Exception:
+                live_sheet_name = ""
+            if live_sheet_name and live_sheet_name != sheet_name:
+                try:
+                    from plugin.calc.python.sheet_modify import migrate_sheet_rename
+
+                    migrate_sheet_rename(doc, sheet_name, live_sheet_name)
+                except Exception:
+                    log.debug("perform_deferred_spill: rename migration failed", exc_info=True)
+                sheet_name = live_sheet_name
 
             if code:
                 try:
@@ -963,6 +1008,17 @@ def _selection_is_multi_cell(target_doc: Any) -> bool:
     return (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
 
 
+class PreparedSpill(tuple[Any, ...]):
+    """Four-tuple of (doc_key, sheet_name, row, col) that also carries the sheet UNO object."""
+
+    sheet: Any
+
+    def __new__(cls, doc_key: str, sheet_name: str, formula_row: int, formula_col: int, sheet: Any = None) -> "PreparedSpill":
+        t = super().__new__(cls, (doc_key, sheet_name, formula_row, formula_col))
+        t.sheet = sheet
+        return t
+
+
 def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any) -> str | tuple[str, str, int, int] | None:
     """Locate the unique formula origin and check spill collisions (UNO / UI thread).
 
@@ -1039,19 +1095,20 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
             if cell_type != EMPTY:
                 log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
                 return "#SPILL!"
-    return (doc_key, sheet_name, formula_row, formula_col)
+    return PreparedSpill(doc_key, sheet_name, formula_row, formula_col, sheet=sheet)
 
 
-def _queue_deferred_spill_write(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: tuple[str, str, int, int]) -> None:
+def _queue_deferred_spill_write(ctx: Any, code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: tuple[str, str, int, int], sheet: Any = None) -> None:
     """Post neighbor writes to the UI thread after the usual 0.1s settle."""
     from plugin.framework.queue_executor import post_to_main_thread
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-    doc_url, sheet_name, formula_row, formula_col = prepared
+    doc_url, sheet_name, formula_row, formula_col = prepared[:4]
+    sheet_obj = sheet if sheet is not None else getattr(prepared, "sheet", None)
     spill_lifecycle = _lifecycle_key(target_doc)
 
     def _deferred_spill_on_main() -> None:
-        post_to_main_thread(lambda: perform_deferred_spill(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill, doc=target_doc, code=code, lifecycle_key=spill_lifecycle))
+        post_to_main_thread(lambda: perform_deferred_spill(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill, doc=target_doc, sheet=sheet_obj, code=code, lifecycle_key=spill_lifecycle))
 
     t = _new_spill_timer(0.1, _deferred_spill_on_main)
     _register_spill_timer(spill_lifecycle, t)
@@ -1080,8 +1137,9 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
             return
         from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-        doc_url, sheet_name, formula_row, formula_col = prepared
-        perform_deferred_spill(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill, doc=target_doc, code=code, lifecycle_key=_lifecycle_key(target_doc))
+        doc_url, sheet_name, formula_row, formula_col = prepared[:4]
+        sheet_obj = getattr(prepared, "sheet", None)
+        perform_deferred_spill(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill, doc=target_doc, sheet=sheet_obj, code=code, lifecycle_key=_lifecycle_key(target_doc))
 
     def _deferred() -> None:
         post_to_main_thread(_on_main)
@@ -1545,8 +1603,8 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             images = find_image_payloads(result)
             if images:
                 t_img = time.perf_counter() if timings else 0.0
-                for img in images:
-                    insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc)
+                for i, img in enumerate(images):
+                    insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i)
                 if timings:
                     image_ms = int(round((time.perf_counter() - t_img) * 1000))
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")

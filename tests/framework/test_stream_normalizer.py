@@ -5,7 +5,7 @@
 
 
 from plugin.framework.client import stream_normalizer as sn
-from plugin.framework.client.stream_normalizer import _extract_thinking_from_delta, iterate_sse
+from plugin.framework.client.stream_normalizer import extract_thinking_from_delta, iterate_sse, normalize_delta, normalize_message_content
 from plugin.tests.testing_utils import create_mock_http_response
 import pytest
 
@@ -20,7 +20,7 @@ import pytest
 )
 def test_extract_thinking_from_delta_reasoning_field(value, value_2, expected):
     chunk = {"choices": [{"delta": {value: value_2}}]}
-    assert _extract_thinking_from_delta(chunk) == expected
+    assert extract_thinking_from_delta(chunk) == expected
 
 def test_extract_thinking_from_delta_prefers_reasoning_content_over_reasoning():
     chunk = {
@@ -33,16 +33,16 @@ def test_extract_thinking_from_delta_prefers_reasoning_content_over_reasoning():
             }
         ]
     }
-    assert _extract_thinking_from_delta(chunk) == "official trace"
+    assert extract_thinking_from_delta(chunk) == "official trace"
 
 
 def test_extract_thinking_from_delta_nested_delta_only():
     delta = {"thinking": "native thinking chunk"}
-    assert _extract_thinking_from_delta(delta) == "native thinking chunk"
+    assert extract_thinking_from_delta(delta) == "native thinking chunk"
 
 
 def test_extract_thinking_from_delta_empty_when_no_fields():
-    assert _extract_thinking_from_delta({"choices": [{"delta": {"content": "hello"}}]}) == ""
+    assert extract_thinking_from_delta({"choices": [{"delta": {"content": "hello"}}]}) == ""
 
 
 @pytest.mark.parametrize(
@@ -65,12 +65,30 @@ def test_extract_thinking_from_delta_reasoning_details_text(value, value_2, expe
             }
         ]
     }
-    assert _extract_thinking_from_delta(chunk) == expected
+    assert extract_thinking_from_delta(chunk) == expected
 
 def test_extract_thinking_from_delta_nested_choices_one_level_only():
     """Pathological nested choices: one normalize step, no recursion hang."""
     chunk = {"choices": [{"delta": {"choices": [{"delta": {"reasoning": "deep"}}]}}]}
-    assert _extract_thinking_from_delta(chunk) == ""
+    assert extract_thinking_from_delta(chunk) == ""
+
+
+def test_normalize_message_content_shapes():
+    assert normalize_message_content(None) is None
+    assert normalize_message_content("plain text") == "plain text"
+    assert normalize_message_content(123) == "123"
+    assert normalize_message_content(["hello", " world"]) == "hello world"
+    assert normalize_message_content([{"type": "text", "text": "foo"}, {"type": "text", "text": "bar"}]) == "foobar"
+    assert normalize_message_content(["prefix: ", {"type": "text", "text": "mixed"}]) == "prefix: mixed"
+    assert normalize_message_content([{"type": "image_url"}]) is None
+
+
+def test_normalize_delta_basic():
+    delta = {"role": None, "tool_calls": [{"id": "call_1", "function": {"arguments": None}}]}
+    normalize_delta(delta)
+    assert delta["role"] == "assistant"
+    assert delta["tool_calls"][0]["type"] == "function"
+    assert delta["tool_calls"][0]["function"]["arguments"] == ""
 
 
 def test_extract_reasoning_replay_reasoning_content_only():
@@ -373,5 +391,64 @@ def test_iterate_sse_truncated_and_non_utf8_lines_still_yield_later_payloads():
 def test_iterate_sse_replaces_invalid_utf8():
     stream = create_mock_http_response(sse_lines=[b"data: caf\xff", b"data: [DONE]"])
     assert list(iterate_sse(stream)) == ["caf\ufffd", "[DONE]"]
+
+
+def test_streaming_replay_reasoning_details_not_truncated_preserves_signature():
+    long_text = "R" * 32010
+    meta = {
+        "source": "reasoning_details",
+        "signature": "sig-full-123",
+        "format": "anthropic-claude-v1",
+        "index": 0,
+    }
+    replay = sn._streaming_replay(long_text, meta)
+    details = replay.get("reasoning_details", [])
+    assert len(details) == 1
+    assert details[0]["type"] == "reasoning.text"
+    assert len(details[0]["text"]) == 32010
+    assert details[0]["signature"] == "sig-full-123"
+
+
+def test_streaming_replay_string_sources_truncated_to_32k():
+    long_text = "R" * 32050
+    replay_content = sn._streaming_replay(long_text, {"source": "reasoning_content"})
+    assert len(replay_content["reasoning_content"]) == 32000
+
+    replay_reasoning = sn._streaming_replay(long_text, {"source": "reasoning"})
+    assert len(replay_reasoning["reasoning"]) == 32000
+
+
+def test_streaming_replay_zero_max_chars_unlimited(monkeypatch):
+    monkeypatch.setattr(sn, "PRESERVE_REASONING_MAX_CHARS", 0)
+    long_text = "R" * 35000
+    replay = sn._streaming_replay(long_text, {"source": "reasoning"})
+    assert len(replay["reasoning"]) == 35000
+
+
+def test_thinking_text_from_delta_handles_none_and_non_string():
+    delta = {
+        "reasoning_details": [
+            {"type": "reasoning.text", "text": None},
+            {"type": "reasoning.text", "text": 5},
+            {"type": "reasoning.summary", "summary": None},
+        ]
+    }
+    assert sn._thinking_text_from_delta(delta) == ""
+
+
+def test_strip_think_tags_close_only():
+    clean, thinking = sn.strip_think_tags("because I said so</think>The answer is 4.")
+    assert clean == "The answer is 4."
+    assert thinking == "because I said so"
+
+
+def test_think_tag_stream_splitter_close_only_split_across_chunks():
+    splitter = sn.ThinkTagStreamSplitter()
+    out1 = splitter.feed("because I said so</th")
+    assert out1 == [(True, "because I said so")]
+    out2 = splitter.feed("ink>The answer is 4.")
+    assert out2 == [(False, "The answer is 4.")]
+    assert splitter.flush() == []
+
 
 

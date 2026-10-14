@@ -25,23 +25,23 @@ from tests.harness.strip_bundle import deal_pre_present
 from plugin.framework.client.stream_normalizer import (
     ThinkTagStreamSplitter,
     _merge_reasoning_details,
-    _normalize_delta,
     _normalize_stream_delta,
     _thinking_text_from_delta,
     accumulate_streaming_thinking,
     extract_reasoning_replay_from_response,
     iterate_sse,
     new_streaming_thinking_meta,
+    normalize_delta,
     strip_think_tags,
 )
 from tests.harness.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGETS = (
-    "plugin.framework.client.stream_normalizer._normalize_delta",
+    "plugin.framework.client.stream_normalizer.normalize_delta",
     # Hot sinks off'd after cover-all 35546602462 (~3.5h stream_normalizer):
     # extract_reasoning_replay_from_response, reasoning_replay_from_assistant_response,
-    # _normalize_message_content, _normalize_delta_tool_calls_ok, ThinkTagStreamSplitter.feed.
+    # normalize_message_content, _normalize_delta_tool_calls_ok, ThinkTagStreamSplitter.feed.
     # _normalize_stream_delta / _thinking_text_from_delta / _merge_reasoning_details already off.
 )
 
@@ -226,7 +226,7 @@ def test_normalize_delta_repairs_mistral_nulls() -> None:
         "role": None,
         "tool_calls": [{"type": None, "function": {"name": "f", "arguments": None}}],
     }
-    _normalize_delta(delta)
+    normalize_delta(delta)
     assert delta["role"] == "assistant"
     assert delta["tool_calls"][0]["type"] == "function"
     assert delta["tool_calls"][0]["function"]["arguments"] == ""
@@ -235,7 +235,7 @@ def test_normalize_delta_repairs_mistral_nulls() -> None:
 def test_normalize_delta_ignores_non_list_tool_calls() -> None:
     """CrossHair found TypeError iterating tool_calls=2 (truthy non-list)."""
     delta = {"role": None, "tool_calls": 2}
-    _normalize_delta(delta)
+    normalize_delta(delta)
     assert delta["role"] == "assistant"
     assert delta["tool_calls"] == 2
 
@@ -243,7 +243,7 @@ def test_normalize_delta_ignores_non_list_tool_calls() -> None:
 def test_normalize_delta_no_crash_on_non_dict() -> None:
     """deal.pre must not reject None/str/list; body no-ops (MiniMax eval crash)."""
     for junk in (None, "x", [], 2):
-        _normalize_delta(junk)
+        normalize_delta(junk)
 
 
 def test_normalize_delta_no_crash_on_ordered_dict() -> None:
@@ -251,7 +251,7 @@ def test_normalize_delta_no_crash_on_ordered_dict() -> None:
     from collections import OrderedDict
 
     delta: OrderedDict[str, object] = OrderedDict({"role": None, "content": "hi"})
-    _normalize_delta(delta)
+    normalize_delta(delta)
     assert delta["role"] is None
     assert delta["content"] == "hi"
 
@@ -396,9 +396,9 @@ def test_stream_normalizer_hot_sinks_off_cover_all() -> None:
     assert not any(f.endswith(".reasoning_replay_from_assistant_response") for f in fqns), 'reasoning_replay_from_assistant_response'
     assert not any(f.endswith("._normalize_stream_delta") for f in fqns), '_normalize_stream_delta'
     assert not any(f.endswith("._thinking_text_from_delta") for f in fqns), '_thinking_text_from_delta'
-    assert not any(f.endswith("._normalize_message_content") for f in fqns), '_normalize_message_content'
+    assert not any(f.endswith(".normalize_message_content") for f in fqns), 'normalize_message_content'
     assert not any(f.endswith("._normalize_delta_tool_calls_ok") for f in fqns), '_normalize_delta_tool_calls_ok'
     assert not any(f.endswith(".ThinkTagStreamSplitter.feed") for f in fqns), 'ThinkTagStreamSplitter.feed'
     assert not any(f.endswith(".strip_think_tags") for f in fqns), 'strip_think_tags'
-    assert any(f.endswith("._normalize_delta") for f in fqns)
+    assert any(f.endswith(".normalize_delta") for f in fqns)
     assert any("new_streaming_thinking_meta" in f for f in fqns)

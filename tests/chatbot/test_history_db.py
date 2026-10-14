@@ -268,3 +268,56 @@ def test_sqlite_history_replace_messages_keeps_other_sessions(tmp_path):
     history.replace_messages([])
     assert history.get_messages() == []
     assert other.get_messages() == [{"role": "user", "content": "keep"}]
+
+
+def test_sqlite_update_last_user_content(tmp_path):
+    from plugin.chatbot.history_db import SQLite3History
+    import sqlite3
+
+    db_path = str(tmp_path / "history.db")
+    history = SQLite3History("sid_main", db_path)
+    other = SQLite3History("sid_other", db_path)
+
+    history.add_message("system", "sys prompt")
+    history.add_message("user", "first user query")
+    history.add_message("assistant", "response text")
+    other.add_message("user", "other query")
+
+    # Fetch original row ids for history
+    with sqlite3.connect(db_path) as conn:
+        rows_before = conn.execute(
+            "SELECT id, message FROM message_store WHERE session_id = 'sid_main' ORDER BY id ASC"
+        ).fetchall()
+    asst_id_before = rows_before[2][0]
+
+    history.update_last_user_content("updated user query")
+
+    with sqlite3.connect(db_path) as conn:
+        rows_after = conn.execute(
+            "SELECT id, message FROM message_store WHERE session_id = 'sid_main' ORDER BY id ASC"
+        ).fetchall()
+    asst_id_after = rows_after[2][0]
+
+    assert asst_id_after == asst_id_before
+    assert history.get_messages() == [
+        {"role": "system", "content": "sys prompt"},
+        {"role": "user", "content": "updated user query"},
+        {"role": "assistant", "content": "response text"},
+    ]
+    assert other.get_messages() == [{"role": "user", "content": "other query"}]
+
+
+def test_json_update_last_user_content(tmp_path):
+    history = JSONHistory("session_json", str(tmp_path / "writeragent_history.db"))
+    history.add_message("system", "sys prompt")
+    history.add_message("user", "original user")
+    history.add_message("assistant", "asst text")
+
+    history.update_last_user_content("modified user")
+
+    assert history.get_messages() == [
+        {"role": "system", "content": "sys prompt"},
+        {"role": "user", "content": "modified user"},
+        {"role": "assistant", "content": "asst text"},
+    ]
+

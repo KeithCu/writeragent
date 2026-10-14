@@ -48,9 +48,9 @@ from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES, handl
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame_with_timeout
 from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
 from plugin.scripting.venv_worker import (
-    _kill_process_tree,
     warm_venv_worker,
 )
+from plugin.framework.managed_subprocess import kill_process_tree
 
 log = logging.getLogger(__name__)
 
@@ -377,7 +377,7 @@ class PersistentEditor:
             return
         try:
             if proc.poll() is None:
-                _kill_process_tree(proc)
+                kill_process_tree(proc)
                 try:
                     proc.wait(timeout=2)
                 except subprocess.TimeoutExpired:

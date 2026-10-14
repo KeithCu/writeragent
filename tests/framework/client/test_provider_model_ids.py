@@ -145,3 +145,40 @@ def test_provider_config_has_no_host_matches_and_grok_alias_is_gone():
     assert get_provider_shim_class("openai") is OpenAIShim
     # Unknown names, including the old grok alias, use the generic base shim.
     assert get_provider_shim_class("grok") is BaseProviderShim
+
+
+def test_all_detected_providers_in_providers_table():
+    """Every non-None value get_provider_from_endpoint can return is a key in PROVIDERS."""
+    test_urls = [
+        "https://openrouter.ai/api",
+        "https://together.xyz",
+        "http://127.0.0.1:11434",
+        "https://api.mistral.ai",
+        "https://api.openai.com",
+        "https://api.deepseek.com",
+        "https://api.groq.com",
+        "https://api.cerebras.ai",
+        "https://api.perplexity.ai",
+        "https://api.x.ai",
+        "https://api.anthropic.com",
+        "https://generativelanguage.googleapis.com",
+        "http://127.0.0.1:1234",
+        "https://z.ai",
+        "https://integrate.api.nvidia.com",
+    ]
+    seen_providers = set()
+    for url in test_urls:
+        provider = get_provider_from_endpoint(url)
+        assert provider is not None, f"URL {url!r} should be detected"
+        assert provider in PROVIDERS, f"Detected provider {provider!r} for {url!r} must be in PROVIDERS"
+        seen_providers.add(provider)
+
+    for _label, url in ENDPOINT_PRESETS:
+        normalized = normalize_endpoint_url(url)
+        provider = get_provider_from_endpoint(normalized)
+        if provider is not None:
+            assert provider in PROVIDERS, f"Preset {url!r} -> {provider!r} must be in PROVIDERS"
+            seen_providers.add(provider)
+
+    assert get_provider_from_endpoint("https://ollama.com") is None
+

@@ -23,21 +23,21 @@ from unittest.mock import MagicMock
 from plugin.calc.python.executor import PythonExecutor, ExecutePythonScript
 
 def test_arithmetic():
-    executor = PythonExecutor("test_url")
+    executor = PythonExecutor()
     assert executor.execute_with_return("1 + 1") == 2
     assert executor.execute_with_return("x = 10; x * 2") == 20
 
 def test_assignment():
-    executor = PythonExecutor("test_url")
+    executor = PythonExecutor()
     # Last line is an assignment
     assert executor.execute_with_return("y = 100") == 100
     # Verify it's in the state
     assert executor.executor.state["y"] == 100
 
 def test_no_persistence_across_executor_instances():
-    e1 = PythonExecutor("test_url")
+    e1 = PythonExecutor()
     e1.execute_with_return("z = 5")
-    e2 = PythonExecutor("test_url")
+    e2 = PythonExecutor()
     from plugin.framework.errors import WriterAgentException
     with pytest.raises(WriterAgentException):
         e2.execute_with_return("z + 10")
@@ -66,13 +66,13 @@ c.inc()
     ],
 )
 def test_fn_definition(value, expected):
-    executor = PythonExecutor("test_url")
+    executor = PythonExecutor()
     code = value
     assert executor.execute_with_return(code) == expected
 
 
 def test_syntax_error():
-    executor = PythonExecutor("test_url")
+    executor = PythonExecutor()
     from plugin.framework.errors import WriterAgentException
     with pytest.raises(WriterAgentException) as excinfo:
         executor.execute_with_return("if x")
@@ -81,6 +81,7 @@ def test_syntax_error():
 def test_tool_integration():
     ctx = MagicMock()
     ctx.doc.getURL.return_value = "file:///test.ods"
+    ctx.doc.supportsService.return_value = True
     
     # Mocking the bridge and manipulator
     # Note: These are instantiated inside execute() so we'll need to mock them if we want to verify calls
@@ -100,7 +101,7 @@ def test_tool_integration():
 
 def test_formatting():
     """format_result stringifies custom objects; class must live in executor env (same snippet)."""
-    executor = PythonExecutor("test")
+    executor = PythonExecutor()
     code = """
 class MyObj:
     def __str__(self): return "CUSTOM_OBJ"
@@ -112,13 +113,13 @@ MyObj()
 
 def test_native_helpers():
     # This requires more complex mocking since bridge/manipulator are used
-    executor = PythonExecutor("test")
+    executor = PythonExecutor()
     bridge = MagicMock()
     manipulator = MagicMock()
     inspector = MagicMock()
     
     manipulator.safe_get_cell_value.return_value = "HELLO"
-    inspector.read_range.return_value = [[{"value": 1}, {"value": 2}]]
+    inspector.read_range.side_effect = lambda addr: [[{"value": "HELLO"}]] if addr == "A1" else [[{"value": 1}, {"value": 2}]]
     
     executor.inject_helpers(bridge, manipulator, inspector)
     
@@ -138,6 +139,7 @@ def test_target_range_tool():
     
     ctx = MagicMock()
     ctx.doc.getURL.return_value = "file:///test.ods"
+    ctx.doc.supportsService.return_value = True
     
     # We will need to patch CellManipulator to verify the write
     with unittest.mock.patch('plugin.calc.python.executor.CellManipulator') as MockManip:
@@ -155,6 +157,7 @@ def test_data_range_injection():
     
     ctx = MagicMock()
     ctx.doc.getURL.return_value = "file:///test.ods"
+    ctx.doc.supportsService.return_value = True
     
     with unittest.mock.patch('plugin.calc.python.executor.CellInspector') as MockInspector:
         inst = MockInspector.return_value
@@ -171,7 +174,7 @@ def test_lp_helper_reraises_execution_timeout():
     """SIGALRM timeout must leave lp(); swallowing it leaves the alarm disarmed."""
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
-    executor = PythonExecutor("test")
+    executor = PythonExecutor()
     bridge = MagicMock()
     manipulator = MagicMock()
     inspector = MagicMock()
@@ -185,30 +188,117 @@ def test_lp_helper_reraises_execution_timeout():
         lp("A1:B2")
 
 
-def test_lp_helper_still_swallows_cell_errors():
-    executor = PythonExecutor("test")
+def test_lp_helper_raises_on_cell_read_errors():
+    from plugin.framework.errors import WriterAgentException
+
+    executor = PythonExecutor()
     bridge = MagicMock()
     manipulator = MagicMock()
     inspector = MagicMock()
-    manipulator.safe_get_cell_value.side_effect = RuntimeError("missing sheet")
+    inspector.read_range.side_effect = RuntimeError("missing sheet")
     executor.inject_helpers(bridge, manipulator, inspector)
-    assert executor.executor.state["lp"]("A1") is None
+    with pytest.raises(WriterAgentException) as excinfo:
+        executor.executor.state["lp"]("A1")
+    assert "A1" in str(excinfo.value)
+    assert "missing sheet" in str(excinfo.value)
+
+
+def test_lp_helper_sheet_prefix_invokes_read_range():
+    executor = PythonExecutor()
+    bridge = MagicMock()
+    manipulator = MagicMock()
+    inspector = MagicMock()
+    inspector.read_range.return_value = [[{"value": 42}]]
+    executor.inject_helpers(bridge, manipulator, inspector)
+
+    val = executor.executor.state["lp"]("Sheet2.A1")
+    assert val == 42
+    inspector.read_range.assert_called_once_with("Sheet2.A1")
+    manipulator.safe_get_cell_value.assert_not_called()
 
 
 def test_format_result_stringifies_non_json_values():
+    import datetime
     import json
 
-    executor = PythonExecutor("test")
-    samples = [executor.format_result(value) for value in ({1, 2}, b"ab", range(3), (x for x in (1, 2)), (1, 2))]
+    executor = PythonExecutor()
+    # Non-json leaf types are stringified
+    samples = [executor.format_result(value) for value in ({1, 2}, b"ab", range(3), (x for x in (1, 2)))]
     for formatted in samples:
         assert isinstance(formatted, str)
         json.dumps(formatted)
+
+    # Tuples become lists at top level and nested
+    assert executor.format_result((1, 2)) == [1, 2]
+    assert executor.format_result([(1, 2), (3, 4)]) == [[1, 2], [3, 4]]
+
+    # Nested non-JSON values are deeply walked and stringified
+    nested_date = executor.format_result([datetime.date(2020, 1, 2)])
+    assert nested_date == ["<Result: 2020-01-02>"]
+    json.dumps(nested_date)
+
+    nested_set = executor.format_result([{"s": {1, 2}}])
+    assert isinstance(nested_set[0]["s"], str)
+    assert nested_set[0]["s"].startswith("<Result:")
+    json.dumps(nested_set)
+
+    # Dict with non-string keys stringifies keys
+    int_keyed = executor.format_result({1: "a", 2: (3, 4)})
+    assert int_keyed == {"1": "a", "2": [3, 4]}
+    json.dumps(int_keyed)
+
     assert executor.format_result(None) is None
     assert executor.format_result([1, {"a": 2}]) == [1, {"a": 2}]
     assert executor.format_result({"a": 1}) == {"a": 1}
+
+    # execute_with_return tests
     assert executor.execute_with_return("{1, 2}").startswith("<Result:")
     json.dumps(executor.execute_with_return('b"ab"'))
-    json.dumps(executor.execute_with_return("(1, 2)"))
+    res_tuple = executor.execute_with_return("(1, 2)")
+    assert res_tuple == [1, 2]
+    json.dumps(res_tuple)  # strict json.dumps without default succeeds
+
+
+def test_target_range_writes_tuple_as_list():
+    """target_range of return (1, 2) writes two values as a list, not '<Result:' text."""
+    from plugin.calc.python.executor import ExecutePythonScript
+
+    tool = ExecutePythonScript()
+    ctx = MagicMock()
+    ctx.doc.getURL.return_value = "file:///test.ods"
+    ctx.doc.supportsService.return_value = True
+
+    with unittest.mock.patch("plugin.calc.python.executor.CellManipulator") as MockManip:
+        inst = MockManip.return_value
+        inst.write_formula_range.return_value = "Success"
+
+        res = tool.execute(ctx, code="(1, 2)", target_range="D1")
+        assert res["result"] == [1, 2]
+        assert res["write_status"] == "Success"
+        inst.write_formula_range.assert_called_with("D1", [1, 2])
+
+
+def test_data_range_read_failure_returns_error_result():
+    """read_range failure returns an error status naming the range; execute_with_return does not run."""
+    from plugin.calc.python.executor import ExecutePythonScript
+
+    tool = ExecutePythonScript()
+    ctx = MagicMock()
+    ctx.doc.getURL.return_value = "file:///test.ods"
+    ctx.doc.supportsService.return_value = True
+
+    with (
+        unittest.mock.patch("plugin.calc.python.executor.CellInspector") as MockInspector,
+        unittest.mock.patch("plugin.calc.python.executor.PythonExecutor.execute_with_return") as mock_exec,
+    ):
+        inst = MockInspector.return_value
+        inst.read_range.side_effect = RuntimeError("Bad range syntax")
+
+        res = tool.execute(ctx, code="data[0]", data_range="INVALID_RANGE")
+        assert res["status"] == "error"
+        assert "INVALID_RANGE" in res["message"]
+        assert "Bad range syntax" in res["message"]
+        mock_exec.assert_not_called()
 
 
 def test_calc_helpers_fail_on_writer_document():
@@ -238,7 +328,7 @@ def test_execute_with_return_catches_timeout_and_exit_signals():
     from plugin.calc.python.executor import PythonExecutor, WriterAgentException
     from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
 
-    executor = PythonExecutor("test")
+    executor = PythonExecutor()
 
     # ExecutionTimeoutError
     executor.executor = MagicMock()
@@ -261,4 +351,22 @@ def test_execute_with_return_catches_timeout_and_exit_signals():
         executor.execute_with_return("pass")
     assert "KeyboardInterrupt" in str(exc_info.value)
     assert exc_info.value.code == "PYTHON_EXECUTION_ERROR"
+
+
+def test_interpreter_error_logs_warning_without_source(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+    from plugin.calc.python.executor import PythonExecutor
+    from plugin.framework.errors import WriterAgentException
+
+    executor = PythonExecutor()
+    bad_code = "secret_token = 'SUPER_SECRET_KEY'\nundefined_symbol_xyz()"
+
+    with caplog.at_level(logging.WARNING, logger="plugin.calc.python.executor"):
+        with pytest.raises(WriterAgentException):
+            executor.execute_with_return(bad_code)
+
+    assert bad_code not in caplog.text
+    assert "SUPER_SECRET_KEY" not in caplog.text
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+    assert any("snippet length" in r.message for r in caplog.records)
 

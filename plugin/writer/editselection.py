@@ -20,7 +20,7 @@ from typing import Any
 
 from plugin.framework.config import get_config_int, get_config_str, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model
-from plugin.chatbot.config_ui_helpers import update_lru_history
+from plugin.framework.model_lru import update_lru_history
 from plugin.framework.errors import format_error_message
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _

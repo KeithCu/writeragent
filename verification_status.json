@@ -204,7 +204,7 @@
         "_merge_reasoning_details",
         "_normalize_stream_delta",
         "_thinking_text_from_delta",
-        "_normalize_delta",
+        "normalize_delta",
         "_streaming_replay",
         "strip_think_tags"
       ],

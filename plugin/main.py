@@ -117,6 +117,51 @@ _init_lock = threading.Lock()
 # pass would construct another registry and start background services again.
 _initialized = False
 _bootstrap_error: BaseException | None = None
+_terminate_listener: Any | None = None
+
+
+def _install_terminate_listener(ctx: Any) -> None:
+    """Register a desktop XTerminateListener to clean up child processes on app exit."""
+    global _terminate_listener
+    if _terminate_listener is not None:
+        return
+    try:
+        from plugin.framework.uno_context import get_desktop
+
+        desktop = get_desktop(ctx)
+        if desktop is None:
+            return
+
+        import unohelper
+        from com.sun.star.frame import XTerminateListener
+
+        class _TerminateListener(unohelper.Base, XTerminateListener):
+            def queryTermination(self, Event: Any) -> None:
+                pass
+
+            def notifyTermination(self, Event: Any) -> None:
+                try:
+                    from plugin.audio.kokoro_pool import shutdown_kokoro_pool
+
+                    shutdown_kokoro_pool()
+                except Exception:
+                    log.exception("Error shutting down Kokoro pool on desktop termination")
+
+                try:
+                    from plugin.framework.managed_subprocess import shutdown_all
+
+                    shutdown_all()
+                except Exception:
+                    log.exception("Error shutting down managed subprocesses on desktop termination")
+
+            def disposing(self, Source: Any) -> None:
+                pass
+
+        listener = _TerminateListener()
+        desktop.addTerminateListener(listener)
+        _terminate_listener = listener
+    except Exception:
+        log.exception("Failed to install terminate listener")
 
 def _schedule_extension_update_check_once(ctx: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # called from panel_wiring after sidebar init
     """Run weekly update check at most once per process per product, after init_logging."""
@@ -205,6 +250,9 @@ def bootstrap(ctx: Any | None = None) -> None:
 
         _services = ServiceRegistry()
         _services.register("uno", ctx)
+
+        # Install desktop terminate listener to clean up subprocesses on app exit
+        _install_terminate_listener(ctx)
 
         # 3. Core Services (Framework)
         from plugin.framework.config_service import ConfigService
