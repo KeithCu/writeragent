@@ -544,11 +544,12 @@ def test_spawn_recording_process_popen_oserror_is_not_wrapped(
 
     monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
 
+    before = set(ms._instances)
     with caplog.at_level(logging.ERROR, logger="plugin.framework.managed_subprocess"):
         with pytest.raises(FileNotFoundError):
             spawn_recording_process("/missing/python", "/tmp/take.wav")
 
     assert "Failed to start managed subprocess" not in caplog.text
-    assert len(ms._instances) == 0
+    assert set(ms._instances) == before
 
 
