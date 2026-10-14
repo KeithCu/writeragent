@@ -35,7 +35,14 @@ class SymbolicMathTool(ToolCalcPythonBase):
         },
         "required": ["helper"],
     }
-    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    # Draw and Impress are doc_type "draw", and run_trusted_symbolic accepts
+    # only Writer and Calc, so the tool was offered and then failed with
+    # "Symbolic helpers require a Writer or Calc document." Draw and Impress
+    # insert formulas with insert_math.
+    uno_services: list[str] | None = [
+        "com.sun.star.sheet.SpreadsheetDocument",
+        "com.sun.star.text.TextDocument",
+    ]
     long_running: bool = True
 
     def is_async(self) -> bool:

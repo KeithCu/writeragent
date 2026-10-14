@@ -99,7 +99,7 @@ Shipped domains prove the stack. New domains should mirror them—not invent par
 | Run Python Script | register in [`domain_registry.py`](../../plugin/scripting/domain_registry.py) `PICKER` / `RPS` | same | same | same | same | same | Host glue: [`helper_domain.py`](../../plugin/scripting/helper_domain.py) + registry; picker via [`document_scripts.py`](../../plugin/scripting/document_scripts.py) |
 | Run Python Script execution | venv + post-venv | venv + post-venv | venv + post-venv | venv + post-venv | venv + post-venv | venv + post-venv | All built-in helper samples execute visible `run_*()` Python. **Calc** helpers bind selected cells as `data`; **Writer text** injects `text` + `document_context`; **Vision** injects selected graphic bytes as `image`. Results route via post-venv insert in [`domain_registry.py`](../../plugin/scripting/domain_registry.py). Calc sheet inserters are `(doc, ctx, result)`; Writer/Draw inserters are `(ctx, doc, result)`. |
 | Settings Test | **Data Analysis / EDA** | **Vision Libraries** | **Visualization Libraries** | **Computer Algebra** | **Data Engineering Libraries** | **Data Analysis / EDA** (`statsmodels`) | Per domain when shipped |
-| LLM surface | Hidden. Calc chat: `=PY()` only | `analyze_image` deferred | Calc chat: matplotlib via `=PY()` | Writer/Draw `domain="python"` — [`symbolic_math`](../../plugin/calc/symbolic_math.py) | Run Python Script **Units Helpers** only | Chat hidden; RPS **Forecast Helpers** | Calc `analysis`/`python` domains hidden |
+| LLM surface | Hidden. Calc chat: `=PY()` only | `analyze_image` deferred | Calc chat: matplotlib via `=PY()` | Writer/Calc `domain="python"` — [`symbolic_math`](../../plugin/calc/symbolic_math.py) | Run Python Script **Units Helpers** only | Chat hidden; RPS **Forecast Helpers** | Calc `analysis`/`python` domains hidden |
 
 ```mermaid
 flowchart TD
@@ -478,18 +478,18 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 
 | Piece | Location |
 |-------|----------|
-| Trusted module | [`symbolic.py`](../../plugin/scripting/symbolic.py), [`symbolic_client.py`](../../plugin/framework/client/symbolic_client.py) |
+| Trusted module | Host [`symbolic.py`](../../plugin/scripting/symbolic.py); compute [`venv/symbolic.py`](../../plugin/scripting/venv/symbolic.py); RPC [`client.py`](../../plugin/scripting/client.py) `run_symbolic` |
 | Run Python Script | Direct import templates in [`symbolic.py`](../../plugin/scripting/symbolic.py), **Math Helpers** in [`document_scripts.py`](../../plugin/scripting/document_scripts.py) |
-| Writer Math insert | [`symbolic_egress.py`](../../plugin/scripting/symbolic_egress.py) → [`math_mml_convert.py`](../../plugin/writer/math/math_mml_convert.py) |
+| Writer Math insert | [`insert_symbolic_result_into_writer`](../../plugin/scripting/symbolic.py) in [`symbolic.py`](../../plugin/scripting/symbolic.py) → [`convert_latex_to_starmath`](../../plugin/writer/math/math_mml_convert.py) |
 | Chat tool | [`symbolic_math`](../../plugin/calc/symbolic_math.py) (`domain="python"`) |
 
 **Packages:** `sympy` (required). Settings → Python **Computer Algebra** group lists sympy.
 
-**Run Python Script templates:** **Math Helpers →** `[Math] solve_equation`, `[Math] symbolic_simplify`, `[Math] integrate`.
+**Run Python Script templates:** **Math Helpers →** `[Math] solve_equation`, `[Math] symbolic_simplify`, `[Math] integrate`, `[Math] differentiate`.
 
 **Tests:** [`test_symbolic.py`](../../tests/scripting/test_symbolic.py), [`test_symbolic_templates.py`](../../tests/scripting/test_symbolic_templates.py), [`test_python_runner_symbolic.py`](../../tests/scripting/test_python_runner_symbolic.py), [`test_symbolic_tool.py`](../../tests/scripting/test_symbolic_tool.py).
 
-**Parser limits:** `e` is Euler's number unless it is the variable being differentiated or solved. Dunder names and non-decimal dots are rejected before parsing, because `parse_expr` uses `eval`. An integral SymPy leaves as `Integral(...)` returns `NO_CLOSED_FORM`. `solve_equation` rejects `!=`, `==`, and inequalities. Factorial equations need a space before `=` (`n! = 720`); SymPy may still have no algorithm for them. These helpers already use the 300s long trusted worker timeout (`LONG_TRUSTED_WORKER_TIMEOUT_SEC`).
+**Parser limits:** `e` is Euler's number unless it is the variable being differentiated or solved. Dunder names and non-decimal dots are rejected before parsing, because `parse_expr` uses `eval`. An integral SymPy leaves as `Integral(...)` returns `NO_CLOSED_FORM`. `solve_equation` rejects `!=`, `==`, and inequalities. Factorial equations need a space before `=` (`n! = 720`); SymPy may still have no algorithm for them. These helpers already use the 300s long trusted worker timeout (`LONG_TRUSTED_WORKER_TIMEOUT_SEC`). A `parse_expr` result that is not a SymPy expression (a Python string, list, tuple, or dict, or `1.0.func`) is `PARSE_ERROR` with message `Not a math expression.` An unknown call such as `foo(x)` is `PARSE_ERROR` with message `Undefined function in expression: foo`. `Function` is not a parser name. `solve_equation` returns `NO_SOLUTION` (`No solution.`) when the solution set is empty (`exp(x)`, `1 = 0`). When `solve` lists no roots and the set is not empty (`x = x`, `0`, `x**x`), the result stays `status: ok` and `latex` is that set (`\mathbb{C}`, or the condition). `sin(x)` stays the explicit roots `0` and `pi`.
 
 **Out of scope (deferred):** SageMath backend, `sage` sandbox whitelist — [sagemath-integration-dev-plan.md](../archive/sagemath-integration-dev-plan.md).
 

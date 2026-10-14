@@ -296,12 +296,103 @@ def test_unevaluated_integral_is_no_closed_form():
     assert "Si" in si["text"]
 
 
-def test_solve_no_roots_is_empty_list():
+def test_solve_no_roots_is_no_solution():
     from plugin.scripting.venv.symbolic import solve_equation
 
     res = solve_equation(equation="exp(x)", variable="x")
+    assert res["status"] == "error"
+    assert res["code"] == "NO_SOLUTION"
+    assert res["message"] == "No solution."
+
+
+@pytest.mark.parametrize("equation", ["1 = 0", "x = x + 1"])
+def test_solve_contradiction_is_no_solution(equation):
+    from plugin.scripting.venv.symbolic import solve_equation
+
+    res = solve_equation(equation=equation, variable="x")
+    assert res["status"] == "error"
+    assert res["code"] == "NO_SOLUTION"
+    assert res["message"] == "No solution."
+
+
+@pytest.mark.parametrize("equation", ["x = x", "0"])
+def test_solve_identity_returns_complexes(equation):
+    from plugin.scripting.venv.symbolic import solve_equation
+
+    res = solve_equation(equation=equation, variable="x")
     assert res["status"] == "ok"
-    assert res["solutions"] == []
+    assert res["latex"] == r"\mathbb{C}"
+    assert res["text"] == "Complexes"
+    assert res["solutions"] == ["Complexes"]
+    assert res["variable"] == "x"
+
+
+def test_solve_unlisted_set_returns_condition():
+    from plugin.scripting.venv.symbolic import solve_equation
+
+    res = solve_equation(equation="x**x", variable="x")
+    assert res["status"] == "ok"
+    assert res["text"] == "ConditionSet(x, Eq(x**x, 0), Complexes)"
+    assert res["solutions"] == ["ConditionSet(x, Eq(x**x, 0), Complexes)"]
+    assert res["latex"] == r"\left\{x\; \middle|\; x \in \mathbb{C} \wedge x^{x} = 0 \right\}"
+
+
+def test_solve_sin_keeps_explicit_roots():
+    from plugin.scripting.venv.symbolic import solve_equation
+
+    res = solve_equation(equation="sin(x)", variable="x")
+    assert res["status"] == "ok"
+    assert res["solutions"] == ["0", "pi"]
+
+
+@pytest.mark.parametrize("expression", ["'abc'", "[1,2,3]", "(1,2)", "{'a':1}", "1.0.func"])
+def test_non_math_literal_is_parse_error(expression):
+    from plugin.scripting.venv.symbolic import symbolic_simplify
+
+    res = symbolic_simplify(expression=expression)
+    assert res["status"] == "error"
+    assert res["code"] == "PARSE_ERROR"
+    assert res["message"] == "Not a math expression."
+    assert "atoms" not in res["message"]
+
+
+def test_undefined_function_names_the_call():
+    from plugin.scripting.venv.symbolic import differentiate
+
+    res1 = differentiate(expression="custom_fn(x)", variable="x")
+    assert res1["status"] == "error"
+    assert res1["code"] == "PARSE_ERROR"
+    assert res1["message"] == "Undefined function in expression: custom_fn"
+
+    res2 = differentiate(expression="foo(x)+bar(y)", variable="x")
+    assert res2["status"] == "error"
+    assert res2["code"] == "PARSE_ERROR"
+    assert res2["message"] == "Undefined function in expression: foo, bar"
+
+    res3 = differentiate(expression="sin(foo(x))", variable="x")
+    assert res3["status"] == "error"
+    assert res3["code"] == "PARSE_ERROR"
+    assert res3["message"] == "Undefined function in expression: foo"
+
+
+def test_no_solution_calc_and_writer_egress():
+    from unittest.mock import MagicMock
+
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.scripting.symbolic import (
+        format_symbolic_for_calc,
+        insert_symbolic_result_into_writer,
+    )
+    from plugin.scripting.venv.symbolic import solve_equation
+
+    result = solve_equation(equation="exp(x)", variable="x")
+    calc_rows = format_symbolic_for_calc(result)
+    assert calc_rows == [["Symbolic error (NO_SOLUTION)"], ["No solution."]]
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        insert_symbolic_result_into_writer(MagicMock(), MagicMock(), result)
+    assert exc_info.value.code == "NO_SOLUTION"
+    assert exc_info.value.message == "No solution."
 
 
 def test_latex_to_math_object_accepts_expression_alias():

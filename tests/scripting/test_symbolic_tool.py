@@ -50,7 +50,7 @@ def test_symbolic_math_requires_helper(writer_ctx):
 
 def test_symbolic_math_uno_services():
     tool = SymbolicMathTool()
-    assert tool.uno_services == ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    assert tool.uno_services == ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
 
 
 def test_symbolic_math_in_python_domain():
@@ -100,3 +100,38 @@ def test_symbolic_math_keeps_ipc_off_main_thread(mock_run, mock_main_thread, moc
     mock_run.assert_called_once()
     mock_insert.assert_called_once()
     mock_main_thread.assert_called_once()
+
+
+def test_symbolic_math_not_offered_on_draw():
+    from plugin.doc.doc_type import uno_services_for_doc_type_label
+    from plugin.framework.tool import tool_supports_document
+
+    tool = SymbolicMathTool()
+    for label in ("draw", "impress"):
+        assert not tool_supports_document(
+            tool,
+            doc_type=label,
+            uno_services_supported=uno_services_for_doc_type_label(label),
+        )
+    for label in ("writer", "calc"):
+        assert tool_supports_document(
+            tool,
+            doc_type=label,
+            uno_services_supported=uno_services_for_doc_type_label(label),
+        )
+
+
+@pytest.mark.parametrize("doc_type", ["draw", "impress"])
+def test_run_trusted_symbolic_rejects_draw(doc_type):
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.scripting.symbolic import run_trusted_symbolic
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        run_trusted_symbolic(
+            MagicMock(),
+            MagicMock(),
+            helper="symbolic_simplify",
+            params={"expression": "x"},
+            doc_type=doc_type,
+        )
+    assert "Writer or Calc" in str(exc_info.value)

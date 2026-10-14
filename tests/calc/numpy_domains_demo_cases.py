@@ -542,15 +542,14 @@ def _math_cases() -> list[DomainDemoCase]:
             id="differentiate",
             domain="math",
             helper="differentiate",
-            description="Symbolic derivative (no shipped RPS template — use header in notes)",
+            description="Symbolic derivative",
             input_grid=None,
             params={"expression": "x**2", "variable": "x"},
             python_expr=_symbolic_expr("differentiate", {"expression": "x**2", "variable": "x"}, '["text"]'),
             expected_scalar="2*x",
-            script_hint="Math Helpers (custom) — # writeragent:math helper=differentiate",
+            script_hint="Math Helpers → [Math] differentiate",
             chat_prompt='symbolic_math helper=differentiate params={"expression":"x**2","variable":"x"}',
             requires_package="sympy",
-            notes="Copy template header: # writeragent:math helper=differentiate params={\"expression\":\"x**2\",\"variable\":\"x\"}",
         ),
     ]
 

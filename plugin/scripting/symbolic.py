@@ -19,26 +19,31 @@ from plugin.scripting.calc_functions_common import SYMBOLIC_HELPER_NAMES as HELP
 from plugin.scripting.client import run_symbolic as client_run_symbolic
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
-    header_prefix,
     is_status_helper_result,
     make_template_api,
     supports_calc_or_writer_manual,
 )
 
-MATH_HEADER_PREFIX = header_prefix("math")
-
-_SHIPPED_TEMPLATES = frozenset({"solve_equation", "symbolic_simplify", "integrate"})
+# The menu scripts are solve, simplify, integrate, and differentiate.
+# latex_to_math_object only normalizes a string for Writer Math insert.
+# It stays callable from symbolic_math and run_symbolic and is not a
+# Math Helpers template.
+_SHIPPED_TEMPLATES = frozenset(
+    {"solve_equation", "symbolic_simplify", "integrate", "differentiate"}
+)
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "solve_equation": {"equation": "x**2 - 4", "variable": "x"},
     "symbolic_simplify": {"expression": "(x + 1)**2 - x**2 - 2*x"},
     "integrate": {"expression": "sin(x)", "variable": "x"},
+    "differentiate": {"expression": "x**2", "variable": "x"},
 }
 
 _HELPER_DESCRIPTIONS: dict[str, str] = {
     "solve_equation": "Solve an equation for a variable (use = or expression equal to zero).",
     "symbolic_simplify": "Simplify a symbolic expression.",
     "integrate": "Integrate an expression (add lower/upper for definite integrals).",
+    "differentiate": "Differentiate an expression with respect to a variable (default x).",
 }
 
 _SYMBOLIC_VENV_EXPORTS = frozenset(
@@ -71,7 +76,6 @@ _API = make_template_api(
 )
 
 get_math_script_templates = _API.get_templates
-parse_math_script_header = _API.parse_header
 
 
 # --- Runner ---

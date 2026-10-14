@@ -32,6 +32,8 @@ _MAX_SYMBOLIC_EXPR_CHARS = 10_000
 # Cues that mean "already LaTeX". ``x_1`` is kept; ``x1`` is parsed.
 _LATEX_CUES = ("=", "\\", "{", "}", "^", "_")
 
+_CALL_NAME = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+
 _SYMPY_NAMES = (
     "Abs Add And E Eq Float Ge Gt I Integer Le Lt Mul Ne Not Or Pow Rational "
     "Symbol binomial cos exp factorial log oo pi sin sqrt tan "
@@ -39,6 +41,19 @@ _SYMPY_NAMES = (
     "sec csc cot floor ceiling Min Max gamma erf Mod sign re im "
     "Piecewise conjugate"
 ).split()
+
+
+def _undefined_call_names(text: str) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for match in _CALL_NAME.finditer(text):
+        name = match.group(1)
+        if name in _SYMPY_NAMES or name in ("ln", "e"):
+            continue
+        if name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
 
 
 class _SymbolicError(Exception):
@@ -142,7 +157,6 @@ def _parse_expression(sp: Any, expr: Any, *, variable: Any | None = None) -> Any
     if len(text) > _MAX_SYMBOLIC_EXPR_CHARS:
         raise _SymbolicError("PARSE_ERROR", f"expression longer than {_MAX_SYMBOLIC_EXPR_CHARS} characters")
     _reject_unsafe_expression(text)
-    from sympy.core.function import AppliedUndef
     from sympy.parsing.sympy_parser import parse_expr
 
     local_dict: dict[str, Any] = {}
@@ -161,13 +175,28 @@ def _parse_expression(sp: Any, expr: Any, *, variable: Any | None = None) -> Any
             evaluate=False,
         )
     except Exception as exc:
+        # sympy rewrites an unknown call to Function('name')(...), then
+        # implicit_multiplication leaves a Function name in the code because
+        # Function is not in the name dict, and eval raises NameError.
+        # Adding Function does not produce AppliedUndef; it turns foo(x)
+        # into the product foo*x. The NameError is the undefined-function
+        # PARSE_ERROR, and the message names the calls in the source instead
+        # of saying name 'Function' is not defined.
+        if isinstance(exc, NameError) and str(exc) == "name 'Function' is not defined":
+            names = _undefined_call_names(text)
+            if names:
+                message = f"Undefined function in expression: {', '.join(names)}"
+            else:
+                message = "Undefined function in expression."
+            raise _SymbolicError("PARSE_ERROR", message) from exc
         raise _SymbolicError("PARSE_ERROR", f"Could not parse expression: {exc}") from exc
 
-    # parse_expr turns an unknown call into AppliedUndef and would return ok.
-    # Reject those atoms so the caller sees PARSE_ERROR.
-    if parsed.atoms(AppliedUndef):
-        undef = ", ".join(str(atom.func) for atom in parsed.atoms(AppliedUndef))
-        raise _SymbolicError("PARSE_ERROR", f"Undefined function in expression: {undef}")
+    # parse_expr returns a Python str, list, tuple, or dict for quotes, brackets,
+    # and braces, and returns the Float class for 1.0.func. Those objects have no
+    # .atoms. The wrapper reported SYMBOLIC_ERROR with 'str' object has no attribute
+    # 'atoms'. They are not expressions, so the failure is PARSE_ERROR.
+    if not isinstance(parsed, sp.Basic):
+        raise _SymbolicError("PARSE_ERROR", "Not a math expression.")
 
     return parsed
 
@@ -300,14 +329,33 @@ def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, 
             raise _SymbolicError("INVALID_PARAMS", "Equation cannot contain multiple '=' signs.")
         lhs = _parse_expression(sp, parts[0], variable=sym)
         rhs = _parse_expression(sp, parts[1], variable=sym)
-        eq = sp.Eq(lhs, rhs)
-        solutions = sp.solve(eq, sym)
+        target = sp.Eq(lhs, rhs)
     else:
-        expr = _parse_expression(sp, text, variable=sym)
-        solutions = sp.solve(expr, sym)
+        target = _parse_expression(sp, text, variable=sym)
+
+    solutions = sp.solve(target, sym)
 
     if not isinstance(solutions, list):
         solutions = [solutions]
+
+    # sp.solve returns [] when nothing is a root (exp(x), 1 = 0) and when every
+    # complex value works (x = x, 0). The success dict then had latex "", and
+    # Writer raised "Symbolic helper returned no LaTeX." solveset on that empty list
+    # separates EmptySet (NO_SOLUTION) from any other set, which is returned as
+    # one latex value so egress has a formula. A non-empty solve list is still the
+    # explicit roots (sin(x) stays 0, pi).
+    if not solutions:
+        solution_set = sp.solveset(target, sym, domain=sp.S.Complexes)
+        if solution_set == sp.S.EmptySet:
+            raise _SymbolicError("NO_SOLUTION", "No solution.")
+        return _ok_result(
+            "solve_equation",
+            latex=str(sp.latex(solution_set)),
+            text=str(solution_set),
+            solutions=[str(solution_set)],
+            variable=str(sym),
+            writer_cleanup_hints=[],
+        )
     latex_parts = [_to_latex(sp, sol) for sol in solutions]
     latex = ", ".join(latex_parts) if latex_parts else ""
     text_sol = ", ".join(str(s) for s in solutions)
