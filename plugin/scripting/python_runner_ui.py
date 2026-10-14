@@ -70,6 +70,7 @@ from plugin.scripting.document_scripts import (
     delete_document_script,
     delete_user_script,
     get_user_scripts,
+    read_only_helper_message,
     resolve_script_picker_entry,
     save_document_script,
     save_user_script,
@@ -88,10 +89,10 @@ class _ScriptSaveResult:
 
 
 def _builtin_helpers_readonly_text() -> str:
-    # Monaco keeps 'Use Copy to My Scripts' in scripts_manager.js,
-    # editor_ui_strings.py, and save_selected_script. Do not change those,
-    # and do not add a Copy button or edit the XDL.
-    return _("Built-in helpers are read-only. Use Save As to copy one into My Scripts.")
+    # Monaco and the native dialog share this sentence. Save As, with Attach
+    # unchecked, copies a helper into My Scripts. Do not add a Copy button and
+    # do not edit the XDL.
+    return read_only_helper_message()
 
 
 def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str) -> None:
@@ -477,7 +478,9 @@ class NativePythonScriptDialog:
                     % (err, real_name),
                     "modal",
                 )
-            save_user_script(real_name, t)
+            user_err = save_user_script(real_name, t)
+            if isinstance(user_err, str) and user_err:
+                return _ScriptSaveResult(str(user_err), "modal")
             # After falling back to My Scripts, refresh the dropdown and
             # select the saved user script. Leaving the [Doc] entry
             # selected disagrees with where the script was stored.
@@ -486,7 +489,9 @@ class NativePythonScriptDialog:
                 _("Could not save to this document (%s). Saved to My Scripts instead.") % err,
                 "modal",
             )
-        save_user_script(real_name, t)
+        user_err = save_user_script(real_name, t)
+        if isinstance(user_err, str) and user_err:
+            return _ScriptSaveResult(str(user_err), "modal")
         return _ScriptSaveResult(_("Script '%s' saved successfully.") % real_name, "ok")
 
     def _store_script(
@@ -532,7 +537,10 @@ class NativePythonScriptDialog:
                 dialog_title,
             ):
                 return False
-            save_user_script(name, code)
+            err = save_user_script(name, code)
+            if isinstance(err, str) and err:
+                set_control_text(lbl, err)
+                return False
             self._refresh_script_dropdown(name)
             set_control_text(lbl, user_success_msg % name)
             return True

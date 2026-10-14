@@ -446,7 +446,7 @@ def test_run_python_monaco_on_save_does_not_upsert_unknown_user_name(return_valu
                 with patch.object(pr, "execute_and_insert_result", return_value={"ok": True}):
                     with patch.object(pr, "get_config_str", return_value=return_value):
                         with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
-                            with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Regional": "old"}):
+                            with patch("plugin.scripting.document_scripts._load_document_script_map", return_value=({"Regional": "old"}, None)):
                                 pr._run_python_monaco(
                                     ctx,
                                     doc,
@@ -474,7 +474,7 @@ def test_run_python_monaco_on_save_errors_when_script_was_deleted():
             with patch("plugin.scripting.document_scripts.save_document_script") as mock_doc_save:
                 with patch.object(pr, "get_config_str", return_value="Gone"):
                     with patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}):
-                        with patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}):
+                        with patch("plugin.scripting.document_scripts._load_document_script_map", return_value=({}, None)):
                             pr._run_python_monaco(
                                 ctx,
                                 doc,
@@ -710,13 +710,12 @@ def test_persistent_editor_dispatches_script_actions():
     with patch("plugin.framework.config.get_config", side_effect=_get_config) as mock_get:
         with patch("plugin.framework.config.get_config_str", return_value="MyScript"):
             with patch("plugin.framework.config.set_config", side_effect=_set_config) as mock_set:
-                with patch("plugin.scripting.document_scripts.get_active_document_for_scripts", return_value=None):
-                    pe._dispatch_incoming({"type": "request_scripts"})
-                    mock_get.assert_any_call("saved_python_scripts")
-                    sent = pe.send.call_args[0][0]
-                    assert sent["type"] == "scripts_list"
-                    assert sent["sections"][0]["scripts"] == {"MyScript": "print(123)"}
-                    assert sent["selected_script_name"] == "MyScript"
+                pe._dispatch_incoming({"type": "request_scripts"})
+                mock_get.assert_any_call("saved_python_scripts")
+                sent = pe.send.call_args[0][0]
+                assert sent["type"] == "scripts_list"
+                assert sent["sections"][0]["scripts"] == {"MyScript": "print(123)"}
+                assert sent["selected_script_name"] == "MyScript"
 
                 pe._dispatch_incoming({"type": "select_script", "name": "MyScript"})
                 mock_set.assert_called_with("last_python_script_name_writer", "MyScript")
@@ -727,16 +726,16 @@ def test_persistent_editor_dispatches_script_actions():
                 pe._dispatch_incoming({"type": "delete_script", "name": "MyScript", "origin": SCRIPT_ORIGIN_USER})
                 assert user_scripts == {"NewScript": "x = 1"}
 
-    with patch("plugin.scripting.document_scripts.get_active_document_for_scripts", return_value=doc):
-        with patch("plugin.scripting.document_scripts.save_document_script", return_value=None) as mock_save_doc:
-            pe.set_run_script_document(doc)
-            pe._dispatch_incoming({"type": "save_script", "name": "DocScript", "code": "y=2", "origin": SCRIPT_ORIGIN_DOCUMENT})
-            mock_save_doc.assert_called_once_with(doc, "DocScript", "y=2")
+    with patch("plugin.scripting.document_scripts.save_document_script", return_value=None) as mock_save_doc:
+        pe.set_run_script_document(doc)
+        pe._dispatch_incoming({"type": "save_script", "name": "DocScript", "code": "y=2", "origin": SCRIPT_ORIGIN_DOCUMENT})
+        mock_save_doc.assert_called_once_with(doc, "DocScript", "y=2")
 
-    with patch("plugin.scripting.document_scripts.get_active_document_for_scripts", return_value=doc):
-        with patch("plugin.scripting.document_scripts.attach_document_script", return_value=None) as mock_attach:
-            pe._dispatch_incoming({"type": "attach_script", "name": "Attached", "code": "z=3", "overwrite": True})
-            mock_attach.assert_called_once_with(doc, "Attached", "z=3", overwrite=True)
+    pe.send.reset_mock()
+    with patch("plugin.scripting.document_scripts.attach_document_script") as mock_attach:
+        pe._dispatch_incoming({"type": "attach_script", "name": "Attached", "code": "z=3", "overwrite": True})
+        pe.send.assert_not_called()
+        mock_attach.assert_not_called()
 
 
 def test_show_python_input_dialog_save_as_button():
@@ -979,7 +978,7 @@ def test_save_script_on_builtin_template():
                         res = on_save(code="print(1)", _save_as_plain=False, action="save")
 
     assert res["type"] == "error"
-    assert res["message"] == "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+    assert res["message"] == "Built-in helpers are read-only. Use Save As to copy one into My Scripts."
 
 
 def test_run_python_monaco_on_save_reports_save_user_script_failure():

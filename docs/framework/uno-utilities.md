@@ -451,7 +451,6 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 | Helper | Filter |
 |--------|--------|
 | `get_active_document` | Whatever Desktop current is (Start Center possible). |
-| `get_active_document_for_scripts` | Desktop current **and** `is_writer`/`is_calc`/`is_draw`. |
 | MCP `_real_active_document` | OfficeDocument filter (Start Center skipped). |
 | `get_document_from_frame` | Frame controller model. |
 
@@ -510,7 +509,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 4. **Desktop enumeration.** Have `resolve_document_by_url` and `get_open_documents` share `_office_model_from_desktop_element` (or move that helper next to `get_desktop`). Keep match policy (URL+uid vs listing metadata) at the callers.
 5. **Shared PathSettings locator** (`_path_settings_from_ctx`) used by research, config, gallery. Keep property names at call sites.
 6. **`DocumentService.detect_doc_type`** → `doc_type_label_for_enum(..., impress_as_draw=True)` **only if** tests accept unknown → `"unknown"` or an explicit `default="writer"` is added.
-7. **`get_active_document_for_scripts`** → `get_active_document` + type filter (drop the second Desktop create).
+7. **`get_active_document_for_scripts`** → **Landed.** The helper was removed. The script picker lists and writes only the document captured at launch.
 8. **`_current_document_controller`** → frame controller, not another Desktop create. **Landed** as `FrameSession`: the click handler uses `frame.getController()` and does not call `getCurrentComponent()`.
 
 ### P3 — optional / low value

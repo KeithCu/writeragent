@@ -44,6 +44,9 @@ def test_run_script_ui_matches_native_dialog_labels():
     assert ui["save_as_label"] == _("Save As...")
     assert ui["save_as_title"] == _("Save Script As")
     assert ui["delete_label"] == _("Delete")
+    assert ui["builtin_readonly"] == _("Built-in helpers are read-only. Use Save As to copy one into My Scripts.")
+    assert "copying_script" not in ui
+    assert "copy_prompt" not in ui
 
 def test_enrich_monaco_load_message_adds_ui_and_merges_overrides():
     msg = enrich_monaco_load_message(

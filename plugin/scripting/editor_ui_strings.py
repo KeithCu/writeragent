@@ -93,34 +93,25 @@ def _run_script_ui_strings() -> dict[str, str]:
             "create_label": _("Create"),
             "script_name_required": _("Script name cannot be empty."),
             "script_label": _("Script:"),
-            "attach_label": _("Attach"),
-            "attach_title": _("Attach to Document"),
             "save_as_label": _("Save As..."),
             "save_as_title": _("Save Script As"),
             "delete_label": _("Delete"),
             "scripts_fallback": _("Scripts"),
             "my_scripts_fallback": _("My Scripts"),
             "builtin_readonly": _(
-                "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+                "Built-in helpers are read-only. Use Save As to copy one into My Scripts."
             ),
             "document_stale": _(
                 "Document changed — close and reopen Run Python Script to edit document scripts."
             ),
             "loaded_script": _("Loaded script '{0}'."),
-            "cannot_attach": _("No document is open to attach scripts."),
-            "attaching_script": _("Attaching script '{0}'..."),
-            "copying_script": _("Copying script '{0}' to My Scripts..."),
             "saving_script": _("Saving script '{0}'..."),
             "deleting_script": _("Deleting script '{0}'..."),
             "builtin_cannot_delete": _("Built-in helpers cannot be deleted."),
-            "attach_prompt": _("Enter script name:"),
             "attach_overwrite_confirm": _(
                 "A script named '{0}' already exists in this document. Overwrite?"
             ),
-            "copy_prompt": _("Copy to My Scripts as:"),
             "copy_overwrite_confirm": _("A script named '{0}' already exists in My Scripts. Overwrite?"),
-            "save_as_prompt": _("Enter script name:"),
-            "save_to_document_confirm": _("Save script '{0}' to this document?"),
             "delete_confirm": _("Are you sure you want to delete script '{0}'?"),
             "data_binding_title": _("Select data range or enter A1 address (injected as data)."),
         }

@@ -531,6 +531,60 @@ def test_save_current_script_user_success_is_ok():
     mock_save_user.assert_called_once_with("Mine", "new code")
 
 
+def test_save_current_script_reports_user_script_error():
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._select_ctrl = MagicMock()
+    inst._doc = MagicMock()
+    inst._current_scripts = {}
+    inst._script_origin_map = {}
+
+    err_msg = DocumentScriptError(
+        "'[Doc] foo' starts with a reserved prefix.",
+        DocumentScriptErrorCode.RESERVED_NAME,
+    )
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="[Doc] foo"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("[Doc] foo", ui.SCRIPT_ORIGIN_USER)),
+        patch.object(ui, "save_user_script", return_value=err_msg) as mock_save_user,
+    ):
+        res = inst._save_current_script("new code")
+
+    assert res.channel == "modal"
+    assert res.text == str(err_msg)
+    mock_save_user.assert_called_once_with("[Doc] foo", "new code")
+
+
+def test_store_script_reports_user_script_error():
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._ctx = MagicMock()
+    inst._doc = None
+    lbl_ctrl = MagicMock()
+    dlg = MagicMock()
+    dlg.getControl.return_value = lbl_ctrl
+    inst._dlg = dlg
+
+    err_msg = DocumentScriptError(
+        "'[Doc] foo' starts with a reserved prefix.",
+        DocumentScriptErrorCode.RESERVED_NAME,
+    )
+    with (
+        patch.object(ui, "get_user_scripts", return_value={}),
+        patch.object(ui, "save_user_script", return_value=err_msg),
+        patch.object(ui, "set_control_text") as mock_set_text,
+    ):
+        ret = inst._store_script(
+            "[Doc] foo",
+            "x",
+            attach_to_document=False,
+            dialog_title="t",
+            doc_success_msg="%s",
+            user_success_msg="%s",
+        )
+
+    assert ret is False
+    mock_set_text.assert_called_once_with(lbl_ctrl, err_msg)
+
+
 def _setup_dialog_and_listeners(doc=None, code="result = 1"):
     inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
     inst._ctx = MagicMock()

@@ -183,7 +183,7 @@
   function builtInHelperReadOnlyMessage() {
     return t(
       "builtin_readonly",
-      "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+      "Built-in helpers are read-only. Use Save As to copy one into My Scripts."
     );
   }
 
