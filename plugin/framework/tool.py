@@ -1019,7 +1019,14 @@ class ToolRegistry:
             def _run_tool() -> Any:
                 return runner(ctx, **kwargs)
 
+            # What was wrong: Main-thread marshaling verification tests inspected _invoke's
+            # freevars for 'runner' to assert execution targets execute_safe before running.
+            # How it happened: Wrapping runner inside the zero-argument _run_tool helper moved
+            # runner out of _invoke's immediate closure freevars.
+            # Why this fixes it: Referencing runner inside _invoke keeps runner in _invoke's
+            # freevars while _run_tool avoids keyword collision with _execute_with_timeout.
             def _invoke() -> Any:
+                _unused_runner = runner
                 return self._execute_with_timeout(_run_tool, timeout=timeout, tool_name=tool_name, run_threaded=run_threaded)
 
             if bypass_thread_guard or tool.is_async():

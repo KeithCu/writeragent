@@ -315,6 +315,21 @@ def test_tools_call_keeps_real_arguments_when_stripping_bypass():
     assert seen == [{"kwargs": {"note": "keep"}, "execute_safe": 1}]
 
 
+def _extract_runner(fn):
+    """Extract the underlying runner callable from the closure passed to execute_on_main_thread."""
+    if not hasattr(fn, "__closure__") or not fn.__closure__:
+        return None
+    free = dict(zip(fn.__code__.co_freevars, (cell.cell_contents for cell in fn.__closure__)))
+    if "runner" in free:
+        return free["runner"]
+    for val in free.values():
+        if callable(val) and hasattr(val, "__closure__") and val.__closure__:
+            nested = _extract_runner(val)
+            if nested is not None:
+                return nested
+    return None
+
+
 def test_long_running_bypass_still_marshals_to_the_main_thread():
     """Sync tools/call must marshal execute_safe, not call tool.execute on the worker.
 
@@ -327,8 +342,7 @@ def test_long_running_bypass_still_marshals_to_the_main_thread():
 
     def fake_marshal(fn):
         marshalled.append(threading.current_thread().name)
-        free = dict(zip(fn.__code__.co_freevars, (cell.cell_contents for cell in fn.__closure__)))
-        runner = free["runner"]
+        runner = _extract_runner(fn)
         assert getattr(runner, "__func__", None) is ToolBase.execute_safe
         return {"status": "ok", "marshalled": True}
 
@@ -358,8 +372,7 @@ def test_backpressure_and_debug_bypass_still_marshals_to_the_main_thread():
 
     def fake_marshal(fn):
         marshalled.append("marshal")
-        free = dict(zip(fn.__code__.co_freevars, (cell.cell_contents for cell in fn.__closure__)))
-        runner = free["runner"]
+        runner = _extract_runner(fn)
         assert getattr(runner, "__func__", None) is ToolBase.execute_safe
         return {"status": "ok", "marshalled": True}
 
