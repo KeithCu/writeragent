@@ -9,6 +9,7 @@ Library bodies are fetched over the existing ``tool_call`` pipe (not
 current ``LocalPythonExecutor`` so later calls do not re-fetch the source.
 Across runs the cache lives on that executor — document-keyed shared kernel
 when session mode is shared.
+``extract_library_source`` is the load-time contract for what a library may contain.
 """
 
 from __future__ import annotations
@@ -35,8 +36,8 @@ _NAMED_SCRIPT_MAX_BYTES = 200_000
 _IDENT_NON_ALNUM = re.compile(r"[^0-9A-Za-z_]+")
 _IDENT_MULTI_US = re.compile(r"_+")
 
-# Bind-thread executor for this execute. Off-thread timeout evaluation has no
-# ContextVar; that path uses the ScriptLibrary stored on the executor.
+# Bind-thread executor for this execute. The timeout pool copies context, and
+# self._executor is only for a lookup whose ContextVar was never set.
 _current_executor: ContextVar[Any] = ContextVar("named_scripts_executor", default=None)
 
 GET_NAMED_PYTHON_SCRIPT = "get_named_python_script"
@@ -84,42 +85,53 @@ def _import_time_has(node: ast.AST, kinds: tuple[type[ast.AST], ...]) -> bool:
     return False
 
 
-def _expr_has_call(node: ast.AST) -> bool:
-    """True when *node* contains a call that would run while the library loads."""
-    return _import_time_has(node, (ast.Call, ast.Await))
+def _expr_has_load_time_effect(node: ast.AST) -> bool:
+    """True when *node* contains calls, awaits, or walrus expressions outside nested scopes."""
+    return _import_time_has(node, (ast.Call, ast.Await, ast.NamedExpr))
 
 
-def _expr_has_namedexpr(node: ast.AST) -> bool:
-    """True when *node* binds a name with ``:=`` at library-load time."""
-    return _import_time_has(node, (ast.NamedExpr,))
+def _is_name_only_target(node: ast.AST) -> bool:
+    if isinstance(node, ast.Name):
+        return True
+    if isinstance(node, (ast.Tuple, ast.List)):
+        if not node.elts:
+            return False
+        starred_count = sum(1 for elt in node.elts if isinstance(elt, ast.Starred))
+        if starred_count > 1:
+            return False
+        return all(_is_name_only_target(elt) for elt in node.elts)
+    if isinstance(node, ast.Starred):
+        return _is_name_only_target(node.value)
+    return False
 
 
-def _function_import_time_call_lines(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[int]:
-    """Lines evaluated when a function definition is reached.
+def _record_line(lines: list[int], node: ast.AST) -> None:
+    lineno = getattr(node, "lineno", 0)
+    if lineno not in lines:
+        lines.append(lineno)
 
-    Function bodies wait until the function is called, but decorators, default
-    argument values, and annotations run when the definition is reached.
-    Reject calls in decorator_list, args.defaults, args.kw_defaults, and
-    argument/return annotations.
-    """
+
+def _record_load_time_expr(lines: list[int], expr: ast.AST | None) -> None:
+    if expr is None or not _expr_has_load_time_effect(expr):
+        return
+    _record_line(lines, expr)
+
+
+def _raise_not_library(lines: list[int]) -> None:
+    lines_str = ", ".join(str(n) for n in sorted(set(lines)))
+    raise ValueError(f"Named script has statements that are not library definitions (lines {lines_str})")
+
+
+def _function_import_time_call_lines(node: ast.FunctionDef) -> list[int]:
+    """Decorators are always rejected; defaults and annotations are rejected when they have a load-time effect."""
     lines: list[int] = []
-
-    def _note(expr: ast.AST | None) -> None:
-        if expr is None or not _expr_has_call(expr):
-            return
-        lineno = getattr(expr, "lineno", getattr(node, "lineno", 0))
-        if lineno not in lines:
-            lines.append(lineno)
-
     for dec in node.decorator_list:
-        _note(dec)
+        _record_line(lines, dec)
     for default in node.args.defaults:
-        _note(default)
+        _record_load_time_expr(lines, default)
     for kw_default in node.args.kw_defaults:
-        if kw_default is not None:
-            _note(kw_default)
-    if node.returns is not None:
-        _note(node.returns)
+        _record_load_time_expr(lines, kw_default)
+    _record_load_time_expr(lines, node.returns)
     all_args = (
         node.args.posonlyargs
         + node.args.args
@@ -128,65 +140,66 @@ def _function_import_time_call_lines(node: ast.FunctionDef | ast.AsyncFunctionDe
         + ([node.args.kwarg] if node.args.kwarg else [])
     )
     for arg in all_args:
-        if arg.annotation is not None:
-            _note(arg.annotation)
+        _record_load_time_expr(lines, arg.annotation)
     return lines
 
 
 def _class_import_time_call_lines(node: ast.ClassDef) -> list[int]:
-    """Lines ``evaluate_class_def`` would execute while the library loads.
+    """Lines evaluate_class_def in plugin/contrib/smolagents/local_python_executor.py would execute or reject.
 
-    Class decorators and non-assign class-body statements run at load time.
-    Scanning only bases, keywords, and assignments missed those calls.
-    Scan decorator_list, bases, keywords, method definitions, and assignments,
-    and reject other class-body statements that contain calls.
+    Allowed statements in class bodies are FunctionDef without decorators or load-time effects,
+    AnnAssign with Name/Attribute/Subscript target, Assign with Name/Attribute targets, Pass,
+    and a docstring as the first statement.
     """
     lines: list[int] = []
-
-    def _note(expr: ast.AST | None) -> None:
-        if expr is None or not _expr_has_call(expr):
-            return
-        lineno = getattr(expr, "lineno", getattr(node, "lineno", 0))
-        if lineno not in lines:
-            lines.append(lineno)
-
     for dec in node.decorator_list:
-        _note(dec)
+        _record_line(lines, dec)
     for base in node.bases:
-        _note(base)
+        _record_load_time_expr(lines, base)
     for kw in node.keywords:
-        _note(kw.value)
+        _record_load_time_expr(lines, kw.value)
     for stmt in node.body:
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(stmt, ast.FunctionDef):
             for ln in _function_import_time_call_lines(stmt):
                 if ln not in lines:
                     lines.append(ln)
-        elif isinstance(stmt, ast.ClassDef):
-            for ln in _class_import_time_call_lines(stmt):
-                if ln not in lines:
-                    lines.append(ln)
-        elif isinstance(stmt, ast.Assign):
-            _note(stmt.value)
         elif isinstance(stmt, ast.AnnAssign):
-            _note(stmt.value)
-            _note(stmt.annotation)
+            if isinstance(stmt.target, (ast.Name, ast.Attribute, ast.Subscript)):
+                _record_load_time_expr(lines, stmt.value)
+                _record_load_time_expr(lines, stmt.annotation)
+            else:
+                _record_line(lines, stmt)
+        elif isinstance(stmt, ast.Assign):
+            if all(isinstance(t, (ast.Name, ast.Attribute)) for t in stmt.targets):
+                _record_load_time_expr(lines, stmt.value)
+            else:
+                _record_line(lines, stmt)
         elif isinstance(stmt, ast.Pass):
             continue
-        elif isinstance(stmt, ast.Expr):
-            if isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str):
-                continue
-            lineno = getattr(stmt, "lineno", getattr(node, "lineno", 0))
-            if lineno not in lines:
-                lines.append(lineno)
+        elif (
+            isinstance(stmt, ast.Expr)
+            and stmt is node.body[0]
+            and isinstance(stmt.value, ast.Constant)
+            and isinstance(stmt.value.value, str)
+        ):
+            # A docstring: evaluate_class_def in plugin/contrib/smolagents/local_python_executor.py
+            continue
         else:
-            lineno = getattr(stmt, "lineno", getattr(node, "lineno", 0))
-            if lineno not in lines:
-                lines.append(lineno)
+            _record_line(lines, stmt)
     return lines
 
 
 def extract_library_source(code: str) -> str:
-    """Keep defs, classes, imports, and name assignments. Drop module-level calls."""
+    """Keep module-level function defs, classes, imports, name assignments, and name-only unpacks.
+
+    Reject every decorator, every load-time async def, a nested class, a
+    class-body unpack or subscript assignment, a class-body string that is not
+    the first statement, and any call or := that runs while the library loads
+    (defaults, annotations, bases, class-body values). Calls and := inside defs
+    and lambdas stay. Omit other module-level expressions when a definition
+    remains; raise when those expressions are the whole library. pass and an
+    empty body return an empty string.
+    """
     try:
         tree = ast.parse(code or "")
     except SyntaxError as exc:
@@ -194,50 +207,72 @@ def extract_library_source(code: str) -> str:
 
     keep: list[ast.stmt] = []
     dropped: list[int] = []
+    omitted: list[int] = []
+
+    # What was wrong: Module-level unpacks and class-body statements were either
+    # rejected or improperly filtered, while decorators, async functions, and
+    # load-time side effects (like walrus expressions or annotation calls) could
+    # slip through or cause inconsistent errors.
+    # How it happened: The AST filter only recognized simple Name assignments,
+    # didn't scan annotations or unpack patterns, and permitted class-body
+    # statements/decorators that LocalPythonExecutor either rejects or runs at
+    # import time.
+    # Why this change: extract_library_source validates all statements against the
+    # executor's import-time model: unpacks must be name-only, decorators and async
+    # defs are rejected, load-time calls/walruses in defaults or annotations are
+    # flagged, and top-level expressions are omitted when other definitions remain.
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             call_lines = _class_import_time_call_lines(node)
             if call_lines:
-                dropped.extend(call_lines)
+                for ln in call_lines:
+                    if ln not in dropped:
+                        dropped.append(ln)
             else:
                 keep.append(node)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        elif isinstance(node, ast.AsyncFunctionDef):
+            _record_line(dropped, node)
+        elif isinstance(node, ast.FunctionDef):
             call_lines = _function_import_time_call_lines(node)
             if call_lines:
-                dropped.extend(call_lines)
+                for ln in call_lines:
+                    if ln not in dropped:
+                        dropped.append(ln)
             else:
                 keep.append(node)
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             keep.append(node)
-        elif isinstance(node, ast.Assign) and all(isinstance(t, ast.Name) for t in node.targets):
-            # Name assignments stay, including ``SCALE = FACTOR * 2``. Only
-            # constant assigns used to be kept, so the name vanished with no error.
-            # A call in the value still runs at import (``x = wa.writer...()``),
-            # which mutated the document when Run Python Script left tool RPC open.
-            if node.value is not None and _expr_has_call(node.value):
-                dropped.append(getattr(node, "lineno", 0))
+        elif isinstance(node, ast.Assign):
+            if node.value is not None and all(_is_name_only_target(t) for t in node.targets):
+                if _expr_has_load_time_effect(node.value):
+                    _record_line(dropped, node)
+                else:
+                    keep.append(node)
             else:
-                keep.append(node)
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.value is not None:
-            if _expr_has_call(node.value):
-                dropped.append(getattr(node, "lineno", 0))
+                _record_line(dropped, node)
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.value is not None:
+                if _expr_has_load_time_effect(node.value) or _expr_has_load_time_effect(node.annotation):
+                    _record_line(dropped, node)
+                else:
+                    keep.append(node)
             else:
-                keep.append(node)
+                _record_line(dropped, node)
         elif isinstance(node, ast.Expr):
-            # Module-level calls are not library definitions. They are omitted.
-            # A walrus here binds a name. Dropping the Expr used to discard
-            # that binding with no error, so the library loaded without it.
-            if _expr_has_namedexpr(node):
-                dropped.append(getattr(node, "lineno", 0))
-            continue
+            if _import_time_has(node, (ast.NamedExpr,)):
+                _record_line(dropped, node)
+            else:
+                _record_line(omitted, node)
         elif isinstance(node, ast.Pass):
             continue
         else:
-            dropped.append(getattr(node, "lineno", 0))
+            _record_line(dropped, node)
+
     if dropped:
-        lines = ", ".join(str(n) for n in sorted(set(dropped)))
-        raise ValueError(f"Named script has statements that are not library definitions (lines {lines})")
+        _raise_not_library(dropped)
     if not keep:
+        if omitted:
+            _raise_not_library(omitted)
         return ""
     return ast.unparse(ast.Module(body=keep, type_ignores=[]))
 
@@ -311,7 +346,12 @@ def _eval_library(executor: Any, source: str, ident: str) -> SimpleNamespace:
 
 
 def load_named_script(origin: str, name: str, executor: Any | None = None) -> Any:
-    """Return the library namespace for *name*, using the current executor cache."""
+    """Return the library namespace for *name*, using the current executor cache.
+
+    The returned object is the cached namespace for this executor, and an
+    attribute write on it is visible to later lookups of the same script until
+    the body hash changes. That is the shared kernel.
+    """
     executor = executor if executor is not None else _current_executor.get()
     if executor is None:
         raise RuntimeError("Named scripts are only available while a Python script is running.")
@@ -366,10 +406,9 @@ class ScriptLibrary:
         ``bind_named_scripts_executor`` overwrote it. ``__getattr__`` used
         that field and ignored the ContextVar, so the next run stole lookups
         that still held the old library object. ``writeragent`` is one
-        process-global module. Each executor keeps its own ScriptLibrary. On
-        the bind thread the ContextVar wins. Off that thread (timeout
-        fallback) the library's own executor is used, because the ContextVar
-        does not follow the thread.
+        process-global module. Each executor keeps its own ScriptLibrary. The
+        timeout pool copies context, and ``self._executor`` is only for a lookup
+        whose ContextVar was never set.
         """
         current = _current_executor.get()
         if current is not None:

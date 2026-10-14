@@ -476,39 +476,75 @@ def _execute_named_script_tool_off_main(tool_name: str, payload: dict[str, Any])
     raise RuntimeError(f"Unknown named-script tool {tool_name!r}")
 
 
+def _document_script_store(script_session_id: str | None) -> dict[str, str]:
+    from plugin.framework.uno_context import get_active_document, get_ctx
+    from plugin.scripting.document_scripts import get_document_scripts
+    from plugin.scripting.session_manager import document_for_script_session
+
+    uno_ctx = get_ctx()
+    # Passed from the worker turn. A process-global was overwritten by the
+    # embeddings pool, so wa.doc followed the focused window.
+    doc = document_for_script_session(uno_ctx, script_session_id)
+    if doc is None and uno_ctx is not None:
+        doc = get_active_document(uno_ctx)
+    if doc is None:
+        return {}
+    return get_document_scripts(doc)
+
+
 def _execute_named_script_tool(
     tool_name: str,
     payload: dict[str, Any],
     *,
     script_session_id: str | None = None,
 ) -> Any:
-    from plugin.framework.uno_context import get_active_document, get_ctx
-    from plugin.scripting.document_scripts import get_document_scripts, get_user_scripts
     from plugin.scripting.named_scripts import (
         GET_NAMED_PYTHON_SCRIPT,
         LIST_NAMED_PYTHON_SCRIPTS,
+        ORIGIN_DOCUMENT,
         ORIGIN_USER,
         host_get_named_python_script,
         host_list_named_python_scripts,
     )
 
-    user_scripts = get_user_scripts()
-    uno_ctx = get_ctx()
-    from plugin.scripting.session_manager import document_for_script_session
+    if tool_name not in (LIST_NAMED_PYTHON_SCRIPTS, GET_NAMED_PYTHON_SCRIPT):
+        raise RuntimeError(f"Unknown named-script tool {tool_name!r}")
 
-    # Passed from the worker turn. A process-global was overwritten by the
-    # embeddings pool, so wa.doc followed the focused window.
-    doc = document_for_script_session(uno_ctx, script_session_id)
-    if doc is None and uno_ctx is not None:
-        doc = get_active_document(uno_ctx)
-    document_scripts = get_document_scripts(doc) if doc is not None else {}
     if tool_name == LIST_NAMED_PYTHON_SCRIPTS:
+        from plugin.scripting.document_scripts import get_user_scripts
+
+        user_scripts = get_user_scripts()
+        document_scripts = _document_script_store(script_session_id)
         return host_list_named_python_scripts(user_scripts=user_scripts, document_scripts=document_scripts)
-    if tool_name == GET_NAMED_PYTHON_SCRIPT:
-        name = str(payload.get("name") or "")
-        origin = str(payload.get("origin") or ORIGIN_USER)
-        known = payload.get("known_hash")
-        known_hash = known if isinstance(known, str) else None
+
+    name = str(payload.get("name") or "")
+    origin = str(payload.get("origin") or ORIGIN_USER)
+    known = payload.get("known_hash")
+    known_hash = known if isinstance(known, str) else None
+
+    if origin == ORIGIN_USER:
+        # What was wrong: Fetching a user script resolved the document model and
+        # read document properties, failing or blocking when no document was open
+        # or when document access wasn't needed.
+        # How it happened: _execute_named_script_tool always resolved uno_ctx,
+        # session doc, and document_scripts regardless of the requested origin.
+        # Why this change: User scripts are stored in user configuration; resolving
+        # document_scripts is skipped when origin is user.
+        from plugin.scripting.document_scripts import get_user_scripts
+
+        user_scripts = get_user_scripts()
+        return host_get_named_python_script(
+            name=name,
+            origin=origin,
+            known_hash=known_hash,
+            user_scripts=user_scripts,
+            document_scripts={},
+        )
+    if origin == ORIGIN_DOCUMENT:
+        from plugin.scripting.document_scripts import get_user_scripts
+
+        user_scripts = get_user_scripts()
+        document_scripts = _document_script_store(script_session_id)
         return host_get_named_python_script(
             name=name,
             origin=origin,
@@ -516,7 +552,14 @@ def _execute_named_script_tool(
             user_scripts=user_scripts,
             document_scripts=document_scripts,
         )
-    raise RuntimeError(f"Unknown named-script tool {tool_name!r}")
+
+    return host_get_named_python_script(
+        name=name,
+        origin=origin,
+        known_hash=known_hash,
+        user_scripts={},
+        document_scripts={},
+    )
 
 
 def handle_tool_call_frame(

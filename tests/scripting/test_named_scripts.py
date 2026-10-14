@@ -306,7 +306,7 @@ def test_doc_hello_function_call():
 
 
 def test_script_library_uses_bound_executor_not_contextvar():
-    """Timeout fallback may eval off the bind thread; ContextVar would be empty."""
+    """The timeout pool copies context; self._executor is fallback when ContextVar was never set."""
     from plugin.scripting.named_scripts import ORIGIN_DOCUMENT, ScriptLibrary, _current_executor
     from plugin.scripting.venv.venv_sandbox import _new_executor
 
@@ -602,14 +602,20 @@ def test_rpc_named_fails_closed_in_compute_worker():
     mock_exchange.assert_not_called()
 
 
-def test_extract_library_source_rejects_decorator_calls():
-    # What was wrong: Decorator expressions like @wa.x() execute at module load time,
-    # bypassing extract_library_source top-level statement stripping.
-    # Why this change: Function/Class decorators are scanned and rejected if they contain Call nodes.
+def test_extract_library_source_rejects_decorators():
+    # Any decorator is rejected, not only a decorator that contains a call.
     with pytest.raises(ValueError, match="not library definitions"):
         extract_library_source("@wa.x()\ndef f():\n    pass\n")
     with pytest.raises(ValueError, match="not library definitions"):
         extract_library_source("@dec()\nclass C:\n    pass\n")
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("@staticmethod\ndef f():\n    pass\n")
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("@dec\ndef f():\n    pass\n")
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("@dec\nclass C:\n    pass\n")
+    with pytest.raises(ValueError, match=r"not library definitions \(lines 2\)"):
+        extract_library_source("class C:\n    @staticmethod\n    def f():\n        pass\n")
 
 
 def test_extract_library_source_rejects_default_arg_calls():
@@ -633,7 +639,7 @@ def test_extract_library_source_rejects_annotation_calls():
 
 def test_extract_library_source_rejects_class_body_non_def_assign():
     # What was wrong: Arbitrary statements in class bodies (like `for`, `try`, expressions) run at class creation.
-    # Why this change: Only def/async def, class, assignments, pass, or docstrings are permitted in class bodies.
+    # Why this change: Only def methods, assignments, pass, or an initial docstring are permitted in class bodies.
     with pytest.raises(ValueError, match="not library definitions"):
         extract_library_source("class C:\n    print('side effect')\n")
     with pytest.raises(ValueError, match="not library definitions"):
@@ -698,4 +704,214 @@ def test_bind_does_not_leak_context_when_attach_fails(monkeypatch: pytest.Monkey
     with pytest.raises(RuntimeError, match="attach failed"):
         bind_named_scripts_executor(SimpleNamespace())
     assert _current_executor.get() is orig
+
+
+def test_extract_library_source_rejects_async_def():
+    with pytest.raises(ValueError, match=r"lines 1"):
+        extract_library_source("async def f():\n    return 1\n")
+    with pytest.raises(ValueError, match=r"lines 2"):
+        extract_library_source("class C:\n    async def f(self):\n        return 1\n")
+
+
+def test_extract_library_source_class_docstring_is_first_statement_only():
+    src1 = extract_library_source('class C:\n    "doc"\n    x = 1\n')
+    assert "doc" in src1
+    assert "x = 1" in src1
+    with pytest.raises(ValueError, match=r"lines 3"):
+        extract_library_source('class C:\n    x = 1\n    "later"\n')
+    with pytest.raises(ValueError, match=r"lines 3"):
+        extract_library_source('class C:\n    "doc"\n    "later"\n')
+    src2 = extract_library_source("class C:\n    x: int\n")
+    assert "x: int" in src2
+
+
+def test_extract_library_source_rejects_bare_module_annotation():
+    with pytest.raises(ValueError, match=r"lines 1"):
+        extract_library_source("x: int\n")
+    src = extract_library_source("x: int = 1\n")
+    assert "x" in src
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("x: wa.read() = 1\n")
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("obj.x: int = 1\n")
+    with pytest.raises(ValueError, match=r"lines 2"):
+        extract_library_source("class C:\n    x: wa.read()\n")
+
+
+def test_extract_library_source_keeps_name_unpack():
+    assert "a, b" in extract_library_source("a, b = 1, 2\n")
+    assert "a, *rest" in extract_library_source("a, *rest = xs\n")
+    assert "a, (b, c)" in extract_library_source("a, (b, c) = xs\n")
+    assert "[a, b]" in extract_library_source("[a, b] = xs\n")
+
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("a, *b.c = xs\n")
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("obj.x = 1\n")
+    with pytest.raises(ValueError, match="not library definitions"):
+        extract_library_source("a = (b := 1)\n")
+    with pytest.raises(ValueError, match=r"lines 2"):
+        extract_library_source("class C:\n    a, b = 1, 2\n")
+    with pytest.raises(ValueError, match=r"lines 2"):
+        extract_library_source("class C:\n    data[0] = 1\n")
+
+
+def test_extract_library_source_rejects_nested_class():
+    with pytest.raises(ValueError, match=r"lines 2"):
+        extract_library_source("class C:\n    class Inner:\n        pass\n")
+
+
+def test_extract_library_source_empty_expression_library_is_an_error():
+    with pytest.raises(ValueError, match=r"lines 1"):
+        extract_library_source("print('x')\n")
+    with pytest.raises(ValueError, match=r"lines 1"):
+        extract_library_source("wa.writer.apply_document_content(content=['x'], target='end')\n")
+    assert extract_library_source("pass\n") == ""
+    assert extract_library_source("") == ""
+    assert extract_library_source("# c\n") == ""
+
+
+def test_eval_library_binds_unpack_and_class_docstring():
+    from plugin.contrib.smolagents.local_python_executor import InterpreterError
+    from plugin.scripting.named_scripts import _eval_library
+    from plugin.scripting.venv.venv_sandbox import _new_executor
+
+    exe = _new_executor(10)
+    ns1 = _eval_library(exe, "a, b = 1, 2\ndef add(x):\n    return x + a + b\n", "Test1")
+    assert ns1.a == 1
+    assert ns1.b == 2
+    assert ns1.add(3) == 6
+
+    ns2 = _eval_library(exe, "a, *rest = (1, 2, 3)\n", "Test2")
+    assert ns2.a == 1
+    assert ns2.rest == [2, 3]
+
+    ns3 = _eval_library(
+        exe,
+        'class Box:\n    "doc"\n    n = 1\n    def area(self):\n        return self.n\n',
+        "Test3",
+    )
+    assert ns3.Box.__doc__ == "doc"
+    assert ns3.Box().area() == 1
+
+    try:
+        _eval_library(exe, "@staticmethod\ndef f():\n    pass\n", "Test4")
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+    except InterpreterError:
+        raise AssertionError("expected ValueError, not InterpreterError")
+
+
+def test_shared_session_namespace_mutation_persists():
+    from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code
+
+    bodies = {"Helpers": "def n():\n    return 1\n"}
+    sid = "test-named-scripts-mutation"
+    try:
+        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=_helpers_rpc(bodies)):
+            r1 = run_sandboxed_code(
+                "import writeragent as wa\nwa.scripts.Helpers.n = lambda: 9\nresult = wa.scripts.Helpers.n()\n",
+                session_id=sid,
+            )
+            assert r1.get("status") == "ok", r1
+            assert r1.get("result") == 9
+            r2 = run_sandboxed_code(
+                "import writeragent as wa\nresult = wa.scripts.Helpers.n()\n",
+                session_id=sid,
+            )
+        assert r2.get("status") == "ok", r2
+        assert r2.get("result") == 9
+    finally:
+        reset_sandbox_session(sid)
+
+
+def test_named_script_tool_reads_document_scripts_only_when_needed():
+    from plugin.scripting.host_rpc import _execute_named_script_tool, execute_tool
+
+    allowed = frozenset({"apply_document_content"})
+    code = "def n():\n    return 1\n"
+
+    def _fail_ctx():
+        raise AssertionError("get_ctx should not be called")
+
+    def _fail_user():
+        raise AssertionError("get_user_scripts should not be called")
+
+    # User origin and missing origin key
+    with (
+        patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
+        patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+    ):
+        out1 = execute_tool(
+            GET_NAMED_PYTHON_SCRIPT,
+            {"name": "Helpers", "origin": "user"},
+            allowed_tools=allowed,
+        )
+        assert out1["code"] == code
+
+        out2 = execute_tool(
+            GET_NAMED_PYTHON_SCRIPT,
+            {"name": "Helpers"},
+            allowed_tools=allowed,
+        )
+        assert out2["code"] == code
+
+    # Origin "nope"
+    with (
+        patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_fail_user),
+        patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+    ):
+        with pytest.raises(RuntimeError, match="Unknown named-script origin 'nope'"):
+            execute_tool(
+                GET_NAMED_PYTHON_SCRIPT,
+                {"name": "Helpers", "origin": "nope"},
+                allowed_tools=allowed,
+            )
+
+    # Origin "document"
+    mock_ctx = MagicMock()
+    sentinel_doc = object()
+    with (
+        patch("plugin.scripting.document_scripts.get_user_scripts", return_value={}),
+        patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx),
+        patch("plugin.scripting.session_manager.document_for_script_session", return_value=sentinel_doc),
+        patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Cover": code}) as mock_get_doc,
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+    ):
+        out_doc = execute_tool(
+            GET_NAMED_PYTHON_SCRIPT,
+            {"name": "Cover", "origin": "document"},
+            allowed_tools=allowed,
+        )
+        assert out_doc["code"] == code
+        mock_get_doc.assert_called_once_with(sentinel_doc)
+
+    # LIST_NAMED_PYTHON_SCRIPTS
+    with (
+        patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
+        patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx),
+        patch("plugin.scripting.session_manager.document_for_script_session", return_value=sentinel_doc),
+        patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Cover": code}) as mock_get_doc,
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+    ):
+        out_list = execute_tool(
+            LIST_NAMED_PYTHON_SCRIPTS,
+            {},
+            allowed_tools=allowed,
+        )
+        assert "Helpers" in out_list["user"]
+        assert "Cover" in out_list["document"]
+        mock_get_doc.assert_called_once_with(sentinel_doc)
+
+    # Direct _execute_named_script_tool("not-a-tool", {})
+    with (
+        patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_fail_user),
+        patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
+    ):
+        with pytest.raises(RuntimeError, match="Unknown named-script tool"):
+            _execute_named_script_tool("not-a-tool", {})
+
 
