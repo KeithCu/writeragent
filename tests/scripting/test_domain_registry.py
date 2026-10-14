@@ -346,3 +346,22 @@ def test_script_header_needs_data_binding_ignores_comments_and_non_calc():
         assert script_header_needs_data_binding(viz_code, doc=calc_doc) is True
 
 
+def test_units_format_ok_joins_formatted_list():
+    from plugin.scripting.domain_registry import build_rps_spec
+
+    wiring = next(w for w in WIRING_TABLE if w.id == "units")
+    spec = build_rps_spec(wiring)
+    assert spec.format_ok is not None
+    out = spec.format_ok(
+        meta=SimpleNamespace(helper="convert_quantity"),
+        result={
+            "helper": "convert_quantity",
+            "formatted": ["36 km/h", "72 km/h"],
+            "text": "2 quantities converted",
+        },
+        t0=0.0,
+    )
+    assert "36 km/h, 72 km/h" in out["status_ok_text"]
+    assert "['36 km/h'" not in out["status_ok_text"]
+
+

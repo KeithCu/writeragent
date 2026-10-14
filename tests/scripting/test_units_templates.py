@@ -6,7 +6,13 @@
 
 from __future__ import annotations
 
-from plugin.scripting.units import get_units_script_templates
+from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES
+from plugin.scripting.units import (
+    _DEFAULT_PARAMS,
+    _HELPER_DESCRIPTIONS,
+    _SHIPPED_TEMPLATES,
+    get_units_script_templates,
+)
 
 
 def test_get_units_script_templates_include_run_call():
@@ -21,3 +27,11 @@ def test_units_template_body_includes_helper_params():
     code = get_units_script_templates()["parse_quantity"]
     assert "parse_quantity(quantity=data)" in code
     assert "from writeragent.scripting.units import parse_quantity" in code
+
+
+def test_units_template_sets_match_helpers():
+    assert set(_DEFAULT_PARAMS) == set(_SHIPPED_TEMPLATES) <= set(UNITS_HELPER_NAMES)
+    assert set(_HELPER_DESCRIPTIONS) == set(UNITS_HELPER_NAMES)
+    assert set(get_units_script_templates()) == set(_SHIPPED_TEMPLATES)
+    assert "format_quantity" in UNITS_HELPER_NAMES
+    assert "format_quantity" not in _SHIPPED_TEMPLATES

@@ -17,7 +17,9 @@ from plugin.framework.i18n import _
 from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
 from plugin.scripting.client import run_units as client_run_units
 from plugin.scripting.helper_domain import (
+    DomainFacadeConfig,
     header_prefix,
+    make_template_api,
 )
 
 from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
@@ -54,12 +56,9 @@ install_lazy_dir(globals(), _UNITS_VENV_EXPORTS)
 
 OUTPUT_STYLES = frozenset({"formatted", "detailed"})
 _FORMATTED_DEFAULT_HELPERS = frozenset({"convert_quantity", "parse_quantity"})
-_EGRESS_PARAM_KEYS = frozenset({"output_style"})
 
 
 # --- Templates ---
-
-from plugin.scripting.helper_domain import DomainFacadeConfig, make_template_api
 
 
 _API = make_template_api(
@@ -172,6 +171,15 @@ def is_units_result(value: Any) -> bool:
     return ("formatted" in value and "magnitude" in value) or ("values" in value and "magnitudes" in value)
 
 
+def units_display_text(result: dict[str, Any]) -> str:
+    # str of the vector formatted list is a Python repr, and that repr was
+    # inserted into Writer and shown on the Run Python Script status line.
+    formatted = result.get("formatted")
+    if isinstance(formatted, (list, tuple)) and formatted:
+        return ", ".join(str(item).strip() for item in formatted)
+    return str(formatted or result.get("text") or "").strip()
+
+
 def format_units_for_calc(result: dict[str, Any], *, output_style: str | None = None) -> list[list[Any]]:
     """Turn a units helper result into a row-major grid for sheet egress."""
     if result.get("status") == "error":
@@ -184,7 +192,7 @@ def format_units_for_calc(result: dict[str, Any], *, output_style: str | None = 
         return ensure_rectangular_2d(result["values"])
 
     helper = str(result.get("helper") or "units")
-    formatted = str(result.get("formatted") or result.get("text") or "").strip()
+    formatted = units_display_text(result)
     style = resolve_output_style(helper, output_style)
 
     if style == "formatted":
@@ -220,7 +228,7 @@ def insert_units_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any]) 
         message = str(result.get("message") or _("Units helper failed."))
         raise ToolExecutionError(message, code=code, details={"units_result": result})
 
-    text = str(result.get("formatted") or result.get("text") or "").strip()
+    text = units_display_text(result)
     if not text:
         raise ToolExecutionError(
             _("Units helper returned no formatted text."),

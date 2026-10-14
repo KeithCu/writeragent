@@ -208,7 +208,9 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
             latex = str(result.get("latex") or result.get("text") or helper or "")
             return symbolic_insert_ok_outcome(helper=helper, latex=latex, t0=t0, stdout=stdout, result=result)
         if w.format_ok_kind == "units":
-            formatted = str(result.get("formatted") or result.get("text") or helper or "")
+            from plugin.scripting.units import units_display_text
+
+            formatted = units_display_text(result) or helper
             return units_insert_ok_outcome(helper=helper, formatted=formatted, t0=t0, stdout=stdout, result=result)
         if w.format_ok_kind == "vision":
             metrics_raw = result.get("metrics")

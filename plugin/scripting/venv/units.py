@@ -29,6 +29,10 @@ class _PintMissing(Exception):
     """Pint is not installed. Not a ValueError, so it is not a parse error."""
 
 
+class _FormatSpecError(Exception):
+    """Invalid format specifier passed to format_quantity."""
+
+
 def _ok_result(
     helper: str,
     *,
@@ -91,10 +95,20 @@ def _format_qty(qty: Any, spec: str = "") -> str:
     Parse and the payload helper already use Pint's compact form (``m``, ``km / h``).
     A format spec applies to the magnitude only.
     """
+    # Compact dimensionless units are "", so the old f"{mag} {unit}" wrote a
+    # trailing space into formatted and into Writer; a bad spec raised
+    # ValueError and _guarded called that a parse error.
     unit = f"{qty.units:~}"
     if spec:
-        return f"{qty.magnitude:{spec}} {unit}"
-    return f"{qty.magnitude:g} {unit}"
+        try:
+            mag_str = format(qty.magnitude, spec)
+        except ValueError as exc:
+            raise _FormatSpecError(str(exc)) from exc
+    else:
+        mag_str = f"{qty.magnitude:g}"
+    if unit:
+        return f"{mag_str} {unit}"
+    return mag_str
 
 
 def _quantity_payload(qty: Any, *, helper: str, display_unit: str | None = None) -> dict[str, Any]:
@@ -111,6 +125,14 @@ def _quantity_payload(qty: Any, *, helper: str, display_unit: str | None = None)
 def _is_blank_param(value: Any) -> bool:
     """True for omitted helper args. Ranges and arrays must not use ``!= ""`` (numpy truthiness)."""
     return value is None or (isinstance(value, str) and value == "")
+
+
+def _is_missing_unit(value: Any) -> bool:
+    # " " passed the None/"" guard, _required_unit_text raised, and
+    # map_over_range stored #VALUE!.
+    if _is_blank_param(value):
+        return True
+    return isinstance(value, str) and value.strip() == ""
 
 
 def _first_nonblank(*vals: Any) -> Any:
@@ -222,9 +244,6 @@ def convert_quantity(
     value: Any,
     from_unit: Any = "",
     to_unit: Any = "",
-    *,
-    from_unit_kw: Any = "",
-    to_unit_kw: Any = "",
     **kwargs: Any,
 ) -> Any:
     """Convert a numeric value or range between units.
@@ -236,9 +255,9 @@ def convert_quantity(
     if _require_pint() is None:
         return _missing_package(helper)
 
-    from_text = _first_nonblank(from_unit, from_unit_kw, kwargs.get("from"), kwargs.get("from_unit"))
-    to_text = _first_nonblank(to_unit, to_unit_kw, kwargs.get("to"), kwargs.get("to_unit"))
-    if _is_blank_param(from_text) or _is_blank_param(to_text):
+    from_text = _first_nonblank(from_unit, kwargs.get("from"))
+    to_text = _first_nonblank(to_unit, kwargs.get("to"))
+    if _is_missing_unit(from_text) or _is_missing_unit(to_text):
         return _error_result("MISSING_PARAM", "from and to units are required", helper=helper)
 
     return map_over_range(
@@ -293,7 +312,7 @@ def format_quantity(
     helper = "format_quantity"
     if _require_pint() is None:
         return _missing_package(helper)
-    if _is_blank_param(units):
+    if _is_missing_unit(units):
         return _error_result("MISSING_PARAM", "units is required", helper=helper)
     return map_over_range(
         _scalar_format,
@@ -346,6 +365,8 @@ def _guarded(helper: str, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         return fn()
     except _PintMissing:
         return _missing_package(helper)
+    except _FormatSpecError as exc:
+        return _error_result("INVALID_SPEC", str(exc), helper=helper)
     except ValueError as exc:
         return _error_result("PARSE_ERROR", str(exc), helper=helper)
     except Exception as exc:
@@ -384,11 +405,29 @@ def _vector_payload(
     return out
 
 
-def _convert_formatted(flat: list[Any], unit_suffix: str) -> list[Any]:
-    return [
-        f"{cell:g} {unit_suffix}" if isinstance(cell, (int, float)) else str(cell)
-        for cell in flat
-    ]
+def _target_unit_suffixes(raw_to: Any, n: int) -> list[str]:
+    # str(raw_to) on a list is the Python repr, and that repr was written
+    # into every formatted cell and into units.
+    if n == 0:
+        return []
+    inspected = inspect_input(raw_to)
+    if inspected.is_scalar:
+        item = inspected.flat_items[0] if inspected.flat_items else ""
+        suffix = str("" if item is None else item).strip()
+        return [suffix] * n
+    if len(inspected.flat_items) == n:
+        return [str("" if item is None else item).strip() for item in inspected.flat_items]
+    return [""] * n
+
+
+def _convert_formatted(flat: list[Any], suffixes: list[str]) -> list[Any]:
+    out: list[Any] = []
+    for cell, suffix in zip(flat, suffixes):
+        if isinstance(cell, (int, float)):
+            out.append(f"{cell:g} {suffix}" if suffix else f"{cell:g}")
+        else:
+            out.append(str(cell))
+    return out
 
 
 def _dispatch_vector(name: str, call: Callable[[], Any], pack: Callable[[Any], dict[str, Any]]) -> dict[str, Any]:
@@ -421,16 +460,26 @@ def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
         return _guarded(name, _run)
 
     def _pack(res: Any) -> dict[str, Any]:
-        to_text = str(raw_to or "")
+        def _build_fields(flat: list[Any]) -> dict[str, Any]:
+            suffixes = _target_unit_suffixes(raw_to, len(flat))
+            fields_dict: dict[str, Any] = {
+                "magnitudes": flat,
+                "formatted": _convert_formatted(flat, suffixes),
+            }
+            if suffixes:
+                first = suffixes[0]
+                if all(s == first for s in suffixes):
+                    if first:
+                        fields_dict["units"] = first
+                else:
+                    fields_dict["units"] = suffixes
+            return fields_dict
+
         return _vector_payload(
             name,
             res,
             "{n} quantities converted",
-            lambda flat: {
-                "magnitudes": flat,
-                "formatted": _convert_formatted(flat, to_text),
-                "units": to_text,
-            },
+            _build_fields,
         )
 
     return _dispatch_vector(name, lambda: convert_quantity(raw_val, from_unit=raw_from, to_unit=raw_to), _pack)

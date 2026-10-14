@@ -11,7 +11,13 @@ from unittest.mock import patch
 import pytest
 
 from plugin.scripting.calc_range import CalcRange
-from plugin.scripting.units import format_units_for_calc, resolve_output_style, split_helper_params
+from plugin.scripting.units import (
+    format_units_for_calc,
+    insert_units_result_into_writer,
+    resolve_output_style,
+    split_helper_params,
+    units_display_text,
+)
 from plugin.scripting.units import run_units
 from plugin.scripting.venv.units import (
     convert_quantity,
@@ -90,6 +96,7 @@ def test_run_units_vector_rpc_single_payload():
     assert result["helper"] == "convert_quantity"
     assert result["magnitudes"] == [36.0, 72.0]
     assert result["formatted"] == ["36 km/h", "72 km/h"]
+    assert result["units"] == "km/h"
     assert result["values"] == [[36.0, 72.0]]
 
     # Host format_units_for_calc egress returns rectangular grid
@@ -339,3 +346,121 @@ def test_dispatch_matches_helper_names():
     from plugin.scripting.venv.units import _DISPATCH
 
     assert set(_DISPATCH) == set(UNITS_HELPER_NAMES)
+
+
+def test_run_units_pairwise_units_broadcast_suffixes():
+    result = run_units(
+        {
+            "helper": "convert_quantity",
+            "params": {"value": [10, 100], "from": ["m/s", "cm"], "to": ["km/h", "m"]},
+        },
+        None,
+        {},
+    )
+    assert result["status"] == "ok"
+    assert result["magnitudes"] == [36.0, 1.0]
+    assert result["formatted"] == ["36 km/h", "1 m"]
+    assert result["units"] == ["km/h", "m"]
+    assert result["values"] == [[36.0, 1.0]]
+    assert format_units_for_calc(result) == [[36.0, 1.0]]
+
+    col_result = run_units(
+        {
+            "helper": "convert_quantity",
+            "params": {"value": [[10], [100]], "from": [["m/s"], ["cm"]], "to": [["km/h"], ["m"]]},
+        },
+        None,
+        {},
+    )
+    assert col_result["status"] == "ok"
+    assert col_result["formatted"] == ["36 km/h", "1 m"]
+    assert col_result["units"] == ["km/h", "m"]
+    assert col_result["values"] == [[36.0], [1.0]]
+
+
+def test_units_display_text_joins_formatted_list():
+    assert units_display_text({"formatted": ["36 km/h", "72 km/h"], "text": "2 quantities converted"}) == "36 km/h, 72 km/h"
+    assert units_display_text({"formatted": "36 km/h"}) == "36 km/h"
+    assert units_display_text({"formatted": [], "text": "2 quantities converted"}) == "2 quantities converted"
+
+
+def test_format_units_for_calc_joins_formatted_list_without_values():
+    result = {"helper": "convert_quantity", "formatted": ["36 km/h", "72 km/h"]}
+    assert format_units_for_calc(result) == [["36 km/h, 72 km/h"]]
+
+
+def test_writer_insert_joins_vector_formatted():
+    with patch("plugin.writer.format.insert_content_at_position") as mock_insert:
+        insert_units_result_into_writer(
+            object(),
+            object(),
+            {"helper": "convert_quantity", "formatted": ["36 km/h", "1 m"]},
+        )
+        mock_insert.assert_called_once()
+        assert mock_insert.call_args[0][2] == "36 km/h, 1 m"
+
+
+def test_dimensionless_format_has_no_trailing_space():
+    parsed = run_units({"helper": "parse_quantity", "params": {"quantity": "42"}}, None, {})
+    assert parsed["formatted"] == "42"
+    assert parsed["units"] == "dimensionless"
+
+    assert format_quantity(magnitude=42, units="dimensionless") == "42"
+
+    formatted = run_units(
+        {
+            "helper": "format_quantity",
+            "params": {"magnitude": 42, "units": "dimensionless", "format_spec": ".2f"},
+        },
+        None,
+        {},
+    )
+    assert formatted["formatted"] == "42.00"
+
+
+def test_bad_format_spec_is_invalid_spec():
+    result = run_units(
+        {
+            "helper": "format_quantity",
+            "params": {"magnitude": 3.5, "units": "m", "format_spec": "bad"},
+        },
+        None,
+        {},
+    )
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_SPEC"
+    assert "format specifier" in result["message"]
+
+    assert format_quantity(magnitude=3.5, units="m", format_spec="bad") == "#VALUE!"
+
+
+def test_whitespace_unit_is_missing_param():
+    r1 = convert_quantity(10, " ", "m")
+    assert isinstance(r1, dict) and r1["code"] == "MISSING_PARAM"
+
+    r2 = convert_quantity(10, "m", "\t")
+    assert isinstance(r2, dict) and r2["code"] == "MISSING_PARAM"
+
+    r3 = format_quantity(magnitude=1, units=" ")
+    assert isinstance(r3, dict) and r3["code"] == "MISSING_PARAM"
+
+    r_scalar = run_units(
+        {"helper": "convert_quantity", "params": {"value": "10", "from": " ", "to": "m"}},
+        None,
+        {},
+    )
+    assert r_scalar["status"] == "error"
+    assert r_scalar["code"] == "MISSING_PARAM"
+
+    r_vec = run_units(
+        {"helper": "convert_quantity", "params": {"value": [10, 20], "from": "m", "to": " "}},
+        None,
+        {},
+    )
+    assert r_vec["status"] == "error"
+    assert r_vec["code"] == "MISSING_PARAM"
+    assert "values" not in r_vec
+
+    res_blanks = convert_quantity([10, 20], "m", ["km", " "])
+    assert res_blanks[0] == pytest.approx(0.01)
+    assert res_blanks[1] == ""
