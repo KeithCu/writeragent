@@ -1,15 +1,18 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Minimal modeless dialog for text analytics (a few buttons).
 
-Powered exclusively by high-quality spaCy + textdescriptives (multilingual).
-All heavy work runs in the user venv via the trusted worker.
-
-The dialog extracts text on the host and ships it to the warm worker via the client.
+The dialog extracts text on the UI thread, waits in run_in_background(..., dedicated=True),
+and applies with post_to_main_thread. Closing the dialog does not kill the shared worker.
+Topics and sentiment honor Whole Document: selection is one string, whole document uses sections.
+Check Venv does not read the document. The install command comes from the worker payload.
 """
 
 from __future__ import annotations
 
 import logging
-from collections import Counter
 from typing import TYPE_CHECKING, Any, Callable
 
 import unohelper
@@ -19,16 +22,40 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
     from com.sun.star.lang import EventObject
 
-from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
+from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, set_control_enabled
 from plugin.doc.doc_type import is_writer
-from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.framework.i18n import _
+from plugin.framework.queue_executor import post_to_main_thread
 from plugin.framework.uno_context import get_active_document
+from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.client import run_text_analytics
-from plugin.scripting.text_analytics import get_doc_language, _result_to_html_table
-from plugin.writer.format import insert_content_at_position
+from plugin.scripting.text_analytics import (
+    format_text_analytics_result_for_display,
+    get_doc_language,
+    insert_text_analytics_result_into_doc,
+    resolve_text_analytics_document_inputs,
+)
 
 log = logging.getLogger(__name__)
+
+_COMPUTE_BUTTONS: tuple[tuple[str, str, str], ...] = (
+    ("BtnRead", "readability", "checkbox"),
+    ("BtnEntities", "entities", "checkbox"),
+    ("BtnPhrases", "key_phrases", "checkbox"),
+    ("BtnTopics", "topics", "checkbox"),
+    ("BtnSentiment", "sentiment", "checkbox"),
+    ("BtnCheck", "diagnostics", "none"),
+)
+
+_BUSY_CONTROL_IDS: tuple[str, ...] = (
+    "BtnRead",
+    "BtnEntities",
+    "BtnPhrases",
+    "BtnTopics",
+    "BtnSentiment",
+    "BtnCheck",
+    "BtnInsert",
+)
 
 
 class TextAnalyticsDialog:
@@ -40,17 +67,19 @@ class TextAnalyticsDialog:
       - Key Phrases                 → noun chunks
       - Topics                      → NMF topic model (uses sections for structure)
       - Sentiment                   → multilingual transformers sentiment by section (whole doc)
-      - Check Venv                    → reports status of spacy, textdescriptives, transformers (for new features)
+      - Check Venv                  → reports status of spacy, textdescriptives, transformers (for new features)
       - Insert report here          → appends a clean table after the caret/selection
     """
 
     _ctx: Any
     _closed: bool
+    _busy: bool
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
         self._dlg: Any | None = None
         self._closed = False
+        self._busy = False
         self._top_listener: Any | None = None
         self._last_result: dict[str, Any] | None = None
         self._open()
@@ -140,264 +169,191 @@ class TextAnalyticsDialog:
             def disposing(self, Source: EventObject) -> None:
                 pass
 
-        dlg.getControl("BtnRead").addActionListener(_Btn(lambda d: owner._compute(d, "readability", "whole" if (d.getControl("ChkScope").State == 1) else "selection")))
-        dlg.getControl("BtnEntities").addActionListener(_Btn(lambda d: owner._compute(d, "entities", "whole" if (d.getControl("ChkScope").State == 1) else "selection")))
-        dlg.getControl("BtnPhrases").addActionListener(_Btn(lambda d: owner._compute(d, "key_phrases", "whole" if (d.getControl("ChkScope").State == 1) else "selection")))
-        dlg.getControl("BtnTopics").addActionListener(_Btn(lambda d: owner._compute(d, "topics", "whole")))  # topics work best on whole-doc sections
-        dlg.getControl("BtnSentiment").addActionListener(_Btn(lambda d: owner._compute(d, "sentiment", "whole")))  # sentiment works best on whole-doc sections
-        dlg.getControl("BtnCheck").addActionListener(_Btn(lambda d: owner._compute(d, "diagnostics", "whole")))
+        for btn_id, helper, scope_mode in _COMPUTE_BUTTONS:
+            ctrl = dlg.getControl(btn_id)
+            if ctrl is not None:
+                h_name = helper
+                if scope_mode == "checkbox":
+                    def _cb_chk(d: Any, h: str = h_name) -> None:
+                        owner._compute(d, h, owner._scope_from_dialog(d))
 
-        dlg.getControl("BtnInsert").addActionListener(_Btn(lambda d: owner._insert_report(d)))
-        dlg.getControl("BtnClose").addActionListener(_Btn(lambda d: owner.close()))
+                    ctrl.addActionListener(_Btn(_cb_chk))
+                else:
+                    def _cb_whole(d: Any, h: str = h_name) -> None:
+                        owner._compute(d, h, "whole")
 
-    def _get_text(self, doc: Any, scope: str) -> str:
+                    ctrl.addActionListener(_Btn(_cb_whole))
+
+        btn_insert = dlg.getControl("BtnInsert")
+        if btn_insert is not None:
+            btn_insert.addActionListener(_Btn(lambda d: owner._insert_report(d)))
+        btn_close = dlg.getControl("BtnClose")
+        if btn_close is not None:
+            btn_close.addActionListener(_Btn(lambda d: owner.close()))
+
+    def _scope_from_dialog(self, dlg: Any) -> str:
         try:
-            if scope == "selection":
-                controller = doc.getCurrentController()
-                sel = controller.getSelection()
-                if sel and hasattr(sel, "getCount") and sel.getCount() > 0:
-                    rng = sel.getByIndex(0)
-                    return get_string_without_tracked_deletions(rng) or ""
-            text = doc.getText()
-            return get_string_without_tracked_deletions(text) or ""
+            chk = dlg.getControl("ChkScope")
+            if chk is None:
+                return "whole"
+            return "whole" if getattr(chk, "State", 0) == 1 else "selection"
         except Exception:
-            return ""
+            log.debug("text analytics: scope checkbox failed", exc_info=True)
+            return "whole"
+
+    def _set_busy(self, busy: bool) -> None:
+        self._busy = busy
+        if self._closed or self._dlg is None:
+            return
+        for cid in _BUSY_CONTROL_IDS:
+            try:
+                ctrl = self._dlg.getControl(cid)
+            except Exception:
+                log.debug("text analytics: set busy control %s failed", cid, exc_info=True)
+                return
+            if ctrl is not None:
+                set_control_enabled(ctrl, not busy)
 
     def _compute(self, dlg: Any, helper: str, scope: str) -> None:
-        ctx = self._ctx
+        if self._busy or self._closed:
+            return
+
         res_ctrl = dlg.getControl("ResultsEdit")
         if res_ctrl is None:
             return
 
+        # Bugfix: stale insert bug
+        # What was wrong: _last_result persisted across failed or invalid runs, allowing an old report
+        # to be inserted after a failed analysis attempt.
+        # How it happened: _last_result was only overwritten on success and never reset at compute start.
+        # Why this change: clear _last_result before validation and background execution.
+        self._last_result = None
+
+        ctx = self._ctx
+
         if helper in ("diagnostics", "check"):
-            res_ctrl.getModel().Text = _("Checking spaCy / textdescriptives / transformers installation...")
+            text: str | list[str] | None = None
             doc = get_active_document(ctx)
             doc_lang = get_doc_language(doc) if doc else None
+            context: dict[str, Any] | None = {"lang": doc_lang} if doc_lang else None
+        else:
+            doc = get_active_document(ctx)
+            if not doc or not is_writer(doc):
+                res_ctrl.getModel().Text = _("Open a Writer document to analyze.")
+                return
+
+            raw, context = resolve_text_analytics_document_inputs(doc, helper, scope=scope)
+
+            if scope == "selection" and (not raw or (isinstance(raw, str) and not raw.strip())):
+                res_ctrl.getModel().Text = _("Nothing is selected.")
+                return
+
+            if (
+                not raw
+                or (isinstance(raw, str) and len(raw.strip()) < 20)
+                or (isinstance(raw, list) and len(raw) == 0)
+            ):
+                res_ctrl.getModel().Text = _("Not enough text in the chosen scope.")
+                return
+
+            text = raw
+
+        if helper in ("diagnostics", "check"):
+            res_ctrl.getModel().Text = _("Checking spaCy / textdescriptives / transformers installation...")
+        else:
+            res_ctrl.getModel().Text = _("Analyzing...")
+
+        self._set_busy(True)
+
+        owner = self
+
+        # Bugfix: worker blocking UI thread
+        # What was wrong: worker RPC executed synchronously on the main VCL thread, freezing the UI.
+        # How it happened: run_text_analytics was called directly inside _compute without thread dispatch.
+        # Why this change: run the RPC in a dedicated background thread, keeping the UI responsive,
+        # and post results back to the main thread via post_to_main_thread.
+        def _worker() -> None:
+            res: dict[str, Any] | None = None
+            err: Exception | None = None
             try:
-                result = run_text_analytics(
+                res = run_text_analytics(
                     ctx,
                     spec={"helper": helper},
-                    context={"lang": doc_lang} if doc_lang else None
+                    text=text,
+                    context=context,
                 )
             except Exception as e:
                 log.exception("Text analytics worker call failed")
-                # Show everything right here. No redirect to Settings.
-                err_msg = str(e)
-                install = (
-                    "uv pip install spacy textdescriptives transformers torch "
-                    "--index-url https://download.pytorch.org/whl/cpu && "
-                    "python -m spacy download xx_sent_ud_sm"
-                )
-                res_ctrl.getModel().Text = _(
-                    "Error from the Text Analytics worker:\n{err}\n\n"
-                    "The features in this dialog require these packages in the python it is using:\n"
-                    "  • spacy + a model          (entities, key phrases, basic stats)\n"
-                    "  • textdescriptives         (real Readability scores)\n"
-                    "  • transformers + torch     (Sentiment using the multilingual model)\n\n"
-                    "Install them with:\n"
-                    "  {install}\n\n"
-                    "The worker reported the module as missing. Verify the packages are installed "
-                    "in the exact python executable the worker resolved for your configured venv."
-                ).format(err=err_msg, install=install)
-                return
+                err = e
 
-            self._last_result = result
-            res_ctrl.getModel().Text = self._format_result_for_display(helper, result)
-            return
+            def _post(r: dict[str, Any] | None = res, ex: Exception | None = err) -> None:
+                owner._apply_compute_result(helper, r, ex)
 
-        doc = get_active_document(ctx)
-        if not doc or not is_writer(doc):
-            res_ctrl.getModel().Text = _("Open a Writer document to analyze.")
-            return
-
-        raw: str | list[str] = self._get_text(doc, scope)
-        # Topics and sentiment benefit enormously from section structure (heading + body groups).
-        # Force whole-doc section extraction on the host before shipping the list to the trusted worker.
-        if helper in ("topics", "sentiment"):
             try:
-                from plugin.scripting.text_analytics import _get_writer_sections
-                secs = _get_writer_sections(doc)
-                if secs:
-                    raw = secs
+                post_to_main_thread(_post)
             except Exception:
-                pass  # fall back to flat text
-
-        if not raw or (isinstance(raw, str) and len(raw.strip()) < 20) or (isinstance(raw, list) and len(raw) == 0):
-            res_ctrl.getModel().Text = _("Not enough text in the chosen scope.")
-            return
-
-        res_ctrl.getModel().Text = _("Analyzing...")
+                log.exception("Failed to post text analytics compute result to main thread")
 
         try:
-            lang = get_doc_language(doc)
-            ctx_payload: dict[str, Any] = {}
-            if lang:
-                ctx_payload["lang"] = lang
-                ctx_payload["doc_lang"] = lang
-            result = run_text_analytics(
-                ctx,
-                spec={"helper": helper},
-                text=raw,
-                context=ctx_payload,
-            )
+            run_in_background(_worker, name="text-analytics-dialog", dedicated=True)
         except Exception as e:
-            log.exception("Text analytics worker call failed")
-            res_ctrl.getModel().Text = _("Error: %s\n\nRequired packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc.") % e
+            log.exception("Failed to schedule text analytics background worker")
+            self._apply_compute_result(helper, None, e)
+
+    def _apply_compute_result(
+        self,
+        helper: str,
+        result: dict[str, Any] | None,
+        error: Exception | None,
+    ) -> None:
+        self._busy = False
+        if self._closed or self._dlg is None:
+            return
+        self._set_busy(False)
+
+        res_ctrl = self._dlg.getControl("ResultsEdit")
+        if res_ctrl is None:
             return
 
-        self._last_result = result
-        res_ctrl.getModel().Text = self._format_result_for_display(helper, result)
-
-    def _format_result_for_display(self, helper: str, result: dict[str, Any]) -> str:
-        if not result or result.get("status") != "ok":
-            return str(result)
-
-        data = result.get("result", {}) or {}
-        lines: list[str] = []
-
-        if helper in ("diagnostics", "check"):
-            if data.get("status") == "error":
-                install = data.get("text_analytics_install", "")
-                py = data.get("python_used_by_worker", "unknown")
-                msg = f"Diagnostics Error (worker python: {py}):\n{data.get('message')}"
-                if install:
-                    msg += f"\n\nFull requirements for Text Analytics features:\n  {install}"
-                return msg
-            
-            lines.append("Text Analytics Diagnostics (inside the actual worker python):")
-            py = data.get("python_used_by_worker", "unknown")
-            lines.append(f"  Python executable used: {py}")
-            lines.append(f"  spaCy version: {data.get('spacy_version', 'N/A')}")
-            lines.append(f"  textdescriptives: {'Installed' if data.get('has_textdescriptives') else 'Missing'}")
-            
-            models = data.get("models") or []
-            if models:
-                lines.append(f"  Installed Models ({len(models)}):")
-                for m in models:
-                    lines.append(f"    - {m}")
+        if error is not None:
+            self._last_result = None
+            if helper in ("diagnostics", "check"):
+                text = _("Error from the Text Analytics worker:\n{err}").format(err=str(error))
             else:
-                lines.append("  No models detected/loaded.")
-            
-            # New multilingual Sentiment (transformers)
-            lines.append(f"  transformers: {'Installed' if data.get('has_transformers') else 'Missing'}")
-            if data.get('has_transformers'):
-                lines.append(f"  transformers version: {data.get('transformers_version', 'N/A')}")
-            lines.append(f"  torch: {'Installed' if data.get('has_torch') else 'Missing'}")
-            if data.get('has_torch'):
-                lines.append(f"  torch version: {data.get('torch_version', 'N/A')}")
-            
-            install = data.get("text_analytics_install")
-            if install:
-                lines.append("\nPackages needed for everything this dialog supports")
-                lines.append("(Readability with real scores, Entities, Key Phrases, Topics, Sentiment, etc.):")
-                lines.append(f"  {install}")
-            
-            # Self-contained instructions, no mention of other dialogs.
-            lines.append("\nInstall the packages listed above into the Python the worker is using.")
-            lines.append("Click Check Venv again after installing.")
-            
-            return "\n".join(lines)
+                text = _(
+                    "Error: %s\n\nRequired packages may be missing in your configured venv (Settings → Python). "
+                    "Click Check Venv in this dialog or use the full Test in Settings → Python for details on "
+                    "spacy, textdescriptives, transformers, torch etc."
+                ) % error
+            try:
+                res_ctrl.getModel().Text = text
+            except Exception:
+                log.exception("Failed to set error text on ResultsEdit")
+            return
 
-        if helper == "readability":
-            rd = data.get("readability") or {}
-            ds = data.get("descriptive_stats") or {}
-            if rd:
-                lines.append("Readability (via textdescriptives):")
-                for k, v in rd.items():
-                    if isinstance(v, (int, float)):
-                        lines.append(f"  {k}: {v:.2f}" if isinstance(v, float) else f"  {k}: {v}")
-                    else:
-                        lines.append(f"  {k}: {v}")
-            if ds:
-                lines.append("\nDescriptive stats:")
-                for k, v in ds.items():
-                    lines.append(f"  {k}: {v}")
-            meta = data.get("meta") or {}
-            if meta:
-                lines.append(f"\nModel: {meta.get('model')}  Lang: {meta.get('lang')}")
-            return "\n".join(lines) if lines else "No readability metrics returned."
+        if (
+            isinstance(result, dict)
+            and result.get("status") == "ok"
+            and helper not in ("diagnostics", "check")
+        ):
+            self._last_result = result
+        else:
+            self._last_result = None
 
-        if helper == "entities":
-            ents = data.get("entities") or []
-            if not ents:
-                return "No entities found."
-            lines.append(f"Entities ({len(ents)}):")
-            for e in ents[:30]:
-                lines.append(f"  {e.get('text')} [{e.get('label')}]")
-            if len(ents) > 30:
-                lines.append(f"  ... and {len(ents)-30} more")
-            return "\n".join(lines)
+        try:
+            display_text = format_text_analytics_result_for_display(helper, result)
+        except Exception:
+            log.exception("Text analytics: format failed")
+            display_text = "Error: Text analytics failed."
 
-        if helper in ("key_phrases", "chunks"):
-            kps = data.get("key_phrases") or []
-            if not kps:
-                return "No key phrases found."
-            lines.append(f"Key Phrases ({len(kps)}):")
-            for kp in kps[:30]:
-                lines.append(f"  {kp.get('text')} (lemma: {kp.get('lemma')})")
-            if len(kps) > 30:
-                lines.append(f"  ... and {len(kps)-30} more")
-            return "\n".join(lines)
-
-        if helper == "topics":
-            tops = data.get("topics") or []
-            if not tops:
-                err = data.get("error") or data.get("note")
-                if err:
-                    return f"Topics: {err}\n\n(For topic modeling install scikit-learn from the analysis stack.)"
-                return "No topics found."
-            lines.append(f"Topics ({len(tops)}):")
-            for t in tops:
-                tid = t.get("id")
-                terms = ", ".join(t.get("terms", [])[:6])
-                lines.append(f"  Topic {tid}: {terms}")
-            assigns = data.get("assignments") or []
-            if assigns:
-                lines.append(f"\nSection assignments ({len(assigns)}):")
-                # Show a compact summary
-                cnt = Counter(a.get("dominant_topic") for a in assigns)
-                for tid, c in sorted(cnt.items()):
-                    lines.append(f"  Topic {tid}: {c} section(s)")
-            meta = data.get("meta") or {}
-            if meta:
-                lines.append(f"\nMeta: {meta}")
-            return "\n".join(lines)
-
-        if helper == "sentiment":
-            sent = data.get("sentiment") or {}
-            if not sent or "score" not in sent:
-                err = data.get("error") or data.get("note")
-                if err:
-                    hint = data.get("install_hint", "")
-                    install = data.get("install", "")
-                    detail = data.get("detail", "")
-                    msg = f"Sentiment error: {err}"
-                    if "MISSING_PACKAGE" in str(err):
-                        msg = "Sentiment: MISSING_PACKAGE (the transformers package or its dependencies could not be imported)"
-                    elif "MODEL_LOAD_FAILED" in str(err) or "LOAD_FAILED" in str(err):
-                        msg = "Sentiment: model load failed (package is present, but loading the model/tokenizer failed)"
-                    if hint:
-                        msg += f"\n\n{hint}"
-                    if install:
-                        msg += f"\n\nSuggested install: {install}"
-                    if detail:
-                        msg += f"\n\nReal error details from the worker process:\n{detail}"
-                    return msg
-                return "No sentiment data."
-            lines.append(f"Sentiment: {sent.get('label')} (score: {sent.get('score')})")
-            per = data.get("per_section") or []
-            if per:
-                lines.append(f"\nBy section ({len(per)}):")
-                for p in per:
-                    idx = p.get("section_index")
-                    lines.append(f"  [{idx}] {p.get('label')} ({p.get('score')})")
-            return "\n".join(lines)
-
-        # Fallback pretty print
-        import json
-        return json.dumps(data, indent=2, ensure_ascii=False)[:2000]
+        try:
+            res_ctrl.getModel().Text = display_text
+        except Exception:
+            log.exception("Failed to set display text on ResultsEdit")
 
     def _insert_report(self, dlg: Any) -> None:
+        if self._busy or self._closed:
+            return
         ctx = self._ctx
         doc = get_active_document(ctx)
         if not doc or not is_writer(doc):
@@ -408,30 +364,8 @@ class TextAnalyticsDialog:
             msgbox(ctx, _("Text Analytics"), _("Run an analysis first."))
             return
 
-        # Build a compact, useful HTML table from whatever we have.
-        data = (self._last_result or {}).get("result") or {}
-        html = _result_to_html_table(data)
-        if not html:
-            msgbox(ctx, _("Text Analytics"), _("Nothing useful to insert from the last result."))
-            return
-
-        html = "<h4>Text Analytics</h4>" + html
-
-        # Position after selection/caret (non-destructive)
-        controller = doc.getCurrentController()
         try:
-            vc = controller.getViewCursor()
-            sel = controller.getSelection()
-            if sel and hasattr(sel, "getCount") and sel.getCount() > 0:
-                end = sel.getByIndex(0).getEnd()
-                vc.gotoRange(end, False)
-            controller.select(vc)
-        # Best-effort cursor positioning; failure is non-fatal.
-        except Exception:
-            pass  # nosec B110
-
-        try:
-            insert_content_at_position(doc, ctx, html, "selection")
+            insert_text_analytics_result_into_doc(ctx, doc, self._last_result)
         except Exception as e:
             log.exception("Insert analytics report failed")
             msgbox(ctx, _("Text Analytics"), _("Insert failed: %s") % e)
@@ -440,5 +374,3 @@ class TextAnalyticsDialog:
         res_ctrl = dlg.getControl("ResultsEdit")
         if res_ctrl is not None:
             res_ctrl.getModel().Text = (res_ctrl.getModel().Text or "") + "\n\n" + _("Inserted after selection/caret.")
-
-    

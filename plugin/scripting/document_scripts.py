@@ -37,6 +37,7 @@ from plugin.scripting.domain_registry import (
     SCRIPT_ORIGIN_DOCUMENT,
     SCRIPT_ORIGIN_USER,
     get_picker_domains,
+    is_reserved_script_name,
     parse_picker_display_name,
     picker_display_name,
 )
@@ -336,6 +337,23 @@ def build_python_eval_init_kwargs(doc: Any) -> dict[str, Any]:
     }
 
 
+def new_script_name_error(name: str, *, attach: bool) -> str | None:
+    """Storage sentence for a stripped *name*, or None when that name is allowed.
+
+    Does not strip. A whitespace-only string is not empty; callers strip.
+    ``INIT`` and ``Init`` are the workbook init keys in the document property
+    map, so they are rejected only when *attach* is true. The same spellings
+    are legal My Scripts names. ``init`` is not in ``_CALC_INIT_SCRIPT_NAMES``.
+    """
+    if not name:
+        return _("Script name cannot be empty.")
+    if is_reserved_script_name(name):
+        return _("'{0}' starts with a reserved prefix.").format(name)
+    if attach and is_calc_init_script_name(name):
+        return _("'{0}' is reserved for the workbook init script.").format(name)
+    return None
+
+
 def attach_document_script(
     doc: Any,
     name: str,
@@ -344,26 +362,16 @@ def attach_document_script(
     overwrite: bool = False,
 ) -> DocumentScriptError | None:
     name = (name or "").strip()
-    if not name:
-        return DocumentScriptError(
-            _("Script name cannot be empty."),
-            DocumentScriptErrorCode.EMPTY_NAME,
+    message = new_script_name_error(name, attach=True)
+    if message is not None:
+        # Empty is its own code. Prefix and INIT/Init stay RESERVED_NAME,
+        # which is what attach_document_script returned before this helper.
+        code = (
+            DocumentScriptErrorCode.EMPTY_NAME
+            if not name
+            else DocumentScriptErrorCode.RESERVED_NAME
         )
-    from plugin.scripting.domain_registry import is_reserved_script_name
-
-    # Reject names that collide with display prefixes (e.g. "[Doc] ", "[Vision] ")
-    if is_reserved_script_name(name):
-        return DocumentScriptError(
-            _("'{0}' starts with a reserved prefix.").format(name),
-            DocumentScriptErrorCode.RESERVED_NAME,
-        )
-    # INIT is the hidden workbook init script in this same property map.
-    # Saving it overwrites that body, and the picker hides the row.
-    if is_calc_init_script_name(name):
-        return DocumentScriptError(
-            _("'{0}' is reserved for the workbook init script.").format(name),
-            DocumentScriptErrorCode.RESERVED_NAME,
-        )
+        return DocumentScriptError(message, code)
     loaded, err = _load_document_script_map(doc)
     if err:
         return err

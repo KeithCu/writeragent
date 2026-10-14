@@ -14,7 +14,7 @@ from typing import Any
 from plugin.doc.doc_type import is_calc, is_writer
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
-from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
+from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.client import run_units as client_run_units
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
@@ -51,8 +51,7 @@ _UNITS_VENV_EXPORTS = frozenset(
     }
 )
 
-__getattr__ = make_getattr("units", _UNITS_VENV_EXPORTS)
-install_lazy_dir(globals(), _UNITS_VENV_EXPORTS)
+install_lazy_exports(globals(), "units", _UNITS_VENV_EXPORTS)
 
 OUTPUT_STYLES = frozenset({"formatted", "detailed"})
 _FORMATTED_DEFAULT_HELPERS = frozenset({"convert_quantity", "parse_quantity"})

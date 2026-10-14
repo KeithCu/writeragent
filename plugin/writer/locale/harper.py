@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, BinaryIO, cast
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.framework.worker_pool import get_subprocess_creationflags
+from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.scripting.sandbox import wrap_command_for_sandbox
 
 from plugin.contrib.lsp import json_rpc_framing
@@ -168,17 +168,24 @@ class HarperLSClient:
             out_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
             self.stdout_queue = out_queue
             _emit_progress(self._heartbeat_fn, "Starting harper-ls…")
-            self.proc = cast(
-                "subprocess.Popen[bytes]",
-                subprocess.Popen(
-                    wrap_command_for_sandbox([self.binary_path, "--stdio"]),
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    bufsize=0,
-                    **get_subprocess_creationflags(),
-                ),
+            # Explanations for non-default flags:
+            # - inherit_env: Popen env=None and the sandbox wrapper sees env=None, so Flatpak does not pass --clear-env (host session, as wrap_command_for_sandbox documents for harper).
+            # - new_session=False: child is not a session leader; close signals that process with terminate / kill.
+            # - stderr=DEVNULL: no drain thread.
+            # - register=False: shutdown_all must not run ManagedSubprocess.close on this child.
+            # - log_start_failure=False: the handler below must see the original exception.
+            managed = ManagedSubprocess(
+                [self.binary_path, "--stdio"],
+                command_wrapper=wrap_command_for_sandbox,
+                inherit_env=True,
+                new_session=False,
+                stderr=subprocess.DEVNULL,
+                register=False,
+                log_start_failure=False,
+                label="harper-ls",
             )
+            managed.start()
+            self.proc = managed.popen
             self.stdout_thread = threading.Thread(target=self._read_loop, args=(out_queue,), daemon=True)  # nosemgrep: raw-uno-thread-ban
             self.stdout_thread.start()
 
@@ -378,6 +385,7 @@ class HarperLSClient:
         hung harper-ls fills the stdin pipe; ``stdin.write`` blocks forever
         and xdist workers never exit (CI sat ~19 min after pytest 99%).
         Close the pipes first, then terminate/kill with short waits.
+        ManagedSubprocess.close() and kill_tree() are a different shutdown and are not used here.
         """
         proc = self.proc
         self.proc = None

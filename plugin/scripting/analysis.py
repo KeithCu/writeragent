@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr, venv_attr
+from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.helper_domain import (
     DomainFacadeConfig,
     header_prefix,
@@ -83,19 +83,13 @@ _ANALYSIS_VENV_EXPORTS = frozenset(
 )
 
 
-def _analysis_venv_extra(name: str) -> Any:
-    if name in frozenset({"CoerceResult", "coerce_to_dataframe", "grid_to_dataframe"}):
-        return venv_attr("coerce", name)
-    raise AttributeError(f"module 'plugin.scripting.analysis' has no attribute {name!r}")
+_ANALYSIS_COERCE_EXPORTS = frozenset({"CoerceResult", "coerce_to_dataframe", "grid_to_dataframe"})
 
-
-__getattr__ = make_getattr("analysis", _ANALYSIS_VENV_EXPORTS, fallback=_analysis_venv_extra)
-install_lazy_dir(
+install_lazy_exports(
     globals(),
+    "analysis",
     _ANALYSIS_VENV_EXPORTS,
-    "CoerceResult",
-    "coerce_to_dataframe",
-    "grid_to_dataframe",
+    extra={"coerce": _ANALYSIS_COERCE_EXPORTS},
 )
 
 

@@ -521,11 +521,13 @@ def _mock_new_script_dialog_uno(name_on_ok: str, attach_state: int = 1):
     name_edit_model.Text = name_on_ok
     name_edit = MagicMock()
     name_edit.getModel.return_value = name_edit_model
+    name_edit.getText.return_value = name_on_ok
 
     chk_model = MagicMock()
     chk_model.State = attach_state
     chk = MagicMock()
     chk.getModel.return_value = chk_model
+    chk.getState.return_value = attach_state
 
     ok_listeners = []
     cancel_listeners = []
@@ -549,10 +551,8 @@ def _mock_new_script_dialog_uno(name_on_ok: str, attach_state: int = 1):
     return ctx, desktop, dlg, ok_listeners, cancel_listeners
 
 
-@patch("plugin.chatbot.dialogs.get_desktop")
-def test_show_new_script_dialog_ok_returns_name_and_attach(mock_get_desktop):
-    ctx, desktop, dlg, ok_listeners, _cancel_listeners = _mock_new_script_dialog_uno("  MyNewScript  ", attach_state=1)
-    mock_get_desktop.return_value = desktop
+def test_show_new_script_dialog_ok_returns_name_and_attach():
+    ctx, _desktop, dlg, ok_listeners, _cancel_listeners = _mock_new_script_dialog_uno("  MyNewScript  ", attach_state=1)
 
     def fake_execute():
         for listener in ok_listeners:
@@ -566,10 +566,8 @@ def test_show_new_script_dialog_ok_returns_name_and_attach(mock_get_desktop):
     assert result == ("MyNewScript", True)
 
 
-@patch("plugin.chatbot.dialogs.get_desktop")
-def test_show_new_script_dialog_cancel_returns_none(mock_get_desktop):
-    ctx, desktop, dlg, _ok_listeners, cancel_listeners = _mock_new_script_dialog_uno("MyScript", attach_state=0)
-    mock_get_desktop.return_value = desktop
+def test_show_new_script_dialog_cancel_returns_none():
+    ctx, _desktop, dlg, _ok_listeners, cancel_listeners = _mock_new_script_dialog_uno("MyScript", attach_state=0)
 
     def fake_execute():
         for listener in cancel_listeners:
@@ -581,10 +579,8 @@ def test_show_new_script_dialog_cancel_returns_none(mock_get_desktop):
     assert result is None
 
 
-@patch("plugin.chatbot.dialogs.get_desktop")
-def test_show_new_script_dialog_custom_title_and_default_attach(mock_get_desktop):
-    ctx, desktop, dlg, ok_listeners, _cancel_listeners = _mock_new_script_dialog_uno("SavedCopy", attach_state=0)
-    mock_get_desktop.return_value = desktop
+def test_show_new_script_dialog_custom_title_and_default_attach():
+    ctx, _desktop, dlg, ok_listeners, _cancel_listeners = _mock_new_script_dialog_uno("SavedCopy", attach_state=0)
 
     def fake_execute():
         for listener in ok_listeners:
@@ -700,3 +696,22 @@ def test_msgbox_long_message_does_not_raise():
     # Verify createMessageBox was called with the raw long message
     args = toolkit.createMessageBox.call_args[0]
     assert args[4] == long_msg
+
+
+def test_msgbox_parent_window_skips_frame_lookup():
+    from plugin.chatbot.dialogs import msgbox
+    from unittest.mock import MagicMock, patch
+
+    ctx = MagicMock()
+    toolkit = MagicMock()
+    ctx.getServiceManager().createInstanceWithContext.return_value = toolkit
+    box = MagicMock()
+    toolkit.createMessageBox.return_value = box
+    parent = MagicMock()
+
+    with patch("plugin.chatbot.dialogs.get_desktop") as mock_desktop:
+        msgbox(ctx, "Error", "nope", parent_window=parent)
+        mock_desktop.assert_not_called()
+
+    args = toolkit.createMessageBox.call_args[0]
+    assert args[0] is parent

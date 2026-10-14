@@ -11,6 +11,7 @@ from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.scripting.audio_silence_detector import (
     DEFAULT_SILENCE_STOP_MS,
     MIN_SPEECH_MS,
+    STEADY_NOISE_MS,
     SilenceDetector,
     SilenceDetectorConfig,
     _resolve_silence_stop_ms,
@@ -365,4 +366,89 @@ def test_odd_chunks_accumulate_samples_without_per_chunk_truncation():
 
     result = detector.process_chunk(zero_171)
     assert result.should_stop
+
+
+def test_steady_hum_in_band_ends_committed_run():
+    """Flat hum inside (floor, speech threshold) must not hold a committed run open."""
+    assert STEADY_NOISE_MS == 400
+    detector = SilenceDetector(SilenceDetectorConfig(silence_stop_ms=300), sample_rate=16000)
+    frame = 160
+    for _ in range(10):
+        detector.process_chunk(_pcm_silence(frame))
+    for _ in range(60):
+        loud = detector.process_chunk(_pcm_tone(frame, amplitude=8000))
+    assert loud.speech_ms == 600
+    assert loud.heard_speech
+    for _ in range(39):
+        mid = detector.process_chunk(_pcm_tone(frame, amplitude=120))
+    assert mid.is_speech
+    assert mid.silence_ms == 0
+    assert mid.speech_ms == 990
+    assert not mid.should_stop
+    for _ in range(30):
+        end = detector.process_chunk(_pcm_tone(frame, amplitude=120))
+    assert end.should_stop
+    assert end.heard_speech
+    assert end.speech_ms == 990
+    assert end.silence_ms == 300
+    assert not end.is_speech
+
+
+def test_leading_silence_then_steady_room_does_not_arm():
+    """One silent frame must not pin the floor so amplitude-328 room stays speech."""
+    detector = SilenceDetector(SilenceDetectorConfig(silence_stop_ms=200), sample_rate=16000)
+    detector.process_chunk(_pcm_silence(160))
+    for _ in range(200):
+        result = detector.process_chunk(_pcm_tone(160, amplitude=328))
+    assert result.speech_ms == 390
+    assert result.speech_ms < MIN_SPEECH_MS
+    assert not result.heard_speech
+    assert not result.is_speech
+    assert not result.should_stop
+
+
+def test_leading_silence_room_then_speech_then_room_auto_stops():
+    detector = SilenceDetector(SilenceDetectorConfig(silence_stop_ms=200), sample_rate=16000)
+    detector.process_chunk(_pcm_silence(160))
+    for _ in range(30):
+        pre = detector.process_chunk(_pcm_tone(160, amplitude=328))
+    assert pre.is_speech
+    assert pre.speech_ms == 300
+    assert not pre.heard_speech
+    for _ in range(50):
+        mid = detector.process_chunk(_pcm_tone(160, amplitude=8000))
+    assert mid.heard_speech
+    assert mid.speech_ms == 800
+    assert mid.silence_ms == 0
+    for _ in range(39):
+        hang = detector.process_chunk(_pcm_tone(160, amplitude=328))
+    assert hang.is_speech
+    assert hang.silence_ms == 0
+    assert hang.speech_ms == 1190
+    for _ in range(20):
+        end = detector.process_chunk(_pcm_tone(160, amplitude=328))
+    assert end.should_stop
+    assert end.speech_ms == 1190
+    assert end.silence_ms == 200
+
+
+def test_short_ambiguous_dip_does_not_end_run():
+    """200 ms in the hysteresis band stays speech; the steady window is 400 ms."""
+    detector = SilenceDetector(SilenceDetectorConfig(silence_stop_ms=300), sample_rate=16000)
+    frame = 160
+    for _ in range(10):
+        detector.process_chunk(_pcm_silence(frame))
+    for _ in range(60):
+        detector.process_chunk(_pcm_tone(frame, amplitude=8000))
+    for _ in range(20):
+        dip = detector.process_chunk(_pcm_tone(frame, amplitude=120))
+    assert dip.is_speech
+    assert dip.silence_ms == 0
+    assert dip.speech_ms == 800
+    for _ in range(10):
+        back = detector.process_chunk(_pcm_tone(frame, amplitude=8000))
+    assert back.is_speech
+    assert back.silence_ms == 0
+    assert back.speech_ms == 900
+    assert not back.should_stop
 

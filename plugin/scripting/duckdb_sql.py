@@ -13,9 +13,8 @@ import json
 from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, deal, str_bounded
-from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
+from plugin.scripting._lazy_venv import install_lazy_exports, venv_attr
 from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, parse_helper_script_header
-from plugin.scripting.venv.duckdb_sql import MAX_TABLE_ROWS
 
 # --- Constants (host) ---
 
@@ -34,11 +33,6 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "query_sheet_sql": "Run read-only SQL on a live range from the active Calc sheet (registers as table 'data')",
 }
 
-_SQL_ROW_CAP_NOTE = (
-    f"Results cap at {MAX_TABLE_ROWS} rows (MAX_TABLE_ROWS). truncated/warning/flags mean "
-    "the table is incomplete — add LIMIT or aggregate."
-)
-
 
 _SQL_VENV_EXPORTS = frozenset(
     {
@@ -54,13 +48,26 @@ _SQL_VENV_EXPORTS = frozenset(
     }
 )
 
-__getattr__ = make_getattr("duckdb_sql", _SQL_VENV_EXPORTS)
-install_lazy_dir(globals(), _SQL_VENV_EXPORTS)
+install_lazy_exports(globals(), "duckdb_sql", _SQL_VENV_EXPORTS)
 
 
 # --- Templates for Run Python Script (Calc) ---
 
+def _sql_row_cap_note() -> str:
+    # What was wrong: a module-level import of MAX_TABLE_ROWS loaded
+    # venv/duckdb_sql.py (and coerce, calc_range, payload_codec) on every
+    # import of this host facade, including is_sql_result and header parsing.
+    # How: 2c1a312ce interpolated the constant into an import-time f-string.
+    # Why: only SQL script templates need the number. Load it when a template is built.
+    rows = venv_attr("duckdb_sql", "MAX_TABLE_ROWS")
+    return (
+        f"Results cap at {rows} rows (MAX_TABLE_ROWS). truncated/warning/flags mean "
+        "the table is incomplete — add LIMIT or aggregate."
+    )
+
+
 def _template_body(helper: str, params: dict[str, Any]) -> str:
+    note = _sql_row_cap_note()
     if UNDER_CROSSHAIR:
         params_json = "{}"
     else:
@@ -70,7 +77,7 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
         return (
             f"{SQL_HEADER_PREFIX} helper={helper} params={params_json}\n"
             f"# {desc}\n"
-            f"# {_SQL_ROW_CAP_NOTE}\n"
+            f"# {note}\n"
             f"# Set the Data range in the toolbar (or select cells), then Run.\n"
             f"from writeragent.scripting.duckdb_sql import query_folder_sql\n\n"
             f"result = query_folder_sql(\n"
@@ -83,7 +90,7 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
     return (
         f"{SQL_HEADER_PREFIX} helper={helper} params={params_json}\n"
         f"# {desc}\n"
-        f"# {_SQL_ROW_CAP_NOTE}\n"
+        f"# {note}\n"
         f"# Files must live beside the saved .ods/.xlsx. Edit the files list.\n"
         f"from writeragent.scripting.duckdb_sql import query_folder_sql\n\n"
         f"result = query_folder_sql(\n"

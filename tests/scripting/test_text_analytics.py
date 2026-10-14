@@ -591,3 +591,253 @@ def test_get_writer_sections_fallback_calls_writer_text_once(monkeypatch):
     assert call_count == 1
     assert res == ["full document text that is long enough"]
 
+
+def test_format_topics_missing_package_reads_inner_payload(monkeypatch):
+    monkeypatch.setattr(
+        vta,
+        "_extract_topics",
+        lambda text, n_topics=4: {
+            "topics": [],
+            "error": "MISSING_PACKAGE",
+            "install_hint": "scikit-learn (part of the Data Analysis / EDA stack)",
+            "install": "uv pip install scikit-learn",
+        },
+    )
+    res = vta.run_text_analytics("topics", "alpha " * 40)
+    assert res["status"] == "error"
+    out = ta.format_text_analytics_result_for_display("topics", res)
+    expected = (
+        "Topics: MISSING_PACKAGE\n\n"
+        "scikit-learn (part of the Data Analysis / EDA stack)\n\n"
+        "Suggested install: uv pip install scikit-learn"
+    )
+    assert out == expected
+    assert "scikit-learn from the analysis stack" not in out
+    assert "{'" not in out
+
+
+def test_format_topic_model_failed_has_no_install_hint():
+    fake = {
+        "status": "ok",
+        "result": {
+            "topics": [],
+            "error": "topic_model_failed: boom",
+        },
+    }
+    out = ta.format_text_analytics_result_for_display("topics", fake)
+    assert out == "Topics: topic_model_failed: boom"
+
+
+def test_format_topics_insufficient_terms_has_no_install_hint():
+    fake = {
+        "status": "ok",
+        "result": {
+            "topics": [],
+            "note": "insufficient distinct terms",
+        },
+    }
+    out = ta.format_text_analytics_result_for_display("topics", fake)
+    assert out == "Topics: insufficient distinct terms"
+
+
+def test_format_sentiment_missing_package_and_model_load():
+    missing_dict = {
+        "status": "error",
+        "code": "TEXT_ANALYTICS_ERROR",
+        "helper": "sentiment",
+        "message": "MISSING_PACKAGE",
+        "result": {
+            "overall": {"score": 0.0, "label": "neutral"},
+            "error": "MISSING_PACKAGE",
+            "install_hint": "transformers (sentiment analysis)",
+            "install": "uv pip install transformers torch",
+            "detail": "ImportError: No module named 'transformers'",
+        },
+    }
+    out_missing = ta.format_text_analytics_result_for_display("sentiment", missing_dict)
+    assert (
+        "Sentiment: MISSING_PACKAGE (the transformers package or its dependencies could not be imported)"
+        in out_missing
+    )
+    assert "transformers (sentiment analysis)" in out_missing
+    assert "Suggested install: uv pip install transformers torch" in out_missing
+    assert "Real error details from the worker process:\nImportError: No module named 'transformers'" in out_missing
+    assert "{'" not in out_missing
+    assert "Sentiment: neutral" not in out_missing
+
+    load_dict = {
+        "status": "error",
+        "code": "TEXT_ANALYTICS_ERROR",
+        "helper": "sentiment",
+        "message": "MODEL_LOAD_FAILED",
+        "result": {
+            "overall": {"score": 0.0, "label": "neutral"},
+            "error": "MODEL_LOAD_FAILED",
+            "install_hint": "transformers model load failed",
+            "install": "uv pip install torch",
+            "detail": "OSError: model file corrupt",
+        },
+    }
+    out_load = ta.format_text_analytics_result_for_display("sentiment", load_dict)
+    assert (
+        "Sentiment: model load failed (package is present, but loading the model/tokenizer failed)"
+        in out_load
+    )
+    assert "transformers model load failed" in out_load
+    assert "Suggested install: uv pip install torch" in out_load
+    assert "Real error details from the worker process:\nOSError: model file corrupt" in out_load
+    assert "{'" not in out_load
+    assert "Sentiment: neutral" not in out_load
+
+
+def test_format_unknown_helper_is_one_line():
+    err_dict = {
+        "status": "error",
+        "code": "UNKNOWN_HELPER",
+        "helper": "nope",
+        "message": "Unknown text analytics helper 'nope'",
+    }
+    out = ta.format_text_analytics_result_for_display("nope", err_dict)
+    assert out == "Error: Unknown text analytics helper 'nope'"
+
+
+def test_format_diagnostics_inner_error_still_shows_install():
+    diag = {
+        "status": "ok",
+        "result": {
+            "status": "error",
+            "message": "no python found",
+            "python_used_by_worker": "/usr/bin/python3",
+            "text_analytics_install": "uv pip install spacy",
+        },
+    }
+    out = ta.format_text_analytics_result_for_display("diagnostics", diag)
+    assert "Diagnostics Error" in out
+    assert "uv pip install spacy" in out
+
+
+def test_format_readability_bool_is_not_int():
+    data = {
+        "status": "ok",
+        "result": {
+            "readability": {"flag": True, "score": 1.5},
+        },
+    }
+    out = ta.format_text_analytics_result_for_display("readability", data)
+    assert "flag: True" in out
+    assert "score: 1.50" in out
+    assert "flag: 1" not in out
+
+
+def test_format_non_dict_is_no_result():
+    assert ta.format_text_analytics_result_for_display("readability", None) == "No result."
+    assert ta.format_text_analytics_result_for_display("readability", "x") == "No result."  # type: ignore[arg-type]
+
+
+def test_selection_scope_does_not_fall_through_to_document(monkeypatch):
+    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+
+    class FakeDoc:
+        def getCurrentController(self):
+            class Controller:
+                def getSelection(self):
+                    class Sel:
+                        def getCount(self):
+                            return 0
+
+                    return Sel()
+
+            return Controller()
+
+        def getText(self):
+            raise AssertionError("getText should not be called for selection scope")
+
+    def forbidden_sections(doc):
+        raise AssertionError("_get_writer_sections should not be called for selection scope")
+
+    monkeypatch.setattr("plugin.scripting.text_analytics._get_writer_sections", forbidden_sections)
+
+    text, ctx = ta.resolve_text_analytics_document_inputs(FakeDoc(), "topics", scope="selection")
+    assert text == ""
+
+
+def test_selection_scope_topics_uses_selection_string(monkeypatch):
+    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr(
+        "plugin.doc.text_helpers.get_string_without_tracked_deletions",
+        lambda rng: "A" * 30,
+    )
+    monkeypatch.setattr("plugin.scripting.text_analytics.get_doc_language", lambda doc: "de")
+
+    class FakeDoc:
+        def getCurrentController(self):
+            class Controller:
+                def getSelection(self):
+                    class Sel:
+                        def getCount(self):
+                            return 1
+
+                        def getByIndex(self, idx):
+                            return "fake_range"
+
+                    return Sel()
+
+            return Controller()
+
+    def forbidden_sections(doc):
+        raise AssertionError("_get_writer_sections should not be called for selection scope")
+
+    monkeypatch.setattr("plugin.scripting.text_analytics._get_writer_sections", forbidden_sections)
+
+    text, ctx = ta.resolve_text_analytics_document_inputs(FakeDoc(), "topics", scope="selection")
+    assert text == "A" * 30
+    assert ctx == {"lang": "de"}
+    assert "doc_lang" not in ctx
+
+
+def test_whole_scope_topics_still_uses_sections(monkeypatch):
+    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+
+    class FakeDoc:
+        def getCurrentController(self):
+            raise AssertionError("getCurrentController should not be called for whole scope")
+
+    call_count = 0
+
+    def fake_sections(doc):
+        nonlocal call_count
+        call_count += 1
+        return ["section 1", "section 2"]
+
+    monkeypatch.setattr("plugin.scripting.text_analytics._get_writer_sections", fake_sections)
+
+    text1, _ = ta.resolve_text_analytics_document_inputs(FakeDoc(), "topics")
+    assert text1 == ["section 1", "section 2"]
+
+    text2, _ = ta.resolve_text_analytics_document_inputs(FakeDoc(), "topics", scope="whole")
+    assert text2 == ["section 1", "section 2"]
+
+    text3, _ = ta.resolve_text_analytics_document_inputs(FakeDoc(), "topics", scope="other")
+    assert text3 == ["section 1", "section 2"]
+
+    assert call_count == 3
+
+
+def test_selection_extraction_failure_is_empty_and_logged(caplog, monkeypatch):
+    import logging
+
+    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+
+    class FakeDoc:
+        def getCurrentController(self):
+            class Controller:
+                def getSelection(self):
+                    raise RuntimeError("controller dead")
+
+            return Controller()
+
+    with caplog.at_level(logging.DEBUG):
+        text, _ = ta.resolve_text_analytics_document_inputs(FakeDoc(), "readability", scope="selection")
+    assert text == ""
+    assert "selection text failed" in caplog.text
+

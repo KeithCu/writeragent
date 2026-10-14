@@ -88,6 +88,15 @@ def _run_script_ui_strings() -> dict[str, str]:
             "new_script_title": _("New Python Script"),
             "script_name_label": _("Script name:"),
             "attach_to_document_label": _("Attach to this document"),
+            "attach_unavailable_no_document": _(
+                "Attach to this document (no document is open)"
+            ),
+            "attach_unavailable_readonly": _(
+                "Attach to this document (this document is read-only)"
+            ),
+            "attach_unavailable_stale": _(
+                "Attach to this document (this document changed)"
+            ),
             "create_label": _("Create"),
             "script_name_required": _("Script name cannot be empty."),
             "script_label": _("Script:"),
