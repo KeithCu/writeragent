@@ -407,3 +407,74 @@ def test_sort_order_is_only_one_or_minus_one():
     # A row key and a column key in one call do not share an axis.
     assert math.isnan(calc.sortby(data, [[3], [1]], 1, [[2, 3, 1]], 1))
 
+
+def test_oddf_frequency_and_basis():
+    # isFreqInvalid is {1, 2, 4}. 1e7 used to walk range(1, int(years * f) + 1).
+    args = (40000, 41000, 39900, 40100, 0.05, 0.06, 100)
+    for freq in (3, 1.5, 4.9, 1.9, 0, -1, 10_000_000):
+        assert math.isnan(calc.oddfprice(*args, freq))
+        assert math.isnan(calc.oddfyield(*args[:4], 0.05, 95, 100, freq))
+        assert math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, 0.06, 100, freq))
+    assert math.isnan(calc.oddfprice(*args, 2, 9))
+    assert math.isnan(calc.oddfprice(*args, 2, -1))
+    assert math.isnan(calc.oddfprice(*args, 2, 5))
+    assert math.isnan(calc.oddfyield(40000, 41000, 39900, 40100, 0.05, 95, 100, 2, 9))
+    assert math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, 0.06, 100, 2, 9))
+    # 4.0 == 4. int(float(4.9)) is basis 4, which stays legal.
+    priced = calc.oddfprice(*args, 2)
+    assert math.isfinite(priced)
+    assert calc.oddfprice(*args, 4.0, 4) == calc.oddfprice(*args, 4, 4.9)
+    assert math.isfinite(calc.oddfprice(*args, 4.0, 4))
+    # Frequency does not enter the odd-last formula or the odd-first yield.
+    last = [
+        calc.oddlprice(40000, 41000, 39000, 0.05, 0.06, 100, freq)
+        for freq in (1, 2, 4)
+    ]
+    assert last[0] == last[1] == last[2]
+    assert math.isfinite(last[0])
+    yld = [
+        calc.oddfyield(40000, 41000, 39900, 40100, 0.05, 95, 100, freq)
+        for freq in (1, 2, 4)
+    ]
+    assert yld[0] == yld[1] == yld[2]
+    assert math.isfinite(yld[0])
+
+
+def test_sqrtpi_overflow_is_nan():
+    assert math.isnan(calc.sqrtpi(1e308))
+    assert math.isnan(calc.sqrtpi(float("inf")))
+    assert calc.sqrtpi(0) == 0.0
+    assert math.isfinite(calc.sqrtpi(1))
+
+
+def test_sumproduct_sumsq_float_overflow_is_nan():
+    assert math.isnan(calc.sumproduct([1e200], [1e200]))
+    assert math.isnan(calc.sumsq(1e200))
+    assert math.isnan(calc.sumsq(1e200, -1e200))
+    assert calc.sumproduct([1.0, 2.0], [3.0, 4.0]) == 11.0
+    assert calc.sumsq(3, 4) == 25.0
+    assert math.isnan(calc.sumproduct([float("nan")], [1.0]))
+
+
+def test_poisson_text_cumulative_flag():
+    pmf = calc.poisson(2, 2, False)
+    cdf = calc.poisson(2, 2, True)
+    assert math.isclose(calc.poisson(2, 2, "0"), pmf)
+    assert math.isclose(calc.poisson(2, 2, 0), pmf)
+    assert math.isclose(calc.poisson(2, 2, ""), pmf)
+    assert math.isclose(calc.poisson(2, 2, None), pmf)
+    assert math.isclose(calc.poisson(2, 2, "1"), cdf)
+    assert math.isnan(calc.poisson(2, 2, "abc"))
+
+
+def test_sort_flat_vector_index():
+    assert math.isnan(calc.sort([3, 1, 2], 99))
+    assert math.isnan(calc.sort([3, 1, 2], 2))
+    assert calc.sort([3, 1, 2], 1.9) == [1, 2, 3]
+    # by_col keys a row of a one-column vector: original order.
+    assert calc.sort([3, 1, 2], 1, 1, True) == [3, 1, 2]
+    assert calc.sort([3, 1, 2], 2, 1, True) == [3, 1, 2]
+    assert math.isnan(calc.sort([3, 1, 2], 4, 1, True))
+    assert calc.sort([], 99) == []
+
+

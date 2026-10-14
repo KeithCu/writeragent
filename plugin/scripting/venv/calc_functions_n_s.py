@@ -319,8 +319,11 @@ def odd(n: Any) -> float:
 
 
 def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, yld: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
-    # GetOddfprice throws. issue and first_coupon are checked so a bad date
-    # is NaN, and they do not change this regular-period approximation.
+    # Regular-period approximation. GetOddfprice (analysishelper.cxx) throws
+    # unconditionally after AnalysisAddIn::getOddfprice checks its arguments.
+    # issue and first_coupon are float()-converted and then unused. A
+    # non-numeric date is NaN from that conversion. They are not range-checked,
+    # and they do not change this price.
     try:
         s = float(settlement)
         m = float(maturity)
@@ -333,9 +336,17 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
         b = int(float(basis))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    # frequency 0 used to reach `r / f` and `y / f` (ZeroDivisionError). The
-    # `n <= 0` check below only hides that when years is finite. Excel #NUM!.
-    if f == 0:
+    # What was wrong: ODDFPRICE with frequency 1e7 hung, and frequency 3 or
+    # basis 9 returned a price.
+    # How it happened: only f == 0 was rejected. n = years * f, and the coupon
+    # sum is range(1, int(n) + 1). _days_between treats any basis other than
+    # 0 or 4 as actual days, so basis 9 was not #NUM!.
+    # Why this change fixes it: isFreqInvalid (analysisdefs.hxx) is
+    # nFreq != 1 && != 2 && != 4, and duration() already rejects that set
+    # plus basis outside 0..4. An illegal frequency never enters the loop.
+    # Dates _serial_to_date accepts lie in year 1..9999, so f in {1, 2, 4}
+    # keeps int(n) on the order of 1e4. Do not add a second iteration cap.
+    if f not in (1, 2, 4) or b < 0 or b > 4:
         return float("nan")
     # basic PV approximation
     days_to_mat = _days_between(s, m, b)
@@ -363,8 +374,8 @@ def oddfprice(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
 
 
 def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rate: Any, pr: Any, redemption: Any, frequency: Any, basis: Any = 0) -> float:
-    # GetOddfyield throws. This is Y = (C + (F-P)/n) / ((F+P)/2). Frequency
-    # is validated and does not enter the approximation.
+    # Y = (C + (F-P)/n) / ((F+P)/2). GetOddfyield throws unconditionally.
+    # A legal frequency does not enter this approximation.
     try:
         s = float(settlement)
         m = float(maturity)
@@ -373,11 +384,17 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
         r = float(rate)
         price = float(pr)
         red = float(redemption)
-        _f = float(frequency)
+        f = float(frequency)
         b = int(float(basis))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    if _f == 0:
+    # What was wrong: ODDFYIELD(frequency=3) and basis 9 returned a yield.
+    # How it happened: only f == 0 was rejected, and _days_between does not
+    # reject basis outside 0..4. The formula never reads frequency.
+    # Why this change fixes it: same isFreqInvalid / basis pair as oddfprice
+    # and duration(). The approximation is unchanged for frequency in {1, 2, 4}
+    # and basis in 0..4.
+    if f not in (1, 2, 4) or b < 0 or b > 4:
         return float("nan")
 
     days_to_mat = _days_between(s, m, b)
@@ -405,9 +422,14 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
         b = int(float(basis))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
-    # frequency 0 used to raise ZeroDivisionError on `360 / f` and `y / f`.
-    # GetOddlprice cancels frequency, and a zero frequency is still #NUM!.
-    if f == 0:
+    # What was wrong: ODDLPRICE(frequency=3) returned a price.
+    # How it happened: only f == 0 was rejected. GetOddlprice cancels
+    # frequency (fDCi * rate / fFreq), and this formula already did too,
+    # so an illegal frequency looked like a successful call.
+    # Why this change fixes it: isFreqInvalid still applies. Basis outside
+    # 0..4 is NaN here, before yearfrac, which already rejected it.
+    # Frequency in {1, 2, 4} does not change the number.
+    if f not in (1, 2, 4) or b < 0 or b > 4:
         return float("nan")
     # GetOddlprice (analysishelper.cxx). The old power of (1 + y/f) used
     # 365.25 or 360 for every other basis, so basis 3 was Actual/360.
@@ -524,10 +546,19 @@ def poisson(x: Any, mean: Any, cumulative: Any = False) -> float:
         if st is None:
             return float("nan")
 
-        if cumulative:
+        # What was wrong: POISSON(2, 2, "0") returned the CDF, and
+        # POISSON(2, 2, "abc") returned the CDF instead of NaN.
+        # How it happened: `if cumulative:` is Python truthiness. Any
+        # non-empty string is true. ScPoissonDist uses GetBool()
+        # (GetDouble() != 0).
+        # Why this change fixes it: _as_nonzero is that check. "0" is false.
+        # "abc" raises ValueError, which this handler already turns into NaN.
+        # Imported here so this module does not load t_z at import time.
+        from .calc_functions_t_z import _as_nonzero
+
+        if _as_nonzero(cumulative):
             return float(st.poisson.cdf(k, m))
-        else:
-            return float(st.poisson.pmf(k, m))
+        return float(st.poisson.pmf(k, m))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
@@ -806,6 +837,20 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
         return float("nan")
     asc = order > 0.0
     if arr.ndim == 1:
+        # What was wrong: sort([3, 1, 2], 99) returned [1, 2, 3].
+        # How it happened: this branch returned before the si checks used
+        # for a 2-D range, so the parsed index was ignored.
+        # Why this change fixes it: a flat vector is one column of arr.size
+        # rows. ScSort rejects an index past that axis (PushIllegalParameter).
+        # by_col false keys the only column, which must be index 1, then sorts
+        # the values. by_col true keys a row; one column is the "No need to
+        # sort" path (!bByRow && nsC == 1), so the original order is returned.
+        if bool(by_col):
+            if si < 1 or si > arr.size:
+                return float("nan")
+            return arr.tolist()
+        if si != 1:
+            return float("nan")
         indices = list(range(arr.size))
         indices.sort(key=lambda i: _calc_sort_key(arr[i]), reverse=not asc)
         return arr[indices].tolist()
@@ -937,7 +982,13 @@ def sqrtpi(number: Any) -> float:
         n = float(number)
         if n < 0:
             return float("nan")
-        return float(math.sqrt(n * math.pi))
+        # What was wrong: SQRTPI(1e308) returned inf.
+        # How it happened: n * pi overflows to inf, and math.sqrt(inf) does
+        # not raise, so the OverflowError handler never ran.
+        # Why this change fixes it: AnalysisAddIn::getSqrtpi returns
+        # finiteOrThrow. A non-finite root is NaN.
+        res = math.sqrt(n * math.pi)
+        return res if math.isfinite(res) else float("nan")
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
@@ -1138,7 +1189,14 @@ def sumproduct(*args: Any) -> float:
                 break
             prod *= val
         total += prod
-    return float(total)
+    # What was wrong: SUMPRODUCT(1e200, 1e200) returned inf.
+    # How it happened: the product of two finite floats overflows without
+    # raising. The OverflowError handler only sees float() of a huge int
+    # inside _cell_number. ScSumProduct's PushDouble goes through
+    # TreatDoubleError, which rejects a non-finite total.
+    # Why this change fixes it: a non-finite total is NaN. A numeric NaN
+    # still fails isfinite, so it stays NaN.
+    return float(total) if math.isfinite(total) else float("nan")
 
 
 def sumsq(*args: Any) -> float:
@@ -1154,7 +1212,12 @@ def sumsq(*args: Any) -> float:
             if num is None or math.isnan(num):
                 continue
             total += num * num
-    return float(total)
+    # What was wrong: SUMSQ(1e200) returned inf.
+    # How it happened: the square overflows without raising. SUMSQ reaches
+    # PushDouble, and TreatDoubleError rejects a non-finite total.
+    # Why this change fixes it: a non-finite total is NaN. The huge-int
+    # OverflowError path above is unchanged.
+    return float(total) if math.isfinite(total) else float("nan")
 
 
 def py_str(val: Any) -> str:
