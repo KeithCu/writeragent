@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -274,4 +275,276 @@ def test_run_viz_bad_header_row_is_invalid_spec():
     result = run_viz({"helper": "quick_plot", "header_row": "nope"}, [])
     assert result["status"] == "error"
     assert result["code"] == "INVALID_SPEC"
+
+
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_quick_plot_non_numeric_y_cols(mock_plt):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"Sales": [10.0, 20.0, 30.0], "Region": ["A", "B", "C"]})
+
+    result = run_viz({"helper": "quick_plot", "params": {"y_cols": ["Region"]}}, df, {})
+
+    assert result["status"] == "error"
+    assert result["code"] == "NON_NUMERIC_COLUMN"
+    assert result["message"] == "Non-numeric columns: Region"
+    assert result["helper"] == "quick_plot"
+    plt_mod.subplots.assert_not_called()
+
+
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_plot_data_non_numeric_y(mock_plt):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"Sales": [10.0, 20.0, 30.0], "Region": ["A", "B", "C"]})
+
+    result = run_viz({"helper": "plot_data", "params": {"spec": {"y": "Region"}}}, df, {})
+
+    assert result["status"] == "error"
+    assert result["code"] == "NON_NUMERIC_COLUMN"
+    assert result["message"] == "Non-numeric columns: Region"
+    assert result["helper"] == "plot_data"
+    plt_mod.subplots.assert_not_called()
+
+
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_plot_data_scatter_non_numeric_x(mock_plt):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"Sales": [10.0, 20.0, 30.0], "Region": ["A", "B", "C"]})
+
+    result = run_viz(
+        {
+            "helper": "plot_data",
+            "params": {"spec": {"chart_type": "scatter", "x": "Region", "y": "Sales"}},
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "error"
+    assert result["code"] == "NON_NUMERIC_COLUMN"
+    assert result["message"] == "Non-numeric columns: Region"
+    assert result["helper"] == "plot_data"
+    plt_mod.subplots.assert_not_called()
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_plot_data_missing_y_uses_first_numeric(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    fig, ax = plt_mod.subplots.return_value
+    df = pd.DataFrame({"Sales": [10.0, 20.0, 30.0], "Region": ["A", "B", "C"]})
+
+    result = run_viz({"helper": "plot_data", "params": {"spec": {"y": "nope"}}}, df, {})
+
+    assert result["status"] == "ok"
+    ax.set_ylabel.assert_called_with("Sales")
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_plot_data_hue_is_ignored(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    fig, ax = plt_mod.subplots.return_value
+    df = pd.DataFrame({"x": [1.0, 2.0], "y": [3.0, 4.0], "g": ["A", "B"]})
+
+    result = run_viz(
+        {
+            "helper": "plot_data",
+            "params": {"spec": {"chart_type": "line", "x": "x", "y": "y", "hue": "g", "title": "T"}},
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "ok"
+    assert result["legend"] is False
+    ax.legend.assert_not_called()
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_quick_plot_line_plots_x_col(mock_plt, _mock_payload):
+    """A line chart used to ignore x_col once the frame passed 12 rows."""
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    fig, ax = plt_mod.subplots.return_value
+    months = [f"m{i}" for i in range(13)]
+    sales = [float(i * 10) for i in range(13)]
+    df = pd.DataFrame({"Month": months, "Sales": sales})
+
+    result = run_viz({"helper": "quick_plot", "params": {"x_col": "Month"}}, df, {})
+
+    assert result["status"] == "ok"
+    assert result["chart_type"] == "line"
+    ax.plot.assert_called_once()
+    args, _kwargs = ax.plot.call_args
+    assert list(args[0]) == months
+    assert list(args[1]) == sales
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_quick_plot_bar_tick_labels_use_x_col(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    fig, ax = plt_mod.subplots.return_value
+    df = pd.DataFrame({"Region": ["A", "B", "C"], "Sales": [10.0, 20.0, 30.0]})
+
+    result = run_viz({"helper": "quick_plot", "params": {"x_col": "Region"}}, df, {})
+
+    assert result["status"] == "ok"
+    assert result["chart_type"] == "bar"
+    assert list(ax.set_xticklabels.call_args[0][0]) == ["A", "B", "C"]
+    ax.plot.assert_not_called()
+
+
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_time_series_missing_historical_column(mock_plt):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"date": ["2024-01-01"], "Value": [10.0]})
+
+    result = run_viz(
+        {
+            "helper": "time_series_plot",
+            "params": {"date_col": "date", "value_col": "Value", "historical_value_col": "Actual"},
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "error"
+    assert result["code"] == "UNKNOWN_COLUMN"
+    assert result["message"] == "Unknown historical value column 'Actual'"
+    assert result["helper"] == "time_series_plot"
+    plt_mod.subplots.assert_not_called()
+
+
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_time_series_missing_historical_names_that_column_when_value_is_also_missing(mock_plt):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"date": ["2024-01-01"]})
+
+    result = run_viz(
+        {
+            "helper": "time_series_plot",
+            "params": {"date_col": "date", "value_col": "Value", "historical_value_col": "Actual"},
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "error"
+    assert result["code"] == "UNKNOWN_COLUMN"
+    assert result["message"] == "Unknown historical value column 'Actual'"
+    plt_mod.subplots.assert_not_called()
+
+
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_time_series_missing_value_column(mock_plt):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"date": ["2024-01-01"]})
+
+    result = run_viz(
+        {
+            "helper": "time_series_plot",
+            "params": {"date_col": "date", "value_col": "Value"},
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "error"
+    assert result["code"] == "UNKNOWN_COLUMN"
+    assert result["message"] == "Unknown value column 'Value'"
+    plt_mod.subplots.assert_not_called()
+
+
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_time_series_insufficient_data_does_not_open_figure(mock_plt):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    df = pd.DataFrame({"date": ["2024-01-01"], "Value": [None]})
+
+    result = run_viz(
+        {
+            "helper": "time_series_plot",
+            "params": {"date_col": "date", "value_col": "Value"},
+        },
+        df,
+        {},
+    )
+
+    assert result["status"] == "error"
+    assert result["code"] == "INSUFFICIENT_DATA"
+    assert result["message"] == "No rows to plot."
+    plt_mod.subplots.assert_not_called()
+
+
+@patch("plugin.scripting.venv.venv_sandbox._figure_to_image_payload", side_effect=RuntimeError("render failed"))
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_figure_closes_when_savefig_raises(mock_plt, _mock_payload):
+    """Savefig used to skip plt.close, and trusted actions never call _close_open_figures."""
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    fig, ax = plt_mod.subplots.return_value
+    df = pd.DataFrame({"Sales": [10.0, 20.0, 30.0]})
+
+    with pytest.raises(RuntimeError, match="render failed"):
+        run_viz({"helper": "quick_plot", "params": {}}, df, {})
+
+    plt_mod.close.assert_called_once_with(fig)
+
+
+@pytest.mark.parametrize("method", ["nope", None, "", "covariance"])
+def test_correlation_heatmap_rejects_unknown_method(method):
+    df = pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+
+    result = run_viz({"helper": "correlation_heatmap", "params": {"method": method}}, df, {})
+
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_PARAMS"
+    assert result["message"] == "method must be pearson, kendall, or spearman"
+    assert result["helper"] == "correlation_heatmap"
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_correlation_heatmap_casefolds_method(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    fig, ax = plt_mod.subplots.return_value
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [3.0, 4.0, 5.0]})
+
+    result = run_viz({"helper": "correlation_heatmap", "params": {"method": "Pearson"}}, df, {})
+
+    assert result["status"] == "ok"
+    ax.set_title.assert_called_with("Correlation (pearson)")
+
+
+@patch("plugin.scripting.venv.viz._figure_payload", return_value=_mock_figure_payload())
+@patch("plugin.scripting.venv.viz._require_matplotlib")
+def test_correlation_heatmap_seaborn_failure_uses_imshow(mock_plt, _mock_payload):
+    plt_mod = _mock_plt_module()
+    mock_plt.return_value = plt_mod
+    fig, ax = plt_mod.subplots.return_value
+    df = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [3.0, 4.0, 5.0]})
+
+    fake_seaborn = MagicMock()
+    fake_seaborn.heatmap.side_effect = RuntimeError("boom")
+
+    with patch.dict(sys.modules, {"seaborn": fake_seaborn}):
+        result = run_viz({"helper": "correlation_heatmap", "params": {"method": "pearson"}}, df, {})
+
+    assert result["status"] == "ok"
+    fake_seaborn.heatmap.assert_called_once()
+    ax.imshow.assert_called_once()
+    plt_mod.close.assert_called_once()
+
 

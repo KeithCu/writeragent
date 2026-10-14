@@ -203,14 +203,15 @@ Calc plot replacement reuses only a `GraphicObjectShape` named `WriterAgentPlot`
 
 | Helper | Purpose | Notes |
 |--------|---------|-------|
-| `plot_data` | Auto chart from numeric grid + `spec` | Chart-type recommendation, title/legend metadata |
-| `correlation_heatmap` | Heatmap | Builds on `correlation_matrix` analysis output |
-| `time_series_plot` | Date-indexed line plot | Shared with Forecast domain |
-| `quick_plot` | Default Run Python Script template | Phase B egress for insert |
+| `plot_data` | Auto chart from numeric grid + `spec` | Spec keys: chart_type (line default, also bar, scatter, histogram), x, y, title. hue is not read. A y that names a non-numeric column, or a scatter x that does, is NON_NUMERIC_COLUMN. A name that is not a column falls back to the first numeric column. |
+| `correlation_heatmap` | Heatmap | method is pearson, kendall, or spearman (strip and lowercase). Anything else is INVALID_PARAMS. If seaborn cannot draw, the helper uses matplotlib imshow. |
+| `time_series_plot` | Date-indexed line plot | Shared with Forecast. historical_value_col, when set, must name a column (UNKNOWN_COLUMN). It does not fall back to value_col. Missing forecast_col, lower_col, and upper_col are skipped. |
+| `quick_plot` | Default Run Python Script template | x_col, when it names a column, is the bar tick labels and the line x values. Bar when the frame has 12 or fewer rows, otherwise line. The y column that is plotted, if it is not numeric, is NON_NUMERIC_COLUMN. |
 
 **Run Python Script templates:** **Viz Helpers →** `[Viz] quick_plot`, `[Viz] correlation_heatmap`, `[Viz] time_series`.
 
 **Result contract (draft):** `{status, helper, image: {format, data}, title, legend, chart_type, writer_cleanup_hints}` — image bytes use the same `__wa_payload__: "image"` envelope as Phase A.
+Viz helpers close the matplotlib figure on every exit, including when savefig fails, so a trusted-action error does not leave the figure open on the warm worker.
 
 **Analysis sub-agent:** After `run_regression`, `cluster_numeric`, `monte_carlo`, or `correlation_matrix`, `analyze_data` can auto-call a matching viz helper when `auto_plot=true` or the task hint mentions charts (see [`viz_auto_plot.py`](../../plugin/calc/viz_auto_plot.py)).
 
@@ -364,7 +365,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 |-------|---------|
 | `forecast_col` | Column name for forward forecast values (overlay) |
 | `lower_col` / `upper_col` | Band edges; use `fill_between` when both present |
-| `historical_value_col` | When plotting merged history+forecast frame |
+| `historical_value_col` | When plotting a merged history+forecast frame. Must name an existing column. A missing name is UNKNOWN_COLUMN and does not fall back to value_col. |
 
 **Alternative (if extension gets messy):** add viz helper `forecast_band_plot` that accepts the **forecast result table** via `params.forecast_table` (columns from Phase 0 `forecast` table) plus `data_range` for history — host merges in `run_trusted_viz` before IPC. Prefer single-helper extension first.
 
