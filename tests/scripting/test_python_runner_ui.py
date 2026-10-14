@@ -7,11 +7,13 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from plugin.scripting import python_runner_ui as ui
+from plugin.scripting.document_scripts import DocumentScriptError, DocumentScriptErrorCode
 
 
 def test_report_run_outcome_sets_status_via_set_control_text():
@@ -314,6 +316,27 @@ def test_start_native_script_run_releases_pin_when_finish_is_not_run():
     assert "timed out" in seen[0]["message"]
 
 
+def test_start_native_script_run_prepare_timeout_does_not_release():
+    ctx = MagicMock()
+    doc = MagicMock()
+    seen = []
+
+    def _inline(func, *args, **kwargs):
+        func()
+        return MagicMock()
+
+    with (
+        _deliver_posted_native_run(),
+        patch.object(ui, "run_in_background", side_effect=_inline),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=TimeoutError("prepare")),
+        patch("plugin.scripting.session_manager.release_script_document") as mock_release,
+    ):
+        ui.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
+
+    mock_release.assert_not_called()
+    assert seen and seen[0]["ok"] is False
+
+
 
 def test_report_run_outcome_shows_stdout_alongside_result():
     """A returned value is inserted; printed text still belongs in the Output box."""
@@ -389,18 +412,29 @@ def test_save_current_script_fallback_collision():
     inst._doc = MagicMock()
     inst._current_scripts = {}
     inst._script_origin_map = {}
+    doc_err = DocumentScriptError(
+        "Document is read-only or properties cannot be written.",
+        DocumentScriptErrorCode.READONLY,
+    )
 
     with (
         patch.object(ui, "_picker_selected_name", return_value="MyDocScript (in Document)"),
         patch.object(ui, "resolve_script_picker_entry", return_value=("MyDocScript", ui.SCRIPT_ORIGIN_DOCUMENT)),
-        patch.object(ui, "save_document_script", return_value="Write failed."),
+        patch.object(ui, "save_document_script", return_value=doc_err),
         patch.object(ui, "get_user_scripts", return_value={"MyDocScript": "existing code"}),
         patch.object(ui, "save_user_script") as mock_save_user,
+        patch.object(inst, "_refresh_script_dropdown") as mock_refresh,
     ):
         res = inst._save_current_script("new code")
 
-    assert res == "Cannot save to My Scripts: a script named 'MyDocScript' already exists."
+    assert res.channel == "modal"
+    assert (
+        res.text
+        == "Could not save to this document (Document is read-only or properties cannot be written.). A script named 'MyDocScript' already exists in My Scripts."
+    )
     mock_save_user.assert_not_called()
+    mock_refresh.assert_not_called()
+
 
 def test_save_current_script_fallback_success():
     inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
@@ -408,18 +442,307 @@ def test_save_current_script_fallback_success():
     inst._doc = MagicMock()
     inst._current_scripts = {}
     inst._script_origin_map = {}
+    doc_err = DocumentScriptError(
+        "Document is read-only or properties cannot be written.",
+        DocumentScriptErrorCode.READONLY,
+    )
 
     with (
         patch.object(ui, "_picker_selected_name", return_value="MyDocScript (in Document)"),
         patch.object(ui, "resolve_script_picker_entry", return_value=("MyDocScript", ui.SCRIPT_ORIGIN_DOCUMENT)),
-        patch.object(ui, "save_document_script", return_value="Write failed."),
+        patch.object(ui, "save_document_script", return_value=doc_err),
         patch.object(ui, "get_user_scripts", return_value={}),
+        patch.object(ui, "save_user_script") as mock_save_user,
+        patch.object(inst, "_refresh_script_dropdown") as mock_refresh,
+    ):
+        res = inst._save_current_script("new code")
+
+    assert res.channel == "modal"
+    assert (
+        res.text
+        == "Could not save to this document (Document is read-only or properties cannot be written.). Saved to My Scripts instead."
+    )
+    mock_save_user.assert_called_once_with("MyDocScript", "new code")
+    mock_refresh.assert_called_once_with(select_display="MyDocScript")
+
+
+def test_save_current_script_non_readonly_does_not_fall_back():
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._select_ctrl = MagicMock()
+    inst._doc = MagicMock()
+    inst._current_scripts = {}
+    inst._script_origin_map = {}
+    doc_err = DocumentScriptError("too big", DocumentScriptErrorCode.TOO_LARGE)
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="MyDocScript (in Document)"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("MyDocScript", ui.SCRIPT_ORIGIN_DOCUMENT)),
+        patch.object(ui, "save_document_script", return_value=doc_err),
+        patch.object(ui, "save_user_script") as mock_save_user,
+        patch.object(inst, "_refresh_script_dropdown") as mock_refresh,
+    ):
+        res = inst._save_current_script("new code")
+
+    assert res.channel == "modal"
+    assert res.text == "too big"
+    mock_save_user.assert_not_called()
+    mock_refresh.assert_not_called()
+
+
+def test_save_current_script_builtin_channel():
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._select_ctrl = MagicMock()
+    inst._doc = MagicMock()
+    inst._current_scripts = {}
+    inst._script_origin_map = {}
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="[Vision] extract_text"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("extract_text", "vision")),
+        patch.object(ui, "save_document_script") as mock_save_doc,
         patch.object(ui, "save_user_script") as mock_save_user,
     ):
         res = inst._save_current_script("new code")
 
-    assert res == "Write failed. Saved to My Scripts instead."
-    mock_save_user.assert_called_once_with("MyDocScript", "new code")
+    assert res.channel == "builtin"
+    assert res.text is not None
+    assert "Save As" in res.text
+    assert "Copy to My Scripts" not in res.text
+    mock_save_doc.assert_not_called()
+    mock_save_user.assert_not_called()
+
+
+def test_save_current_script_user_success_is_ok():
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._select_ctrl = MagicMock()
+    inst._doc = MagicMock()
+    inst._current_scripts = {}
+    inst._script_origin_map = {}
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="Mine"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
+        patch.object(ui, "save_user_script") as mock_save_user,
+    ):
+        res = inst._save_current_script("new code")
+
+    assert res.channel == "ok"
+    assert res.text == "Script 'Mine' saved successfully."
+    mock_save_user.assert_called_once_with("Mine", "new code")
+
+
+def _setup_dialog_and_listeners(doc=None, code="result = 1"):
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._ctx = MagicMock()
+    inst._doc = doc
+    inst._modeless = False
+    inst._name_config_key = "scripting.last_python_script_name"
+    inst._current_scripts = {}
+    inst._script_origin_map = {}
+    inst._closed = False
+
+    dlg = MagicMock()
+    code_ctrl = MagicMock()
+    code_ctrl.getModel.return_value.Text = code
+    lbl_ctrl = MagicMock()
+    btn_run = MagicMock()
+    btn_save = MagicMock()
+    btn_new = MagicMock()
+    btn_save_as = MagicMock()
+    btn_delete = MagicMock()
+    btn_cancel = MagicMock()
+    script_select = MagicMock()
+
+    controls = {
+        "CodeEdit": code_ctrl,
+        "InstructionLbl": lbl_ctrl,
+        "BtnRun": btn_run,
+        "BtnSave": btn_save,
+        "BtnNew": btn_new,
+        "BtnSaveAs": btn_save_as,
+        "BtnDelete": btn_delete,
+        "BtnCancel": btn_cancel,
+        "ScriptSelect": script_select,
+    }
+    dlg.getControl.side_effect = lambda name: controls.get(name)
+    inst._dlg = dlg
+    inst._select_ctrl = script_select
+
+    action_listeners: dict[str, Any] = {}
+    for name in ("BtnRun", "BtnSave", "BtnNew", "BtnSaveAs", "BtnDelete", "BtnCancel"):
+        mock_btn = controls[name]
+
+        def _make_adder(btn_mock=mock_btn):
+            def _add(listener):
+                action_listeners[type(listener).__name__] = listener
+            btn_mock.addActionListener.side_effect = _add
+
+        _make_adder()
+
+    inst._wire_listeners(dlg, script_select)
+
+    def _trigger_action(type_substr: str):
+        for name, listener in action_listeners.items():
+            if type_substr in name:
+                listener.actionPerformed(MagicMock())
+                return
+        raise AssertionError(f"No action listener matching {type_substr}")
+
+    return inst, controls, _trigger_action
+
+
+def test_run_ok_save_shows_running_and_no_save_box():
+    inst, controls, trigger = _setup_dialog_and_listeners()
+    save_result = ui._ScriptSaveResult("Script 'Mine' saved successfully.", "ok")
+    lbl = controls["InstructionLbl"]
+
+    with (
+        patch.object(inst, "_save_current_script", return_value=save_result),
+        patch.object(ui, "start_native_script_run") as mock_start_run,
+        patch.object(ui, "msgbox") as mock_msgbox,
+    ):
+        trigger("RunListener")
+
+    mock_msgbox.assert_not_called()
+    mock_start_run.assert_called_once()
+    lbl.setText.assert_called_once_with("Running...")
+    assert "Script 'Mine' saved successfully." not in [call.args[0] for call in lbl.setText.call_args_list]
+
+
+def test_run_builtin_keeps_warning_on_the_label():
+    warning_text = ui._builtin_helpers_readonly_text()
+    save_result = ui._ScriptSaveResult(warning_text, "builtin")
+
+    # Case 1: success restores builtin warning
+    inst, controls, trigger = _setup_dialog_and_listeners()
+    lbl = controls["InstructionLbl"]
+    captured_on_complete = {}
+
+    def _capture_run(ctx, doc, code, *, on_complete, **kwargs):
+        captured_on_complete["callback"] = on_complete
+
+    def _fake_report_outcome(ctx, lbl_ctrl, outcome):
+        lbl_ctrl.setText(outcome.get("status_ok_text"))
+
+    with (
+        patch.object(inst, "_save_current_script", return_value=save_result),
+        patch.object(ui, "start_native_script_run", side_effect=_capture_run) as mock_start_run,
+        patch.object(ui, "msgbox") as mock_msgbox,
+        patch.object(ui, "_report_run_outcome", side_effect=_fake_report_outcome),
+    ):
+        trigger("RunListener")
+        mock_msgbox.assert_not_called()
+        assert "Running..." not in [call.args[0] for call in lbl.setText.call_args_list]
+        mock_start_run.assert_called_once()
+        assert "callback" in captured_on_complete
+        captured_on_complete["callback"]({"ok": True, "status_ok_text": "Script executed successfully."})
+
+    assert lbl.setText.call_args.args[0] == warning_text
+
+    # Case 2: failure leaves error on label
+    inst2, controls2, trigger2 = _setup_dialog_and_listeners()
+    lbl2 = controls2["InstructionLbl"]
+    captured_on_complete2 = {}
+
+    def _capture_run2(ctx, doc, code, *, on_complete, **kwargs):
+        captured_on_complete2["callback"] = on_complete
+
+    with (
+        patch.object(inst2, "_save_current_script", return_value=save_result),
+        patch.object(ui, "start_native_script_run", side_effect=_capture_run2),
+        patch.object(ui, "msgbox") as mock_msgbox,
+        patch.object(ui, "_report_run_outcome"),
+    ):
+        trigger2("RunListener")
+        captured_on_complete2["callback"]({"ok": False, "message": "boom"})
+
+    assert lbl2.setText.call_args.args[0] == "boom"
+
+
+def test_run_modal_save_boxes_then_runs():
+    inst, controls, trigger = _setup_dialog_and_listeners()
+    lbl = controls["InstructionLbl"]
+    modal_text = "Could not save to this document."
+    save_result = ui._ScriptSaveResult(modal_text, "modal")
+    order = []
+
+    def _fake_msgbox(ctx, title, text):
+        order.append(("msgbox", title, text))
+
+    def _fake_start_run(ctx, doc, code, *, on_complete, **kwargs):
+        order.append("start_run")
+
+    with (
+        patch.object(inst, "_save_current_script", return_value=save_result),
+        patch.object(ui, "msgbox", side_effect=_fake_msgbox),
+        patch.object(ui, "start_native_script_run", side_effect=_fake_start_run),
+    ):
+        trigger("RunListener")
+
+    assert order == [("msgbox", "Save", modal_text), "start_run"]
+    lbl.setText.assert_called_with("Running...")
+
+
+def test_delete_user_script_failure_does_not_claim_success():
+    inst, controls, trigger = _setup_dialog_and_listeners()
+    lbl = controls["InstructionLbl"]
+    del_err = DocumentScriptError(
+        "Script 'Mine' does not exist in My Scripts.",
+        DocumentScriptErrorCode.NOT_FOUND,
+    )
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="Mine"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
+        patch.object(ui, "show_approval_dialog", return_value=True),
+        patch.object(ui, "delete_user_script", return_value=del_err),
+        patch.object(inst, "_refresh_script_dropdown") as mock_refresh,
+    ):
+        trigger("DeleteListener")
+
+    mock_refresh.assert_not_called()
+    assert lbl.setText.call_args.args[0] == del_err
+    assert "Script 'Mine' deleted." not in [call.args[0] for call in lbl.setText.call_args_list]
+
+
+def test_delete_user_script_success_refreshes():
+    inst, controls, trigger = _setup_dialog_and_listeners()
+    lbl = controls["InstructionLbl"]
+
+    with (
+        patch.object(ui, "_picker_selected_name", return_value="Mine"),
+        patch.object(ui, "resolve_script_picker_entry", return_value=("Mine", ui.SCRIPT_ORIGIN_USER)),
+        patch.object(ui, "show_approval_dialog", return_value=True),
+        patch.object(ui, "delete_user_script", return_value=None),
+        patch.object(inst, "_refresh_script_dropdown") as mock_refresh,
+    ):
+        trigger("DeleteListener")
+
+    mock_refresh.assert_called_once_with()
+    assert lbl.setText.call_args.args[0] == "Script 'Mine' deleted."
+
+
+def test_native_dialog_open_survives_warm_schedule_failure():
+    inst = ui.NativePythonScriptDialog.__new__(ui.NativePythonScriptDialog)
+    inst._ctx = MagicMock()
+    inst._doc = MagicMock()
+    inst._modeless = False
+    inst._closed = False
+    inst._dlg = None
+    dlg = MagicMock()
+
+    with (
+        patch.object(ui, "load_writeragent_dialog_detail", return_value=(dlg, None)),
+        patch.object(ui, "run_in_background", side_effect=RuntimeError("pool shut down")),
+        patch.object(ui, "build_xdl_script_picker_state", return_value=([], {}, {})),
+        patch.object(ui, "get_user_scripts", return_value={}),
+        patch.object(inst, "_refresh_script_dropdown"),
+        patch.object(inst, "_wire_listeners"),
+    ):
+        assert inst._open() is True
+
+    assert inst._open_failure_detail is None
+    dlg.execute.assert_called_once()
 
 
 def test_start_native_script_run_uses_dedicated_worker():

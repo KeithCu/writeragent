@@ -22,7 +22,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable, Literal
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTopWindowListener
 
@@ -59,10 +60,11 @@ from plugin.chatbot.dialogs import (
     set_control_enabled,
     set_control_text,
     show_approval_dialog,
+    show_new_script_dialog,
 )
-from plugin.chatbot.dialogs import show_new_script_dialog
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.document_scripts import (
+    DocumentScriptErrorCode,
     attach_document_script,
     build_xdl_script_picker_state,
     delete_document_script,
@@ -71,12 +73,25 @@ from plugin.scripting.document_scripts import (
     resolve_script_picker_entry,
     save_document_script,
     save_user_script,
-    script_origin_is_library,
+    script_origin_is_writable,
 )
 from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
 from plugin.scripting.venv_worker import warm_venv_worker
 
 log = logging.getLogger("writeragent.scripting")
+
+
+@dataclass(frozen=True)
+class _ScriptSaveResult:
+    text: str | None
+    channel: Literal["none", "ok", "builtin", "modal"]
+
+
+def _builtin_helpers_readonly_text() -> str:
+    # Monaco keeps 'Use Copy to My Scripts' in scripts_manager.js,
+    # editor_ui_strings.py, and save_selected_script. Do not change those,
+    # and do not add a Copy button or edit the XDL.
+    return _("Built-in helpers are read-only. Use Save As to copy one into My Scripts.")
 
 
 def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str) -> None:
@@ -135,10 +150,13 @@ def start_native_script_run(
         post_to_main_thread(_apply)
 
     def _native_script_run_worker() -> None:
+        prepared: dict[str, Any] | None = None
         try:
             prepared = execute_on_main_thread(
                 _prepare_rps_execution, ctx, doc, code, data_range=data_range
             )
+            if not isinstance(prepared, dict):
+                return
             early = prepared.get("early_outcome")
             if early is not None:
                 _deliver(early)
@@ -221,7 +239,7 @@ class NativePythonScriptDialog:
     _doc: Any | None
     _modeless: bool
     _closed: bool
-    _open_failure_detail: str | None
+    _open_failure_detail: str | None = None
     _name_config_key: str
 
     def __init__(
@@ -241,6 +259,7 @@ class NativePythonScriptDialog:
         self._closed = False
         self._top_listener: Any | None = None
         self._open_failure_detail = None
+        # Local import: python_runner imports this module at module level.
         from plugin.scripting.python_runner import resolve_run_script_name_config_key
 
         self._name_config_key = resolve_run_script_name_config_key(initial_doc)
@@ -306,6 +325,7 @@ class NativePythonScriptDialog:
 
         config_key = getattr(self, "_name_config_key", None)
         if not config_key:
+            # Local import: python_runner imports this module at module level.
             from plugin.scripting.python_runner import resolve_run_script_name_config_key
 
             config_key = resolve_run_script_name_config_key(self._doc)
@@ -358,7 +378,13 @@ class NativePythonScriptDialog:
 
             # Finite pre-warm. The shared daemon pool is for this. dedicated=True
             # is for servers, pipe drains, and jobs another thread joins.
-            run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
+            # What was wrong: a submit failure disposed a dialog that was already loaded.
+            # How it happened: this call sits in _open's try without its own handler.
+            # Why this change: pre-warm is optional, so catch and log scheduling failures.
+            try:
+                run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
+            except Exception:
+                log.exception("native script dialog: venv warm-up was not scheduled")
 
             select_ctrl = dlg.getControl("ScriptSelect")
             self._select_ctrl = select_ctrl
@@ -419,34 +445,49 @@ class NativePythonScriptDialog:
             self.close()
             return False
 
-    def _save_current_script(self, t: str) -> str | None:
+    def _save_current_script(self, t: str) -> _ScriptSaveResult:
         select_ctrl = self._select_ctrl
         if select_ctrl is None:
-            return None
+            return _ScriptSaveResult(None, "none")
         display_name = _picker_selected_name(select_ctrl)
-        if display_name:
-            real_name, origin = resolve_script_picker_entry(display_name, self._script_origin_map)
-            self._current_scripts[display_name] = t
-            if not script_origin_is_library(origin):
-                return _("Built-in helpers are read-only. Use Copy to My Scripts to customize.")
-            if origin == SCRIPT_ORIGIN_DOCUMENT:
-                if self._doc is None:
-                    return _("No document is open to save scripts.")
-                err = save_document_script(self._doc, real_name, t)
-                if err:
-                    if real_name in get_user_scripts():
-                        return _("Cannot save to My Scripts: a script named '%s' already exists.") % real_name
-                    save_user_script(real_name, t)
-                    # After falling back to My Scripts, refresh the dropdown and
-                    # select the saved user script. Leaving the [Doc] entry
-                    # selected disagrees with where the script was stored.
-                    self._refresh_script_dropdown(select_display=real_name)
-                    return _("%s Saved to My Scripts instead.") % err
-                return _("Script '%s' saved to this document.") % real_name
-            else:
-                save_user_script(real_name, t)
-                return _("Script '%s' saved successfully.") % real_name
-        return None
+        if not display_name:
+            return _ScriptSaveResult(None, "none")
+        real_name, origin = resolve_script_picker_entry(display_name, self._script_origin_map)
+        self._current_scripts[display_name] = t
+        if not script_origin_is_writable(origin):
+            return _ScriptSaveResult(_builtin_helpers_readonly_text(), "builtin")
+        if origin == SCRIPT_ORIGIN_DOCUMENT:
+            if self._doc is None:
+                return _ScriptSaveResult(_("No document is open to save scripts."), "modal")
+            err = save_document_script(self._doc, real_name, t)
+            # What was wrong: any document error used to be copied into My Scripts,
+            # and the label either hid the document failure or glued str(err) onto
+            # a second sentence.
+            # How it happened: an unconditional fallback ran for all non-None err returns.
+            # Why this change: Monaco already limits the fallback to READONLY so
+            # TOO_LARGE and reserved names are not skipped. This branch matches that,
+            # and both READONLY sentences name the document failure.
+            if err is None:
+                return _ScriptSaveResult(_("Script '%s' saved to this document.") % real_name, "ok")
+            if getattr(err, "code", None) != DocumentScriptErrorCode.READONLY:
+                return _ScriptSaveResult(str(err), "modal")
+            if real_name in get_user_scripts():
+                return _ScriptSaveResult(
+                    _("Could not save to this document (%s). A script named '%s' already exists in My Scripts.")
+                    % (err, real_name),
+                    "modal",
+                )
+            save_user_script(real_name, t)
+            # After falling back to My Scripts, refresh the dropdown and
+            # select the saved user script. Leaving the [Doc] entry
+            # selected disagrees with where the script was stored.
+            self._refresh_script_dropdown(select_display=real_name)
+            return _ScriptSaveResult(
+                _("Could not save to this document (%s). Saved to My Scripts instead.") % err,
+                "modal",
+            )
+        save_user_script(real_name, t)
+        return _ScriptSaveResult(_("Script '%s' saved successfully.") % real_name, "ok")
 
     def _store_script(
         self,
@@ -523,20 +564,36 @@ class NativePythonScriptDialog:
                 ec = dlg.getControl("CodeEdit")
                 t = (ec.getModel().Text or "").rstrip()
                 lbl = dlg.getControl("InstructionLbl")
-                # Show the save message. Discarding it hid save warnings and a
-                # fallback to My Scripts.
-                save_msg = owner._save_current_script(t)
-                if save_msg:
-                    set_control_text(lbl, save_msg)
+                # What was wrong: the save sentence was written and then replaced by
+                # Running..., and completion replaced the label again.
+                # How it happened: 1682d0493 displayed save_msg and the next line
+                # always set Running...
+                # Why this change: builtin stays on the label through a successful
+                # finish; every other warning is a Save box before Running...
+                save_res = owner._save_current_script(t)
+                save_channel = save_res.channel
+                save_text = save_res.text
+
+                if save_channel == "builtin":
+                    if save_text:
+                        set_control_text(lbl, save_text)
+                elif save_channel == "modal":
+                    if save_text:
+                        msgbox(ctx, _("Save"), save_text)
+
                 btn_run = dlg.getControl("BtnRun")
                 set_control_enabled(btn_run, False)
-                set_control_text(lbl, _("Running..."))
+
+                if save_channel != "builtin":
+                    set_control_text(lbl, _("Running..."))
 
                 def _on_complete(outcome: dict[str, Any]) -> None:
                     try:
                         _report_run_outcome(ctx, lbl, outcome)
                         if not outcome.get("ok"):
                             set_control_text(lbl, str(outcome.get("message") or _("Execution Error")))
+                        elif save_channel == "builtin" and save_text:
+                            set_control_text(lbl, save_text)
                     finally:
                         set_control_enabled(btn_run, True)
 
@@ -555,8 +612,8 @@ class NativePythonScriptDialog:
                 t = (ec.getModel().Text or "").rstrip()
                 lbl = dlg.getControl("InstructionLbl")
                 res = owner._save_current_script(t)
-                if res:
-                    set_control_text(lbl, res)
+                if res.text:
+                    set_control_text(lbl, res.text)
             except Exception as exc:
                 _report_script_dialog_error(ctx, dlg, exc, "Save")
 
@@ -605,10 +662,10 @@ class NativePythonScriptDialog:
 
                 lbl = dlg.getControl("InstructionLbl")
                 real_name, origin = resolve_script_picker_entry(display_name, owner._script_origin_map)
-                if not script_origin_is_library(origin):
+                if not script_origin_is_writable(origin):
                     set_control_text(
                         lbl,
-                        _("Built-in helpers are read-only. Use Copy to My Scripts to customize."),
+                        _builtin_helpers_readonly_text(),
                     )
                     return
                 if show_approval_dialog(
@@ -625,7 +682,14 @@ class NativePythonScriptDialog:
                             set_control_text(lbl, err)
                             return
                     else:
-                        delete_user_script(real_name)
+                        # What was wrong: a missing My Scripts row was reported as deleted.
+                        # How it happened: the NOT_FOUND return from delete_user_script was ignored.
+                        # Why this change: match the document branch by checking err, displaying it,
+                        # and returning before dropdown refresh and success reporting.
+                        err = delete_user_script(real_name)
+                        if err is not None:
+                            set_control_text(lbl, err)
+                            return
                     owner._refresh_script_dropdown()
                     set_control_text(lbl, _("Script '%s' deleted.") % real_name)
             except Exception as exc:

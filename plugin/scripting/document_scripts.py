@@ -404,8 +404,12 @@ def is_calc_init_script_name(name: str) -> bool:
     return name in _CALC_INIT_SCRIPT_NAMES
 
 
-def script_origin_is_library(origin: str) -> bool:
-    """True for My Scripts and this-document rows. Builtin templates are read-only."""
+def script_origin_is_writable(origin: str) -> bool:
+    """True for writable script origins ("", My Scripts, this-document).
+
+    An unspecified origin ("") stays writable so default scripts take the My Scripts branch.
+    Builtin origins (vision, math, and other picker domain origins) are read-only.
+    """
     return origin in ("", SCRIPT_ORIGIN_USER, SCRIPT_ORIGIN_DOCUMENT)
 
 
@@ -780,7 +784,7 @@ def _on_save_script(
     if not name:
         send_list(status_error_text=_("Script name cannot be empty."))
         return True
-    if not script_origin_is_library(origin):
+    if not script_origin_is_writable(origin):
         send_list(
             status_error_text=_(
                 "Built-in helpers are read-only. Use Copy to My Scripts to customize."
@@ -887,7 +891,7 @@ def _on_delete_script(
     if not name:
         send_list(status_error_text=_("Script name cannot be empty."))
         return True
-    if not script_origin_is_library(origin):
+    if not script_origin_is_writable(origin):
         send_list(
             status_error_text=_(
                 "Built-in helpers are read-only. Use Copy to My Scripts to customize."

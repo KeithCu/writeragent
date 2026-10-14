@@ -35,6 +35,7 @@ from plugin.scripting.document_scripts import (
     resolve_script_picker_entry,
     save_selected_script,
     save_user_script,
+    script_origin_is_writable,
     set_calc_init_script,
     set_document_scripts,
 )
@@ -1247,5 +1248,14 @@ def test_attach_and_save_user_script_reject_reserved_prefix():
 
     with pytest.raises(ValueError, match="reserved prefix"):
         save_user_script("[Analysis] describe", "code")
+
+
+def test_script_origin_is_writable():
+    assert script_origin_is_writable("") is True
+    assert script_origin_is_writable("user") is True
+    assert script_origin_is_writable("document") is True
+    assert script_origin_is_writable("vision") is False
+    assert script_origin_is_writable("math") is False
+
 
 
