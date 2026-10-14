@@ -13,7 +13,7 @@ import logging
 from typing import Any, cast
 
 from plugin.calc.analysis_runner import calc_tool_context
-from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
+from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.calc.calc_addin_data import _resolve_python_data
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
 from plugin.scripting.client import run_viz as client_run_viz
@@ -54,8 +54,7 @@ _VIZ_VENV_EXPORTS = frozenset(
     }
 )
 
-__getattr__ = make_getattr("viz", _VIZ_VENV_EXPORTS)
-install_lazy_dir(globals(), _VIZ_VENV_EXPORTS)
+install_lazy_exports(globals(), "viz", _VIZ_VENV_EXPORTS)
 
 
 # --- Templates ---

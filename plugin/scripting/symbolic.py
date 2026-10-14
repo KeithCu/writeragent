@@ -14,7 +14,7 @@ from typing import Any
 from plugin.doc.doc_type import is_calc, is_writer
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
-from plugin.scripting._lazy_venv import install_lazy_dir, make_getattr
+from plugin.scripting._lazy_venv import install_lazy_exports
 from plugin.scripting.calc_functions_common import SYMBOLIC_HELPER_NAMES as HELPER_NAMES
 from plugin.scripting.client import run_symbolic as client_run_symbolic
 from plugin.scripting.helper_domain import (
@@ -52,8 +52,7 @@ _SYMBOLIC_VENV_EXPORTS = frozenset(
     }
 )
 
-__getattr__ = make_getattr("symbolic", _SYMBOLIC_VENV_EXPORTS)
-install_lazy_dir(globals(), _SYMBOLIC_VENV_EXPORTS)
+install_lazy_exports(globals(), "symbolic", _SYMBOLIC_VENV_EXPORTS)
 
 
 # --- Templates ---
