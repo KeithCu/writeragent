@@ -13,6 +13,25 @@ The `com.sun.star.text.TextDocument` service (and its underlying implementation 
 - **Type:** `boolean`
 - **Description:** Start or stop recording changes in the document. When `True`, any insertions, deletions, or formatting changes are tracked as Redlines.
 
+### RedlineDisplayType and ShowChanges
+
+Document-level properties controlling how tracked changes markup is rendered in the document.
+
+| Value | Name | What stuck | `ShowChanges` read back |
+|---|---|---|---|
+| 0 `NONE` | cannot be stored | Python `0` and `uno.Any("short", 0)` both store as **1** | `False` |
+| 1 `INSERTED` | `IsHideChanges` (insertions as normal text, deletions hidden) | sticks | `False` |
+| 2 `INSERTED_AND_REMOVED` | `IsShowChanges` | sticks | `True` |
+| 3 `REMOVED` | `IsShowOriginal` (show original, hide insertions) | sticks | `False` |
+
+WriterAgent show/hide writes `2` (`INSERTED_AND_REMOVED` / `IsShowChanges`) and `1` (`INSERTED` / `IsHideChanges`). Note that `0` cannot be stored on LO 26.8.1.1 (it stores as `1`), and `3` is show-original (`REMOVED` / `IsShowOriginal`).
+
+On LibreOffice 26.8.1.1, the boolean `ShowChanges` property setter is one-way: from type 1, setting `ShowChanges = True` moves to type 2 and `ShowChanges` reads `True`. Setting `ShowChanges = False` while type is 2 does nothing (stays `True` and type 2). Therefore, WriterAgent sets `RedlineDisplayType` directly.
+
+### ShowChangesInMargin
+- **Type:** `boolean` (on `controller.getViewSettings()`)
+- **Description:** The view's "deletions in the margin" preference. The tool does not write this property.
+
 ## Redlines Collection (`XRedlinesSupplier`)
 
 To access the changes made to a document, the document model provides the `com.sun.star.document.XRedlinesSupplier` interface.
@@ -58,7 +77,8 @@ To use these, obtain a `com.sun.star.frame.DispatchHelper` and execute the comma
 - `.uno:RejectAllTrackedChanges`: Rejects all tracked changes in the document at once.
 - `.uno:AcceptTrackedChange`: Accepts the currently selected tracked change (requires navigating the view cursor to the change first).
 - `.uno:RejectTrackedChange`: Rejects the currently selected tracked change (requires navigating the view cursor to the change first).
-- `.uno:ShowTrackedChanges`: Toggles the visibility of the tracked changes markup in the document view.
+- `.uno:ShowTrackedChanges`: On this build (LO 26.8.1.1) the dispatch returns a `DispatchResultEvent` and does not change `ShowChanges` or `RedlineDisplayType`. The tool sets `RedlineDisplayType` directly instead of dispatching this command.
+
 
 ## Example Usage (Python-UNO)
 

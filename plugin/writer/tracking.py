@@ -23,25 +23,111 @@ manage_tracked_changes (accept/reject one or all), and track_changes_show.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcSpecialTracking
+from plugin.writer.search import describe_match_location
 from .specialized_base import WriterAgentSpecialTracking
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
+log = logging.getLogger("writeragent.writer")
+
 _TRACK_CHANGES_UNO_SERVICES = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
+
+
+def _enum_has_more(enum: Any) -> bool:
+    try:
+        return enum.hasMoreElements() is True
+    except Exception:
+        return False
+
+
+def _redline_objects(doc: Any) -> list[Any]:
+    redlines = doc.getRedlines()
+    enum = redlines.createEnumeration()
+    redline_objs = []
+    while _enum_has_more(enum):
+        redline_objs.append(enum.nextElement())
+    return redline_objs
+
+
+def _dispatch(ctx: ToolContext, cmd: str) -> Any:
+    smgr = ctx.ctx.ServiceManager
+    dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
+    frame = ctx.doc.getCurrentController().getFrame()
+    return dispatcher.executeDispatch(frame, cmd, "", 0, ())
+
+
+def _set_recording(tool: Any, doc: Any, record: bool) -> dict[str, Any]:
+    verb = "start" if record else "stop"
+    done = "Started" if record else "Stopped"
+    try:
+        doc.setPropertyValue("RecordChanges", record)
+        return {"status": "ok", "message": f"{done} recording changes."}
+    except Exception as e:
+        return tool._tool_error(f"Failed to {verb} tracking changes: {e}")
+
+
+def _describe_redline(redline: Any, index: int, doc: Any) -> dict[str, Any]:
+    entry: dict[str, Any] = {"index": index}
+    for prop in ("RedlineType", "RedlineAuthor", "RedlineComment", "RedlineIdentifier"):
+        try:
+            entry[prop] = redline.getPropertyValue(prop)
+        except Exception:
+            log.debug("track_changes_list: redline field unreadable", exc_info=True)
+    try:
+        dt = redline.getPropertyValue("RedlineDateTime")
+        entry["date"] = "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
+    except Exception:
+        log.debug("track_changes_list: redline field unreadable", exc_info=True)
+    # Text + location: accept/reject take this index, so the model needs to know WHICH
+    # change is which. Without them, mapping "reject the change to clause 4.2" onto an
+    # index is guesswork. Redline objects from getRedlines() are property sets (no
+    # getAnchor) with RedlineStart/RedlineEnd (XTextRange) and RedlineText (deleted
+    # content). Each field is best-effort so one failure never drops the other.
+    start = None
+    try:
+        start = redline.getPropertyValue("RedlineStart")
+    except Exception:
+        log.debug("track_changes_list: redline field unreadable", exc_info=True)
+        start = None
+    if start is not None:
+        try:
+            entry["location"] = describe_match_location(start, doc)
+        except Exception:
+            log.debug("track_changes_list: redline field unreadable", exc_info=True)
+    # Text: for an insertion the live span RedlineStart..RedlineEnd holds it; for a
+    # deletion that span is collapsed, so fall back to RedlineText (the removed text).
+    txt = ""
+    if start is not None:
+        try:
+            end = redline.getPropertyValue("RedlineEnd")
+            stext = start.getText()
+            cur = stext.createTextCursorByRange(start)
+            cur.gotoRange(end, True)
+            txt = cur.getString() or ""
+        except Exception:
+            log.debug("track_changes_list: redline field unreadable", exc_info=True)
+            txt = ""
+    if not txt:
+        try:
+            rt = redline.getPropertyValue("RedlineText")
+            txt = (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
+        except Exception:
+            log.debug("track_changes_list: redline field unreadable", exc_info=True)
+            txt = ""
+    if txt:
+        entry["text"] = txt if len(txt) <= 300 else txt[:299] + "…"
+    return entry
 
 
 def _calc_track_changes_show_markup(_ctx: Any, _controller: Any, _show: bool) -> dict[str, Any]:
     """Calc: show/hide tracked-change markup from tools is deferred (no stable UNO path yet).
 
-    INVESTIGATE LATER: spreadsheet controllers lack ``getViewSettings``/``ShowChangesInMargin``.
-    A prior attempt scanned the controller as ``XPropertySet`` for boolean props matching
-    change/track + show/visible, then dispatched ``.uno:ShowTrackedChanges``; Calc still did
-    not reliably expose or toggle markup the way Writer does. Revisit when LibreOffice
-    documents a supported API (or headless-safe dispatch with deterministic state).
+    Writer visibility is document RedlineDisplayType; the missing getter only selects this Calc stub.
     """
     return {
         "status": "ok",
@@ -60,11 +146,7 @@ class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  #
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        try:
-            ctx.doc.setPropertyValue("RecordChanges", True)
-            return {"status": "ok", "message": "Started recording changes."}
-        except Exception as e:
-            return self._tool_error(f"Failed to start tracking changes: {e}")
+        return _set_recording(self, ctx.doc, True)
 
 
 class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
@@ -77,11 +159,7 @@ class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        try:
-            ctx.doc.setPropertyValue("RecordChanges", False)
-            return {"status": "ok", "message": "Stopped recording changes."}
-        except Exception as e:
-            return self._tool_error(f"Failed to stop tracking changes: {e}")
+        return _set_recording(self, ctx.doc, False)
 
 
 class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # type: ignore[misc]
@@ -110,81 +188,37 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        recording = False
+        recording: bool | None = False
         try:
+            # What was wrong: failed RecordChanges read was reported as recording: False.
+            # How it happened: recording initialized to False and exception swallowed with bare pass.
+            # Why this change fixes it: log exception and report recording: None when unreadable.
             recording = doc.getPropertyValue("RecordChanges")
         except Exception:
-            pass
+            log.exception("track_changes_list: could not read RecordChanges")
+            recording = None
         agent_mode = self._agent_review_mode(getattr(ctx, "ctx", None))
 
         if not hasattr(doc, "getRedlines"):
-            result = {"status": "ok", "recording": recording, "changes": [], "count": 0, "message": "Document does not expose redlines API."}
+            # What was wrong: documents without getRedlines returned count: 0 and changes: [], looking like empty document.
+            # How it happened: returned standard empty list response when API was missing.
+            # Why this change fixes it: omit count and changes, set track_changes_list_unsupported: True.
+            result: dict[str, Any] = {
+                "status": "ok",
+                "recording": recording,
+                "track_changes_list_unsupported": True,
+                "message": (
+                    "This document does not expose a redlines API, so this is not an empty change list. "
+                    "track_changes_start and track_changes_stop still control recording."
+                ),
+            }
             if agent_mode is not None:
                 result["agent_review_mode"] = agent_mode
             return result
 
         try:
-            redlines = doc.getRedlines()
-            enum = redlines.createEnumeration()
-            # Materialize the enumeration FIRST. Calling getAnchor() (which walks the text model)
-            # mid-enumeration conflicts with the live iterator, so accept/reject only touches the
-            # anchor after the loop -- we do the same by collecting the redlines up front.
-            redline_objs = []
-            while enum.hasMoreElements():
-                redline_objs.append(enum.nextElement())
-
-            from plugin.writer.search import _describe_match_location
-
-            changes = []
-            for index, redline in enumerate(redline_objs):
-                entry: dict[str, Any] = {"index": index}
-                for prop in ("RedlineType", "RedlineAuthor", "RedlineComment", "RedlineIdentifier"):
-                    try:
-                        entry[prop] = redline.getPropertyValue(prop)
-                    except Exception:
-                        pass
-                try:
-                    dt = redline.getPropertyValue("RedlineDateTime")
-                    entry["date"] = "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
-                except Exception:
-                    pass
-                # Text + location: accept/reject take this index, so the model needs to know WHICH
-                # change is which. Without them, mapping "reject the change to clause 4.2" onto an
-                # index is guesswork. Redline objects from getRedlines() are property sets (no
-                # getAnchor) with RedlineStart/RedlineEnd (XTextRange) and RedlineText (deleted
-                # content). Each field is best-effort so one failure never drops the other.
-                start = None
-                try:
-                    start = redline.getPropertyValue("RedlineStart")
-                except Exception:
-                    start = None
-                if start is not None:
-                    try:
-                        entry["location"] = _describe_match_location(start, doc)
-                    except Exception:
-                        pass
-                # Text: for an insertion the live span RedlineStart..RedlineEnd holds it; for a
-                # deletion that span is collapsed, so fall back to RedlineText (the removed text).
-                txt = ""
-                if start is not None:
-                    try:
-                        end = redline.getPropertyValue("RedlineEnd")
-                        stext = start.getText()
-                        cur = stext.createTextCursorByRange(start)
-                        cur.gotoRange(end, True)
-                        txt = cur.getString() or ""
-                    except Exception:
-                        txt = ""
-                if not txt:
-                    try:
-                        rt = redline.getPropertyValue("RedlineText")
-                        txt = (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
-                    except Exception:
-                        txt = ""
-                if txt:
-                    entry["text"] = txt if len(txt) <= 300 else txt[:299] + "…"
-                changes.append(entry)
-
+            redline_objs = _redline_objects(doc)
+            changes = [_describe_redline(redline, index, doc) for index, redline in enumerate(redline_objs)]
             result = {"status": "ok", "recording": recording, "changes": changes, "count": len(changes)}
             if agent_mode is not None:
                 result["agent_review_mode"] = agent_mode
@@ -212,9 +246,25 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         view_getter = getattr(controller, "getViewSettings", None)
         if callable(view_getter):
             try:
-                view_settings: Any = view_getter()
-                view_settings.setPropertyValue("ShowChangesInMargin", show_b)
-                return {"status": "ok", "message": f"{'Showing' if show_b else 'Hiding'} tracked changes markup."}
+                # What was wrong: set view ShowChangesInMargin instead of document RedlineDisplayType.
+                # How it happened: ShowChangesInMargin is view's margin preference, not markup visibility toggle.
+                # Why this change fixes it: write IDL RedlineDisplayType (LO 26.8.1.1 probe):
+                # 2 is INSERTED_AND_REMOVED (IsShowChanges), 1 is INSERTED (IsHideChanges).
+                # 0 stores as 1 on LO 26.8, 3 is show-original (REMOVED).
+                # Boolean ShowChanges False is a no-op while type is 2.
+                target_type = 2 if show_b else 1
+                ctx.doc.setPropertyValue("RedlineDisplayType", target_type)
+
+                curr_type = ctx.doc.getPropertyValue("RedlineDisplayType")
+                curr_sc = ctx.doc.getPropertyValue("ShowChanges")
+                success = (curr_type == 2 and curr_sc is True) if show_b else (curr_type == 1 and curr_sc is False)
+                if success:
+                    return {"status": "ok", "message": f"{'Showing' if show_b else 'Hiding'} tracked changes markup."}
+                return self._tool_error(
+                    "Failed to set tracked-changes markup visibility (requested show=%s, RedlineDisplayType=%r, ShowChanges=%r)."
+                    % (show_b, curr_type, curr_sc),
+                    code="TOOL_EXECUTION_ERROR",
+                )
             except Exception as e:
                 return self._tool_error(f"Failed to set track changes visibility: {e}")
 
@@ -272,11 +322,19 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         if blocked:
             return self._tool_error(blocked)
         try:
-            smgr = ctx.ctx.ServiceManager
-            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
-            frame = ctx.doc.getCurrentController().getFrame()
             cmd = ".uno:AcceptAllTrackedChanges" if is_accept else ".uno:RejectAllTrackedChanges"
-            dispatcher.executeDispatch(frame, cmd, "", 0, ())
+            res = _dispatch(ctx, cmd)
+            # What was wrong: bulk accept/reject claimed success when executeDispatch returned None (e.g. on Calc).
+            # How it happened: return value was not inspected.
+            # Why this change fixes it: return UNSUPPORTED tool error when dispatch returns None.
+            if res is None:
+                err = self._tool_error(
+                    "Accepting or rejecting all tracked changes is not supported on this document.",
+                    code="UNSUPPORTED",
+                    tracked_changes_bulk_unsupported=True,
+                )
+                err["tracked_changes_bulk_unsupported"] = True
+                return err
             msg = "All tracked changes accepted." if is_accept else "All tracked changes rejected."
             return {"status": "ok", "message": msg}
         except Exception as e:
@@ -289,13 +347,9 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
         try:
             redlines = ctx.doc.getRedlines()
-            enum = redlines.createEnumeration()
+            redline_objs = _redline_objects(ctx.doc)
 
-            redline_objs = []
-            while enum.hasMoreElements():
-                redline_objs.append(enum.nextElement())
-
-            if index < 0 or index >= len(redline_objs):
+            if index >= len(redline_objs):
                 return self._tool_error(f"No tracked change found at index {index}.")
 
             target_redline = redline_objs[index]
@@ -322,11 +376,9 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             # they are property sets exposing RedlineStart/RedlineEnd (XTextRange). The old
             # getAnchor() call meant every real change died here with "Failed to select".
             try:
-                # Count agent changes before dispatch
-                enum_before = redlines.createEnumeration()
+                # Count agent changes before dispatch from already-materialized redline_objs
                 agent_changes_before = 0
-                while enum_before.hasMoreElements():
-                    r = enum_before.nextElement()
+                for r in redline_objs:
                     is_agent_r, _ = redline_is_agent_change(r)
                     if is_agent_r:
                         agent_changes_before += 1
@@ -382,12 +434,8 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
             initial_count = redlines.getCount()
 
-            smgr = ctx.ctx.ServiceManager
-            dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx.ctx)
-            frame = ctx.doc.getCurrentController().getFrame()
-
             cmd = ".uno:AcceptTrackedChange" if is_accept else ".uno:RejectTrackedChange"
-            dispatcher.executeDispatch(frame, cmd, "", 0, ())
+            _dispatch(ctx, cmd)
 
             if redlines.getCount() == initial_count:
                 return self._tool_error("Failed to resolve tracked change: operation silently failed.")
@@ -395,18 +443,26 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             # Enforce self-resolve invariant
             enum_after = redlines.createEnumeration()
             agent_changes_after = 0
-            while enum_after.hasMoreElements():
+            while _enum_has_more(enum_after):
                 r = enum_after.nextElement()
                 is_agent_r, _ = redline_is_agent_change(r)
                 if is_agent_r:
                     agent_changes_after += 1
 
             if agent_changes_after < agent_changes_before:
+                undo_failed = False
                 try:
                     ctx.doc.getUndoManager().undo()
                 except Exception:
-                    pass
-                return self._tool_error("Agent edit was resolved, which is forbidden.")
+                    # What was wrong: undo failure swallowed with bare pass.
+                    # How it happened: exception during undo of forbidden resolution was ignored.
+                    # Why this change fixes it: log exception and append warning that change remains resolved.
+                    log.exception("manage_tracked_changes: undo of a forbidden agent resolution failed")
+                    undo_failed = True
+                msg = "Agent edit was resolved, which is forbidden."
+                if undo_failed:
+                    msg += " Undo failed; the change is still resolved."
+                return self._tool_error(msg)
 
             action_str = "Accepted" if is_accept else "Rejected"
             return {"status": "ok", "message": f"{action_str} tracked change at index {index}."}

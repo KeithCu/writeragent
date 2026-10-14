@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("writeragent.writer")
 
-_MAX_SEARCH_REPLACEMENTS = 200
+MAX_SEARCH_REPLACEMENTS = 200
 
 # Non-breaking / exotic spaces -> ASCII space. Length-preserving (each maps to a
 # single BMP char) so character offsets into the document text stay valid. NBSP
@@ -280,7 +280,7 @@ def find_lo_regex_ranges(doc: Any, candidate: str, all_matches: bool = False) ->
         sd.SearchCaseSensitive = case_sens
         found = doc.findFirst(sd)
         while found is not None:
-            if len(ranges) >= _MAX_SEARCH_REPLACEMENTS:
+            if len(ranges) >= MAX_SEARCH_REPLACEMENTS:
                 return ranges
             ranges.append(found)
             found = find_next_after_match(doc, found, sd)
@@ -429,7 +429,7 @@ def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) 
                     if not all_matches:
                         return result_range
                     matched_ranges.append(result_range)
-                    if len(matched_ranges) >= _MAX_SEARCH_REPLACEMENTS:
+                    if len(matched_ranges) >= MAX_SEARCH_REPLACEMENTS:
                         return matched_ranges
                 except Exception:
                     log.debug("Failed creating combined XTextRange", exc_info=True)
@@ -670,7 +670,7 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
         return doc.findFirst(sd)
     out: list[Any] = []
     found = doc.findFirst(sd)
-    while found is not None and len(out) < _MAX_SEARCH_REPLACEMENTS:
+    while found is not None and len(out) < MAX_SEARCH_REPLACEMENTS:
         out.append(found)
         found = find_next_after_match(doc, found, sd)
     return out
@@ -762,8 +762,7 @@ def sweep_comment_preview_matches(doc: Any, pattern: str, use_regex: bool, case_
     return matches
 
 
-# Underscore aliases used by tracking.py / comments.py.
-_describe_match_location = describe_match_location
+# Underscore alias used by comments.py.
 _enclosing_paragraph_text = enclosing_paragraph_text
 
 

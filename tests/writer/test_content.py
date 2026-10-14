@@ -513,3 +513,115 @@ def test_grow_over_edge_space_is_a_no_op_without_edges():
     found = MagicMock()
     assert _grow_over_edge_space(found, 0) is found
     found.getText.assert_not_called()
+
+
+def test_all_matches_hoists_plain_text_conversion():
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    r1, r2 = MagicMock(), MagicMock()
+    r1.getString.return_value = "old"
+    r2.getString.return_value = "old"
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.content.capture_outline_hyperlinks") as cap_links, \
+         patch.object(format_support, "html_to_plain_text", return_value="hi") as mock_html_plain, \
+         patch.object(format_support, "replace_single_range_with_content"):
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx, content="<b>hi</b>", target="search", old_content="old", all_matches=True
+        )
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 2
+    mock_html_plain.assert_called_once()
+
+
+def test_edge_spaces_with_use_preserve():
+    from plugin.writer.content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    found.getString.return_value = "paragrafo"
+
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.content.capture_outline_hyperlinks") as cap_links, \
+         patch("plugin.writer.content.record_preserve_replace") as mock_preserve:
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx,
+            old_content=" paragrafo",
+            content=" &lt;b&gt;hi&lt;/b&gt;",
+            target="search",
+            position="replace",
+        )
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 1
+    mock_preserve.assert_called_once()
+    assert mock_preserve.call_args[0][3] == "<b>hi</b>"
+
+
+def test_position_after_string_with_backslash_is_not_block():
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=False)
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_inline_at_cursor") as inline, \
+         patch.object(format_support, "insert_html_at_cursor") as ins:
+        res = ApplyDocumentContent().execute(
+            _edit_ctx(), content="<b>C:\\new</b>", target="search", old_content="inteiro.", position="after"
+        )
+    assert res["status"] == "ok"
+    assert "snapped_to_paragraph" not in res
+    inline.assert_called_once()
+    ins.assert_not_called()
+
+
+def test_target_end_entity_decoded_proposed_preview():
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+    from plugin.writer.edit_review import EditReviewSession
+
+    ctx = _edit_ctx()
+    with patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_to_plain_text", return_value="STRIPPED") as mock_html_plain, \
+         patch.object(format_support, "insert_content_at_position"), \
+         patch.object(EditReviewSession, "record_mutation") as mock_record:
+        res = ApplyDocumentContent().execute(
+            ctx, target="end", content="&lt;b&gt;hi&lt;/b&gt;"
+        )
+    assert res["status"] == "ok"
+    mock_html_plain.assert_not_called()
+    mock_record.assert_called_once()
+    assert mock_record.call_args[1]["proposed_preview"] == "<b>hi</b>"
+
+
+def test_shape_edit_leave_undo_context_failure_logged():
+    from plugin.writer.content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    shape = MagicMock()
+    shape.Name = "TestShape"
+    undo = MagicMock()
+    undo.leaveUndoContext.side_effect = RuntimeError("leave undo failed")
+    ctx.doc.getUndoManager.return_value = undo
+
+    with patch("plugin.writer.search.find_first_range", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
+         patch("plugin.writer.content.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.content.replace_text_in_shape", return_value=True), \
+         patch("plugin.writer.content.log.exception") as mock_log_exc:
+        res = ApplyDocumentContent().execute(
+            ctx, target="search", old_content="foo", content="bar"
+        )
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 1
+    mock_log_exc.assert_called_once_with("apply_document_content: shape edit leaveUndoContext failed")
+

@@ -30,3 +30,37 @@ def test_calc_track_changes_record_toggle(ctx, doc):
         assert doc.getPropertyValue("RecordChanges") is False
     finally:
         doc.setPropertyValue("RecordChanges", before)
+
+
+@native_test
+@with_native_doc("calc")
+def test_calc_track_changes_list_unsupported(ctx, doc):
+    from plugin.main import get_services
+    from plugin.writer.tracking import TrackChangesList
+
+    tctx = TestingFactory.create_context(
+        doc=doc, ctx=ctx, env="native", doc_type="calc", services=get_services()
+    )
+    res = TrackChangesList().execute(tctx)
+    assert res.get("status") == "ok"
+    assert "count" not in res
+    assert "changes" not in res
+    assert res.get("track_changes_list_unsupported") is True
+    assert isinstance(res.get("recording"), bool)
+
+
+@native_test
+@with_native_doc("calc")
+def test_calc_manage_tracked_changes_bulk_unsupported(ctx, doc):
+    from plugin.main import get_services
+    from plugin.writer.tracking import ManageTrackedChanges
+
+    tctx = TestingFactory.create_context(
+        doc=doc, ctx=ctx, env="native", doc_type="calc", services=get_services()
+    )
+    res = ManageTrackedChanges().execute(tctx, action="accept_all")
+    assert res.get("status") == "error"
+    assert res.get("code") == "UNSUPPORTED"
+    assert res.get("tracked_changes_bulk_unsupported") is True
+    assert res.get("message") == "Accepting or rejecting all tracked changes is not supported on this document."
+

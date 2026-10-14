@@ -6,25 +6,22 @@
 
 PROBLEM
 -------
-With Track Changes ON, an agent edit today replaces the whole old block with the
-whole new block: one Delete + one Insert (see ``plugin/writer/format.py`` recording
-branch). For a tiny tweak ("teh" -> "the") in a long paragraph that buries the real
-change under a wall of struck-through/inserted text the user cannot meaningfully
-review. There is an *existing* char-by-char diff in ``replace_preserving_format`` but
-it is DISABLED while recording because per-character redlines render as scrambled,
-interleaved garbage.
+With Track Changes ON, an edit that replaces an entire block with a new block
+buries tiny tweaks ("teh" -> "the") under a wall of struck-through/inserted text
+that the user cannot meaningfully review.
 
+The consumer of this module is ``edit_review.record_preserve_replace``.
 This module is the PURE-PYTHON, LibreOffice-INDEPENDENT core of the fix. It does NOT
 touch UNO/LO. It decides, for a given ``(old, new)`` pair, whether the edit should be:
 
   * a single whole-block replacement (the change is "big" -- > ``threshold`` of the
-    words changed), matching today's behaviour; OR
+    words changed); OR
   * a list of small, surgical sub-edits, each one a contiguous run of WORDS to be
     replaced / inserted / deleted, with CONSECUTIVE changed words AGGLUTINATED into a
     single sub-edit.
 
 Each surgical sub-edit carries char offsets into ``old`` plus the exact old/new spans,
-so a later (separate) step in ``format.py`` can turn each sub-edit into its OWN tracked
+used by ``edit_review.record_preserve_replace`` to turn each sub-edit into its OWN tracked
 Delete+Insert by selecting the sub-range ``old[old_start:old_end]`` of the target range.
 
 TOKENISATION
@@ -70,6 +67,10 @@ Two trivial fast-paths: identical strings -> surgical mode with zero sub-edits;
 
 import difflib
 from typing import Any, ClassVar
+
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, str_bounded, deal
+
+_MAX_DIFF_WORDS = 4000
 
 __all__ = [
     "Token",
@@ -207,8 +208,6 @@ class SplitResult:
         )
 
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, str_bounded, deal
-
 
 @deal.post(lambda result: isinstance(result, list))
 def tokenize(s: str) -> list[Token]:
@@ -283,6 +282,18 @@ def split_change(old: str, new: str, threshold: float = 0.6) -> SplitResult:
     old_words = _word_tokens(old_tokens)
     new_words = _word_tokens(new_tokens)
 
+    if len(old_words) + len(new_words) > _MAX_DIFF_WORDS:
+        # SequenceMatcher(autojunk=False) is quadratic, and record_preserve_replace
+        # runs split_change on the UI thread.
+        if not old:
+            block_op = "insert"
+        elif not new:
+            block_op = "delete"
+        else:
+            block_op = "replace"
+        block = SubEdit(block_op, 0, len(old), old, new)
+        return SplitResult("block", 1.0, [block])
+
     # difflib anchors on equal words. When a word repeats, it may match a different occurrence
     # than a human would, which can make a surgical redline WIDER than strictly minimal -- but never
     # wrong: apply_sub_edits() always reconstructs *new* exactly (lossless not minimal).
@@ -315,7 +326,7 @@ def split_change(old: str, new: str, threshold: float = 0.6) -> SplitResult:
     force_block = threshold <= 0.0 and old != new
     if force_block or fraction > threshold:
         # Classify the single whole-range edit with the SAME op semantics the surgical
-        # path uses, so a downstream consumer (format.py recording branch) can branch on
+        # path uses, so a downstream consumer (record_preserve_replace) can branch on
         # ``op`` uniformly: empty old -> insert, empty new -> delete, else replace. (When
         # both are empty we never get here: fraction is 0.0, which is never > threshold.)
         if not old:
@@ -433,7 +444,7 @@ def apply_sub_edits(old: str, sub_edits: list[SubEdit]) -> str:
     """Apply *sub_edits* (from a :class:`SplitResult`) to *old*, returning the result.
 
     The sub-edits are assumed non-overlapping and sorted by ``old_start`` (which is how
-    :func:`split_change` emits them). This mirrors what the LO integration will do --
+    :func:`split_change` emits them). This mirrors what ``record_preserve_replace`` does --
     splice each surgical span -- and is the property used by the reconstruction tests.
     """
     # crosshair: off  # SubEdit list + free old string splice (cover-all 33337516899: 44k lines). Doable later with a tiny edit list domain.

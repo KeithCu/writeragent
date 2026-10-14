@@ -15,8 +15,6 @@ def _create_mock_ctx():
     ctx = MagicMock()
     
     doc = MagicMock()
-    # Mocking hasattr for getRedlines
-    doc.hasattr.side_effect = lambda name: name == "getRedlines"
     
     # Mock property value getter/setter
     props = {"RecordChanges": False}
@@ -148,7 +146,7 @@ def test_track_changes_list():
     
     ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
     
-    with patch("plugin.writer.search._describe_match_location", return_value="body"):
+    with patch("plugin.writer.tracking.describe_match_location", return_value="body"):
         res = tool.execute(ctx)
     assert res["status"] == "ok"
     assert res["count"] == 1
@@ -171,10 +169,42 @@ def test_track_changes_show():
     assert res_err["status"] == "error"
     assert "Missing required parameter" in res_err["message"]
     
-    # valid
-    res = tool.execute(ctx, show=True)
-    assert res["status"] == "ok"
-    view_settings.setPropertyValue.assert_called_with("ShowChangesInMargin", True)
+    props = {"RedlineDisplayType": 1}
+    def _set_prop(name, val):
+        props[name] = val
+    def _get_prop(name):
+        if name == "ShowChanges":
+            return props.get("RedlineDisplayType") == 2
+        return props.get(name)
+    ctx.doc.setPropertyValue.side_effect = _set_prop
+    ctx.doc.getPropertyValue.side_effect = _get_prop
+
+    # show=True sets RedlineDisplayType to 2
+    res_true = tool.execute(ctx, show=True)
+    assert res_true["status"] == "ok"
+    assert res_true["message"] == "Showing tracked changes markup."
+    assert props["RedlineDisplayType"] == 2
+    view_settings.setPropertyValue.assert_not_called()
+
+    # show=False sets RedlineDisplayType to 1
+    res_false = tool.execute(ctx, show=False)
+    assert res_false["status"] == "ok"
+    assert res_false["message"] == "Hiding tracked changes markup."
+    assert props["RedlineDisplayType"] == 1
+    view_settings.setPropertyValue.assert_not_called()
+
+
+def test_track_changes_show_readback_mismatch():
+    ctx, _, _, _ = _create_mock_ctx()
+    tool = TrackChangesShow()
+
+    # Getter always reports type 2 and ShowChanges True
+    ctx.doc.getPropertyValue.side_effect = lambda name: 2 if name == "RedlineDisplayType" else True
+    res = tool.execute(ctx, show=False)
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert res["message"].startswith("Failed to set tracked-changes markup visibility")
+    assert "Hiding tracked changes markup." not in res["message"]
 
 
 def test_track_changes_show_calc_like_controller_returns_stub():
@@ -232,11 +262,10 @@ def test_manage_tracked_changes_bypasses_self_resolve_invariant():
     # We mock it so that the dispatcher mistakenly resolves the agent edit!
     def _create_enum():
         enum = MagicMock()
-        # The first time it is called (to get redlines list), both are present.
-        # The second time (before dispatch), both are present.
-        # The third time (after dispatch), only user_redline is present.
+        # The first time it is called (materialize), both are present.
+        # The second time (after dispatch), only user_redline is present.
         call_count = getattr(_create_enum, "call_count", 0)
-        if call_count >= 2:
+        if call_count >= 1:
             enum.hasMoreElements.side_effect = [True, False]
             enum.nextElement.return_value = user_redline
         else:
@@ -278,8 +307,55 @@ def test_manage_tracked_changes_bypasses_self_resolve_invariant():
     res = tool.execute(ctx, action="accept", index=0)
 
     assert res["status"] == "error"
-    assert "Agent edit was resolved" in res["message"]
+    assert "Agent edit was resolved, which is forbidden." in res["message"]
+    assert "Undo failed" not in res["message"]
     ctx.doc.getUndoManager().undo.assert_called_once()
+
+
+def test_manage_tracked_changes_self_resolve_undo_fails():
+    ctx, dispatcher, frame, _ = _create_mock_ctx()
+    tool = ManageTrackedChanges()
+
+    user_redline = _fake_redline("user edit")
+    agent_redline = _fake_redline(_AGENT_COMMENT)
+
+    def _create_enum():
+        enum = MagicMock()
+        call_count = getattr(_create_enum, "call_count", 0)
+        if call_count >= 1:
+            enum.hasMoreElements.side_effect = [True, False]
+            enum.nextElement.return_value = user_redline
+        else:
+            enum.hasMoreElements.side_effect = [True, True, False]
+            enum.nextElement.side_effect = [user_redline, agent_redline]
+        _create_enum.call_count = call_count + 1
+        return enum
+    _create_enum.call_count = 0
+
+    ctx.doc.getRedlines.return_value.createEnumeration.side_effect = _create_enum
+    ctx.doc.getRedlines.return_value.getCount.side_effect = [2, 1]
+
+    text_mock = MagicMock()
+    text_mock.compareRegionStarts.return_value = 1
+
+    start_mock1 = MagicMock()
+    start_mock1.getText.return_value = text_mock
+
+    start_mock2 = MagicMock()
+    start_mock2.getText.return_value = text_mock
+
+    user_redline.getPropertyValue.side_effect = lambda name: start_mock1 if name in ("RedlineStart", "RedlineEnd") else "user edit"
+    agent_redline.getPropertyValue.side_effect = lambda name: start_mock2 if name in ("RedlineStart", "RedlineEnd") else _AGENT_COMMENT
+
+    ctx.doc.getUndoManager.return_value.undo.side_effect = RuntimeError("undo crashed")
+
+    with patch("plugin.writer.tracking.log.exception") as mock_log_exc:
+        res = tool.execute(ctx, action="accept", index=0)
+
+    assert res["status"] == "error"
+    assert "Agent edit was resolved, which is forbidden." in res["message"]
+    assert "Undo failed; the change is still resolved." in res["message"]
+    mock_log_exc.assert_called_once_with("manage_tracked_changes: undo of a forbidden agent resolution failed")
 
 def test_manage_tracked_changes_accept():
     ctx, dispatcher, frame, _ = _create_mock_ctx()
@@ -532,3 +608,50 @@ def test_single_accept_blocked_when_bounds_unreadable():
     assert res["status"] == "error"
     assert "Failed to read bounds" in res["message"]
     dispatcher.executeDispatch.assert_not_called()
+
+
+def test_track_changes_list_no_get_redlines():
+    class NoRedlinesDoc:
+        def getPropertyValue(self, name):
+            if name == "RecordChanges":
+                return True
+            raise KeyError(name)
+
+    ctx = MagicMock()
+    ctx.doc = NoRedlinesDoc()
+    res = TrackChangesList().execute(ctx)
+    assert res["status"] == "ok"
+    assert res["recording"] is True
+    assert res["track_changes_list_unsupported"] is True
+    assert "count" not in res
+    assert "changes" not in res
+    assert res["message"] == "This document does not expose a redlines API, so this is not an empty change list. track_changes_start and track_changes_stop still control recording."
+
+
+def test_track_changes_list_record_changes_read_fails():
+    ctx, _, _, _ = _create_mock_ctx()
+    ctx.doc.getPropertyValue.side_effect = RuntimeError("cannot read property")
+    enum_mock = MagicMock()
+    enum_mock.hasMoreElements.return_value = False
+    ctx.doc.getRedlines.return_value.createEnumeration.return_value = enum_mock
+
+    with patch("plugin.writer.tracking.log.exception") as mock_log_exc:
+        res = TrackChangesList().execute(ctx)
+    assert res["status"] == "ok"
+    assert res["recording"] is None
+    assert res["count"] == 0
+    assert res["changes"] == []
+    assert "track_changes_list_unsupported" not in res
+    mock_log_exc.assert_called_once_with("track_changes_list: could not read RecordChanges")
+
+
+@pytest.mark.parametrize("action", ["accept_all", "reject_all"])
+def test_manage_tracked_changes_bulk_unsupported_when_dispatch_returns_none(action):
+    ctx, dispatcher, _, _ = _create_mock_ctx()
+    dispatcher.executeDispatch.return_value = None
+    res = ManageTrackedChanges().execute(ctx, action=action)
+    assert res["status"] == "error"
+    assert res["code"] == "UNSUPPORTED"
+    assert res["tracked_changes_bulk_unsupported"] is True
+    assert res["message"] == "Accepting or rejecting all tracked changes is not supported on this document."
+

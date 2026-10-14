@@ -275,10 +275,6 @@ class GetDocumentContent(ToolBase):
 # ApplyDocumentContent
 # ------------------------------------------------------------------
 
-# ------------------------------------------------------------------
-# ApplyDocumentContent
-# ------------------------------------------------------------------
-
 
 # get_document_content reports a paragraph's hand-set formatting as data-lo-para. It is a read
 # report, not an instruction: the import path cannot restore Para* when applying a named style,
@@ -535,7 +531,8 @@ class ApplyDocumentContent(ToolBase):
     def _replace_found(self, session: EditReviewSession, doc: Any, found: Any, *,
                        use_preserve: bool, raw_content: str, content: Any,
                        ctx: ToolContext, config_svc: Any, track_reviewable: bool,
-                       override: str | None, batch: bool, plain_preview: str) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+                       override: str | None, batch: bool, plain_preview: str,
+                       replacement_plain: str | None = None) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
         *batch* is the all_matches loop, which already holds the undo context. A single
@@ -587,7 +584,15 @@ class ApplyDocumentContent(ToolBase):
             mutate()
             if not needs_fix:
                 return []
-            fallback = raw_content if use_preserve else self._replacement_plain(ctx, content)
+            # What was wrong: fallback conversion ran _replacement_plain per match in all_matches.
+            # How it happened: run() called _replacement_plain inside each match.
+            # Why this change fixes it: use hoisted replacement_plain when passed; lazy fallback for single match.
+            if use_preserve:
+                fallback = raw_content
+            elif replacement_plain is not None:
+                fallback = replacement_plain
+            else:
+                fallback = self._replacement_plain(ctx, content)
             return restore_outline_hyperlinks(anchor, snapshot, fallback, override)
 
         def once() -> list[dict[str, Any]]:
@@ -1033,15 +1038,20 @@ class ApplyDocumentContent(ToolBase):
         # recording state. Default off -> the session is inert and behavior is unchanged.
         # get_config_bool_safe tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled(ctx.ctx)
-        session = EditReviewSession(ctx.doc, ctx.ctx, enabled=track_reviewable)
-        # Register with the caller's sink AS SOON AS the session exists, so its anchor
-        # bookmarks are released even if the edit below raises mid-way (a replace-all that
-        # anchors the 1st match then fails on the 2nd) -- before we ever return the session.
-        if session_sink is not None:
-            session_sink.append(session)
+
+        # What was wrong: EditReviewSession was created before search param checks, registering with session_sink on invalid params.
+        # How it happened: session was instantiated and appended to session_sink at the start of _execute_edit.
+        # Why this change fixes it: _open_session() is called only after search param checks pass (or at start of target branches).
+        def _open_session() -> EditReviewSession:
+            s = EditReviewSession(ctx.doc, ctx.ctx, enabled=track_reviewable)
+            if session_sink is not None:
+                session_sink.append(s)
+            return s
 
         def _plain_preview(value: Any) -> str:
             s = str(value)
+            if use_preserve:
+                return s
             if format_support.content_has_markup(s):
                 try:
                     return format_support.html_to_plain_text(s, ctx.ctx, config_svc)
@@ -1050,6 +1060,7 @@ class ApplyDocumentContent(ToolBase):
             return s
 
         if target == "full_document":
+            session = _open_session()
             with session:
                 # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
                 record_html_atomically(
@@ -1058,6 +1069,7 @@ class ApplyDocumentContent(ToolBase):
                     proposed_preview=_plain_preview(content))
             return {"status": "ok", "message": "Replaced entire document."}, session
         if target == "end":
+            session = _open_session()
             with session:
                 session.record_mutation(
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "end", config_svc=config_svc),
@@ -1069,6 +1081,7 @@ class ApplyDocumentContent(ToolBase):
             # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
             # collapsed position (not the selection range itself) survives the replace.
             anchor = selection_anchor(ctx.doc)
+            session = _open_session()
             with session:
                 # Selection insert clears the selection first, then imports -> atomic (full_document above).
                 record_html_atomically(
@@ -1078,6 +1091,7 @@ class ApplyDocumentContent(ToolBase):
             return attach_edited_context(
                 {"status": "ok", "message": "Inserted content at selection."}, anchor), session
         if target == "beginning":
+            session = _open_session()
             with session:
                 session.record_mutation(
                     lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "beginning", config_svc=config_svc),
@@ -1098,18 +1112,30 @@ class ApplyDocumentContent(ToolBase):
         if not search_string:
             # Parameter error (like old_content=None), not a search no-op: the search never ran,
             # so there's no replaced_count to report — use the standard tool error shape.
-            return self._tool_error("old_content is empty after normalization."), session
+            return self._tool_error("old_content is empty after normalization."), None
         # The search drops the spaces at old_content's edges. The replacement
         # must drop the same edges, or old_content=" paragrafo" with content=""
         # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
         # double space (same for " paragrafo inteiro" -> " inteiro"). A
         # deletion takes the space on one side along with the word.
         separator = 0
+        # What was wrong: not content_has_markup(content) re-checked decoded string, skipping edge space if entity was decoded to markup.
+        # How it happened: checked content_has_markup on decoded content rather than use_preserve.
+        # Why this change fixes it: check use_preserve directly.
         if (position == "replace" and not kwargs.get("regex") and isinstance(content, str)
-                and not format_support.content_has_markup(content)
+                and use_preserve
                 and not format_support.content_has_markup(str(old_content))):
             content, separator = _match_stripped_edges(str(old_content), content)
             raw_content = content
+        override, override_error = self._parse_hyperlink_url(kwargs)
+        if override_error:
+            return self._tool_error(override_error, code="INVALID_PARAM"), None
+        if override and position != "replace":
+            return self._tool_error(
+                "hyperlink_url only applies to position='replace'.",
+                code="INVALID_PARAM"), None
+
+        session = _open_session()
         doc = ctx.doc
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
@@ -1122,13 +1148,6 @@ class ApplyDocumentContent(ToolBase):
         _use_opts = _regex_opt or _case_opt is not None
         _opts_pattern = old_stripped if _regex_opt else search_string
         _opts_cs = bool(_case_opt) if _case_opt is not None else False
-        override, override_error = self._parse_hyperlink_url(kwargs)
-        if override_error:
-            return self._tool_error(override_error, code="INVALID_PARAM"), session
-        if override and position != "replace":
-            return self._tool_error(
-                "hyperlink_url only applies to position='replace'.",
-                code="INVALID_PARAM"), session
 
         all_matches = kwargs.get("all_matches", False)
         if all_matches:
@@ -1137,8 +1156,7 @@ class ApplyDocumentContent(ToolBase):
             if not ranges:
                 return search_mod.build_search_not_found_response(
                     all_matches=True, tracked_deletions=search_mod.document_has_tracked_deletions(doc)), session
-            from plugin.writer.search import _MAX_SEARCH_REPLACEMENTS
-            max_limit_hit = len(ranges) >= _MAX_SEARCH_REPLACEMENTS
+            max_limit_hit = len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS
             # Decide before any replace. An empty replacement that is the last text
             # in a table deletes the table instead of leaving an empty shell; those
             # matches are not also cleared as text (that would add a second redline).
@@ -1167,6 +1185,15 @@ class ApplyDocumentContent(ToolBase):
             count = 0
             link_reports: list[dict[str, Any]] = []
             tracked_delete = False
+            # What was wrong: _plain_preview and _replacement_plain called per match in all_matches loop.
+            # How it happened: both functions were called inside each loop iteration for unchanging content.
+            # Why this change fixes it: hoist plain_preview and replacement_plain computation outside the loop.
+            if use_preserve:
+                plain_preview = _plain_preview(content)
+                replacement_plain = None
+            else:
+                replacement_plain = self._replacement_plain(ctx, content)
+                plain_preview = replacement_plain
             try:
                 with session:
                     for found in reversed(ranges):
@@ -1179,7 +1206,8 @@ class ApplyDocumentContent(ToolBase):
                             session, doc, found, use_preserve=use_preserve, raw_content=raw_content,
                             content=content, ctx=ctx, config_svc=config_svc,
                             track_reviewable=track_reviewable, override=override, batch=True,
-                            plain_preview=_plain_preview(content))
+                            plain_preview=plain_preview,
+                            replacement_plain=replacement_plain)
                         if link_err:
                             raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
                         if reports:
@@ -1202,9 +1230,8 @@ class ApplyDocumentContent(ToolBase):
                 resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
             else:
                 resp = search_mod.build_search_replace_response(count, use_preserve=use_preserve)
-                from plugin.writer.search import _MAX_SEARCH_REPLACEMENTS
                 if max_limit_hit:
-                    resp["message"] += f" Note: Replacement stopped at the safety limit of {_MAX_SEARCH_REPLACEMENTS} to avoid excessive document changes. The document is not fully updated."
+                    resp["message"] += f" Note: Replacement stopped at the safety limit of {search_mod.MAX_SEARCH_REPLACEMENTS} to avoid excessive document changes. The document is not fully updated."
                 if count > 1:
                     resp["message"] += " edited_context shows the first occurrence's neighborhood."
                 if doomed:
@@ -1268,7 +1295,10 @@ class ApplyDocumentContent(ToolBase):
                         try:
                             undo.leaveUndoContext()
                         except Exception:
-                            pass
+                            # What was wrong: leaveUndoContext failure swallowed with bare pass.
+                            # How it happened: shape fallback ignored leaveUndoContext error.
+                            # Why this change fixes it: log exception while preserving successful shape edit result.
+                            log.exception("apply_document_content: shape edit leaveUndoContext failed")
                 if edited:
                     result = attach_edited_context(
                         {"status": "ok",
@@ -1319,8 +1349,13 @@ class ApplyDocumentContent(ToolBase):
             # opened right after it. A line break is a paragraph too: plain
             # "Novo A\n\nNovo B" on the inline path goes in as manual line
             # breaks glued onto the matched paragraph.
-            is_block = (format_support.content_has_block_markup(str(content))
-                        or "\n" in str(content) or "\\n" in str(content))
+            # What was wrong: is_block checked "\\n" in str(content), snapping markup with literal backslashes to paragraph boundary.
+            # How it happened: backslash-n string disjunct treated literal escapes in markup as block delimiters.
+            # Why this change fixes it: plain-text escapes are already expanded when use_preserve; branch on use_preserve and check real newlines.
+            if use_preserve:
+                is_block = "\n" in content
+            else:
+                is_block = format_support.content_has_block_markup(str(content)) or "\n" in str(content)
             text_obj = found.getText()
             try:
                 if is_block:

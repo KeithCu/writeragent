@@ -70,25 +70,25 @@ def test_search_return_offsets_rejects_regex():
 
 
 def test_find_ranges_regex_case_caps_at_max_search_replacements():
-    from plugin.writer.search import find_ranges_regex_case, _MAX_SEARCH_REPLACEMENTS
+    from plugin.writer.search import find_ranges_regex_case, MAX_SEARCH_REPLACEMENTS
 
     doc = MagicMock()
     doc.createSearchDescriptor.return_value = MagicMock()
     doc.findFirst.return_value = MagicMock()
     doc.findNext.side_effect = lambda found, sd: MagicMock()
     out = find_ranges_regex_case(doc, "x", True, True, all_matches=True)
-    assert len(out) == _MAX_SEARCH_REPLACEMENTS
+    assert len(out) == MAX_SEARCH_REPLACEMENTS
 
 
 def test_find_lo_regex_ranges_caps_at_max_search_replacements():
-    from plugin.writer.search import find_lo_regex_ranges, _MAX_SEARCH_REPLACEMENTS
+    from plugin.writer.search import find_lo_regex_ranges, MAX_SEARCH_REPLACEMENTS
 
     doc = MagicMock()
     doc.createSearchDescriptor.return_value = MagicMock()
     doc.findFirst.return_value = MagicMock()
     doc.findNext.side_effect = lambda found, sd: MagicMock()
     out = find_lo_regex_ranges(doc, "x", all_matches=True)
-    assert len(out) == _MAX_SEARCH_REPLACEMENTS
+    assert len(out) == MAX_SEARCH_REPLACEMENTS
 
 
 def test_not_found_hints_at_pending_tracked_deletions():

@@ -176,13 +176,13 @@ def test_search_occurrence_out_of_range_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_all_matches_caps_at_max_search_replacements_uno(ctx, doc):
-    """Verify that all_matches safely truncates replacing past _MAX_SEARCH_REPLACEMENTS."""
+    """Verify that all_matches safely truncates replacing past MAX_SEARCH_REPLACEMENTS."""
     from unittest.mock import patch
 
     # Lower the cap from 200 to 10 so the UNO formatting replacement does not
     # exceed the 30s per-test timeout on slower CI runners (e.g. macOS).
     test_cap = 10
-    with patch("plugin.writer.search._MAX_SEARCH_REPLACEMENTS", test_cap):
+    with patch("plugin.writer.search.MAX_SEARCH_REPLACEMENTS", test_cap):
         text_value = "foo bar baz " * (test_cap + 5)
         _set_body(doc, text_value)
 

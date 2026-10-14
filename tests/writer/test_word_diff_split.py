@@ -568,3 +568,25 @@ def test_threshold_zero_no_change_records_nothing():
     # old == new is still a no-op even at threshold 0 (no spurious block edit).
     r = split_change("a b c", "a b c", 0.0)
     assert r.is_surgical and r.sub_edits == []
+
+
+def test_max_diff_words_caps_to_block_replacement(monkeypatch):
+    monkeypatch.setattr("plugin.writer.word_diff_split._MAX_DIFF_WORDS", 4)
+    # Under cap (2 + 2 <= 4 words): normal surgical mode with fraction 0.0
+    r_under = split_change("keep same", "keep same")
+    assert r_under.mode == "surgical"
+    assert r_under.fraction_changed == 0.0
+    assert r_under.sub_edits == []
+
+    # Over cap (3 + 3 = 6 > 4 words): capped to block mode with fraction 1.0 and whole replace
+    r_over = split_change("one two three", "one two three")
+    assert r_over.mode == "block"
+    assert r_over.fraction_changed == 1.0
+    assert len(r_over.sub_edits) == 1
+    sub = r_over.sub_edits[0]
+    assert sub.op == "replace"
+    assert sub.old_start == 0
+    assert sub.old_end == len("one two three")
+    assert sub.old_text == "one two three"
+    assert sub.new_text == "one two three"
+
