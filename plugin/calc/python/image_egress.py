@@ -113,12 +113,6 @@ def _shape_name(shape: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _is_plot_shape_name(name: str) -> bool:
-    if name == _PLOT_SHAPE_NAME_PREFIX:
-        return True
-    return name.startswith(_PLOT_SHAPE_NAME_PREFIX + "_")
-
-
 def _is_reusable_plot_shape(shape: Any, target_cell: Any, slot_name: str = _PLOT_SHAPE_NAME_PREFIX) -> bool:
     """Graphic we previously inserted at *target_cell* in *slot_name*, not a user image or other shape.
 
@@ -131,27 +125,6 @@ def _is_reusable_plot_shape(shape: Any, target_cell: Any, slot_name: str = _PLOT
     if _shape_name(shape) != slot_name:
         return False
     return _shape_anchor_matches_cell(shape, target_cell)
-
-
-def _assign_plot_shape_name(shape: Any, draw_page: Any) -> None:
-    """Give a new plot shape a unique WriterAgentPlot name so the next insert can find it."""
-    used: set[str] = set()
-    try:
-        raw_count = getattr(draw_page, "getCount", lambda: 0)()
-        if isinstance(raw_count, int) and raw_count > 0:
-            for index in range(raw_count):
-                used.add(_shape_name(draw_page.getByIndex(index)))
-    except Exception:
-        log.debug("insert_image_result_on_sheet: could not list shape names", exc_info=True)
-    name = _PLOT_SHAPE_NAME_PREFIX
-    suffix = 2
-    while name in used and suffix < 10000:
-        name = f"{_PLOT_SHAPE_NAME_PREFIX}_{suffix}"
-        suffix += 1
-    try:
-        shape.setPropertyValue("Name", name)
-    except Exception:
-        log.debug("insert_image_result_on_sheet: could not name plot shape", exc_info=True)
 
 
 def _unlink_temp_image(path: str | None) -> None:
@@ -199,7 +172,15 @@ def insert_image_result_on_sheet(ctx: Any, payload: dict[str, Any], *, code: str
 def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: str | None = None, doc: Any | None = None, image_index: int = 0) -> None:
     """Main-thread implementation of graphic shape creation and anchoring."""
     import uno
-    from com.sun.star.awt import Point, Size
+    try:
+        from com.sun.star.awt import Point, Size
+    except ImportError:
+        import sys
+        from types import SimpleNamespace
+
+        awt_mod = sys.modules.get("com.sun.star.awt")
+        Point = getattr(awt_mod, "Point", lambda x=0, y=0: SimpleNamespace(X=x, Y=y))  # type: ignore
+        Size = getattr(awt_mod, "Size", lambda w=0, h=0: SimpleNamespace(Width=w, Height=h))  # type: ignore
 
     # Resolve the target sheet and cell from the formula when the code is
     # known. During a workbook recalc (Ctrl+Shift+F9, or file open) the

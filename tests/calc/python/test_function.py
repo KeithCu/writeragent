@@ -1746,3 +1746,40 @@ def test_execute_python_addin_off_main_passes_doc_through_only(monkeypatch: pyte
     assert captured.get("bindings") == {"scoped_dir": None}
     assert captured.get("session_id") is None
     assert "init_script" not in captured
+
+
+def test_perform_deferred_spill_fallback_to_passed_sheet_when_getbyname_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When doc.getSheets().getByName(sheet_name) raises, the passed sheet object receives the spill."""
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    doc = CalcDocStub(url="file:///spill_rename.ods")
+
+    def boom_get_by_name(name: str) -> None:
+        raise KeyError(f"Sheet {name} not found")
+
+    monkeypatch.setattr(doc.getSheets(), "getByName", boom_get_by_name)
+
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    passed_sheet = CalcSheetStub(name="SheetRenamed")
+    origin_cell = passed_sheet.getCellByPosition(0, 0)
+    origin_cell.setFormula('=PY("result = [[1, 2], [3, 4]]")')
+
+    grid = [[1, 2], [3, 4]]
+    ctx = _ctx_with_doc(doc)
+
+    python_function.perform_deferred_spill(
+        ctx,
+        "file:///spill_rename.ods",
+        "Sheet1",
+        0,
+        0,
+        grid,
+        doc=doc,
+        sheet=passed_sheet,
+        code="result = [[1, 2], [3, 4]]",
+    )
+
+    assert passed_sheet.getCellByPosition(1, 0).getValue() == 2.0
+    assert passed_sheet.getCellByPosition(0, 1).getValue() == 3.0
+    assert passed_sheet.getCellByPosition(1, 1).getValue() == 4.0
+

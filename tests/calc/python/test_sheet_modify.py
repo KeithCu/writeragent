@@ -147,3 +147,42 @@ def test_unload_drops_lifecycle_keyed_listener():
     assert ("uid-unload", "Sheet1") in SHEET_MODIFY_LISTENERS
     clear_in_memory_spill_state(lifecycle_key="uid-unload")
     assert ("uid-unload", "Sheet1") not in SHEET_MODIFY_LISTENERS
+
+
+def test_rename_migrates_spill_registry_and_listener(monkeypatch):
+    from plugin.calc.python.function import SPILL_REGISTRY
+    from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
+
+    doc = CalcDocStub(url="file:///rename.ods", props={"RuntimeUID": "uid-rename"})
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getParent = lambda: doc
+    listener = ensure_sheet_modify_listener("ctx", doc, sheet)
+    assert ("uid-rename", "Sheet1") in SHEET_MODIFY_LISTENERS
+
+    cell_formula = sheet.getCellByPosition(0, 0)
+    cell_formula.setFormula('=PY("result = [1, 2]")')
+    cell_neighbor = sheet.getCellByPosition(1, 0)
+    cell_neighbor.setValue(2.0)
+    SPILL_REGISTRY[("uid-rename", "Sheet1", 0, 0)] = [(0, 0), (0, 1)]
+
+    sheet.setName("SheetRenamed")
+    doc.getSheets()._sheets["SheetRenamed"] = sheet
+    doc.getSheets()._sheets.pop("Sheet1", None)
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
+    listener.modified(SimpleNamespace(Source=sheet))
+
+    assert ("uid-rename", "Sheet1") not in SHEET_MODIFY_LISTENERS
+    assert ("uid-rename", "SheetRenamed") in SHEET_MODIFY_LISTENERS
+    assert ("uid-rename", "Sheet1", 0, 0) not in SPILL_REGISTRY
+    assert ("uid-rename", "SheetRenamed", 0, 0) in SPILL_REGISTRY
+    assert listener.sheet_name == "SheetRenamed"
+
+    # Now clear formula cell and run modify pass
+    cell_formula.setFormula("")
+    cell_formula.setString("")
+    flush_sheet_modify_pass_for_tests("ctx", doc, sheet, doc_url="file:///rename.ods", sheet_name="SheetRenamed")
+
+    assert ("uid-rename", "SheetRenamed", 0, 0) not in SPILL_REGISTRY
+    assert cell_neighbor.getValue() == 0.0 or cell_neighbor.getString() == ""

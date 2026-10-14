@@ -147,6 +147,12 @@ class RenameSheet(ToolCalcSheetBase):
                 return self._tool_error(f"A sheet named '{new_name}' already exists in the document.")
             sheet = sheets.getByName(old_name)
             sheet.setName(new_name)
+            try:
+                from plugin.calc.python.sheet_modify import migrate_sheet_rename
+
+                migrate_sheet_rename(doc, old_name, new_name)
+            except Exception:
+                log.exception("Sheet rename migration failed (%s -> %s)", old_name, new_name)
             log.info("Sheet renamed from '%s' to '%s'.", old_name, new_name)
             return {"status": "ok", "message": f"Sheet renamed to '{new_name}'."}
         except Exception as e:

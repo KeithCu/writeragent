@@ -189,6 +189,92 @@ def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url
     run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=name)
 
 
+def migrate_sheet_rename(
+    doc: Any,
+    old_sheet_name: str,
+    new_sheet_name: str,
+    dispatcher: "SheetModifyDispatcher | None" = None,
+) -> None:
+    """Migrate in-memory and persistent state when a sheet is renamed.
+
+    Rekeys SPILL_REGISTRY, SHEET_MODIFY_LISTENERS, _PENDING_TIMERS,
+    geometric records, and updates dispatcher.sheet_name.
+    """
+    if not old_sheet_name or not new_sheet_name or old_sheet_name == new_sheet_name:
+        return
+
+    identity = _doc_identity(doc) if doc is not None else ""
+    url = _doc_url_of(doc) if doc is not None else ""
+
+    if dispatcher is not None:
+        dispatcher.sheet_name = new_sheet_name
+
+    # Rekey SPILL_REGISTRY for this doc
+    try:
+        from plugin.calc.python.function import (
+            SPILL_REGISTRY,
+            _SPILL_REGISTRY_LOCK,
+            _spill_registry_doc_key,
+            save_spill_registry_for_doc,
+        )
+
+        doc_key = _spill_registry_doc_key(doc) if doc is not None else ""
+        with _SPILL_REGISTRY_LOCK:
+            keys_to_migrate = [
+                k for k in list(SPILL_REGISTRY.keys())
+                if k[1] == old_sheet_name and (not doc_key or k[0] in (doc_key, identity, url))
+            ]
+            for k in keys_to_migrate:
+                val = SPILL_REGISTRY.pop(k)
+                SPILL_REGISTRY[(k[0], new_sheet_name, k[2], k[3])] = val
+        if doc is not None:
+            save_spill_registry_for_doc(doc)
+    except Exception:
+        log.exception("migrate_sheet_rename: failed to migrate SPILL_REGISTRY")
+
+    # Rekey SHEET_MODIFY_LISTENERS
+    try:
+        from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
+
+        for skey in list(SHEET_MODIFY_LISTENERS.keys()):
+            if skey[1] == old_sheet_name and (not identity or skey[0] in (identity, url)):
+                disp = SHEET_MODIFY_LISTENERS.pop(skey)
+                if hasattr(disp, "sheet_name"):
+                    disp.sheet_name = new_sheet_name
+                SHEET_MODIFY_LISTENERS[(skey[0], new_sheet_name)] = disp
+                if dispatcher is None and isinstance(disp, SheetModifyDispatcher):
+                    dispatcher = disp
+    except Exception:
+        log.exception("migrate_sheet_rename: failed to migrate SHEET_MODIFY_LISTENERS")
+
+    # Rekey _PENDING_TIMERS
+    with _PENDING_LOCK:
+        for pkey in list(_PENDING_TIMERS.keys()):
+            if pkey[1] == old_sheet_name and (not identity or pkey[0] in (identity, url)):
+                timer = _PENDING_TIMERS.pop(pkey)
+                _PENDING_TIMERS[(pkey[0], new_sheet_name)] = timer
+
+    # Rekey geometric records and persist
+    try:
+        from plugin.calc.python.geometric_recalc import (
+            geometric_workbook_key,
+            records_for_sheet,
+            replace_records_for_sheet,
+            save_geometric_registry_for_doc,
+        )
+
+        if doc is not None:
+            gwk = geometric_workbook_key(doc)
+            if gwk:
+                old_records = records_for_sheet(gwk, old_sheet_name)
+                if old_records:
+                    replace_records_for_sheet(gwk, new_sheet_name, old_records)
+                    replace_records_for_sheet(gwk, old_sheet_name, {})
+                save_geometric_registry_for_doc(doc, gwk)
+    except Exception:
+        log.exception("migrate_sheet_rename: failed to migrate geometric records")
+
+
 def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
     """UI-thread jobs after the shared debounce. Spill and geometric stay separate.
 
@@ -220,21 +306,34 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
         # Job 1 — spill orphan cleanup. Walks SPILL_REGISTRY only.
         # Pass the lifecycle id the spill registry uses. The URL is empty
         # for every unsaved book, so matching on it hits the wrong book.
-        registry_id = _spill_registry_doc_key(doc) if doc is not None else url
-        CalcSpillModifyListener(ctx, registry_id, name).modified(SimpleNamespace(Source=sheet))
+        try:
+            registry_id = _spill_registry_doc_key(doc) if doc is not None else url
+            CalcSpillModifyListener(ctx, registry_id, name).modified(SimpleNamespace(Source=sheet))
+        except Exception:
+            log.exception("Error in spill orphan cleanup (%s)", name)
 
         # Job 2 — geometric list-diff. Own discovery; skip when flag is off.
-        from plugin.calc.python.geometric_recalc import geometric_flag_enabled, reconcile_geometric_sheet
+        try:
+            from plugin.calc.python.geometric_recalc import geometric_flag_enabled, reconcile_geometric_sheet
 
-        if geometric_flag_enabled() and doc is not None:
-            reconcile_geometric_sheet(ctx, doc, sheet)
+            if geometric_flag_enabled() and doc is not None:
+                reconcile_geometric_sheet(ctx, doc, sheet)
+        except Exception:
+            log.exception("Error in geometric sheet modify pass (%s)", name)
     except Exception:
         log.exception("Error in sheet modify pass (%s)", name)
     finally:
         _DISPATCHING = False
 
 
-def dispatch_sheet_modified(ctx: Any, doc_url: str, sheet_name: str, event: Any, doc: Any = None) -> None:
+def dispatch_sheet_modified(
+    ctx: Any,
+    doc_url: str,
+    sheet_name: str,
+    event: Any,
+    doc: Any = None,
+    dispatcher: "SheetModifyDispatcher | None" = None,
+) -> None:
     """Shared ``modified`` entry. Debounces; does not walk ``SPILL_REGISTRY``."""
     from plugin.calc.python.geometric_recalc import is_geometric_repairing
     from plugin.framework.thread_guard import on_main_thread
@@ -256,8 +355,13 @@ def dispatch_sheet_modified(ctx: Any, doc_url: str, sheet_name: str, event: Any,
         from plugin.calc.python.function import _get_calc_doc
 
         owner = _get_calc_doc(ctx)
+    live = _sheet_name_of(sheet)
+    effective_name = sheet_name
+    if live and sheet_name and live != sheet_name:
+        migrate_sheet_rename(owner, sheet_name, live, dispatcher=dispatcher)
+        effective_name = live
     live_url = _doc_url_of(owner) if owner is not None else ""
-    schedule_sheet_modify_pass(ctx, owner, sheet, doc_url=live_url or doc_url, sheet_name=sheet_name)
+    schedule_sheet_modify_pass(ctx, owner, sheet, doc_url=live_url or doc_url, sheet_name=effective_name)
 
 
 def _dispatcher_on_sheet(sheet: Any) -> "SheetModifyDispatcher | None":
@@ -343,7 +447,7 @@ class SheetModifyDispatcher(unohelper.Base, XModifyListener):
 
     def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
         try:
-            dispatch_sheet_modified(self.ctx, self.doc_url, self.sheet_name, aEvent, doc=self.doc)
+            dispatch_sheet_modified(self.ctx, self.doc_url, self.sheet_name, aEvent, doc=self.doc, dispatcher=self)
         except Exception:
             log.exception("Error in SheetModifyDispatcher.modified")
 
@@ -353,6 +457,11 @@ class SheetModifyDispatcher(unohelper.Base, XModifyListener):
         SHEET_MODIFY_LISTENERS.pop((self.doc_identity, self.sheet_name), None)
         if self.doc_url and self.doc_url != self.doc_identity:
             SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
+        # Ensure any key in SHEET_MODIFY_LISTENERS pointing to self is removed
+        for k, v in list(SHEET_MODIFY_LISTENERS.items()):
+            if v is self:
+                SHEET_MODIFY_LISTENERS.pop(k, None)
+                _cancel_pending(k)
         _cancel_pending((self.doc_identity, self.sheet_name))
         if self.doc_url and self.doc_url != self.doc_identity:
             _cancel_pending((self.doc_url, self.sheet_name))
