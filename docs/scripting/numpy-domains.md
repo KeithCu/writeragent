@@ -607,6 +607,8 @@ Results are inserted as compact tables and usable from scripts.
 
 **UI (minimal):** WriterAgent → **Text Analytics...** opens a modeless dialog with buttons for Readability (doc/sel), Entities, Key Phrases, **Topics**, Check Venv, and "Insert report here". All work is done with real spaCy pipelines (or sklearn for topics) in your configured Python venv (Settings → Python).
 
+Insert report writes into the Writer document that is active when Insert is clicked. The dialog stores the analyzed document's RuntimeUID. When that id and the active document's id are both non-empty and different, Insert asks you to switch back or run the analysis again and does not write. When either id is missing, Insert writes into the active Writer document. A worker exception shows the missing-package hint only when the message contains No module named, ModuleNotFoundError, or ImportError. Timeouts and other worker failures show Error: plus the exception text.
+
 **Advanced scripting:** Run Python Script **Text Helpers** templates call `run_text_analytics(...)`. Edit the helper and `params` in that call; on Run the host injects `text` and `document_context` from the Writer document, then inserts results as a compact HTML table after the caret/selection.
 
 **Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives, transformers). For topics also install scikit-learn. Install hint: `uv pip install spacy textdescriptives transformers torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm`.
