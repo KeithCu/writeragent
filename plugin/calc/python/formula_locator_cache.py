@@ -35,7 +35,48 @@ def extract_code_from_py_formula(formula: str) -> str | None:
     return None
 
 
-def is_matching_py_formula(formula: str, code_str: str) -> bool:
+def _code_strings_match(extracted: str | None, code_str: str) -> bool:
+    if extracted is None or not code_str:
+        return False
+    if extracted == code_str:
+        return True
+    ext_norm = extracted.replace("\r\n", "\n").strip()
+    code_norm = code_str.replace("\r\n", "\n").strip()
+    return ext_norm == code_norm
+
+
+def _resolve_ref_cell(sheet: Any, doc: Any | None, code_ref: str) -> Any | None:
+    try:
+        from plugin.calc.address_utils import parse_address, split_sheet_prefix
+
+        sheet_prefix, bare = split_sheet_prefix(code_ref.strip())
+        bare = bare.replace("$", "").strip()
+        if not bare:
+            return None
+        col, row = parse_address(bare)
+        target_sheet = sheet
+        if sheet_prefix:
+            if hasattr(sheet, "getName") and sheet.getName() == sheet_prefix:
+                target_sheet = sheet
+            elif doc is not None and hasattr(doc, "getSheets"):
+                sheets = doc.getSheets()
+                if hasattr(sheets, "hasByName") and sheets.hasByName(sheet_prefix):
+                    target_sheet = sheets.getByName(sheet_prefix)
+                elif hasattr(sheets, "getByName"):
+                    try:
+                        target_sheet = sheets.getByName(sheet_prefix)
+                    except Exception:
+                        return None
+                else:
+                    return None
+            else:
+                return None
+        return target_sheet.getCellByPosition(col, row)
+    except Exception:
+        return None
+
+
+def is_matching_py_formula(formula: str, code_str: str, *, sheet: Any | None = None, doc: Any | None = None) -> bool:
     """True if formula is a =PY() / =PYTHON() call whose code argument equals code_str."""
     if not formula or not code_str:
         return False
@@ -43,13 +84,22 @@ def is_matching_py_formula(formula: str, code_str: str) -> bool:
     if "PY" not in upper:
         return False
     extracted = extract_code_from_py_formula(formula)
-    if extracted is None:
-        return False
-    if extracted == code_str:
-        return True
-    ext_norm = extracted.replace("\r\n", "\n").strip()
-    code_norm = code_str.replace("\r\n", "\n").strip()
-    return ext_norm == code_norm
+    if extracted is not None:
+        return _code_strings_match(extracted, code_str)
+    if sheet is not None:
+        try:
+            from plugin.calc.python.formula_edit import parse_python_formula, py_formula_has_unquoted_code_ref
+
+            if py_formula_has_unquoted_code_ref(formula):
+                parts = parse_python_formula(formula)
+                if parts is not None and parts.code:
+                    ref_cell = _resolve_ref_cell(sheet, doc, parts.code)
+                    if ref_cell is not None:
+                        cell_text = getattr(ref_cell, "getString", lambda: "")()
+                        return _code_strings_match(cell_text, code_str)
+        except Exception:
+            pass
+    return False
 
 
 def _array_block_origin(sheet: Any, col: int, row: int) -> tuple[int, int] | None:
@@ -87,7 +137,7 @@ def _array_block_origin(sheet: Any, col: int, row: int) -> tuple[int, int] | Non
         return None
 
 
-def _matching_cells_in_range(sheet: Any, cell_range: Any, code_str: str) -> list[tuple[Any, int, int]]:
+def _matching_cells_in_range(sheet: Any, cell_range: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
     """Matching formula cells in *cell_range*. A multi-cell array formula of the same code is one origin."""
     addr = cell_range.getRangeAddress()
     raw_hits: list[tuple[Any, int, int]] = []
@@ -110,7 +160,7 @@ def _matching_cells_in_range(sheet: Any, cell_range: Any, code_str: str) -> list
                 upper = formula_str.upper()
                 if "PY" not in upper:
                     continue
-                if is_matching_py_formula(formula_str, code_str):
+                if is_matching_py_formula(formula_str, code_str, sheet=sheet, doc=doc):
                     cell = sheet.getCellByPosition(c, r)
                     raw_hits.append((cell, r, c))
     else:
@@ -123,7 +173,7 @@ def _matching_cells_in_range(sheet: Any, cell_range: Any, code_str: str) -> list
                 upper = formula.upper()
                 if "PY" not in upper:
                     continue
-                if is_matching_py_formula(formula, code_str):
+                if is_matching_py_formula(formula, code_str, sheet=sheet, doc=doc):
                     raw_hits.append((cell, r, c))
 
     if len(raw_hits) <= 1:
@@ -144,20 +194,20 @@ def _matching_cells_in_range(sheet: Any, cell_range: Any, code_str: str) -> list
     return hits
 
 
-def search_sheet_for_formula(sheet: Any, code_str: str) -> tuple[Any, int, int] | None:
+def search_sheet_for_formula(sheet: Any, code_str: str, doc: Any | None = None) -> tuple[Any, int, int] | None:
     """Query formula cells on sheet. Returns a match only when exactly one origin matches.
 
     Duplicate ``=PY("same")`` cells are indistinguishable (XAddIn has no calling cell);
     first-match would spill into the wrong formula. Matrix/array formulas are one origin
     (top-left of the formula range).
     """
-    matches = collect_matching_formula_origins(sheet, code_str)
+    matches = collect_matching_formula_origins(sheet, code_str, doc=doc)
     if len(matches) == 1:
         return matches[0]
     return None
 
 
-def collect_matching_formula_origins(sheet: Any, code_str: str) -> list[tuple[Any, int, int]]:
+def collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
     """All matching formula origins on *sheet* (one per queryContentCells range)."""
     found: list[tuple[Any, int, int]] = []
     try:
@@ -168,7 +218,7 @@ def collect_matching_formula_origins(sheet: Any, code_str: str) -> list[tuple[An
         count = formula_cells.getCount() if hasattr(formula_cells, "getCount") else 0
         for i in range(count):
             cell_range = formula_cells.getByIndex(i)
-            found.extend(_matching_cells_in_range(sheet, cell_range, code_str))
+            found.extend(_matching_cells_in_range(sheet, cell_range, code_str, doc=doc))
     except Exception:
         log.debug("search_sheet_for_formula failed on sheet", exc_info=True)
     return found
@@ -203,7 +253,7 @@ def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str) -> tuple[Any, 
             count = sheets.getCount() if hasattr(sheets, "getCount") else 0
             for i in range(count):
                 sheet = sheets.getByIndex(i)
-                for cell, r, c in collect_matching_formula_origins(sheet, code_str):
+                for cell, r, c in collect_matching_formula_origins(sheet, code_str, doc=doc):
                     _add(sheet, cell, r, c)
                     if len(collected) > 1:
                         return None

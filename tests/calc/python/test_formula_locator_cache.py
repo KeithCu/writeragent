@@ -263,3 +263,43 @@ def test_locate_uses_get_formula_array_and_skips_per_cell_get_formula():
     assert located[2] == (1, 1)
     assert get_formula_array_calls == 1
     assert get_formula_calls == 0
+
+
+def test_locate_formula_with_unquoted_code_ref():
+    sheet = CalcSheetStub("Sheet1")
+    sheet.getCellByPosition(0, 0).setString("result = 1")
+    sheet.getCellByPosition(1, 0).setFormula("=PY($A$1)")
+    doc = CalcDocStub(sheets=[sheet], url="file:///test_ref.ods")
+    ctx = _ctx_with_doc(doc)
+
+    located = locate_formula_cell_in_doc(ctx, doc, "result = 1")
+    assert located is not None
+    found_sheet, found_cell, (r, c) = located
+    assert found_sheet.getName() == "Sheet1"
+    assert (r, c) == (0, 1)
+
+
+def test_locate_formula_with_unquoted_code_ref_duplicate_is_none():
+    sheet = CalcSheetStub("Sheet1")
+    sheet.getCellByPosition(0, 0).setString("result = 1")
+    sheet.getCellByPosition(1, 0).setFormula("=PY($A$1)")
+    sheet.getCellByPosition(2, 0).setFormula("=PY($A$1)")
+    doc = CalcDocStub(sheets=[sheet], url="file:///test_ref_dup.ods")
+    ctx = _ctx_with_doc(doc)
+
+    located = locate_formula_cell_in_doc(ctx, doc, "result = 1")
+    assert located is None
+
+
+def test_locate_formula_quoted_still_works():
+    sheet = CalcSheetStub("Sheet1")
+    sheet.getCellByPosition(0, 0).setString("result = 1")
+    sheet.getCellByPosition(1, 0).setFormula('=PY("result = 1")')
+    doc = CalcDocStub(sheets=[sheet], url="file:///test_quoted.ods")
+    ctx = _ctx_with_doc(doc)
+
+    located = locate_formula_cell_in_doc(ctx, doc, "result = 1")
+    assert located is not None
+    found_sheet, found_cell, (r, c) = located
+    assert (r, c) == (0, 1)
+
