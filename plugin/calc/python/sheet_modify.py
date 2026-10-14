@@ -140,9 +140,6 @@ def _cancel_pending(key: tuple[str, str]) -> None:
             timer.cancel()
         except Exception:
             pass
-        # Timer.cancel() sets finished. _register_spill_timer prunes finished
-        # timers on the next register (#1098), so a reschedule drops this one
-        # from _PENDING_SPILL_TIMERS.
 
 
 def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
@@ -159,7 +156,12 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
     key = _sheet_key(identity, name)
     _cancel_pending(key)
 
+    timer_holder: list[Any] = []
+
     def _fire() -> None:
+        with _PENDING_LOCK:
+            if timer_holder and _PENDING_TIMERS.get(key) is timer_holder[0]:
+                _PENDING_TIMERS.pop(key, None)
         from plugin.framework.queue_executor import post_to_main_thread
 
         post_to_main_thread(lambda: run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=name))
@@ -176,6 +178,7 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
 
     # Timer lives in function.py (Layer C allowlist) — same 0.1s spill site.
     timer = start_deferred_sheet_timer(delay_sec, _fire, lifecycle_key=lifecycle_key)
+    timer_holder.append(timer)
     with _PENDING_LOCK:
         _PENDING_TIMERS[key] = timer
 

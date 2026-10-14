@@ -159,12 +159,12 @@ class PythonExecutor:
             result = code_output.output
             return self.format_result(result)
         except InterpreterError as e:
-            log.exception("Sandbox execution error: \n%s", code_snippet)
+            log.warning("Sandbox execution error: %s (snippet length %d)", str(e), len(code_snippet))
             raise WriterAgentException(f"Execution Error: {str(e)}", code="PYTHON_EXECUTION_ERROR") from e
         except WriterAgentException:
             raise
         except Exception as e:
-            log.exception("Error executing Python code: \n%s", code_snippet)
+            log.exception("Error executing Python code (snippet length %d)", len(code_snippet))
             raise WriterAgentException(f"Execution Error: {str(e)}", code="PYTHON_EXECUTION_ERROR") from e
         except ExecutionTimeoutError as e:
             # ExecutionTimeoutError is a BaseException, so it bypasses `except Exception`.

@@ -347,3 +347,21 @@ def test_execute_with_return_catches_timeout_and_exit_signals():
     assert "KeyboardInterrupt" in str(exc_info.value)
     assert exc_info.value.code == "PYTHON_EXECUTION_ERROR"
 
+
+def test_interpreter_error_logs_warning_without_source(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+    from plugin.calc.python.executor import PythonExecutor
+    from plugin.framework.errors import WriterAgentException
+
+    executor = PythonExecutor("test")
+    bad_code = "secret_token = 'SUPER_SECRET_KEY'\nundefined_symbol_xyz()"
+
+    with caplog.at_level(logging.WARNING, logger="plugin.calc.python.executor"):
+        with pytest.raises(WriterAgentException):
+            executor.execute_with_return(bad_code)
+
+    assert bad_code not in caplog.text
+    assert "SUPER_SECRET_KEY" not in caplog.text
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+    assert any("snippet length" in r.message for r in caplog.records)
+

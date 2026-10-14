@@ -186,3 +186,42 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
 
     assert ("uid-rename", "SheetRenamed", 0, 0) not in SPILL_REGISTRY
     assert cell_neighbor.getValue() == 0.0 or cell_neighbor.getString() == ""
+
+
+def test_schedule_timer_callback_clears_pending_timer(monkeypatch):
+    """Timer callback removes itself from _PENDING_TIMERS on fire."""
+    from plugin.calc.python.sheet_modify import schedule_sheet_modify_pass
+
+    captured_callbacks: list = []
+
+    class _CaptureTimer:
+        def __init__(self, interval, function, *args, **kwargs):
+            self.interval = interval
+            self.function = function
+            self.cancelled = False
+            captured_callbacks.append(function)
+
+        def start(self) -> None:
+            pass
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _CaptureTimer)
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.post_to_main_thread",
+        lambda fn, *a, **k: None,
+    )
+
+    doc = CalcDocStub(url="", props={"RuntimeUID": "uid-fire-timer"})
+    sheet = doc.getSheets().getByName("Sheet1")
+    key = ("uid-fire-timer", "Sheet1")
+
+    schedule_sheet_modify_pass("ctx", doc, sheet)
+    assert key in _PENDING_TIMERS
+    assert len(captured_callbacks) == 1
+
+    # Fire the callback
+    captured_callbacks[0]()
+    assert key not in _PENDING_TIMERS
+
