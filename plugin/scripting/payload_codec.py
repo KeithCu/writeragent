@@ -630,8 +630,10 @@ def image_payload_suffix(payload: dict[str, Any]) -> str:
 def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
     """Write image bytes from *payload* to a persistent temp file; return absolute path.
 
-    The caller owns a successful path (Calc egress unlinks after GraphicURL
-    loads). A failed write removes the file this function created.
+    The caller owns a successful path. Calc sheet egress and
+    insert_image_payload_for_doc (Writer and Draw) unlink after GraphicURL loads.
+    A path returned to the caller, such as PlotDataTool's non-Calc image_path,
+    stays. A failed write still removes the file this function created.
     """
     # crosshair: off  # tempfile/filesystem (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a bytes/format domain.
     suffix = image_payload_suffix(payload)

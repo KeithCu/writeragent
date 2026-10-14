@@ -10,6 +10,7 @@ Compute is lazy-loaded from ``plugin.scripting.venv.viz`` via ``__getattr__``.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, cast
 
 from plugin.calc.analysis_runner import calc_tool_context
@@ -20,7 +21,7 @@ from plugin.scripting.client import run_viz as client_run_viz
 from plugin.scripting.helper_domain import (
     header_prefix,
 )
-from plugin.scripting.payload_codec import is_image_payload, find_image_payloads, write_image_payload_to_temp
+from plugin.scripting.payload_codec import is_image_payload, is_multi_data, find_image_payloads, write_image_payload_to_temp
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
 
@@ -39,20 +40,12 @@ _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
 }
 
 _HELPER_DESCRIPTIONS: dict[str, str] = {
-    "quick_plot": "Auto line/bar chart from numeric columns in the data range.",
+    "quick_plot": "Auto line/bar chart of one numeric column in the data range.",
     "correlation_heatmap": "Heatmap of pairwise correlations (matplotlib/seaborn).",
     "time_series_plot": "Line plot for date_col vs value_col.",
 }
 
-_VIZ_VENV_EXPORTS = frozenset(
-    {
-        "correlation_heatmap",
-        "plot_data",
-        "quick_plot",
-        "run_viz",
-        "time_series_plot",
-    }
-)
+_VIZ_VENV_EXPORTS = frozenset(HELPER_NAMES) | {"run_viz"}
 
 install_lazy_exports(globals(), "viz", _VIZ_VENV_EXPORTS)
 
@@ -196,6 +189,20 @@ def extract_image_payload(value: Any) -> dict[str, Any] | None:
     return images[0] if images else None
 
 
+def _unlink_plot_temp(path: str) -> None:
+    # What was wrong: Writer and Draw plot insert wrote a temp file and returned,
+    # so each insert leaked one SVG/PNG.
+    # How: GraphicURL embeds before it returns, and a path under the temp directory
+    # is not linked (_should_link_image_path).
+    # Why this fixes it: this function owns the path it just wrote, so finally
+    # unlinks it even when insert raises. Calc unlinks in image_egress.
+    # PlotDataTool's returned image_path is a different call and stays.
+    try:
+        os.unlink(path)
+    except OSError:
+        log.debug("failed to unlink plot temp %s", path, exc_info=True)
+
+
 def insert_image_payload_for_doc(
     ctx: Any,
     doc: Any,
@@ -214,18 +221,23 @@ def insert_image_payload_for_doc(
         return
     if is_writer(doc):
         from plugin.writer.images.image_tools import insert_image_at_locator
-
-        path = write_image_payload_to_temp(payload)
         from plugin.framework.uno_context import product_display_name
 
-        insert_image_at_locator(ctx, doc, path, title=title, description=f"{product_display_name(ctx)} plot")
+        path = write_image_payload_to_temp(payload)
+        try:
+            insert_image_at_locator(ctx, doc, path, title=title, description=f"{product_display_name(ctx)} plot")
+        finally:
+            _unlink_plot_temp(path)
         return
     if is_draw(doc):
         from plugin.writer.images.image_tools import insert_image
         from plugin.framework.uno_context import product_display_name
 
         path = write_image_payload_to_temp(payload)
-        insert_image(ctx, doc, path, 400, 300, title=title, description=f"{product_display_name(ctx)} plot", add_to_gallery=False)
+        try:
+            insert_image(ctx, doc, path, 400, 300, title=title, description=f"{product_display_name(ctx)} plot", add_to_gallery=False)
+        finally:
+            _unlink_plot_temp(path)
         return
     raise ToolExecutionError(_("Unsupported document type for plot insertion."), code="VIZ_ERROR")
 
@@ -253,8 +265,8 @@ def _images_claimed_as_plot(result_data: Any) -> list[dict[str, Any]]:
     """Images this turn should insert as a plot, not every nested picture."""
     if is_image_payload(result_data):
         return [result_data]
-    if isinstance(result_data, dict) and result_data.get("__wa_payload__") == "multi_data":
-        items = result_data.get("items") or []
+    if is_multi_data(result_data):
+        items = result_data["items"]
         claimed: list[dict[str, Any]] = []
         for item in items:
             if not is_image_payload(item):

@@ -9,12 +9,11 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 import logging
-from typing import Any
+from typing import Any, cast
 
 from plugin.scripting.venv.coerce import (
     error_result as _error_result,
     missing_package_error as _missing_package_error,
-    numeric_columns as _numeric_columns,
     parse_date_column,
     resolve_df as _resolve_df,
     _sheet_layout_flags,
@@ -28,6 +27,32 @@ _CORR_METHODS = frozenset({"pearson", "kendall", "spearman"})
 
 
 # --- Core Helper Implementations (Venv Execution Path) ---
+
+
+def _column_by_label(df: Any, name: Any) -> Any:
+    # What was wrong: integer column 0 was reported as NON_NUMERIC_COLUMN
+    # because the requested or stringified name was looked up on an Index
+    # with integer labels.
+    # How it happened: resolve_df keeps DataFrame column labels as-is, but
+    # numeric_columns and caller lookups stringified the names.
+    # Why this change: resolve a requested name against actual Index labels:
+    # exact membership first, otherwise the first column whose str(col) == str(name).
+    if name is None:
+        return None
+    try:
+        if name in df.columns:
+            return name
+    except Exception:
+        pass
+    name_str = str(name)
+    for col in df.columns:
+        if str(col) == name_str:
+            return col
+    return None
+
+
+def _numeric_labels(df: Any) -> list[Any]:
+    return list(df.select_dtypes(include="number").columns)
 
 
 def _figure_payload(fig: Any) -> dict[str, Any]:
@@ -69,7 +94,7 @@ def _open_figure(plt: Any, figsize: tuple[int, int]) -> Iterator[tuple[Any, Any]
             log.debug("failed to close viz figure", exc_info=True)
 
 
-def _non_numeric_column(df: Any, name: str, *, helper: str) -> dict[str, Any] | None:
+def _non_numeric_column(df: Any, name: Any, *, helper: str) -> dict[str, Any] | None:
     # numeric_columns returns a requested name that exists and does not check
     # dtype. quick_plot and plot_data then called Series.astype(float), and a
     # text column raised ValueError. The worker reported that as a generic
@@ -93,53 +118,61 @@ def _require_matplotlib(helper: str) -> Any | None:
 def quick_plot(
     data: Any,
     *,
-    x_col: str | None = None,
-    y_cols: list[str] | None = None,
+    x_col: Any = None,
+    y_col: Any = None,
     headers: bool = True,
     header_row: int = 0,
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
-    """Default line or bar chart from numeric columns.
+    """Default line or bar chart of one numeric column.
 
     Bar when the frame has 12 or fewer rows, otherwise line. ``x_col`` labels
     the bar ticks and is the line chart's x values when that column exists.
     """
+    if isinstance(y_col, (list, tuple)):
+        return _error_result("INVALID_PARAMS", "y_col must be one column name", helper="quick_plot")
+
     plt = _require_matplotlib("quick_plot")
     if plt is None:
         return _missing_package_error("quick_plot", "matplotlib")
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    try:
-        numeric = _numeric_columns(df, y_cols)
-    except ValueError as exc:
-        return _error_result("UNKNOWN_COLUMN", str(exc), helper="quick_plot")
-    if not numeric:
-        return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper="quick_plot")
+    if y_col is not None:
+        resolved_y = _column_by_label(df, y_col)
+        if resolved_y is None:
+            return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {y_col}", helper="quick_plot")
+        y_name = resolved_y
+    else:
+        numeric = _numeric_labels(df)
+        if not numeric:
+            return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper="quick_plot")
+        y_name = numeric[0]
 
-    y_name = numeric[0]
     rejected = _non_numeric_column(df, y_name, helper="quick_plot")
     if rejected is not None:
         return rejected
     y_values = df[y_name]
+
+    resolved_x = _column_by_label(df, x_col) if x_col is not None else None
 
     with _open_figure(plt, (8, 4)) as (fig, ax):
         chart_type = "bar" if len(df) <= 12 else "line"
         if chart_type == "bar":
             ax.bar(range(len(y_values)), y_values.astype(float))
             ax.set_xticks(range(len(y_values)))
-            if x_col and x_col in df.columns:
-                ax.set_xticklabels([str(v) for v in df[x_col]], rotation=45, ha="right")
+            if resolved_x is not None:
+                ax.set_xticklabels([str(v) for v in df[resolved_x]], rotation=45, ha="right")
         else:
             # The line branch plotted y against the row index. x_col was only
             # applied as bar tick labels, so the same argument changed meaning
             # at 12 rows. Plot that column when it exists.
-            if x_col and x_col in df.columns:
-                ax.plot(df[x_col], y_values.astype(float))
+            if resolved_x is not None:
+                ax.plot(df[resolved_x], y_values.astype(float))
             else:
                 ax.plot(y_values.astype(float))
-        ax.set_ylabel(y_name)
-        ax.set_title(f"Quick plot: {y_name}")
+        ax.set_ylabel(str(y_name))
+        ax.set_title(f"Quick plot: {str(y_name)}")
         fig.tight_layout()
         return _ok_viz("quick_plot", fig, chart_type=chart_type, title=ax.get_title())
 
@@ -153,60 +186,89 @@ def plot_data(
     sheet_hint: str | None = None,
 ) -> dict[str, Any]:
     """Plot from numeric grid using a small chart spec dict."""
+    spec = dict(spec or {})
+    raw_chart_type = spec.get("chart_type")
+    if raw_chart_type is None or raw_chart_type == "":
+        chart_type = "line"
+    elif isinstance(raw_chart_type, str):
+        stripped = raw_chart_type.strip().lower()
+        if not stripped:
+            chart_type = "line"
+        elif stripped in ("line", "scatter", "histogram", "bar"):
+            chart_type = stripped
+        else:
+            return _error_result(
+                "INVALID_PARAMS",
+                "chart_type must be line, scatter, histogram, or bar",
+                helper="plot_data",
+            )
+    else:
+        return _error_result(
+            "INVALID_PARAMS",
+            "chart_type must be line, scatter, histogram, or bar",
+            helper="plot_data",
+        )
+
     plt = _require_matplotlib("plot_data")
     if plt is None:
         return _missing_package_error("plot_data", "matplotlib")
 
-    spec = dict(spec or {})
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    chart_type = str(spec.get("chart_type") or "line").lower()
     x_col = spec.get("x")
     y_col = spec.get("y")
     # hue used to set a legend title and result["legend"] without splitting or
     # coloring series. Nothing in the tool schema passes it. Ignore the key.
     title = str(spec.get("title") or "Plot")
 
-    numeric = _numeric_columns(df)
+    numeric = _numeric_labels(df)
     if not numeric:
         return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper="plot_data")
 
-    y_name = str(y_col) if y_col in df.columns else numeric[0]
-    rejected = _non_numeric_column(df, y_name, helper="plot_data")
-    if rejected is not None:
-        return rejected
+    resolved_y = _column_by_label(df, y_col) if y_col is not None else None
+    if resolved_y is not None:
+        rejected = _non_numeric_column(df, resolved_y, helper="plot_data")
+        if rejected is not None:
+            return rejected
+        y_name = resolved_y
+    else:
+        y_name = numeric[0]
 
-    scatter_x: str | None = None
+    resolved_x = _column_by_label(df, x_col) if x_col is not None else None
+
+    scatter_x: Any = None
     if chart_type == "scatter":
-        scatter_x = str(x_col) if x_col in df.columns else (numeric[1] if len(numeric) > 1 else numeric[0])
-        rejected_x = _non_numeric_column(df, scatter_x, helper="plot_data")
-        if rejected_x is not None:
-            return rejected_x
+        if resolved_x is not None:
+            rejected_x = _non_numeric_column(df, resolved_x, helper="plot_data")
+            if rejected_x is not None:
+                return rejected_x
+            scatter_x = resolved_x
+        else:
+            scatter_x = numeric[1] if len(numeric) > 1 else numeric[0]
 
     with _open_figure(plt, (8, 4)) as (fig, ax):
         if chart_type == "scatter" and scatter_x is not None:
             sample = df[[scatter_x, y_name]].dropna()
             ax.scatter(sample[scatter_x].astype(float), sample[y_name].astype(float))
-            ax.set_xlabel(scatter_x)
-            ax.set_ylabel(y_name)
+            ax.set_xlabel(str(scatter_x))
+            ax.set_ylabel(str(y_name))
         elif chart_type == "histogram":
             ax.hist(df[y_name].dropna().astype(float), bins=min(30, max(5, len(df) // 5)))
-            ax.set_xlabel(y_name)
+            ax.set_xlabel(str(y_name))
         elif chart_type == "bar":
-            if x_col and x_col in df.columns:
-                ax.bar(df[x_col].astype(str), df[y_name].astype(float))
-                ax.set_xlabel(str(x_col))
+            if resolved_x is not None:
+                ax.bar(df[resolved_x].astype(str), df[y_name].astype(float))
+                ax.set_xlabel(str(resolved_x))
             else:
                 ax.bar(range(len(df)), df[y_name].astype(float))
-            ax.set_ylabel(y_name)
+            ax.set_ylabel(str(y_name))
         else:
-            if x_col and x_col in df.columns:
-                ax.plot(df[x_col], df[y_name].astype(float), label=str(y_name))
-                ax.set_xlabel(str(x_col))
+            if resolved_x is not None:
+                ax.plot(df[resolved_x], df[y_name].astype(float), label=str(y_name))
+                ax.set_xlabel(str(resolved_x))
             else:
                 ax.plot(df[y_name].astype(float), label=str(y_name))
-            ax.set_ylabel(y_name)
-            chart_type = "line"
+            ax.set_ylabel(str(y_name))
 
         ax.set_title(title)
         fig.tight_layout()
@@ -314,7 +376,6 @@ def time_series_plot(
         hist_col = value_col
 
     import pandas as pd
-    from typing import cast
 
     plot_cols = [date_col, hist_col]
     if forecast_col and forecast_col in df.columns:
@@ -354,7 +415,16 @@ def time_series_plot(
         upper_values = u_vals
         band_mask = dates_all.notna() & l_vals.notna() & u_vals.notna()
 
-    if not hist_mask.any() and not (forecast_col and forecast_col in series.columns):
+    # What was wrong: an all-null forecast column bypassed INSUFFICIENT_DATA
+    # because the guard checked column presence instead of valid data points,
+    # opening an empty figure. Also, a valid confidence band alone was ignored.
+    # How it happened: the guard only tested hist_mask.any() or forecast_col in series.columns.
+    # Why this change: require at least one plottable row across history, forecast,
+    # or confidence band before opening a figure.
+    has_hist = bool(hist_mask.any())
+    has_forecast = bool(forecast_mask is not None and forecast_mask.any())
+    has_band = bool(band_mask is not None and band_mask.any())
+    if not (has_hist or has_forecast or has_band):
         return _error_result("INSUFFICIENT_DATA", "No rows to plot.", helper="time_series_plot")
 
     with _open_figure(plt, (9, 4)) as (fig, ax):
@@ -398,7 +468,9 @@ def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: b
     common: dict[str, Any] = {"headers": headers, "header_row": header_row, "sheet_hint": sheet_hint}
 
     if name == "quick_plot":
-        return quick_plot(data, x_col=params.get("x_col"), y_cols=params.get("y_cols"), **common)
+        if "y_cols" in params:
+            return _error_result("INVALID_PARAMS", "quick_plot takes y_col, not y_cols", helper="quick_plot")
+        return quick_plot(data, x_col=params.get("x_col"), y_col=params.get("y_col"), **common)
     if name == "plot_data":
         return plot_data(data, spec=params.get("spec") if isinstance(params.get("spec"), dict) else params, **common)
     if name == "correlation_heatmap":

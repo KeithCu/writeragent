@@ -197,7 +197,7 @@ Calc plot replacement reuses only a `GraphicObjectShape` named `WriterAgentPlot`
 
 #### Phase B — Run Python Script + Writer image egress (shipped)
 
-[`python_runner.py`](../../plugin/scripting/python_runner.py) `execute_and_insert_result()` checks `is_viz_result()` / `is_image_payload()` after venv execution and inserts plots via [`viz.py`](../../plugin/scripting/viz.py) egress helpers (Calc → [`insert_image_result_on_sheet`](../../plugin/calc/python/image_egress.py); Writer → [`insert_image_at_locator`](../../plugin/writer/images/image_tools.py)). Viz templates execute the visible `run_viz(...)` call in the venv; results route via post-venv insert. Tests: [`test_python_runner_viz.py`](../../tests/scripting/test_python_runner_viz.py).
+[`python_runner.py`](../../plugin/scripting/python_runner.py) `execute_and_insert_result()` checks `is_viz_result()` / `is_image_payload()` after venv execution and inserts plots via [`viz.py`](../../plugin/scripting/viz.py) egress helpers (Calc → [`insert_image_result_on_sheet`](../../plugin/calc/python/image_egress.py); Writer → [`insert_image_at_locator`](../../plugin/writer/images/image_tools.py)). Writer and Draw plot inserts unlink the temp file after `GraphicURL` returns, including when insert raises. The path is under the temp directory, so it is embedded rather than linked. Viz templates execute the visible `run_viz(...)` call in the venv; results route via post-venv insert. Tests: [`test_python_runner_viz.py`](../../tests/scripting/test_python_runner_viz.py).
 
 #### Phase C — Trusted Viz helpers (shipped)
 
@@ -205,10 +205,10 @@ Calc plot replacement reuses only a `GraphicObjectShape` named `WriterAgentPlot`
 
 | Helper | Purpose | Notes |
 |--------|---------|-------|
-| `plot_data` | Auto chart from numeric grid + `spec` | Spec keys: chart_type (line default, also bar, scatter, histogram), x, y, title. hue is not read. A y that names a non-numeric column, or a scatter x that does, is NON_NUMERIC_COLUMN. A name that is not a column falls back to the first numeric column. |
+| `plot_data` | Auto chart from numeric grid + `spec` | `chart_type` is `line`, `bar`, `scatter`, or `histogram` after strip and lowercase. Missing or blank is `line`. Any other value is `INVALID_PARAMS` (`chart_type must be line, scatter, histogram, or bar`) and is not drawn as a line. `x` and `y` match a column exactly, or by `str(label)` when the requested name is not itself a column. A name that is not a column still falls back to the first numeric column. A y that names a non-numeric column, or a scatter x that does, is NON_NUMERIC_COLUMN. |
 | `correlation_heatmap` | Heatmap | method is pearson, kendall, or spearman (strip and lowercase). Anything else is INVALID_PARAMS. If seaborn cannot draw, the helper uses matplotlib imshow. |
-| `time_series_plot` | Date-indexed line plot | Shared with Forecast. historical_value_col, when set, must name a column (UNKNOWN_COLUMN). It does not fall back to value_col. Missing forecast_col, lower_col, and upper_col are skipped. |
-| `quick_plot` | Default Run Python Script template | x_col, when it names a column, is the bar tick labels and the line x values. Bar when the frame has 12 or fewer rows, otherwise line. The y column that is plotted, if it is not numeric, is NON_NUMERIC_COLUMN. |
+| `time_series_plot` | Date-indexed line plot | Shared with Forecast. historical_value_col, when set, must name a column (UNKNOWN_COLUMN). It does not fall back to value_col. Missing forecast_col, lower_col, and upper_col are skipped. History, forecast, and the confidence band with no plotted row is `INSUFFICIENT_DATA` (`No rows to plot.`). A forecast column that is present and entirely null does not count as data. |
+| `quick_plot` | Default Run Python Script template | It plots one series, `y_col` or else the first numeric column. `y_cols` is `INVALID_PARAMS` (`quick_plot takes y_col, not y_cols`). A list `y_col` is `INVALID_PARAMS` (`y_col must be one column name`). The same exact-or-`str(label)` match applies, so integer column `0` matches `"0"`. x_col, when it names a column, is the bar tick labels and the line x values. Bar when the frame has 12 or fewer rows, otherwise line. The y column that is plotted, if it is not numeric, is NON_NUMERIC_COLUMN. |
 
 **Run Python Script templates:** **Viz Helpers →** `[Viz] quick_plot`, `[Viz] correlation_heatmap`, `[Viz] time_series`.
 
