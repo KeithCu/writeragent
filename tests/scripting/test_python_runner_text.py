@@ -13,9 +13,8 @@ from plugin.scripting.text_analytics import get_text_analytics_script_templates
 
 
 @patch("plugin.scripting.text_analytics.insert_text_analytics_result_into_doc")
-@patch("plugin.scripting.text_analytics.run_trusted_text_analytics")
 @patch("plugin.scripting.python_runner.run_code_in_user_venv")
-def test_execute_and_insert_text_skips_fast_path(mock_venv, mock_run, mock_insert):
+def test_execute_and_insert_text_skips_fast_path(mock_venv, mock_insert):
     ctx = MagicMock()
     doc = MagicMock()
 
@@ -38,7 +37,6 @@ def test_execute_and_insert_text_skips_fast_path(mock_venv, mock_run, mock_inser
 
     assert outcome["ok"] is True
     assert "Text analytics" in outcome["status_ok_text"]
-    mock_run.assert_not_called()
     mock_venv.assert_called_once()
     injected = mock_venv.call_args.args[1]
     assert "text = " in injected

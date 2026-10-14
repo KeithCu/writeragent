@@ -575,20 +575,20 @@ Units helpers (`convert_quantity`, `parse_quantity`, `format_quantity`) accept e
 - Key phrases (noun chunks)
 - Linguistic profile
 
-**Sentiment by section** (lexicon-based, works on sections extracted from headings)
+**Sentiment by section** (transformers, heading sections)
 
 **Fancier: Topics**
 
 `topics` helper (added in 2026) performs lightweight topic modeling with TF-IDF + NMF from scikit-learn. It is especially useful on whole documents because the host extracts logical sections (using the heading tree) and passes a list of section texts. The result includes:
 
 - Top terms per topic
-- (When sections are provided) dominant topic + strength per section
+- (When sections are provided) dominant topic + strength per section. A section is the heading once plus the following body (tracked deletions omitted). Sections with fewer than 8 words are omitted from `assignments`. `section_index` is the index in the section list passed to the helper. `meta.n_topics` is how many topics were fit. `meta.n_sections`, when present, is the number of input sections. The fit count is lowered to `min(samples, features)` because NMF’s `nndsvd` init refuses a larger `n_components`.
 
 This gives writers an at-a-glance "map" of the major themes and where they appear — exactly the "topic structure" goal.
 
 **Sentiment (by section)**
 
-`sentiment` helper uses `transformers` + a strong multilingual model (default: `cardiffnlp/twitter-xlm-roberta-base-sentiment`, an XLM-RoBERTa model with good cross-lingual performance). When run on the whole document it uses heading-based section extraction and returns both overall sentiment and per-section results. This delivers the "sentiment by section" goal for reports and long-form Writer content across 34 locales.
+`sentiment` helper uses `transformers` + a strong multilingual model (default: `cardiffnlp/twitter-xlm-roberta-base-sentiment`, an XLM-RoBERTa model with good cross-lingual performance). `score` is signed polarity in [-1, 1] (positive confidence, negative confidence, or 0 for neutral) and the same number is used for the average and for each `per_section` entry. `LABEL_n` uses the model’s `num_labels` and the midpoint rule. `"N star"` / `"N stars"` uses that rule with five classes. The default Cardiff NLP model already returns the words `negative`, `neutral`, and `positive`. When run on the whole document it uses heading-based section extraction and returns both overall sentiment and per-section results. This delivers the "sentiment by section" goal for reports and long-form Writer content across 34 locales.
 
 The old spacytextblob implementation has been removed (it provided only limited multilingual support).
 
@@ -608,7 +608,7 @@ Results are inserted as compact tables and usable from scripts.
 
 **Settings → Python Test:** Reports a "Text / NLP Libraries" group (spacy, textdescriptives, transformers). For topics also install scikit-learn. Install hint: `uv pip install spacy textdescriptives transformers torch --index-url https://download.pytorch.org/whl/cpu && python -m spacy download xx_sent_ud_sm`.
 
-**Requirements in the venv:** `spacy` + `textdescriptives` + at least one model for the spaCy features. `transformers` + `torch` (CPU) for the `sentiment` helper (multilingual XLM-RoBERTa default). `scikit-learn` for the `topics` helper. The document's `CharLocale` (if present) is passed to prefer a better model for spaCy.
+**Requirements in the venv:** `spacy` + `textdescriptives` + at least one model for the spaCy features. `transformers` + `torch` (CPU) for the `sentiment` helper (multilingual XLM-RoBERTa default). `scikit-learn` for the `topics` helper. The document's `CharLocale` (if present) is passed to prefer a better model for spaCy. `xx_ent_wiki_sm` is only the last-resort model (NER, no parser or sentence boundaries). On that model key phrases are empty and sentence counts are 0; entities still run. Prefer `xx_sent_ud_sm` or a `*_core_*` model.
 
 **Direct use:** From any `run_venv_python_script` or Run Python Script you can `from writeragent.scripting.text_analytics import analyze_text, run_text_analytics`.
 

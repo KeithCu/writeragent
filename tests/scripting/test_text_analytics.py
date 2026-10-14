@@ -10,9 +10,13 @@ They are skipped gracefully if the packages are not present.
 
 from __future__ import annotations
 
+import sys
+from typing import Any
+
 import pytest
 
 from plugin.scripting import text_analytics as ta
+from plugin.scripting.venv import text_analytics as vta
 
 
 def test_loads_a_model_and_analyzes():
@@ -171,29 +175,24 @@ def test_text_analytics_topics_result_shape():
 
 def test_text_analytics_topics_accepts_list_for_sections():
     # Verify the dispatcher path for list input (used for section-aware topics)
+    secs = [
+        "Section one talks about annual revenue targets and overall company growth plans.",
+        "Section two discusses project timelines, budget allocations and quarterly financial forecasting.",
+        "Third section returns to financial forecasting with detailed statistical trend predictions.",
+    ]
     try:
-        out = ta.run_text_analytics("topics", ["Section one talks about revenue targets.", "Section two discusses project timelines and budgets.", "Third section returns to financial forecasting."])
+        out = ta.run_text_analytics("topics", secs)
     except ImportError:
         pytest.skip("sklearn not installed for topics test")
     assert out["status"] == "ok"
     res = out.get("result", {})
     if "error" not in res:
         assert "topics" in res
-        # When list provided we expect assignments
-        if res.get("topics"):
-            assert "assignments" in res or True  # may be present
-
-def test_text_analytics_sentiment_uses_config_model_via_params():
-    # Model override via JSON setting is passed as params (host reads config).
-    # We test the worker-side function directly with params.
-    try:
-        out = ta._extract_sentiment("great success", params={"model": "cardiffnlp/twitter-xlm-roberta-base-sentiment"})
-    except Exception:
-        pytest.skip("transformers not available")
-    # If it ran without MISSING, shape is good (model may or may not be cached/downloaded in test env).
-    if out.get("error") == "MISSING_PACKAGE":
-        pytest.skip("transformers model not loadable in this env")
-    assert "overall" in out or "sentiment" in out  # internal or wrapped
+        assignments = res.get("assignments", [])
+        assert len(assignments) == 3
+        assert [a["section_index"] for a in assignments] == [0, 1, 2]
+        meta = res.get("meta", {})
+        assert meta["n_topics"] == len(res["topics"])
 
 
 def test_text_analytics_sentiment_result_shape_and_basic_logic():
@@ -256,4 +255,339 @@ def test_result_to_html_table_double_escapes_markup():
     html = ta._result_to_html_table({"key_phrases": [{"lemma": "<script>"}]})
     assert "&amp;lt;script&amp;gt;" in html
     assert "<script>" not in html
+
+
+def test_model_candidates_try_sent_once_and_ent_last():
+    en_cands = vta._model_candidates("en")
+    assert en_cands[0] == "en_core_web_sm"
+    assert en_cands.count("xx_sent_ud_sm") == 1
+    assert en_cands[-1] == "xx_ent_wiki_sm"
+
+    none_cands = vta._model_candidates(None)
+    assert none_cands == ["xx_sent_ud_sm", "xx_ent_wiki_sm"]
+
+    ja_cands = vta._model_candidates("ja")
+    assert ja_cands[0] == "ja_core_news_sm"
+
+    assert vta._LANG_MODELS["mk"] == ("mk_core_news_sm",)
+
+
+def test_normalize_sentiment_label():
+    for lab in ("positive", "1", "5", "POS"):
+        assert vta._normalize_sentiment_label(lab) == "positive"
+    for lab in ("0", "negative"):
+        assert vta._normalize_sentiment_label(lab) == "negative"
+    for lab in ("2", "3", "4"):
+        assert vta._normalize_sentiment_label(lab) == "neutral"
+    assert vta._normalize_sentiment_label("LABEL_1", num_labels=None) == "neutral"
+
+    # num_labels = 2
+    assert vta._normalize_sentiment_label("LABEL_0", num_labels=2) == "negative"
+    assert vta._normalize_sentiment_label("LABEL_1", num_labels=2) == "positive"
+
+    # num_labels = 3
+    assert vta._normalize_sentiment_label("LABEL_0", num_labels=3) == "negative"
+    assert vta._normalize_sentiment_label("LABEL_1", num_labels=3) == "neutral"
+    assert vta._normalize_sentiment_label("LABEL_2", num_labels=3) == "positive"
+
+    # num_labels = 5
+    assert vta._normalize_sentiment_label("LABEL_0", num_labels=5) == "negative"
+    assert vta._normalize_sentiment_label("LABEL_1", num_labels=5) == "negative"
+    assert vta._normalize_sentiment_label("LABEL_2", num_labels=5) == "neutral"
+    assert vta._normalize_sentiment_label("LABEL_3", num_labels=5) == "positive"
+    assert vta._normalize_sentiment_label("LABEL_4", num_labels=5) == "positive"
+
+    # star ratings
+    assert vta._normalize_sentiment_label("1 star") == "negative"
+    assert vta._normalize_sentiment_label("3 stars") == "neutral"
+    assert vta._normalize_sentiment_label("5 stars") == "positive"
+
+    # out-of-range label
+    assert vta._normalize_sentiment_label("LABEL_9", num_labels=3) == "neutral"
+
+
+def test_extract_sentiment_label_n_and_neutral_score(monkeypatch):
+    import types
+    fake_transformers = types.ModuleType("transformers")
+    recorded: dict[str, Any] = {}
+
+    class FakePipeline:
+        def __init__(self, task, model=None):
+            recorded["task"] = task
+            recorded["model"] = model
+            self.model = types.SimpleNamespace(config=types.SimpleNamespace(num_labels=3))
+            self.call_count = 0
+
+        def __call__(self, text):
+            self.call_count += 1
+            if self.call_count == 1:
+                return [{"label": "LABEL_2", "score": 0.8}]
+            return [{"label": "LABEL_1", "score": 0.9}]
+
+    fake_transformers.pipeline = FakePipeline  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+    out = vta.run_text_analytics({"helper": "sentiment", "params": {"model": "org/custom"}}, ["good text", "middle text"])
+    assert recorded["model"] == "org/custom"
+    assert out["status"] == "ok"
+    res = out["result"]
+    assert res["per_section"][0]["label"] == "positive"
+    assert res["per_section"][0]["score"] == 0.8
+    assert res["per_section"][1]["label"] == "neutral"
+    assert res["per_section"][1]["score"] == 0.0
+    assert res["sentiment"]["score"] == 0.4
+    assert res["sentiment"]["label"] == "positive"
+
+
+def test_sentence_count_and_key_phrases_without_parser():
+    class FakeDocNoAnnot:
+        def has_annotation(self, name):
+            return False
+
+    doc1 = FakeDocNoAnnot()
+    assert vta._sentence_count(doc1) == 0
+    assert vta._extract_key_phrases(doc1) == []
+
+    class FakeDocNotImpl:
+        def has_annotation(self, name):
+            return name == "DEP"
+
+        @property
+        def noun_chunks(self):
+            raise NotImplementedError("E894")
+
+    doc2 = FakeDocNotImpl()
+    assert vta._extract_key_phrases(doc2) == []
+
+    class FakeDocSentStart:
+        def has_annotation(self, name):
+            return name == "SENT_START"
+
+        @property
+        def sents(self):
+            return ["one sentence"]
+
+    doc3 = FakeDocSentStart()
+    assert vta._sentence_count(doc3) == 1
+
+
+def test_topics_meta_is_topic_count_not_section_count():
+    docs = [
+        "quantum physics particles energy mechanics theory physics quantum measurement state",
+        "astronomy galaxy cosmos stars telescope nebula galaxy cosmos stars universe",
+        "biology genetics dna organism cells evolution biology genetics cells mutation",
+        "chemistry molecules reaction catalyst bonding organic chemistry molecules reaction compound",
+        "geology rocks minerals tectonic earth crust geology rocks minerals mantle",
+        "meteorology climate weather forecast cyclone atmosphere meteorology climate weather rain",
+    ]
+    res = vta.run_text_analytics({"helper": "topics", "params": {"n_topics": 4}}, docs)
+    result = res.get("result", {})
+    if result.get("error") == "MISSING_PACKAGE":
+        pytest.skip("scikit-learn not available")
+    assert res["status"] == "ok"
+    topics = result.get("topics", [])
+    assignments = result.get("assignments", [])
+    meta = result.get("meta", {})
+    assert len(topics) == 4
+    assert meta["n_topics"] == 4
+    assert meta["n_sections"] == 6
+    assert len(assignments) == 6
+    assert [a["section_index"] for a in assignments] == list(range(6))
+
+
+def test_topics_skip_short_sections_keep_original_indexes():
+    docs = [
+        "quantum physics particles energy mechanics theory physics quantum measurement state",
+        "too short",
+        "astronomy galaxy cosmos stars telescope nebula galaxy cosmos stars universe",
+    ]
+    res = vta.run_text_analytics({"helper": "topics", "params": {"n_topics": 4}}, docs)
+    result = res.get("result", {})
+    if result.get("error") == "MISSING_PACKAGE":
+        pytest.skip("scikit-learn not available")
+    assert res["status"] == "ok"
+    topics = result.get("topics", [])
+    assignments = result.get("assignments", [])
+    meta = result.get("meta", {})
+    assert meta["n_sections"] == 3
+    assert meta["n_topics"] == len(topics) == 2
+    assert [a["section_index"] for a in assignments] == [0, 2]
+
+
+def test_topics_all_short_keeps_first_section_only():
+    docs = ["alpha beta gamma delta", "epsilon zeta eta theta"]
+    res = vta.run_text_analytics({"helper": "topics", "params": {"n_topics": 4}}, docs)
+    result = res.get("result", {})
+    if result.get("error") == "MISSING_PACKAGE":
+        pytest.skip("scikit-learn not available")
+    assert res["status"] == "ok"
+    err = result.get("error", "")
+    assert not str(err).startswith("topic_model_failed")
+    assignments = result.get("assignments", [])
+    assert len(assignments) == 1
+    assert assignments[0]["section_index"] == 0
+
+
+def test_topics_caps_components_by_features():
+    docs = [("alpha " * 8).strip()] * 8
+    res = vta.run_text_analytics({"helper": "topics", "params": {"n_topics": 8}}, docs)
+    result = res.get("result", {})
+    if result.get("error") == "MISSING_PACKAGE":
+        pytest.skip("scikit-learn not available")
+    assert res["status"] == "ok"
+    err = result.get("error", "")
+    assert not str(err).startswith("topic_model_failed")
+    assert result.get("meta", {}).get("n_topics") == 2
+    assignments = result.get("assignments", [])
+    assert len(assignments) == 8
+    assert [a["section_index"] for a in assignments] == list(range(8))
+
+
+def test_topics_note_is_visible_when_terms_are_insufficient():
+    res = vta.run_text_analytics("topics", ["hello"])
+    result = res.get("result", {})
+    if result.get("error") == "MISSING_PACKAGE":
+        pytest.skip("scikit-learn not available")
+    assert result.get("note") == "insufficient distinct terms"
+    assert result.get("topics") == []
+
+
+def test_topic_model_failure_is_visible(monkeypatch):
+    try:
+        import sklearn.decomposition  # noqa: F401
+    except ImportError:
+        pytest.skip("scikit-learn not available")
+
+    class Boom:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fit_transform(self, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("sklearn.decomposition.NMF", Boom)
+    res = vta.run_text_analytics("topics", ["alpha beta gamma delta epsilon zeta eta theta " * 2])
+    assert res["status"] == "ok"
+    err = res.get("result", {}).get("error", "")
+    assert "topic_model_failed" in err and "boom" in err
+
+
+def test_get_writer_sections_emits_heading_once(monkeypatch):
+    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr(
+        "plugin.doc.text_helpers.build_heading_tree",
+        lambda doc: {"children": [{"text": "Introduction", "para_index": 0, "children": []}]},
+    )
+
+    class FakeEl:
+        def __init__(self, text, is_para=True):
+            self.text = text
+            self._is_para = is_para
+
+        def supportsService(self, name):
+            return self._is_para and name == "com.sun.star.text.Paragraph"
+
+    monkeypatch.setattr(
+        "plugin.doc.text_helpers.get_string_without_tracked_deletions",
+        lambda el: getattr(el, "text", ""),
+    )
+
+    class FakeEnum:
+        def __init__(self, elements):
+            self.elements = list(elements)
+            self.idx = 0
+
+        def hasMoreElements(self):
+            return self.idx < len(self.elements)
+
+        def nextElement(self):
+            el = self.elements[self.idx]
+            self.idx += 1
+            return el
+
+    class FakeDoc:
+        def __init__(self, elements):
+            self.elements = elements
+
+        def getText(self):
+            return self
+
+        def createEnumeration(self):
+            return FakeEnum(self.elements)
+
+    doc1 = FakeDoc([
+        FakeEl("Introduction"),
+        FakeEl("The body has enough words to pass the length filter easily."),
+    ])
+    secs1 = ta._get_writer_sections(doc1)
+    expected1 = "Introduction\nThe body has enough words to pass the length filter easily."
+    assert secs1 == [expected1]
+    assert "Introduction\nIntroduction" not in secs1[0]
+
+    # Second case: non-paragraph (table) before heading, para_index 1
+    monkeypatch.setattr(
+        "plugin.doc.text_helpers.build_heading_tree",
+        lambda doc: {"children": [{"text": "Introduction", "para_index": 1, "children": []}]},
+    )
+    doc2 = FakeDoc([
+        FakeEl("Table content", is_para=False),
+        FakeEl("Introduction"),
+        FakeEl("This body is definitely long enough to remain."),
+    ])
+    secs2 = ta._get_writer_sections(doc2)
+    expected2 = "Introduction\nThis body is definitely long enough to remain."
+    assert secs2 == [expected2]
+
+
+def test_get_writer_sections_fallback_calls_writer_text_once(monkeypatch):
+    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr(
+        "plugin.doc.text_helpers.build_heading_tree",
+        lambda doc: {"children": [{"text": "Hi", "para_index": 0, "children": []}]},
+    )
+
+    class FakeEl:
+        def __init__(self, text):
+            self.text = text
+
+        def supportsService(self, name):
+            return name == "com.sun.star.text.Paragraph"
+
+    monkeypatch.setattr(
+        "plugin.doc.text_helpers.get_string_without_tracked_deletions",
+        lambda el: getattr(el, "text", ""),
+    )
+
+    class FakeDoc:
+        def getText(self):
+            return self
+
+        def createEnumeration(self):
+            class Enum:
+                def __init__(self):
+                    self.items = [FakeEl("Hi"), FakeEl("x")]
+                    self.i = 0
+
+                def hasMoreElements(self):
+                    return self.i < len(self.items)
+
+                def nextElement(self):
+                    it = self.items[self.i]
+                    self.i += 1
+                    return it
+
+            return Enum()
+
+    call_count = 0
+
+    def fake_get_writer_text(doc):
+        nonlocal call_count
+        call_count += 1
+        return "full document text that is long enough"
+
+    monkeypatch.setattr("plugin.scripting.text_analytics._get_writer_text", fake_get_writer_text)
+
+    res = ta._get_writer_sections(FakeDoc())
+    assert call_count == 1
+    assert res == ["full document text that is long enough"]
 

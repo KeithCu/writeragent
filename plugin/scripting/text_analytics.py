@@ -103,35 +103,6 @@ def resolve_text_analytics_document_inputs(doc: Any, helper: str) -> tuple[str |
     return text, context
 
 
-def run_trusted_text_analytics(
-    uno_ctx: Any,
-    doc: Any,
-    *,
-    helper: str,
-    params: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Run a trusted text analytics helper against the Writer document text."""
-    from plugin.doc.doc_type import is_writer
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.scripting.client import run_text_analytics as client_run
-
-    name = str(helper or "").strip()
-    if not name:
-        raise ToolExecutionError("helper is required", code="TEXT_ANALYTICS_ERROR")
-    if name not in HELPER_NAMES:
-        raise ToolExecutionError(f"Unknown helper {name!r}", code="TEXT_ANALYTICS_ERROR")
-    if not is_writer(doc):
-        raise ToolExecutionError("Text analytics helpers require a Writer document.", code="TEXT_ANALYTICS_ERROR")
-
-    text, context = resolve_text_analytics_document_inputs(doc, name)
-
-    spec: dict[str, Any] = {"helper": name}
-    if params:
-        spec["params"] = params
-
-    return client_run(uno_ctx, spec, text=text, context=context)
-
-
 def _get_writer_text(doc: Any) -> str:
     """Best-effort extraction of document text for analysis (no tracked deletions)."""
     try:
@@ -175,6 +146,21 @@ def _get_writer_sections(doc: Any) -> list[str]:
         current_parts: list[str] = []
         heading_levels = {h.get("para_index"): h.get("text", "") for h in _flatten_headings(tree)}  # type: ignore[arg-type]  # build_heading_tree returns HeadingTreeNode which is dict-like
 
+        # What was wrong: the heading paragraph was both current_title and the first body
+        # line, so topics and sentiment counted the heading twice; the fallback also called
+        # _get_writer_text twice.
+        # How it happened: heading paragraphs were appended to current_parts, and the fallback
+        # condition used _get_writer_text(doc) twice in a list comprehension.
+        # Why this change: flush previous section, set current_title without appending the
+        # heading paragraph to body parts, emit title-only when non-empty and not preamble,
+        # and evaluate _get_writer_text once on fallback.
+        def _flush() -> None:
+            body = "\n".join(current_parts).strip()
+            if body:
+                sections.append(f"{current_title}\n{body}" if current_title else body)
+            elif current_title and current_title != "Introduction / preamble":
+                sections.append(current_title)
+
         para_index = 0
         while enum.hasMoreElements():
             el = enum.nextElement()
@@ -183,22 +169,23 @@ def _get_writer_sections(doc: Any) -> list[str]:
                     ptext = get_string_without_tracked_deletions(el) or ""
                     if para_index in heading_levels and heading_levels[para_index]:
                         # Flush previous section
-                        if current_parts:
-                            sections.append(f"{current_title}\n" + "\n".join(current_parts))
-                        current_title = heading_levels[para_index]
+                        _flush()
+                        current_title = ptext.strip() or heading_levels[para_index]
                         current_parts = []
-                    if ptext.strip():
+                    elif ptext.strip():
                         current_parts.append(ptext)
             except Exception:
                 log.debug("text analytics: skipped paragraph %s", para_index, exc_info=True)
             para_index += 1
 
-        if current_parts:
-            sections.append(f"{current_title}\n" + "\n".join(current_parts))
+        _flush()
 
         # Clean and dedup empties
         sections = [s.strip() for s in sections if len(s.strip()) > 20]
-        return sections or ([_get_writer_text(doc)] if _get_writer_text(doc) else [])
+        if sections:
+            return sections
+        fallback = _get_writer_text(doc)
+        return [fallback] if fallback.strip() else []
     except Exception:
         # Safe fallback to flat text
         full = _get_writer_text(doc)

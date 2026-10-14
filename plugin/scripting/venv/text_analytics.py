@@ -6,11 +6,68 @@
 
 from __future__ import annotations
 
-import json
-from collections import Counter
+import re
 from typing import Any, cast
 
-from plugin.scripting.calc_functions_common import TEXT_ANALYTICS_HELPER_NAMES as HELPER_NAMES
+_LANG_MODELS: dict[str, tuple[str, ...]] = {
+    "en": ("en_core_web_sm", "en_core_web_md", "en_core_web_lg"),
+    "de": ("de_core_news_sm", "de_core_news_md", "de_core_news_lg"),
+    "fr": ("fr_core_news_sm", "fr_core_news_md", "fr_core_news_lg"),
+    "es": ("es_core_news_sm", "es_core_news_md", "es_core_news_lg"),
+    "it": ("it_core_news_sm", "it_core_news_md", "it_core_news_lg"),
+    "pt": ("pt_core_news_sm", "pt_core_news_md", "pt_core_news_lg"),
+    "ru": ("ru_core_news_sm", "ru_core_news_md", "ru_core_news_lg"),
+    "zh": ("zh_core_web_sm", "zh_core_web_md", "zh_core_web_lg"),
+    "ja": ("ja_core_news_sm", "ja_core_news_md", "ja_core_news_lg"),
+    "nl": ("nl_core_news_sm", "nl_core_news_md", "nl_core_news_lg"),
+    "ko": ("ko_core_news_sm", "ko_core_news_md", "ko_core_news_lg"),
+    "pl": ("pl_core_news_sm", "pl_core_news_md", "pl_core_news_lg"),
+    "ca": ("ca_core_news_sm", "ca_core_news_md", "ca_core_news_lg"),
+    "da": ("da_core_news_sm", "da_core_news_md", "da_core_news_lg"),
+    "el": ("el_core_news_sm", "el_core_news_md", "el_core_news_lg"),
+    "fi": ("fi_core_news_sm", "fi_core_news_md", "fi_core_news_lg"),
+    "hr": ("hr_core_news_sm", "hr_core_news_md", "hr_core_news_lg"),
+    "lt": ("lt_core_news_sm", "lt_core_news_md", "lt_core_news_lg"),
+    "mk": ("mk_core_news_sm",),
+    "nb": ("nb_core_news_sm", "nb_core_news_md", "nb_core_news_lg"),
+    "ro": ("ro_core_news_sm", "ro_core_news_md", "ro_core_news_lg"),
+    "sl": ("sl_core_news_sm", "sl_core_news_md", "sl_core_news_lg"),
+    "sv": ("sv_core_news_sm", "sv_core_news_md", "sv_core_news_lg"),
+    "uk": ("uk_core_news_sm", "uk_core_news_md", "uk_core_news_lg"),
+}
+
+_READABILITY_KEYS = frozenset({
+    "flesch_reading_ease", "flesch_kincaid_grade", "smog",
+    "gunning_fog", "automated_readability_index", "coleman_liau_index",
+    "lix", "rix",
+})
+
+_DESCRIPTIVE_KEYS = frozenset({
+    "n_tokens", "n_unique_tokens", "proportion_unique_tokens",
+    "n_characters", "n_sentences",
+    "token_length_mean", "token_length_median", "token_length_std",
+    "sentence_length_mean", "sentence_length_median", "sentence_length_std",
+    "syllables_per_token_mean", "syllables_per_token_median", "syllables_per_token_std",
+})
+
+_EXTRA_TD_GROUPS = ("dependency_distance", "pos_proportions", "coherence", "quality")
+
+
+def _model_candidates(lang: str | None) -> list[str]:
+    # What was wrong: xx_sent_ud_sm was appended inside the lang block and again
+    # in the multilingual list, so a known language tried it twice.
+    # How it happened: both the per-language candidate builder and the general
+    # fallback list independently appended xx_sent_ud_sm.
+    # Why this change: xx_sent_ud_sm is tried once; xx_ent_wiki_sm stays last
+    # because it is NER-only.
+    code = (lang or "").lower().strip()[:2] or None
+    candidates: list[str] = []
+    if code and code in _LANG_MODELS:
+        candidates.extend(_LANG_MODELS[code])
+    candidates.append("xx_sent_ud_sm")
+    candidates.append("xx_ent_wiki_sm")
+    return candidates
+
 
 def _load_nlp(lang: str | None = None) -> Any:
     """Load the best available spaCy pipeline for the requested language.
@@ -23,71 +80,7 @@ def _load_nlp(lang: str | None = None) -> Any:
     """
     import spacy
 
-    lang = (lang or "").lower().strip()[:2] or None
-
-    # Ordered preference lists. We try until one loads.
-    candidates: list[str] = []
-
-    if lang:
-        # Language-specific first (highest quality for that language)
-        if lang == "en":
-            candidates.extend(["en_core_web_sm", "en_core_web_md", "en_core_web_lg"])
-        elif lang == "de":
-            candidates.extend(["de_core_news_sm", "de_core_news_md", "de_core_news_lg"])
-        elif lang == "fr":
-            candidates.extend(["fr_core_news_sm", "fr_core_news_md", "fr_core_news_lg"])
-        elif lang == "es":
-            candidates.extend(["es_core_news_sm", "es_core_news_md", "es_core_news_lg"])
-        elif lang == "it":
-            candidates.extend(["it_core_news_sm", "it_core_news_md", "it_core_news_lg"])
-        elif lang == "pt":
-            candidates.extend(["pt_core_news_sm", "pt_core_news_md", "pt_core_news_lg"])
-        elif lang == "ru":
-            candidates.extend(["ru_core_news_sm", "ru_core_news_md", "ru_core_news_lg"])
-        elif lang == "zh":
-            candidates.extend(["zh_core_web_sm", "zh_core_web_md", "zh_core_web_lg"])
-        elif lang == "ja":
-            candidates.extend(["ja_core_news_sm", "ja_core_news_md", "ja_core_news_lg"])
-        elif lang == "nl":
-            candidates.extend(["nl_core_news_sm", "nl_core_news_md", "nl_core_news_lg"])
-        elif lang == "ko":
-            candidates.extend(["ko_core_news_sm", "ko_core_news_md", "ko_core_news_lg"])
-        elif lang == "pl":
-            candidates.extend(["pl_core_news_sm", "pl_core_news_md", "pl_core_news_lg"])
-        elif lang == "ca":
-            candidates.extend(["ca_core_news_sm", "ca_core_news_md", "ca_core_news_lg"])
-        elif lang == "da":
-            candidates.extend(["da_core_news_sm", "da_core_news_md", "da_core_news_lg"])
-        elif lang == "el":
-            candidates.extend(["el_core_news_sm", "el_core_news_md", "el_core_news_lg"])
-        elif lang == "fi":
-            candidates.extend(["fi_core_news_sm", "fi_core_news_md", "fi_core_news_lg"])
-        elif lang == "hr":
-            candidates.extend(["hr_core_news_sm", "hr_core_news_md", "hr_core_news_lg"])
-        elif lang == "lt":
-            candidates.extend(["lt_core_news_sm", "lt_core_news_md", "lt_core_news_lg"])
-        elif lang == "mk":
-            candidates.extend(["mk_core_news_sm"])
-        elif lang == "nb":
-            candidates.extend(["nb_core_news_sm", "nb_core_news_md", "nb_core_news_lg"])
-        elif lang == "ro":
-            candidates.extend(["ro_core_news_sm", "ro_core_news_md", "ro_core_news_lg"])
-        elif lang == "sl":
-            candidates.extend(["sl_core_news_sm", "sl_core_news_md", "sl_core_news_lg"])
-        elif lang == "sv":
-            candidates.extend(["sv_core_news_sm", "sv_core_news_md", "sv_core_news_lg"])
-        elif lang == "uk":
-            candidates.extend(["uk_core_news_sm", "uk_core_news_md", "uk_core_news_lg"])
-        # Add more as needed; the multilingual fallback will catch the rest.
- 
-        # Also try the xx multilingual for the language if a specific one exists
-        candidates.append("xx_sent_ud_sm")
-
-    # Always have strong multilingual fallbacks at the end.
-    candidates.extend([
-        "xx_sent_ud_sm",   # excellent multilingual: tokenizer + senter + tagger + parser
-        "xx_ent_wiki_sm",  # good for cross-lingual NER
-    ])
+    candidates = _model_candidates(lang)
 
     last_err: Exception | None = None
     for model_name in candidates:
@@ -132,7 +125,7 @@ def _get_lang_from_context(context: dict[str, Any] | None) -> str | None:
 # Core high-quality analyses
 # ---------------------------------------------------------------------------
 
-def _run_nlp_doc(text: str, lang: str | None, context: dict[str, Any] | None) -> "tuple[Any, Any, str | None]":
+def _run_nlp_doc(text: str, lang: str | None, context: dict[str, Any] | None) -> tuple[Any, Any, str | None]:
     """Load the model and run the spaCy pipeline once. Returns (nlp, doc, resolved_lang).
 
     Factored out so narrow helpers (entities, key_phrases, readability) each call
@@ -153,38 +146,41 @@ def _extract_meta(nlp: Any, doc: Any, lang: str | None) -> dict[str, Any]:
     }
 
 
-def _extract_readability(doc: Any) -> "tuple[dict[str, Any], dict[str, Any]]":
-    """Return (readability_dict, descriptive_stats_dict) from textdescriptives (or basic fallback).
+def _sentence_count(doc: Any) -> int:
+    # What was wrong: Doc.sents raises ValueError E030 when SENT_START is unset.
+    # How it happened: xx_ent_wiki_sm leaves SENT_START unset, and the readability
+    # fallback called list(doc.sents) inside the except, so the fallback crashed too.
+    # Why this change: inspect doc.has_annotation("SENT_START") first, returning 0
+    # when sentence annotations are absent without catching broad exceptions.
+    if callable(getattr(doc, "has_annotation", None)) and doc.has_annotation("SENT_START"):
+        return len(list(doc.sents))
+    return 0
+
+
+def _extract_readability(doc: Any) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Return (readability_dict, descriptive_stats_dict, extra_dict) from textdescriptives (or basic fallback).
 
     textdescriptives >=2 returns a flat dict (after the components have run on the doc).
-    We split it into the two groups the rest of the code expects.
+    We split it into the groups the rest of the code expects.
     """
+    # What was wrong: the full-analysis copy of these sets had already dropped the n_* keys
+    # and named the fallback n_sents, while readability used n_sentences.
+    # How it happened: duplicate copies of key sets diverged across helpers.
+    # Why this change: share module-level _READABILITY_KEYS and _DESCRIPTIVE_KEYS, return
+    # extra textdescriptives groups as a third dict, and use n_sentences with _sentence_count.
     try:
         import textdescriptives as td
 
         m = cast("Any", td.extract_dict(doc))
         if isinstance(m, list):
             m = m[0]
-        # readability metrics (the formula-based scores)
-        readability_keys = {
-            "flesch_reading_ease", "flesch_kincaid_grade", "smog",
-            "gunning_fog", "automated_readability_index", "coleman_liau_index",
-            "lix", "rix"
-        }
-        rd = {k: v for k, v in m.items() if k in readability_keys}
-        # descriptive stats (counts and averages)
-        descriptive_keys = {
-            "n_tokens", "n_unique_tokens", "proportion_unique_tokens",
-            "n_characters", "n_sentences",
-            "token_length_mean", "token_length_median", "token_length_std",
-            "sentence_length_mean", "sentence_length_median", "sentence_length_std",
-            "syllables_per_token_mean", "syllables_per_token_median", "syllables_per_token_std"
-        }
-        ds = {k: v for k, v in m.items() if k in descriptive_keys or k.startswith("n_")}
-        return rd, ds
+        rd = {k: v for k, v in m.items() if k in _READABILITY_KEYS}
+        ds = {k: v for k, v in m.items() if k in _DESCRIPTIVE_KEYS or k.startswith("n_")}
+        extra = {k: m[k] for k in _EXTRA_TD_GROUPS if k in m}
+        return rd, ds, extra
     except Exception:
         # textdescriptives not available or failed to extract — fall back to basic spaCy stats.
-        return {}, {"n_tokens": len(doc), "n_sents": len(list(doc.sents))}
+        return {}, {"n_tokens": len(doc), "n_sentences": _sentence_count(doc)}, {}
 
 
 def _extract_entities(doc: Any) -> list[dict[str, Any]]:
@@ -195,9 +191,21 @@ def _extract_entities(doc: Any) -> list[dict[str, Any]]:
 
 
 def _extract_key_phrases(doc: Any) -> list[dict[str, Any]]:
+    # What was wrong: Doc.noun_chunks raises ValueError E029 when the English iterator
+    # sees no DEP, and NotImplementedError E894 when noun_chunks_iterator is None (xx models).
+    # How it happened: xx_ent_wiki_sm is NER-only and lacks a parser/DEP annotation.
+    # Why this change: guard with has_annotation("DEP") and handle NotImplementedError
+    # or ValueError on noun_chunks iteration without catching Exception.
+    if not callable(getattr(doc, "has_annotation", None)) or not doc.has_annotation("DEP"):
+        return []
+    try:
+        chunks = list(doc.noun_chunks)
+    except (NotImplementedError, ValueError):
+        return []
+
     seen: set[str] = set()
     key_phrases = []
-    for chunk in doc.noun_chunks:
+    for chunk in chunks:
         lemma = " ".join([t.lemma_ if t.lemma_ != "-PRON-" else t.text.lower() for t in chunk])
         key = lemma.lower().strip()
         if key and key not in seen and len(key) > 1:
@@ -238,13 +246,20 @@ def _extract_topics(text: str | list[str], n_topics: int = 4) -> dict[str, Any]:
     if not docs:
         return {"topics": [], "note": "no text"}
 
-    # Reasonable bounds: at least 1, at most ~8 or number of sections.
-    n_topics = max(1, min(int(n_topics or 4), len(docs), 8))
-
-    # Drop extremely short docs for vectorization stability; keep at least one.
-    filtered = [d for d in docs if len(d.split()) >= 8]
+    # What was wrong: n_topics was capped by len(docs) before the 8-word filter,
+    # and NMF init="nndsvd" raises when n_components > min(n_samples, n_features),
+    # turning into topic_model_failed instead of fitting fewer topics.
+    # The assignment index was enumerate(W), so a dropped short section renumbered
+    # every later section.
+    # How it happened: the cap used len(docs) rather than len(filtered), did not
+    # cap n_components against feature count, and ignored input section indexes.
+    # Why this change: filter while tracking input indexes, cap n_topics by len(filtered),
+    # cap n_components by min(n_topics, X.shape[0], X.shape[1]), and use the input index.
+    filtered = [(idx, d) for idx, d in enumerate(docs) if len(d.split()) >= 8]
     if not filtered:
-        filtered = docs[:1]
+        filtered = [(0, docs[0])]
+
+    n_topics = max(1, min(int(n_topics or 4), len(filtered), 8))
 
     try:
         # Multilingual-friendly: no hardcoded English stop_words (users can have mixed docs).
@@ -255,18 +270,19 @@ def _extract_topics(text: str | list[str], n_topics: int = 4) -> dict[str, Any]:
             min_df=1,
             strip_accents="unicode",
         )
-        X = vectorizer.fit_transform(filtered)
+        X = vectorizer.fit_transform([d for _, d in filtered])
         if X.shape[0] < 1 or X.shape[1] < 2:
             return {"topics": [], "note": "insufficient distinct terms"}
 
-        nmf = NMF(n_components=n_topics, random_state=42, init="nndsvd", max_iter=300, tol=1e-4)
+        n_components = min(n_topics, X.shape[0], X.shape[1])
+        nmf = NMF(n_components=n_components, random_state=42, init="nndsvd", max_iter=300, tol=1e-4)
         W = nmf.fit_transform(X)  # (n_docs, n_topics) weights
         H = nmf.components_       # (n_topics, n_terms)
 
         feature_names = vectorizer.get_feature_names_out()
 
         topics = []
-        for i in range(n_topics):
+        for i in range(n_components):
             top_idx = H[i].argsort()[-7:][::-1]
             terms = [str(feature_names[j]) for j in top_idx]
             total = float(W[:, i].sum() + 1e-9)
@@ -280,23 +296,74 @@ def _extract_topics(text: str | list[str], n_topics: int = 4) -> dict[str, Any]:
 
         if is_multi_section and len(W) > 0:
             assignments = []
-            for sec_idx, row in enumerate(W):
+            for row_idx, row in enumerate(W):
                 if row.size == 0:
                     continue
                 dom = int(row.argmax())
                 strength = float(row[dom])
                 assignments.append({
-                    "section_index": sec_idx,
+                    "section_index": filtered[row_idx][0],
                     "dominant_topic": dom,
                     "strength": round(strength, 3),
                 })
             result["assignments"] = assignments
-            result["n_sections"] = len(W)
+            result["n_sections"] = len(docs)
 
         return result
     except Exception as exc:
         # Don't crash the whole analysis; surface what happened.
         return {"topics": [], "error": f"topic_model_failed: {exc}"}
+
+
+_STAR_RE = re.compile(r"^([1-5])\s*stars?$")
+_LABEL_N_RE = re.compile(r"^label_(\d+)$")
+
+
+def _polarity_from_class_index(index: int, num_labels: int) -> str:
+    if num_labels < 2 or not (0 <= index < num_labels):
+        return "neutral"
+    midpoint = (num_labels - 1) / 2
+    if index < midpoint:
+        return "negative"
+    if index > midpoint:
+        return "positive"
+    return "neutral"
+
+
+def _normalize_sentiment_label(label: str, num_labels: int | None = None) -> str:
+    cleaned = str(label or "").lower().strip()
+    if cleaned in ("pos", "positive", "1", "5"):
+        return "positive"
+    if cleaned in ("neg", "negative", "0"):
+        return "negative"
+    if cleaned in ("2", "3", "4"):
+        return "neutral"
+
+    star_match = _STAR_RE.match(cleaned)
+    if star_match:
+        star = int(star_match.group(1))
+        return _polarity_from_class_index(star - 1, 5)
+
+    label_match = _LABEL_N_RE.match(cleaned)
+    if label_match:
+        if isinstance(num_labels, int) and num_labels > 1:
+            n = int(label_match.group(1))
+            return _polarity_from_class_index(n, num_labels)
+        return "neutral"
+
+    return "neutral"
+
+
+def _pipeline_num_labels(clf: Any) -> int | None:
+    model = getattr(clf, "model", None)
+    config = getattr(model, "config", None)
+    num_labels = getattr(config, "num_labels", None)
+    if isinstance(num_labels, int) and num_labels > 1:
+        return num_labels
+    id2label = getattr(config, "id2label", None)
+    if isinstance(id2label, dict) and len(id2label) > 1:
+        return len(id2label)
+    return None
 
 
 def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -348,6 +415,7 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
             "detail": str(exc),
         }
 
+    num_labels = _pipeline_num_labels(clf)
     per_section: list[dict[str, Any]] = []
     scores: list[float] = []
 
@@ -356,19 +424,21 @@ def _extract_sentiment(text: str | list[str], params: dict[str, Any] | None = No
         text_for_clf = sec[:512] if len(sec) > 512 else sec
         res = clf(text_for_clf)[0]
         # HF returns label like 'positive'/'negative'/'neutral' and score 0-1.
-        label = str(res.get("label", "neutral")).lower()
+        raw_label = str(res.get("label", "neutral"))
         sc = float(res.get("score", 0.0))
-        # Map to our consistent labels.
-        if label in ("pos", "positive", "1", "5"):
-            label = "positive"
-        elif label in ("neg", "negative", "0"):
-            label = "negative"
-        else:
-            label = "neutral"
-        scores.append(sc if label == "positive" else (-sc if label == "negative" else 0.0))
+        label = _normalize_sentiment_label(raw_label, num_labels)
+        # What was wrong: LABEL_0/1/2 fell through to neutral for any override model
+        # whose id2label is still the default, and a neutral section stored +confidence
+        # in per_section while the average added 0.
+        # How it happened: label matching only handled fixed strings and per_section["score"]
+        # used sc directly for positive/neutral labels.
+        # Why this change: normalize LABEL_n and star ratings with num_labels, and use
+        # a single signed polarity score for both per_section and overall average.
+        signed = sc if label == "positive" else (-sc if label == "negative" else 0.0)
+        scores.append(signed)
         per_section.append({
             "section_index": i,
-            "score": round(sc if label != "negative" else -sc, 3),
+            "score": round(signed, 3),
             "label": label,
         })
 
@@ -411,35 +481,12 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
 
     nlp, doc, lang = _run_nlp_doc(text, lang, context)
 
-    result: dict[str, Any] = {"status": "ok"}
+    result: dict[str, Any] = {}
 
-    # --- textdescriptives metrics (the high-quality path) ---
-    try:
-        import textdescriptives as td
-
-        # extract_dict works on a single Doc and returns a flat dict of metrics.
-        m = cast("Any", td.extract_dict(doc))
-        if isinstance(m, list):
-            m = m[0]
-        # textdescriptives now returns flat dict. Split into the groups we document.
-        readability_keys = {"flesch_reading_ease", "flesch_kincaid_grade", "smog", "gunning_fog",
-                            "automated_readability_index", "coleman_liau_index", "lix", "rix"}
-        descriptive_keys = {"n_tokens", "n_unique_tokens", "proportion_unique_tokens", "n_characters", "n_sentences",
-                            "token_length_mean", "token_length_median", "token_length_std",
-                            "sentence_length_mean", "sentence_length_median", "sentence_length_std",
-                            "syllables_per_token_mean", "syllables_per_token_median", "syllables_per_token_std"}
-        result["readability"] = {k: m[k] for k in readability_keys if k in m}
-        result["descriptive_stats"] = {k: m[k] for k in descriptive_keys if k in m}
-        # other groups if present (they may be flat too)
-        for other in ("dependency_distance", "pos_proportions", "coherence", "quality"):
-            if other in m:
-                result[other] = m[other]
-    except Exception:
-        # textdescriptives not available — fall back to basic spaCy stats.
-        result["descriptive_stats"] = {
-            "n_tokens": len(doc),
-            "n_sents": len(list(doc.sents)),
-        }
+    rd, ds, extra = _extract_readability(doc)
+    result["readability"] = rd
+    result["descriptive_stats"] = ds
+    result.update(extra)
 
     result["entities"] = _extract_entities(doc)
     result["key_phrases"] = _extract_key_phrases(doc)
@@ -458,7 +505,7 @@ def analyze_text(text: str, *, lang: str | None = None, context: dict[str, Any] 
     result["linguistic_profile"] = {
         "pos_proportions": pos_props,
         "n_tokens": len(doc),
-        "n_sents": len(list(doc.sents)),
+        "n_sents": _sentence_count(doc),
     }
 
     result["meta"] = _extract_meta(nlp, doc, lang)
@@ -484,35 +531,7 @@ def check_diagnostics(lang: str | None = None) -> dict[str, Any]:
     python_exe = getattr(sys, "executable", "unknown")
 
     lang = (lang or "").lower().strip()[:2] or None
-    recommended_model = "xx_sent_ud_sm"
-    if lang:
-        lang_model_map = {
-            "en": "en_core_web_sm",
-            "de": "de_core_news_sm",
-            "es": "es_core_news_sm",
-            "fr": "fr_core_news_sm",
-            "it": "it_core_news_sm",
-            "pt": "pt_core_news_sm",
-            "ru": "ru_core_news_sm",
-            "zh": "zh_core_web_sm",
-            "ja": "ja_core_news_sm",
-            "nl": "nl_core_news_sm",
-            "ko": "ko_core_news_sm",
-            "pl": "pl_core_news_sm",
-            "ca": "ca_core_news_sm",
-            "da": "da_core_news_sm",
-            "el": "el_core_news_sm",
-            "fi": "fi_core_news_sm",
-            "hr": "hr_core_news_sm",
-            "lt": "lt_core_news_sm",
-            "mk": "mk_core_news_sm",
-            "nb": "nb_core_news_sm",
-            "ro": "ro_core_news_sm",
-            "sl": "sl_core_news_sm",
-            "sv": "sv_core_news_sm",
-            "uk": "uk_core_news_sm",
-        }
-        recommended_model = lang_model_map.get(lang, "xx_sent_ud_sm")
+    recommended_model = _LANG_MODELS[lang][0] if lang and lang in _LANG_MODELS else "xx_sent_ud_sm"
 
     # Full command needed for everything the dialog supports.
     text_analytics_install = (
@@ -622,7 +641,7 @@ def run_text_analytics(
     # skipping the unneeded NER / noun-chunk / textdescriptives work.
     if helper in ("readability", "stats", "descriptive"):
         nlp, doc, resolved_lang = _run_nlp_doc(str(text), lang, context)
-        rd, ds = _extract_readability(doc)
+        rd, ds, _extra = _extract_readability(doc)
         return {
             "status": "ok",
             "result": {
@@ -653,7 +672,28 @@ def run_text_analytics(
                 "message": "install scikit-learn for topics",
                 "result": topic_data,
             }
-        return {"status": "ok", "result": {"topics": topic_data.get("topics", []), "assignments": topic_data.get("assignments"), "meta": {"n_topics": topic_data.get("n_sections") or len(topic_data.get("topics", [])) or None }}}
+        # What was wrong: meta.n_topics was n_sections, the filtered row count,
+        # so the dialog's meta line showed the section count.
+        # How it happened: n_topics was computed as n_sections or len(topics),
+        # and topic_data note/error were omitted from the result dict.
+        # Why this change: build meta with n_topics as len(topics) and n_sections
+        # when an int, and forward note/error from topic_data onto result.
+        topics = topic_data.get("topics", [])
+        meta: dict[str, Any] = {"n_topics": len(topics)}
+        if isinstance(topic_data.get("n_sections"), int):
+            meta["n_sections"] = topic_data["n_sections"]
+
+        res_dict: dict[str, Any] = {
+            "topics": topics,
+            "assignments": topic_data.get("assignments"),
+            "meta": meta,
+        }
+        if "error" in topic_data:
+            res_dict["error"] = topic_data["error"]
+        if "note" in topic_data:
+            res_dict["note"] = topic_data["note"]
+
+        return {"status": "ok", "result": res_dict}
 
     if helper in ("sentiment", "polarity"):
         # Use preserved original (may still be list) for per-section support.
