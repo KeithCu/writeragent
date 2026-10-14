@@ -286,6 +286,51 @@ def test_portfolio_tearsheet_nat_dates_dropped(monkeypatch):
     assert len(passed_series) == 2
 
 
+def test_portfolio_tearsheet_parses_calc_serial_dates(monkeypatch):
+    import sys
+    import pandas as pd
+
+    mock_qs = MagicMock()
+    mock_qs.reports.metrics.return_value = pd.DataFrame({"val": [0.05]}, index=["Cumulative Return"])
+    monkeypatch.setitem(sys.modules, "quantstats", mock_qs)
+
+    grid = [
+        ["Date", "AAPL"],
+        [45292.0, 0.01],
+        [45294.0, -0.01],
+        [45293.0, 0.02],
+    ]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {}}, data=grid)
+    assert result["status"] == "ok"
+    assert "warning" not in result
+    passed_series = mock_qs.reports.metrics.call_args[0][0]
+    assert len(passed_series) == 3
+    assert list(passed_series.values) == [0.01, 0.02, -0.01]
+    assert [ts.strftime("%Y-%m-%d") for ts in passed_series.index] == ["2024-01-01", "2024-01-02", "2024-01-03"]
+
+
+def test_portfolio_tearsheet_parses_year_column(monkeypatch):
+    import sys
+    import pandas as pd
+
+    mock_qs = MagicMock()
+    mock_qs.reports.metrics.return_value = pd.DataFrame({"val": [0.05]}, index=["Cumulative Return"])
+    monkeypatch.setitem(sys.modules, "quantstats", mock_qs)
+
+    grid = [
+        ["Date", "AAPL"],
+        [2020, 0.10],
+        [2019, 0.20],
+    ]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {}}, data=grid)
+    assert result["status"] == "ok"
+    passed_series = mock_qs.reports.metrics.call_args[0][0]
+    assert len(passed_series) == 2
+    assert list(passed_series.values) == [0.20, 0.10]
+    assert [ts.strftime("%Y-%m-%d") for ts in passed_series.index] == ["2019-01-01", "2020-01-01"]
+
+
+
 def test_technical_analysis_string_indicator_and_headers_false(monkeypatch):
     import importlib
 
@@ -405,6 +450,29 @@ def test_technical_analysis_sorts_newest_first(monkeypatch):
     assert seen == [[10.0, 20.0, 30.0]]
     assert result["table"]["rows"][0][0] == "2024-01-01"
     assert result["table"]["rows"][-1][0] == "2024-01-03"
+
+
+def test_technical_analysis_sorts_mixed_serial_and_text(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "pandas_ta", object())
+    grid = [
+        ["Date", "Close"],
+        [45293, 20.0],
+        ["2024-01-01", 10.0],
+        ["not-a-date", 99.0],
+        [45294, 30.0],
+    ]
+    with _fake_ta_accessor() as seen:
+        result = venv_run_quant(
+            {"helper": "technical_analysis", "params": {"indicators": ["macd"]}},
+            data=grid,
+        )
+    assert result["status"] == "ok", result
+    assert seen == [[10.0, 20.0, 30.0, 99.0]]
+    rows = result["table"]["rows"]
+    assert [r[0] for r in rows] == ["2024-01-01", 45293, 45294, "not-a-date"]
+
 
 
 def test_technical_analysis_warmup_nan_stays_float(monkeypatch):

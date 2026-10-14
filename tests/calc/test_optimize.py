@@ -142,7 +142,7 @@ def test_insert_optimize_result_qualifies_sheet_on_the_anchor(mock_bridge, mock_
 def test_optimize_data_describes_parameters():
     tool = OptimizeDataTool()
     params_desc = tool.get_parameters()["properties"]["params"]["description"]
-    for word in ("c_col", "a_cols", "risk_free_rate", "unassigned_rows"):
+    for word in ("c_col", "a_cols", "risk_free_rate", "unassigned_rows", "unassigned_columns"):
         assert word in tool.description
         assert word in params_desc
     assert "minimum-variance" in tool.description.lower()

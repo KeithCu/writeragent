@@ -172,17 +172,22 @@ def linear_programming(
             helper=helper,
         )
 
-    clean_df = df.dropna(subset=needed_cols)
+    # What was wrong: non-numeric text cells survived dropna and ndarray.astype(float)
+    # raised ValueError, causing OPTIMIZATION_FAILED in run_optimize or raising directly.
+    # How it happened: dropna only filtered nulls/NaNs, not text strings in numeric columns.
+    # Why this change fixes it: apply(pd.to_numeric, errors="coerce") turns text into NaN,
+    # and dropna() drops rows with invalid cells the same way blank rows are dropped.
+    clean_df = df[needed_cols].apply(pd.to_numeric, errors="coerce").dropna()
     if clean_df.empty:
         return _error_result("INSUFFICIENT_DATA", "No data for linear programming", helper=helper)
 
     # Objective coefficients, one per variable row.
-    c = clean_df[c_col].values.astype(float)
+    c = clean_df[c_col].to_numpy(dtype=float)
     if maximize_val:
         c = -c
 
     # a-columns are constraints, so transpose to linprog's (constraints, variables).
-    coeff = clean_df[a_cols_list].values.astype(float)
+    coeff = clean_df[a_cols_list].to_numpy(dtype=float)
     if getattr(coeff, "ndim", 0) != 2 or coeff.shape[1] == 0:
         return _error_result(
             "SHAPE_MISMATCH",
@@ -191,7 +196,7 @@ def linear_programming(
         )
     n_constraints = int(coeff.shape[1])
     A_ub = coeff.T
-    b_ub = _constraint_bounds(clean_df[b_col].values.astype(float), n_constraints)
+    b_ub = _constraint_bounds(clean_df[b_col].to_numpy(dtype=float), n_constraints)
     if b_ub is None or A_ub.shape[1] != len(c) or A_ub.shape[0] != len(b_ub):
         return _error_result(
             "SHAPE_MISMATCH",
@@ -416,10 +421,16 @@ def solve_scheduling_problem(
 
     n_rows = len(df_clean)
     n_cols = len(numeric_cols)
-    unassigned = max(0, n_rows - n_cols)
+    unassigned_rows = max(0, n_rows - n_cols)
+    unassigned_columns = max(0, n_cols - n_rows)
     flags: list[str] = []
-    if unassigned > 0:
-        flags.append(f"{unassigned} rows were not assigned because there are more rows than columns")
+    if unassigned_rows > 0:
+        flags.append(f"{unassigned_rows} rows were not assigned because there are more rows than columns")
+    if unassigned_columns > 0:
+        if unassigned_columns == 1:
+            flags.append("1 column was not assigned because there are more columns than rows")
+        else:
+            flags.append(f"{unassigned_columns} columns were not assigned because there are more columns than rows")
 
     cost_matrix = df_clean.to_numpy(dtype=float)
 
@@ -444,7 +455,8 @@ def solve_scheduling_problem(
     metrics = {
         "total_cost": float(total_cost),
         "assignments": len(row_ind),
-        "unassigned_rows": unassigned,
+        "unassigned_rows": unassigned_rows,
+        "unassigned_columns": unassigned_columns,
     }
 
     res_payload: dict[str, Any] = {

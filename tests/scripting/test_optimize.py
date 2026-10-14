@@ -60,6 +60,36 @@ def test_linear_programming_rejects_ambiguous_single_bound():
     assert result["code"] == "SHAPE_MISMATCH"
 
 
+def test_linear_programming_text_row_is_dropped():
+    df = pd.DataFrame({
+        "c": [3, "x"],
+        "a1": [1, 1],
+        "b": [10, 10],
+    })
+    result = linear_programming(df, c_col="c", a_cols=["a1"], b_col="b", maximize=True)
+    assert result["status"] == "ok", result
+    assert abs(result["metrics"]["objective_value"] - 30.0) < 1e-6
+
+    spec = {
+        "helper": "linear_programming",
+        "params": {"c_col": "c", "a_cols": ["a1"], "b_col": "b", "maximize": True},
+    }
+    opt_result = run_optimize(spec, df)
+    assert opt_result["status"] == "ok", opt_result
+    assert abs(opt_result["metrics"]["objective_value"] - 30.0) < 1e-6
+
+
+def test_linear_programming_all_text_is_insufficient():
+    df = pd.DataFrame({
+        "c": ["bad", "text"],
+        "a1": ["foo", "bar"],
+        "b": ["baz", "qux"],
+    })
+    result = linear_programming(df, c_col="c", a_cols=["a1"], b_col="b", maximize=True)
+    assert result["status"] == "error"
+    assert result["code"] == "INSUFFICIENT_DATA"
+
+
 def test_optimize_portfolio():
     np.random.seed(42)
     returns = pd.DataFrame({
@@ -83,6 +113,7 @@ def test_solve_scheduling_problem():
     assert result["status"] == "ok"
     assert "metrics" in result
     assert result["metrics"]["total_cost"] == 6.0
+    assert result["metrics"]["unassigned_columns"] == 0
     assert "tables" in result
 
 def test_run_optimize_dispatcher():
@@ -280,7 +311,24 @@ def test_scheduling_unassigned_rows():
     result = solve_scheduling_problem(df, cost_cols=["t1", "t2"])
     assert result["status"] == "ok", result
     assert result["metrics"]["unassigned_rows"] == 1
+    assert result["metrics"]["unassigned_columns"] == 0
     assert any("1 rows were not assigned" in f for f in result["flags"])
+
+
+def test_scheduling_unassigned_columns():
+    df = pd.DataFrame({
+        "t1": [1, 10],
+        "t2": [10, 1],
+        "t3": [100, 100],
+    })
+    result = solve_scheduling_problem(df, cost_cols=["t1", "t2", "t3"])
+    assert result["status"] == "ok", result
+    assert result["metrics"]["total_cost"] == 2
+    assert result["metrics"]["assignments"] == 2
+    assert result["metrics"]["unassigned_rows"] == 0
+    assert result["metrics"]["unassigned_columns"] == 1
+    assert result["flags"] == ["1 column was not assigned because there are more columns than rows"]
+
 
 
 def test_string_returns_col_is_not_characters():

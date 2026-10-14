@@ -17,6 +17,7 @@ from plugin.scripting.venv.coerce import (
     is_missing_value as _is_missing_value,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
+    parse_date_column,
     parse_trusted_spec as _parse_trusted_spec,
     resolve_df as _resolve_df,
 )
@@ -74,12 +75,20 @@ def _order_by_date(df: Any) -> Any:
     so the path was reversed and the indicators were silently wrong. The date
     text itself is not rewritten; a helper key is dropped after the sort.
     """
-    import pandas as pd
-
     col = _date_column(df)
     if col is None:
         return df
-    parsed = pd.to_datetime(df[col], errors="coerce")
+    # What was wrong: pd.to_datetime on a mixed object column interpreted numeric
+    # serials as nanoseconds since 1970 (e.g. 45293 -> 1970-01-01 00:00:00.000045293),
+    # which sorted 1970 before calendar strings like 2024-01-01.
+    # How it happened: a pure serial column sorts the same either way because nanoseconds
+    # are monotonic, but mixed object columns (e.g. serial 45293, string 2024-01-01,
+    # and not-a-date) sorted out of calendar order. resolve_df leaves that column as
+    # object because not-a-date blocks all-datetime promotion.
+    # Why this change fixes it: parse_date_column resolves Calc serials with epoch
+    # 1899-12-30 and handles strings/invalid cells, sorting string 2024-01-01, then
+    # serial 45293, then invalid cells.
+    parsed = parse_date_column(df[col])
     if not bool(parsed.notna().any()):
         return df
     work = df.copy()
@@ -128,7 +137,14 @@ def _returns_frame_from_df(df: Any) -> tuple[Any, Any]:
     date_col = _date_column(df)
     dates = None
     if date_col is not None:
-        dates = pd.to_datetime(df[date_col], errors="coerce")
+        # What was wrong: pd.to_datetime interpreted Calc serial numbers (e.g. 45292)
+        # and year integers as nanoseconds since 1970 instead of calendar dates.
+        # How it happened: pd.to_datetime treats numeric values without unit as nanoseconds;
+        # because the resulting 1970 timestamps were not NaT, portfolio_tearsheet annualized
+        # a one-day span and never warned about missing dates.
+        # Why this change fixes it: parse_date_column resolves Calc serials (epoch 1899-12-30)
+        # and 1900-2200 year values into proper calendar dates.
+        dates = parse_date_column(df[date_col])
         df = df.drop(columns=[date_col])
 
     numeric_df = df.apply(pd.to_numeric, errors="coerce")
@@ -312,20 +328,16 @@ def portfolio_tearsheet(
                 if len(matches) != 1:
                     return _error_result("INVALID_PARAMS", f"Specified column {col_param!r} not found in numeric columns.", helper="portfolio_tearsheet")
                 col_param = matches[0]
-            returns = numeric_df[col_param].dropna()
-            if dates is not None:
-                dates = dates.loc[returns.index]
+            returns = numeric_df[col_param]
         else:
             if numeric_df.shape[1] == 1:
-                returns = numeric_df.iloc[:, 0].dropna()
-                if dates is not None:
-                    dates = dates.loc[returns.index]
+                returns = numeric_df.iloc[:, 0]
             else:
-                returns = numeric_df.mean(axis=1).dropna()
-                if dates is not None:
-                    dates = dates.loc[returns.index]
+                returns = numeric_df.mean(axis=1)
 
         returns = pd.to_numeric(returns, errors="coerce").dropna()
+        if dates is not None:
+            dates = dates.loc[returns.index]
         if returns.empty:
             return _error_result("INVALID_DATA", "No valid numeric returns found.", helper="portfolio_tearsheet")
 
