@@ -522,7 +522,12 @@ def test_spawn_recording_process_uses_managed_text_pipes(monkeypatch: pytest.Mon
         assert "creationflags" not in kwargs
 
     assert kwargs["env"] == _build_recording_env()
-    expected_cmd = wrap_command_for_sandbox([exe, _AUDIO_RECORD_MAIN, "--output", out_path, "--silence-stop-ms=250"], env=kwargs["env"], cwd=None)
+    expected_cmd = wrap_command_for_sandbox(
+        [exe, _AUDIO_RECORD_MAIN, "--output", out_path, "--silence-stop-ms=250"],
+        env=kwargs["env"],
+        cwd=None,
+        watch_bus=True,
+    )
     assert captured_cmds[0] == expected_cmd
     assert drain_kwargs_list[0]["name"] == "audio-rec-stderr-4242"
 
@@ -550,5 +555,138 @@ def test_spawn_recording_process_popen_oserror_is_not_wrapped(
 
     assert "Failed to start managed subprocess" not in caplog.text
     assert len(ms._instances) == 0
+
+
+def test_spawn_recording_process_flatpak_uses_watch_bus(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
+    from plugin.scripting.audio_recorder_service import spawn_recording_process
+    import plugin.framework.managed_subprocess as ms
+
+    captured_cmds: list[list[str]] = []
+    mock_proc = MagicMock()
+    mock_proc.pid = 4242
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stderr = MagicMock()
+
+    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+        captured_cmds.append(list(cmd))
+        return mock_proc
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(ms, "start_stderr_drain", lambda *a, **kw: MagicMock())
+
+    with patch("plugin.scripting.sandbox.detect_sandbox", return_value="flatpak"):
+        spawn_recording_process("/venv/bin/python", "/tmp/take.wav", silence_config=SilenceDetectorConfig(silence_stop_ms=250))
+
+    assert captured_cmds[0][:3] == ["flatpak-spawn", "--host", "--watch-bus"]
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [
+        "I/O operation on closed file.",
+        "JSON line exceeds 16777216 bytes",
+        'JSON line truncated at EOF: \'{"status"\'',
+    ],
+)
+def test_monitor_breaks_on_fatal_stdout_value_error(msg: str, caplog: pytest.LogCaptureFixture) -> None:
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff, monitor_recording_stdout
+
+    call_count = 0
+
+    def fake_read_json_line(*_args: Any, **_kwargs: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        raise ValueError(msg)
+
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdout = MagicMock()
+    handoff = RecordingStopHandoff()
+
+    with (
+        patch("plugin.scripting.audio_recorder_service.read_json_line", side_effect=fake_read_json_line),
+        caplog.at_level("WARNING", logger="plugin.scripting.audio_recorder_service"),
+    ):
+        handle = monitor_recording_stdout(
+            _recording_child(proc),
+            on_auto_stopped=lambda _p: None,
+            handoff=handoff,
+        )
+        handle.join(timeout=1.0)
+
+    assert call_count == 1
+    assert handle.is_alive() is False
+    assert "Skipping non-JSON line" not in caplog.text
+
+
+def test_reap_stops_and_joins_monitor_before_closing_stdout() -> None:
+    from plugin.framework.worker_pool import run_in_background
+    from plugin.scripting.audio_recorder_service import (
+        RecordingStopHandoff,
+        _reap_recording_process,
+    )
+
+    order: list[str] = []
+    handoff = RecordingStopHandoff()
+
+    def _monitor_loop() -> None:
+        while not handoff.monitor_stop_requested():
+            threading.Event().wait(0.01)
+        order.append("monitor-exit")
+
+    handle = run_in_background(_monitor_loop, dedicated=True)
+
+    proc = MagicMock()
+    proc.wait.return_value = 0
+    proc.stdout = MagicMock()
+    proc.stdout.fileno.return_value = 7
+    proc.stdout.close.side_effect = lambda: order.append("close-stdout")
+    proc.stdin = None
+    proc.stderr = None
+    child = _recording_child(proc)
+
+    _reap_recording_process(child, 0.01, monitor=handle, handoff=handoff)
+
+    assert handoff.monitor_stop_requested() is True
+    assert order == ["monitor-exit", "close-stdout"]
+
+
+def test_reap_skips_monitor_join_on_the_monitor_thread() -> None:
+    from plugin.framework.worker_pool import run_in_background
+    from plugin.scripting.audio_recorder_service import (
+        RecordingStopHandoff,
+        _reap_recording_process,
+    )
+
+    handoff = RecordingStopHandoff()
+    start_event = threading.Event()
+    success = False
+
+    proc = MagicMock()
+    proc.wait.return_value = 0
+    proc.stdout = MagicMock()
+    proc.stdout.fileno.return_value = 7
+    proc.stdin = None
+    proc.stderr = None
+    child = _recording_child(proc)
+
+    handle_holder: list[Any] = []
+
+    def _worker() -> None:
+        nonlocal success
+        start_event.wait()
+        _reap_recording_process(child, 0.01, monitor=handle_holder[0], handoff=handoff)
+        success = True
+
+    handle = run_in_background(_worker, dedicated=True)
+    handle_holder.append(handle)
+    start_event.set()
+    handle.join(timeout=2.0)
+
+    assert success is True
+    assert handoff.monitor_stop_requested() is True
+
 
 
