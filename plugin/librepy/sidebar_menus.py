@@ -91,7 +91,7 @@ def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
         return None
 
 
-def invoke_action_handler(handler: Callable[..., Any] | None, frame: Any = None) -> None:
+def invoke_action_handler(handler: Callable[..., Any] | None, frame: Any = None, *, command: str) -> None:
     """Call a registered action; most LibrePy handlers take no frame argument.
 
     A parameter named ``frame`` receives the sidebar frame even when it has
@@ -100,23 +100,28 @@ def invoke_action_handler(handler: Callable[..., Any] | None, frame: Any = None)
     """
     if handler is None:
         return
-    wants_frame = False
     try:
-        sig = inspect.signature(handler)
-        for param in sig.parameters.values():
-            if param.kind == inspect.Parameter.VAR_POSITIONAL:
-                wants_frame = frame is not None
-                break
-            if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                if param.name == "frame" or param.default is inspect.Parameter.empty:
-                    wants_frame = True
-                    break
-    except (TypeError, ValueError):
         wants_frame = False
-    if wants_frame:
-        handler(frame)
-    else:
-        handler()
+        try:
+            sig = inspect.signature(handler)
+            for param in sig.parameters.values():
+                if param.kind == inspect.Parameter.VAR_POSITIONAL:
+                    wants_frame = frame is not None
+                    break
+                if param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
+                    if param.name == "frame" or param.default is inspect.Parameter.empty:
+                        wants_frame = True
+                        break
+        except (TypeError, ValueError):
+            wants_frame = False
+        if wants_frame:
+            handler(frame)
+        else:
+            handler()
+    except Exception as exc:
+        from plugin.framework.main_shared import report_action_failure
+
+        report_action_failure(command, exc)
 
 
 def command_prefix_for_ctx(ctx: Any) -> str:
@@ -260,7 +265,7 @@ def show_librepy_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         if chosen_id in item_actions:
             action_name = item_actions[chosen_id]
             log.info("LibrePy hamburger selected: %s", action_name)
-            invoke_action_handler(get_action_handler(action_name), frame)
+            invoke_action_handler(get_action_handler(action_name), frame, command=action_name)
     except Exception:
         log.exception("show_librepy_hamburger_menu failed")
 
@@ -274,7 +279,7 @@ class _DispatchActionListener(BaseActionListener):
         self._frame = frame
 
     def on_action_performed(self, rEvent: Any) -> None:
-        invoke_action_handler(get_action_handler(self._action), self._frame)
+        invoke_action_handler(get_action_handler(self._action), self._frame, command=self._action)
 
 
 class _HamburgerListener(BaseActionListener):

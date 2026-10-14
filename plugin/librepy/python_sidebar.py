@@ -572,7 +572,9 @@ class PythonSidebarController:
         self._on_cell_selected()
         handler = get_action_handler("scripting.edit_python_cell")
         if handler:
-            handler()
+            from plugin.librepy.sidebar_menus import invoke_action_handler
+
+            invoke_action_handler(handler, command="scripting.edit_python_cell")
             return
         from plugin.calc.python.editor import open_python_cell_editor
 
@@ -583,7 +585,9 @@ class PythonSidebarController:
 
         handler = get_action_handler("scripting.run_python_dialog")
         if handler:
-            handler()
+            from plugin.librepy.sidebar_menus import invoke_action_handler
+
+            invoke_action_handler(handler, command="scripting.run_python_dialog")
             return
         from plugin.scripting.python_runner import run_python_dialog
 
@@ -599,7 +603,9 @@ class PythonSidebarController:
 
         handler = get_action_handler("scripting.reset_python_session")
         if handler:
-            handler()
+            from plugin.librepy.sidebar_menus import invoke_action_handler
+
+            invoke_action_handler(handler, command="scripting.reset_python_session")
         else:
             from plugin.scripting.session_manager import reset_workbook_python_session
 
@@ -611,7 +617,9 @@ class PythonSidebarController:
 
         handler = get_action_handler("main.settings")
         if handler:
-            handler()
+            from plugin.librepy.sidebar_menus import invoke_action_handler
+
+            invoke_action_handler(handler, command="main.settings")
             return
         try:
             from plugin.librepy.settings import open_librepy_settings

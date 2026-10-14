@@ -55,3 +55,55 @@ def test_trigger_wraps_bootstrap_errors(monkeypatch) -> None:
     monkeypatch.setattr(main_core, "_schedule_update_check", lambda _ctx: None)
     job = main_core.MainBootstrapJob(MagicMock())
     job.trigger("")
+
+
+def test_dispatch_command_reports_handler_failure(monkeypatch) -> None:
+    import plugin.main_core as main_core
+    from plugin.framework.main_shared import register_action_handler, _ACTION_HANDLERS
+
+    reported = []
+
+    def fake_report(cmd, exc):
+        reported.append((cmd, exc))
+
+    monkeypatch.setattr("plugin.framework.main_shared.report_action_failure", fake_report)
+    monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: None)
+
+    def bad_handler():
+        raise RuntimeError("boom")
+
+    register_action_handler("test", "action", bad_handler)
+    try:
+        main_core._dispatch_command("test.action")
+        assert len(reported) == 1
+        assert reported[0][0] == "test.action"
+        assert isinstance(reported[0][1], RuntimeError)
+    finally:
+        _ACTION_HANDLERS.pop("test.action", None)
+
+
+def test_dispatch_guards_msgbox_failure(monkeypatch) -> None:
+    import plugin.main_core as main_core
+
+    ctx = MagicMock()
+    handler = main_core.DispatchHandler(ctx)
+    url = MagicMock()
+    url.Protocol = "org.extension.librepy:"
+    url.Path = "test.action"
+    url.Complete = "org.extension.librepy:test.action"
+
+    monkeypatch.setattr(main_core, "init_logging", lambda _ctx: None)
+    monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: None)
+
+    def boom(_cmd, _ctx):
+        raise RuntimeError("dispatch error")
+
+    monkeypatch.setattr(main_core, "_dispatch_command", boom)
+
+    def msgbox_boom(*args, **kwargs):
+        raise RuntimeError("msgbox failed")
+
+    monkeypatch.setattr("plugin.chatbot.dialogs.msgbox", msgbox_boom)
+    # Must not raise
+    handler.dispatch(url, ())
+

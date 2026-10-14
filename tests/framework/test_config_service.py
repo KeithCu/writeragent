@@ -246,11 +246,18 @@ def test_bootstrap_loads_public_config_flags(monkeypatch) -> None:
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.event_bus.get_event_bus", lambda: EventBus())
 
-    previous = (main._initialized, main._services, main._tools, list(main._modules))
+    previous = (
+        main._initialized,
+        main._services,
+        main._tools,
+        list(main._modules),
+        getattr(main, "_bootstrap_error", None),
+    )
     main._initialized = False
     main._services = None
     main._tools = None
     main._modules = []
+    main._bootstrap_error = None
     try:
         main.bootstrap(None)
         config = main._services.get("config")
@@ -266,6 +273,7 @@ def test_bootstrap_loads_public_config_flags(monkeypatch) -> None:
     finally:
         main._initialized, main._services, main._tools = previous[0], previous[1], previous[2]
         main._modules[:] = previous[3]
+        main._bootstrap_error = previous[4]
 
 
 def test_dummy_impl_decorator_annotates_cls() -> None:

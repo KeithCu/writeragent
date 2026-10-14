@@ -13,6 +13,7 @@ This module centralizes the fragile path-walking logic that was previously
 duplicated (with slight variations) in several places.
 """
 
+import logging
 import os
 import sys
 import types
@@ -26,6 +27,18 @@ import importlib.abc
 
 _WRITERAGENT_API = "plugin.scripting.writeragent_api"
 _WRITERAGENT_NAMESPACE = "plugin.scripting.writeragent_namespace"
+
+_ABSENT = object()
+_SAVED_ATTRS_KEY = "_writeragent_alias_saved_attrs"
+_ATTRS_TO_PRESERVE = (
+    "__spec__",
+    "__loader__",
+    "__name__",
+    "__package__",
+    "__file__",
+    "__cached__",
+    "__path__",
+)
 
 
 class _WriteragentNamespaceLoader(importlib.abc.Loader):
@@ -45,15 +58,79 @@ class AliasLoader(importlib.abc.Loader):
     """Loader that returns the already loaded or newly imported real module."""
 
     real_name: str
+    _saved_attrs: dict[str, Any] | None
 
     def __init__(self, real_name: str) -> None:
         self.real_name = real_name
+        self._saved_attrs = None
 
     def create_module(self, spec: Any) -> Any:
-        return importlib.import_module(self.real_name)
+        mod = importlib.import_module(self.real_name)
+        existing_saved = getattr(mod, _SAVED_ATTRS_KEY, None)
+        if isinstance(existing_saved, dict):
+            saved = dict(existing_saved)
+        else:
+            saved = {attr: getattr(mod, attr, _ABSENT) for attr in _ATTRS_TO_PRESERVE}
+            try:
+                setattr(mod, _SAVED_ATTRS_KEY, saved)
+            except Exception:
+                pass
+        self._saved_attrs = saved
+        return mod
 
     def exec_module(self, module: Any) -> None:
-        pass
+        saved = self._saved_attrs
+        if saved is None:
+            saved = getattr(module, _SAVED_ATTRS_KEY, None)
+        if isinstance(saved, dict):
+            try:
+                for attr, val in saved.items():
+                    if val is _ABSENT:
+                        if hasattr(module, attr):
+                            try:
+                                delattr(module, attr)
+                            except AttributeError:
+                                pass
+                    else:
+                        setattr(module, attr, val)
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "Failed to restore module attributes on %s", self.real_name, exc_info=True
+                )
+            finally:
+                if hasattr(module, _SAVED_ATTRS_KEY):
+                    try:
+                        delattr(module, _SAVED_ATTRS_KEY)
+                    except AttributeError:
+                        pass
+
+
+def _log_find_spec_failure(fullname: str, exc: BaseException) -> None:
+    logging.getLogger(__name__).debug("AliasImporter.find_spec failed for %s", fullname, exc_info=True)
+
+
+def _writeragent_namespace_spec(fullname: str = "writeragent") -> Any:
+    # LibrePy excludes writeragent_api; fall back to namespace stub or in-memory package.
+    try:
+        real_spec = importlib.util.find_spec(_WRITERAGENT_NAMESPACE)
+    except Exception as exc:
+        _log_find_spec_failure(_WRITERAGENT_NAMESPACE, exc)
+        real_spec = None
+    if real_spec is not None:
+        try:
+            spec = importlib.machinery.ModuleSpec(fullname, AliasLoader(_WRITERAGENT_NAMESPACE))
+            spec.submodule_search_locations = []
+            return spec
+        except Exception as exc:
+            _log_find_spec_failure(fullname, exc)
+            return None
+    try:
+        spec = importlib.machinery.ModuleSpec(fullname, _WriteragentNamespaceLoader())
+        spec.submodule_search_locations = []
+        return spec
+    except Exception as exc:
+        _log_find_spec_failure(fullname, exc)
+        return None
 
 
 class AliasImporter:
@@ -91,27 +168,11 @@ class AliasImporter:
             real_name = fullname.replace("writeragent", "plugin", 1)
         try:
             real_spec = importlib.util.find_spec(real_name)
-        except Exception:
+        except Exception as exc:
+            _log_find_spec_failure(fullname, exc)
             return None
         if real_spec is None and fullname == "writeragent":
-            # LibrePy excludes writeragent_api; fall back to namespace stub or in-memory package.
-            try:
-                real_spec = importlib.util.find_spec(_WRITERAGENT_NAMESPACE)
-            except Exception:
-                real_spec = None
-            if real_spec is not None:
-                try:
-                    spec = importlib.machinery.ModuleSpec(fullname, AliasLoader(_WRITERAGENT_NAMESPACE))
-                    spec.submodule_search_locations = []
-                    return spec
-                except Exception:
-                    return None
-            try:
-                spec = importlib.machinery.ModuleSpec(fullname, _WriteragentNamespaceLoader())
-                spec.submodule_search_locations = []
-                return spec
-            except Exception:
-                return None
+            return _writeragent_namespace_spec(fullname)
         if real_spec is None:
             return None
         try:
@@ -121,7 +182,8 @@ class AliasImporter:
             elif real_spec.submodule_search_locations is not None:
                 spec.submodule_search_locations = list(real_spec.submodule_search_locations)
             return spec
-        except Exception:
+        except Exception as exc:
+            _log_find_spec_failure(fullname, exc)
             return None
 
 
@@ -151,7 +213,7 @@ def ensure_utf8_stdio() -> None:
                 pass
 
 
-def ensure_plugin_on_path(__file__: str, levels_up: int = 3, also_add_lib: bool = False, also_add_contrib: bool = False, also_add_plugin_dir: bool = False, also_add_vendor: bool = False) -> str:
+def ensure_plugin_on_path(module_file: str, levels_up: int = 3, also_add_lib: bool = False, also_add_contrib: bool = False, also_add_plugin_dir: bool = False, also_add_vendor: bool = False) -> str:
     """
     Walk up from the caller's __file__ and add the extension root on sys.path.
 
@@ -172,7 +234,7 @@ def ensure_plugin_on_path(__file__: str, levels_up: int = 3, also_add_lib: bool 
           also_add_lib=True, also_add_plugin_dir=True
 
     Args:
-        __file__: Pass the module's own __file__ (the standard pattern).
+        module_file: Pass the module's own __file__ (the standard pattern).
         levels_up: Directory levels to ascend to reach the extension root.
                    3 is correct for most files under plugin/<something>/.
                    4 is required for some deeply nested standalone components
@@ -191,11 +253,18 @@ def ensure_plugin_on_path(__file__: str, levels_up: int = 3, also_add_lib: bool 
         The extension root path that is now on sys.path.
     """
     register_alias_importer()
-    this_file = os.path.abspath(__file__)
+    this_file = os.path.abspath(module_file)
     for _unused in range(levels_up):
         this_file = os.path.dirname(this_file)
     ext_root = this_file
 
+    # Each insert(0, ...) runs only when that directory exists and is not already on
+    # sys.path. Call order is extension root, then plugin/, plugin/lib, plugin/contrib,
+    # vendor/. Each insert puts the new entry in front, so the search order is vendor,
+    # contrib, lib, plugin/, root. plugin/lib is in front of the stdlib when
+    # also_add_lib=True because the OXT ships pure-Python packages there.
+    # also_add_plugin_dir=True also makes top-level names such as doc, calc, and
+    # framework importable. Do not reorder these inserts.
     if ext_root not in sys.path:
         sys.path.insert(0, ext_root)
 

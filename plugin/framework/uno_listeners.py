@@ -279,21 +279,25 @@ def reraise_listener_boundary(exc: BaseException) -> NoReturn:
     raise boundary from exc
 
 
+_UNSET = object()
+
+
 def _listener_failure_value(func: Any) -> Any:
     """``sal_Bool`` methods must not return None or the bridge type-errors.
 
     ``from __future__ import annotations`` stores the return annotation as
     the string ``bool`` rather than the bool type.
     """
-    ret = func.__annotations__.get("return")
+    ret = getattr(func, "__annotations__", {}).get("return")
     if ret is bool or ret == "bool":
         return False
     return None
 
 
-def _catch_and_log(func: Any) -> Any:
+def _catch_and_log(func: Any, failure: Any = _UNSET) -> Any:
     """Decorator to catch and log exceptions in UNO listener callbacks."""
-    failure = _listener_failure_value(func)
+    if failure is _UNSET:
+        failure = _listener_failure_value(func)
 
     @functools.wraps(func)
     def wrapper(self: Any, ev: Any = None, *args: Any, **kwargs: Any) -> Any:
@@ -367,7 +371,20 @@ class BaseListener(_BaseParent, _XEventListenerParent):
             method = cls.__dict__.get(name)
             if method is None or getattr(method, _CATCH_LOGGED_ATTR, False):
                 continue
-            setattr(cls, name, _catch_and_log(method))
+            # __init_subclass__ wraps an override that replaced the base method,
+            # and the override often has no return annotation. The bridge type
+            # for XMouseClickHandler.mousePressed is sal_Bool. Taking None from
+            # the override's missing annotation type-errors the bridge. The base
+            # method's annotation is the contract.
+            failure = None
+            for base in cls.__mro__:
+                base_method = base.__dict__.get(name)
+                if base_method is not None:
+                    ret = getattr(base_method, "__annotations__", {}).get("return")
+                    if ret is bool or ret == "bool":
+                        failure = False
+                        break
+            setattr(cls, name, _catch_and_log(method, failure=failure))
 
     @_catch_and_log
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature

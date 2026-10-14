@@ -480,3 +480,32 @@ def test_click_thread_violation_is_not_a_rejected_click():
     if with_failure:
         raise AssertionError("thread violation looked like mousePressed returning False")
     raise AssertionError("thread violation did not leave the click handler")
+
+
+def test_mouse_click_handler_unannotated_override_returns_false() -> None:
+    """Subclass overriding mousePressed/mouseReleased without annotations returns False on failure."""
+    from plugin.framework.uno_listeners import BaseMouseClickHandler
+
+    class UnannotatedOverride(BaseMouseClickHandler):
+        def mousePressed(self, e):
+            raise RuntimeError("click failed")
+
+        def mouseReleased(self, e):
+            raise RuntimeError("release failed")
+
+    handler = UnannotatedOverride()
+    assert handler.mousePressed(MagicMock()) is False
+    assert handler.mouseReleased(MagicMock()) is False
+
+
+def test_mouse_listener_unannotated_override_returns_none() -> None:
+    """Subclass overriding mousePressed on BaseMouseListener returns None on failure."""
+    from plugin.framework.uno_listeners import BaseMouseListener
+
+    class UnannotatedMouse(BaseMouseListener):
+        def mousePressed(self, e):
+            raise RuntimeError("mouse pressed failed")
+
+    listener = UnannotatedMouse()
+    assert listener.mousePressed(MagicMock()) is None
+

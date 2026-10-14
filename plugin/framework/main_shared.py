@@ -6,8 +6,9 @@
 """Shared action dispatching and dialog helpers for main.py and main_core.py.
 
 Concurrency: menu action names map to Python callables in
-``_ACTION_HANDLERS``, filled at import/bootstrap, then only read when the
-user picks a menu item. No lock. ``open_dialog_safely`` talks to
+``_ACTION_HANDLERS``, filled during bootstrap (_register_core_handlers,
+register_common_handlers, and ChatbotModule.initialize), then only read when
+the user picks a menu item. No lock. ``open_dialog_safely`` talks to
 LibreOffice dialogs — call it from the UI thread, not from an HTTP or
 LLM worker.
 """
@@ -29,6 +30,36 @@ def register_action_handler(module_name: str, action_name: str, handler_func: Ca
 def get_action_handler(command: str) -> Callable[..., Any] | None:
     """Get a registered action handler by command string."""
     return _ACTION_HANDLERS.get(command)
+
+
+def report_action_failure(command: str, exc: BaseException) -> None:
+    """Report an action handler exception via dialog and logging."""
+    from plugin.framework.uno_context import get_ctx
+
+    log.exception("Action %s failed", command)
+    detail = f"{command} failed: {exc}"
+    try:
+        from plugin.chatbot.dialogs import msgbox_with_report
+        from plugin.framework.i18n import _
+
+        msgbox_with_report(
+            get_ctx(),
+            _("Error"),
+            detail,
+            box_type=3,
+            reportable=True,
+            report_title=command,
+            report_extra=str(exc),
+        )
+    except Exception:
+        log.exception("msgbox_with_report failed")
+        try:
+            from plugin.chatbot.dialogs import msgbox
+            from plugin.framework.i18n import _
+
+            msgbox(get_ctx(), _("Error"), detail, box_type=3)
+        except Exception:
+            log.exception("msgbox failed")
 
 
 def open_dialog_safely(dialog_func: Callable[..., Any], error_msg: str, *args: Any, **kwargs: Any) -> None:

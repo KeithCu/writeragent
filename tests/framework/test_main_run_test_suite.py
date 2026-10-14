@@ -89,3 +89,18 @@ def test_menu_text_translates_vision_ocr_and_debug(monkeypatch) -> None:
     assert main_mod.get_menu_text("vision.open_settings") == "Vision OCR 設定..."
     assert main_mod.get_menu_text("main.NoOp") == "デバッグ"
     assert main_mod.get_menu_text("main.settings") == "Settings"
+
+
+def test_run_test_suite_unavailable_does_not_print() -> None:
+    """When tests are not bundled, _run_test_suite must not emit debug prints."""
+    import plugin.main as main_mod
+
+    printed: list[str] = []
+    with (
+        patch("plugin.main._tests_bundled", return_value=False),
+        patch("builtins.print", side_effect=lambda *args, **kw: printed.append(" ".join(map(str, args)))),
+        patch("plugin.main._show_tests_unavailable"),
+    ):
+        main_mod._run_test_suite(MagicMock(), lambda _m: True, "writer.format_tests")
+
+    assert printed == []

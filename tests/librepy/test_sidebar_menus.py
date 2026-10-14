@@ -141,7 +141,7 @@ def test_invoke_zero_arg_handler():
     def handler():
         called.append(True)
 
-    invoke_action_handler(handler, frame=object())
+    invoke_action_handler(handler, frame=object(), command="test")
     assert called == [True]
 
 
@@ -152,7 +152,7 @@ def test_invoke_frame_handler():
         called.append(frame)
 
     frame = object()
-    invoke_action_handler(handler, frame)
+    invoke_action_handler(handler, frame, command="test")
     assert called == [frame]
 
 
@@ -164,8 +164,27 @@ def test_invoke_optional_frame_parameter():
         called.append(frame)
 
     frame = object()
-    invoke_action_handler(handler, frame)
+    invoke_action_handler(handler, frame, command="test")
     assert called == [frame]
+
+
+def test_invoke_raising_handler_reported(monkeypatch):
+    """A raising handler is reported with the command string and does not propagate."""
+    reported = []
+
+    def fake_report(cmd, exc):
+        reported.append((cmd, exc))
+
+    monkeypatch.setattr("plugin.framework.main_shared.report_action_failure", fake_report)
+
+    def bad_handler():
+        raise RuntimeError("boom")
+
+    invoke_action_handler(bad_handler, command="test.action")
+    assert len(reported) == 1
+    assert reported[0][0] == "test.action"
+    assert isinstance(reported[0][1], RuntimeError)
+
 
 
 def test_show_hamburger_uses_librepy_command_prefix():

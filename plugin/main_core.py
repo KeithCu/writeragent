@@ -12,11 +12,9 @@ import sys
 import threading
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-_this = os.path.abspath(__file__)
-for __ in range(2):
-    _this = os.path.dirname(_this)
-if _this not in sys.path:
-    sys.path.insert(0, _this)
+_ext_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ext_root not in sys.path:
+    sys.path.insert(0, _ext_root)
 
 from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 
@@ -140,8 +138,10 @@ def _dispatch_command(command: str, ctx: Any | None = None) -> None:
     if handler:
         try:
             handler()
-        except Exception:
-            log.exception("Action %s failed", command)
+        except Exception as e:
+            from plugin.framework.main_shared import report_action_failure
+
+            report_action_failure(command, e)
         return
     log.warning("Unhandled LibrePy command: %s", command)
 
@@ -217,10 +217,13 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
             _dispatch_command(command, self.ctx)
         except Exception as e:
             log_exception(e, context="LibrePy dispatch")
-            from plugin.chatbot.dialogs import msgbox
-            from plugin.framework.i18n import _
+            try:
+                from plugin.chatbot.dialogs import msgbox
+                from plugin.framework.i18n import _
 
-            msgbox(self.ctx, _("Dispatch Error"), str(e), box_type=3)
+                msgbox(self.ctx, _("Dispatch Error"), str(e), box_type=3)
+            except Exception:
+                log.exception("msgbox failed")
 
     def addStatusListener(self, Control: Any, URL: UnoURL) -> None:
         pass

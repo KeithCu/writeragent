@@ -190,7 +190,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             log.info("Hamburger menu selected: %s", action_name)
             handler = get_action_handler(action_name)
             if handler is not None:
-                invoke_action_handler(handler, frame)
+                invoke_action_handler(handler, frame, command=action_name)
             else:
                 # Toggle MCP Server and MCP Server Status are built here and
                 # never registered (mcp.toggle_server, mcp.server_status), so

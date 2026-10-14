@@ -2756,10 +2756,11 @@ class SettingsButtonListener(BaseActionListener):
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.main_shared import get_action_handler, open_dialog_safely
+        from plugin.librepy.sidebar_menus import invoke_action_handler
 
         handler = get_action_handler("main.settings")
         if handler:
-            handler()
+            invoke_action_handler(handler, command="main.settings")
             return
         from plugin.chatbot.dialog_views import settings_box
 
@@ -2778,10 +2779,11 @@ class ActionHandlerButtonListener(BaseActionListener):
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.main_shared import get_action_handler
+        from plugin.librepy.sidebar_menus import invoke_action_handler
 
         handler = get_action_handler(self.handler_id)
         if handler:
-            handler()
+            invoke_action_handler(handler, command=self.handler_id)
 
 
 class HamburgerButtonListener(BaseActionListener):

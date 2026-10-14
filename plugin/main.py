@@ -22,11 +22,9 @@ import sys
 # --- Minimal stdlib-only bootstrap (MUST be before any "from plugin..." import) ---
 # unopkg / pythonloader can load this file during `make deploy` (writeRegistryInfo)
 # before the extension root is on sys.path. We must fix that using only stdlib.
-_this = os.path.abspath(__file__)
-for __ in range(2):  # plugin/main.py → plugin/ → extension root
-    _this = os.path.dirname(_this)
-if _this not in sys.path:
-    sys.path.insert(0, _this)
+_ext_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ext_root not in sys.path:
+    sys.path.insert(0, _ext_root)
 
 import logging
 
@@ -83,6 +81,7 @@ from plugin.framework.uno_context import (
     menu_icon_asset_url,
     set_fallback_ctx,
     set_package_extension_id,
+    uno_same,
 )
 from plugin.framework.thread_guard import background
 
@@ -109,7 +108,15 @@ from plugin.framework.main_shared import (
 _tools: ToolRegistry | None = None
 _modules: list[ModuleBase] = []
 _init_lock = threading.Lock()
+# What was wrong: _initialized remained True even if module loading or
+# background start failed, permanently wedging startup so subsequent calls
+# returned immediately and menus only logged "No handler or module found".
+# How it happened: _initialized was set early to prevent re-entrant calls
+# during module imports, but unhandled exceptions after that point never cleared it.
+# Why this change: retry only when _modules is still empty; otherwise a second
+# pass would construct another registry and start background services again.
 _initialized = False
+_bootstrap_error: BaseException | None = None
 
 def _schedule_extension_update_check_once(ctx: Any) -> None:  # pyright: ignore[reportUnusedFunction]  # called from panel_wiring after sidebar init
     """Run weekly update check at most once per process per product, after init_logging."""
@@ -122,6 +129,13 @@ def get_services() -> Any:
     global _services
     if _services is None:
         bootstrap()
+    if _services is None:
+        from plugin.framework.errors import WriterAgentException
+
+        raise WriterAgentException(
+            "Service registry is unavailable because bootstrap did not finish.",
+            code="BOOTSTRAP_FAILED",
+        )
     return _services
 
 
@@ -129,7 +143,13 @@ def get_tools() -> ToolRegistry:
     global _tools
     if _tools is None:
         bootstrap()
-    assert _tools is not None
+    if _tools is None:
+        from plugin.framework.errors import WriterAgentException
+
+        raise WriterAgentException(
+            "Tool registry is unavailable because bootstrap did not finish.",
+            code="BOOTSTRAP_FAILED",
+        )
     return _tools
 
 
@@ -140,7 +160,7 @@ def bootstrap(ctx: Any | None = None) -> None:
     MCP server starts automatically in headless mode. We could make this lazy
     again in the future if startup performance becomes a concern.
     """
-    global _services, _tools, _modules, _initialized
+    global _services, _tools, _modules, _initialized, _bootstrap_error
 
     if _initialized:
         return
@@ -148,7 +168,12 @@ def bootstrap(ctx: Any | None = None) -> None:
     from plugin.framework.thread_guard import on_main_thread
 
     if not on_main_thread():
-        return
+        from plugin.framework.errors import WriterAgentException
+
+        raise WriterAgentException(
+            "WriterAgent bootstrap must run on the main thread before tools or services are used.",
+            code="BOOTSTRAP_OFF_THREAD",
+        )
 
     with _init_lock:
         if _initialized:
@@ -224,31 +249,48 @@ def bootstrap(ctx: Any | None = None) -> None:
         # 5. Load manifest and initialize modules
         from plugin.framework.module_base import ModuleLoader
 
-        _modules.extend(ModuleLoader.load_modules(_services))
+        try:
+            _modules.extend(ModuleLoader.load_modules(_services))
 
-        # 6. Background phase: modules that start listeners/servers (e.g. McpModule when MCP enabled)
-        for mod in _modules:
-            mod.start_background(_services)
+            # 6. Background phase: modules that start listeners/servers (e.g. McpModule when MCP enabled)
+            for mod in _modules:
+                mod.start_background(_services)
+        except Exception as exc:
+            log.exception("bootstrap failed after the init flag was set")
+            _bootstrap_error = exc
+            if not _modules:
+                _initialized = False
+            return
 
-        # Wire event bus into config service
-        events_svc = _services.get("events")
-        if events_svc:
-            # Subscribe to menu:update for dynamic menu text + icons
-            main_thread = _services.get("main_thread")
-            events_svc.subscribe("menu:update", lambda **kw: main_thread.execute(notify_menu_update) if main_thread else notify_menu_update())
+        try:
+            # Wire event bus into config service
+            events_svc = _services.get("events")
+            if events_svc:
+                # Subscribe to menu:update for dynamic menu text + icons.
+                # execute runs this @background function on the main thread;
+                # dispatch already queues it with run_in_background.
+                from plugin.framework.worker_pool import run_in_background
 
-        if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
-            # Pre-load icons into ImageManager so first menu display has them.
-            # Eval harness is headless with no VCL pump — posting icons to "main"
-            # trips the UNO thread guard and can segfault soffice (issue #402 family).
-            from plugin.framework.worker_pool import run_in_background
+                events_svc.subscribe("menu:update", lambda **kw: run_in_background(notify_menu_update))
 
-            run_in_background(_update_menu_icons)
+            if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
+                # Pre-load icons into ImageManager so first menu display has them.
+                # Eval harness is headless with no VCL pump — posting icons to "main"
+                # trips the UNO thread guard and can segfault soffice (issue #402 family).
+                from plugin.framework.worker_pool import run_in_background
 
-        # Headless eval connects via UNO pipe; menu/context-menu install
-        # calls get_desktop() in this process and can segfault soffice.
-        if os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
-            _register_core_handlers()
+                run_in_background(_update_menu_icons)
+
+            # Headless eval connects via UNO pipe; menu/context-menu install
+            # calls get_desktop() in this process and can segfault soffice.
+            if os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
+                _register_core_handlers()
+        except Exception as exc:
+            log.exception("bootstrap failed after the init flag was set")
+            _bootstrap_error = exc
+            return
+
+        _bootstrap_error = None
 
 
 def _register_core_handlers() -> None:
@@ -258,16 +300,32 @@ def _register_core_handlers() -> None:
     from plugin.doc.doc_type import is_writer, is_calc, is_draw
     import importlib
 
+    def _install_optional(fn: Callable[..., Any], *args: Any, message: str, level: int = logging.DEBUG) -> None:
+        try:
+            fn(*args)
+        except Exception:
+            log.log(level, message, exc_info=True)
+
     def _open_settings() -> None:
         _open_dialog_safely(settings_box, "Failed to open settings")
 
     register_action_handler("main", "settings", _open_settings)
     register_action_handler("main", "EvaluationDashboard", lambda: _open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
 
-    register_action_handler("main", "RunFormatTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.writer.test_format_uno"), is_writer, "writer.format_tests") if _tests_bundled() else _show_tests_unavailable("writer.format_tests"))
-    register_action_handler("main", "RunCalcTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.calc.test_calc_uno"), is_calc, "calc.tests") if _tests_bundled() else _show_tests_unavailable("calc.tests"))
-    register_action_handler("main", "RunCalcIntegrationTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.calc.test_calc_uno"), is_calc, "calc.integration_tests") if _tests_bundled() else _show_tests_unavailable("calc.integration_tests"))
-    register_action_handler("main", "RunDrawTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.draw.test_draw_uno"), is_draw, "draw.tests") if _tests_bundled() else _show_tests_unavailable("draw.tests"))
+    test_suites = (
+        ("RunFormatTests", "plugin.tests.writer.test_format_uno", is_writer, "writer.format_tests"),
+        ("RunCalcTests", "plugin.tests.calc.test_calc_uno", is_calc, "calc.tests"),
+        ("RunCalcIntegrationTests", "plugin.tests.calc.test_calc_uno", is_calc, "calc.integration_tests"),
+        ("RunDrawTests", "plugin.tests.draw.test_draw_uno", is_draw, "draw.tests"),
+    )
+    for action, mod_name, checker, test_name in test_suites:
+        register_action_handler(
+            "main",
+            action,
+            lambda m=mod_name, c=checker, t=test_name: _run_test_suite(
+                importlib.import_module(m), c, t
+            ),
+        )
     register_action_handler("main", "NoOp", lambda: None)
 
     # Register shared handlers (report_bug, run_python, edit_python, reset_python, vision settings, latex, textanalytics)
@@ -279,27 +337,22 @@ def _register_core_handlers() -> None:
 
     register_action_handler("calc", "convert_spreadsheet_to_python", _convert_spreadsheet)
 
-    try:
+    def _install_calc_menus() -> None:
         from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
         from plugin.notebook.notebook_controls import install_notebook_run_button_wiring
 
         install_calc_cell_context_menu(get_ctx())
         install_notebook_run_button_wiring(get_ctx())
-    except Exception:
-        log.debug("Calc cell context menu install failed", exc_info=True)
 
-    try:
-        from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
+    _install_optional(_install_calc_menus, message="Calc cell context menu install failed", level=logging.DEBUG)
 
-        install_excel_py_auto_convert(get_ctx())
-    except Exception:
-        log.debug("Excel PY auto-convert on open install failed", exc_info=True)
-    try:
-        from plugin.calc.python.geometric_recalc import install_geometric_recalc
+    from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
 
-        install_geometric_recalc()
-    except Exception:
-        log.debug("Geometric recalc install failed", exc_info=True)
+    _install_optional(install_excel_py_auto_convert, get_ctx(), message="Excel PY auto-convert on open install failed", level=logging.DEBUG)
+
+    from plugin.calc.python.geometric_recalc import install_geometric_recalc
+
+    _install_optional(install_geometric_recalc, message="Geometric recalc install failed", level=logging.DEBUG)
 
     def _open_search_dialog() -> None:
         from plugin.embeddings.search_ui import show_search_dialog
@@ -315,35 +368,33 @@ def _register_core_handlers() -> None:
 
             refresh_review_toolbar(model)
         except Exception:
-            logging.getLogger("writeragent.main").debug("review toolbar refresh failed", exc_info=True)
+            log.debug("review toolbar refresh failed", exc_info=True)
 
     def _resolve_change_at_cursor(accept: bool) -> None:
-        from plugin.framework.uno_context import get_active_document
         from plugin.writer.inline_review import resolve_change_at_cursor, show_review_message
 
         c = get_ctx()
         model = get_active_document(c)
         if model is not None:
             ok, msg = resolve_change_at_cursor(model, c, accept)
-            logging.getLogger("writeragent.main").debug("inline review: accept=%s -> ok=%s msg=%s", accept, ok, msg)
+            log.debug("inline review: accept=%s -> ok=%s msg=%s", accept, ok, msg)
             if not ok:
                 show_review_message(c, msg)
             _refresh_review_toolbar(model)
         else:
-            logging.getLogger("writeragent.main").debug("inline review: no current component")
+            log.debug("inline review: no current component")
 
     register_action_handler("writer", "accept_change", lambda: _resolve_change_at_cursor(True))
     register_action_handler("writer", "reject_change", lambda: _resolve_change_at_cursor(False))
 
     def _resolve_all_agent(accept: bool) -> None:
-        from plugin.framework.uno_context import get_active_document
         from plugin.writer.inline_review import resolve_all_with_feedback, show_review_message
 
         c = get_ctx()
         model = get_active_document(c)
         if model is not None:
             n, msg = resolve_all_with_feedback(model, c, accept)
-            logging.getLogger("writeragent.main").debug("inline review: resolve-all accept=%s -> %d changes", accept, n)
+            log.debug("inline review: resolve-all accept=%s -> %d changes", accept, n)
             show_review_message(c, msg)
             _refresh_review_toolbar(model)
 
@@ -353,7 +404,6 @@ def _register_core_handlers() -> None:
     def _goto_adjacent_change(forward: bool) -> None:
         """Fast-travel (#2): move the cursor to the next/previous pending agent change, in document
         order, cycling. Drives the review toolbar's Next/Previous buttons (and any shortcut)."""
-        from plugin.framework.uno_context import get_active_document
         from plugin.writer.inline_review import goto_adjacent_agent_change
 
         c = get_ctx()
@@ -361,26 +411,19 @@ def _register_core_handlers() -> None:
         if model is None:
             return
         token = goto_adjacent_agent_change(model, forward)
-        logging.getLogger("writeragent.main").debug("review nav: forward=%s -> token=%s", forward, token)
+        log.debug("review nav: forward=%s -> token=%s", forward, token)
         _refresh_review_toolbar(model)
 
     register_action_handler("writer", "review_next", lambda: _goto_adjacent_change(True))
     register_action_handler("writer", "review_prev", lambda: _goto_adjacent_change(False))
 
-    try:
-        from plugin.writer.change_context_menu import install_writer_change_context_menu
+    from plugin.writer.change_context_menu import install_writer_change_context_menu
 
-        install_writer_change_context_menu(get_ctx())
-    except Exception:
-        # WARNING, not debug: a silent install failure looks identical to "menu ignored".
-        log.warning("Writer change context menu install failed", exc_info=True)
+    _install_optional(install_writer_change_context_menu, get_ctx(), message="Writer change context menu install failed", level=logging.WARNING)
 
-    try:
-        from plugin.writer.review_toolbar import install_review_toolbar
+    from plugin.writer.review_toolbar import install_review_toolbar
 
-        install_review_toolbar(get_ctx())
-    except Exception:
-        log.warning("Review toolbar visibility install failed", exc_info=True)
+    _install_optional(install_review_toolbar, get_ctx(), message="Review toolbar visibility install failed", level=logging.WARNING)
 
 
 
@@ -409,7 +452,6 @@ def _show_tests_unavailable(test_name: str) -> None:
     """Show a message when test suites are not bundled (release builds)."""
     try:
         from plugin.chatbot.dialogs import msgbox
-        from plugin.framework.uno_context import get_ctx
 
         msgbox(get_ctx(), test_name, "This WriterAgent build was packaged without the optional `plugin.tests` test modules.")
     except Exception:
@@ -426,15 +468,11 @@ def _run_test_suite(test_func: Any, doc_checker: Callable[[Any], bool], test_nam
     Must not use ``run_blocking_in_thread``: synchronous UNO tools reject calls from
     worker threads (see ``ToolBase.execute_safe``).
     """
-    from plugin.framework.uno_context import get_ctx
     from plugin.chatbot.dialogs import msgbox
-    
-    print(f"DEBUG: _run_test_suite entry. name={test_name}")
+
     if not _tests_bundled():
-        print("DEBUG: _run_test_suite: tests not bundled!")
         _show_tests_unavailable(test_name)
         return
-    print("DEBUG: _run_test_suite: tests are bundled.")
 
     ctx = get_ctx()
     try:
@@ -465,37 +503,81 @@ def _dispatch_command(command: str) -> None:
 
             handle_debug_sidebar_command(command)
         except ImportError:
-            logging.getLogger("writeragent.main").debug("debug_sidebar omitted (release)")
+            log.debug("debug_sidebar omitted (release)")
         except Exception:
-            logging.getLogger("writeragent.main").exception("chatbot.debug_sidebar failed")
+            log.exception("chatbot.debug_sidebar failed")
         return
     # First try the action registry
     handler = get_action_handler(command)
     if handler:
         try:
             handler()
-        except Exception:
-            logging.getLogger("writeragent.main").exception(f"Action {command} failed")
+        except Exception as e:
+            from plugin.framework.main_shared import report_action_failure
+
+            report_action_failure(command, e)
         return
 
     # If no handler, check for module delegation
     dot = command.find(".")
+    if dot > 0:
+        mod_name = command[:dot]
+        action = command[dot + 1 :]
+
+        # Module actions
+        for mod in _modules:
+            if mod.name == mod_name:
+                mod.on_action(action)
+                return
+
+    if _bootstrap_error is not None:
+        from plugin.framework.errors import WriterAgentException
+
+        raise WriterAgentException(
+            f"WriterAgent did not finish starting: {_bootstrap_error}",
+            code="BOOTSTRAP_FAILED",
+        ) from _bootstrap_error
+
     if dot <= 0:
-        log = logging.getLogger("writeragent.main")
         log.warning("Unhandled command: %s", command)
         return
 
-    mod_name = command[:dot]
-    action = command[dot + 1 :]
-
-    # Module actions
-    for mod in _modules:
-        if mod.name == mod_name:
-            mod.on_action(action)
-            return
-
-    log = logging.getLogger("writeragent.main")
     log.warning("No handler or module found for command: %s", command)
+
+
+# Hardcoded fallback for static Addons.xcu items so they get translated
+# without needing dynamic state in their respective modules.
+# Translate at lookup because the locale is not ready at import.
+_STATIC_MENU_TITLES: dict[str, str] = {
+    "chatbot.extend_selection": "Extend Selection",
+    "chatbot.edit_selection": "Edit Selection",
+    "main.settings": "Settings",
+    "main.report_bug": "Report bug...",
+    "mcp.toggle_server": "Toggle MCP Server",
+    "mcp.server_status": "MCP Server Status",
+    # addStatusListener pushes get_menu_text() via FeatureStateEvent.
+    # Returning None leaves the en-US Addons.xcu string (Vision OCR was
+    # absent from this map). A raw English literal overwrites the catalog
+    # ("Debug"). Use the same literal map as the other WriterAgent
+    # menu titles so the JA msgstrs apply.
+    "vision.open_settings": "Vision OCR Settings...",
+    "main.NoOp": "Debug",
+    "main.RunFormatTests": "Run format tests",
+    "main.RunCalcTests": "Run calc tests",
+    "main.RunCalcIntegrationTests": "Run Calc API integration tests",
+    "main.RunDrawTests": "Run draw tests",
+    "main.EvaluationDashboard": "Evaluation Dashboard",
+    "scripting.run_python_dialog": "Run Python Script...",
+    "scripting.edit_python_cell": "Edit Python in Cell...",
+    "scripting.reset_python_session": "Reset Python Session",
+    "notebook.run_all": "Run All",
+    "notebook.run_from_here": "Run From Here",
+    "notebook.stop": "Stop",
+    "writer.insert_latex_dialog": "Edit LaTeX Math...",
+    "embeddings.search_dialog": "Search Nearby Files...",
+    "textanalytics.open_dialog": "Text Analytics...",
+    "calc.convert_spreadsheet_to_python": "Convert Sheet to Python...",
+}
 
 
 def get_menu_text(command: str) -> str | None:
@@ -516,64 +598,9 @@ def get_menu_text(command: str) -> str | None:
             if text is not None:
                 return _(text)
 
-    # Fallback to the title from the manifest
-    try:
-        from plugin._manifest import MODULES
-
-        # Generated manifest list is untyped; after get_menu_text gained a param
-        # annotation mypy checks this body and rejects indexing `object`.
-        for m in cast("list[dict[str, Any]]", MODULES):
-            if m["name"] == mod_name:
-                # The manifest doesn't store action titles directly in a map,
-                # but it might have an action list. If we don't have a specific title,
-                # we can translate the action name by capitalizing it as a fallback,
-                # or better, let the module define it. But for static menus,
-                # we can translate the static titles from the manifest if we had them.
-                # Since Addons.xcu has the static names, and notify_menu_update sets them,
-                # if we return None, LO uses the Addons.xcu name.
-                # To override Addons.xcu with translated static names, we need a map.
-                # For now, let's map known static actions directly here if mod didn't provide it.
-                pass
-    except ImportError:
-        pass
-
-    from plugin.framework.i18n import _
-
-    # Hardcoded fallback for static Addons.xcu items so they get translated
-    # without needing dynamic state in their respective modules.
-    static_titles = {
-        "chatbot.extend_selection": _("Extend Selection"),
-        "chatbot.edit_selection": _("Edit Selection"),
-        "main.settings": _("Settings"),
-        "main.report_bug": _("Report bug..."),
-        "mcp.toggle_server": _("Toggle MCP Server"),
-        "mcp.server_status": _("MCP Server Status"),
-        # addStatusListener pushes get_menu_text() via FeatureStateEvent.
-        # Returning None leaves the en-US Addons.xcu string (Vision OCR was
-        # absent from this map). A raw English literal overwrites the catalog
-        # ("Debug"). Use the same _("literal") map as the other WriterAgent
-        # menu titles so the JA msgstrs apply.
-        "vision.open_settings": _("Vision OCR Settings..."),
-        "main.NoOp": _("Debug"),
-        "main.RunFormatTests": _("Run format tests"),
-        "main.RunCalcTests": _("Run calc tests"),
-        "main.RunCalcIntegrationTests": _("Run Calc API integration tests"),
-        "main.RunDrawTests": _("Run draw tests"),
-        "main.EvaluationDashboard": _("Evaluation Dashboard"),
-        "scripting.run_python_dialog": _("Run Python Script..."),
-        "scripting.edit_python_cell": _("Edit Python in Cell..."),
-        "scripting.reset_python_session": _("Reset Python Session"),
-        "notebook.run_all": _("Run All"),
-        "notebook.run_from_here": _("Run From Here"),
-        "notebook.stop": _("Stop"),
-        "writer.insert_latex_dialog": _("Edit LaTeX Math..."),
-        "embeddings.search_dialog": _("Search Nearby Files..."),
-        "textanalytics.open_dialog": _("Text Analytics..."),
-        "calc.convert_spreadsheet_to_python": _("Convert Sheet to Python..."),
-    }
-
-    if command in static_titles:
-        return static_titles[command]
+    msgid = _STATIC_MENU_TITLES.get(command)
+    if msgid is not None:
+        return _(msgid)
 
     return None
 
@@ -679,15 +706,36 @@ def _collect_icon_commands() -> dict[str, tuple[str, str]]:
     return result
 
 
+_loaded_icon_graphics: dict[tuple[str, int], Any] = {}
+_icon_apply_stamp: tuple[tuple[tuple[str, str], ...], int] | None = None
+
+
+def _icon_apply_signature(
+    icon_cmds: dict[str, tuple[str, str]], px: int
+) -> tuple[tuple[tuple[str, str], ...], int]:
+    return (tuple(sorted((url, prefix) for url, (_mod, prefix) in icon_cmds.items())), px)
+
+
+def _icons_unchanged(
+    icon_cmds: dict[str, tuple[str, str]],
+    px: int,
+    stamp: tuple[tuple[tuple[str, str], ...], int] | None,
+) -> bool:
+    return _icon_apply_signature(icon_cmds, px) == stamp
+
+
 def _load_icon_graphic(module_name: str, icon_filename: str, ctx: Any | None = None) -> Any:
     """Load a PNG icon from OXT assets/ as XGraphic."""
     try:
         from com.sun.star.beans import PropertyValue
-        import uno
 
+        # A bootstrap-less uno.getComponentContext() is a different context
+        # (no VCL, wrong package). get_ctx() is the context bootstrap stored.
         if ctx is None:
-            ctx = uno.getComponentContext()
-        assert ctx is not None
+            ctx = get_ctx()
+        if ctx is None:
+            log.warning("_load_icon_graphic: get_ctx() returned None for %s/%s", module_name, icon_filename)
+            return None
         ctx_any = cast("Any", ctx)
         smgr = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
         assert smgr is not None
@@ -709,21 +757,18 @@ def _load_icon_graphic(module_name: str, icon_filename: str, ctx: Any | None = N
 
 def _update_menu_icons_impl() -> None:
     """Push current-state icons into every module's ImageManager (UNO main thread)."""
+    global _icon_apply_stamp
     try:
-        import uno
-
-        ctx = _services.get("uno") if _services else None
+        # A bootstrap-less uno.getComponentContext() is a different context
+        # (no VCL, wrong package). get_ctx() is the context bootstrap stored.
+        ctx = get_ctx()
         if ctx is None:
-            ctx = uno.getComponentContext()
+            log.warning("_update_menu_icons_impl: get_ctx() returned None")
+            return
 
         icon_cmds = _collect_icon_commands()
         if not icon_cmds:
             return
-
-        # Group by (module, prefix) to avoid loading the same graphic twice
-        key_cmds: dict[tuple[str, str], list[str]] = {}  # (mod_name, prefix) -> [cmd_urls]
-        for cmd_url, (mod_name, prefix) in icon_cmds.items():
-            key_cmds.setdefault((mod_name, prefix), []).append(cmd_url)
 
         from plugin.framework.menu_icon_dpi import (
             image_type_for_pixel_size,
@@ -743,16 +788,35 @@ def _update_menu_icons_impl() -> None:
         icon_px = resolve_menu_icon_pixel_size(ctx)
         image_type = image_type_for_pixel_size(icon_px)
 
+        # Each dispatch used to re-query every PNG and rewrite four image
+        # managers; the stamp skips that when the command-to-prefix map and the
+        # pixel size are unchanged, and it stays unset when a load or replace
+        # failed so the next click retries.
+        if _icons_unchanged(icon_cmds, icon_px, _icon_apply_stamp):
+            return
+
+        # Group by (module, prefix) to avoid loading the same graphic twice
+        key_cmds: dict[tuple[str, str], list[str]] = {}  # (mod_name, prefix) -> [cmd_urls]
+        for cmd_url, (mod_name, prefix) in icon_cmds.items():
+            key_cmds.setdefault((mod_name, prefix), []).append(cmd_url)
+
         # Load graphics
+        apply_failed = False
         key_graphics = {}
         for key in key_cmds:
             mod_name, prefix = key
-            filename = menu_icon_filename(prefix, icon_px, ctx)
-            graphic = _load_icon_graphic(mod_name, filename, ctx)
-            if graphic:
+            cache_key = (prefix, icon_px)
+            graphic = _loaded_icon_graphics.get(cache_key)
+            if graphic is None:
+                filename = menu_icon_filename(prefix, icon_px, ctx)
+                graphic = _load_icon_graphic(mod_name, filename, ctx)
+                if graphic is not None:
+                    _loaded_icon_graphics[cache_key] = graphic
+            if graphic is not None:
                 key_graphics[key] = graphic
             else:
-                log.warning("Icon graphic is None for assets/%s (module %s)", filename, mod_name)
+                apply_failed = True
+                log.warning("Icon graphic is None for assets/%s (module %s)", prefix, mod_name)
 
         if not key_graphics:
             return
@@ -780,6 +844,7 @@ def _update_menu_icons_impl() -> None:
                                 else:
                                     img_mgr.insertImages(itype, (cmd,), (graphic,))
                             except Exception as e:
+                                apply_failed = True
                                 log.warning(
                                     "_update_menu_icons: failed to insert/replace image for %s type=%s: %s",
                                     cmd,
@@ -787,7 +852,11 @@ def _update_menu_icons_impl() -> None:
                                     e,
                                 )
             except Exception as e:
+                apply_failed = True
                 log.warning("_update_menu_icons: failed to process ImageManager for %s: %s", mod_id, e)
+
+        if not apply_failed and len(key_graphics) == len(key_cmds):
+            _icon_apply_stamp = _icon_apply_signature(icon_cmds, icon_px)
     except Exception:
         log.exception("_update_menu_icons: outer exception")
 
@@ -821,15 +890,9 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
     def execute(self, Arguments: Any) -> tuple[()]:
         """Called by the Jobs framework on OnStartApp."""
         try:
-            from plugin.framework.config import init_config
-
-            init_config(self.ctx)
-        except Exception:
-            pass
-        try:
             init_logging(self.ctx)
         except Exception:
-            pass
+            log.exception("MainBootstrapJob.execute: init_logging failed")
         try:
             bootstrap(self.ctx)
         except Exception as e:
@@ -843,7 +906,10 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         return ()
 
     def trigger(self, Event: str) -> None:
-        init_logging(self.ctx)
+        try:
+            init_logging(self.ctx)
+        except Exception:
+            log.exception("MainBootstrapJob.trigger: init_logging failed")
 
         args = Event
         if args and isinstance(args, str) and ("." in args or args.startswith("plugin.")):
@@ -864,13 +930,11 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         from plugin.doc.doc_type import get_document_type, DocumentType
 
         doc_type = get_document_type(model)
-        if doc_type == DocumentType.WRITER:
-            self._handle_writer_actions(args, model)
-        elif doc_type == DocumentType.CALC:
-            self._handle_calc_actions(args, model)
+        if doc_type in (DocumentType.WRITER, DocumentType.CALC):
+            self._handle_selection_actions(args, model)
 
     def _handle_framework_actions(self, args: str) -> bool:
-        framework_args = ("ToggleMCPServer", "MCPStatus", "TestTypes", "RunFormatTests", "RunCalcTests", "RunDrawTests", "RunCalcIntegrationTests", "EvaluationDashboard", "NoOp")
+        framework_args = ("ToggleMCPServer", "MCPStatus", "RunFormatTests", "RunCalcTests", "RunDrawTests", "RunCalcIntegrationTests", "EvaluationDashboard", "NoOp")
         if args not in framework_args:
             return False
 
@@ -882,11 +946,7 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
             _dispatch_command("main." + args)
         return True
 
-    def _handle_writer_actions(self, args: str, model: Any) -> None:
-        if args in ("ExtendSelection", "EditSelection"):
-            self._handle_selection_action(args, model)
-
-    def _handle_calc_actions(self, args: str, model: Any) -> None:
+    def _handle_selection_actions(self, args: str, model: Any) -> None:
         if args in ("ExtendSelection", "EditSelection"):
             self._handle_selection_action(args, model)
 
@@ -895,28 +955,6 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         from plugin.chatbot.selection import do_selection_action_for_document
 
         do_selection_action_for_document(self.ctx, model, input_box, args == "EditSelection")
-
-
-# Starting from Python IDE
-def main() -> None:
-    try:
-        # Using locals()/globals() bypasses static analyzer checks for XSCRIPTCONTEXT
-        ctx = globals()["XSCRIPTCONTEXT"]
-    except KeyError:
-        if officehelper is None:
-            print("ERROR: officehelper is not available (ImportError).")
-            sys.exit(1)
-        ctx = officehelper.bootstrap()
-        if ctx is None:
-            print("ERROR: Could not bootstrap default Office.")
-            sys.exit(1)
-    job = MainBootstrapJob(ctx)
-    job.trigger("hello")
-
-
-# Starting from command line
-if __name__ == "__main__":
-    main()
 
 
 class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitialization, XServiceInfo):
@@ -984,18 +1022,28 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
             run_in_background(notify_menu_update)
         except Exception as e:
             log_exception(e, context="Dispatch")
-            from plugin.chatbot.dialogs import msgbox_with_report
-            from plugin.framework.i18n import _
+            try:
+                from plugin.chatbot.dialogs import msgbox_with_report
+                from plugin.framework.i18n import _
 
-            msgbox_with_report(
-                self.ctx,
-                _("Dispatch Error"),
-                str(e),
-                box_type=3,
-                reportable=True,
-                report_title="Dispatch Error",
-                report_extra=str(e),
-            )
+                msgbox_with_report(
+                    self.ctx,
+                    _("Dispatch Error"),
+                    str(e),
+                    box_type=3,
+                    reportable=True,
+                    report_title="Dispatch Error",
+                    report_extra=str(e),
+                )
+            except Exception:
+                log.exception("msgbox_with_report failed")
+                try:
+                    from plugin.chatbot.dialogs import msgbox
+                    from plugin.framework.i18n import _
+
+                    msgbox(self.ctx, _("Dispatch Error"), str(e), box_type=3)
+                except Exception:
+                    log.exception("msgbox failed")
 
     def addStatusListener(self, Control: Any, URL: UnoURL) -> None:
         listener = Control
@@ -1015,7 +1063,14 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
         listener = Control
         url = URL
         with _status_lock:
-            _status_listeners[:] = [(lstnr, u) for lstnr, u in _status_listeners if not (lstnr is listener and u.Complete == url.Complete)]
+            # PyUNO hands removeStatusListener a new proxy for the same listener,
+            # so 'is' left the row in _status_listeners and every rebind appended another.
+            # uno_same is the identity ladder already used for document objects.
+            _status_listeners[:] = [
+                (lstnr, u)
+                for lstnr, u in _status_listeners
+                if not (uno_same(lstnr, listener) and u.Complete == url.Complete)
+            ]
 
 
 # pythonloader loads a static g_ImplementationHelper variable
@@ -1026,4 +1081,26 @@ g_ImplementationHelper.addImplementation(
     ("com.sun.star.task.Job",),
 )  # implemented services (only 1)
 g_ImplementationHelper.addImplementation(DispatchHandler, DispatchHandler.IMPL_NAME, DispatchHandler.SERVICE_NAMES)
+
+
+# Starting from Python IDE
+def main() -> None:
+    try:
+        # Using locals()/globals() bypasses static analyzer checks for XSCRIPTCONTEXT
+        ctx = globals()["XSCRIPTCONTEXT"]
+    except KeyError:
+        if officehelper is None:
+            print("ERROR: officehelper is not available (ImportError).")
+            sys.exit(1)
+        ctx = officehelper.bootstrap()
+        if ctx is None:
+            print("ERROR: Could not bootstrap default Office.")
+            sys.exit(1)
+    job = MainBootstrapJob(ctx)
+    job.trigger("hello")
+
+
+# Starting from command line
+if __name__ == "__main__":
+    main()
 # vim: set shiftwidth=4 softtabstop=4 expandtab:

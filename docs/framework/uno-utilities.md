@@ -18,7 +18,7 @@ Related catalogs (do not duplicate here):
 
 - **No monolithic `uno_helpers.py`.** Helpers stay split: `uno_context`, `text_helpers` / `doc_type` / `udprops`, `document_helpers`, `dialogs`. That split is an AGENTS.md rule.
 - **LibrePy must not import `document_helpers`.** Light helpers only (`text_helpers`, `doc_type`, `udprops`). Do not re-export the light helpers from `document_helpers`.
-- **Use the extension’s `self.ctx`**, stored via `set_fallback_ctx` / `get_ctx()`. Do not prefer `uno.getComponentContext()` (wrong context in test runners; can segfault on Desktop).
+- **Use the extension’s `self.ctx`**, stored via `set_fallback_ctx` / `get_ctx()`. Do not prefer `uno.getComponentContext()` (wrong context in test runners; can segfault on Desktop). Menu icon load uses `get_ctx()`, not `uno.getComponentContext()`.
 - **HTTP / LLM URL policy stays in `url_utils`.** One stdlib `path_to_file_url` lives in a separate filesystem / document `file:` section; do not fold it into `normalize_endpoint_url`. PathSettings stay out of `url_utils`.
 
 ---
