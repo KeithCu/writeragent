@@ -5,8 +5,9 @@ from __future__ import annotations
 import os
 import struct
 import wave
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.scripting.audio_silence_detector import (
     DEFAULT_SILENCE_STOP_MS,
     MIN_SPEECH_MS,
@@ -18,6 +19,10 @@ from plugin.scripting.audio_silence_detector import (
     pcm_energy_int16,
 )
 import pytest
+
+
+def _recording_child(proc: MagicMock, drain: object | None = None) -> ManagedSubprocess:
+    return ManagedSubprocess.wrap_existing(proc, label="audio-recorder", stderr_tail=drain)  # type: ignore[arg-type]
 
 
 def _pcm_silence(sample_count: int) -> bytes:
@@ -251,7 +256,7 @@ def test_monitor_recording_stdout_invokes_auto_stop_callback(tmp_path):
     progress: list[int] = []
 
     thread = monitor_recording_stdout(
-        proc,
+        _recording_child(proc),
         on_auto_stopped=seen.append,
         on_silence_progress=progress.append,
     )
@@ -273,7 +278,7 @@ def test_stop_recording_process_uses_fallback_when_child_already_exited(tmp_path
     proc.poll.return_value = 0
     proc.stdout = StringIO("")
     handoff = RecordingStopHandoff()
-    assert stop_recording_process(proc, fallback_path=fallback_file, handoff=handoff) == fallback_file
+    assert stop_recording_process(_recording_child(proc), fallback_path=fallback_file, handoff=handoff) == fallback_file
 
 
 def test_room_noise_below_loud_onset_adapts_and_then_auto_stops():

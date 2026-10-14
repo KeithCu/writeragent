@@ -4,10 +4,12 @@ import subprocess
 import sys
 import threading
 from io import StringIO
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.scripting.audio_recorder_service import (
     is_audio_recording_configured,
     resolve_recording_python,
@@ -16,8 +18,12 @@ from plugin.scripting.audio_recorder_service import (
 )
 
 
+def _recording_child(proc: MagicMock, drain: object | None = None) -> ManagedSubprocess:
+    return ManagedSubprocess.wrap_existing(proc, label="audio-recorder", stderr_tail=drain)  # type: ignore[arg-type]
+
+
 def test_reap_kills_the_group_before_dropping_stderr(monkeypatch):
-    from plugin.scripting.audio_recorder_service import _reap_recording_process, _recording_stderr_drains
+    from plugin.scripting.audio_recorder_service import _reap_recording_process
 
     proc = MagicMock()
     proc.pid = 99
@@ -30,18 +36,16 @@ def test_reap_kills_the_group_before_dropping_stderr(monkeypatch):
     proc.terminate.side_effect = lambda: order.append("terminate")
     drain = MagicMock()
     drain.join.side_effect = lambda timeout=None: order.append("join")
-    _recording_stderr_drains[proc] = drain
+    child = _recording_child(proc, drain)
 
     def _kill(target):
         order.append("kill")
         assert target is proc
 
     monkeypatch.setattr("plugin.scripting.audio_recorder_service.kill_process_tree", _kill)
-    try:
-        _reap_recording_process(proc, 0.01)
-    finally:
-        _recording_stderr_drains.pop(proc, None)
+    _reap_recording_process(child, 0.01)
     assert order == ["terminate", "kill", "join"]
+    assert child._closed is False
 
 
 def test_is_audio_recording_configured_true():
@@ -63,7 +67,7 @@ def test_wait_for_recording_ready_accepts_ready_line():
     proc = MagicMock()
     proc.stdout = MagicMock()
     proc.stdout.readline.return_value = json.dumps({"status": "ready"}) + "\n"
-    wait_for_recording_ready(proc)
+    wait_for_recording_ready(_recording_child(proc))
 
 
 def test_stop_recording_process_returns_path():
@@ -79,7 +83,7 @@ def test_stop_recording_process_returns_path():
     handoff = RecordingStopHandoff()
     handoff.note_ok("/tmp/x.wav")
 
-    assert stop_recording_process(proc, handoff=handoff) == "/tmp/x.wav"
+    assert stop_recording_process(_recording_child(proc), handoff=handoff) == "/tmp/x.wav"
     proc.stdin.write.assert_called_once_with(json.dumps({"command": "stop"}) + "\n")
 
 
@@ -93,7 +97,7 @@ def test_stop_recording_process_uses_json_stop_command():
     handoff = RecordingStopHandoff()
     handoff.note_ok("/tmp/x.wav")
 
-    assert stop_recording_process(proc, handoff=handoff) == "/tmp/x.wav"
+    assert stop_recording_process(_recording_child(proc), handoff=handoff) == "/tmp/x.wav"
     assert proc.stdin.getvalue() == json.dumps({"command": "stop"}) + "\n"
 
 
@@ -107,7 +111,7 @@ def test_monitor_recording_stdout_skips_non_json_lines_before_ok():
     handoff = RecordingStopHandoff()
 
     handle = monitor_recording_stdout(
-        proc,
+        _recording_child(proc),
         on_auto_stopped=lambda _p: None,
         handoff=handoff,
     )
@@ -120,7 +124,6 @@ def test_stop_recording_via_handoff_reaps_on_timeout():
     from plugin.scripting.audio_recorder_service import (
         RecordingStopHandoff,
         _RECORDING_REAP_TIMEOUT_SEC,
-        _recording_stderr_drains,
     )
 
     proc = MagicMock()
@@ -128,16 +131,15 @@ def test_stop_recording_via_handoff_reaps_on_timeout():
     # StringIO.write returns a length, so the stop line is sent and wait_for_path can time out.
     proc.stdin = StringIO()
     drain = MagicMock()
-    _recording_stderr_drains[proc] = drain
+    child = _recording_child(proc, drain)
 
     handoff = RecordingStopHandoff()
     # Note nothing so wait_for_path times out
     with pytest.raises(RuntimeError, match="timed out"):
-        stop_recording_process(proc, handoff=handoff, timeout_sec=0.01)
+        stop_recording_process(child, handoff=handoff, timeout_sec=0.01)
 
     proc.wait.assert_called_with(timeout=_RECORDING_REAP_TIMEOUT_SEC)
     drain.join.assert_called()
-    assert proc not in _recording_stderr_drains
 
 
 def test_wait_for_recording_ready_eof_raises_runtime_error():
@@ -147,7 +149,7 @@ def test_wait_for_recording_ready_eof_raises_runtime_error():
     proc.poll.return_value = None
 
     with pytest.raises(RuntimeError, match="ended before responding"):
-        wait_for_recording_ready(proc, timeout_sec=0.01)
+        wait_for_recording_ready(_recording_child(proc), timeout_sec=0.01)
 
 
 def test_resolve_recording_python_requires_venv():
@@ -179,11 +181,12 @@ def test_stop_gets_ok_path_already_consumed_by_stdout_monitor():
     proc.stdin = StringIO()
     proc.stdout = stdout
     proc.wait.return_value = 0
+    child = _recording_child(proc)
 
     handoff = RecordingStopHandoff()
     progress: list[int] = []
     handle = monitor_recording_stdout(
-        proc,
+        child,
         on_auto_stopped=lambda _path: None,
         on_silence_progress=progress.append,
         handoff=handoff,
@@ -197,7 +200,7 @@ def test_stop_gets_ok_path_already_consumed_by_stdout_monitor():
     assert stdout.read() == ""
     assert progress == [250]
     assert handoff.snapshot_path() == wav_path
-    assert stop_recording_process(proc, handoff=handoff, timeout_sec=1) == wav_path
+    assert stop_recording_process(child, handoff=handoff, timeout_sec=1) == wav_path
     assert json.loads(proc.stdin.getvalue()) == {"command": "stop"}
 
 
@@ -376,7 +379,7 @@ def test_error_line_wakes_handoff_without_callback():
     proc.stdout = StringIO(json.dumps({"status": "error", "message": "mic gone"}) + "\n")
     handoff = RecordingStopHandoff()
 
-    handle = monitor_recording_stdout(proc, on_auto_stopped=lambda _p: None, on_error=None, handoff=handoff)
+    handle = monitor_recording_stdout(_recording_child(proc), on_auto_stopped=lambda _p: None, on_error=None, handoff=handoff)
     handle.join(timeout=2.0)
     assert handoff.has_error() is True
     with pytest.raises(RuntimeError, match="mic gone"):
@@ -388,7 +391,7 @@ def test_error_line_wakes_handoff_without_callback():
     proc2.stdout = StringIO(json.dumps({"status": "error"}) + "\n")
     handoff2 = RecordingStopHandoff()
 
-    handle2 = monitor_recording_stdout(proc2, on_auto_stopped=lambda _p: None, on_error=None, handoff=handoff2)
+    handle2 = monitor_recording_stdout(_recording_child(proc2), on_auto_stopped=lambda _p: None, on_error=None, handoff=handoff2)
     handle2.join(timeout=2.0)
     assert handoff2.has_error() is True
     with pytest.raises(RuntimeError, match="Audio recording failed."):
@@ -414,7 +417,7 @@ def test_callback_exception_still_reads_ok():
         raise RuntimeError("callback exploded")
 
     handle = monitor_recording_stdout(
-        proc,
+        _recording_child(proc),
         on_auto_stopped=_failing_auto_stop,
         on_silence_progress=progress.append,
         handoff=handoff,
@@ -457,4 +460,95 @@ def test_append_wav_missing_file_returns_false():
     content_list = []
     assert append_wav_as_input_audio(content_list, "/no/such.wav") is False
     assert content_list == []
+
+
+def test_spawn_recording_process_uses_managed_text_pipes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
+    from plugin.scripting.sandbox import wrap_command_for_sandbox
+    from plugin.scripting.audio_recorder_service import (
+        _AUDIO_RECORD_MAIN,
+        _build_recording_env,
+        spawn_recording_process,
+    )
+    import plugin.framework.managed_subprocess as ms
+
+    captured_cmds: list[list[str]] = []
+    captured_kwargs: list[dict[str, Any]] = []
+    mock_proc = MagicMock()
+    mock_proc.pid = 4242
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stderr = MagicMock()
+
+    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+        captured_cmds.append(list(cmd))
+        captured_kwargs.append(dict(kwargs))
+        return mock_proc
+
+    drain_kwargs_list: list[dict[str, Any]] = []
+
+    def fake_drain(stream: Any, **kwargs: Any) -> MagicMock:
+        drain_kwargs_list.append(dict(kwargs))
+        return MagicMock()
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(ms, "start_stderr_drain", fake_drain)
+
+    exe = "/venv/bin/python"
+    out_path = "/tmp/take.wav"
+    res = spawn_recording_process(exe, out_path, silence_config=SilenceDetectorConfig(silence_stop_ms=250))
+
+    assert isinstance(res, ManagedSubprocess)
+    assert res.popen is mock_proc
+    assert res not in ms._instances
+
+    kwargs = captured_kwargs[0]
+    assert kwargs["stdin"] == subprocess.PIPE
+    assert kwargs["stdout"] == subprocess.PIPE
+    assert kwargs["stderr"] == subprocess.PIPE
+    assert kwargs["text"] is True
+    assert kwargs["bufsize"] == 1
+    assert kwargs["cwd"] is None
+    assert "encoding" not in kwargs
+    assert "errors" not in kwargs
+    assert "universal_newlines" not in kwargs
+    assert "shell" not in kwargs
+
+    if sys.platform == "win32":
+        assert kwargs.get("creationflags") == subprocess.CREATE_NO_WINDOW
+        assert "start_new_session" not in kwargs
+    else:
+        assert kwargs.get("start_new_session") is True
+        assert "creationflags" not in kwargs
+
+    assert kwargs["env"] == _build_recording_env()
+    expected_cmd = wrap_command_for_sandbox([exe, _AUDIO_RECORD_MAIN, "--output", out_path, "--silence-stop-ms=250"], env=kwargs["env"], cwd=None)
+    assert captured_cmds[0] == expected_cmd
+    assert drain_kwargs_list[0]["name"] == "audio-rec-stderr-4242"
+
+    res2 = spawn_recording_process(exe, out_path)
+    assert isinstance(res2, ManagedSubprocess)
+    assert "--silence-stop-ms=250" not in captured_cmds[1]
+    assert captured_kwargs[1]["text"] is True
+
+
+def test_spawn_recording_process_popen_oserror_is_not_wrapped(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+    from plugin.scripting.audio_recorder_service import spawn_recording_process
+    import plugin.framework.managed_subprocess as ms
+
+    def fake_popen(*a: Any, **kw: Any) -> Any:
+        raise FileNotFoundError(2, "No such file", "/missing/python")
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+
+    with caplog.at_level(logging.ERROR, logger="plugin.framework.managed_subprocess"):
+        with pytest.raises(FileNotFoundError):
+            spawn_recording_process("/missing/python", "/tmp/take.wav")
+
+    assert "Failed to start managed subprocess" not in caplog.text
+    assert len(ms._instances) == 0
+
 

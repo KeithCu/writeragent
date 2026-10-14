@@ -26,9 +26,6 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable
 
-if TYPE_CHECKING:
-    import subprocess
-
 from plugin.chatbot.audio_recorder_state import (
     AudioRecorderEvent,
     AudioRecorderState,
@@ -54,6 +51,9 @@ from plugin.scripting.audio_recorder_service import (
 )
 from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 from plugin.scripting.audio_silence_detector import SilenceDetector, load_silence_detector_config
+
+if TYPE_CHECKING:
+    from plugin.framework.managed_subprocess import ManagedSubprocess
 
 log = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ class AudioRecorder:
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
         self.temp_filename: str | None = None
-        self._proc: subprocess.Popen[str] | None = None
+        self._proc: ManagedSubprocess | None = None
         self._stdout_monitor: threading.Thread | Any = None
         self._stop_handoff: RecordingStopHandoff | None = None
         self._auto_stopped_path: str | None = None
@@ -254,7 +254,7 @@ class AudioRecorder:
 
     def _keep_recorded_wav_or_cleanup(
         self,
-        proc: subprocess.Popen[str] | None,
+        proc: ManagedSubprocess | None,
         auto_path: str | None,
         exc: BaseException,
     ) -> None:
@@ -490,14 +490,14 @@ class AudioRecorder:
 
             if proc is not None and self.temp_filename and self.state.status != "error":
                 try:
-                    if auto_path and proc.poll() is not None:
+                    if auto_path and not proc.is_alive():
                         # The child has already exited after auto-stop.
                         # Reap it and drop the stderr drain; updating
                         # temp_filename alone leaves that thread in
                         # _recording_stderr_drains.
                         terminate_recording_process(proc)
                         self.temp_filename = auto_path
-                    elif proc.poll() is None:
+                    elif proc.is_alive():
                         if handoff is None:
                             # The monitor is the only writer of the handoff.
                             # Building a new one here waits out the stop timeout
