@@ -2836,3 +2836,27 @@ def test_harness_main_user_stopped_writes_user_stopped_frame(monkeypatch):
     assert res["status"] == "error"
     assert res["code"] == "USER_STOPPED"
     assert "Interrupted by user" in res["message"]
+
+
+def test_harness_main_reads_claimed_stdin(monkeypatch):
+    import io
+    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    import plugin.scripting.venv.worker_harness as harness
+
+    req_data = pack_pickle_frame({"id": "req-claim-in", "action": "execute", "code": "result = 1"})
+    claimed_stdin = io.BytesIO(req_data)
+    stdout = io.BytesIO()
+
+    monkeypatch.setattr(harness, "claim_ipc_stdin", lambda: claimed_stdin)
+    monkeypatch.setattr(harness, "claim_ipc_channel", lambda: stdout)
+    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "_init_logging", lambda: None)
+    monkeypatch.setattr(harness, "_handle_request", lambda req, stdout=None: {"status": "ok", "result": 1})
+
+    monkeypatch.setattr(harness.sys, "stdin", _FakeStdStream(io.BytesIO()))
+
+    harness.main()
+
+    stdout.seek(0)
+    started = read_pickle_frame(stdout, require_dict=True)
+    assert started == {"type": "exec_started", "id": "req-claim-in"}

@@ -99,6 +99,17 @@ def test_unknown_pickle_opcode_is_value_error():
         unpack_pickle_frame(b"notpickl")
 
 
+def test_unpickler_handler_keyerror_is_value_error(monkeypatch):
+    from plugin.scripting.ipc import AllowlistUnpickler, unpack_pickle_frame
+
+    def handler(unpickler):
+        raise KeyError("missing-state")
+
+    monkeypatch.setitem(AllowlistUnpickler.dispatch, ord("X"), handler)
+    with pytest.raises(ValueError, match="missing-state"):
+        unpack_pickle_frame(b"X")
+
+
 def test_truncated_pickle_frame_returns_none():
     payload = pack_pickle_frame({"status": "ok"})
     truncated = payload[:-2]
@@ -1282,3 +1293,141 @@ write_json_line(ipc_stream, {"status": "ok", "value": 42})
     line = stdout.decode("utf-8").strip()
     data = json.loads(line)
     assert data == {"status": "ok", "value": 42}
+
+
+def test_claim_ipc_stdin_returns_raw_and_does_not_read_ahead(monkeypatch):
+    from plugin.scripting import ipc
+
+    monkeypatch.setattr(ipc, "_child_ipc_stdin", None)
+    read_fd, write_fd = os.pipe()
+    reader = os.fdopen(read_fd, "rb")
+
+    class _FakeStdStream:
+        def __init__(self, buf):
+            self.buffer = buf
+
+    monkeypatch.setattr(sys, "stdin", _FakeStdStream(reader))
+    claimed = None
+    try:
+        claimed = ipc.claim_ipc_stdin()
+        assert isinstance(claimed, io.FileIO)
+        os.write(write_fd, b"abcdef")
+        assert claimed.read(2) == b"ab"
+        if sys.platform != "win32":
+            os.set_blocking(claimed.fileno(), False)
+            assert os.read(claimed.fileno(), 16) == b"cdef"
+        assert ipc.claim_ipc_stdin() is claimed
+        assert ipc.get_child_ipc_stdin() is claimed
+    finally:
+        try:
+            os.close(write_fd)
+        except OSError:
+            pass
+        if claimed is not None:
+            try:
+                claimed.close()
+            except OSError:
+                pass
+        else:
+            try:
+                reader.close()
+            except OSError:
+                pass
+
+
+def test_claim_ipc_stdin_does_not_cache_bytesio(monkeypatch):
+    from plugin.scripting import ipc
+
+    monkeypatch.setattr(ipc, "_child_ipc_stdin", None)
+
+    class _FakeStdStream:
+        def __init__(self, buf):
+            self.buffer = buf
+
+    b1 = io.BytesIO(b"one")
+    monkeypatch.setattr(sys, "stdin", _FakeStdStream(b1))
+    assert ipc.claim_ipc_stdin() is b1
+    assert ipc._child_ipc_stdin is None
+
+    b2 = io.BytesIO(b"two")
+    monkeypatch.setattr(sys, "stdin", _FakeStdStream(b2))
+    assert ipc.claim_ipc_stdin() is b2
+    assert ipc._child_ipc_stdin is None
+
+
+def test_exchange_tool_call_win32_drain_drops_raw_stdin_tail(monkeypatch):
+    import threading
+
+    from plugin.scripting import ipc
+
+    in_r, in_w = os.pipe()
+    out_r, out_w = os.pipe()
+    stdin_buf = os.fdopen(in_r, "rb", buffering=0)
+    stdout_buf = os.fdopen(out_w, "wb", buffering=0)
+    stdout_reader = os.fdopen(out_r, "rb", buffering=0)
+
+    class _PipeEnd:
+        def __init__(self, buffer: object) -> None:
+            self.buffer = buffer
+
+    monkeypatch.setattr(sys, "stdin", _PipeEnd(stdin_buf))
+    monkeypatch.setattr(sys, "stdout", _PipeEnd(stdout_buf))
+    monkeypatch.setattr(ipc, "_child_ipc_stdin", stdin_buf)
+    if sys.platform != "win32":
+        import fcntl
+        import struct
+        import termios
+
+        def _fake_peek(fd: int) -> int:
+            res = fcntl.ioctl(fd, termios.FIONREAD, struct.pack("i", 0))
+            return struct.unpack("i", res)[0]
+
+        monkeypatch.setattr(ipc, "_peek_pipe_bytes_available", _fake_peek)
+    if ipc.sys.platform != "win32":
+        monkeypatch.setattr(ipc.sys, "platform", "win32")
+
+    os.write(
+        in_w,
+        pack_pickle_frame({"status": "ok", "id": "stale", "result": {"n": 0}})
+        + pack_pickle_frame({"status": "ok", "id": "tail", "result": {"n": 9}}),
+    )
+    worker: threading.Thread | None = None
+    try:
+        started = time.monotonic()
+        with pytest.raises(RuntimeError, match="does not match"):
+            ipc.exchange_tool_call("list_named_python_scripts", {})
+        assert time.monotonic() - started < 1.0
+
+        holder: dict[str, object] = {}
+
+        def _second() -> None:
+            try:
+                holder["result"] = ipc.exchange_tool_call("list_named_python_scripts", {})
+            except BaseException as exc:
+                holder["error"] = exc
+
+        worker = threading.Thread(target=_second, daemon=True)
+        worker.start()
+        first_req = read_pickle_frame_with_timeout(stdout_reader, 2.0, require_dict=True)
+        second_req = read_pickle_frame_with_timeout(stdout_reader, 2.0, require_dict=True)
+        assert isinstance(first_req, dict) and isinstance(second_req, dict)
+        assert first_req.get("id") != second_req.get("id")
+        os.write(
+            in_w,
+            pack_pickle_frame(
+                {"status": "ok", "id": second_req["id"], "result": {"n": 1}}
+            ),
+        )
+        worker.join(2.0)
+        assert holder.get("error") is None
+        assert holder.get("result") == {"n": 1}
+    finally:
+        try:
+            os.close(in_w)
+        except OSError:
+            pass
+        for closer in (stdin_buf, stdout_buf, stdout_reader):
+            try:
+                closer.close()
+            except OSError:
+                pass
