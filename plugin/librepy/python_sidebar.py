@@ -17,7 +17,6 @@ from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
 from plugin.framework.uno_listeners import BaseActionListener, BaseActivationEventListener, BaseItemListener, BaseWindowListener
 from plugin.doc.doc_type import is_calc
-from plugin.scripting.document_scripts import get_calc_document_from_ctx
 from plugin.scripting.sandbox import resolve_venv_python
 from plugin.librepy.sidebar_menus import HEADER_BUTTON_IDS, wire_sidebar_header_buttons
 from plugin.scripting.session_manager import calc_workbook_base_session_id, python_session_mode
@@ -26,7 +25,7 @@ log = logging.getLogger(__name__)
 
 # What was wrong: _FILTER_LABELS called _() at module import time before locale was initialized.
 # How it happened: module-level tuple evaluation called gettext at import.
-# Why this change: translate lazily via _filter_choices() and match translation, English msgid, then substring.
+# Why this change: translate lazily via _filter_choices() and match translated label, then English msgid.
 _FILTER_MSGIDS: tuple[tuple[str, DiagnosticFilter], ...] = (("All", "all"), ("Errors", "errors"), ("Output", "output"))
 
 
@@ -62,20 +61,44 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
     content_bottom = max(rect[1] + rect[3] for rect in snapshot.values())
     flex_sum = sum(snapshot[name][3] for name in flex_names)
     leftover = height - bottom_margin - (content_bottom - flex_sum)
+    # What was wrong: short sidebar panels overflowed the bottom margin because clamping to min flex height exceeded leftover space.
+    # How it happened: each flex control clamped independently to min_flex_height without checking the total deck budget.
+    # Why this change: scale against leftover budget and shrink from the bottom controls backward so controls fit within height.
+    budget = max(0, leftover)
     new_heights: dict[str, int]
     if flex_sum <= 0:
         new_heights = {name: max(min_flex_height, snapshot[name][3]) for name in flex_names}
     else:
         new_heights = {}
-        remaining = leftover
+        remaining = budget
         last = len(flex_names) - 1
         for i, name in enumerate(flex_names):
             if i == last:
-                new_h = remaining
+                share = remaining
             else:
-                new_h = leftover * snapshot[name][3] // flex_sum
-                remaining -= new_h
-            new_heights[name] = max(min_flex_height, new_h)
+                share = budget * snapshot[name][3] // flex_sum
+                remaining -= share
+            new_heights[name] = max(min_flex_height, share)
+
+    excess = sum(new_heights.values()) - budget
+    if excess > 0:
+        for name in reversed(flex_names):
+            cur = new_heights[name]
+            if cur > min_flex_height:
+                reducible = cur - min_flex_height
+                reduce_by = min(excess, reducible)
+                new_heights[name] = cur - reduce_by
+                excess -= reduce_by
+                if excess <= 0:
+                    break
+        if excess > 0:
+            for name in reversed(flex_names):
+                cur = new_heights[name]
+                reduce_by = min(excess, cur)
+                new_heights[name] = cur - reduce_by
+                excess -= reduce_by
+                if excess <= 0:
+                    break
 
     left_margin = _LEFT_MARGIN
     content_right = max(20, width - right_margin)
@@ -223,7 +246,7 @@ class _PanelResizeListener(BaseWindowListener):
                 ctrl.setPosSize(nx, ny, nw, nh, 15)
 
         max_right = max((entry[0] + entry[2] for entry in layouts.values()), default=0)
-        log.info("[LIBREPY LAYOUT] relayout w=%d h=%d max_child_right=%d overflow=%s", w, h, max_right, "YES" if max_right > w - 2 else "no")
+        log.debug("[LIBREPY LAYOUT] relayout w=%d h=%d max_child_right=%d overflow=%s", w, h, max_right, "YES" if max_right > w - 2 else "no")
 
 
 class _Activation(BaseActivationEventListener):
@@ -309,11 +332,6 @@ def _filter_from_combo(control: Any) -> DiagnosticFilter:
     for msgid, filt in _FILTER_MSGIDS:
         if text == msgid:
             return filt
-    lower = text.lower()
-    if "error" in lower:
-        return "errors"
-    if "output" in lower:
-        return "output"
     return "all"
 
 
@@ -370,7 +388,13 @@ class PythonSidebarController:
                     controller.addActivationEventListener(self._activation_listener)
             except Exception:
                 log.debug("sidebar activation listener add failed", exc_info=True)
-        self.refresh()
+        # What was wrong: an exception during initial refresh aborted __init__, leaking activation listeners and breaking panel disposal.
+        # How it happened: self.refresh() ran unprotected before controller assignment in PythonPanelElement.
+        # Why this change: catch and log exceptions from initial refresh so construction completes and listeners can be cleaned up.
+        try:
+            self.refresh()
+        except Exception:
+            log.exception("python sidebar initial refresh failed")
         if self._calc_panel:
             try:
                 self._store.add_listener(self._on_diag)
@@ -473,7 +497,7 @@ class PythonSidebarController:
 
             if filter_combo is not None:
                 try:
-                    filter_combo.addItemListener(_Item(lambda _e: self.refresh()))
+                    filter_combo.addItemListener(_Item(self._on_filter_changed))
                 except Exception:
                     log.debug("wire filter_combo failed", exc_info=True)
 
@@ -500,61 +524,40 @@ class PythonSidebarController:
             return
         self.refresh()
 
-    def _frame_is_calc(self) -> bool:
+    # What was wrong: _calc_document fell back to desktop active Calc document, binding wrong documents or Writer frames to Calc.
+    # How it happened: get_calc_document_from_ctx was called when frame resolve failed or when resolving outside the frame.
+    # Why this change: resolve only via frame.getController().getModel(), returning None if not Calc or resolve fails.
+    def _frame_calc_model(self) -> Any | None:
         frame = self.frame
         if frame is None:
-            return False
+            return None
         try:
             controller = frame.getController()
-            model = controller.getModel() if controller is not None else None
-            return bool(model is not None and is_calc(model))
+            if controller is None:
+                return None
+            model = controller.getModel()
+            if model is None:
+                return None
+            from plugin.framework.thread_guard import guard_uno
+
+            guarded = guard_uno(model)
+            return guarded if is_calc(guarded) else None
         except Exception:
-            log.debug("LibrePy sidebar: frame type resolve failed", exc_info=True)
-            return False
+            log.debug("LibrePy sidebar: frame document resolve failed", exc_info=True)
+            return None
+
+    def _frame_is_calc(self) -> bool:
+        return self._frame_calc_model() is not None
 
     def _hide_calc_only_controls(self) -> None:
         for cid in _CALC_ONLY_IDS:
             set_control_visible(self._ctrl(cid), False)
 
     def _calc_document(self) -> Any | None:
-        """Prefer the Calc model bound to this sidebar frame, not Desktop current.
+        """Return the Calc model for this sidebar frame, or None for Writer frames and failed resolves."""
+        return self._frame_calc_model()
 
-        Writer panels must not fall back to some other open Calc document.
-        """
-        # Return None when this frame is not Calc. If the frame is not Calc,
-        # do not fall through to get_calc_document_from_ctx, which would return
-        # some other open Calc document.
-        frame_is_calc = self._frame_is_calc()
-        if not frame_is_calc:
-            return None
-        frame = self.frame
-        if frame is not None:
-            try:
-                controller = frame.getController()
-                model = controller.getModel() if controller is not None else None
-                if model is not None and is_calc(model):
-                    from plugin.framework.thread_guard import guard_uno
-
-                    return guard_uno(model)
-            except Exception:
-                log.debug("LibrePy sidebar: frame document resolve failed", exc_info=True)
-        return get_calc_document_from_ctx(self.ctx)
-
-    def refresh(self) -> None:
-        if self._disposed:
-            return
-        if not self._frame_is_calc():
-            set_control_text(self._ctrl("status"), format_runtime_status(self.ctx))
-            return
-        doc = self._calc_document()
-        set_control_text(self._ctrl("status"), format_runtime_status(self.ctx))
-
-        self._cells = list_python_cells_in_doc(doc, active_sheet_only=True) if doc else []
-        cell_lines = [c.address for c in self._cells]
-        if not cell_lines:
-            cell_lines = [_("(no =PY() cells on active sheet)")]
-        _populate_listbox(self._ctrl("cells_list"), cell_lines)
-
+    def _refresh_diagnostics(self, doc: Any) -> None:
         diag_ctrl = self._ctrl("diag_list")
         prev_idx = _selected_index(diag_ctrl)
         prev_entry: DiagnosticEntry | None = None
@@ -597,6 +600,30 @@ class PythonSidebarController:
                 self._suppress_diag_nav = False
         else:
             set_control_text(detail, "")
+
+    def _on_filter_changed(self, _event: Any = None) -> None:
+        if self._disposed:
+            return
+        doc = self._calc_document()
+        if doc is None:
+            return
+        self._refresh_diagnostics(doc)
+
+    def refresh(self) -> None:
+        if self._disposed:
+            return
+        doc = self._calc_document()
+        set_control_text(self._ctrl("status"), format_runtime_status(self.ctx))
+        if doc is None:
+            return
+
+        self._cells = list_python_cells_in_doc(doc, active_sheet_only=True)
+        cell_lines = [c.address for c in self._cells]
+        if not cell_lines:
+            cell_lines = [_("(no =PY() cells on active sheet)")]
+        _populate_listbox(self._ctrl("cells_list"), cell_lines)
+
+        self._refresh_diagnostics(doc)
 
     def _on_cell_selected(self, _event: Any = None) -> None:
         idx = _selected_index(self._ctrl("cells_list"))

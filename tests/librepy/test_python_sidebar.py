@@ -13,7 +13,6 @@ import pytest
 
 from plugin.librepy.python_sidebar import (
     _CALC_ONLY_IDS,
-    _MIN_FLEX_HEIGHT,
     _PanelResizeListener,
     compute_python_sidebar_layout,
     format_runtime_status,
@@ -145,10 +144,9 @@ def test_sidebar_prefers_frame_document_over_desktop():
     with (
         patch("plugin.librepy.python_sidebar.is_calc", return_value=True),
         patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda m: m),
-        patch("plugin.librepy.python_sidebar.get_calc_document_from_ctx") as fallback,
     ):
         assert ctrl._calc_document() is model
-    fallback.assert_not_called()
+    frame.getController.return_value.getModel.assert_called_once()
 
 
 def test_layout_identity_at_xdl_height():
@@ -209,10 +207,21 @@ def test_layout_preserves_xdl_gaps_and_grows_flex_by_snapshot_ratio():
         assert tall[name][3] > short[name][3]
 
 
-def test_layout_short_panel_keeps_minimum_flex_height():
-    layouts = compute_python_sidebar_layout(180, 200, _xdl_snapshot())
-    for name in ("status", "cells_list", "diag_list", "diag_detail"):
-        assert layouts[name][3] >= _MIN_FLEX_HEIGHT
+def test_layout_short_panel_fits_bottom_margin():
+    snapshot = _xdl_snapshot()
+    l200 = compute_python_sidebar_layout(180, 200, snapshot)
+    assert (l200["status"][3], l200["cells_list"][3], l200["diag_list"][3], l200["diag_detail"][3]) == (16, 16, 12, 0)
+    assert max(rect[1] + rect[3] for rect in l200.values()) == 180
+
+    l250 = compute_python_sidebar_layout(180, 250, snapshot)
+    assert (l250["status"][3], l250["cells_list"][3], l250["diag_list"][3], l250["diag_detail"][3]) == (16, 30, 21, 27)
+    assert max(rect[1] + rect[3] for rect in l250.values()) == 230
+
+    l100 = compute_python_sidebar_layout(180, 100, snapshot)
+    assert (l100["status"][3], l100["cells_list"][3], l100["diag_list"][3], l100["diag_detail"][3]) == (0, 0, 0, 0)
+
+    l500 = compute_python_sidebar_layout(180, 500, snapshot)
+    assert max(rect[1] + rect[3] for rect in l500.values()) == 480
 
 
 def test_resize_listener_applies_layout():
@@ -349,9 +358,8 @@ def test_writer_does_not_use_desktop_calc_document():
     ctrl.ctx = MagicMock()
     ctrl.frame = MagicMock()
     ctrl._calc_panel = False
-    with patch("plugin.librepy.python_sidebar.get_calc_document_from_ctx") as fallback:
+    with patch("plugin.librepy.python_sidebar.is_calc", return_value=False):
         assert ctrl._calc_document() is None
-    fallback.assert_not_called()
 
 
 def test_sidebar_xcu_registers_writer():
@@ -474,7 +482,7 @@ def test_hide_calc_only_controls_calls_set_visible():
     assert set(hidden) == set(_CALC_ONLY_IDS)
 
 
-def test_calc_document_refreshes_calc_panel_and_returns_none_for_writer_frame():
+def test_calc_document_returns_none_for_writer_frame():
     from plugin.librepy.python_sidebar import PythonSidebarController
 
     ctrl = PythonSidebarController.__new__(PythonSidebarController)
@@ -484,14 +492,18 @@ def test_calc_document_refreshes_calc_panel_and_returns_none_for_writer_frame():
     ctrl.frame.getController.return_value.getModel.return_value = writer_model
     ctrl.ctx = MagicMock()
 
-    with (
-        patch("plugin.librepy.python_sidebar.is_calc", return_value=False),
-        patch("plugin.librepy.python_sidebar.get_calc_document_from_ctx") as mock_ctx_doc,
-    ):
+    with patch("plugin.librepy.python_sidebar.is_calc", return_value=False):
         doc = ctrl._calc_document()
         assert doc is None
         assert ctrl._calc_panel is True
-        mock_ctx_doc.assert_not_called()
+
+    ctrl.frame.getController.return_value.getModel.return_value = None
+    assert ctrl._calc_document() is None
+    assert ctrl._calc_panel is True
+
+    ctrl.frame.getController.side_effect = RuntimeError("frame controller error")
+    assert ctrl._calc_document() is None
+    assert ctrl._calc_panel is True
 
 
 def test_filter_msgids_translate_at_call():
@@ -513,6 +525,14 @@ def test_filter_from_combo_matches_translation_and_msgid():
         combo2 = MagicMock()
         combo2.getText.return_value = "Errors"
         assert _filter_from_combo(combo2) == "errors"
+
+        combo3 = MagicMock()
+        combo3.getText.return_value = "some error happened"
+        assert _filter_from_combo(combo3) == "all"
+
+        combo4 = MagicMock()
+        combo4.getText.return_value = "OUTPUT"
+        assert _filter_from_combo(combo4) == "all"
 
 
 def test_schedule_refresh_coalesces_until_posted_run():
@@ -633,6 +653,82 @@ def test_refresh_keeps_selected_diagnostic():
     # Detail text is the previously selected entry (entry_b), not _diags[0] (entry_new)
     assert "err_b" in str(detail_ctrl.setText.call_args)
     assert "code_c" not in str(detail_ctrl.setText.call_args)
+
+
+def test_refresh_resolves_frame_model_once():
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._disposed = False
+    ctrl.ctx = MagicMock()
+    frame = MagicMock()
+    model = MagicMock()
+    frame.getController.return_value.getModel.return_value = model
+    ctrl.frame = frame
+    ctrl._store = MagicMock()
+    ctrl._store.list_entries.return_value = []
+    ctrl._diags = []
+    ctrl._cells = []
+    ctrl._suppress_diag_nav = False
+    ctrl._ctrl = lambda _name: MagicMock()
+
+    with (
+        patch("plugin.librepy.python_sidebar.is_calc", return_value=True),
+        patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda m: m),
+        patch("plugin.librepy.python_sidebar.list_python_cells_in_doc", return_value=[]) as mock_scan,
+        patch("plugin.librepy.python_sidebar.format_runtime_status", return_value="status"),
+    ):
+        ctrl.refresh()
+
+    assert frame.getController.return_value.getModel.call_count == 1
+    mock_scan.assert_called_once()
+
+
+def test_filter_change_does_not_rescan_cells():
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctrl = PythonSidebarController.__new__(PythonSidebarController)
+    ctrl._disposed = False
+    doc = MagicMock()
+    ctrl._calc_document = MagicMock(return_value=doc)
+    cell_info = MagicMock()
+    ctrl._cells = [cell_info]
+    initial_cells = ctrl._cells
+    ctrl._store = MagicMock()
+    ctrl._store.list_entries.return_value = []
+    ctrl._ctrl = lambda _name: MagicMock()
+    ctrl._suppress_diag_nav = False
+    ctrl._diags = []
+
+    with patch("plugin.librepy.python_sidebar.list_python_cells_in_doc") as mock_scan:
+        ctrl._on_filter_changed()
+
+    mock_scan.assert_not_called()
+    ctrl._store.list_entries.assert_called_once()
+    assert ctrl._cells is initial_cells
+
+
+def test_init_survives_refresh_failure_and_keeps_listeners():
+    from plugin.librepy.python_sidebar import PythonSidebarController
+
+    ctx = MagicMock()
+    root = MagicMock()
+    frame = MagicMock()
+    store = MagicMock()
+
+    with (
+        patch.object(PythonSidebarController, "_frame_is_calc", return_value=True),
+        patch.object(PythonSidebarController, "_wire"),
+        patch.object(PythonSidebarController, "_attach_resize_listener"),
+        patch.object(PythonSidebarController, "refresh", side_effect=RuntimeError("refresh error")),
+        patch("plugin.librepy.python_sidebar.get_diagnostics_store", return_value=store),
+        patch("plugin.librepy.python_sidebar.translate_dialog"),
+    ):
+        ctrl = PythonSidebarController(ctx, root, frame)
+
+    assert ctrl._disposed is False
+    store.add_listener.assert_called_once_with(ctrl._on_diag)
+    frame.getController.return_value.addActivationEventListener.assert_called_once_with(ctrl._activation_listener)
 
 
 
