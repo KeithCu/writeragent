@@ -1032,3 +1032,100 @@ def test_write_queued_behind_stop_is_failed():
         conn._ensure_writer()
         assert event.wait(timeout=2)
     assert "Failed to write" in conn._pending[8].response["error"]["message"]
+
+
+def test_start_keeps_worker_stdio_and_default_drain_name():
+    import os
+    from typing import Any
+    import plugin.framework.managed_subprocess as ms
+
+    wrapper_records: dict[str, Any] = {}
+
+    def fake_wrap_command(cmd, *, env=None, cwd=None, watch_bus=False):
+        wrapper_records["env"] = env
+        wrapper_records["cwd"] = cwd
+        wrapper_records["watch_bus"] = watch_bus
+        return list(cmd)
+
+    popen_calls: list[tuple[list[str], dict[str, Any]]] = []
+    fake_proc = MagicMock()
+    fake_proc.pid = 4242
+    fake_proc.stderr = MagicMock()
+    fake_proc.stdin = MagicMock()
+    fake_proc.stdout = MagicMock()
+    fake_proc.poll.return_value = 0
+
+    def fake_popen(cmd, **kwargs):
+        popen_calls.append((cmd, kwargs))
+        return fake_proc
+
+    drain_calls: list[tuple[Any, dict[str, Any]]] = []
+    fake_drain = MagicMock()
+
+    def fake_start_stderr_drain(stream, **kwargs):
+        drain_calls.append((stream, kwargs))
+        return fake_drain
+
+    prev_sentinel = os.environ.get("WRITERAGENT_ACP_SPAWN_SENTINEL")
+    os.environ["WRITERAGENT_ACP_SPAWN_SENTINEL"] = "secret"
+
+    conn = None
+    try:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr("plugin.scripting.sandbox.wrap_command_for_sandbox", fake_wrap_command)
+            patch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", fake_popen)
+            patch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", fake_start_stderr_drain)
+            patch.setattr("plugin.acp.acp_connection.run_in_background", lambda *args, **kwargs: MagicMock())
+
+            conn = ACPConnection(["agent", "--flag"], env={"EXTRA": "1"}, cwd="/work")
+            conn.start()
+
+            assert len(popen_calls) == 1
+            cmd, popen_kw = popen_calls[0]
+            assert cmd == ["agent", "--flag"]
+
+            assert popen_kw["stdin"] is subprocess.PIPE
+            assert popen_kw["stdout"] is subprocess.PIPE
+            assert popen_kw["stderr"] is subprocess.PIPE
+            assert popen_kw["bufsize"] == 0
+            assert popen_kw["cwd"] == "/work"
+            for key in ("text", "encoding", "errors", "universal_newlines", "preexec_fn"):
+                assert key not in popen_kw
+
+            env = popen_kw["env"]
+            assert isinstance(env, dict)
+            assert env.get("EXTRA") == "1"
+            assert env.get("WRITERAGENT_ACP_SPAWN_SENTINEL") == "secret"
+            assert env is not os.environ
+
+            assert wrapper_records["env"] is env
+            assert wrapper_records["cwd"] == "/work"
+            assert wrapper_records["watch_bus"] is False
+
+            if sys.platform == "win32":
+                assert popen_kw.get("creationflags") == getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                assert "start_new_session" not in popen_kw
+            else:
+                assert popen_kw.get("start_new_session") is True
+                assert "creationflags" not in popen_kw
+
+            assert len(drain_calls) == 1
+            stream, drain_kw = drain_calls[0]
+            assert stream is fake_proc.stderr
+            assert drain_kw == {"name": "managed-stderr-4242"}
+            assert "max_tail_chars" not in drain_kw
+
+            assert conn._proc is conn._managed.popen
+            assert conn._stderr_drain is conn._managed.stderr_tail
+
+            assert conn._managed in ms._instances
+            conn._managed.unregister()
+            assert conn._managed not in ms._instances
+    finally:
+        if conn is not None and conn._managed is not None:
+            conn._managed.unregister()
+        if prev_sentinel is None:
+            os.environ.pop("WRITERAGENT_ACP_SPAWN_SENTINEL", None)
+        else:
+            os.environ["WRITERAGENT_ACP_SPAWN_SENTINEL"] = prev_sentinel
+
