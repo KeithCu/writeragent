@@ -5,6 +5,8 @@
 
 Provides explicit start, environment merging, thread-guard refusal, bounded stderr,
 tree kill, reaping, and registered shutdown.
+
+ManagedSubprocess.run is one-shot subprocess.run plus Windows creation flags and does not drain, register, or merge an environment.
 """
 
 from __future__ import annotations
@@ -43,6 +45,7 @@ class ManagedSubprocess:
 
     Callers own the stdout and stdin pipes (e.g. for JSON-RPC or custom framing).
     This layer handles environment merging, process-tree killing, and cleanup.
+    `drain_stderr`, `register`, and `log_start_failure` default to the worker spawn (stderr drain, `shutdown_all` registry, start failures logged and wrapped in `RuntimeError`).
     """
 
     _cmd_line: list[str]
@@ -56,6 +59,9 @@ class ManagedSubprocess:
     _stderr_tail_chars: int | None
     _stderr_name: str | None
     _label: str
+    _drain_stderr: bool
+    _register: bool
+    _log_start_failure: bool
     _proc: Any | None
     _stderr_drain: StderrTail | None
     _reaper_passes: int
@@ -77,7 +83,14 @@ class ManagedSubprocess:
         stderr_tail_chars: int | None = None,
         stderr_name: str | None = None,
         label: str | None = None,
+        drain_stderr: bool = True,
+        register: bool = True,
+        log_start_failure: bool = True,
     ) -> None:
+        if not drain_stderr and (stderr_tail_chars is not None or stderr_name is not None):
+            raise ValueError(
+                "drain_stderr=False does not take stderr_tail_chars or stderr_name"
+            )
         self._cmd_line = cmd_line
         self._cwd = cwd
         self._env = env
@@ -89,6 +102,9 @@ class ManagedSubprocess:
         self._stderr_tail_chars = stderr_tail_chars
         self._stderr_name = stderr_name
         self._label = label if label else "Managed subprocess"
+        self._drain_stderr = drain_stderr
+        self._register = register
+        self._log_start_failure = log_start_failure
         self._reaper_passes = 0
         self._stdio_closed = False
         self._proc = None
@@ -320,14 +336,15 @@ class ManagedSubprocess:
                         **popen_kw,
                     ),
                 )
-                drain_name = self._stderr_name if self._stderr_name is not None else f"managed-stderr-{proc.pid}"
-                drain_kwargs: dict[str, Any] = {"name": drain_name}
-                if self._stderr_tail_chars is not None:
-                    drain_kwargs["max_tail_chars"] = self._stderr_tail_chars
-                drain = start_stderr_drain(
-                    proc.stderr,
-                    **drain_kwargs,
-                )
+                if self._drain_stderr:
+                    drain_name = self._stderr_name if self._stderr_name is not None else f"managed-stderr-{proc.pid}"
+                    drain_kwargs: dict[str, Any] = {"name": drain_name}
+                    if self._stderr_tail_chars is not None:
+                        drain_kwargs["max_tail_chars"] = self._stderr_tail_chars
+                    drain = start_stderr_drain(
+                        proc.stderr,
+                        **drain_kwargs,
+                    )
                 if self._optimize_pipes:
                     optimize_popen_pipes(proc)
                 self._proc = proc
@@ -359,10 +376,36 @@ class ManagedSubprocess:
                             pass
                 self._proc = None
                 self._stderr_drain = None
+                if not self._log_start_failure:
+                    raise
                 log.exception("Failed to start managed subprocess")
                 raise RuntimeError(f"Failed to start managed subprocess: {e}") from e
 
-            _register_instance(self)
+            if self._register:
+                _register_instance(self)
+
+    @staticmethod
+    def run(
+        args: list[str],
+        *,
+        capture_output: bool = False,
+        timeout: float | None = None,
+        env: dict[str, str] | None = None,
+        text: bool = False,
+    ) -> subprocess.CompletedProcess[Any]:
+        """One-shot subprocess.run with Windows creation flags from get_subprocess_creationflags.
+
+        No env merge, session, drain, or registry. TimeoutExpired and OSError propagate.
+        check is omitted, so a non-zero status is returned.
+        """
+        return subprocess.run(
+            args,
+            capture_output=capture_output,
+            timeout=timeout,
+            env=env,
+            text=text,
+            **get_subprocess_creationflags(),
+        )
 
     def unregister(self) -> None:
         """Unregister this instance from shutdown_all without closing pipes or killing processes."""
