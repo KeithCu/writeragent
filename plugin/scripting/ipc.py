@@ -106,6 +106,38 @@ def get_child_ipc_stream() -> BinaryIO:
     return cast("BinaryIO", getattr(sys.stdout, "buffer", sys.stdout))
 
 
+_child_ipc_stdin: BinaryIO | None = None
+
+
+def claim_ipc_stdin() -> BinaryIO:
+    """Claim stdin for child IPC by detaching sys.stdin.buffer if it is a BufferedReader.
+
+    What was wrong: Windows id-mismatch drain uses PeekNamedPipe, which does not
+    see bytes BufferedReader.read already pulled into its 8KiB buffer, so the
+    next exchange_tool_call stays one frame behind.
+    How it happened: claim_ipc_channel only replaced stdout, and -u does not
+    unbuffer stdin.
+    Why this change: detach to the raw FileIO before the first read so the
+    kernel queue is the whole tail.
+    """
+    global _child_ipc_stdin
+    if _child_ipc_stdin is not None:
+        return _child_ipc_stdin
+    buf = getattr(sys.stdin, "buffer", None)
+    if isinstance(buf, io.BufferedReader):
+        raw = buf.detach()
+        _child_ipc_stdin = cast("BinaryIO", cast("object", raw))
+        return _child_ipc_stdin
+    return cast("BinaryIO", buf if buf is not None else sys.stdin)
+
+
+def get_child_ipc_stdin() -> BinaryIO:
+    """Return the claimed child IPC stdin, or sys.stdin's buffer."""
+    if _child_ipc_stdin is not None:
+        return _child_ipc_stdin
+    return cast("BinaryIO", getattr(sys.stdin, "buffer", sys.stdin))
+
+
 # Host unpickle of child/editor frames: builtins, plus the NumPy reconstruct
 # entry points a ndarray/dtype pickle actually calls. Protocol 5 bytes
 # (split_grid buffers) do not go through find_class. Do not allow every
@@ -129,6 +161,9 @@ _NUMPY_RECONSTRUCT_PAIRS = frozenset({
     ("numpy.core.multiarray", "_reconstruct"),
     ("numpy._core.multiarray", "scalar"),
     ("numpy.core.multiarray", "scalar"),
+    # A dtype, including a subarray dtype such as dtype(("u1", (10**9,))),
+    # records the shape and does not allocate the array; _reconstruct and a
+    # direct ndarray call are the allocations the REDUCE guards already reject.
     ("numpy", "dtype"),
     ("numpy", "ndarray"),
 })
@@ -398,6 +433,11 @@ class UserStopped(BaseException):
 # MemoryError stays in this tuple. A REDUCE that still allocates (the host is
 # already short on memory) is not a ValueError. Mapping it is what lets the
 # worker kill the child instead of dying inside the LibreOffice process.
+# An opcode handler (func(*args) in _guarded_load_reduce, or BUILD / __setstate__
+# on an allowlisted numpy object) can raise KeyError; AllowlistUnpickler.load
+# rewrites only an int key in 0..255; any other KeyError used to leave
+# unpack_pickle_frame and skip the harness except ValueError that writes a
+# bad-request frame.
 _PICKLE_LOAD_ERRORS = (
     pickle.UnpicklingError,
     EOFError,
@@ -408,6 +448,7 @@ _PICKLE_LOAD_ERRORS = (
     OverflowError,
     RecursionError,
     MemoryError,
+    KeyError,
 )
 
 
@@ -715,7 +756,7 @@ def unpack_pickle_frame(payload: bytes) -> Any:
         return _SafeUnpickler(io.BytesIO(payload)).load()
     except _PICKLE_LOAD_ERRORS as exc:
         # A length-valid truncated payload (protocol header, no body) raises
-        # EOFError, not only UnpicklingError. That escaped
+        # EOFError or KeyError, not only UnpicklingError. That escaped
         # PythonWorkerManager.execute and left the child on the pipe. Map it
         # to the same ValueError the worker already turns into
         # WORKER_IPC_ERROR, which kills that child instead of replaying.
@@ -829,8 +870,9 @@ def _drain_queued_pipe_bytes(
     not used: it skips the cache and the next ``stream.read`` would still
     return the tail. Blocking mode is restored so the next call waits for a
     new frame.
-    Windows pipes that reject non-blocking mode fall back to PeekNamedPipe,
-    same as ``_unread_pipe_bytes`` (kernel bytes only).
+    The harness stdin is the raw stream from ``claim_ipc_stdin``, so the
+    peek is the full queue; do not ``stream.read`` on a zero peek; do not
+    turn on ``os.set_blocking`` for win32.
     """
     deadline = time.monotonic() + max(0.0, float(timeout_sec))
     fd = _stream_fileno(stream)
@@ -953,8 +995,9 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
                 request,
                 max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
             )
+            stdin = get_child_ipc_stdin()
             response = read_pickle_frame(
-                sys.stdin.buffer,
+                stdin,
                 require_dict=True,
                 max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
                 frame_label="tool_call response",
@@ -968,7 +1011,7 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
             mismatched = isinstance(response, dict) and response.get("id") != call_id
             if mismatched:
                 try:
-                    _drain_queued_pipe_bytes(sys.stdin.buffer)
+                    _drain_queued_pipe_bytes(stdin)
                 except Exception:
                     log.exception("tool_call id-mismatch drain failed")
     finally:
