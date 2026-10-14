@@ -113,7 +113,7 @@ flowchart TD
 
 **Data handoff:** Reuse [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) and [`payload_codec`](../../plugin/scripting/payload_codec.py) split-grid. For LLM/sub-agent paths, pass **`data_range`** (late binding) rather than full grids in chat context — see [Analysis Sub-Agent — Data Handoff](../calc/analysis-sub-agent.md#data-handoff--context-limits-out-of-band-data).
 
-**Sheet layout flags:** `headers` and `header_row` sit on the spec next to `helper`, not inside `params`. The host client copies them onto the trusted-action packet, and the worker puts them back on the spec before `parse_trusted_spec`. Dropping them defaulted `headers` to true, so `headers=false` from `forecast_data` / `optimize_data` read the first data row as column names.
+**Sheet layout flags:** `headers` and `header_row` sit on the spec next to `helper`, not inside `params`. The host client copies them onto the trusted-action packet, and the worker puts them back on the spec before `parse_trusted_spec`. Dropping them defaulted `headers` to true, so `headers=false` from `forecast_data` / `optimize_data` read the first data row as column names. The host copies `headers` and `header_row` onto the packet without `bool()` or `int()`, and the worker returns `INVALID_SPEC` when `header_row` is not an integer or `headers` is not a boolean `coerce_bool` accepts. The string `"false"` is false.
 
 **Visualization note:** Phase A uses the venv worker and `__wa_payload__: "image"` envelope for raw matplotlib (no trusted module required). **Phases B–C shipped:** Run Python Script image egress and trusted Viz helpers (`viz.py`, `[Viz]` templates, `plot_data`, analysis auto-plot).
 

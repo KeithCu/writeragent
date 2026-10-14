@@ -15,6 +15,7 @@ from plugin.scripting.venv.coerce import (
     numeric_columns as _numeric_columns,
     parse_date_column,
     resolve_df as _resolve_df,
+    _sheet_layout_flags,
 )
 
 from plugin.scripting.calc_functions_common import VIZ_HELPER_NAMES as HELPER_NAMES
@@ -353,7 +354,9 @@ def run_viz(
     if not isinstance(params, dict):
         params = {}
 
-    headers = bool(spec_dict.get("headers", True))
-    header_row = int(spec_dict.get("header_row", 0))
+    layout = _sheet_layout_flags(spec_dict)
+    if isinstance(layout, dict):
+        return layout
+    headers, header_row = layout
     ctx = context if isinstance(context, dict) else {}
     return _dispatch_helper(helper, data, params, headers=headers, header_row=header_row, context=ctx)

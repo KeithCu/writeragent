@@ -213,6 +213,8 @@ def kpi_summary(
     if len(numeric) != len(metrics):
         bad = [m for m in metrics if m not in numeric]
         return _error_result("NON_NUMERIC_COLUMN", f"Non-numeric metrics: {', '.join(bad)}", helper="kpi_summary")
+    if not numeric:
+        return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to analyze.", helper="kpi_summary")
 
     summary = df[numeric].agg(list(agg)).round(6)
     table = _table_from_df(summary.reset_index().rename(columns={"index": "metric"}), name="kpi_summary")

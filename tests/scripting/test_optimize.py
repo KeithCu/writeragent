@@ -293,3 +293,22 @@ def test_string_returns_col_is_not_characters():
     assert result["code"] == "INSUFFICIENT_DATA"
 
 
+def test_auto_numeric_keeps_runtime_update_consolidated():
+    from plugin.scripting.venv.optimize import _auto_numeric
+
+    df = pd.DataFrame({
+        "Runtime": [3.0, 1.0, 2.0],
+        "Update": [5.0, 2.0, 4.0],
+        "Consolidated": [10.0, 8.0, 9.0],
+        "Amount": [100.0, 50.0, 75.0],
+        "Date": [45292.0, 45293.0, 45294.0],
+    })
+    res = _auto_numeric(df, None)
+    assert "Runtime" in res
+    assert "Update" in res
+    assert "Consolidated" in res
+    assert "Amount" in res
+    assert "Date" not in res
+
+
+

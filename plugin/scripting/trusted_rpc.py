@@ -63,10 +63,12 @@ def extract_sheet_layout(source: dict[str, Any] | None) -> dict[str, Any]:
     """Extract ``headers`` and ``header_row`` from a spec or packet dictionary."""
     layout: dict[str, Any] = {}
     if isinstance(source, dict):
+        # Do not bool() or int() these fields on the host: bool("false") is True,
+        # and int("abc") / int(None) raise before worker validation. Copy raw values.
         if "headers" in source:
-            layout["headers"] = bool(source["headers"])
+            layout["headers"] = source["headers"]
         if "header_row" in source:
-            layout["header_row"] = int(source["header_row"])
+            layout["header_row"] = source["header_row"]
     return layout
 
 
@@ -88,8 +90,8 @@ def run_trusted_worker_action(
     stop_checker: Callable[[], bool] | None = None,
     error_code: str = "TRUSTED_ACTION_ERROR",
     error_label: str = "Trusted action",
-    headers: bool | None = None,
-    header_row: int | None = None,
+    headers: Any = None,
+    header_row: Any = None,
     cancellation_scope: Any | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted action in the warm venv worker without user code strings."""
@@ -114,10 +116,12 @@ def run_trusted_worker_action(
         payload.update(additional_data)
     # Spec fields, not helper params. Omitting them made the worker default
     # headers=True after the client had already stripped them off the spec.
+    # Pass values through unchanged so invalid values can be rejected with
+    # INVALID_SPEC by worker validation without raising here.
     if headers is not None:
-        payload["headers"] = bool(headers)
+        payload["headers"] = headers
     if header_row is not None:
-        payload["header_row"] = int(header_row)
+        payload["header_row"] = header_row
 
     def _on_heartbeat(hb: dict[str, Any]) -> None:
         if heartbeat_fn:

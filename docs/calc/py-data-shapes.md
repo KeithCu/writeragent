@@ -249,7 +249,7 @@ LLM/MCP sheet reads are a **different, always-on** path: `read_cell_range` enric
 
 - **Ingress:** serials arrive as floats (or strings if stored as text).
 - **Convenience coercion in `to_pandas()`:**
-  - `data.to_pandas(date_cols=True)` — automatically detects date-like columns (by name or serial value range) and parses them to `datetime64[ns]`.
+  - `data.to_pandas(date_cols=True)` — automatically detects date-like columns by column-name token only (`Date`, `OrderDate`, `datetime`, `year`, and the other tokens in decision 1), not by serial magnitude. A numeric column is converted only when its name matches or the caller passes it in `date_cols`. `Update`, `Runtime`, and `Consolidated` are not dates.
   - `data.to_pandas(date_cols=["OrderDate", 1])` — parses specific columns by name or index.
   - `data.to_pandas(date_cols=True, date_origin="1904-01-01")` — for workbooks using a custom `NullDate`.
   - Manual coercion: `pd.to_datetime(df["date_col"], unit="D", origin="1899-12-30")` or `pd.to_datetime(df["date_col"])` for text.

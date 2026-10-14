@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from plugin.framework.deal_shim import deal
-from plugin.scripting.calc_range import ensure_rectangular_2d
+from plugin.scripting.calc_range import CalcRange, ensure_rectangular_2d
 
 _NUMERIC_PROFILE_KEYS = (
     ("mean", "mean"),
@@ -89,15 +89,18 @@ def is_missing_value(value: Any) -> bool:
         return True
     if isinstance(value, str):
         stripped = value.strip()
-        return stripped == "" or stripped in _LO_ERROR_TOKENS
+        # Case-fold so lower/mixed case error tokens like "#n/a" and "#div/0!" match.
+        return stripped == "" or stripped.upper() in _LO_ERROR_TOKENS
     if isinstance(value, float):
-        import math
-
         return math.isnan(value)
     try:
         import numpy as np
 
         if isinstance(value, np.floating) and np.isnan(value):
+            return True
+        # numpy.datetime64 and timedelta64 NaT are not np.floating, so the NaN
+        # check misses them. Test them explicitly with np.isnat.
+        if isinstance(value, (np.datetime64, np.timedelta64)) and np.isnat(value):
             return True
     except ImportError:
         pass
@@ -124,8 +127,6 @@ def is_blank_value(value: Any) -> bool:
 def is_na_value(value: Any) -> bool:
     """True for float or numpy NaN, or a stripped #N/A token."""
     if isinstance(value, float):
-        import math
-
         if math.isnan(value):
             return True
     if isinstance(value, str) and value.strip().upper() == "#N/A":
@@ -224,7 +225,7 @@ def _normalize_input_grid(data: Any) -> list[list[Any]]:
     if data is None:
         return []
     # CalcRange / objects with .values
-    if hasattr(data, "values") and hasattr(data, "shape") and type(data).__name__ == "CalcRange":
+    if isinstance(data, CalcRange):
         return ensure_rectangular_2d(data.values)
     if isinstance(data, dict):
         columns = data.get("columns")
@@ -244,13 +245,73 @@ def _normalize_input_grid(data: Any) -> list[list[Any]]:
                             keys.append(key)
             return [[key for key in keys]] + [[row.get(key) if isinstance(row, dict) else None for key in keys] for row in data]
         return ensure_rectangular_2d(data)
+    # A raw ndarray used to be stored as the single cell of a 1x1 frame.
+    try:
+        import numpy as np
+
+        if isinstance(data, np.ndarray):
+            if data.ndim == 0:
+                return [[data.item()]]
+            if data.ndim == 1:
+                return ensure_rectangular_2d(data.tolist())
+            if data.ndim == 2:
+                return ensure_rectangular_2d(data.tolist())
+            return [[data]]
+    except ImportError:
+        pass
+    try:
+        import pandas as pd
+
+        if isinstance(data, pd.Series):
+            return ensure_rectangular_2d(cast("Any", data).tolist())
+    except ImportError:
+        pass
     return [[data]]
 
 
+_DATE_NAME_TOKENS = frozenset({
+    "date",
+    "time",
+    "timestamp",
+    "datetime",
+    "day",
+    "month",
+    "year",
+    "created",
+    "updated",
+    "expires",
+    "dob",
+    "start",
+    "end",
+})
+_CAMEL_CASE_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
+
+
 def _is_date_like_column_name(name: str) -> bool:
-    """Check if column name contains common temporal indicator words."""
-    cleaned = str(name).strip().lower()
-    return bool(re.search(r"(?:^|[_\s-]|\b)(?:date|time|timestamp|day|month|year|created|updated|expires|dob|start|end)(?:[_\s-]|\b|$)", cleaned) or "date" in cleaned or "time" in cleaned or "timestamp" in cleaned)
+    """Check if column name contains exact temporal indicator tokens.
+
+    The substring 'or's matched 'candidate' / 'runtime'; a boundary regex
+    misses 'OrderDate' and 'datetime'.
+    """
+    # Substring checks matched candidate, runtime, etc. A boundary regex
+    # missed OrderDate and datetime. Splitting on camelCase humps and extracting
+    # alphanumeric tokens matches exact temporal components.
+    spaced = _CAMEL_CASE_RE.sub(" ", str(name))
+    tokens = _TOKEN_RE.findall(spaced.lower())
+    return any(tok in _DATE_NAME_TOKENS for tok in tokens)
+
+
+def _is_numeric_dtype(dtype: Any) -> bool:
+    import pandas as pd
+
+    return bool(pd.api.types.is_numeric_dtype(dtype) and not pd.api.types.is_bool_dtype(dtype))
+
+
+def _is_datetime_dtype(dtype: Any) -> bool:
+    import pandas as pd
+
+    return bool(pd.api.types.is_datetime64_any_dtype(dtype))
 
 
 def _coerce_column_types(
@@ -272,13 +333,6 @@ def _coerce_column_types(
         for col in out.columns:
             if _is_date_like_column_name(str(col)):
                 target_date_cols.add(col)
-            elif str(out[col].dtype).startswith(("float", "int", "uint")):
-                # Check if non-null values look like plausible Calc serials (e.g. between 1 and 100,000)
-                non_null = out[col].dropna()
-                if len(non_null) > 0 and (non_null > 0).all() and (non_null < 150000).all():
-                    # If column name matches or parse_strings is on, target it
-                    if _is_date_like_column_name(str(col)):
-                        target_date_cols.add(col)
     else:
         raw_items = [date_cols] if isinstance(date_cols, (int, str)) and not isinstance(date_cols, bool) else (list(date_cols) if isinstance(date_cols, (list, tuple, set)) else [])
         for item in raw_items:
@@ -293,7 +347,10 @@ def _coerce_column_types(
 
     for col in target_date_cols:
         series = out[col]
-        if str(series.dtype).startswith(("float", "int", "uint", "Int")):
+        # String prefix checks missed nullable extension dtypes like Float64 (capital F),
+        # which fell through to format="mixed" and became nanoseconds since 1970
+        # (e.g. 45292 -> 1970-01-01) instead of days since date_origin.
+        if _is_numeric_dtype(series.dtype):
             try:
                 out[col] = pd.to_datetime(series, unit="D", origin=date_origin, errors="coerce")
             except Exception:
@@ -331,9 +388,21 @@ def _coerce_column_types(
 
 
 def _build_metadata(df: Any, *, sheet_hint: str | None, dropped_rows: int) -> dict[str, Any]:
-    numeric_cols = [str(c) for c in df.columns if str(df[c].dtype).startswith(("float", "int", "Int", "uint"))]
-    categorical_cols = [str(c) for c in df.columns if c not in numeric_cols and not str(df[c].dtype).startswith("datetime")]
-    datetime_cols = [str(c) for c in df.columns if str(df[c].dtype).startswith("datetime")]
+    # c not in numeric_cols compared a raw label to stringified names, so an
+    # integer column was both numeric and categorical on the resolve_df DataFrame path.
+    numeric_cols: list[str] = []
+    categorical_cols: list[str] = []
+    datetime_cols: list[str] = []
+    for col in df.columns:
+        label = str(col)
+        dtype = df[col].dtype
+        if _is_datetime_dtype(dtype):
+            datetime_cols.append(label)
+        elif _is_numeric_dtype(dtype):
+            numeric_cols.append(label)
+        else:
+            categorical_cols.append(label)
+
     meta: dict[str, Any] = {
         "n_rows": int(len(df)),
         "n_cols": int(len(df.columns)),
@@ -584,6 +653,9 @@ def coerce_str_list(value: Any, name: str = "value") -> list[str] | None:
     if isinstance(value, (list, tuple)):
         result: list[str] = []
         for item in value:
+            # str(None) is the column name "None", which then raised UNKNOWN_COLUMN.
+            if item is None:
+                continue
             if not isinstance(item, str):
                 s = str(item).strip()
             else:
@@ -595,12 +667,12 @@ def coerce_str_list(value: Any, name: str = "value") -> list[str] | None:
 
 
 def numeric_columns(df: Any, columns: list[str] | None = None) -> list[str]:
-    """Return *columns* when given, else the numeric column names. Unknown names raise."""
+    """Return *columns* when given (an empty list returns []), else all numeric column names. Unknown names raise."""
     if isinstance(columns, str):
         columns = [columns]
     elif isinstance(columns, tuple):
         columns = list(columns)
-    if columns:
+    if columns is not None:
         missing = [c for c in columns if c not in df.columns]
         if missing:
             raise ValueError(f"Unknown columns: {', '.join(missing)}")
@@ -704,6 +776,23 @@ def ok_result(helper: str, **payload: Any) -> dict[str, Any]:
     return {"status": "ok", "helper": helper, **payload}
 
 
+def _sheet_layout_flags(spec_dict: dict[str, Any]) -> tuple[bool, int] | dict[str, Any]:
+    """Extract and validate sheet layout flags (headers, header_row) from spec_dict.
+
+    bool("false") is True, and int on null or "abc" raised outside run_analysis's try.
+    Coerce with validation and return INVALID_SPEC on bad values without raising.
+    """
+    try:
+        headers = coerce_bool(spec_dict.get("headers"), name="headers", default=True)
+        if "header_row" in spec_dict:
+            header_row = coerce_int(spec_dict["header_row"], name="header_row")
+        else:
+            header_row = 0
+    except ValueError as exc:
+        return error_result("INVALID_SPEC", str(exc))
+    return headers, header_row
+
+
 def parse_trusted_spec(
     spec: dict[str, Any] | str,
     *,
@@ -728,8 +817,10 @@ def parse_trusted_spec(
         return error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
 
     params: dict[str, Any] = spec_dict["params"] if isinstance(spec_dict.get("params"), dict) else {}
-    headers = bool(spec_dict.get("headers", True))
-    header_row = int(spec_dict.get("header_row", 0))
+    layout = _sheet_layout_flags(spec_dict)
+    if isinstance(layout, dict):
+        return layout
+    headers, header_row = layout
     ctx = context if isinstance(context, dict) else {}
     return helper, params, headers, header_row, ctx, spec_dict
 

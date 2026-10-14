@@ -56,7 +56,9 @@ def test_is_missing_value_covers_pandas_and_numpy():
     assert is_missing_value("") is True
     assert is_missing_value("   ") is True
     assert is_missing_value("#N/A") is True
+    assert is_missing_value("#n/a") is True
     assert is_missing_value("#DIV/0!") is True
+    assert is_missing_value("#div/0!") is True
     assert is_missing_value("#VALUE!") is True
     assert is_missing_value(math.nan) is True
     assert is_missing_value(float("nan")) is True
@@ -73,6 +75,9 @@ def test_is_missing_value_covers_pandas_and_numpy():
     assert is_missing_value(np.float32(float("nan"))) is True
     assert is_missing_value(np.float64(float("nan"))) is True
     assert is_missing_value(np.float32(1.0)) is False
+    assert is_missing_value(np.datetime64("NaT")) is True
+    assert is_missing_value(np.timedelta64("NaT")) is True
+    assert is_missing_value(np.datetime64("2020-01-01")) is False
 
     pd = pytest.importorskip("pandas")
     assert is_missing_value(pd.NA) is True
@@ -154,4 +159,216 @@ def test_numeric_columns_string_is_one_name():
     df = pd.DataFrame({"AAPL": [1.0, 2.0], "MSFT": [3.0, 4.0]})
     cols = numeric_columns(df, "AAPL")
     assert cols == ["AAPL"]
+
+
+def test_date_like_names_are_tokens():
+    from plugin.scripting.venv.coerce import _is_date_like_column_name
+
+    false_friends = [
+        "candidate",
+        "validate",
+        "update",
+        "consolidate",
+        "mandate",
+        "runtime",
+        "lifetime",
+        "overtime",
+        "downtime",
+        "Update",
+        "Consolidated",
+        "Runtime",
+        "amount",
+        "Monday",
+        "payday",
+        "ORDERDATE",
+    ]
+    for name in false_friends:
+        assert not _is_date_like_column_name(name), f"{name} should not be date-like"
+
+    date_names = [
+        "Date",
+        "OrderDate",
+        "datetime",
+        "DateTime",
+        "updated",
+        "created_at",
+        "timestamp",
+        "dob",
+        "Start Date",
+        "fiscal_year",
+        "my_date",
+        "time",
+        "start",
+        "end",
+        "year",
+        "start_price",
+        "end_balance",
+        "day_of_week",
+    ]
+    for name in date_names:
+        assert _is_date_like_column_name(name), f"{name} should be date-like"
+
+
+def test_date_cols_true_keeps_false_friend_columns():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import grid_to_dataframe
+
+    grid = [
+        ["Consolidated", "Runtime", "Update", "Amount", "Date", "OrderDate"],
+        [10.0, 20.0, 30.0, 45292.0, 45292.0, "2024-01-01"],
+    ]
+    res = grid_to_dataframe(grid, date_cols=True)
+    df = res.df
+    assert pd.api.types.is_datetime64_any_dtype(df["Date"])
+    assert pd.api.types.is_datetime64_any_dtype(df["OrderDate"])
+    assert not pd.api.types.is_datetime64_any_dtype(df["Consolidated"])
+    assert not pd.api.types.is_datetime64_any_dtype(df["Runtime"])
+    assert not pd.api.types.is_datetime64_any_dtype(df["Update"])
+    assert not pd.api.types.is_datetime64_any_dtype(df["Amount"])
+    assert pd.api.types.is_numeric_dtype(df["Consolidated"])
+    assert pd.api.types.is_numeric_dtype(df["Runtime"])
+    assert pd.api.types.is_numeric_dtype(df["Update"])
+    assert pd.api.types.is_numeric_dtype(df["Amount"])
+
+
+def test_float64_serial_uses_date_origin():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import _coerce_column_types
+
+    df = pd.DataFrame({"Date": pd.Series([45292, 45293], dtype="Float64")})
+    out = _coerce_column_types(df, parse_strings=False, date_cols=True, date_origin="1899-12-30")
+    assert out["Date"].iloc[0] == pd.Timestamp("2024-01-01")
+
+
+def test_resolve_df_integer_columns_are_not_both_kinds():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import resolve_df
+
+    df = pd.DataFrame({1: [1.0, 2.0], 2: ["a", "b"]})
+    res = resolve_df(df)
+    assert res.metadata["numeric_cols"] == ["1"]
+    assert res.metadata["categorical_cols"] == ["2"]
+    assert res.metadata["datetime_cols"] == []
+
+
+def test_ndarray_and_series_are_grids():
+    import numpy as np
+    import pandas as pd
+    from plugin.scripting.venv.coerce import grid_to_dataframe
+
+    # A 2x2 numpy array becomes a 2x2 frame of those values, not a 1x1 cell
+    arr_2d = np.array([[1, 2], [3, 4]])
+    res_2d = grid_to_dataframe(arr_2d, header_row=None)
+    assert res_2d.df.shape == (2, 2)
+    assert res_2d.df.values.tolist() == [[1, 2], [3, 4]]
+
+    # A 1-d array [1, 2, 3] is one row of three columns
+    arr_1d = np.array([1, 2, 3])
+    res_1d = grid_to_dataframe(arr_1d, header_row=None)
+    assert res_1d.df.shape == (1, 3)
+    assert res_1d.df.values.tolist() == [[1, 2, 3]]
+
+    # A 0-d array numpy.array(7) is a 1x1 frame whose cell is 7 (a Python int, not an array)
+    arr_0d = np.array(7)
+    res_0d = grid_to_dataframe(arr_0d, header_row=None)
+    assert res_0d.df.shape == (1, 1)
+    val = res_0d.df.iloc[0, 0]
+    assert val == 7
+    assert isinstance(val, (int, np.integer))
+
+    # A pandas.Series([10, 20]) is one row, two columns
+    s = pd.Series([10, 20])
+    res_s = grid_to_dataframe(s, header_row=None)
+    assert res_s.df.shape == (1, 2)
+    assert res_s.df.values.tolist() == [[10, 20]]
+
+    # A 3-d array stays a 1x1 cell
+    arr_3d = np.zeros((2, 2, 2))
+    res_3d = grid_to_dataframe(arr_3d, header_row=None)
+    assert res_3d.df.shape == (1, 1)
+    assert res_3d.df.iloc[0, 0] is arr_3d
+
+
+def test_parse_trusted_spec_layout_errors():
+    from plugin.scripting.venv.coerce import parse_trusted_spec
+
+    names = frozenset({"describe_data"})
+
+    # header_row: None, "abc", True, and 1.5 each return code=="INVALID_SPEC" and do not raise
+    for bad in (None, "abc", True, 1.5):
+        spec = {"helper": "describe_data", "header_row": bad}
+        res = parse_trusted_spec(spec, helper_names=names)
+        assert isinstance(res, dict)
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_SPEC"
+
+    # "header_row": "2" returns tuple index 3 equal to 2
+    spec_str_row = {"helper": "describe_data", "header_row": "2"}
+    res_str_row = parse_trusted_spec(spec_str_row, helper_names=names)
+    assert not isinstance(res_str_row, dict)
+    assert res_str_row[3] == 2
+
+    # Missing header_row is 0
+    spec_missing_row = {"helper": "describe_data"}
+    res_missing_row = parse_trusted_spec(spec_missing_row, helper_names=names)
+    assert not isinstance(res_missing_row, dict)
+    assert res_missing_row[3] == 0
+
+    # headers: "false" returns tuple index 2 False
+    spec_false_str = {"helper": "describe_data", "headers": "false"}
+    res_false_str = parse_trusted_spec(spec_false_str, helper_names=names)
+    assert not isinstance(res_false_str, dict)
+    assert res_false_str[2] is False
+
+    # headers: "true" is True
+    spec_true_str = {"helper": "describe_data", "headers": "true"}
+    res_true_str = parse_trusted_spec(spec_true_str, helper_names=names)
+    assert not isinstance(res_true_str, dict)
+    assert res_true_str[2] is True
+
+    # Missing headers is True
+    spec_missing_hdr = {"helper": "describe_data"}
+    res_missing_hdr = parse_trusted_spec(spec_missing_hdr, helper_names=names)
+    assert not isinstance(res_missing_hdr, dict)
+    assert res_missing_hdr[2] is True
+
+    # headers: None is True
+    spec_none_hdr = {"helper": "describe_data", "headers": None}
+    res_none_hdr = parse_trusted_spec(spec_none_hdr, helper_names=names)
+    assert not isinstance(res_none_hdr, dict)
+    assert res_none_hdr[2] is True
+
+    # headers: 2 is INVALID_SPEC
+    spec_bad_hdr = {"helper": "describe_data", "headers": 2}
+    res_bad_hdr = parse_trusted_spec(spec_bad_hdr, helper_names=names)
+    assert isinstance(res_bad_hdr, dict)
+    assert res_bad_hdr["status"] == "error"
+    assert res_bad_hdr["code"] == "INVALID_SPEC"
+
+    # A bad headers value is reported even if header_row is also bad (headers checked first)
+    spec_both_bad = {"helper": "describe_data", "headers": 2, "header_row": "abc"}
+    res_both_bad = parse_trusted_spec(spec_both_bad, helper_names=names)
+    assert isinstance(res_both_bad, dict)
+    assert res_both_bad["status"] == "error"
+    assert res_both_bad["code"] == "INVALID_SPEC"
+    assert "headers" in res_both_bad["message"]
+
+
+def test_numeric_columns_empty_list_is_empty():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import numeric_columns
+
+    df = pd.DataFrame({"AAPL": [1.0, 2.0], "MSFT": [3.0, 4.0]})
+    assert numeric_columns(df, []) == []
+    assert numeric_columns(df, None) == ["AAPL", "MSFT"]
+
+
+def test_coerce_str_list_skips_none():
+    from plugin.scripting.venv.coerce import coerce_str_list
+
+    assert coerce_str_list(None) is None
+    assert coerce_str_list([None]) == []
+    assert coerce_str_list([None, "A"]) == ["A"]
+    assert coerce_str_list([1]) == ["1"]
+
 

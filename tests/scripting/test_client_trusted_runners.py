@@ -116,6 +116,60 @@ def test_headers_false_survives_client_path(ctx):
     assert data_range == grid
 
 
+def test_string_false_header_is_not_coerced_on_the_host(ctx):
+    from plugin.scripting.calc_functions_common import FORECAST_HELPER_NAMES
+    from plugin.scripting.venv.coerce import parse_trusted_spec
+    from plugin.scripting.venv.trusted_dispatch import _packet_parts
+
+    grid = [["Date", "Value"], ["2024-01-01", 1]]
+    spec = {
+        "helper": "forecast_time_series",
+        "headers": "false",
+        "header_row": "abc",
+        "params": {"periods": 2},
+    }
+    with (
+        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
+        patch("plugin.scripting.trusted_rpc.run_code_in_user_venv") as mock_run,
+    ):
+        mock_run.return_value = {"status": "ok", "result": {"status": "ok", "helper": "forecast_time_series"}}
+        result = client.run_forecast(ctx, spec, grid)
+
+    assert result["helper"] == "forecast_time_series"
+    payload = mock_run.call_args.kwargs["data"]
+    assert payload["headers"] == "false"
+    assert payload["header_row"] == "abc"
+    rebuilt, _data_range, rebuilt_context = _packet_parts(payload)
+    parsed = parse_trusted_spec(rebuilt, helper_names=FORECAST_HELPER_NAMES, context=rebuilt_context)
+    assert isinstance(parsed, dict)
+    assert parsed["status"] == "error"
+    assert parsed["code"] == "INVALID_SPEC"
+
+    # Second assertion path: header_row is 1 and headers is "false"
+    spec2 = {
+        "helper": "forecast_time_series",
+        "headers": "false",
+        "header_row": 1,
+        "params": {"periods": 2},
+    }
+    with (
+        patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
+        patch("plugin.scripting.trusted_rpc.run_code_in_user_venv") as mock_run2,
+    ):
+        mock_run2.return_value = {"status": "ok", "result": {"status": "ok", "helper": "forecast_time_series"}}
+        result2 = client.run_forecast(ctx, spec2, grid)
+
+    assert result2["helper"] == "forecast_time_series"
+    payload2 = mock_run2.call_args.kwargs["data"]
+    assert payload2["headers"] == "false"
+    assert payload2["header_row"] == 1
+    rebuilt2, _data_range2, rebuilt_context2 = _packet_parts(payload2)
+    parsed2 = parse_trusted_spec(rebuilt2, helper_names=FORECAST_HELPER_NAMES, context=rebuilt_context2)
+    assert not isinstance(parsed2, dict)
+    assert parsed2[2] is False
+    assert parsed2[3] == 1
+
+
 def test_spec_runner_omits_headers_when_unset(ctx):
     with (
         patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),

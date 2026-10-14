@@ -268,3 +268,10 @@ def test_insert_viz_result_into_doc() -> None:
         res = insert_viz_result_into_doc(ctx, doc, result)
         assert res == 1
         mock_insert.assert_called_once_with(ctx, doc, payload, title="Plot")
+
+
+def test_run_viz_bad_header_row_is_invalid_spec():
+    result = run_viz({"helper": "quick_plot", "header_row": "nope"}, [])
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_SPEC"
+

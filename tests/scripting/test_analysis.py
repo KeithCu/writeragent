@@ -153,6 +153,12 @@ def test_kpi_summary():
     assert result["writer_cleanup_hints"]["markdown_table"].startswith("|")
 
 
+def test_kpi_summary_empty_metrics():
+    result = analysis.kpi_summary(SALES_GRID, [])
+    assert result["status"] == "error"
+    assert result["code"] == "NO_NUMERIC_COLUMNS"
+
+
 def test_detect_outliers_iqr():
     grid = [["Value"], [1], [2], [3], [4], [100]]
     result = analysis.detect_outliers(grid, method="iqr")
