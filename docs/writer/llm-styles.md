@@ -135,7 +135,7 @@ for `prop`, 1/100 mm otherwise). `style_get_info` returns these struct propertie
 
 Clones an existing style under a new name. `family` is `ParagraphStyles` (default), `CharacterStyles`, or `PageStyles`.
 
-Paragraph and character clones share the source parent and copy only properties that style sets directly. Paragraph clones also copy `FollowStyle`. A page clone copies direct page properties (not `FollowStyle` — a new page style already points at itself), then the header and footer content, including fields, and floating graphics anchored in those regions. The new style is not applied to a page. The page sub-agent can call `style_list` and `style_clone` without switching to the styles domain.
+Paragraph and character clones share the source parent and copy only properties that style sets directly. Paragraph clones also copy `FollowStyle`. A page clone copies direct page properties (not `FollowStyle` — a new page style already points at itself), then the header and footer content, including fields, and floating graphics anchored in those regions. Header and footer flow is copied inside the same document (paragraphs, tables, direct character and paragraph properties, and fields, including a page-number field's SubType, Offset, and NumberingType). The clone does not open a second Writer and does not export XHTML. Floating graphics are still recreated on the draw page. The new style is not applied to a page. The page sub-agent can call `style_list` and `style_clone` without switching to the styles domain.
 
 **Tool Parameters:**
 * `style`: Source style name.

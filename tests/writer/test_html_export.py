@@ -269,3 +269,128 @@ def test_apply_image_export_options_shortens_anchor_with_or_without_images():
     assert data in with_images and "a__QUJD" not in with_images
     without = _apply_image_export_options(html, include_images=False)
     assert "QUJD" not in without and 'src=""' in without
+
+
+def test_copy_field_into_sets_offset():
+    from plugin.writer.html_export import _copy_field_into
+
+    src_field = MagicMock()
+    src_field.getSupportedServiceNames.return_value = ["com.sun.star.text.textfield.PageNumber"]
+
+    def _get_prop(name: str):
+        if name == "Offset":
+            return 1
+        if name == "SubType":
+            return 0
+        if name == "NumberingType":
+            return 2
+        return None
+
+    src_field.getPropertyValue.side_effect = _get_prop
+
+    dest_doc = MagicMock()
+    new_field = MagicMock()
+    dest_doc.createInstance.return_value = new_field
+    dest_text = MagicMock()
+    dest_cursor = MagicMock()
+
+    res = _copy_field_into(dest_doc, dest_text, dest_cursor, src_field)
+    assert res is True
+    new_field.setPropertyValue.assert_any_call("Offset", 1)
+    new_field.setPropertyValue.assert_any_call("SubType", 0)
+    new_field.setPropertyValue.assert_any_call("NumberingType", 2)
+
+
+def test_copy_flow_into_xtext_one_paragraph_text_then_field():
+    from plugin.writer.html_export import (
+        _COPIED_CHAR_PROPERTIES,
+        _COPIED_PARA_PROPERTIES,
+        _copy_flow_into_xtext,
+    )
+
+    doc = MagicMock()
+    src_text = MagicMock()
+
+    portion_text = MagicMock()
+    portion_text.getPropertyValue.return_value = "Text"
+    portion_text.getString.return_value = "Page "
+
+    portion_field = MagicMock()
+    portion_field.getPropertyValue.side_effect = (
+        lambda name: "TextField" if name == "TextPortionType" else MagicMock()
+    )
+
+    para = MagicMock()
+    para.supportsService.return_value = False
+    para.createEnumeration.return_value = _Enum([portion_text, portion_field])
+
+    src_text.createEnumeration.return_value = _Enum([para])
+
+    dest_text = MagicMock()
+    cursor = MagicMock()
+    dest_text.createTextCursor.return_value = cursor
+
+    with patch("plugin.writer.html_export._copy_field_into", return_value=True) as mock_field_into, \
+         patch("plugin.writer.html_export._copy_properties") as mock_props, \
+         patch("plugin.writer.html_export.new_blank_writer") as mock_blank:
+        res = _copy_flow_into_xtext(doc, src_text, dest_text)
+
+    assert res == 1
+    cursor.setString.assert_called_with("")
+    dest_text.insertString.assert_any_call(cursor, "Page ", False)
+    dest_text.insertControlCharacter.assert_not_called()
+    mock_field_into.assert_called_once()
+    mock_blank.assert_not_called()
+
+    prop_tuples = [call.args[2] for call in mock_props.call_args_list]
+    assert _COPIED_CHAR_PROPERTIES in prop_tuples
+    assert _COPIED_PARA_PROPERTIES in prop_tuples
+
+
+def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
+    from plugin.writer.html_export import _PARAGRAPH_BREAK, _copy_flow_into_xtext
+
+    doc = MagicMock()
+    src_text = MagicMock()
+
+    p1_portion = MagicMock()
+    p1_portion.getPropertyValue.return_value = "Text"
+    p1_portion.getString.return_value = "A"
+    para1 = MagicMock()
+    para1.supportsService.return_value = False
+    para1.createEnumeration.return_value = _Enum([p1_portion])
+
+    p2_portion = MagicMock()
+    p2_portion.getPropertyValue.return_value = "Text"
+    p2_portion.getString.return_value = "B"
+    para2 = MagicMock()
+    para2.supportsService.return_value = False
+    para2.createEnumeration.return_value = _Enum([p2_portion])
+
+    src_text.createEnumeration.return_value = _Enum([para1, para2])
+
+    dest_text = MagicMock()
+    cursor = MagicMock()
+    dest_text.createTextCursor.return_value = cursor
+
+    with patch("plugin.writer.html_export._copy_properties"):
+        _copy_flow_into_xtext(doc, src_text, dest_text)
+
+    dest_text.insertControlCharacter.assert_called_once_with(cursor, _PARAGRAPH_BREAK, False)
+
+    insert_calls = [c.args[1] for c in dest_text.insertString.call_args_list]
+    assert insert_calls == ["A", "B"]
+
+    calls = dest_text.mock_calls
+    break_idx = None
+    insert_a_idx = None
+    for idx, c in enumerate(calls):
+        if c[0] == "insertControlCharacter":
+            break_idx = idx
+        elif c[0] == "insertString" and c.args[1] == "A":
+            insert_a_idx = idx
+
+    assert break_idx is not None
+    assert insert_a_idx is not None
+    assert insert_a_idx < break_idx
+

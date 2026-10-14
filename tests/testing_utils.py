@@ -1508,6 +1508,29 @@ def reset_native_doc(doc, doc_type: str, ctx) -> None:
     else:
         raise ValueError("reset_native_doc only supports writer and calc")
 
+def _exception_leaving_native_doc(exc: BaseException) -> BaseException:
+    """Return the object native_doc's generator is allowed to raise.
+
+    CPython contextlib._GeneratorContextManager.__exit__ assigns
+    exc.__traceback__ when the generator re-raises the same object throw()
+    injected (the ``exc is value`` branch, Lib/contextlib.py; CI 3.12
+    lines 158 and 191). PyUNO exceptions implement __setattr__ as
+    uno._uno_struct__setattr__, which cannot store a traceback and raises
+    "Couldn't convert <traceback object> to a UNO type", hiding the real
+    message (for example "Binary URP bridge disposed during call").
+    A different object takes the ``exc is not value`` branch, which does
+    not assign __traceback__ on the UNO exception. __cause__ is set on the
+    new RuntimeError, not on the UNO object.
+    """
+    setter = getattr(getattr(type(exc), "__setattr__", None), "__name__", "")
+    if setter != "_uno_struct__setattr__":
+        return exc
+    text = str(exc).strip() or str(getattr(exc, "Message", "") or "") or type(exc).__name__
+    wrapped = RuntimeError(text)
+    wrapped.__cause__ = exc
+    wrapped.__suppress_context__ = True
+    return wrapped
+
 
 class TestingFactory:
     """Unified factory for creating test documents and contexts."""
@@ -1831,103 +1854,120 @@ class TestingFactory:
                 calc_workbook_base_session_id(doc)
             except Exception:
                 pass
+        body_exc: BaseException | None = None
         try:
             if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
                 _NATIVE_DOC_POOL.mark_clean(doc, False)
             yield doc
+        except BaseException as exc:
+            body_exc = _exception_leaving_native_doc(exc)
         finally:
-            if pooled:
-                # Wipe before leaving the pool: tests without @with_native_doc still
-                # see this document as the desktop's current component (init scripts, charts).
-                _native_teardown_progress(
-                    "native_doc: teardown reset start doc_type=%s" % doc_type
-                )
-                try:
-                    reset_native_doc(doc, doc_type, ctx)
-                    if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
-                        _NATIVE_DOC_POOL.mark_clean(doc, True)
-                except Exception:
-                    if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
-                        _NATIVE_DOC_POOL.mark_clean(doc, False)
-                    # Do not return from finally: that swallows a failed test
-                    # body and warns on 3.12+ (SyntaxWarning: return in finally).
+            teardown_exc: BaseException | None = None
+            try:
+                if pooled:
+                    # Wipe before leaving the pool: tests without @with_native_doc still
+                    # see this document as the desktop's current component (init scripts, charts).
                     _native_teardown_progress(
-                        "native_doc: teardown reset failed; close_doc"
+                        "native_doc: teardown reset start doc_type=%s" % doc_type
                     )
-                    TestingFactory.close_doc(doc)
-                else:
-                    _native_teardown_progress("native_doc: teardown reset done")
                     try:
-                        from plugin.calc.python.function import clear_python_addin_cache
-
-                        clear_python_addin_cache()
+                        reset_native_doc(doc, doc_type, ctx)
+                        if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
+                            _NATIVE_DOC_POOL.mark_clean(doc, True)
                     except Exception:
-                        pass
-            else:
-                # GHA 35413789298 (master 609490ec) / 29079e14: first
-                # designs_uno Impress @with_native_doc teardown called
-                # close_doc (gc.collect + 50 ms + close(True)) after
-                # leftover Writer reuse (leftover_open=1). soffice exited
-                # 0; URP disposed; runner aborted remaining suites.
-                # How: close_doc's pre-close GC/sleep is the Windows
-                # Impress/Draw killer (34518091151 / 34532953982 /
-                # 34535868114). Peer tests already use
-                # close_draw_family_doc (bare close(True) on win32) +
-                # settle_after_draw_family_close.
-                # GHA 35450779692 (post-#803 cd9da961): that raw close
-                # still killed soffice with leftover_open=1. Skip the
-                # Draw-family close on win32 while leftovers remain
-                # (peer skip-close family). Math OLE Draw still uses
-                # close_doc so the existing skip stays (34607010446).
-                uid = ""
-                try:
-                    uid = str(getattr(doc, "RuntimeUID", None) or "")
-                except Exception:
-                    uid = ""
-                if (
-                    doc_type in ("impress", "draw")
-                    and not _windows_should_skip_math_ole_close(uid)
-                ):
-                    from plugin.testing_runner import _progress_verbose as _progress
-
-                    leftover_open = _windows_leftover_open()
-                    if _windows_should_skip_draw_family_close():
-                        from plugin.testing_runner import (
-                            request_office_recycle_after_suite,
+                        if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
+                            _NATIVE_DOC_POOL.mark_clean(doc, False)
+                        # Do not return from finally: that swallows a failed test
+                        # body and warns on 3.12+ (SyntaxWarning: return in finally).
+                        _native_teardown_progress(
+                            "native_doc: teardown reset failed; close_doc"
                         )
-
-                        # Do not close(True) while leftover Writer is
-                        # open (35450779692). Drop the proxy; leftover
-                        # CREATE|GLOBAL _wa_simpress / _wa_sdraw reuse
-                        # replaces instead of stacking. Suite-end
-                        # recycle kills leftovers (34537826720).
-                        _progress(
-                            "native_doc: teardown skip impress/draw close leftover_open=%s"
-                            % leftover_open
-                        )
-                        doc = None
-                        request_office_recycle_after_suite()
-                        _log_office_health_after_close(ctx, doc_type)
+                        TestingFactory.close_doc(doc)
                     else:
-                        _progress(
-                            "native_doc: teardown close_draw_family start doc_type=%s"
-                            % doc_type
-                        )
-                        close_draw_family_doc(doc)
-                        doc = None
-                        settle_after_draw_family_close()
-                        _log_office_health_after_close(ctx, doc_type)
-                        _progress(
-                            "native_doc: teardown close_draw_family done doc_type=%s"
-                            % doc_type
-                        )
+                        _native_teardown_progress("native_doc: teardown reset done")
+                        try:
+                            from plugin.calc.python.function import clear_python_addin_cache
+
+                            clear_python_addin_cache()
+                        except Exception:
+                            pass
                 else:
-                    _native_teardown_progress("native_doc: teardown close_doc start")
-                    TestingFactory.close_doc(doc)
-                    # Harness probe (not a product fix): if close toasted URP, name
-                    # it now instead of waiting for the next loadComponentFromURL.
-                    _log_office_health_after_close(ctx, doc_type)
-                    _native_teardown_progress("native_doc: teardown close_doc done")
+                    # GHA 35413789298 (master 609490ec) / 29079e14: first
+                    # designs_uno Impress @with_native_doc teardown called
+                    # close_doc (gc.collect + 50 ms + close(True)) after
+                    # leftover Writer reuse (leftover_open=1). soffice exited
+                    # 0; URP disposed; runner aborted remaining suites.
+                    # How: close_doc's pre-close GC/sleep is the Windows
+                    # Impress/Draw killer (34518091151 / 34532953982 /
+                    # 34535868114). Peer tests already use
+                    # close_draw_family_doc (bare close(True) on win32) +
+                    # settle_after_draw_family_close.
+                    # GHA 35450779692 (post-#803 cd9da961): that raw close
+                    # still killed soffice with leftover_open=1. Skip the
+                    # Draw-family close on win32 while leftovers remain
+                    # (peer skip-close family). Math OLE Draw still uses
+                    # close_doc so the existing skip stays (34607010446).
+                    uid = ""
+                    try:
+                        uid = str(getattr(doc, "RuntimeUID", None) or "")
+                    except Exception:
+                        uid = ""
+                    if (
+                        doc_type in ("impress", "draw")
+                        and not _windows_should_skip_math_ole_close(uid)
+                    ):
+                        from plugin.testing_runner import _progress_verbose as _progress
+
+                        leftover_open = _windows_leftover_open()
+                        if _windows_should_skip_draw_family_close():
+                            from plugin.testing_runner import (
+                                request_office_recycle_after_suite,
+                            )
+
+                            # Do not close(True) while leftover Writer is
+                            # open (35450779692). Drop the proxy; leftover
+                            # CREATE|GLOBAL _wa_simpress / _wa_sdraw reuse
+                            # replaces instead of stacking. Suite-end
+                            # recycle kills leftovers (34537826720).
+                            _progress(
+                                "native_doc: teardown skip impress/draw close leftover_open=%s"
+                                % leftover_open
+                            )
+                            doc = None
+                            request_office_recycle_after_suite()
+                            _log_office_health_after_close(ctx, doc_type)
+                        else:
+                            _progress(
+                                "native_doc: teardown close_draw_family start doc_type=%s"
+                                % doc_type
+                            )
+                            close_draw_family_doc(doc)
+                            doc = None
+                            settle_after_draw_family_close()
+                            _log_office_health_after_close(ctx, doc_type)
+                            _progress(
+                                "native_doc: teardown close_draw_family done doc_type=%s"
+                                % doc_type
+                            )
+                    else:
+                        _native_teardown_progress("native_doc: teardown close_doc start")
+                        TestingFactory.close_doc(doc)
+                        # Harness probe (not a product fix): if close toasted URP, name
+                        # it now instead of waiting for the next loadComponentFromURL.
+                        _log_office_health_after_close(ctx, doc_type)
+                        _native_teardown_progress("native_doc: teardown close_doc done")
+            except BaseException as exc:
+                teardown_exc = _exception_leaving_native_doc(exc)
+            if teardown_exc is not None:
+                if body_exc is None:
+                    body_exc = teardown_exc
+                else:
+                    _log_close_doc_failure(teardown_exc)
+                    _native_teardown_progress(
+                        "native_doc: teardown failed after body error: %s" % teardown_exc
+                    )
+        if body_exc is not None:
+            raise body_exc
 
 
 

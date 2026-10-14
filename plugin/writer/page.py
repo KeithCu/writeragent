@@ -450,10 +450,10 @@ def _copy_region_graphics(doc: Any, src_text: Any, dest_text: Any) -> tuple[int,
 
 
 def _region_has_flow_content(doc: Any, text_obj: Any) -> bool:
-    """True when the region has text, fields, or a table the HTML round-trip must keep.
+    """True when the region has text, fields, or a table the in-document copy must keep.
 
-    A floating graphic alone is not flow content: xtext export does not carry it,
-    and _copy_region_graphics copies it after the HTML import.
+    A floating graphic alone is not flow content. _copy_region_graphics copies
+    it after the portion walk.
     """
     try:
         plain = text_obj.getString()
@@ -474,16 +474,12 @@ def _copy_page_regions(
     uno_ctx: Any,
     services: Any,
 ) -> tuple[int, list[str]]:
-    """Copy on, non-mirror header/footer regions onto the clone."""
-    from .html_export import xtext_to_content
-    from .html_import import replace_xtext_with_html
+    """Copy on, non-mirror header/footer regions onto the clone.
 
-    config_svc = None
-    if services is not None:
-        try:
-            config_svc = services.get("config")
-        except Exception:
-            config_svc = None
+    uno_ctx and services are unused. They stay so copy_page_style's keyword
+    call does not change. Flow is copied in-document; this no longer opens a
+    hidden Writer or reads the HTML import config service.
+    """
     shapes_copied = 0
     skipped_shapes: list[str] = []
     for region, (is_on_prop, text_prop) in _REGION_PROPS.items():
@@ -520,16 +516,25 @@ def _copy_page_regions(
         if dest_text is None:
             raise RuntimeError("Page style clone: no %s text on the new style." % region)
         if _region_has_flow_content(doc, src_text):
-            html = xtext_to_content(
-                src_text, doc, uno_ctx, services, include_images=True,
-            )
-            # xtext_to_content swallows export errors and returns "". A footer
-            # that had text or a field must not become an empty clone.
-            if not (html or "").strip():
+            # Bugfix: this used to export the region through xtext_to_content
+            # (controller.select + clipboard + hidden Writer + in-process
+            # libxslt / flat ODF) and import it with replace_xtext_with_html.
+            # That export is what corrupted soffice (malloc unsorted-list /
+            # SIGSEGV 139 / SalAbort), observed on the next getByName as
+            # "Binary URP bridge disposed" (GHA 38526445257, 38584920511,
+            # 38584636315). Same-document portion copy does not select, does
+            # not use the clipboard, and does not run libxslt.
+            from .html_export import _copy_flow_into_xtext
+
+            fields_copied = _copy_flow_into_xtext(doc, src_text, dest_text)
+            try:
+                plain = dest_text.getString() or ""
+            except Exception:
+                plain = ""
+            if not str(plain).strip() and fields_copied == 0 and not _region_has_table(dest_text):
                 raise RuntimeError(
-                    "Page style clone: could not export %s content from the source style." % region
+                    "Page style clone: copied %s flow content was empty." % region
                 )
-            replace_xtext_with_html(dest_text, html, config_svc=config_svc, model=doc)
         copied, skipped = _copy_region_graphics(doc, src_text, dest_text)
         shapes_copied += copied
         skipped_shapes.extend(skipped)
