@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import copy
 import datetime
+from functools import lru_cache
+import importlib.util
 import logging
 import re
 from typing import Any, cast
@@ -34,23 +36,57 @@ LLM_DEV_BUILD_SYSTEM_PREFIX = (
 )
 
 
-def should_prepend_dev_llm_system_prefix() -> bool:
-    """True when this bundle includes test modules (same signal as the optional Debug / in-OXT tests)."""
+@lru_cache(maxsize=1)
+def _has_plugin_tests_spec() -> bool:
     try:
-        import importlib.util
-
         return importlib.util.find_spec("plugin.tests") is not None
     except Exception:
         return False
 
 
+def should_prepend_dev_llm_system_prefix() -> bool:
+    """True when this bundle includes test modules (same signal as the optional Debug / in-OXT tests)."""
+    return _has_plugin_tests_spec()
+
+
 # Local / Harmony-style models sometimes leak chat-template control tokens.
 _CHAT_TEMPLATE_CONTROL_TOKEN_RE = re.compile(r"<\|[a-zA-Z0-9_]+\|>")
-_DATA_URI_IMAGE_RE = re.compile(r"data:image/([a-zA-Z+.-]+);base64,([a-zA-Z0-9+/=\s]+)")
+# Bugfix: Previously _DATA_URI_IMAGE_RE used [a-zA-Z0-9+/=\s]+ which greedily
+# swallowed trailing plain text/prose that shared base64 alphabet characters across newlines.
+# The new pattern matches the initial base64 run, followed only by valid MIME-wrapped
+# continuation lines (>=40 chars) or a short padded tail ending in '='.
+_DATA_URI_IMAGE_RE = re.compile(
+    r"data:image/([a-zA-Z0-9+.-]+);base64,([A-Za-z0-9+/=]+(?:\s+[A-Za-z0-9+/=]{40,})*(?:\s+[A-Za-z0-9+/=]{0,39}={1,2})?)"
+)
+
+
+def _text_of(value: object) -> str:
+    """Coerce value to str if it is a str instance, else empty string."""
+    return value if isinstance(value, str) else ""
+
+
+def _has_date_line(text: str, date_msg: str) -> bool:
+    """Return True if date_msg or standard date prefix appears anywhere in text."""
+    return date_msg in text or "Today's date is " in text
+
+
+def _record_image(extracted: list[dict[str, Any]], ext: str, raw_b64: str) -> str:
+    """Append extracted base64 image dict and return standard marker."""
+    b64 = "".join(raw_b64.split())
+    mime_type = f"image/{ext}"
+    extracted.append({"mime_type": mime_type, "data": b64})
+    return "[Image Ref]"
 
 
 def _extracted_images_well_formed(result: list[dict[str, Any]]) -> bool:
-    return isinstance(result, list) and all(isinstance(x, dict) and isinstance(x.get("mime_type"), str) and isinstance(x.get("data"), str) for x in result)
+    return isinstance(result, list) and all(
+        isinstance(x, dict)
+        and (
+            (isinstance(x.get("mime_type"), str) and isinstance(x.get("data"), str))
+            or isinstance(x.get("url"), str)
+        )
+        for x in result
+    )
 
 
 def _string_content_has_no_data_uri(message: dict[str, Any]) -> bool:
@@ -80,7 +116,7 @@ def extract_and_strip_images_from_message(message: dict[str, Any], strip_structu
     """Scan message content, extract base64 images, and replace them with markers.
 
     Returns a list of extracted image dicts:
-        [{"mime_type": "image/png", "data": "<base64>"}]
+        [{"mime_type": "image/png", "data": "<base64>"}, {"url": "<http(s) url>"}]
     """
     # Greedy data:image/…;base64 regex hangs deep check; pytest keeps product sizes.
     # crosshair: off
@@ -92,11 +128,7 @@ def extract_and_strip_images_from_message(message: dict[str, Any], strip_structu
     if isinstance(content, str):
         # Scan for inline data:image URIs
         def repl(match: re.Match[str]) -> str:
-            ext = match.group(1)
-            b64 = "".join(match.group(2).split())  # strip whitespace/newlines
-            mime_type = f"image/{ext}"
-            extracted_images.append({"mime_type": mime_type, "data": b64})
-            return "[Image Ref]"
+            return _record_image(extracted_images, match.group(1), match.group(2))
 
         new_content_str = _DATA_URI_IMAGE_RE.sub(repl, content)
         message["content"] = new_content_str
@@ -110,14 +142,10 @@ def extract_and_strip_images_from_message(message: dict[str, Any], strip_structu
 
             p_type = part.get("type")
             if p_type == "text":
-                text = part.get("text", "")
+                text = _text_of(part.get("text"))
 
                 def repl(match: re.Match[str]) -> str:
-                    ext = match.group(1)
-                    b64 = "".join(match.group(2).split())
-                    mime_type = f"image/{ext}"
-                    extracted_images.append({"mime_type": mime_type, "data": b64})
-                    return "[Image Ref]"
+                    return _record_image(extracted_images, match.group(1), match.group(2))
 
                 new_text = _DATA_URI_IMAGE_RE.sub(repl, text)
                 part["text"] = new_text
@@ -133,15 +161,26 @@ def extract_and_strip_images_from_message(message: dict[str, Any], strip_structu
                         url_val = image_url
                     else:
                         url_val = ""
-                    if isinstance(url_val, str) and url_val.startswith("data:"):
+
+                    # Bugfix: Remote http/https image URLs on assistant/tool messages were previously
+                    # replaced with [Image Ref] but never extracted or moved to the user message, losing images.
+                    # Malformed data: URLs or other non-http schemes were also silently deleted.
+                    # Now http/https URLs are extracted to be reattached, malformed/other schemes are preserved
+                    # in place, and null/non-string values remain replaced with [Image Ref].
+                    if not isinstance(url_val, str) or not url_val:
+                        new_content_list.append({"type": "text", "text": "[Image Ref]"})
+                    elif url_val.startswith("data:"):
                         match = _DATA_URI_IMAGE_RE.search(url_val)
                         if match:
-                            ext = match.group(1)
-                            b64 = "".join(match.group(2).split())
-                            mime_type = f"image/{ext}"
-                            extracted_images.append({"mime_type": mime_type, "data": b64})
-                    # Replace the image_url block with a text part so it is stripped from text/HTML
-                    new_content_list.append({"type": "text", "text": "[Image Ref]"})
+                            _record_image(extracted_images, match.group(1), match.group(2))
+                            new_content_list.append({"type": "text", "text": "[Image Ref]"})
+                        else:
+                            new_content_list.append(part)
+                    elif url_val.startswith(("http://", "https://")):
+                        extracted_images.append({"url": url_val})
+                        new_content_list.append({"type": "text", "text": "[Image Ref]"})
+                    else:
+                        new_content_list.append(part)
                 else:
                     new_content_list.append(part)
             else:
@@ -154,25 +193,24 @@ def extract_and_strip_images_from_message(message: dict[str, Any], strip_structu
 def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str) -> None:
     """Normalize multimodal messages containing base64 images according to provider rules.
 
-    1. Extract all base64 images from every message using `extract_and_strip_images_from_message`.
+    1. Extract all base64 and remote images from every message using `extract_and_strip_images_from_message`.
     2. Re-attach them:
        - To the same message if the role is 'user'.
        - To the same message if the role is 'tool' and the provider is 'anthropic'.
        - Otherwise, move them to the nearest preceding 'user' message in the history.
     """
     all_extracted = []
-    for idx, m in enumerate(messages):
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
         role = m.get("role")
         keep_in_place = (role == "user") or (role == "tool" and provider == "anthropic")
         imgs = extract_and_strip_images_from_message(m, strip_structured_image_blocks=not keep_in_place)
-        all_extracted.append((idx, m, imgs))
+        all_extracted.append((m, imgs, keep_in_place))
 
-    for idx, m, imgs in all_extracted:
+    for m, imgs, keep_in_place in all_extracted:
         if not imgs:
             continue
-
-        role = m.get("role")
-        keep_in_place = (role == "user") or (role == "tool" and provider == "anthropic")
 
         target_message = None
         if keep_in_place:
@@ -180,23 +218,25 @@ def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str)
         else:
             # Identity, not equality. messages.index(m) attached both copies of
             # two equal assistant messages to the first one, so the later
-            # image landed on the earlier user turn.
-            curr_idx = idx
-            for i, msg in enumerate(messages):
-                if msg is m:
-                    curr_idx = i
-                    break
+            # image landed on the earlier user turn. Scan by identity since prior
+            # synthetic user inserts shift list positions.
+            curr_idx = next((i for i, msg in enumerate(messages) if msg is m), 0)
 
             for prev_idx in range(curr_idx - 1, -1, -1):
-                if messages[prev_idx].get("role") == "user":
-                    target_message = messages[prev_idx]
+                prev_msg = messages[prev_idx]
+                if isinstance(prev_msg, dict) and prev_msg.get("role") == "user":
+                    target_message = prev_msg
                     break
 
             if target_message is None:
                 target_message = {"role": "user", "content": "[Image attached by tool/system]"}
-                insert_idx = 0
-                for i in range(len(messages)):
-                    if messages[i].get("role") != "system":
+                # Bugfix: When all preceding messages were system messages, insert_idx previously
+                # remained 0, placing the synthetic user message before system instructions.
+                # Defaulting insert_idx to len(messages) appends after all system messages when no
+                # non-system message exists, while correctly inserting before the first non-system message otherwise.
+                insert_idx = len(messages)
+                for i, msg in enumerate(messages):
+                    if not isinstance(msg, dict) or msg.get("role") != "system":
                         insert_idx = i
                         break
                 messages.insert(insert_idx, target_message)
@@ -212,7 +252,11 @@ def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str)
             new_content.extend(content)
 
         for img in imgs:
-            new_content.append({"type": "image_url", "image_url": {"url": f"data:{img['mime_type']};base64,{img['data']}"}})
+            if img.get("data"):
+                url = f"data:{img['mime_type']};base64,{img['data']}"
+            else:
+                url = img["url"]
+            new_content.append({"type": "image_url", "image_url": {"url": url}})
         target_dict["content"] = new_content
 
 
@@ -226,7 +270,12 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
     coalesced_messages: list[Any] = []
     coalesced_any = False
     for m in messages:
-        if coalesced_messages and m.get("role") == "system" and coalesced_messages[-1].get("role") == "system":
+        # Bugfix: Non-dict messages in the list previously caused AttributeError when checking .get("role").
+        # Pass non-dict items through untouched.
+        if not isinstance(m, dict):
+            coalesced_messages.append(m)
+            continue
+        if coalesced_messages and isinstance(coalesced_messages[-1], dict) and m.get("role") == "system" and coalesced_messages[-1].get("role") == "system":
             prev_content = coalesced_messages[-1].get("content", "")
             curr_content = m.get("content", "")
 
@@ -250,10 +299,10 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
 
             coalesced_any = True
         else:
-            coalesced_messages.append(copy.deepcopy(m) if isinstance(m, dict) else m)
+            coalesced_messages.append(copy.deepcopy(m))
 
     if coalesced_any:
-        log.debug("make_chat_request: Coalesced multiple consecutive system messages.")
+        log.debug("prepare_chat_messages: Coalesced multiple consecutive system messages.")
 
     messages = coalesced_messages
 
@@ -262,14 +311,17 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
     date_msg = f"Today's date is {today}."
     system_message: Any = None
     for m in messages:
+        if not isinstance(m, dict):
+            continue
         if m.get("role") == "system":
             system_message = m
+            # Only the first system message is dated; later non-adjacent system messages are left unchanged.
             break
 
     if system_message:
         old_content = system_message.get("content")
         if isinstance(old_content, str):
-            already_has_date_line = old_content.startswith(date_msg) or old_content.startswith("Today's date is ") or date_msg in old_content
+            already_has_date_line = _has_date_line(old_content, date_msg)
             if not already_has_date_line:
                 system_message["content"] = f"{date_msg}\n\n{old_content}" if old_content else date_msg
         elif isinstance(old_content, list):
@@ -279,14 +331,14 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
                 if isinstance(item, dict) and item.get("type") == "text":
                     if text_item is None:
                         text_item = item
-                    t = item.get("text", "")
-                    if date_msg in t or "Today's date is " in t:
+                    t = _text_of(item.get("text"))
+                    if _has_date_line(t, date_msg):
                         already_has_date_line = True
                         break
 
             if not already_has_date_line:
                 if text_item:
-                    t = text_item.get("text", "")
+                    t = _text_of(text_item.get("text"))
                     text_item["text"] = f"{date_msg}\n\n{t}" if t else date_msg
                 else:
                     old_content.insert(0, {"type": "text", "text": date_msg})
@@ -300,6 +352,8 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
 
     # Flatten system message back to string if it only contains text (for max compatibility)
     for m in messages:
+        if not isinstance(m, dict):
+            continue
         if m.get("role") == "system":
             content = m.get("content")
             if isinstance(content, list):
@@ -307,12 +361,13 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
                 only_text = True
                 for item in content:
                     if isinstance(item, dict) and item.get("type") == "text":
-                        all_text.append(item.get("text", ""))
+                        all_text.append(_text_of(item.get("text")))
                     else:
                         only_text = False
                         break
                 if only_text:
                     m["content"] = "\n\n".join(all_text)
+            # Only flatten the first system message; later non-adjacent system messages are left unchanged.
             break
 
     return messages
@@ -324,7 +379,7 @@ def prepend_dev_build_system_prefix_to_messages(messages: list[dict[str, Any]]) 
         return
     prefix = LLM_DEV_BUILD_SYSTEM_PREFIX
     for m in messages:
-        if m.get("role") != "system":
+        if not isinstance(m, dict) or m.get("role") != "system":
             continue
         c = m.get("content")
         if isinstance(c, str):
@@ -336,7 +391,7 @@ def prepend_dev_build_system_prefix_to_messages(messages: list[dict[str, Any]]) 
             # Prepend to the first text block if it doesn't already have it
             for item in c:
                 if isinstance(item, dict) and item.get("type") == "text":
-                    text = item.get("text", "")
+                    text = _text_of(item.get("text"))
                     if text.startswith(prefix):
                         return
                     item["text"] = f"{prefix}\n\n{text}" if text else prefix

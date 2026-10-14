@@ -375,3 +375,62 @@ def test_iterate_sse_replaces_invalid_utf8():
     assert list(iterate_sse(stream)) == ["caf\ufffd", "[DONE]"]
 
 
+def test_streaming_replay_reasoning_details_not_truncated_preserves_signature():
+    long_text = "R" * 32010
+    meta = {
+        "source": "reasoning_details",
+        "signature": "sig-full-123",
+        "format": "anthropic-claude-v1",
+        "index": 0,
+    }
+    replay = sn._streaming_replay(long_text, meta)
+    details = replay.get("reasoning_details", [])
+    assert len(details) == 1
+    assert details[0]["type"] == "reasoning.text"
+    assert len(details[0]["text"]) == 32010
+    assert details[0]["signature"] == "sig-full-123"
+
+
+def test_streaming_replay_string_sources_truncated_to_32k():
+    long_text = "R" * 32050
+    replay_content = sn._streaming_replay(long_text, {"source": "reasoning_content"})
+    assert len(replay_content["reasoning_content"]) == 32000
+
+    replay_reasoning = sn._streaming_replay(long_text, {"source": "reasoning"})
+    assert len(replay_reasoning["reasoning"]) == 32000
+
+
+def test_streaming_replay_zero_max_chars_unlimited(monkeypatch):
+    monkeypatch.setattr(sn, "PRESERVE_REASONING_MAX_CHARS", 0)
+    long_text = "R" * 35000
+    replay = sn._streaming_replay(long_text, {"source": "reasoning"})
+    assert len(replay["reasoning"]) == 35000
+
+
+def test_thinking_text_from_delta_handles_none_and_non_string():
+    delta = {
+        "reasoning_details": [
+            {"type": "reasoning.text", "text": None},
+            {"type": "reasoning.text", "text": 5},
+            {"type": "reasoning.summary", "summary": None},
+        ]
+    }
+    assert sn._thinking_text_from_delta(delta) == ""
+
+
+def test_strip_think_tags_close_only():
+    clean, thinking = sn.strip_think_tags("because I said so</think>The answer is 4.")
+    assert clean == "The answer is 4."
+    assert thinking == "because I said so"
+
+
+def test_think_tag_stream_splitter_close_only_split_across_chunks():
+    splitter = sn.ThinkTagStreamSplitter()
+    out1 = splitter.feed("because I said so</th")
+    assert out1 == [(True, "because I said so")]
+    out2 = splitter.feed("ink>The answer is 4.")
+    assert out2 == [(False, "The answer is 4.")]
+    assert splitter.flush() == []
+
+
+

@@ -67,7 +67,7 @@ def _truncate_reasoning_string(value: str) -> str:
 )
 @deal.ensure(lambda text_parts, meta, delta, result: meta.get("source") is None or meta.get("source") in _STREAMING_SOURCE_VALUES)
 def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], delta: Mapping[str, Any]) -> None:
-    """Append thinking text as each SSE delta arrives; meta records replay shape (set once)."""
+    """Append thinking text as each SSE delta arrives; meta records replay shape (first non-empty delta picks the source, and a later reasoning.encrypted fragment forces reasoning_details because that blob has to be echoed)."""
     # delta string fields are product-sized (up to PRESERVE_REASONING_MAX_CHARS);
     # cannot shrink without a new DEAL_MAX split. Pytest still runs @deal.
     # crosshair: off
@@ -151,12 +151,15 @@ def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
 
 @deal.post(lambda result: isinstance(result, dict) and set(result.keys()) <= {"reasoning", "reasoning_content", "reasoning_details"})
 def _streaming_replay(text: str, meta: Mapping[str, Any]) -> dict[str, Any]:
-    # Unbounded reasoning text plus 32k truncate; pytest covers replay shape.
+    # Bugfix: Previously _streaming_replay called _truncate_reasoning_string(text) upfront.
+    # When source was "reasoning_details", the truncated text was attached alongside the
+    # full original signature in reasoning.text, causing Anthropic via OpenRouter to reject
+    # the replay with a signature mismatch. Truncation must only apply to raw string fields
+    # (reasoning / reasoning_content), leaving signed reasoning_details blocks untruncated.
     # crosshair: off
-    text = _truncate_reasoning_string(text)
     encrypted_raw = meta.get("encrypted_fragments")
     encrypted_fragments: list[Any] = encrypted_raw if isinstance(encrypted_raw, list) else []
-    # _merge_reasoning_details @deal.pre caps list length (CrossHair shape_dim is 4).
+    # _merge_reasoning_details @deal.pre caps list length (256 in pytest/app and 4 under CrossHair).
     if len(encrypted_fragments) > DEAL_MAX_SHAPE_DIM:
         encrypted_fragments = encrypted_fragments[:DEAL_MAX_SHAPE_DIM]
     merged_encrypted = _merge_reasoning_details(encrypted_fragments)
@@ -180,9 +183,10 @@ def _streaming_replay(text: str, meta: Mapping[str, Any]) -> dict[str, Any]:
 
     if not text:
         return {}
+    truncated = _truncate_reasoning_string(text)
     if source == "reasoning_content":
-        return {"reasoning_content": text}
-    return {"reasoning": text}
+        return {"reasoning_content": truncated}
+    return {"reasoning": truncated}
 
 
 def extract_reasoning_replay_from_response(message_snapshot: Mapping[str, Any] | None = None, streaming_text: str | None = None, streaming_meta: Mapping[str, Any] | None = None, sync_message: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -215,6 +219,11 @@ def reasoning_replay_from_assistant_response(response: Mapping[str, Any] | None)
     return extract_reasoning_replay_from_response(sync_message=response)
 
 
+def _text_of(value: object) -> str:
+    """Coerce value to str if it is a str instance, else empty string."""
+    return value if isinstance(value, str) else ""
+
+
 def iterate_sse(stream: Any) -> Iterator[str]:
     """
     Iterate over SSE (Server-Sent Events) data payloads from a stream of lines (bytes).
@@ -226,10 +235,9 @@ def iterate_sse(stream: Any) -> Iterator[str]:
             continue
 
         if line_str.startswith(b"data:"):
-            # Payload is everything after the first ":"
-            idx = line_str.find(b":") + 1
+            # Payload is everything after "data:" (starts at index 5)
             # One bad byte used to raise UnicodeDecodeError and abort the stream.
-            payload = line_str[idx:].decode("utf-8", errors="replace").strip()
+            payload = line_str[5:].decode("utf-8", errors="replace").strip()
             yield payload
         elif line_str.startswith(b"{"):
             # Raw JSON line (common in some streaming formats like Google Gemini raw stream)
@@ -274,9 +282,9 @@ def _thinking_text_from_delta(delta: dict[str, Any]) -> str:
             if isinstance(item, dict):
                 item_type = item.get("type")
                 if item_type in ("reasoning.text", "thought", "reasoning"):
-                    parts.append(item.get("text") or "")
+                    parts.append(_text_of(item.get("text")))
                 elif item_type == "reasoning.summary":
-                    parts.append(item.get("summary") or "")
+                    parts.append(_text_of(item.get("summary")))
         if parts:
             return "".join(parts)
     return ""
@@ -306,10 +314,10 @@ def _normalize_message_content(raw: Any) -> str | None:  # pyright: ignore[repor
     if isinstance(raw, list):
         parts = []
         for item in raw:
-            if isinstance(item, dict):
-                if item.get("type") == "text":
-                    parts.append(item.get("text") or "")
-                elif "text" in item:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                if item.get("type") == "text" or "text" in item:
                     parts.append(item.get("text") or "")
         return "".join(parts) if parts else None
     return str(raw)
@@ -385,21 +393,43 @@ class ThinkTagStreamSplitter:
         text = self._buf + chunk
         self._buf = ""
         results: list[tuple[bool, str]] = []
+        open_tag = "<think>"
+        close_tag = "</think>"
+        open_len = len(open_tag)
+        close_len = len(close_tag)
 
         while text:
             if not self.in_thinking:
-                idx = text.find("<think>")
-                if idx != -1:
-                    if idx > 0:
-                        results.append((False, text[:idx]))
-                    self.in_thinking = True
-                    text = text[idx + 7 :]
+                open_idx = text.find(open_tag)
+                close_idx = text.find(close_tag)
+
+                if close_idx != -1 and (open_idx == -1 or close_idx < open_idx):
+                    # Close-only tag while not in thinking: prefix is thinking, suffix is content.
+                    if close_idx > 0:
+                        results.append((True, text[:close_idx]))
+                    self.in_thinking = False
+                    text = text[close_idx + close_len :]
                     continue
-                # Check for possible partial prefix of '<think>' at the end of text
+
+                if open_idx != -1:
+                    if open_idx > 0:
+                        results.append((False, text[:open_idx]))
+                    self.in_thinking = True
+                    text = text[open_idx + open_len :]
+                    continue
+
+                # Check for possible partial prefix at the end of text
                 partial_match = False
-                for p_len in range(min(6, len(text)), 0, -1):
+                max_p = min(max(open_len, close_len) - 1, len(text))
+                for p_len in range(max_p, 0, -1):
                     suffix = text[-p_len:]
-                    if "<think>".startswith(suffix):
+                    if close_tag.startswith(suffix) and suffix != "<":
+                        if len(text) > p_len:
+                            results.append((True, text[:-p_len]))
+                        self._buf = suffix
+                        partial_match = True
+                        break
+                    elif open_tag.startswith(suffix):
                         if len(text) > p_len:
                             results.append((False, text[:-p_len]))
                         self._buf = suffix
@@ -410,18 +440,18 @@ class ThinkTagStreamSplitter:
                 results.append((False, text))
                 break
             else:
-                idx = text.find("</think>")
+                idx = text.find(close_tag)
                 if idx != -1:
                     if idx > 0:
                         results.append((True, text[:idx]))
                     self.in_thinking = False
-                    text = text[idx + 8 :]
+                    text = text[idx + close_len :]
                     continue
                 # Check for possible partial prefix of '</think>' at the end of text
                 partial_match = False
-                for p_len in range(min(7, len(text)), 0, -1):
+                for p_len in range(min(close_len - 1, len(text)), 0, -1):
                     suffix = text[-p_len:]
-                    if "</think>".startswith(suffix):
+                    if close_tag.startswith(suffix):
                         if len(text) > p_len:
                             results.append((True, text[:-p_len]))
                         self._buf = suffix
@@ -462,6 +492,17 @@ def strip_think_tags(text: str | None) -> tuple[str, str | None]:
         return ""
 
     clean = _THINK_TAG_BLOCK_RE.sub(repl, text)
+
+    # Bugfix: Handle close-only </think> tags when models (e.g. Ollama / LM Studio)
+    # emit a closing tag in content without an opening <think>.
+    # What was wrong: strip_think_tags left the entire string in clean content with no thinking.
+    # How it happened: Only <think>...</think> and unclosed <think> were matched.
+    # Why this fixes it: Text before a lone </think> is treated as thinking, and text after as clean content.
+    if "</think>" in clean:
+        idx = clean.find("</think>")
+        thoughts.append(clean[:idx])
+        clean = clean[idx + len("</think>") :]
+
     if "<think>" in clean:
         m = _THINK_UNCLOSED_RE.search(clean)
         if m:

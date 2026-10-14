@@ -641,9 +641,9 @@ Under LibreOffice, `deal_shim` is a no-op — `@deal.pre` does **not** run. If y
 
 #### C. Hypothesis oracles vs greedy production regexes
 
-When fuzzing extractors that use greedy character classes (e.g. base64 `data:image/...;base64,([A-Za-z0-9+/=\s]+)`), random **suffix/prefix** text often uses the same alphabet. The regex then consumes past your intended payload and the oracle fails even though production is correct.
+When fuzzing extractors that match base64 data URIs, random **suffix/prefix** text often uses the same alphabet. The URI regex uses a continuation rule (requiring whitespace followed by >=40 base64 chars for wrapped MIME lines or a short padded tail) so normal prose is not absorbed, but unrestricted random text from the same alphabet can still trigger continuation oracles.
 
-**Wrong:** `content = prefix + uri + suffix` with unrestricted `st.text()` around a greedy URI match, then assert exact `b64` equality.
+**Wrong:** `content = prefix + uri + suffix` with unrestricted `st.text()` around a URI match, then assert exact `b64` equality.
 
 **Right:** force a delimiter outside the regex alphabet (e.g. suffix = `"!" + …`), or assert weaker invariants (`mime_type` present, URI gone, `[Image Ref]` inserted) without requiring exact greedy-span equality.
 

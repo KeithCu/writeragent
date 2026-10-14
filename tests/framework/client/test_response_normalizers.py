@@ -11,6 +11,7 @@ from plugin.framework.client.openai_shim import OpenAIShim
 from plugin.framework.client.response_normalizers import (
     extract_and_strip_images_from_message,
     normalize_multimodal_messages,
+    prepare_chat_messages,
     strip_leaked_chat_template_control_tokens,
 )
 
@@ -269,3 +270,142 @@ def test_openai_shim_parse_sync_response_raises_on_error():
         shim.parse_sync_response(top_level_err)
     assert exc_info3.value.code == "STREAM_ERROR"
     assert "Rate limit exceeded" in str(exc_info3.value)
+
+
+def test_data_uri_regex_preserves_trailing_prose():
+    msg = {"role": "user", "content": "data:image/png;base64,AAAA\nNext line of text."}
+    extracted = extract_and_strip_images_from_message(msg)
+    assert len(extracted) == 1
+    assert extracted[0]["data"] == "AAAA"
+    assert msg["content"] == "[Image Ref]\nNext line of text."
+
+    msg2 = {"role": "user", "content": "Hello data:image/png;base64,AAAA see you."}
+    extract_and_strip_images_from_message(msg2)
+    assert msg2["content"] == "Hello [Image Ref] see you."
+
+    msg3 = {"role": "user", "content": 'src="data:image/png;base64,AAAA" more'}
+    extract_and_strip_images_from_message(msg3)
+    assert msg3["content"] == 'src="[Image Ref]" more'
+
+    msg4 = {"role": "user", "content": '<img src="data:image/png;base64,AAAA">'}
+    extract_and_strip_images_from_message(msg4)
+    assert msg4["content"] == '<img src="[Image Ref]">'
+
+    msg5 = {"role": "user", "content": 'url(data:image/png;base64,AAAA)'}
+    extract_and_strip_images_from_message(msg5)
+    assert msg5["content"] == 'url([Image Ref])'
+
+
+def test_data_uri_regex_multiline_mime_wrapped_continuation():
+    line1 = "A" * 76
+    line2 = "B" * 76
+    tail = "C" * 20 + "=="
+    full_b64 = f"{line1}\n{line2}\n{tail}"
+    msg = {"role": "user", "content": f"data:image/png;base64,{full_b64}\nFinal prose."}
+    extracted = extract_and_strip_images_from_message(msg)
+    assert len(extracted) == 1
+    assert extracted[0]["data"] == line1 + line2 + ("C" * 20 + "==")
+    assert msg["content"] == "[Image Ref]\nFinal prose."
+
+
+def test_normalize_multimodal_moves_remote_image_url_on_openai():
+    messages = [
+        {"role": "user", "content": "look"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "here is an image"},
+                {"type": "image_url", "image_url": {"url": "https://example.com/cat.png"}},
+            ],
+        },
+    ]
+    normalize_multimodal_messages(messages, "openai")
+    # Assistant part replaced with [Image Ref]
+    assert messages[1]["content"] == [
+        {"type": "text", "text": "here is an image"},
+        {"type": "text", "text": "[Image Ref]"},
+    ]
+    # URL moved to preceding user message
+    assert isinstance(messages[0]["content"], list)
+    assert messages[0]["content"][0]["text"] == "look"
+    assert messages[0]["content"][1]["type"] == "image_url"
+    assert messages[0]["content"][1]["image_url"]["url"] == "https://example.com/cat.png"
+
+
+def test_normalize_multimodal_anthropic_keeps_tool_remote_image_in_place():
+    block = {"type": "image_url", "image_url": {"url": "https://example.com/chart.png"}}
+    messages = [
+        {"role": "user", "content": "generate"},
+        {"role": "tool", "content": [block]},
+    ]
+    normalize_multimodal_messages(messages, "anthropic")
+    assert messages[1]["content"] == [block]
+
+
+def test_extract_preserves_malformed_data_uri():
+    msg = {
+        "role": "assistant",
+        "content": [
+            {"type": "image_url", "image_url": {"url": "data:image/png;notbase64!!!"}},
+        ],
+    }
+    extracted = extract_and_strip_images_from_message(msg, strip_structured_image_blocks=True)
+    assert extracted == []
+    # Not replaced with [Image Ref]!
+    assert msg["content"] == [
+        {"type": "image_url", "image_url": {"url": "data:image/png;notbase64!!!"}},
+    ]
+
+
+def test_normalize_multimodal_all_system_synthetic_user_appends():
+    messages = [
+        {"role": "system", "content": "system 1"},
+        {"role": "system", "content": "data:image/png;base64,abc123"},
+    ]
+    normalize_multimodal_messages(messages, "openai")
+    assert [m.get("role") for m in messages] == ["system", "system", "user"]
+    assert messages[0]["content"] == "system 1"
+    assert messages[1]["content"] == "[Image Ref]"
+    assert isinstance(messages[2]["content"], list)
+    assert messages[2]["content"][0]["text"] == "[Image attached by tool/system]"
+    assert messages[2]["content"][1]["image_url"]["url"] == "data:image/png;base64,abc123"
+
+
+def test_normalize_multimodal_system_assistant_inserts_user_between():
+    messages = [
+        {"role": "system", "content": "system instructions"},
+        {"role": "assistant", "content": "here data:image/png;base64,abc123"},
+    ]
+    normalize_multimodal_messages(messages, "openai")
+    assert [m.get("role") for m in messages] == ["system", "user", "assistant"]
+    assert messages[0]["content"] == "system instructions"
+    assert isinstance(messages[1]["content"], list)
+    assert messages[1]["content"][0]["text"] == "[Image attached by tool/system]"
+    assert messages[2]["content"] == "here [Image Ref]"
+
+
+def test_prepare_chat_messages_non_dict_passthrough():
+    messages = ["non-dict-string", {"role": "user", "content": "hi"}]
+    res = prepare_chat_messages(messages, "openai", prepend_dev_build_system_prefix=False)
+    assert "non-dict-string" in res
+    assert any(isinstance(m, dict) and m.get("role") == "user" and "hi" in str(m.get("content")) for m in res)
+
+    # System dict following a non-dict still gets date line
+    messages2 = ["nope", {"role": "system", "content": "prompt"}]
+    res2 = prepare_chat_messages(messages2, "openai", prepend_dev_build_system_prefix=False)
+    assert "nope" in res2
+    sys_m = next(m for m in res2 if isinstance(m, dict) and m.get("role") == "system")
+    assert "Today's date is " in sys_m["content"]
+
+
+def test_prepare_chat_messages_null_text_in_system_list():
+    messages = [{"role": "system", "content": [{"type": "text", "text": None}]}]
+    res = prepare_chat_messages(messages, "openai", prepend_dev_build_system_prefix=False)
+    assert isinstance(res[0]["content"], str)
+    assert "Today's date is " in res[0]["content"]
+
+
+def test_prepare_chat_messages_midstring_date_no_duplicate():
+    messages = [{"role": "system", "content": "Context before. Today's date is Monday. More context."}]
+    res = prepare_chat_messages(messages, "openai", prepend_dev_build_system_prefix=False)
+    assert res[0]["content"].count("Today's date is ") == 1

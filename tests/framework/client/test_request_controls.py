@@ -22,6 +22,7 @@ from plugin.framework.client.request_controls import (
     reset_host_pacing_for_tests,
     reset_local_unverified_hosts_for_tests,
     wait_abortable,
+    wait_host_gap,
 )
 
 
@@ -82,14 +83,14 @@ def test_backoff_honors_retry_after_floor_with_zero_jitter():
         min_delay=0.0,
         max_delay=0.01,
         jitter=0,
-        random=lambda: 0.0,
+        rng=lambda: 0.0,
     )
     assert delay == 0.002
 
 
 def test_backoff_without_retry_after_grows_with_attempt():
-    d1 = backoff_delay_sec(attempt=1, min_delay=0.3, max_delay=30.0, jitter=0, random=lambda: 0.0)
-    d2 = backoff_delay_sec(attempt=2, min_delay=0.3, max_delay=30.0, jitter=0, random=lambda: 0.0)
+    d1 = backoff_delay_sec(attempt=1, min_delay=0.3, max_delay=30.0, jitter=0, rng=lambda: 0.0)
+    d2 = backoff_delay_sec(attempt=2, min_delay=0.3, max_delay=30.0, jitter=0, rng=lambda: 0.0)
     assert d1 == 0.3
     assert d2 == 0.6
 
@@ -101,7 +102,7 @@ def test_backoff_over_cap_retry_after_spreads_downward():
         min_delay=0.3,
         max_delay=30.0,
         jitter="full",
-        random=lambda: 0.0,
+        rng=lambda: 0.0,
     )
     assert delay == 15.0
 
@@ -202,3 +203,29 @@ def test_emit_retry_status_skips_none():
     emit_retry_status(seen.append, 2.0)
     assert len(seen) == 1
     assert "2s" in seen[0]
+
+
+def test_wait_host_gap_status_callback():
+    key = ensure_free_model_pacing("openrouter.ai", "openrouter/free")
+    mark_host_sent(key, monotonic=lambda: 100.0)
+    seen: list[str] = []
+    # Key has 3s floor, 1s has elapsed, remaining is 2s.
+    wait_host_gap(key, status_callback=seen.append, monotonic=lambda: 101.0, stop_checker=lambda: True)
+    assert len(seen) == 1
+    assert "Spacing free-model requests, next send in 2s…" in seen[0]
+
+    # Learned 10s gap on a busy host (exceeds free floor) -> "Provider busy"
+    remember_host_gap("busy.ai", 10.0)
+    mark_host_sent("busy.ai", monotonic=lambda: 100.0)
+    seen_busy: list[str] = []
+    wait_host_gap("busy.ai", status_callback=seen_busy.append, monotonic=lambda: 101.0, stop_checker=lambda: True)
+    assert len(seen_busy) == 1
+    assert "Provider busy, retrying in 9s…" in seen_busy[0]
+
+
+def test_local_https_certificate_fallback_logs_warning(caplog):
+    import logging
+    fallback = LocalHttpsCertificateFallback()
+    with caplog.at_level(logging.WARNING):
+        fallback.enable_if_applicable("localhost", ssl.SSLCertVerificationError("self-signed certificate"))
+    assert any(rec.levelno == logging.WARNING and "Local HTTPS certificate verification failed for localhost" in rec.message for rec in caplog.records)

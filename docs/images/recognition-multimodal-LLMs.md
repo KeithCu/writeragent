@@ -61,15 +61,15 @@ Implemented in [`tool_loop.py`](../../plugin/chatbot/tool_loop.py) (`_do_send_ch
 - Only on the **first** user message of the send; not re-attached on later tool-loop rounds.
 - Uses [`get_selected_image_base64`](../../plugin/writer/images/image_tools.py) with panel `ctx` and frame-resolved document model.
 
-### Tool-result image normalization (`data:image/...`)
+### Tool-result image normalization (`data:image/...` and remote `http(s)`)
 
 Implemented in [`response_normalizers.py`](../../plugin/framework/client/response_normalizers.py):
 
-- `extract_and_strip_images_from_message` — finds `data:image/...;base64,...` in tool/assistant/system message strings and list parts; replaces with `[Image Ref]`.
-- `normalize_multimodal_messages(messages, provider)` — re-attaches extracted images per provider rules (OpenAI-compatible: move to nearest preceding `user` message; Anthropic: can stay in `tool`; Gemini: flexible).
+- `extract_and_strip_images_from_message` — finds `data:image/...;base64,...` in tool/assistant/system message strings and list parts, as well as `http(s)` `image_url` parts; replaces with `[Image Ref]`.
+- `normalize_multimodal_messages(messages, provider)` — re-attaches extracted base64 images and remote `http(s)` URLs per provider rules (OpenAI-compatible: move to nearest preceding `user` message; Anthropic: can stay in `tool`; Gemini: flexible).
 - Called from [`llm_client.py`](../../plugin/framework/client/llm_client.py) `make_chat_request` before the shim builds the wire payload.
 
-**Covers:** `get_document_content(include_images=true)` HTML with embedded `data:image` URIs. **Does not yet cover:** `_mcp_image` tool results (see follow-ups).
+**Covers:** `get_document_content(include_images=true)` HTML with embedded `data:image` URIs, and remote `http(s)` `image_url` blocks in tool/assistant turns. **Does not yet cover:** `_mcp_image` tool results (see follow-ups).
 
 ### Core `get_image` tool (lazy on-demand vision)
 
