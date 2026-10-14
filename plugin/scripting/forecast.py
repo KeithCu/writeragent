@@ -28,9 +28,9 @@ from plugin.scripting.calc_functions_common import (
 FORECAST_HEADER_PREFIX = header_prefix("forecast")
 
 HELPER_PARAM_HELP: dict[str, str] = {
-    "forecast_time_series": "periods (int, default 12, minimum 1, capped at 10000), model (auto, holt_winters, arima, or moving_average; default auto), date_col (default Date) and value_col (default Value) must be different columns, seasonal_periods (optional int). Date cells may be ISO strings, Calc serial numbers, or calendar years 1900-2200. model=auto uses Holt-Winters when at least two seasonal cycles are present, otherwise ARIMA(1,1,1), otherwise a flat moving average.",
+    "forecast_time_series": "periods (int, default 12, minimum 1, capped at 10000), model (auto, holt_winters, arima, or moving_average; default auto), date_col (default Date) and value_col (default Value) must be different columns, seasonal_periods (optional int). Date cells may be ISO strings, Calc serial numbers, or calendar years 1900-2200. model=auto uses Holt-Winters when at least two seasonal cycles are present, otherwise ARIMA(1,1,1), otherwise a flat moving average. seasonal_periods applies to auto and holt_winters. Explicit arima and moving_average ignore it and add a flag.",
     "decompose_time_series": "date_col (default Date) and value_col (default Value) must be different columns, model (additive or multiplicative; default additive), period (optional int greater than 1; inferred from the dates when omitted).",
-    "anomaly_detection_time_series": "date_col (default Date) and value_col (default Value) must be different columns, period (optional int greater than 1), method (stl_residual only), threshold (float, default 3), include_all (bool, default false).",
+    "anomaly_detection_time_series": "date_col (default Date) and value_col (default Value) must be different columns, period (optional int greater than 1), method (stl_residual only), threshold (number greater than 0, default 3), include_all (bool, default false).",
 }
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {

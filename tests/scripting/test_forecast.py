@@ -53,6 +53,8 @@ def test_decompose_time_series_ok():
     assert result["helper"] == "decompose_time_series"
     assert result["tables"][0]["name"] == "decomposition"
     assert "trend" in result["tables"][0]["columns"]
+    assert result["tables"][0]["truncated"] is False
+    assert not any("shows the first" in flag for flag in result["flags"])
 
 
 def test_run_forecast_dispatch():
@@ -218,6 +220,7 @@ def test_holt_winters_intervals_use_simulate_not_get_prediction():
     assert table["columns"] == ["date", "forecast", "lower", "upper"]
     assert "confidence intervals unavailable" not in result["flags"]
     assert "interval_note" not in result["metrics"]
+    assert not any("does not apply" in flag for flag in result["flags"])
     for row in table["rows"]:
         point, lower, upper = row[1], row[2], row[3]
         assert lower <= point <= upper
@@ -238,8 +241,9 @@ def test_holt_winters_interval_failure_is_a_structured_note(monkeypatch):
     assert note["available"] is False
     assert note["method"] == "HoltWintersResults.simulate"
     assert "get_prediction" in note["message"]
+    assert note["message"] not in result["flags"]
+    assert "Holt-Winters prediction intervals are omitted; the forecast column is the point forecast." in result["flags"]
     assert "confidence intervals unavailable" not in result["flags"]
-    assert note["message"] in result["flags"]
 
 
 def test_duplicate_dates_are_aggregated():
@@ -297,6 +301,7 @@ def test_gapped_month_end_is_not_a_flat_average():
     result = forecast_time_series(frame, periods=6, model="auto")
     assert result["status"] == "ok", result
     assert result["metrics"]["model"] != "moving_average"
+    assert pd.Timestamp(result["tables"][0]["rows"][0][0]) > dates[-1]
     for row in result["tables"][0]["rows"]:
         assert pd.Timestamp(row[0]).day >= 28
     assert "Dates are irregular, so the forecast assumes equal spacing between observations." in result["flags"]
@@ -329,6 +334,7 @@ def test_explicit_season_too_short_is_flagged():
     assert result["status"] == "ok", result
     assert result["metrics"]["model"] != "holt_winters"
     assert any("seasonal_periods=12" in f and "got 20" in f for f in result["flags"])
+    assert not any("does not apply" in flag for flag in result["flags"])
 
 
 def test_holt_winters_too_short_is_insufficient_data():
@@ -392,6 +398,7 @@ def test_moving_average_states_no_interval():
     res = forecast_time_series(frame, periods=3, model="moving_average")
     assert res["status"] == "ok", res
     assert "moving_average has no prediction interval" in res["flags"]
+    assert not any("does not apply" in flag for flag in res["flags"])
 
 
 def test_anomaly_tables_use_200_rows():
@@ -563,6 +570,171 @@ def test_cycle_threshold_follows_min_decompose_cycles(monkeypatch: pytest.Monkey
     assert res_hw["status"] == "error"
     assert res_hw["code"] == "INSUFFICIENT_DATA"
     assert "21" in res_hw["message"]
+
+
+def test_month_snapshot_on_the_28th_forecasts_the_next_month():
+    dates = [pd.Timestamp(f"2023-{m:02d}-28") for m in range(5, 13)]
+    frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(len(dates))]})
+    result = forecast_time_series(frame, periods=3, model="moving_average")
+    assert result["status"] == "ok"
+    assert result["metrics"]["freq"] == "month"
+    first_iso = str(result["tables"][0]["rows"][0][0])
+    assert first_iso.startswith("2024-01-28")
+    assert not first_iso.startswith("2023-12-31")
+
+
+def test_28th_series_ending_on_non_leap_february_is_not_month_end():
+    dates = [pd.Timestamp("2021-03-28") + pd.DateOffset(months=i) for i in range(24)]
+    assert dates[-1] == pd.Timestamp("2023-02-28")
+    frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(len(dates))]})
+    result = forecast_time_series(frame, periods=3, model="moving_average")
+    assert result["status"] == "ok"
+    assert result["metrics"]["freq"] == "month"
+    first_iso = str(result["tables"][0]["rows"][0][0])
+    assert first_iso.startswith("2023-03-28")
+    assert not first_iso.startswith("2023-03-31")
+
+
+def test_gapped_true_month_end_stays_on_month_end():
+    dates = pd.date_range("2021-03-31", periods=24, freq="ME").delete(5)
+    assert dates[-1] == pd.Timestamp("2023-02-28")
+    assert pd.infer_freq(dates) is None
+    frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(len(dates))]})
+    result = forecast_time_series(frame, periods=3, model="moving_average")
+    assert result["status"] == "ok"
+    assert result["metrics"]["freq"] == "ME"
+    first_iso = str(result["tables"][0]["rows"][0][0])
+    assert first_iso.startswith("2023-03-31")
+
+
+def test_day_30_snapshot_keeps_the_day_after_february():
+    dates = []
+    for i in range(24):
+        year = 2022 + i // 12
+        month = (i % 12) + 1
+        if month == 2:
+            dates.append(pd.Timestamp(f"{year}-02-28"))
+        else:
+            dates.append(pd.Timestamp(f"{year}-{month:02d}-30"))
+    assert dates[-1] == pd.Timestamp("2023-12-30")
+    frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(len(dates))]})
+    result = forecast_time_series(frame, periods=3, model="moving_average")
+    assert result["status"] == "ok"
+    assert result["metrics"]["freq"] == "month"
+    rows = result["tables"][0]["rows"]
+    assert str(rows[0][0]).startswith("2024-01-30")
+    assert str(rows[1][0]).startswith("2024-02-29")
+    assert str(rows[2][0]).startswith("2024-03-30")
+
+
+def test_quarter_snapshot_on_the_28th_steps_a_quarter():
+    dates = []
+    for y in (2022, 2023):
+        for m in (3, 6, 9, 12):
+            dates.append(pd.Timestamp(f"{y}-{m:02d}-28"))
+    frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(len(dates))]})
+    result = forecast_time_series(frame, periods=3, model="moving_average")
+    assert result["status"] == "ok"
+    assert result["metrics"]["freq"] == "quarter"
+    first_iso = str(result["tables"][0]["rows"][0][0])
+    assert first_iso.startswith("2024-03-28")
+    assert not first_iso.startswith("2023-12-31")
+
+
+def test_year_snapshot_on_dec_28_steps_a_year():
+    dates = [pd.Timestamp(f"{y}-12-28") for y in range(2016, 2024)]
+    frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(len(dates))]})
+    result = forecast_time_series(frame, periods=3, model="moving_average")
+    assert result["status"] == "ok"
+    assert result["metrics"]["freq"] == "year"
+    first_iso = str(result["tables"][0]["rows"][0][0])
+    assert first_iso.startswith("2024-12-28")
+    assert not first_iso.startswith("2023-12-31")
+
+
+def test_gapped_month_start_stays_on_month_start():
+    dates = pd.date_range("2018-01-01", periods=24, freq="MS").delete(10)
+    frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(len(dates))]})
+    result = forecast_time_series(frame, periods=3, model="moving_average")
+    assert result["status"] == "ok"
+    assert result["metrics"]["freq"] == "MS"
+    first_iso = str(result["tables"][0]["rows"][0][0])
+    assert first_iso.startswith("2020-01-01")
+
+
+def test_gapped_quarter_end_stays_on_quarter_end():
+    dates = pd.date_range("2016-03-31", periods=16, freq="QE").delete(3)
+    frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(len(dates))]})
+    result = forecast_time_series(frame, periods=3, model="moving_average")
+    assert result["status"] == "ok"
+    assert result["metrics"]["freq"] == "QE"
+    first_iso = str(result["tables"][0]["rows"][0][0])
+    assert first_iso.startswith("2020-03-31")
+
+
+def test_nonpositive_anomaly_threshold_is_invalid_param():
+    frame = pd.DataFrame({
+        "Date": pd.date_range("2024-01-01", periods=20, freq="D"),
+        "Value": [float(i) for i in range(20)],
+    })
+    for val in (0, -1, 0.0, "0", "-1.5"):
+        res = anomaly_detection_time_series(frame, period=7, threshold=val)
+        assert res["status"] == "error"
+        assert res["code"] == "INVALID_PARAM"
+        assert res["message"] == "threshold must be a number greater than 0"
+    res_run = run_forecast(
+        {"helper": "anomaly_detection_time_series", "params": {"period": 7, "threshold": 0}},
+        data=frame,
+    )
+    assert res_run["status"] == "error"
+    assert res_run["code"] == "INVALID_PARAM"
+    assert res_run["message"] == "threshold must be a number greater than 0"
+
+    _require_statsmodels_installed()
+    spike_data = _seasonal_series_with_spike()
+    ok_res = anomaly_detection_time_series(spike_data, period=7, threshold=0.5)
+    assert ok_res["status"] == "ok"
+    assert ok_res["metrics"]["threshold"] == 0.5
+
+
+def test_decompose_truncation_is_flagged():
+    _require_statsmodels_installed()
+    dates = pd.date_range("2024-01-01", periods=201, freq="D")
+    frame = pd.DataFrame({"Date": dates, "Value": [10.0 + (i % 7) for i in range(201)]})
+    result = decompose_time_series(frame, period=7)
+    assert result["status"] == "ok", result
+    table = result["tables"][0]
+    assert table["truncated"] is True
+    assert len(table["rows"]) == 200
+    assert table["total_rows"] == 201
+    assert "decomposition table shows the first 200 of 201 rows" in result["flags"]
+
+
+def test_moving_average_ignores_seasonal_periods():
+    frame = pd.DataFrame({
+        "Date": pd.date_range("2024-01-01", periods=20, freq="D"),
+        "Value": [float(i) for i in range(20)],
+    })
+    result = forecast_time_series(frame, periods=3, model="moving_average", seasonal_periods=4)
+    assert result["status"] == "ok", result
+    flags = result["flags"]
+    ign_flag = "seasonal_periods does not apply to moving_average; ignored"
+    no_int_flag = "moving_average has no prediction interval"
+    assert ign_flag in flags
+    assert no_int_flag in flags
+    assert flags.index(ign_flag) < flags.index(no_int_flag)
+
+
+def test_arima_ignores_seasonal_periods():
+    _require_statsmodels_installed()
+    frame = pd.DataFrame({
+        "Date": pd.date_range("2024-01-01", periods=20, freq="D"),
+        "Value": [float(i) for i in range(20)],
+    })
+    result = forecast_time_series(frame, periods=3, model="arima", seasonal_periods=4)
+    assert result["status"] == "ok", result
+    assert result["metrics"]["model"] == "arima"
+    assert "seasonal_periods does not apply to non-seasonal ARIMA(1,1,1); ignored" in result["flags"]
 
 
 

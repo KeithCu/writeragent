@@ -275,25 +275,33 @@ def _spacing(series: Any) -> tuple[Any, str, bool]:
         min_delta = pos_deltas.min()
         irregular = bool((max_delta > 1.5 * step) or (min_delta < 0.5 * step))
 
-    last_date = series.index[-1]
+    # What was wrong: day >= 28 selected MonthEnd / QuarterEnd / YearEnd for
+    # dates that are not on that anchor.
+    # How: those offsets roll to the current period end, so 2023-12-28 + MonthEnd
+    # is 2023-12-31, and the same roll happens for 28 March (QuarterEnd) and
+    # 28 December (YearEnd).
+    # Why this fixes it: the anchored offset is used only when every observation
+    # is on it. Anything else keeps the day of month via DateOffset. The whole
+    # index is required because non-leap 28 February is a month end even when the
+    # series is "the 28th."
     if 27 <= days <= 32:
-        if last_date.day == 1:
+        if series.index.is_month_start.all():
             return pd.tseries.frequencies.to_offset("MS"), "MS", irregular
-        if last_date.day >= 28:
+        if series.index.is_month_end.all():
             return pd.tseries.frequencies.to_offset("ME"), "ME", irregular
         return pd.DateOffset(months=1), "month", irregular
 
     if 85 <= days <= 95:
-        if last_date.month in {3, 6, 9, 12} and last_date.day >= 28:
+        if series.index.is_quarter_end.all():
             return pd.tseries.frequencies.to_offset("QE"), "QE", irregular
-        if last_date.month in {1, 4, 7, 10} and last_date.day == 1:
+        if series.index.is_quarter_start.all():
             return pd.tseries.frequencies.to_offset("QS"), "QS", irregular
         return pd.DateOffset(months=3), "quarter", irregular
 
     if 360 <= days <= 370:
-        if last_date.month == 12 and last_date.day >= 28:
+        if series.index.is_year_end.all():
             return pd.tseries.frequencies.to_offset("YE"), "YE", irregular
-        if last_date.month == 1 and last_date.day == 1:
+        if series.index.is_year_start.all():
             return pd.tseries.frequencies.to_offset("YS"), "YS", irregular
         return pd.DateOffset(years=1), "year", irregular
 
@@ -306,7 +314,13 @@ def _future_index(series: Any, periods: int) -> tuple[Any, str]:
 
     step, label, _irregular = _spacing(series)
     last_date = series.index[-1]
-    future = pd.date_range(start=last_date + step, periods=periods, freq=step)
+    # date_range applies DateOffset iteratively, which clips a short month and
+    # then keeps the clipped day (e.g. 2023-01-30 -> 2023-02-28 -> 2023-03-28).
+    # Stepping directly from the original last timestamp (last + step * k) keeps 2023-03-30.
+    if label in ("month", "quarter", "year"):
+        future = pd.DatetimeIndex([last_date + step * k for k in range(1, periods + 1)])
+    else:
+        future = pd.date_range(start=last_date + step, periods=periods, freq=step)
     return future, label
 
 
@@ -371,10 +385,11 @@ def _forecast_moving_average(series: Any, *, periods: int) -> tuple[Any, str, di
 # tsa.holtwinters.results.HoltWintersResults). Calling it always raised
 # AttributeError, which was swallowed as "confidence intervals unavailable".
 _HW_SIM_REPETITIONS = 400
-_HW_INTERVALS_UNAVAILABLE = (
-    "Holt-Winters prediction intervals are omitted. "
-    "HoltWintersResults has no analytic get_prediction; "
-    "simulate() did not return a 95% band. The forecast column is the point forecast."
+_HW_INTERVALS_OMITTED_FLAG = (
+    "Holt-Winters prediction intervals are omitted; the forecast column is the point forecast."
+)
+_HW_INTERVALS_NOTE_MESSAGE = (
+    "HoltWintersResults has no analytic get_prediction; simulate() did not return a 95% band."
 )
 
 
@@ -450,7 +465,7 @@ def _forecast_holt_winters(series: Any, *, periods: int, seasonal_periods: int) 
     flags: list[str] = []
     intervals = _holt_winters_intervals(fit, periods)
     if intervals is None:
-        flags.append(_HW_INTERVALS_UNAVAILABLE)
+        flags.append(_HW_INTERVALS_OMITTED_FLAG)
         for idx, dt in enumerate(future_dates):
             rows.append({"date": dt, "forecast": _forecast_point(forecast_vals, idx)})
     else:
@@ -479,7 +494,7 @@ def _forecast_holt_winters(series: Any, *, periods: int, seasonal_periods: int) 
         metrics["interval_note"] = {
             "available": False,
             "method": "HoltWintersResults.simulate",
-            "message": _HW_INTERVALS_UNAVAILABLE,
+            "message": _HW_INTERVALS_NOTE_MESSAGE,
         }
     return forecast_df, "holt_winters", metrics, flags
 
@@ -590,6 +605,8 @@ def forecast_time_series(
 
     if model_name == "moving_average":
         forecast_df, _unused_model, metrics = _forecast_moving_average(series, periods=periods_clamped)
+        if seasonal_periods_val is not None:
+            flags.append("seasonal_periods does not apply to moving_average; ignored")
         flags.append("moving_average has no prediction interval")
     elif _require_statsmodels(helper) is None:
         if model_name == "auto":
@@ -623,6 +640,8 @@ def forecast_time_series(
     elif model_name == "arima":
         try:
             forecast_df, _unused_model, metrics, arima_flags = _forecast_arima(series, periods=periods_clamped)
+            if seasonal_periods_val is not None:
+                flags.append("seasonal_periods does not apply to non-seasonal ARIMA(1,1,1); ignored")
             flags.extend(arima_flags)
         except Exception as exc:
             return _error_result("FORECAST_FAILED", str(exc), helper=helper)
@@ -743,6 +762,8 @@ def decompose_time_series(
         "n_obs": int(len(series)),
     }
     flags = _duplicate_date_flags(coerced) + _dropped_row_flags(coerced)
+    if table["truncated"]:
+        flags.append(f"decomposition table shows the first {DATA_TABLE_ROWS} of {len(decomp_df)} rows")
     return _ok_result(
         helper,
         metrics=metrics,
@@ -750,6 +771,11 @@ def decompose_time_series(
         flags=flags,
         metadata=coerced.metadata if coerced else {},
     )
+
+
+# Approximately Φ^{-1}(0.75), the factor that makes a MAD-based score
+# comparable to a standard deviation for normal residuals. The literal must stay 0.6745.
+_NORMAL_MAD_SCALE = 0.6745
 
 
 def _robust_z_scores(values: Any) -> Any:
@@ -760,7 +786,7 @@ def _robust_z_scores(values: Any) -> Any:
     median = float(np.median(arr))
     mad = float(np.median(np.abs(arr - median)))
     if mad > 0:
-        return 0.6745 * (arr - median) / mad
+        return _NORMAL_MAD_SCALE * (arr - median) / mad
     std = float(np.std(arr))
     if std > 0:
         return (arr - float(np.mean(arr))) / std
@@ -784,9 +810,6 @@ def anomaly_detection_time_series(
     import pandas as pd
 
     helper = "anomaly_detection_time_series"
-    if _require_statsmodels(helper) is None:
-        return _missing_package_error(helper, "statsmodels")
-
     method_name = str(method or "stl_residual").strip().lower()
     if method_name != "stl_residual":
         return _error_result("INVALID_PARAM", f"Unknown method {method_name!r}; only stl_residual is supported", helper=helper)
@@ -796,10 +819,17 @@ def anomaly_detection_time_series(
     except ValueError as exc:
         return _error_result("INVALID_PARAM", str(exc), helper=helper)
 
+    # threshold <= 0 used to satisfy abs(score) > threshold for every row.
+    if threshold_val <= 0:
+        return _error_result("INVALID_PARAM", "threshold must be a number greater than 0", helper=helper)
+
     try:
         include_all_val = coerce_bool(include_all, name="include_all", default=False)
     except ValueError as exc:
         return _error_result("INVALID_PARAM", str(exc), helper=helper)
+
+    if _require_statsmodels(helper) is None:
+        return _missing_package_error(helper, "statsmodels")
 
     coerced, series, err = _prepare_time_series(
         data,
