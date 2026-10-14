@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Any
 
 from plugin.audio.kokoro_pool import KokoroProcessPool
 
@@ -270,7 +271,7 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
         def kill(self) -> bool:
             return True
 
-    monkeypatch.setattr("plugin.audio.kokoro_pool.BaseProcessWorker", _Replacement)
+    monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _Replacement)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     stuck = _Stuck()
     token = object()
@@ -325,7 +326,7 @@ def test_failed_handshake_is_not_executed_and_a_later_job_may_spawn(monkeypatch)
         def kill(self) -> bool:
             return True
 
-    monkeypatch.setattr("plugin.audio.kokoro_pool.BaseProcessWorker", _DeadSpawn)
+    monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _DeadSpawn)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     try:
         result = pool.execute({"text": "hi"})
@@ -396,7 +397,7 @@ def test_dead_warm_child_is_retired_and_replaced(monkeypatch) -> None:
         def kill(self) -> bool:
             return True
 
-    monkeypatch.setattr("plugin.audio.kokoro_pool.BaseProcessWorker", _Replacement)
+    monkeypatch.setattr("plugin.audio.kokoro_pool._KokoroWorker", _Replacement)
     pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
     stuck = _Dead()
     pool._worker = stuck  # type: ignore[assignment]
@@ -410,3 +411,40 @@ def test_dead_warm_child_is_retired_and_replaced(monkeypatch) -> None:
         assert pool._worker is not stuck
     finally:
         pool.shutdown()
+
+
+def test_kokoro_worker_managed_subprocess_env_and_wrapper(monkeypatch):
+    from unittest.mock import MagicMock
+    from plugin.audio.kokoro_pool import _KokoroWorker, _child_env
+
+    # Plant a secret in os.environ that scrub_subprocess_env removes
+    monkeypatch.setenv("OPENAI_API_KEY", "super-secret-key")
+
+    captured: dict[str, Any] = {}
+
+    def fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        proc = MagicMock()
+        proc.stderr = MagicMock()
+        proc.pid = 1234
+        return proc
+
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", lambda *_a, **_k: MagicMock())
+
+    worker = _KokoroWorker(sys.executable, "dummy_script.py", env=_child_env())
+    # Command wrapper must be None
+    assert worker._managed._command_wrapper is None
+
+    worker._managed.start()
+    worker.kill()
+
+    # Argv is [sys.executable, "dummy_script.py"] with no flatpak-spawn or wrapper prefix
+    assert captured["cmd"] == [sys.executable, "dummy_script.py"]
+
+    # Environment passed to Popen must not contain the scrubbed secret
+    popen_env = captured["kwargs"]["env"]
+    assert "OPENAI_API_KEY" not in popen_env
+    assert popen_env.get("PYTHONUTF8") == "1"
+    assert "PYTHONPATH" in popen_env

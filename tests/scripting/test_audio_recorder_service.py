@@ -33,7 +33,7 @@ def test_reap_kills_the_group_before_dropping_stderr(monkeypatch):
         order.append("kill")
         assert target is proc
 
-    monkeypatch.setattr("plugin.framework.managed_subprocess._kill_process_tree", _kill)
+    monkeypatch.setattr("plugin.scripting.audio_recorder_service.kill_process_tree", _kill)
     try:
         _reap_recording_process(proc, 0.01)
     finally:

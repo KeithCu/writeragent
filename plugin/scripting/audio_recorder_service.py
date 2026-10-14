@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.config import get_config_str
 from plugin.framework.worker_pool import BackgroundHandle, StderrTail, run_in_background, start_stderr_drain
+from plugin.framework.managed_subprocess import kill_process_tree
 from plugin.scripting.native_binaries import ensure_native_binaries_on_path
 
 if TYPE_CHECKING:
@@ -199,9 +200,7 @@ def _reap_recording_process(proc: subprocess.Popen[str], timeout_sec: float) -> 
         try:
             proc.wait(timeout=1.0)
         except subprocess.TimeoutExpired:
-            from plugin.framework.managed_subprocess import _kill_process_tree
-
-            _kill_process_tree(proc)
+            kill_process_tree(proc)
             try:
                 proc.wait(timeout=2.0)
             except subprocess.TimeoutExpired:

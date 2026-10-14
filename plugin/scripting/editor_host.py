@@ -50,7 +50,7 @@ from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, 
 from plugin.scripting.venv_worker import (
     warm_venv_worker,
 )
-from plugin.framework.managed_subprocess import _kill_process_tree
+from plugin.framework.managed_subprocess import kill_process_tree
 
 log = logging.getLogger(__name__)
 
@@ -377,7 +377,7 @@ class PersistentEditor:
             return
         try:
             if proc.poll() is None:
-                _kill_process_tree(proc)
+                kill_process_tree(proc)
                 try:
                     proc.wait(timeout=2)
                 except subprocess.TimeoutExpired:

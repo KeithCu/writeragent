@@ -13,7 +13,6 @@ import io
 import logging
 import os
 import pickle
-import signal
 import struct
 import subprocess
 import sys
@@ -222,7 +221,6 @@ def test_harness_main_loop_integration():
 def test_manager_real_spawn_drains_stderr_flood(tmp_path, monkeypatch):
     """The manager's actual Popen path must drain stderr before waiting for a response."""
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
 
     child = tmp_path / "stderr_flood_worker.py"
     child.write_text(
@@ -282,7 +280,6 @@ while True:
 def test_worker_crash_mid_request_retries_and_recovers(tmp_path, monkeypatch):
     """A child that dies once mid-IPC must be recycled; the retried turn should succeed."""
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
 
     crash_once = tmp_path / "crash_once"
     crash_once.write_text("1", encoding="utf-8")
@@ -370,7 +367,6 @@ def test_pid_is_alive_current_process():
 def test_terminate_worker_kills_grandchild(tmp_path, monkeypatch):
     """Timeout/crash cleanup must kill descendants (joblib/loky, DataLoader), not only the worker."""
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
 
     child = tmp_path / "tree_worker.py"
     child.write_text(
@@ -427,7 +423,6 @@ time.sleep(120)
 def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
     """A child that never reads stdin must not hold the manager's pool lock forever."""
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
 
     child = tmp_path / "blocked_stdin_worker.py"
     child.write_text("import time\ntime.sleep(60)\n", encoding="utf-8")
@@ -545,7 +540,6 @@ def test_write_timeout_skips_terminate_when_writer_already_detached():
 
 def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
 
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
@@ -584,7 +578,6 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
 def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     """A tool_call that already ran must not be followed by a second copy of the script."""
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
 
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
@@ -621,7 +614,6 @@ def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch):
     and the attempt loop wrote the same request to a new child.
     """
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
 
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
@@ -918,21 +910,6 @@ def test_ensure_running_joins_dead_child_before_spawn(monkeypatch: pytest.Monkey
     assert order == ["join", ("terminate", False), "join", "popen"]
 
 
-def test_kill_process_tree_win32_uses_taskkill(monkeypatch):
-    """Windows must kill grandchildren; TerminateProcess on the worker PID is not enough."""
-    import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
-
-    run = MagicMock()
-    monkeypatch.setattr(venv_worker_module.subprocess, "run", run)
-
-    proc = MagicMock()
-    proc.poll.return_value = 1
-    proc.pid = 4242
-    managed_subprocess._kill_process_tree_win32(proc)
-    run.assert_called_once()
-    assert run.call_args[0][0] == ["taskkill", "/F", "/T", "/PID", "4242"]
-    proc.kill.assert_not_called()
 
 
 def test_manager_separate_pools_same_exe():
@@ -1022,7 +999,6 @@ def test_bad_result_after_tool_call_does_not_replay(monkeypatch, exc_type):
     and TypeError are on the same host-unpack contract and used to escape.
     """
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
 
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock()
@@ -2023,7 +1999,6 @@ def test_acquire_io_refuses_other_thread_during_tool_rpc():
 def test_acquire_io_stops_waiting_when_holder_enters_tool_rpc(monkeypatch):
     """A waiter parked on the lock must leave once a tool RPC starts."""
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
 
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
     monkeypatch.setattr(venv_worker_module, "_IO_LOCK_ACQUIRE_TIMEOUT_SEC", 30.0)
@@ -2056,7 +2031,6 @@ def test_acquire_io_stops_waiting_when_holder_enters_tool_rpc(monkeypatch):
 def test_acquire_io_times_out_instead_of_blocking(monkeypatch):
     """A holder that never releases must not pin the waiter forever."""
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
 
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
     monkeypatch.setattr(venv_worker_module, "_IO_LOCK_ACQUIRE_TIMEOUT_SEC", 0.15)
@@ -2105,127 +2079,10 @@ def test_acquire_io_takes_lock_after_holder_releases(monkeypatch):
     mgr._release_io()
 
 
-def test_kill_process_tree_signals_group_after_leader_exits(monkeypatch):
-    """Descendants must still be signaled when the direct child has already exited."""
-    import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
-
-    proc = MagicMock()
-    proc.pid = 4242
-    proc.poll.return_value = 0
-    if sys.platform == "win32":
-        run = MagicMock()
-        monkeypatch.setattr(venv_worker_module.subprocess, "run", run)
-        managed_subprocess._kill_process_tree(proc)
-        run.assert_called_once()
-        assert run.call_args[0][0] == ["taskkill", "/F", "/T", "/PID", "4242"]
-        proc.kill.assert_not_called()
-        return
-
-    killed: dict[str, int] = {}
-
-    def _getpgid(pid: int) -> int:
-        raise ProcessLookupError(pid)
-
-    def _killpg(pgid: int, sig: int) -> None:
-        killed["pgid"] = pgid
-        killed["sig"] = sig
-
-    monkeypatch.setattr(os, "getpgid", _getpgid)
-    monkeypatch.setattr(os, "killpg", _killpg)
-
-    # Leader already exited, proc.poll() returns 0.
-    proc.poll.return_value = 0
-    managed_subprocess._kill_process_tree(proc)
-    assert killed == {"pgid": 4242, "sig": signal.SIGKILL}
-    proc.kill.assert_not_called()
-
-def test_kill_process_tree_no_pgid_but_alive(monkeypatch):
-    """If getpgid fails and the leader is still alive, we fallback to proc.kill()."""
-    import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
-
-    proc = MagicMock()
-    proc.pid = 4242
-    proc.poll.return_value = None
-    if sys.platform == "win32":
-        return
-
-    killed: dict[str, int] = {}
-
-    def _getpgid(pid: int) -> int:
-        raise ProcessLookupError(pid)
-
-    def _killpg(pgid: int, sig: int) -> None:
-        killed["pgid"] = pgid
-        killed["sig"] = sig
-
-    monkeypatch.setattr(os, "getpgid", _getpgid)
-    monkeypatch.setattr(os, "killpg", _killpg)
-
-    managed_subprocess._kill_process_tree(proc)
-    assert not killed  # os.killpg not called
-    proc.kill.assert_called_once()
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process groups")
-def test_kill_process_tree_reaps_grandchild_after_leader_exits():
-    """Real session: leader exit must not leave the grandchild running."""
-    import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
-
-    code = (
-        "import os, sys, time\n"
-        "pid = os.fork()\n"
-        "if pid == 0:\n"
-        "    time.sleep(120)\n"
-        "    os._exit(0)\n"
-        "sys.stderr.write('GRANDCHILD %s\\n' % pid)\n"
-        "sys.stderr.flush()\n"
-        "os._exit(0)\n"
-    )
-    proc = subprocess.Popen(
-        [sys.executable, "-c", code],
-        start_new_session=True,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-    )
-    gpid = None
-    try:
-        assert proc.stderr is not None
-        line = proc.stderr.readline()
-        text = line.decode()
-        assert text.startswith("GRANDCHILD "), text
-        gpid = int(text.split()[1])
-        proc.wait(timeout=5)
-        assert proc.poll() is not None
-        assert pid_is_alive(gpid)
-        managed_subprocess._kill_process_tree(proc)
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline and pid_is_alive(gpid):
-            time.sleep(0.05)
-        assert not pid_is_alive(gpid), f"grandchild pid {gpid} survived group kill"
-    finally:
-        if gpid is not None and pid_is_alive(gpid):
-            try:
-                os.kill(gpid, signal.SIGKILL)
-            except OSError:
-                pass
-        if proc.poll() is None:
-            proc.kill()
-        try:
-            proc.wait(timeout=2)
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-        if proc.stderr is not None:
-            proc.stderr.close()
-
 
 def test_ensure_running_starts_new_session_without_preexec(monkeypatch):
     """setsid belongs on the C spawn path, not a Python preexec_fn."""
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
 
     popen = MagicMock()
     proc = MagicMock()
@@ -2721,7 +2578,6 @@ def test_read_response_with_heartbeats_stop_checker(monkeypatch: pytest.MonkeyPa
 def test_host_pack_oversize_returns_error_without_terminate(monkeypatch):
     """An oversize request fails before any write; the warm worker must survive."""
     import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
     from plugin.scripting.ipc import IpcFrameError
 
     def _pack(*args, **kwargs):
@@ -2803,61 +2659,6 @@ def test_partial_stdin_write_delivers_full_frame():
     stdin.flush.assert_called_once()
 
 
-def test_kill_process_tree_host_pgid_protection(monkeypatch):
-    """Never killpg the host's own group; fall back to killing just the child."""
-    import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
-
-    if sys.platform == "win32":
-        pytest.skip("POSIX process groups")
-    proc = MagicMock()
-    proc.pid = 12345
-    proc.poll.return_value = None
-    killpg = MagicMock()
-    monkeypatch.setattr(venv_worker_module.os, "getpgid", lambda pid: 9999)
-    monkeypatch.setattr(venv_worker_module.os, "getpgrp", lambda: 9999)
-    monkeypatch.setattr(venv_worker_module.os, "killpg", killpg)
-
-    managed_subprocess._kill_process_tree(proc)
-
-    killpg.assert_not_called()
-    proc.kill.assert_called_once()
-
-
-def test_kill_process_tree_refuses_process_group_one(monkeypatch):
-    """killpg(1) is kill(-1, SIGKILL) and tears down the login session.
-
-    unittest.mock.MagicMock converts to int 1, and os.getpgid() accepts that.
-    A test double passed to ACPConnection.stop() used to log the desktop out.
-    """
-    import plugin.scripting.venv_worker as venv_worker_module
-    import plugin.framework.managed_subprocess as managed_subprocess
-
-    if sys.platform == "win32":
-        pytest.skip("POSIX process groups")
-    killpg = MagicMock()
-    monkeypatch.setattr(venv_worker_module.os, "killpg", killpg)
-
-    unset = MagicMock()
-    managed_subprocess._kill_process_tree(unset)
-    killpg.assert_not_called()
-    unset.kill.assert_not_called()
-
-    init_pid = MagicMock()
-    init_pid.pid = 1
-    init_pid.poll.return_value = None
-    managed_subprocess._kill_process_tree(init_pid)
-    killpg.assert_not_called()
-    init_pid.kill.assert_called_once()
-
-    reused = MagicMock()
-    reused.pid = 4242
-    reused.poll.return_value = None
-    monkeypatch.setattr(venv_worker_module.os, "getpgid", lambda _pid: 1)
-    monkeypatch.setattr(venv_worker_module.os, "getpgrp", lambda: 9999)
-    managed_subprocess._kill_process_tree(reused)
-    killpg.assert_not_called()
-    reused.kill.assert_called_once()
 
 
 class _FakeStdStream:

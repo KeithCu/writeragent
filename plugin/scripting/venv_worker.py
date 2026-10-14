@@ -13,7 +13,6 @@ import contextlib
 import logging
 import os
 import select
-import signal
 import subprocess
 import sys
 import threading
@@ -33,10 +32,10 @@ from plugin.framework.constants import (
 from plugin.framework.worker_pool import (
     BackgroundHandle,
     StderrTail,
-    get_subprocess_creationflags,
     run_in_background,
     start_stderr_drain,
 )
+from plugin.framework.managed_subprocess import kill_process_tree
 from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,
@@ -229,9 +228,6 @@ def _worker_registry_key(exe: str, pool: str) -> str:
     return f"{pool}:{exe}"
 
 
-from plugin.framework.managed_subprocess import _kill_process_tree
-
-
 def _reap_worker_process(proc: subprocess.Popen[Any] | None, stderr_drain: StderrTail | None) -> None:
     """Kill a detached child and join its stderr drain. Runs off the caller thread.
 
@@ -245,7 +241,7 @@ def _reap_worker_process(proc: subprocess.Popen[Any] | None, stderr_drain: Stder
     """
     if proc is not None:
         try:
-            _kill_process_tree(proc)
+            kill_process_tree(proc)
             proc.wait(timeout=5)
         except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
             try:

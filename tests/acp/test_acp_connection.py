@@ -91,7 +91,7 @@ class TestACPConnectionStop:
             killed.append(proc_arg)
 
         with pytest.MonkeyPatch.context() as patch:
-            patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", _kill)
+            patch.setattr("plugin.acp.acp_connection.kill_process_tree", _kill)
             conn.stop()
             conn.stop()
             deadline = time.monotonic() + 2
@@ -766,14 +766,46 @@ def test_posix_start_uses_a_new_session(monkeypatch):
         proc.pid = 1
         return proc
 
-    monkeypatch.setattr("plugin.acp.acp_connection.subprocess.Popen", fake_popen)
-    monkeypatch.setattr("plugin.acp.acp_connection.start_stderr_drain", lambda *_a, **_k: MagicMock())
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", lambda *_a, **_k: MagicMock())
     monkeypatch.setattr("plugin.acp.acp_connection.run_in_background", lambda *_a, **_k: MagicMock())
     conn = ACPConnection(["agent"])
     conn.start()
     kwargs = captured["kwargs"]
     assert isinstance(kwargs, dict)
     assert kwargs["start_new_session"] is True
+
+
+def test_start_builds_managed_subprocess(monkeypatch):
+    from plugin.scripting.sandbox import wrap_command_for_sandbox
+
+    created_managed = []
+
+    class FakeManaged:
+        def __init__(self, cmd, **kwargs):
+            self.cmd = cmd
+            self.kwargs = kwargs
+            self.popen = MagicMock()
+            self.stderr_tail = MagicMock()
+            created_managed.append(self)
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr("plugin.acp.acp_connection.ManagedSubprocess", FakeManaged)
+    monkeypatch.setattr("plugin.acp.acp_connection.run_in_background", lambda *_a, **_k: MagicMock())
+
+    conn = ACPConnection(["agent", "arg"], env={"EXTRA": "1"}, cwd="/test/dir")
+    conn.start()
+
+    assert len(created_managed) == 1
+    m = created_managed[0]
+    assert m.cmd == ["agent", "arg"]
+    assert m.kwargs["command_wrapper"] is wrap_command_for_sandbox
+    assert m.kwargs["env"] == {"EXTRA": "1"}
+    assert m.kwargs["cwd"] == "/test/dir"
+    assert conn._proc is m.popen
+    assert conn._stderr_drain is m.stderr_tail
 
 
 def test_stop_flushes_before_tree_kill():
@@ -799,7 +831,7 @@ def test_stop_flushes_before_tree_kill():
     mock_proc.poll.return_value = None
 
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", mock_kill)
+        patch.setattr("plugin.acp.acp_connection.kill_process_tree", mock_kill)
         conn.send_notification("session/cancel", {})
         conn.stop()
 
@@ -904,7 +936,7 @@ def test_watchdog_does_not_kill_again_when_wait_returns():
     conn._proc = proc
     conn._running = True
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", lambda process: kills.append(process))
+        patch.setattr("plugin.acp.acp_connection.kill_process_tree", lambda process: kills.append(process))
         conn.stop()
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline and len(kills) < 1:
@@ -921,7 +953,7 @@ def test_watchdog_kills_when_wait_times_out():
     conn._proc = proc
     conn._running = True
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", lambda process: kills.append(process))
+        patch.setattr("plugin.acp.acp_connection.kill_process_tree", lambda process: kills.append(process))
         conn.stop()
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline and len(kills) < 2:
@@ -975,7 +1007,7 @@ def test_request_after_the_writer_stops_fails_without_a_new_thread():
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr("plugin.acp.acp_connection.run_in_background", run)
-        patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", lambda process: None)
+        patch.setattr("plugin.acp.acp_connection.kill_process_tree", lambda process: None)
         conn._enqueue(_QueuedStop(proc))
         # The handle is cleared in the writer's finally. Waiting for that,
         # not merely for _closed, is what used to start a second writer.
@@ -996,7 +1028,7 @@ def test_write_queued_behind_stop_is_failed():
     conn._write_queue.put(_QueuedStop(proc))
     conn._write_queue.put(_QueuedWrite(proc, b"{}\n", 8))
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr("plugin.framework.managed_subprocess._kill_process_tree", lambda process: None)
+        patch.setattr("plugin.acp.acp_connection.kill_process_tree", lambda process: None)
         conn._ensure_writer()
         assert event.wait(timeout=2)
     assert "Failed to write" in conn._pending[8].response["error"]["message"]
