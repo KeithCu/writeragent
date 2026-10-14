@@ -595,7 +595,7 @@ class TestFormulaPoolSupervisor:
             )
             assert res.get("status") == "error"
             # Code is either EXECUTION_TIMEOUT from pool or timeout from sandbox
-            assert "timeout" in str(res.get("error", "")).lower() or "timeout" in str(res.get("code", "")).lower()
+            assert "code execution exceeded the maximum execution time of 1 seconds" in str(res.get("error", "")).lower() or "timeout" in str(res.get("code", "")).lower()
             nxt = pool.execute(code="result = 1", timeout_sec=10, req_id="f-timeout-next")
             assert nxt.get("status") == "ok"
             assert nxt.get("result") == 1
