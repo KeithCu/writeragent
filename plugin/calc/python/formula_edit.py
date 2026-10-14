@@ -510,7 +510,8 @@ def format_py_data_range(range_addr: str) -> str:
     sheet, rest = split
     clean_sheet = sheet.replace("$", "")
     if _has_whitespace(clean_sheet) or not _is_sheet_identifier(clean_sheet):
-        quoted = sheet if sheet.startswith("'") else f"'{sheet}'"
+        s = sheet.replace("''", "'").replace("'", "''")
+        quoted = f"'{s}'"
         return f"{quoted}.{rest}"
     return f"{sheet}.{rest}"
 
@@ -525,7 +526,8 @@ def format_excel_data_range(range_addr: str) -> str:
     sheet, rest = split
     clean_sheet = sheet.replace("$", "")
     if _sheet_needs_excel_quotes(clean_sheet):
-        quoted = sheet if sheet.startswith("'") else f"'{sheet}'"
+        s = sheet.replace("''", "'").replace("'", "''")
+        quoted = f"'{s}'"
         return f"{quoted}!{rest}"
     return f"{sheet}!{rest}"
 

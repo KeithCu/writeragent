@@ -96,7 +96,8 @@ def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
             return None
         if sheet:
             needs_quotes = any(not (c.isalnum() or c == "_") for c in sheet) or sheet[:1].isdigit()
-            addr = f"'{sheet}'.{bare}" if needs_quotes else f"{sheet}.{bare}"
+            escaped_sheet = sheet.replace("'", "''")
+            addr = f"'{escaped_sheet}'.{bare}" if needs_quotes else f"{sheet}.{bare}"
         else:
             addr = bare
         return CalcBridge(doc).get_cell_by_address(addr)
@@ -228,6 +229,7 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
 
 def _recalculate_after_save(doc: Any) -> None:
     try:
+        # Switching to calculate() needs a live UNO probe confirming edited =PY() is recalculated (not done).
         doc.calculateAll()
     except Exception:
         log.debug("calculateAll after editor save failed", exc_info=True)
@@ -303,7 +305,7 @@ def _apply_followed_ref_save(doc: Any, formula_cell: Any, *, code_cell: Any, cod
 
     after_py_cell_save(doc, formula_cell)
     _recalculate_after_save(doc)
-    return {"type": "saved", "ok": True, "save_as_plain": True, "status_ok_text": _("Saved without =PY().")}
+    return {"type": "saved", "ok": True, "save_as_plain": False, "status_ok_text": _("Saved code in {0}.").format(code_ref)}
 
 
 def editor_load_save_as_plain(*, parsed_parts: PythonFormulaParts | None, initial_code: str, follow_code_ref: bool = False) -> bool:

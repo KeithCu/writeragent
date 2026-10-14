@@ -203,7 +203,10 @@ def test_follow_code_ref_save_writes_a1_keeps_formula_ref():
         code_ref=parts.code,
     )
     assert result["ok"] is True
-    assert result["save_as_plain"] is True
+    assert result["save_as_plain"] is False
+    assert "without =PY()" not in result.get("status_ok_text", "")
+    assert "Saved code in $A$1" in result.get("status_ok_text", "")
+    assert formula_cell.getFormula().startswith("=PY(")
     assert code_cell.getString() == "result = 99"
     reparsed = parse_python_formula(formula_cell.getFormula())
     assert reparsed is not None
@@ -371,6 +374,37 @@ def test_follow_quoted_sheet_name_resolves():
     assert code_cell.getString() == "result = 4"
     formula = formula_cell.getFormula()
     assert "'My Sheet'.$B$2" in formula
+    assert "D1:D2" in formula
+    assert formula.count(")") == 1
+
+
+def test_follow_apostrophe_sheet_name_resolves():
+    data_sheet = CalcSheetStub("O'Brien")
+    formula_sheet = CalcSheetStub("Sheet1")
+    doc = CalcDocStub(sheets=[formula_sheet, data_sheet])
+    code_cell = data_sheet.getCellByPosition(1, 1)
+    code_cell.setString("result = 3")
+    formula_cell = formula_sheet.getCellByPosition(0, 0)
+    formula_cell.setFormula("=PY('O''Brien'.$B$2; C1:C10)")
+    parts = parse_python_formula(formula_cell.getFormula())
+    assert parts is not None
+    resolved = _resolve_code_ref_cell(doc, parts.code)
+    assert resolved is code_cell
+
+    result = _apply_cell_save(
+        doc,
+        formula_cell,
+        parsed_parts=parts,
+        new_code="result = 4",
+        save_as_plain=False,
+        data_binding_text="D1:D2",
+        code_cell=code_cell,
+        code_ref=parts.code,
+    )
+    assert result["ok"] is True
+    assert code_cell.getString() == "result = 4"
+    formula = formula_cell.getFormula()
+    assert "'O''Brien'.$B$2" in formula
     assert "D1:D2" in formula
     assert formula.count(")") == 1
 
