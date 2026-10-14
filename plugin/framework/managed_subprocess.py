@@ -8,6 +8,7 @@ tree kill, reaping, and registered shutdown. Stderr can be subprocess.DEVNULL (n
 and registry membership and start-error wrapping are optional. `raw_spawn=True` is a pass-through
 Popen for short-lived children, and ManagedSubprocess.run is a pass-through subprocess.run.
 Worker start, stderr drain, tree kill, and shutdown_all stay the default.
+When `stderr_name_with_pid` is true and `stderr_name` is set, the drain thread name is `{stderr_name}-{pid}`.
 """
 
 from __future__ import annotations
@@ -99,6 +100,7 @@ class ManagedSubprocess:
         optimize_pipes: bool = False,
         stderr_tail_chars: int | None = None,
         stderr_name: str | None = None,
+        stderr_name_with_pid: bool = False,
         label: str | None = None,
         inherit_env: bool = False,
         new_session: bool = True,
@@ -106,7 +108,6 @@ class ManagedSubprocess:
         text: bool = False,
         register: bool = True,
         log_start_failure: bool = True,
-        stderr_name_with_pid: bool = False,
         raw_spawn: bool = False,
         stdin: Any = None,
         stdout: Any = None,
@@ -474,7 +475,11 @@ class ManagedSubprocess:
             raise ValueError("raw_spawn does not optimize pipes")
         if self._base_env is not None:
             raise ValueError("raw_spawn does not merge base_env")
-        if self._stderr_tail_chars is not None or self._stderr_name is not None:
+        if (
+            self._stderr_tail_chars is not None
+            or self._stderr_name is not None
+            or self._stderr_name_with_pid
+        ):
             raise ValueError("raw_spawn does not drain stderr")
 
         if self._thread_guard:

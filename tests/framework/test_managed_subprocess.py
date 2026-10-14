@@ -745,6 +745,23 @@ def test_stderr_name_and_cap_are_forwarded(monkeypatch: pytest.MonkeyPatch) -> N
     finally:
         proc_custom.close()
 
+    drain_mock.reset_mock()
+
+    proc_pid = ms.ManagedSubprocess(
+        ["dummy"],
+        stderr_name="venv-stderr",
+        stderr_name_with_pid=True,
+        register=False,
+    )
+    proc_pid.start()
+    try:
+        drain_mock.assert_called_once_with(
+            mock_proc.stderr,
+            name="venv-stderr-5432",
+        )
+    finally:
+        proc_pid.close()
+
 
 def test_abandoned_reaper_pauses_before_requeue(monkeypatch: pytest.MonkeyPatch) -> None:
     import plugin.framework.managed_subprocess as ms
@@ -1185,6 +1202,7 @@ def test_raw_spawn_rejects_worker_options(
         ({"base_env": {}}, "raw_spawn does not merge base_env"),
         ({"stderr_tail_chars": 100}, "raw_spawn does not drain stderr"),
         ({"stderr_name": "x"}, "raw_spawn does not drain stderr"),
+        ({"stderr_name_with_pid": True}, "raw_spawn does not drain stderr"),
     ]
 
     for extra_kwargs, expected_msg in bad_cases:

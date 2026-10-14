@@ -33,9 +33,8 @@ from plugin.framework.worker_pool import (
     BackgroundHandle,
     StderrTail,
     run_in_background,
-    start_stderr_drain,
 )
-from plugin.framework.managed_subprocess import kill_process_tree
+from plugin.framework.managed_subprocess import ManagedSubprocess, kill_process_tree
 from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,
@@ -57,7 +56,6 @@ from plugin.scripting.ipc import (
 )
 from plugin.scripting.payload_codec import _HOST_UNPACK_ERRORS, host_unpack_data
 from plugin.scripting.sandbox import (
-    optimize_popen_pipes,
     resolve_libreoffice_python,
     resolve_venv_python,
     scrub_subprocess_env,
@@ -1063,24 +1061,6 @@ class PythonWorkerManager:
         # so the new child does not overlap the old tree.
         self._terminate_worker(wait=False)
         self._join_reaps()
-        popen_kw: dict[str, Any] = {
-            "stdin": subprocess.PIPE,
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.PIPE,
-            "env": self.env,
-            "text": False,
-            "bufsize": 0,
-        }
-        if sys.platform == "win32":
-            popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
-        else:
-            # preexec_fn=os.setsid runs in the child between fork and exec. In a
-            # threaded host only the forking thread is cloned, so a lock held
-            # by another thread (malloc, logging) deadlocks the child before
-            # exec. start_new_session asks the C spawn path to call setsid,
-            # which is the same new process group without that Python callback.
-            # pgid stays equal to pid for kill_process_tree.
-            popen_kw["start_new_session"] = True
         # The top-of-function check can pass, then shutdown_all (or get())
         # sets _retired, and this call would still Popen. Re-check immediately
         # before spawn so that retry cannot start an untracked child.
@@ -1089,22 +1069,27 @@ class PythonWorkerManager:
                 raise _WorkerRetired(
                     "Python worker was replaced by a new venv path and will not be restarted"
                 )
-            proc = subprocess.Popen(
-                wrap_command_for_sandbox([self.exe, _HARNESS_PATH], env=self.env),
-                **popen_kw,
+            # preexec_fn=os.setsid runs between fork and exec and deadlocks a threaded host.
+            # start_new_session is the C spawn path, same new process group, pgid == pid.
+            # register=False because desktop shutdown_all would close() this child.
+            # log_start_failure=False because a missing interpreter must stay OSError.
+            managed = ManagedSubprocess(
+                [self.exe, _HARNESS_PATH],
+                base_env=self.env,
+                command_wrapper=wrap_command_for_sandbox,
+                optimize_pipes=True,
+                stderr_name="venv-stderr",
+                stderr_name_with_pid=True,
+                register=False,
+                log_start_failure=False,
+                label="Python worker",
             )
-            optimize_popen_pipes(proc)
-            # Live stderr drain: prevent 64KB pipe deadlock while parent blocks on stdin/stdout.
-            # Publish the drain before _proc. The old order let a reader observe
-            # a live proc with no drain. stderr=PIPE always gets a tail, so
-            # _drain_stderr does not need a second read of the pipe.
-            drain = start_stderr_drain(
-                proc.stderr,
-                name=f"venv-stderr-{proc.pid}",
-            )
-            self._stderr_drain = drain
-            self._proc = proc
-            log.debug("Started Python worker pid=%s exe=%s", proc.pid, self.exe)
+            managed.start()
+            # Publish the drain before _proc. A reader can observe _proc without
+            # _proc_lock. The old order let that reader see a live proc with no drain.
+            self._stderr_drain = managed.stderr_tail
+            self._proc = managed.popen
+            log.debug("Started Python worker pid=%s exe=%s", managed.pid, self.exe)
 
     def _read_response_bytes(self, stdout: IO[bytes], timeout_sec: float | int, stop_checker: Callable[[], bool] | None = None) -> bytes:
         if self._proc is None:

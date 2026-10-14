@@ -20,7 +20,7 @@ Macros online were further constrained after [CVE-2025-24796](https://www.cve.or
 
 The NumPy strategy ([§1](../enabling_numpy_in_libreoffice.md#1-the-problem-abi-and-embedded-python), [§2](../enabling_numpy_in_libreoffice.md#2-strategy-decision)) is deliberately a **separate interpreter**:
 
-1. `subprocess.Popen` **of a user venv** — `[PythonWorkerManager](../../plugin/scripting/venv_worker.py)` keeps a warm child talking Pickle5 over pipes ([IPC](numpy-serialization.md#worker-protocol)).
+1. `ManagedSubprocess.start` (`subprocess.Popen`) **of a user venv** — `[PythonWorkerManager](../../plugin/scripting/venv_worker.py)` keeps a warm child talking Pickle5 over pipes ([IPC](numpy-serialization.md#worker-protocol)).
 2. **Host filesystem** — resolve `scripting.python_venv_path`, put the extension tree on the child’s `sys.path`, and let trusted helpers open DBs/models.
 3. **Flatpak escape** — `[wrap_command_for_sandbox](../../plugin/scripting/sandbox.py)` can use `flatpak-spawn --host` so the venv runs on the real host. That is the opposite of kit isolation.
 4. **Desktop editor** — Monaco via **pywebview/Qt** needs a display and a child window; Online renders in a browser canvas.

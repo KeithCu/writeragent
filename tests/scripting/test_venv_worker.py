@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Any
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -871,7 +872,6 @@ def test_win32_partial_frame_timeout_with_stop_is_cancelled(monkeypatch: pytest.
 
 def test_ensure_running_joins_dead_child_before_spawn(monkeypatch: pytest.MonkeyPatch):
     """A dead child is detached without waiting, then that reap is joined before Popen."""
-    import plugin.scripting.venv_worker as vw
 
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = sys.executable
@@ -904,7 +904,7 @@ def test_ensure_running_joins_dead_child_before_spawn(monkeypatch: pytest.Monkey
 
     mgr._terminate_worker = _terminate  # type: ignore[method-assign]
     mgr._join_reaps = _join  # type: ignore[method-assign]
-    monkeypatch.setattr(vw.subprocess, "Popen", _popen)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _popen)
     with pytest.raises(RuntimeError, match="stop before spawn"):
         mgr._ensure_running()
     assert order == ["join", ("terminate", False), "join", "popen"]
@@ -2114,9 +2114,11 @@ def test_acquire_io_takes_lock_after_holder_releases(monkeypatch):
 
 
 
-def test_ensure_running_starts_new_session_without_preexec(monkeypatch):
+def test_ensure_running_starts_new_session_without_preexec(monkeypatch: pytest.MonkeyPatch) -> None:
     """setsid belongs on the C spawn path, not a Python preexec_fn."""
+    import plugin.framework.managed_subprocess as ms
     import plugin.scripting.venv_worker as venv_worker_module
+    from plugin.scripting.venv_worker import _HARNESS_PATH
 
     popen = MagicMock()
     proc = MagicMock()
@@ -2125,18 +2127,106 @@ def test_ensure_running_starts_new_session_without_preexec(monkeypatch):
     proc.stdout = None
     proc.stderr = None
     popen.return_value = proc
-    monkeypatch.setattr(venv_worker_module.subprocess, "Popen", popen)
+
+    drain_kwargs: list[dict[str, Any]] = []
+
+    def fake_drain(*args: Any, **kwargs: Any) -> None:
+        del args
+        drain_kwargs.append(dict(kwargs))
+        return None
+
+    monkeypatch.setattr(ms.subprocess, "Popen", popen)
+    monkeypatch.setattr(ms, "start_stderr_drain", fake_drain)
     monkeypatch.setattr(venv_worker_module, "wrap_command_for_sandbox", lambda cmd, **_kwargs: cmd)
-    monkeypatch.setattr(venv_worker_module, "optimize_popen_pipes", lambda _proc: None)
-    monkeypatch.setattr(venv_worker_module, "start_stderr_drain", lambda *_args, **_kwargs: None)
+
     mgr = PythonWorkerManager(sys.executable, {})
-    mgr._ensure_running()
-    kwargs = popen.call_args.kwargs
-    assert "preexec_fn" not in kwargs
-    if sys.platform == "win32":
-        assert kwargs.get("creationflags") == subprocess.CREATE_NO_WINDOW
-    else:
-        assert kwargs.get("start_new_session") is True
+    try:
+        mgr._ensure_running()
+        call_args, kwargs = popen.call_args
+        assert call_args[0] == [mgr.exe, _HARNESS_PATH]
+        assert "preexec_fn" not in kwargs
+        assert "text" not in kwargs
+        assert "encoding" not in kwargs
+        assert "errors" not in kwargs
+        assert "universal_newlines" not in kwargs
+        assert kwargs["stdin"] == subprocess.PIPE
+        assert kwargs["stdout"] == subprocess.PIPE
+        assert kwargs["stderr"] == subprocess.PIPE
+        assert kwargs["bufsize"] == 0
+        assert kwargs.get("cwd") is None
+        assert kwargs["env"] == mgr.env
+        assert kwargs["env"] is not mgr.env
+        if sys.platform == "win32":
+            assert kwargs.get("creationflags") == subprocess.CREATE_NO_WINDOW
+            assert "start_new_session" not in kwargs
+        else:
+            assert kwargs.get("start_new_session") is True
+            assert "creationflags" not in kwargs
+        assert len(drain_kwargs) == 1
+        assert drain_kwargs[0]["name"] == "venv-stderr-7"
+        assert "max_tail_chars" not in drain_kwargs[0]
+        assert not any(inst.popen is proc for inst in ms._instances)
+    finally:
+        mgr._terminate_worker(wait=False)
+
+
+def test_ensure_running_does_not_merge_parent_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    captured_kwargs: list[dict[str, Any]] = []
+    proc = MagicMock()
+    proc.pid = 9
+    proc.stdin = None
+    proc.stdout = None
+    proc.stderr = None
+    proc.poll.return_value = None
+    proc.kill = MagicMock()
+    proc.wait = MagicMock(return_value=0)
+
+    def fake_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+        del cmd
+        captured_kwargs.append(dict(kwargs))
+        return proc
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(ms, "start_stderr_drain", lambda *a, **kw: None)
+
+    mgr = PythonWorkerManager(sys.executable, {"PATH": "/only", "WRITERAGENT_IS_WORKER": "1"})
+    old_val = os.environ.get("WRITERAGENT_SPAWN_SENTINEL")
+    os.environ["WRITERAGENT_SPAWN_SENTINEL"] = "secret"
+    try:
+        mgr._ensure_running()
+        recorded_env = captured_kwargs[0]["env"]
+        assert recorded_env == mgr.env
+        assert "WRITERAGENT_SPAWN_SENTINEL" not in recorded_env
+        assert recorded_env is not mgr.env
+    finally:
+        if old_val is None:
+            os.environ.pop("WRITERAGENT_SPAWN_SENTINEL", None)
+        else:
+            os.environ["WRITERAGENT_SPAWN_SENTINEL"] = old_val
+        mgr._terminate_worker(wait=False)
+
+
+def test_ensure_running_popen_oserror_is_not_wrapped(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+    import plugin.framework.managed_subprocess as ms
+
+    def fake_popen(*args: Any, **kwargs: Any) -> Any:
+        raise FileNotFoundError("missing")
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    with caplog.at_level(logging.ERROR, logger="plugin.framework.managed_subprocess"):
+        with pytest.raises(FileNotFoundError, match=r"^missing$"):
+            mgr._ensure_running()
+
+    assert "Failed to start managed subprocess" not in caplog.text
+    assert mgr._proc is None
+    assert mgr._stderr_drain is None
 
 
 def test_script_llm_request_does_not_dispatch_host_llm(monkeypatch):
@@ -2281,7 +2371,7 @@ def test_get_returns_while_previous_reap_is_blocked():
 
         release.set()
         with (
-            patch.object(vw.subprocess, "Popen", popen),
+            patch("plugin.framework.managed_subprocess.subprocess.Popen", popen),
             pytest.raises(RuntimeError, match="stop before spawn"),
         ):
             second._ensure_running()
