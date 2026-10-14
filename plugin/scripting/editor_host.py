@@ -25,8 +25,6 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, cast
-
-from plugin.framework.worker_pool import get_subprocess_creationflags
 from plugin.framework.thread_guard import background, main_thread_only
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.i18n import _
@@ -53,7 +51,7 @@ from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, 
 from plugin.scripting.venv_worker import (
     warm_venv_worker,
 )
-from plugin.framework.managed_subprocess import kill_process_tree
+from plugin.framework.managed_subprocess import ManagedSubprocess, kill_process_tree
 
 log = logging.getLogger(__name__)
 
@@ -164,13 +162,12 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
 
     env = build_editor_child_env()
     try:
-        r = subprocess.run(
+        r = ManagedSubprocess.run(
             wrap_command_for_sandbox([exe, "-c", _WEBVIEW_PROBE_CODE], env=env),
             capture_output=True,
             timeout=30,
             env=env,
             text=True,
-            **get_subprocess_creationflags(),
         )
     except (subprocess.TimeoutExpired, OSError) as e:
         log.warning("probe_webview_import failed for %s: %s", exe, e, exc_info=True)
@@ -190,29 +187,25 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
 
 
 def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subprocess.Popen[bytes]:
-    """Start editor_main.py with stdin/stdout pipes."""
+    """Start editor_main.py through ManagedSubprocess.start and return that Popen; the host stderr thread is the drain; terminate owns shutdown."""
+    # base_env is the full child environment from build_editor_child_env.
+    # env= would overlay that onto os.environ and put scrubbed secrets back.
+    # scrub_env=True would drop LD_LIBRARY_PATH, which that builder restores.
+    # drain_stderr stays false: _stderr_drain_loop is already the stderr reader.
+    # register stays false: shutdown_all must not close() this child.
+    # log_start_failure stays false: launch_monaco_editor catches the original OSError.
     env = build_editor_child_env(assets_dir=assets_dir)
-    popen_kw: dict[str, Any] = {
-        "stdin": subprocess.PIPE,
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.PIPE,
-        "env": env,
-        "text": False,
-        "bufsize": 0,
-    }
-    if sys.platform == "win32":
-        popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW
-    else:
-        # preexec_fn=os.setsid runs Python in the child between fork and exec.
-        # Other LibreOffice threads can hold locks the child inherits, so the
-        # editor spawn can deadlock. start_new_session asks the C runtime to
-        # call setsid() in the child. The process group is unchanged, so
-        # terminate() still kills Qt grandchildren via killpg.
-        popen_kw["start_new_session"] = True
-    return cast(
-        "subprocess.Popen[bytes]",
-        subprocess.Popen(wrap_command_for_sandbox([exe, _EDITOR_MAIN], env=env), **popen_kw),
+    managed = ManagedSubprocess(
+        [exe, _EDITOR_MAIN],
+        base_env=env,
+        command_wrapper=wrap_command_for_sandbox,
+        drain_stderr=False,
+        register=False,
+        log_start_failure=False,
+        label="monaco-editor",
     )
+    managed.start()
+    return cast("subprocess.Popen[bytes]", managed.popen)
 
 
 # --- Pipe bridge ---
@@ -386,6 +379,7 @@ class PersistentEditor:
         Spawn uses ``start_new_session`` (POSIX ``setsid`` in the child).
         ``proc.terminate()`` leaves Qt grandchildren alive, and a surviving
         parent is then reused as if it were healthy.
+        ManagedSubprocess.close() (SIGTERM, 3s, reaper) and kill_tree() (no wait, no pipe close) are a different shutdown.
         """
         # Bugfix: send read self._proc three times under _stdin_lock while terminate
         # nulled it and closed the pipes without the lock, so a concurrent config-thread

@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 import time
 import unittest
-from typing import Any
+from typing import Any, Callable
 
 from plugin.testing_runner import native_test, setup, teardown
 
@@ -136,6 +136,12 @@ def _teardown_mock():
             _session.config.delay_ms = 20
         except Exception:
             pass
+    try:
+        from plugin.chatbot.sidebar_test_hooks import clear_fake_tts
+
+        clear_fake_tts()
+    except Exception:
+        pass
     stop_mock_sidebar_session(_session)
     _session = None
     try:
@@ -3055,3 +3061,365 @@ def test_m6_stop_mid_stream_settles(ctx):
     assert settle < 5.0, "M6 took %.2fs to go idle after Stop" % settle
     assert after_wait == after_stop, "M6 text changed after Stop: %r -> %r" % (after_stop[-200:], after_wait[-200:])
     _hello_ok()
+
+
+# =============================================================================
+# Packet T — TTS races and child lifecycle
+# =============================================================================
+
+_T_FORBIDDEN_BASENAMES = {
+    "espeak",
+    "spd-say",
+    "ffplay",
+    "mpv",
+    "pw-play",
+    "paplay",
+    "aplay",
+    "mpg123",
+    "afplay",
+    "say",
+    "powershell",
+}
+
+
+def _t_state() -> dict[str, Any]:
+    from plugin.chatbot.sidebar_test_hooks import read_fake_tts_state
+
+    return read_fake_tts_state()
+
+
+def _t_install(mode: str) -> None:
+    from plugin.chatbot.sidebar_test_hooks import install_fake_tts
+
+    install_fake_tts(mode)
+
+
+def _t_clear() -> None:
+    from plugin.chatbot.sidebar_test_hooks import clear_fake_tts
+
+    clear_fake_tts()
+    _reset_mock_runtime()
+
+
+def _t_wait_state(pred: Callable[[dict[str, Any]], bool], timeout: float = 5.0) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout
+    last_st: dict[str, Any] = {}
+    while time.monotonic() <= deadline:
+        last_st = _t_state()
+        if last_st and pred(last_st):
+            return last_st
+        time.sleep(0.02)
+    raise AssertionError(f"_t_wait_state timed out after {timeout}s: last state = {last_st}")
+
+
+def _t_wait_pid(timeout: float = 5.0) -> int:
+    state = _t_wait_state(lambda st: bool(st.get("pids")), timeout=timeout)
+    return state["pids"][-1]
+
+
+def _t_stop_enabled() -> bool:
+    from plugin.chatbot.sidebar_test_hooks import (
+        chat_dialog_controls,
+        control_enabled,
+        send_listener,
+    )
+
+    sl = getattr(_session, "listener", None) or send_listener()
+    if sl is not None:
+        stop_ctrl = getattr(sl, "stop_control", None)
+        assert stop_ctrl is not None, "no stop_control on listener"
+        return bool(stop_ctrl.getModel().Enabled)
+    ctx = _session.ctx if hasattr(_session, "ctx") else None
+    if ctx is None:
+        from plugin.framework.uno_context import get_ctx
+
+        ctx = get_ctx()
+    ctrls = getattr(_session, "controls", None)
+    if not ctrls:
+        ctrls = chat_dialog_controls(ctx)
+    assert ctrls is not None and "stop" in ctrls, "no stop control in chat dialog controls"
+    en = control_enabled(ctrls["stop"])
+    assert en is not None, "stop control Enabled is None"
+    return bool(en)
+
+
+def _t_assert_reaped(pid: int, state: dict[str, Any]) -> None:
+    returncodes = state.get("returncodes", {})
+    alive = state.get("alive", [])
+    assert str(pid) in returncodes, f"pid {pid} not in returncodes: {state}"
+    assert pid not in alive, f"pid {pid} still in alive: {state}"
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        pass
+    except (ValueError, SystemError):
+        pass
+    else:
+        raise AssertionError(f"pid {pid} is still alive according to os.kill: {state}")
+
+
+def _t_assert_no_player(state: dict[str, Any]) -> None:
+    interpreter = state.get("interpreter")
+    argv0s = state.get("argv0s", [])
+    for argv0 in argv0s:
+        assert argv0 == interpreter, f"argv0 {argv0!r} != interpreter {interpreter!r}"
+        base = os.path.basename(argv0)
+        assert base not in _T_FORBIDDEN_BASENAMES, f"forbidden basename executed: {base} in {argv0}"
+
+
+def _t_assert_idle() -> None:
+    from plugin.chatbot.sidebar_test_hooks import (
+        audio_status,
+        chat_dialog_controls,
+        control_enabled,
+        send_listener,
+        send_state,
+    )
+
+    sl = getattr(_session, "listener", None) or send_listener()
+    if sl is not None:
+        st = send_state(listener=sl)
+        assert not st.is_busy, f"send is busy: {st}"
+        assert not st.is_recording, f"send is recording: {st}"
+        stop_ctrl = getattr(sl, "stop_control", None)
+        assert stop_ctrl is not None, "no stop_control on listener"
+        assert not bool(stop_ctrl.getModel().Enabled), "Stop control Enabled is True"
+    else:
+        ctx = _session.ctx if hasattr(_session, "ctx") else None
+        if ctx is None:
+            from plugin.framework.uno_context import get_ctx
+
+            ctx = get_ctx()
+        ctrls = getattr(_session, "controls", None)
+        if not ctrls:
+            ctrls = chat_dialog_controls(ctx)
+        assert ctrls is not None and "stop" in ctrls and "send" in ctrls, "controls missing"
+        assert control_enabled(ctrls["stop"]) is False, "Stop control is not disabled"
+        assert control_enabled(ctrls["send"]) is True, "Send control is not enabled"
+        ast = audio_status()
+        assert not ast.get("is_recording", False), f"still recording: {ast}"
+
+    state = _t_state()
+    assert not state.get("speaking", False), f"fake TTS state speaking is True: {state}"
+    assert state.get("alive", []) == [], f"fake TTS state alive is not empty: {state}"
+
+
+def _t_assert_clean_transcript(before: str) -> None:
+    body = _transcript()
+    suffix = body[len(before) :] if body.startswith(before) else body
+    assert "assistant:" in suffix.lower() or "assistant:" in body.lower(), (
+        f"expected assistant reply in transcript: {suffix!r}"
+    )
+    assert "traceback" not in suffix.lower(), f"Traceback found in transcript: {suffix!r}"
+    assert "speak_text_async worker error" not in suffix, (
+        f"speak_text_async worker error found in transcript: {suffix!r}"
+    )
+
+
+def _t_click_send(text: str) -> None:
+    from plugin.chatbot.sidebar_test_hooks import (
+        press_send,
+        send_listener,
+        set_query_text,
+        set_query_text_via_controls,
+        uno_click,
+    )
+
+    sl = getattr(_session, "listener", None) or send_listener()
+    if sl is not None:
+        set_query_text(text, listener=sl)
+        press_send(listener=sl)
+        return
+    controls = getattr(_session, "controls", None)
+    assert controls is not None and "send" in controls, "no chat dialog controls"
+    set_query_text_via_controls(controls, text)
+    time.sleep(0.2)
+    uno_click(controls["send"])
+
+
+@native_test
+def test_t1_stop_kills_speech_process(ctx):
+    _reset_mock_runtime()
+    _t_install("hold")
+    try:
+        before = _transcript()
+        _send_and_wait("hello")
+        _t_assert_clean_transcript(before)
+
+        pid = _t_wait_pid(5.0)
+        assert _t_stop_enabled(), "Stop control should be enabled during hold speech"
+        st = _t_state()
+        _t_assert_no_player(st)
+        assert st.get("speak_calls", 0) >= 1, f"speak_calls < 1: {st}"
+        assert st.get("spawn_count", 0) == 1, f"spawn_count != 1: {st}"
+        assert st.get("max_alive", 0) == 1, f"max_alive != 1: {st}"
+
+        _press_stop()
+        t0 = time.monotonic()
+        reaped_st = None
+        while time.monotonic() - t0 < 1.0:
+            cur_st = _t_state()
+            try:
+                _t_assert_reaped(pid, cur_st)
+                reaped_st = cur_st
+                break
+            except AssertionError:
+                time.sleep(0.02)
+        assert reaped_st is not None, (
+            f"pid {pid} not reaped within 1.0s: {time.monotonic() - t0:.3f}s state={_t_state()}"
+        )
+        assert not reaped_st.get("speaking", False), f"speaking is True: {reaped_st}"
+        assert reaped_st.get("alive", []) == [], f"alive != []: {reaped_st}"
+        assert reaped_st.get("spawn_count", 0) == 1, f"spawn_count changed: {reaped_st}"
+
+        idle_deadline = time.monotonic() + 3.0
+        idle_ok = False
+        last_idle_err = None
+        while time.monotonic() <= idle_deadline:
+            try:
+                _t_assert_idle()
+                idle_ok = True
+                break
+            except AssertionError as exc:
+                last_idle_err = exc
+                time.sleep(0.05)
+        assert idle_ok, f"_t_assert_idle failed within 3.0s: {last_idle_err}"
+    finally:
+        _t_clear()
+    _hello_ok()
+
+
+@native_test
+def test_t2_new_turn_cuts_off_speech(ctx):
+    _reset_mock_runtime()
+    _t_install("hold")
+    try:
+        _send_and_wait("hello")
+        pid_a = _t_wait_pid(5.0)
+        assert _t_stop_enabled(), "Stop should be enabled during hold"
+
+        assert _session is not None
+        _session.config.delay_ms = 1500
+
+        before_second = _transcript()
+        _t_click_send("hello")
+        t0 = time.monotonic()
+
+        reaped_a = False
+        while time.monotonic() - t0 < 1.0:
+            cur_st = _t_state()
+            assert cur_st.get("spawn_count", 0) == 1, (
+                f"spawn_count >= 2 within 1.0s: {cur_st}"
+            )
+            try:
+                _t_assert_reaped(pid_a, cur_st)
+                reaped_a = True
+                break
+            except AssertionError:
+                time.sleep(0.02)
+        assert reaped_a, f"pid A {pid_a} was not reaped within 1.0s: {_t_state()}"
+
+        _session.config.delay_ms = 20
+
+        sl = getattr(_session, "listener", None)
+        if sl is not None:
+            from plugin.chatbot.sidebar_test_hooks import wait_idle
+
+            assert wait_idle(listener=sl, timeout=30.0), "second send did not go idle"
+        else:
+            from plugin.chatbot.sidebar_test_hooks import wait_controls_send_finished
+
+            controls = getattr(_session, "controls", None)
+            assert controls is not None
+            assert wait_controls_send_finished(
+                controls,
+                timeout=30.0,
+                transcript_fn=_transcript,
+                before=before_second,
+            ), f"second send did not finish: {_transcript()[-400:]}"
+
+        st2 = _t_wait_state(lambda st: st.get("spawn_count", 0) >= 2, timeout=5.0)
+        assert st2.get("spawn_count", 0) == 2, f"spawn_count != 2: {st2}"
+        assert st2.get("overlap_spawns", 0) == 0, f"overlap_spawns != 0: {st2}"
+        assert st2.get("max_alive", 0) == 1, f"max_alive != 1: {st2}"
+        _t_assert_reaped(pid_a, st2)
+        assert len(st2.get("alive", [])) <= 1, f"alive > 1: {st2}"
+        _t_assert_no_player(st2)
+
+        after_second = _transcript()
+        assert len(after_second) > len(before_second), (
+            f"transcript did not grow: before={before_second!r}, after={after_second!r}"
+        )
+        suffix2 = after_second[len(before_second) :]
+        assert "traceback" not in suffix2.lower(), f"Traceback in suffix: {suffix2!r}"
+    finally:
+        _t_clear()
+    _hello_ok()
+
+
+@native_test
+def test_t3_tts_crash_returns_to_idle(ctx):
+    _reset_mock_runtime()
+    _t_install("crash")
+    try:
+        before = _transcript()
+        _send_and_wait("hello")
+
+        deadline = time.monotonic() + 3.0
+        last_err = None
+        ok = False
+        while time.monotonic() <= deadline:
+            try:
+                _t_assert_idle()
+                st = _t_state()
+                assert st.get("spawn_count", 0) == 1, f"spawn_count != 1: {st}"
+                assert st.get("alive", []) == [], f"alive != []: {st}"
+                rcs = list(st.get("returncodes", {}).values())
+                assert rcs == [2], f"returncodes != [2]: {st}"
+                assert st.get("overlap_spawns", 0) == 0, f"overlap_spawns != 0: {st}"
+                assert st.get("max_alive", 0) == 1, f"max_alive != 1: {st}"
+                _t_assert_no_player(st)
+                _t_assert_clean_transcript(before)
+                ok = True
+                break
+            except AssertionError as exc:
+                last_err = exc
+                time.sleep(0.05)
+        assert ok, f"T3 assertions failed within 3.0s: {last_err}"
+    finally:
+        _t_clear()
+    _hello_ok()
+
+
+@native_test
+def test_t4_tts_binary_missing_returns_to_idle(ctx):
+    _reset_mock_runtime()
+    _t_install("missing")
+    try:
+        before = _transcript()
+        _send_and_wait("hello")
+
+        deadline = time.monotonic() + 3.0
+        last_err = None
+        ok = False
+        while time.monotonic() <= deadline:
+            try:
+                _t_assert_idle()
+                st = _t_state()
+                assert st.get("spawn_count", 0) == 0, f"spawn_count != 0: {st}"
+                assert st.get("pids", []) == [], f"pids != []: {st}"
+                assert st.get("alive", []) == [], f"alive != []: {st}"
+                assert st.get("speak_calls", 0) >= 1, f"speak_calls < 1: {st}"
+                assert st.get("overlap_spawns", 0) == 0, f"overlap_spawns != 0: {st}"
+                assert st.get("argv0s", []) == [], f"argv0s != []: {st}"
+                _t_assert_clean_transcript(before)
+                ok = True
+                break
+            except AssertionError as exc:
+                last_err = exc
+                time.sleep(0.05)
+        assert ok, f"T4 assertions failed within 3.0s: {last_err}"
+    finally:
+        _t_clear()
+    _hello_ok()
+

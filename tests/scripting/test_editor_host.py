@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import inspect
 import io
 import logging
 import os
@@ -13,12 +14,15 @@ import subprocess
 import sys
 import threading
 import time
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.managed_subprocess import _instances, _unregister_instance
 from plugin.scripting import editor_host as launch_mod
 from plugin.scripting.editor_host import PersistentEditor, _ASSETS_DIR
+from plugin.scripting.sandbox import wrap_command_for_sandbox
 
 
 def test_editor_save_timeout_clears_the_token_and_reports():
@@ -342,7 +346,7 @@ def test_probe_webview_import_timeout_returns_diagnostic():
     launch_mod._PROBE_CACHE.pop(exe, None)
     launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
     timeout = subprocess.TimeoutExpired(cmd=[exe, "-c", "import webview"], timeout=30)
-    with patch("plugin.scripting.editor_host.subprocess.run", side_effect=timeout) as run:
+    with patch("plugin.framework.managed_subprocess.subprocess.run", side_effect=timeout) as run:
         ok, detail = launch_mod.probe_webview_import(exe)
         ok2, detail2 = launch_mod.probe_webview_import(exe)
     assert ok is False
@@ -359,7 +363,7 @@ def test_probe_webview_import_oserror_returns_diagnostic():
     exe = "/tmp/writeragent-probe-oserror-python"
     launch_mod._PROBE_CACHE.pop(exe, None)
     launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
-    with patch("plugin.scripting.editor_host.subprocess.run", side_effect=OSError("boom")):
+    with patch("plugin.framework.managed_subprocess.subprocess.run", side_effect=OSError("boom")):
         ok, detail = launch_mod.probe_webview_import(exe)
     assert ok is False
     assert "OSError" in detail
@@ -381,7 +385,7 @@ def test_probe_webview_import_failure_expires_after_ttl():
         raise OSError("boom")
 
     try:
-        with patch("plugin.scripting.editor_host.subprocess.run", side_effect=boom):
+        with patch("plugin.framework.managed_subprocess.subprocess.run", side_effect=boom):
             with patch("plugin.scripting.editor_host.time.monotonic", return_value=1000.0):
                 first_ok, _first_detail = launch_mod.probe_webview_import(exe)
                 second_ok, _second_detail = launch_mod.probe_webview_import(exe)
@@ -405,7 +409,7 @@ def test_probe_webview_import_nonzero_exit_is_cached_failure():
     launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
     completed = subprocess.CompletedProcess(args=[exe], returncode=1, stdout="", stderr="no webview")
     try:
-        with patch("plugin.scripting.editor_host.subprocess.run", return_value=completed) as run:
+        with patch("plugin.framework.managed_subprocess.subprocess.run", return_value=completed) as run:
             ok, detail = launch_mod.probe_webview_import(exe)
             ok2, _detail2 = launch_mod.probe_webview_import(exe)
         assert ok is False
@@ -1185,15 +1189,255 @@ def test_reader_finished_ignores_superseded_process():
     assert editor._proc is replacement
 
 
-def test_spawn_editor_process_starts_new_session_without_preexec():
-    with patch("plugin.scripting.editor_host.subprocess.Popen", return_value=MagicMock()) as popen:
-        launch_mod.spawn_editor_process("/venv/bin/python")
-    kwargs = popen.call_args.kwargs
-    assert "preexec_fn" not in kwargs
-    if sys.platform == "win32":
-        assert kwargs.get("creationflags") == subprocess.CREATE_NO_WINDOW
-    else:
-        assert kwargs.get("start_new_session") is True
+def test_spawn_editor_process_uses_managed_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    ctor_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    real_managed = launch_mod.ManagedSubprocess
+
+    def spy_managed(*args: Any, **kwargs: Any) -> Any:
+        ctor_calls.append((args, kwargs))
+        return real_managed(*args, **kwargs)
+
+    monkeypatch.setattr(launch_mod, "ManagedSubprocess", spy_managed)
+
+    mock_popen = MagicMock()
+    mock_popen.poll.return_value = None
+
+    popen_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def fake_popen(*args: Any, **kwargs: Any) -> MagicMock:
+        popen_calls.append((args, kwargs))
+        return mock_popen
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+    drain_mock = MagicMock(side_effect=AssertionError("drain"))
+    monkeypatch.setattr(ms, "start_stderr_drain", drain_mock)
+
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/opt/lo/lib")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("PYTHONHOME", "/usr/lib/libreoffice/program")
+
+    env_calls: list[dict[str, Any]] = []
+    env_returns: list[dict[str, str]] = []
+    real_build_env = launch_mod.build_editor_child_env
+
+    def spy_build_env(**kwargs: Any) -> dict[str, str]:
+        env_calls.append(kwargs)
+        res = real_build_env(**kwargs)
+        env_returns.append(res)
+        return res
+
+    monkeypatch.setattr(launch_mod, "build_editor_child_env", spy_build_env)
+
+    instances_before = set(_instances)
+
+    try:
+        proc = launch_mod.spawn_editor_process("/venv/bin/python", assets_dir="/tmp/assets")
+        assert proc is mock_popen
+
+        assert len(ctor_calls) == 1
+        args, kwargs = ctor_calls[0]
+        assert args == (["/venv/bin/python", launch_mod._EDITOR_MAIN],)
+
+        assert isinstance(kwargs["base_env"], dict)
+        assert kwargs["command_wrapper"] is wrap_command_for_sandbox
+        assert kwargs["drain_stderr"] is False
+        assert kwargs["register"] is False
+        assert kwargs["log_start_failure"] is False
+        assert kwargs["label"] == "monaco-editor"
+
+        expected_kw_keys = {"base_env", "command_wrapper", "drain_stderr", "register", "log_start_failure", "label"}
+        assert set(kwargs.keys()) == expected_kw_keys
+
+        for key in ("env", "cwd", "scrub_env", "optimize_pipes", "thread_guard", "stderr_tail_chars", "stderr_name"):
+            assert key not in kwargs
+
+        assert env_calls == [{"assets_dir": "/tmp/assets"}]
+        assert kwargs["base_env"] is env_returns[0]
+
+        assert len(popen_calls) == 1
+        popen_args, popen_kwargs = popen_calls[0]
+        assert popen_kwargs["stdin"] == subprocess.PIPE
+        assert popen_kwargs["stdout"] == subprocess.PIPE
+        assert popen_kwargs["stderr"] == subprocess.PIPE
+        assert popen_kwargs["bufsize"] == 0
+        assert popen_kwargs["cwd"] is None
+        assert "text" not in popen_kwargs
+        assert "preexec_fn" not in popen_kwargs
+
+        base_env = kwargs["base_env"]
+        assert popen_kwargs["env"] == base_env
+        assert popen_kwargs["env"] is not base_env
+        assert popen_kwargs["env"]["WRITERAGENT_EDITOR_ASSETS"] == "/tmp/assets"
+        assert popen_kwargs["env"]["LD_LIBRARY_PATH"] == "/opt/lo/lib"
+        assert "OPENAI_API_KEY" not in popen_kwargs["env"]
+        assert "PYTHONHOME" not in popen_kwargs["env"]
+
+        if sys.platform == "win32":
+            assert popen_kwargs.get("creationflags") == subprocess.CREATE_NO_WINDOW
+            assert "start_new_session" not in popen_kwargs
+        else:
+            assert popen_kwargs.get("start_new_session") is True
+            assert "creationflags" not in popen_kwargs
+
+        assert popen_args[0] == wrap_command_for_sandbox(
+            ["/venv/bin/python", launch_mod._EDITOR_MAIN], env=popen_kwargs["env"], cwd=None
+        )
+
+        assert _instances == instances_before
+        drain_mock.assert_not_called()
+
+        proc2 = launch_mod.spawn_editor_process("/venv/bin/python")
+        assert proc2 is mock_popen
+        assert len(popen_calls) == 2
+        _popen_args2, popen_kwargs2 = popen_calls[1]
+        assert popen_kwargs2["env"]["WRITERAGENT_EDITOR_ASSETS"] == launch_mod._ASSETS_DIR
+        assert _instances == instances_before
+        drain_mock.assert_not_called()
+    finally:
+        for inst in list(_instances):
+            if inst not in instances_before:
+                _unregister_instance(inst)
+
+
+def test_spawn_editor_process_oserror_is_not_wrapped(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    monkeypatch.setattr(ms.subprocess, "Popen", MagicMock(side_effect=OSError("exec failed")))
+    instances_before = set(_instances)
+
+    with caplog.at_level(logging.ERROR, logger="plugin.framework.managed_subprocess"):
+        with pytest.raises(OSError, match=r"^exec failed$"):
+            launch_mod.spawn_editor_process("/venv/bin/python")
+
+    assert not any(
+        "Failed to start managed subprocess" in r.getMessage()
+        for r in caplog.records
+        if r.name == "plugin.framework.managed_subprocess"
+    )
+    assert _instances == instances_before
+
+
+def test_persistent_editor_terminate_signals_live_child_without_managed_close(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = MagicMock()
+    proc.stdout = MagicMock()
+    proc.stderr = MagicMock()
+    editor._proc = proc
+
+    killed_procs: list[Any] = []
+    monkeypatch.setattr(launch_mod, "kill_process_tree", lambda p: killed_procs.append(p))
+    monkeypatch.setattr(launch_mod.ManagedSubprocess, "close", MagicMock(side_effect=AssertionError("close called")))
+    monkeypatch.setattr(launch_mod.ManagedSubprocess, "kill_tree", MagicMock(side_effect=AssertionError("kill_tree called")))
+
+    editor.terminate()
+
+    assert killed_procs == [proc]
+    proc.wait.assert_called_once_with(timeout=2)
+    proc.kill.assert_not_called()
+    proc.stdin.close.assert_called_once()
+    proc.stdout.close.assert_called_once()
+    proc.stderr.close.assert_called_once()
+    assert editor._proc is None
+
+
+def test_persistent_editor_terminate_kills_only_when_wait_times_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = MagicMock()
+    proc.stdout = MagicMock()
+    proc.stderr = MagicMock()
+    proc.wait.side_effect = subprocess.TimeoutExpired(cmd="editor", timeout=2)
+    editor._proc = proc
+
+    killed_procs: list[Any] = []
+    monkeypatch.setattr(launch_mod, "kill_process_tree", lambda p: killed_procs.append(p))
+    monkeypatch.setattr(launch_mod.ManagedSubprocess, "close", MagicMock(side_effect=AssertionError("close called")))
+    monkeypatch.setattr(launch_mod.ManagedSubprocess, "kill_tree", MagicMock(side_effect=AssertionError("kill_tree called")))
+
+    editor.terminate()
+
+    assert killed_procs == [proc]
+    proc.wait.assert_called_once_with(timeout=2)
+    proc.kill.assert_called_once()
+    proc.stdin.close.assert_called_once()
+    proc.stdout.close.assert_called_once()
+    proc.stderr.close.assert_called_once()
+    assert editor._proc is None
+
+
+def test_persistent_editor_terminate_skips_signal_when_already_exited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = 0
+    proc.stdin = MagicMock()
+    proc.stdout = MagicMock()
+    proc.stderr = MagicMock()
+    editor._proc = proc
+
+    killed_procs: list[Any] = []
+    monkeypatch.setattr(launch_mod, "kill_process_tree", lambda p: killed_procs.append(p))
+
+    editor.terminate()
+
+    assert killed_procs == []
+    proc.kill.assert_not_called()
+    proc.stdin.close.assert_called_once()
+    proc.stdout.close.assert_called_once()
+    proc.stderr.close.assert_called_once()
+    assert editor._proc is None
+
+
+def test_persistent_editor_terminate_swallows_kill_oserror_and_still_closes_pipes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    editor = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = MagicMock()
+    proc.stdout = MagicMock()
+    proc.stderr = MagicMock()
+    editor._proc = proc
+
+    monkeypatch.setattr(launch_mod, "kill_process_tree", MagicMock(side_effect=OSError("gone")))
+
+    editor.terminate()
+
+    proc.stdin.close.assert_called_once()
+    proc.stdout.close.assert_called_once()
+    proc.stderr.close.assert_called_once()
+    assert editor._proc is None
+
+
+def test_editor_drain_and_terminate_stay_custom() -> None:
+    drain_src = inspect.getsource(PersistentEditor._stderr_drain_loop)
+    assert "editor child:" in drain_src
+    assert "start_stderr_drain" not in drain_src
+
+    term_src = inspect.getsource(PersistentEditor.terminate)
+    assert "kill_process_tree" in term_src
+    assert "timeout=2" in term_src
+    assert "ManagedSubprocess.close()" in term_src
+    assert "kill_tree()" in term_src
+    assert "managed.close" not in term_src
+    assert ".kill_tree(" not in term_src
+
+    spawn_src = inspect.getsource(launch_mod.spawn_editor_process)
+    assert "drain_stderr=False" in spawn_src
+    assert "register=False" in spawn_src
+    assert "log_start_failure=False" in spawn_src
 
 
 def test_terminate_persistent_editor_resets_run_script_doc_under_lock():

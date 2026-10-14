@@ -8,7 +8,7 @@ Visual rendering, scroll pin, theme, resize, and “watch the sidebar” cases a
 
 ## 1. Executive Status Dashboard
 
-Packets **B through G** plus **P** (dual-sidebar peer) and **K** (compaction) run via `testing_runner`. There is no Packet A or H.
+Packets **B through G** plus **P** (dual-sidebar peer), **K** (compaction), and **T** (TTS races) run via `testing_runner`. There is no Packet A or H.
 
 This plan is **finished**. Mouse Stop, HITL Change dialog, live DuckDuckGo, and F11/F18 wait mismatches are dropped — not a backlog. Packet P (dual Writer+Calc peer) uses the same `open_calc_document` helper as E12/G17.
 
@@ -22,6 +22,7 @@ This plan is **finished**. Mouse Stop, HITL Change dialog, live DuckDuckGo, and 
 | **[Packet G](#packet-g--mocked-audio-and-stt)** | Mocked Record / Stop Rec, `input_audio`, STT | Automated (CI) | **Done.** 21 Landed (incl. G17 Calc deck). |
 | **[Packet P](#packet-p--dual-sidebar-peer-673)** | Writer+Calc mock peer round-trip (specialized-inner #673) | Automated (`FILTER=P`) | **Landed** (unit scripts always; live dual deck uses `open_calc_document`). |
 | **[Packet K](#packet-k--sidebar-compaction-712--713)** | Proactive compact, overflow retry, kill switch, death ≠ overflow | Automated (`FILTER=K`) | **Landed.** Chat mode only (Web Research / Librarian share the worker). |
+| **[Packet T](#packet-t--tts-races-and-child-lifecycle)** | TTS stop / cut-off / crash / missing binary, fake child, no audio device | Automated (`FILTER=T`) | **Landed.** 4 Landed. |
 
 
 
@@ -103,6 +104,7 @@ make test-mock-sidebar FILTER=F        # Run Packet F (HTTP/SSE errors)
 make test-mock-sidebar FILTER=G        # Run Packet G (Mocked audio & STT)
 make test-mock-sidebar FILTER=P        # Packet P only (dual Writer+Calc peer, not the whole soak)
 make test-mock-sidebar FILTER=K        # Packet K only (sidebar compaction smoke)
+make test-mock-sidebar FILTER=T        # Packet T only (TTS stop / cut-off / crash / missing)
 make test-mock-sidebar FILTER=p1       # Single peer case
 make test-mock-sidebar FILTER=b13      # Run a single case by ID
 make test-mock-sidebar FILTER=e12      # Calc list_sheets (opens Calc after Writer deck)
@@ -164,6 +166,7 @@ Debug test hooks live in [`plugin/chatbot/sidebar_test_hooks.py`](../../plugin/c
 | `press_accept()` | Fires Send action when label is `Accept` | HITL approval |
 | `press_change()` / `press_reject()` | Fires Stop listener `Change` / `Reject` branch | HITL change / rejection |
 | `approval_active()` | Checks if `_approval_event is not None` | HITL state verification |
+| `install_fake_tts(mode)` / `clear_fake_tts()` | Fake TTS backend lifecycle via state file (`writeragent_fake_tts.json`) and debug ops `FAKE_TTS_HOLD`, `FAKE_TTS_CRASH`, `FAKE_TTS_MISSING`, `FAKE_TTS_OFF`. Test-hook only; production `tts_service` does not read this file | Packet T |
 
 ### 2.5. Universal Invariants & Pass/Fail Criteria
 
@@ -419,6 +422,21 @@ See [peer-messaging.md](../chat/peer-messaging.md#dual-mock-peer-tests).
 | **K4** | CI | `llama process died` | Send death phrase | No compact retry; error surfaced; `next_hello_ok()` | **OK / Landed** |
 
 Smol ReAct web-research subagent compaction is out of scope.
+
+---
+
+### Packet T — TTS races and child lifecycle
+
+- **Focus:** TTS stop / cut-off / crash / missing binary, fake child, no audio device.
+- **Mode:** Automated (`make test-mock-sidebar FILTER=T`).
+- **Scope note:** Hands-free echo is not a Packet T case; sticky restart stays on the panel unit tests.
+
+| ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
+|:--:|:----:|----------------|-----------------|------------------------|:--------------:|
+| **T1** | mock-sidebar | `hold` mode, `hello` | Send hello; assert Stop enabled; press Stop | Hold child killed and reaped within 1.0s; Stop did not start new clip; returns to idle within 3.0s; clean transcript | **Landed** |
+| **T2** | mock-sidebar | `hold` mode, `hello` | Send hello; set delay 1.5s; click Send next turn | Turn one child reaped within 1.0s of click returning; spawn_count == 1 at cut; restore delay; turn two child spawns; no overlap | **Landed** |
+| **T3** | mock-sidebar | `crash` mode, `hello` | Send hello; child exits 2 | Clean transcript; returns to idle within 3.0s; return code 2; no overlap; max_alive == 1 | **Landed** |
+| **T4** | mock-sidebar | `missing` mode, `hello` | Send hello; binary not found | Clean transcript; returns to idle within 3.0s; spawn_count == 0; speak_calls >= 1; no player commands executed | **Landed** |
 
 ---
 

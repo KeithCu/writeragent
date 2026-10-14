@@ -53,6 +53,8 @@ class ManagedSubprocess:
     These knobs default to the worker spawn (binary pipes, explicit merged env,
     POSIX start_new_session, stderr pipe + drain, registry, wrapped start errors,
     stderr name unchanged); `text=True` is line-buffered text pipes.
+    `drain_stderr`, `register`, and `log_start_failure` default to the worker spawn
+    (stderr drain, `shutdown_all` registry, start failures logged and wrapped in `RuntimeError`).
     """
 
     _cmd_line: list[str]
@@ -66,6 +68,7 @@ class ManagedSubprocess:
     _stderr_tail_chars: int | None
     _stderr_name: str | None
     _label: str
+    _drain_stderr: bool
     _inherit_env: bool
     _new_session: bool
     _stderr: int
@@ -102,6 +105,7 @@ class ManagedSubprocess:
         stderr_name: str | None = None,
         stderr_name_with_pid: bool = False,
         label: str | None = None,
+        drain_stderr: bool = True,
         inherit_env: bool = False,
         new_session: bool = True,
         stderr: Any = None,
@@ -116,6 +120,10 @@ class ManagedSubprocess:
     ) -> None:
         if inherit_env and (env is not None or base_env is not None or scrub_env):
             raise ValueError("inherit_env cannot be combined with env, base_env, or scrub_env")
+        if not drain_stderr and (stderr_tail_chars is not None or stderr_name is not None):
+            raise ValueError(
+                "drain_stderr=False does not take stderr_tail_chars or stderr_name"
+            )
         if not raw_spawn:
             if stderr is None:
                 worker_stderr = subprocess.PIPE
@@ -137,6 +145,7 @@ class ManagedSubprocess:
         self._stderr_tail_chars = stderr_tail_chars
         self._stderr_name = stderr_name
         self._label = label if label else "Managed subprocess"
+        self._drain_stderr = drain_stderr
         self._inherit_env = inherit_env
         self._new_session = new_session
         self._text = text
@@ -409,9 +418,13 @@ class ManagedSubprocess:
                             **popen_kw,
                         ),
                     )
-                if self._stderr == subprocess.PIPE:
+                if self._stderr == subprocess.PIPE and self._drain_stderr:
                     if self._stderr_name is not None:
-                        drain_name = f"{self._stderr_name}-{proc.pid}" if self._stderr_name_with_pid else self._stderr_name
+                        drain_name = (
+                            f"{self._stderr_name}-{proc.pid}"
+                            if self._stderr_name_with_pid
+                            else self._stderr_name
+                        )
                     else:
                         drain_name = f"managed-stderr-{proc.pid}"
                     drain_kwargs: dict[str, Any] = {"name": drain_name}
@@ -479,6 +492,7 @@ class ManagedSubprocess:
             self._stderr_tail_chars is not None
             or self._stderr_name is not None
             or self._stderr_name_with_pid
+            or not self._drain_stderr
         ):
             raise ValueError("raw_spawn does not drain stderr")
 
@@ -503,6 +517,7 @@ class ManagedSubprocess:
         args: list[str],
         *,
         check: bool = False,
+        capture_output: bool = False,
         stdout: Any = None,
         stderr: Any = None,
         stdin: Any = None,
@@ -517,6 +532,18 @@ class ManagedSubprocess:
 
         Timeouts and OSError propagate.
         """
+        if capture_output:
+            return subprocess.run(
+                args,
+                capture_output=True,
+                env=env,
+                cwd=cwd,
+                text=text,
+                encoding=encoding,
+                errors=errors,
+                timeout=timeout,
+                check=check,
+            )
         return subprocess.run(
             args,
             stdin=stdin,
