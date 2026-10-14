@@ -162,57 +162,7 @@ def resolve_allowed_tools(python_tool_domain: str | None) -> frozenset[str] | No
     return (frozenset(allowed) | _ALWAYS_ALLOWED) - _BLOCKED_FROM_VENV
 
 
-def _method_code(method: Any) -> Any:
-    """Code object for a proxy function or bound method.
-
-    Newer CPython exposes ``__code__`` on bound methods. Older LibreOffice
-    Pythons only have it on ``__func__``.
-    """
-    code = getattr(method, "__code__", None)
-    if code is not None:
-        return code
-    func = getattr(method, "__func__", None)
-    if func is None:
-        return None
-    return getattr(func, "__code__", None)
-
-
-def _rpc_tool_name(method: Any, known: frozenset[str]) -> str | None:
-    """Tool name passed to ``_rpc_call`` inside a generated proxy method.
-
-    ``CALL_KW`` stores it as a string const. ``CALL_FUNCTION_EX`` (many
-    kwargs, as on ``shape.upsert``) stores it as a one-element tuple. Parameter
-    names are skipped when they collide with a tool name. The allowlist uses
-    that tool name; the catalog shows the Python method (``wa.shape.upsert``).
-    """
-    code = _method_code(method)
-    if code is None:
-        return None
-    found: list[str] = []
-    for const in code.co_consts:
-        if isinstance(const, str) and const in known:
-            found.append(const)
-        elif (
-            isinstance(const, tuple)
-            and len(const) == 1
-            and isinstance(const[0], str)
-            and const[0] in known
-        ):
-            found.append(const[0])
-    if not found:
-        return None
-    locals_ = set(code.co_varnames)
-    for name in found:
-        if name not in locals_:
-            return name
-    # A const that matches a tool name can also be a parameter name. Returning
-    # found[0] treated that parameter as the RPC tool. The skip above exists
-    # so a colliding name is not the tool; no remaining candidate is a real
-    # tool-name const.
-    return None
-
-
-def _proxy_methods_by_tool(tools: dict[str, list[str]]) -> dict[str, Any] | None:
+def _proxy_methods_by_tool() -> dict[str, Any] | None:
     """Map each ``DOMAIN_TOOLS`` name to the generated proxy method.
 
     ``None`` when ``writeragent_api`` is not in this build (LibrePy). The
@@ -224,33 +174,21 @@ def _proxy_methods_by_tool(tools: dict[str, list[str]]) -> dict[str, Any] | None
     except ImportError:
         return None
 
-    found: dict[str, Any] = {}
     tool_methods = getattr(api, "TOOL_METHODS", None)
-    if isinstance(tool_methods, dict):
-        for tool_name, (namespace, method_name) in tool_methods.items():
-            proxy = getattr(api, namespace, None)
-            if proxy is None:
-                continue
-            method = getattr(proxy, method_name, None)
-            if callable(method):
-                found[tool_name] = method
-        return found
+    if not isinstance(tool_methods, dict):
+        log.warning("script API catalog: writeragent_api has no TOOL_METHODS dict")
+        return {}
 
-    known = frozenset(name for names in tools.values() for name in names)
-    for namespace in tools:
+    found: dict[str, Any] = {}
+    for tool_name, (namespace, method_name) in tool_methods.items():
         proxy = getattr(api, namespace, None)
         if proxy is None:
             continue
-        for attr in dir(proxy):
-            if attr.startswith("_"):
-                continue
-            method = getattr(proxy, attr, None)
-            if not callable(method):
-                continue
-            tool_name = _rpc_tool_name(method, known)
-            if tool_name and tool_name not in found:
-                found[tool_name] = method
+        method = getattr(proxy, method_name, None)
+        if callable(method):
+            found[tool_name] = method
     return found
+
 
 
 def _format_proxy_call(namespace: str, method: Any) -> str:
@@ -284,7 +222,7 @@ def _format_script_api_catalog_cached(domains_tuple: tuple[str, ...]) -> str:
     tools = _domain_tools_map()
     if tools is None:
         return ""
-    methods = _proxy_methods_by_tool(tools)
+    methods = _proxy_methods_by_tool()
     if not methods:
         # LibrePy, or proxies that did not load. Omit the catalog.
         return ""
@@ -339,6 +277,8 @@ def execute_tool(
     caller: str = "script",
     allowed_tools: frozenset[str] | None = None,
     script_session_id: str | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+    send_cancellation: Any | None = None,
 ) -> Any:
     """Dispatch a registered WriterAgent tool on the LO main thread (UNO-safe)."""
     if tool_name in _BLOCKED_FROM_VENV:
@@ -418,12 +358,22 @@ def execute_tool(
         else:
             doc_type = ""
         registry = get_tools()
+        # What was wrong: ToolContext had no stop_checker or send_cancellation,
+        # so web_research and image generation started from a script ran the
+        # HTTP request to completion after Stop.
+        # How it happened: handle_tool_call_frame checked Stop only before
+        # execute_tool, and cancellation_scope stopped in _maybe_dispatch_intermediate_response.
+        # Why this change: The turn's checker and scope are the ones
+        # RunVenvPythonScript.execute captured, copied onto ToolContext so
+        # existing readers abort the wait.
         tctx = ToolContext(
             doc=doc,
             ctx=uno_ctx,
             doc_type=doc_type,
             services=registry._services,
             caller=caller,
+            stop_checker=stop_checker,
+            send_cancellation=send_cancellation,
         )
 
         tool = registry.get(tool_name)
@@ -573,6 +523,7 @@ def handle_tool_call_frame(
     caller: str = "script",
     script_session_id: str | None = None,
     stop_checker: Callable[[], bool] | None = None,
+    send_cancellation: Any | None = None,
 ) -> bool:
     """Handle a worker ``tool_call`` frame. Returns True if the host should keep reading."""
     if not isinstance(response, dict) or response.get("type") != "tool_call":
@@ -580,25 +531,49 @@ def handle_tool_call_frame(
 
     tool_name = response.get("tool")
     call_id = response.get("id")
-    if not isinstance(tool_name, str):
-        tool_response = {"status": "error", "id": call_id, "message": f"Invalid tool_call: {tool_name!r}"}
+
+    def _reply(payload: dict[str, Any], *, failure_log: str) -> None:
         try:
-            frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-            stdin_write(frame)
-        except (OSError, ValueError):
-            log.warning("venv tool_call reply failed (worker pipe closed)", exc_info=True)
-        return True
-    args = response.get("args")
-    if args is not None and not isinstance(args, dict):
-        tool_response = {"status": "error", "id": call_id, "message": "args must be a dictionary"}
+            frame = pack_pickle_frame(payload, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+        except IpcFrameError as exc:
+            # An oversized tool result used to be written anyway. The host read
+            # then killed the child and restarted every workbook's shared kernel.
+            frame = pack_pickle_frame(
+                {"status": "error", "id": call_id, "message": str(exc)},
+                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+            )
+        except Exception as exc:
+            # Unpicklable tool result. Fall back to sending an error frame instead of hanging.
+            frame = pack_pickle_frame(
+                {"status": "error", "id": call_id, "message": f"Result not serializable: {exc}"},
+                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+            )
+
+        # A broken worker pipe raises from stdin_write (e.g. ValueError when
+        # writing to a closed file in Python, or OSError). Letting that escape
+        # aborted the stop path, so the child never received USER_STOPPED and
+        # kept calling tools after the sidebar went idle (or the host replayed
+        # the script). The tool may already have run; raising here used to abort
+        # the worker loop. Pipe failure stays here and the host keeps reading.
         try:
-            frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
             stdin_write(frame)
         except (OSError, ValueError):
             # ValueError can be raised when writing to a closed file in Python.
-            log.warning("venv tool_call reply failed (worker pipe closed)", exc_info=True)
+            log.warning(failure_log, exc_info=True)
+
+    if not isinstance(tool_name, str):
+        _reply(
+            {"status": "error", "id": call_id, "message": f"Invalid tool_call: {tool_name!r}"},
+            failure_log="venv tool_call reply failed (worker pipe closed)",
+        )
         return True
-    args = args or {}
+    args = response.get("args")
+    if args is not None and not isinstance(args, dict):
+        _reply(
+            {"status": "error", "id": call_id, "message": "args must be a dictionary"},
+            failure_log="venv tool_call reply failed (worker pipe closed)",
+        )
+        return True
     # Stop was checked once before the venv turn, so the child kept calling
     # host tools, including export, after the sidebar went idle. The same
     # checker the LLM frame already receives refuses the call and tells the
@@ -609,31 +584,22 @@ def handle_tool_call_frame(
             is_stopped = stop_checker()
         except Exception:
             log.exception("stop_checker raised exception in handle_tool_call_frame")
-            tool_response = {"status": "error", "id": call_id, "message": "stop_checker raised exception"}
-            try:
-                frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-                stdin_write(frame)
-            except (OSError, ValueError):
-                log.warning("venv tool_call error reply failed (worker pipe closed)", exc_info=True)
+            _reply(
+                {"status": "error", "id": call_id, "message": "stop_checker raised exception"},
+                failure_log="venv tool_call error reply failed (worker pipe closed)",
+            )
             return True
 
     if is_stopped:
-        tool_response = {
-            "status": "error",
-            "id": call_id,
-            "code": "USER_STOPPED",
-            "message": "Stopped by user.",
-        }
-        frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-        # A broken worker pipe raises from stdin_write. Letting that escape
-        # aborted the stop path, so the child never received USER_STOPPED and
-        # kept calling tools after the sidebar went idle (or the host replayed
-        # the script). Pipe failure stays here and the host keeps reading.
-        try:
-            stdin_write(frame)
-        except (OSError, ValueError):
-            # ValueError can be raised when writing to a closed file in Python.
-            log.warning("venv tool_call USER_STOPPED reply failed (worker pipe closed)", exc_info=True)
+        _reply(
+            {
+                "status": "error",
+                "id": call_id,
+                "code": "USER_STOPPED",
+                "message": "Stopped by user.",
+            },
+            failure_log="venv tool_call USER_STOPPED reply failed (worker pipe closed)",
+        )
         return True
     try:
         res = execute_tool(
@@ -642,6 +608,8 @@ def handle_tool_call_frame(
             caller=caller,
             allowed_tools=allowed_tools,
             script_session_id=script_session_id,
+            stop_checker=stop_checker,
+            send_cancellation=send_cancellation,
         )
         tool_response = {"status": "ok", "id": call_id, "result": res}
     except Exception as exc:
@@ -653,26 +621,5 @@ def handle_tool_call_frame(
         err_code = getattr(exc, "code", None)
         if err_code:
             tool_response["code"] = str(err_code)
-    try:
-        frame = pack_pickle_frame(tool_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-    except IpcFrameError as exc:
-        # An oversized tool result used to be written anyway. The host read
-        # then killed the child and restarted every workbook's shared kernel.
-        frame = pack_pickle_frame(
-            {"status": "error", "id": call_id, "message": str(exc)},
-            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-        )
-    except Exception as exc:
-        # Unpicklable tool result. Fall back to sending an error frame instead of hanging.
-        frame = pack_pickle_frame(
-            {"status": "error", "id": call_id, "message": f"Result not serializable: {exc}"},
-            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-        )
-    # Same broken-pipe rule as the USER_STOPPED write above. The tool may
-    # already have run; raising here used to abort the worker loop.
-    try:
-        stdin_write(frame)
-    except (OSError, ValueError):
-        # ValueError can be raised when writing to a closed file in Python.
-        log.warning("venv tool_call reply failed (worker pipe closed)", exc_info=True)
+    _reply(tool_response, failure_log="venv tool_call reply failed (worker pipe closed)")
     return True

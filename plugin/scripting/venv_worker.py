@@ -202,6 +202,8 @@ def _maybe_dispatch_intermediate_response(
         caller=caller,
         script_session_id=script_session_id,
         stop_checker=stop_checker,
+        # This is the chat SendCancellation; ToolContext.send_cancellation is what registers the HTTP call.
+        send_cancellation=cancellation_scope,
     ):
         return True
     # Only the ppt-master worker may emit llm_request. Every other caller

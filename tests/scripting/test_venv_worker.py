@@ -1950,6 +1950,40 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
         caller="script",
         allowed_tools=None,
         script_session_id=None,
+        stop_checker=None,
+        send_cancellation=None,
+    )
+    assert len(written) == 1
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "ok"
+    assert resp["id"] == "t1"
+
+
+def test_maybe_dispatch_tool_call_forwards_stop_and_scope():
+    from plugin.scripting.venv_worker import _maybe_dispatch_intermediate_response
+
+    def checker() -> bool:
+        return False
+
+    sentinel = object()
+    written: list[bytes] = []
+    with patch("plugin.scripting.host_rpc.execute_tool", return_value={"ok": True}) as mock_tool:
+        handled = _maybe_dispatch_intermediate_response(
+            {"type": "tool_call", "id": "t1", "tool": "apply_document_content", "args": {"content": ["x"]}},
+            stdin_write=written.append,
+            stop_checker=checker,
+            cancellation_scope=sentinel,
+        )
+    assert handled is True
+    mock_tool.assert_called_once_with(
+        "apply_document_content",
+        {"content": ["x"]},
+        caller="script",
+        allowed_tools=None,
+        script_session_id=None,
+        stop_checker=checker,
+        send_cancellation=sentinel,
     )
     assert len(written) == 1
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
