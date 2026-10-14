@@ -273,3 +273,70 @@ def test_broadcast_args_records_vectors():
     assert res.vector_arg_indices == [1]
     assert res.vector_kwarg_keys == ["factor"]
 
+
+def test_map_over_range_all_scalar_blanks_only_primary():
+    assert map_over_range(lambda a, b: (a, b), 1, None) == (1, None)
+    assert map_over_range(lambda a, b: (a, b), 1, "") == (1, "")
+    assert map_over_range(lambda a, b: (a, b), None, 1) == ""
+    assert (
+        map_over_range(
+            lambda magnitude, units, format_spec="": magnitude,
+            magnitude=1.5,
+            units="m",
+            format_spec="",
+        )
+        == 1.5
+    )
+
+
+def test_dict_scalar_parameter_broadcasts():
+    assert map_over_range(lambda x, cfg: x + cfg["k"], [1, 2], {"k": 10}) == [11, 12]
+
+
+def test_inspect_non_pandas_arraylike_is_scalar():
+    calls: list[str] = []
+
+    class DummyArrayLike:
+        def to_numpy(self):
+            calls.append("to_numpy")
+            return [1, 2, 3]
+
+        def tolist(self):
+            calls.append("tolist")
+            return [1, 2, 3]
+
+        def to_list(self):
+            calls.append("to_list")
+            return [1, 2, 3]
+
+    obj = DummyArrayLike()
+    insp = inspect_input(obj)
+    assert insp.is_scalar is True
+    assert insp.flat_items[0] is obj
+    assert calls == []
+
+
+def test_inspect_pandas_to_numpy_error_propagates():
+    class DataFrame:
+        __module__ = "pandas.core.frame"
+
+        def to_numpy(self):
+            raise RuntimeError("explode")
+
+    df = DataFrame()
+    with pytest.raises(RuntimeError, match="explode"):
+        inspect_input(df)
+
+
+def test_inspect_numpy_generic_and_zero_d_are_python_scalars():
+    np = pytest.importorskip("numpy")
+    insp_generic = inspect_input(np.int64(5))
+    assert insp_generic.is_scalar is True
+    assert insp_generic.flat_items == [5]
+    assert type(insp_generic.flat_items[0]) is int
+
+    insp_0d = inspect_input(np.array(5))
+    assert insp_0d.is_scalar is True
+    assert insp_0d.flat_items == [5]
+
+

@@ -7,6 +7,9 @@ Looks up formula range bindings already injected as ``ranges`` (and polymorphic
 Refs are ``%Pn%`` strings (``%P2%`` = first binding). Header modes match the
 Excel→DAG converter:
 ``True`` → ``to_pandas()``, ``False`` → ``to_pandas(header_row=None)``, omitted → bare ``CalcRange``.
+Omitted ``headers`` returns the binding unchanged. ``headers=True`` and
+``headers=False`` require a ``CalcRange`` binding and otherwise raise
+``ValueError``. ``headers`` must be builtin ``True`` or ``False`` by identity.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ import re
 from typing import Any
 
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, deal
+from plugin.scripting.calc_range import CalcRange
 
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 
@@ -56,10 +60,15 @@ def make_xl(ranges: tuple[Any, ...] | list[Any] | None) -> Any:
         rng = bound[idx]
         if headers is _HEADERS_OMIT:
             return rng
+        if headers is not True and headers is not False:
+            raise ValueError(f"xl() headers must be True or False; got {headers!r}")
+        if not isinstance(rng, CalcRange):
+            raise ValueError(
+                f"xl({ref!r}, headers={headers!r}) requires a CalcRange binding; "
+                f"got {type(rng).__name__}"
+            )
         if headers is True:
             return rng.to_pandas()
-        if headers is False:
-            return rng.to_pandas(header_row=None)
-        raise ValueError(f"xl() headers must be True or False; got {headers!r}")
+        return rng.to_pandas(header_row=None)
 
     return xl
