@@ -114,8 +114,8 @@ _NON_OVERFLOW_MARKERS = (
     "rate limit",
     "too many requests",
     "tokens per minute",
-    "tpm",
 )
+_TPM_WORD = re.compile(r"\btpm\b")
 
 # Adapted from Nous Research Hermes Agent 0.21.1 (MIT).
 # estimate_tokens_rough / _CJK_DENSE_RE.
@@ -182,6 +182,7 @@ class CompactionState:
     tokens_before: int
     window: int
     stubbed_tool_call_ids: tuple[Any, ...] = ()  # view-only tail-pressure stubs
+    kept_message_id: int | None = None  # id() of session.messages[first_kept_index] at publish
 
 
 @dataclass(frozen=True)
@@ -482,6 +483,10 @@ def _tool_name_for(messages: list[dict[str, Any]], idx: int) -> str:
     return "tool"
 
 
+def _tool_stub(messages: list[dict[str, Any]], idx: int, text: str) -> str:
+    return "[%s] (%d chars)" % (_tool_name_for(messages, idx), len(text))
+
+
 def newest_assistant_tool_span(messages: list[dict[str, Any]], start_index: int) -> tuple[int, int] | None:
     """(asst_idx, end_idx exclusive) of the newest assistant+tool_calls group.
 
@@ -542,7 +547,7 @@ def pressure_stub_newest_tool_group(messages: list[dict[str, Any]], keep_tokens:
         if len(text) <= PRUNE_MIN_CHARS:
             continue
         copied = dict(work[j])
-        copied["content"] = "[%s] (%d chars)" % (_tool_name_for(messages, j), len(text))
+        copied["content"] = _tool_stub(messages, j, text)
         work[j] = copied
         cid = copied.get("tool_call_id")
         if cid:
@@ -596,7 +601,7 @@ def serialize_for_summary(messages: list[dict[str, Any]]) -> str:
             if calls:
                 text = (text + " " + calls).strip() if text else calls
         if role == "tool" and len(text) > PRUNE_MIN_CHARS:
-            text = "[%s] (%d chars)" % (_tool_name_for(messages, i), len(text))
+            text = _tool_stub(messages, i, text)
         if n_img:
             text = (text + " [image data omitted from summary input]").strip()
         if n_aud:
@@ -605,11 +610,11 @@ def serialize_for_summary(messages: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def summary_pair(summary: str) -> list[dict[str, Any]]:
-    return [
-        {"role": "user", "content": "[CONVERSATION SUMMARY]\n" + summary + "\n[END SUMMARY]"},
-        {"role": "assistant", "content": "Acknowledged. I will continue from the summary above."},
-    ]
+def summary_pair(summary: str, *, omit_ack: bool = False) -> list[dict[str, Any]]:
+    pair = [{"role": "user", "content": "[CONVERSATION SUMMARY]\n" + summary + "\n[END SUMMARY]"}]
+    if not omit_ack:
+        pair.append({"role": "assistant", "content": "Acknowledged. I will continue from the summary above."})
+    return pair
 
 
 def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -689,24 +694,50 @@ def _apply_tail_stubs(messages: list[dict[str, Any]], first_kept_index: int, stu
         if msg.get("role") == "tool" and msg.get("tool_call_id") in ids:
             text = flatten_content(msg.get("content"))[0]
             copied = dict(msg)
-            copied["content"] = "[%s] (%d chars)" % (_tool_name_for(messages, i), len(text))
+            copied["content"] = _tool_stub(messages, i, text)
             tail.append(copied)
         else:
             tail.append(msg)
     return tail
 
 
+def _drop_stale_compaction(session: Any, messages: list[dict[str, Any]]) -> Any:
+    """Return session.compaction, or clear it and return None.
+
+    first_kept_index is a raw index. clear() replaces the list, but the
+    assign in compact_session can still land after that replace. An insert
+    at or before the cut keeps the list object and moves the row. Either
+    way the summary belongs to a transcript this list no longer has.
+    """
+    state = getattr(session, "compaction", None)
+    if state is None:
+        return None
+    idx = state.first_kept_index
+    anchor = getattr(state, "kept_message_id", None)
+    in_range = isinstance(idx, int) and 1 <= idx < len(messages)
+    anchored = anchor is None or (in_range and id(messages[idx]) == anchor)
+    if in_range and anchored:
+        return state
+    session.compaction = None
+    return None
+
+
 def messages_for_llm(session: Any, tools: Any = None) -> list[dict[str, Any]]:
-    """Live messages[0] + summary pair + tail (view stubs). Does not mutate session."""
+    """Live messages[0] + summary pair + tail (view stubs). Does not mutate session messages, but may clear session.compaction if stale."""
     del tools  # accepted so callers share the prompt_tokens signature
     messages = getattr(session, "messages", None) or []
     if not messages:
         return []
-    state = getattr(session, "compaction", None)
+    # Drop stale compaction if first_kept_index is out of range or anchored object drifted
+    state = _drop_stale_compaction(session, messages)
     if state is None:
         return sanitize_tool_pairs(list(messages))
     tail = _apply_tail_stubs(messages, state.first_kept_index, state.stubbed_tool_call_ids)
-    view = [messages[0]] + summary_pair(state.summary) + tail
+    # Bugfix: The cut may land on an assistant message, and summary_pair includes
+    # an assistant ack by default. Strict backends reject adjacent assistant rows.
+    # Dropping the ack keeps the cut and tool pairs intact without adjacent assistant messages.
+    omit_ack = bool(tail) and tail[0].get("role") == "assistant"
+    view = [messages[0]] + summary_pair(state.summary, omit_ack=omit_ack) + tail
     return sanitize_tool_pairs(view)
 
 
@@ -720,7 +751,10 @@ def is_context_overflow_error(text: str | None) -> bool:
     if is_process_death_error(text):
         return False
     lower = (text or "").lower()
-    if any(m in lower for m in _NON_OVERFLOW_MARKERS):
+    # Bugfix: "tpm" was previously a substring in _NON_OVERFLOW_MARKERS, which
+    # caused false-positive matches on words like "footpm". Using \btpm\b
+    # matches TPM as a whole word (e.g. "TPM", "foo-tpm-70b") without matching substrings.
+    if any(m in lower for m in _NON_OVERFLOW_MARKERS) or _TPM_WORD.search(lower):
         return False
     if any(m in lower for m in _OVERFLOW_MARKERS):
         return True
@@ -787,10 +821,10 @@ def _temporal_anchoring_rule() -> str:
     )
 
 
-def _choose_cut(messages: list[dict[str, Any]], keep: int, prev_kept: int) -> tuple[list[dict[str, Any]], int | None, tuple[Any, ...]]:
+def _choose_cut(messages: list[dict[str, Any]], keep: int, prev_kept: int) -> tuple[int | None, tuple[Any, ...]]:
     """Ceiling walk, optional tail-pressure stub, then last-user snap.
 
-    Returns ``(work, new_cut, stubbed_ids)`` or ``(work, None, stubbed_ids)``.
+    Returns ``(new_cut, stubbed_ids)`` or ``(None, stubbed_ids)``.
     """
     work, stubbed_ids = messages, ()
     new_cut = find_cut_index(work, keep, start_index=prev_kept)
@@ -798,22 +832,22 @@ def _choose_cut(messages: list[dict[str, Any]], keep: int, prev_kept: int) -> tu
         work, stubbed_ids = pressure_stub_newest_tool_group(messages, keep, prev_kept)
         new_cut = find_cut_index(work, keep, start_index=prev_kept)
     if new_cut is None or new_cut <= prev_kept:
-        return work, None, stubbed_ids
+        return None, stubbed_ids
     new_cut = ensure_last_user_in_tail(work, new_cut, prev_kept, keep)
     if new_cut is None or new_cut <= prev_kept:
         # #10896: group fit keep so the walk succeeded; user+group did not.
         # Helper only ran above when find_cut_index was None. Stub now, re-walk,
         # re-snap. pressure_stub fits last_user+group (not group alone).
         if stubbed_ids:
-            return work, None, stubbed_ids
+            return None, stubbed_ids
         work, stubbed_ids = pressure_stub_newest_tool_group(messages, keep, prev_kept)
         new_cut = find_cut_index(work, keep, start_index=prev_kept)
         if new_cut is None or new_cut <= prev_kept:
-            return work, None, stubbed_ids
+            return None, stubbed_ids
         new_cut = ensure_last_user_in_tail(work, new_cut, prev_kept, keep)
         if new_cut is None or new_cut <= prev_kept:
-            return work, None, stubbed_ids
-    return work, new_cut, stubbed_ids
+            return None, stubbed_ids
+    return new_cut, stubbed_ids
 
 
 def compact_session(
@@ -843,6 +877,7 @@ def compact_session(
     if not messages:
         return CompactResult(False, "nothing_to_compact")
 
+    state = _drop_stale_compaction(session, messages)
     view = messages_for_llm(session, tools)
     before = prompt_tokens(view, tools)
     if window is None or window <= 0:
@@ -858,9 +893,8 @@ def compact_session(
     if keep is None:
         return CompactResult(False, "nothing_to_compact", before, before)
 
-    state = getattr(session, "compaction", None)
     prev_kept = state.first_kept_index if state is not None else 1
-    _work, new_cut, stubbed_ids = _choose_cut(messages, keep, prev_kept)
+    new_cut, stubbed_ids = _choose_cut(messages, keep, prev_kept)
     if new_cut is None or new_cut <= prev_kept:
         return CompactResult(False, "nothing_to_compact", before, before)
 
@@ -878,7 +912,7 @@ def compact_session(
     if state is not None and state.summary:
         user_body = (
             "<previous-summary>\n" + state.summary + "\n</previous-summary>\n\n"
-            "<conversation>\n" + text + "\n</conversation>\n\n"
+            + "<conversation>\n" + text + "\n</conversation>\n\n"
             + UPDATE_SUMMARIZATION_PROMPT + temporal
         )
     else:
@@ -931,6 +965,7 @@ def compact_session(
         tokens_before=before,
         window=window,
         stubbed_tool_call_ids=stubbed_ids,
+        kept_message_id=id(messages[new_cut]),
     )
     after = prompt_tokens(messages_for_llm(session, tools), tools)
     reserve = gen_reserve(window)

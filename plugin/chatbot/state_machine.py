@@ -126,9 +126,9 @@ class EffectInterpreter:
             case SendHandlerUIEffect("status", text, _):
                 self.handler._set_status(text)
             case CompleteJobEffect(terminal_status=status):
-                self.handler._terminal_status = status
-                if status not in ("Error", "Stopped"):
-                    self.handler._terminal_status = "Ready"
+                terminal = status if status in ("Error", "Stopped") else "Ready"
+                self.handler._terminal_status = terminal
+                if terminal == "Ready":
                     self.handler._set_status("Ready")
             case SpawnDirectImageEffect(query_text=qt, model=mod):
                 self.handler._execute_direct_image_effect(qt, mod, self.current_state, self)
@@ -254,9 +254,17 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
             return FsmTransition(dataclasses.replace(state, status="stopped"), effects)
 
         case ErrorEvent():
+            # Bugfix: If the handler is already stopped, late error events arriving from
+            # background threads must not transition status to "error" or append error lines.
+            if state.status == "stopped":
+                return FsmTransition(state, [])
             return handle_error(state, event)
 
         case StreamChunkEvent(chunk_text=text, is_thinking=thinking):
+            # Bugfix: If the handler is already stopped, late chunks arriving after Stop
+            # must not be appended to the UI.
+            if state.status == "stopped":
+                return FsmTransition(state, [])
             effects.append(SendHandlerUIEffect("append", text, is_thinking=thinking))
             return FsmTransition(state, effects)
 
@@ -264,9 +272,11 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
             if state.status in ("error", "stopped"):
                 return FsmTransition(state, effects)
 
-            if state.handler_type in ("image", "agent", "web"):
-                effects.append(SendHandlerUIEffect("status", "Ready"))
-                effects.append(CompleteJobEffect("Ready"))
+            # Bugfix: Always emit CompleteJobEffect("Ready") and status "Ready" on normal completion,
+            # regardless of handler_type string, so unknown/future handler types don't finish
+            # with missing effects.
+            effects.append(SendHandlerUIEffect("status", "Ready"))
+            effects.append(CompleteJobEffect("Ready"))
 
             return FsmTransition(dataclasses.replace(state, status="done"), effects)
 

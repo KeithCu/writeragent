@@ -143,10 +143,11 @@ MAX_TOOL_CALL_ARGS_CHARS = 4000
 @dataclass(frozen=True)
 class CompactionState:
     summary: str
-    first_kept_index: int              # index into session.messages (>= 1)
+    first_kept_index: int              # index into session.messages (>= 1); dropped if out of range or anchored row drifted
     tokens_before: int
     window: int
     stubbed_tool_call_ids: tuple = ()  # view-only tail-pressure stubs
+    kept_message_id: int | None = None # id() of session.messages[first_kept_index] at publish
 
 @dataclass(frozen=True)
 class CompactResult:
@@ -162,12 +163,12 @@ WriterAgent does not mutate `session.messages` in-place and does not rewrite SQL
 
 ```
 [session.messages[0]]                       # Always live system + DOCUMENT CONTENT
-+ summary_pair(state.summary)               # User summary + dummy Assistant ack
++ summary_pair(state.summary)               # User summary + dummy Assistant ack (ack omitted when tail starts with assistant)
 + tail from session.messages[state.first_kept_index:]
     # role=tool matching stubbed_tool_call_ids replaced by [name] (N chars)
 ```
 
-Then `sanitize_tool_pairs` runs to prune orphaned tool calls or results. If `session.compaction is None`, it returns a sanitized copy of `session.messages`.
+The cache is dropped when `first_kept_index` is out of range or the row at that index is no longer the row that was published (e.g. after `clear()` or an in-place insert). Then `sanitize_tool_pairs` runs to prune orphaned tool calls or results. If `session.compaction is None`, it returns a sanitized copy of `session.messages`.
 
 ### 4. Token Estimator (`estimate_tokens_rough`)
 
