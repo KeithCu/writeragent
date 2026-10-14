@@ -12,12 +12,14 @@ from typing import Any, cast
 
 import unohelper
 
+from plugin.framework.thread_guard import main_thread_only
+
 log = logging.getLogger(__name__)
 
 _CELL_MENU_FIRST_COMMAND = ".uno:Cut"
 
 _lock = threading.RLock()
-_registered_frames: set[int] = set()
+_registered_controllers: list[Any] = []
 _interceptor: Any = None
 _doc_listener: Any = None
 
@@ -27,13 +29,6 @@ def _edit_python_cell_url() -> str:
     from plugin.framework.uno_context import resolve_package_extension_id
 
     return f"{resolve_package_extension_id()}:scripting.edit_python_cell"
-
-
-def _frame_key(frame: Any) -> int | None:
-    try:
-        return id(frame)
-    except Exception:
-        return None
 
 
 def _is_calc_controller(controller: Any) -> bool:
@@ -49,15 +44,11 @@ def _is_calc_controller(controller: Any) -> bool:
         return False
 
 
-def _is_calc_spreadsheet(frame: Any) -> bool:
-    try:
-        return _is_calc_controller(frame.getController())
-    except Exception:
-        log.debug("python_editor_context_menu: could not resolve frame model", exc_info=True)
-        return False
-
-
 def _looks_like_cell_context_menu(container: Any) -> bool:
+    # .uno:Cut is the first item of sc/uiconfig/scalc/popupmenu/cell.xml.
+    # Several other Calc popups share that first item (column/row headers, etc.).
+    # A separator or any other first command returns false because getPropertyValue("CommandURL")
+    # fails or does not match .uno:Cut.
     try:
         if container is None or container.getCount() == 0:
             return False
@@ -68,6 +59,18 @@ def _looks_like_cell_context_menu(container: Any) -> bool:
         return str(cmd) == _CELL_MENU_FIRST_COMMAND
     except Exception:
         return False
+
+
+def _prune_disposed_controllers() -> None:
+    """Prune disposed controllers from _registered_controllers (must hold _lock)."""
+    alive: list[Any] = []
+    for ctrl in _registered_controllers:
+        try:
+            if ctrl.getModel() is not None:
+                alive.append(ctrl)
+        except Exception:
+            continue
+    _registered_controllers[:] = alive
 
 
 def _get_interceptor() -> Any:
@@ -81,8 +84,12 @@ def _get_interceptor() -> Any:
     class _CalcCellContextMenuInterceptor(unohelper.Base, XContextMenuInterceptor):  # type: ignore[misc, valid-type]
         def notifyContextMenuExecute(self, aEvent: Any) -> Any:  # noqa: N802 — UNO API
             try:
-                if not _is_calc_spreadsheet(aEvent.SourceWindow):
-                    return IGNORED
+                # Bugfix: SourceWindow is a com.sun.star.awt.XWindow (ContextMenuExecuteEvent.idl),
+                # not a frame. Calling getController() on it always failed with AttributeError,
+                # the exception handler returned false, and "Edit Python in Cell..." never appeared.
+                # Calc document type was already validated during controller registration in
+                # _register_controller. The Cut check below (sc/uiconfig/scalc/popupmenu/cell.xml)
+                # still filters out non-cell menus from the same controller (sheet tabs, anchors, etc.).
                 container = aEvent.ActionTriggerContainer
                 if not _looks_like_cell_context_menu(container):
                     return IGNORED
@@ -117,24 +124,27 @@ def _register_controller(controller: Any) -> None:
     """Register the interceptor on one Calc view controller (idempotent per controller)."""
     if controller is None:
         return
-    key = _frame_key(controller)
-    if key is None:
-        return
-    with _lock:
-        if key in _registered_frames:
-            return
     if not _is_calc_controller(controller):
         return
     try:
         import uno
+        from plugin.framework.uno_context import uno_same
 
         interception = controller.queryInterface(uno.getTypeByName("com.sun.star.ui.XContextMenuInterception"))
         if interception is None:
             return
-        interception.registerContextMenuInterceptor(_get_interceptor())
         with _lock:
-            _registered_frames.add(key)
-        log.debug("python_editor_context_menu: registered on controller %s", key)
+            # Bugfix: PyUNO returns a fresh Python proxy object per call, so id() dedup
+            # failed and registered multiple interceptors on the same controller.
+            # OInterfaceContainerHelper::addInterface appends without deduping,
+            # adding duplicate separators and menu items (see plugin/writer/change_context_menu.py).
+            # We use uno_same to compare UNO identity and prune disposed controllers.
+            _prune_disposed_controllers()
+            if any(uno_same(controller, existing) for existing in _registered_controllers):
+                return
+            interception.registerContextMenuInterceptor(_get_interceptor())
+            _registered_controllers.append(controller)
+        log.debug("python_editor_context_menu: registered on Calc controller")
     except Exception:
         log.debug("python_editor_context_menu: register failed", exc_info=True)
 
@@ -190,9 +200,6 @@ def _install_doc_event_listener(ctx: Any) -> None:
         log.warning("python_editor_context_menu: doc-event listener install failed", exc_info=True)
 
 
-from plugin.framework.thread_guard import main_thread_only
-
-
 @main_thread_only
 def install_calc_cell_context_menu(ctx: Any) -> None:
     """Register the cell context menu interceptor on open Calc frames and future views."""
@@ -206,16 +213,10 @@ def install_calc_cell_context_menu(ctx: Any) -> None:
                 for i in range(frames.getCount()):
                     try:
                         frame = frames.getByIndex(i)
-                        if frame is not None and _is_calc_spreadsheet(frame):
+                        if frame is not None:
                             _register_frame(frame)
                     except Exception:
                         log.debug("python_editor_context_menu: frame %s skipped", i, exc_info=True)
-            try:
-                current = desktop.getCurrentFrame()
-                if current is not None and _is_calc_spreadsheet(current):
-                    _register_frame(current)
-            except Exception:
-                log.debug("python_editor_context_menu: current frame skipped", exc_info=True)
         _install_doc_event_listener(ctx)
     except Exception:
         log.debug("python_editor_context_menu: install failed", exc_info=True)

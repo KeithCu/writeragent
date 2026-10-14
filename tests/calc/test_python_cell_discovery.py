@@ -14,6 +14,7 @@ from plugin.calc.python.cell_discovery import (
     is_py_formula_text,
     list_python_cells_on_sheet,
 )
+from plugin.calc.python.formula_edit import normalize_formula_string
 from plugin.tests.testing_utils import CalcDocStub
 import pytest
 
@@ -36,6 +37,23 @@ def test_canonicalize_librepy_addin_prefix():
     raw = '=ORG.EXTENSION.LIBREPY.PYTHONFUNCTION.PYTHON("result = 2")'
     assert is_py_formula_text(raw)
     assert extract_code_from_formula(raw) == "result = 2"
+
+
+def test_canonicalize_py_formula_for_parse_variations():
+    lower_wa = '=org.extension.writeragent.pythonfunction.py("x")'
+    assert canonicalize_py_formula_for_parse(lower_wa).upper().startswith("=PYTHON(")
+    assert extract_code_from_formula(lower_wa) == "x"
+
+    spaced_lp = '=  ORG.EXTENSION.LIBREPY.PYTHONFUNCTION.PYTHON ("y")'
+    assert canonicalize_py_formula_for_parse(spaced_lp) == '=PYTHON("y")'
+    assert extract_code_from_formula(spaced_lp) == "y"
+
+    py_formula = '=PY("z")'
+    assert canonicalize_py_formula_for_parse(py_formula) == normalize_formula_string(py_formula)
+
+    python_formula = '=PYTHON("z")'
+    assert canonicalize_py_formula_for_parse(python_formula) == normalize_formula_string(python_formula)
+
 
 def test_short_py_formula():
     assert is_py_formula_text('=PY("result = 3")')

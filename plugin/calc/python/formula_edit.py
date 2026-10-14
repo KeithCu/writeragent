@@ -44,6 +44,43 @@ _MAX_PYTHON_ALIAS_LEN = max(len(a) for a in _CALC_PYTHON_FN_ALIASES_BY_LEN)
 _QUOTE_NORMALIZE = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"})
 
 
+def _match_py_alias(raw: str, *, require_equals: bool, aliases: tuple[str, ...]) -> int | None:
+    # crosshair: off
+    # Same prefix scan as py_call_open_end (cover-all 35526755391).
+    i = 0
+    n = len(raw)
+    if require_equals:
+        if i >= n or raw[i] != "=":
+            return None
+        i += 1
+        while i < n and raw[i].isspace():
+            i += 1
+    max_alias_len = max(len(a) for a in aliases) if aliases else 0
+    head = raw[i : i + max_alias_len].upper()
+    matched = 0
+    for alias in aliases:
+        if head.startswith(alias):
+            matched = len(alias)
+            break
+    if not matched:
+        return None
+    i += matched
+    while i < n and raw[i].isspace():
+        i += 1
+    if i < n and raw[i] == "(":
+        return i + 1
+    return None
+
+
+_STORED_ADDIN_ALIASES = tuple(a for a in _CALC_PYTHON_FN_ALIASES_BY_LEN if a.startswith("ORG.EXTENSION."))
+
+
+def stored_addin_call_open_end(raw: str) -> int | None:
+    # crosshair: off
+    # Same prefix scan as py_call_open_end (cover-all 35526755391). Fully qualified OriginalNames only.
+    return _match_py_alias(raw, require_equals=True, aliases=_STORED_ADDIN_ALIASES)
+
+
 def py_call_open_end(raw: str, *, require_equals: bool) -> int | None:
     # crosshair: off
     # cover-all 35526755391 (~5.4m). Prefix scanner as cover entry; stay-on parse still exercises it. Doable later: tiny PY-prefix alphabet.
@@ -57,28 +94,7 @@ def py_call_open_end(raw: str, *, require_equals: bool) -> int | None:
     that alternation (same crash on ``parse_python_formula('PY')`` via
     normalize). Scan aliases with ``startswith`` instead of regex.
     """
-    i = 0
-    n = len(raw)
-    if require_equals:
-        if i >= n or raw[i] != "=":
-            return None
-        i += 1
-        while i < n and raw[i].isspace():
-            i += 1
-    head = raw[i : i + _MAX_PYTHON_ALIAS_LEN].upper()
-    matched = 0
-    for alias in _CALC_PYTHON_FN_ALIASES_BY_LEN:
-        if head.startswith(alias):
-            matched = len(alias)
-            break
-    if not matched:
-        return None
-    i += matched
-    while i < n and raw[i].isspace():
-        i += 1
-    if i < n and raw[i] == "(":
-        return i + 1
-    return None
+    return _match_py_alias(raw, require_equals=require_equals, aliases=_CALC_PYTHON_FN_ALIASES_BY_LEN)
 
 
 @dataclass(frozen=True)
@@ -373,8 +389,9 @@ def rebuild_python_formula(parts: PythonFormulaParts, new_code: str) -> str:
     """Rebuild a formula from parsed parts and new inline code (preserves prefix and ``data_suffix``)."""
     # Calls escape → quote doubling.
     # crosshair: off
+    # parts is required; empty prefix falls back to =PY(; None is a caller bug and is handled by rebuild_python_formula_with_data.
     escaped = escape_code_for_formula(new_code)
-    prefix = parts.prefix if parts and parts.prefix else f"={CALC_PYTHON_FN}("
+    prefix = parts.prefix if parts.prefix else f"={CALC_PYTHON_FN}("
     return f'{prefix}"{escaped}"{parts.data_suffix}'
 
 
@@ -484,12 +501,48 @@ def _sheet_needs_excel_quotes(s: str) -> bool:
 
 
 def _split_sheet_range(range_addr: str) -> tuple[str, str] | None:
-    """Split a sheet-qualified range into (unquoted_sheet, rest), or None if not qualified.
+    """Split a sheet-qualified range into (unquoted_or_escaped_sheet, rest), or None if not qualified.
 
-    Handles both Excel 'Sheet!A1' and Calc 'Sheet.A1' styles, ignoring leading/trailing
-    quotes on the sheet name and skipping cell prefixes like 'A1.B5'.
+    A quoted sheet may contain `.` and `!`; `''` inside quotes is one apostrophe;
+    an unquoted left side that looks like an A1 cell (`A1.B5`, and also `Sheet1.A1`
+    because `_is_a1_cell_prefix` treats letters-plus-digit as a cell) is not a sheet
+    on the dot form; this function does not call `split_sheet_prefix` (regex, drops
+    `$`, rejects `O'Brien.A1`).
     """
     addr = str(range_addr).strip()
+    if addr.startswith("'"):
+        # Bugfix: partition on the first '.' turned "'My.Sheet'.A1:B2" into sheet "My"
+        # and rest "Sheet'.A1:B2" because the dot inside the quotes was treated as the
+        # separator. What was wrong: naive string partition split on dots or exclamation marks
+        # inside quoted sheet names. How it happened: Calc allows sheet names with dots and spaces
+        # enclosed in single quotes. Why this change fixes it: we scan quoted sheet names first,
+        # accounting for doubled apostrophe escaping (''), and only split on the separator
+        # following the closing quote.
+        i = 1
+        n = len(addr)
+        closed = False
+        close_idx = -1
+        while i < n:
+            if addr[i] == "'":
+                if i + 1 < n and addr[i + 1] == "'":
+                    i += 2
+                    continue
+                closed = True
+                close_idx = i
+                break
+            i += 1
+        if closed:
+            j = close_idx + 1
+            while j < n and addr[j].isspace():
+                j += 1
+            if j < n and addr[j] in (".", "!"):
+                j += 1
+                while j < n and addr[j].isspace():
+                    j += 1
+                rest = addr[j:]
+                if rest:
+                    return addr[1:close_idx], rest
+            return None
     if "!" in addr:
         sheet, _unused, rest = addr.partition("!")
         return sheet.strip("'\""), rest

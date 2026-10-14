@@ -12,19 +12,19 @@ formulas, WriterAgent / LibrePy fully qualified add-in forms, and Collabora
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from typing import Any
 
 from plugin.calc.address_utils import index_to_column
-from plugin.calc.python.formula_edit import cell_looks_python_like, extract_python_code_loose, normalize_formula_string, parse_python_formula
+from plugin.calc.python.formula_edit import (
+    cell_looks_python_like,
+    extract_python_code_loose,
+    normalize_formula_string,
+    parse_python_formula,
+    stored_addin_call_open_end,
+)
 
 log = logging.getLogger(__name__)
-
-# LibreOffice stores registered add-ins as fully qualified names in getFormula().
-# LibrePy still registers as writeragent.PythonFunction (WA/LibrePy file compat).
-# Collabora Online stores pythoncompute GETPY — canonicalize via prefix rewrite.
-_ADDIN_PY_PREFIX_RE = re.compile(r"^=\s*ORG\.EXTENSION\.(?:WRITERAGENT|LIBREPY)\.PYTHONFUNCTION\.(?:PYTHON|PY)\s*\(", re.IGNORECASE)
 
 # CellFlags.FORMULA = 16
 _CELL_FLAG_FORMULA = 16
@@ -63,10 +63,10 @@ def canonicalize_py_formula_for_parse(formula: str) -> str:
     from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
 
     raw = rewrite_collabora_addin_prefix(normalize_formula_string(formula))
-    match = _ADDIN_PY_PREFIX_RE.match(raw)
-    if match:
-        return "=PYTHON(" + raw[match.end() :]
-    return raw
+    end = stored_addin_call_open_end(raw)
+    if end is None:
+        return raw
+    return "=PYTHON(" + raw[end:]
 
 
 def is_py_formula_text(formula: str) -> bool:
