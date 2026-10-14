@@ -154,6 +154,25 @@ def test_validate():
     assert "Unknown parameter: extra" in err
 
 
+def test_validate_non_list_required():
+    """required as a string (or other non-list) must not split into characters."""
+    class StringRequiredTool(ToolBase):
+        name = "string_required"
+        description = "test"
+        parameters = {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": "name",
+        }
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    tool = StringRequiredTool()
+    ok, err = tool.validate()
+    assert ok is True
+    assert err is None
+
+
 def test_validate_empty_properties_rejects_unknown_kwargs():
     """Gemini/Groq can invent kwargs; empty properties must still reject them."""
     tool = AllDocTool()
@@ -1001,6 +1020,69 @@ class TestToolIsolation:
         assert "Document was closed" not in result["message"]
         assert "BareRuntimeException" in result["message"]
 
+    def test_execute_safe_async_off_main_thread_probe_skipped(self):
+        """From a background thread, an async tool must not probe the live doc model."""
+        class BareRuntimeException(Exception):
+            pass
+
+        class DisposedException(Exception):
+            pass
+
+        class RecordingDoc:
+            def __init__(self):
+                self.calls = []
+
+            def getImplementationName(self):
+                self.calls.append("getImplementationName")
+                return "SwXTextDocument"
+
+        class FailingAsyncTool(ToolBase):
+            name = "async_probe_tool"
+            description = "test"
+            parameters = {"type": "object", "properties": {}}
+
+            def __init__(self, exc_to_raise):
+                super().__init__()
+                self.exc_to_raise = exc_to_raise
+
+            def is_async(self):
+                return True
+
+            def execute(self, ctx, **kwargs):
+                raise self.exc_to_raise
+
+        doc1 = RecordingDoc()
+        ctx1 = MagicMock()
+        ctx1.doc = doc1
+
+        res_box1 = {}
+        def run_runtime():
+            res_box1["res"] = FailingAsyncTool(BareRuntimeException("err")).execute_safe(ctx1)
+
+        t1 = threading.Thread(target=run_runtime)
+        t1.start()
+        t1.join()
+
+        assert res_box1["res"]["status"] == "error"
+        assert res_box1["res"]["code"] == "TOOL_EXECUTION_ERROR"
+        assert doc1.calls == []  # Not called!
+
+        doc2 = RecordingDoc()
+        ctx2 = MagicMock()
+        ctx2.doc = doc2
+
+        res_box2 = {}
+        def run_disposed():
+            res_box2["res"] = FailingAsyncTool(DisposedException("gone")).execute_safe(ctx2)
+
+        t2 = threading.Thread(target=run_disposed)
+        t2.start()
+        t2.join()
+
+        assert res_box2["res"]["status"] == "error"
+        assert res_box2["res"]["code"] == "DOCUMENT_DISPOSED"
+        assert doc2.calls == []  # Not called!
+
     def test_tool_timeout(self):
         class SlowTool(ToolBase):
             name = "test_slow"
@@ -1610,3 +1692,156 @@ def test_tool_get_parameters_value_error_returns_registry_error() -> None:
     assert result["status"] == "error"
     assert result.get("code") == "TOOL_REGISTRY_ERROR"
     assert "Intentional crash" in str(result)
+
+
+def test_execute_spread_colliding_names_handled() -> None:
+    reg, ctx, calls, seen = _guard_probe_registry()
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+        out = reg.execute(
+            "dummy_sync",
+            ctx,
+            **{"ctx": 1, "tool_name": "nope", "timeout": 1, "run_threaded": False, "note": "keep"}
+        )
+    assert out.get("status") == "ok"
+    assert out.get("note") == "keep"
+    assert seen == [{"note": "keep"}]
+    assert sorted(out.get("ignored_parameters", [])) == ["ctx", "run_threaded", "timeout", "tool_name"]
+
+
+def test_execute_tool_with_timeout_tool_name_run_threaded_in_schema() -> None:
+    calls: list[str] = []
+    seen: list[dict] = []
+
+    class AdvancedParamsTool(ToolBase):
+        name = "advanced_params"
+        description = "has timeout and tool_name in schema"
+        parameters = {
+            "type": "object",
+            "properties": {
+                "timeout": {"type": "integer"},
+                "tool_name": {"type": "string"},
+                "run_threaded": {"type": "boolean"},
+            },
+        }
+
+        def execute(self, ctx, **kwargs):
+            calls.append("execute")
+            seen.append(dict(kwargs))
+            return {"status": "ok", "kwargs": kwargs}
+
+    reg = ToolRegistry(MagicMock())
+    reg.register(AdvancedParamsTool())
+    ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+        out = reg.execute("advanced_params", ctx, timeout=5, tool_name="my_name", run_threaded=True)
+
+    assert out.get("status") == "ok"
+    assert seen == [{"timeout": 5, "tool_name": "my_name", "run_threaded": True}]
+
+
+def test_execute_unguarded_bypass_flag_false_in_dict_still_calls_execute() -> None:
+    reg, ctx, calls, seen = _guard_probe_registry()
+    out = reg.execute_unguarded("dummy_sync", ctx, **{"bypass_thread_guard": False, "note": "keep"})
+    assert out.get("status") == "ok"
+    assert out.get("note") == "keep"
+    assert calls == ["execute"]
+    assert seen == [{"note": "keep"}]
+
+
+def test_sync_tool_timeout_none_returns_ok() -> None:
+    class NoneTimeoutTool(ToolBase):
+        name = "none_timeout_tool"
+        description = "Tool with timeout = None"
+        timeout = None
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok", "result": 42}
+
+    reg = ToolRegistry(MagicMock())
+    reg.register(NoneTimeoutTool())
+    ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
+    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+        out = reg.execute("none_timeout_tool", ctx)
+    assert out.get("status") == "ok"
+    assert out.get("result") == 42
+
+
+def test_doc_type_probe_on_main_thread_only() -> None:
+    reg = ToolRegistry(MagicMock())
+    doc = MagicMock()
+
+    with patch("plugin.framework.tool.on_main_thread", return_value=True), \
+         patch("plugin.framework.tool._doc_type_str_from_doc", return_value="writer") as mock_probe:
+        reg.get_schemas(doc=doc)
+        assert mock_probe.call_count == 1
+
+    with patch("plugin.framework.tool.on_main_thread", return_value=True), \
+         patch("plugin.framework.tool._doc_type_str_from_doc", return_value="writer") as mock_probe:
+        reg.get_schemas(doc=doc, doc_type="writer")
+        mock_probe.assert_not_called()
+
+    with patch("plugin.framework.tool.on_main_thread", return_value=False), \
+         patch("plugin.framework.tool._doc_type_str_from_doc", return_value="writer") as mock_probe:
+        reg.get_tools(doc=doc)
+        mock_probe.assert_not_called()
+        reg.get_schemas(doc=doc)
+        mock_probe.assert_not_called()
+
+
+def test_specialized_domain_flag() -> None:
+    from plugin.writer.specialized_base import ToolWriterSpecialBase
+
+    class PlainBaseTool(ToolBase):
+        name = "plain_tables"
+        description = "plain tables tool"
+        specialized_domain = "tables"
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    class WriterSpecialTool(ToolWriterSpecialBase):
+        name = "writer_tables"
+        description = "writer tables tool"
+        specialized_domain = "tables"
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    class CrossCuttingTool(ToolBase):
+        name = "cross_tables"
+        description = "cross-cutting tables tool"
+        specialized_domain = "tables"
+        specialized_cross_cutting = True
+        parameters = {"type": "object", "properties": {}}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    reg = ToolRegistry(MagicMock())
+    plain = PlainBaseTool()
+    writer = WriterSpecialTool()
+    cross = CrossCuttingTool()
+    reg.register(plain)
+    reg.register(writer)
+    reg.register(cross)
+
+    tools = reg.get_tools(active_domain="tables", filter_doc_type=False, exclude_tiers=())
+    tool_names = [t.name for t in tools]
+    assert "plain_tables" not in tool_names
+    assert "writer_tables" in tool_names
+    assert "cross_tables" in tool_names
+
+
+def test_get_tools_signature_and_ctx() -> None:
+    reg = ToolRegistry(MagicMock())
+    with pytest.raises(TypeError):
+        reg.get_tools(doc_typo="writer")  # type: ignore[call-arg]
+
+    sentinel_ctx = object()
+    with patch("plugin.vision.vision_availability.filter_vision_specialized_tools", side_effect=lambda tools, ctx: tools) as mock_filter:
+        reg.get_tools(ctx=sentinel_ctx)
+        mock_filter.assert_called_once()
+        assert mock_filter.call_args[0][1] is sentinel_ctx

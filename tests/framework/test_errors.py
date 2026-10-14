@@ -788,3 +788,34 @@ def test_illegal_argument_is_not_document_disposal():
     with pytest.raises(UnoObjectError):
         safe_call(_raise_runtime, "probe")
 
+
+def test_safe_call_reraises_writer_agent_exception():
+    from plugin.framework.errors import ToolPermissionError, safe_call
+
+    def _fail():
+        raise ToolPermissionError("Permission denied")
+
+    with pytest.raises(ToolPermissionError) as exc_info:
+        safe_call(_fail, "probe")
+    assert exc_info.value.code == "PERMISSION_DENIED"
+
+
+def test_handle_errors_uses_class_code_and_reraises_writer_agent_exception():
+    from plugin.framework.errors import ToolExecutionError, ToolPermissionError, handle_errors
+
+    @handle_errors("probe")
+    def _fail_val():
+        raise ValueError("invalid value")
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        _fail_val()
+    assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
+
+    @handle_errors("probe")
+    def _fail_perm():
+        raise ToolPermissionError("Not allowed")
+
+    with pytest.raises(ToolPermissionError) as exc_info2:
+        _fail_perm()
+    assert exc_info2.value.code == "PERMISSION_DENIED"
+

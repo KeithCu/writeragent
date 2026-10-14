@@ -32,6 +32,7 @@ class ToolDrawSpecialBase(ToolBase):
     """
 
     tier: str = "specialized"
+    is_app_specialized_tool: ClassVar[bool] = True
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
     # Do not assign required_core_tools = None here. ToolBase already defaults

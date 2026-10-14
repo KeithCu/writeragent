@@ -32,6 +32,7 @@ class ToolCalcSpecialBase(ToolBase):
     """
 
     tier: str = "specialized"
+    is_app_specialized_tool: ClassVar[bool] = True
     specialized_domain: ClassVar[str | None] = None
     specialized_domain_description: ClassVar[str | None] = None
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_sheet_summary", "read_cell_range"])

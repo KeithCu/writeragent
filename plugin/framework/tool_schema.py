@@ -363,7 +363,11 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     if params.get("required") == []:
         params.pop("required", None)
 
-    required_keys = set(params.get("required") or [])
+    # Bugfix: When 'required' was a string (e.g. "ab"), set(params.get("required") or [])
+    # split it into individual characters {'a', 'b'}, incorrectly treating properties as required.
+    # Treat required as keys only when it is a list; leave non-list required intact in params.
+    required_raw = params.get("required")
+    required_keys = set(required_raw) if isinstance(required_raw, list) else set()
 
     # Walk whenever ``properties`` is a dict, then walk ``items`` too.
     # JSON Schema still describes an object when ``type`` is omitted.

@@ -46,6 +46,7 @@ class ToolWriterSpecialBase(ToolBase):
 
     # Not on the main chat default tool list (tier specialized); exposed via delegation only.
     tier: str = "specialized"
+    is_app_specialized_tool: ClassVar[bool] = True
 
     # The domain name this tool belongs to (e.g., "tables").
     # Subclasses MUST override this.

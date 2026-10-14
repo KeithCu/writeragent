@@ -536,3 +536,14 @@ def test_set_style_strips_number_format_for_non_script_callers(caller):
         # Regular schema params still pass through.
         assert kwargs.get("bold") is True
 
+
+def test_normalize_schema_non_list_required():
+    schema = {
+        "type": "object",
+        "properties": {"a": {"type": "string"}},
+        "required": "ab",
+    }
+    normalized = _normalize_schema_for_strict_providers(schema)
+    assert normalized["properties"]["a"]["type"] == ["string", "null"]
+    assert normalized["required"] == "ab"
+

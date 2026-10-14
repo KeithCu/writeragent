@@ -43,15 +43,23 @@ from plugin.framework.errors import (
     WriterAgentException,
     format_error_payload,
     is_document_disposed,
+    is_real_disposal,
     is_tool_document_disposed,
     make_tool_error,
 )
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.thread_guard import assert_main_thread
+from plugin.framework.thread_guard import assert_main_thread, on_main_thread
 from plugin.framework.queue_executor import execute_on_main_thread
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
-from plugin.framework.tool_schema import _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers, call_properties as call_properties, coerce_call_args as coerce_call_args, to_mcp_schema as to_mcp_schema, to_openai_schema as to_openai_schema, without_unknown_kwargs as without_unknown_kwargs
+from plugin.framework.tool_schema import (
+    _normalize_schema_for_strict_providers as _normalize_schema_for_strict_providers,
+    call_properties as call_properties,
+    coerce_call_args as coerce_call_args,
+    to_mcp_schema as to_mcp_schema,
+    to_openai_schema as to_openai_schema,
+    without_unknown_kwargs as without_unknown_kwargs,
+)
 
 _log = logging.getLogger(__name__)
 log = logging.getLogger("writeragent.tools")
@@ -227,7 +235,22 @@ def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
     return False
 
 
-class ToolBase(ABC):
+class _ToolErrorMixin:
+    """Mixin providing standardized JSON payload generation for tool errors."""
+
+    def _tool_error(self, message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
+        """Standardized JSON payload for tool errors.
+
+        Delegates to the central make_tool_error factory so every tool
+        error path (including the Dummy base and Registry) produces
+        identical structure. See errors.py:make_tool_error for the
+        single source of truth (added during 2026 error formatting
+        centralization).
+        """
+        return make_tool_error(message, code=code, **details)
+
+
+class ToolBase(_ToolErrorMixin, ABC):
     """Abstract base for every tool exposed to LLM agents and MCP clients.
 
     Subclasses must set ``name``, ``description``, ``parameters`` and
@@ -270,6 +293,7 @@ class ToolBase(ABC):
     # (get_document_content) or one specialized tool from another domain
     # (style_list on the page domain). Same list; get_tools admits both tiers.
     required_core_tools: ClassVar[frozenset[str] | None] = None
+    is_app_specialized_tool: ClassVar[bool] = False
 
     def detects_mutation(self) -> bool:
         """Return True if the tool mutates the document."""
@@ -288,17 +312,6 @@ class ToolBase(ABC):
         """
         return self.detects_mutation()
 
-    def _tool_error(self, message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
-        """Standardized JSON payload for tool errors.
-
-        Delegates to the central make_tool_error factory so every tool
-        error path (including the Dummy base and Registry) produces
-        identical structure. See errors.py:make_tool_error for the
-        single source of truth (added during 2026 error formatting
-        centralization).
-        """
-        return make_tool_error(message, code=code, **details)
-
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         """JSON Schema for this tool; override for document-type-specific parameters."""
         return self.parameters
@@ -314,7 +327,11 @@ class ToolBase(ABC):
             (ok: bool, error_message: str | None)
         """
         schema = self.get_parameters(doc_type) or {}
-        required = schema.get("required", [])
+        # Bugfix: A schema with a non-list 'required' (e.g. required="name") previously caused
+        # iteration over string characters, demanding keys 'n', 'a', 'm', 'e'.
+        # Only iterate when 'required' is a list, matching _execute_impl.
+        required_raw = schema.get("required")
+        required = required_raw if isinstance(required_raw, list) else []
         for key in required:
             if key not in kwargs:
                 return False, f"Missing required parameter: {key}"
@@ -375,7 +392,20 @@ class ToolBase(ABC):
         except Exception as e:
             _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")
             doc = getattr(ctx, "doc", None) if ctx is not None else None
-            if is_tool_document_disposed(e, doc):
+            # Bugfix: The pre-execute probe is skipped for async tools so review-wait can
+            # run off the UI thread, but the exception handler still called getImplementationName
+            # via is_tool_document_disposed on background worker threads. Marshaling that probe
+            # to the main thread deadlocks when the UI thread is inside _execute_with_timeout's join(),
+            # while running it directly off-thread violates UNO thread safety.
+            # When off the main thread, check only for real disposal exceptions (DisposedException /
+            # DocumentDisposedError) without probing the document model, letting a bare
+            # RuntimeException fall through to TOOL_EXECUTION_ERROR.
+            if on_main_thread():
+                disposed = is_tool_document_disposed(e, doc)
+            else:
+                disposed = is_real_disposal(e)
+
+            if disposed:
                 return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED", original_error=str(e), error_type=type(e).__name__)
             # Returning _tool_error() already keeps the code. Raising
             # ToolPermissionError / ConfigError used to be rewritten as
@@ -427,24 +457,19 @@ class ToolBase(ABC):
         return collection.getByName(item_name)
 
 
-class ToolBaseDummy:
+class ToolBaseDummy(_ToolErrorMixin):
     """Marker base for temporarily disabled tools.
 
     Classes deriving from this base are intentionally **not** treated as
     tools by the registry. To re-enable a tool, change its base class
     back to ``ToolBase``.
+
+    We keep _tool_error on the dummy base (via _ToolErrorMixin), not a bare marker,
+    because disabled tools still call self._tool_error and pyright checks them.
     """
 
     name: str | None = None
     is_final_answer_tool: bool = False
-
-    def _tool_error(self, message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
-        """Standardized JSON payload for tool errors.
-
-        We keep _tool_error on the dummy base, not a bare marker, because
-        disabled tools still call self._tool_error and pyright checks them.
-        """
-        return make_tool_error(message, code=code, **details)
 
 
 def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
@@ -464,11 +489,7 @@ def _is_specialized_domain_tool(t: Any, active_domain: str) -> bool:
     # appear under delegate_to_specialized_writer/calc/draw_toolset(domain=...) for any doc.
     if getattr(t, "specialized_cross_cutting", False):
         return True
-    from plugin.writer.specialized_base import ToolWriterSpecialBase
-    from plugin.calc.base import ToolCalcSpecialBase
-    from plugin.draw.base import ToolDrawSpecialBase
-
-    return isinstance(t, (ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawSpecialBase))
+    return bool(getattr(t, "is_app_specialized_tool", False))
 
 
 # Hidden from default chat/MCP tool lists; exposed via delegate_to_specialized_writer_toolset.
@@ -535,13 +556,13 @@ class ToolRegistry:
             return
 
         if tool.name in self._tools:
-            # If it's the exact same class, skip silently.
             existing_tool = self._tools[tool.name]
+            # Same class object, including a re-import that got the cached module: return, no log.
             if type(existing_tool) is type(tool):
                 return
-            # Same class object (re-import of the same module): skip silently.
-            # Same __name__ from a *different* module is last-wins (Writer/Calc/Draw
-            # wrappers for shape_upsert / manage_charts) — log so registration order is visible.
+            # A different class object replaces. Warn only when __name__ or __module__ differs
+            # (shared Writer/Calc/Draw names). Same __name__ and __module__ on a new class
+            # object replaces with no warning (reload).
             if type(existing_tool).__name__ != type(tool).__name__ or type(existing_tool).__module__ != type(tool).__module__:
                 log.warning("Tool '%s' already registered (class %s from %s), replacing with class %s from %s", tool.name, type(existing_tool).__name__, type(existing_tool).__module__, type(tool).__name__, type(tool).__module__)
             # Shared names replace the instance (Writer loads last). Union both
@@ -591,7 +612,17 @@ class ToolRegistry:
     # ── Lookup & Schema Generation ────────────────────────────────────
 
     def get_tools(
-        self, doc: Any = None, doc_type: str | None = None, tier: str | None = None, intent: str | None = None, names: Any = None, filter_doc_type: bool = True, exclude_tiers: Any = _UNSET_EXCLUDE_TIERS, active_domain: str | None = None, uno_services_supported: Any = None, **kwargs: Any
+        self,
+        doc: Any = None,
+        doc_type: str | None = None,
+        tier: str | None = None,
+        intent: str | None = None,
+        names: Any = None,
+        filter_doc_type: bool = True,
+        exclude_tiers: Any = _UNSET_EXCLUDE_TIERS,
+        active_domain: str | None = None,
+        uno_services_supported: Any = None,
+        ctx: Any = None,
     ) -> list[ToolBase]:
         """Return a list of ToolBase instances matching the given criteria.
 
@@ -612,14 +643,17 @@ class ToolRegistry:
             active_domain: If provided, dynamically includes specialized tools for this domain,
                 the specialized_workflow_finished tool, and names listed in
                 ``required_core_tools`` whose tier is ``core`` or ``specialized``.
+            ctx: Optional ToolContext or context used to filter vision specialized tools.
         """
         # crosshair: off
         tools: Any = self._tools.values()
 
-        if doc_type is None and doc is not None and filter_doc_type:
+        # Doc-type probe is main-thread-only because get_document_type accesses UNO.
+        # In release builds @main_thread_only logs and continues rather than raising,
+        # so off-thread callers must avoid probing UNO directly.
+        if doc_type is None and doc is not None and filter_doc_type and on_main_thread():
             doc_type = _doc_type_str_from_doc(doc)
         if uno_services_supported is None and doc is not None and filter_doc_type:
-            from plugin.framework.thread_guard import on_main_thread
             from plugin.doc.doc_type import get_document_uno_services
 
             if on_main_thread():
@@ -691,7 +725,6 @@ class ToolRegistry:
             else:
                 name_set = frozenset(names)
             tools = [t for t in tools if t.name in name_set]
-        ctx = kwargs.get("ctx")
         if ctx is not None:
             from plugin.vision.vision_availability import filter_vision_specialized_tools
 
@@ -707,8 +740,19 @@ class ToolRegistry:
             **kwargs: Filters passed to get_tools().
         """
         # crosshair: off
-        tools = self.get_tools(active_domain=active_domain, **kwargs)
-        doc_type = kwargs.get("doc_type") or _doc_type_str_from_doc(kwargs.get("doc"))
+        # Doc-type probe is main-thread-only because get_document_type accesses UNO.
+        # In release builds @main_thread_only logs and continues rather than raising,
+        # so off-thread callers must avoid probing UNO directly.
+        doc = kwargs.get("doc")
+        doc_type = kwargs.get("doc_type")
+        if doc_type is None and doc is not None and on_main_thread():
+            doc_type = _doc_type_str_from_doc(doc)
+
+        tools_kwargs = dict(kwargs)
+        if doc_type is not None:
+            tools_kwargs["doc_type"] = doc_type
+
+        tools = self.get_tools(active_domain=active_domain, **tools_kwargs)
         if protocol == "openai":
             # get_image is only useful to a vision-capable text model on the chat path; hide it from
             # text-only models. The MCP path (below) always keeps it (client assumed vision-capable).
@@ -723,14 +767,14 @@ class ToolRegistry:
                 schemas = filter_vision_delegate_schemas(schemas, ctx)
             from plugin.doc.peer_message import filter_peer_message_schemas
 
-            schemas = filter_peer_message_schemas(schemas, ctx, doc=kwargs.get("doc"), active_domain=active_domain)
+            schemas = filter_peer_message_schemas(schemas, ctx, doc=doc, active_domain=active_domain)
             return schemas
         elif protocol == "mcp":
             # Never advertise peer send tools on MCP, including find_tools(domain=…).
             from plugin.doc.peer_message import filter_peer_message_schemas
 
             schemas = [to_mcp_schema(t, doc_type=doc_type) for t in tools]
-            return filter_peer_message_schemas(schemas, kwargs.get("ctx"), doc=kwargs.get("doc"), active_domain=None)
+            return filter_peer_message_schemas(schemas, kwargs.get("ctx"), doc=doc, active_domain=None)
         else:
             raise ValueError(f"Unknown protocol: {protocol}")
 
@@ -741,7 +785,17 @@ class ToolRegistry:
     # ── Execution ─────────────────────────────────────────────────────
 
     def _get_tool_timeout(self, tool: ToolBase) -> float:
-        return getattr(tool, "timeout", 0)
+        """Return the timeout in seconds configured on *tool*, or 0.0 if unset/invalid.
+
+        Bugfix: getattr(tool, "timeout", 0) returned None when a tool had timeout = None.
+        Subsequent `timeout <= 0` comparisons raised TypeError inside _execute_impl,
+        which converted into a TOOL_REGISTRY_ERROR.
+        Coerce missing, None, boolean, or non-numeric timeout values to 0.0 (no timeout).
+        """
+        raw = getattr(tool, "timeout", 0) or 0
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+            return 0.0
+        return float(raw)
 
     def _execute_with_timeout(self, func: Any, timeout: float, tool_name: str = "<unknown>", run_threaded: bool = True, **kwargs: Any) -> Any:
         """Run *func* with an optional wall-clock timeout.
@@ -836,7 +890,7 @@ class ToolRegistry:
 
         return result
 
-    def execute(self, tool_name: str, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+    def execute(self, tool_name: str, ctx: ToolContext, /, **kwargs: Any) -> dict[str, Any]:
         """Execute a tool by name.
 
         Args:
@@ -851,19 +905,28 @@ class ToolRegistry:
         # A model could send an argument named bypass_thread_guard. Drop it so
         # only execute_unguarded() can skip the main-thread marshal.
         kwargs.pop("bypass_thread_guard", None)
-        return self._execute_impl(tool_name, ctx, False, **kwargs)
+        return self._execute_impl(tool_name, ctx, False, kwargs)
 
-    def execute_unguarded(self, tool_name: str, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+    def execute_unguarded(self, tool_name: str, ctx: ToolContext, /, **kwargs: Any) -> dict[str, Any]:
         """Execute a tool by name, bypassing the main-thread check.
 
         Used only by ``scripts/prompt_optimization/tools_lo`` where UNO runs on a dedicated
         LibreOffice worker thread (not Python's ``main_thread()``).
         """
         # crosshair: off
-        return self._execute_impl(tool_name, ctx, True, **kwargs)
+        return self._execute_impl(tool_name, ctx, True, kwargs)
 
-    def _execute_impl(self, tool_name: str, ctx: ToolContext, bypass_thread_guard: bool, **kwargs: Any) -> dict[str, Any]:
+    def _execute_impl(self, tool_name: str, ctx: ToolContext, bypass_thread_guard: bool, tool_kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Internal tool execution implementation.
+
+        Args:
+            tool_name: Registered tool name.
+            ctx: ToolContext for this invocation.
+            bypass_thread_guard: When True, run tool.execute on current thread without UI-thread marshal.
+            tool_kwargs: Raw arguments passed by caller.
+        """
         try:
+            kwargs = dict(tool_kwargs)
             tool = self._tools.get(tool_name)
             if tool is None:
                 # Return a structured error instead of raising KeyError so the model
@@ -891,6 +954,9 @@ class ToolRegistry:
             # for scripting callers — chat/MCP models must not apply hidden parameters
             # from training memory when the property was removed from the schema
             # (see docs/calc/date-time-handling.md S26).
+            had_ctx_arg = "ctx" in kwargs
+            kwargs.pop("ctx", None)
+
             schema = tool.get_parameters(ctx.doc_type) or {}
             props = call_properties(schema) or {}
             extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if ctx.caller == "script" else frozenset()
@@ -899,6 +965,9 @@ class ToolRegistry:
             kept = without_unknown_kwargs(schema, kwargs, extra_ok)
             # Keep the names that were dropped: they are reported back as ignored_parameters.
             ignored: list[str] = sorted(k for k in kwargs if k not in kept)
+            if had_ctx_arg and "ctx" not in ignored:
+                ignored.append("ctx")
+                ignored.sort()
             kwargs = kept
 
             required = schema.get("required") or []
@@ -940,8 +1009,18 @@ class ToolRegistry:
             run_threaded = bypass_thread_guard or bool(tool.is_async())
             timeout = self._get_tool_timeout(tool)
 
+            # Bugfix: A spread model dict (e.g. from MCP or host RPC) containing keys
+            # named 'ctx' or 'tool_name' collided with parameters on _execute_impl
+            # before the try block, and keys named 'timeout', 'tool_name', 'run_threaded',
+            # or 'ctx' collided with parameters on _execute_with_timeout.
+            # Passing tool_kwargs as a dict to _execute_impl and invoking the runner via
+            # a zero-argument closure prevents keyword parameter collisions and keeps
+            # declared schema properties in kwargs.
+            def _run_tool() -> Any:
+                return runner(ctx, **kwargs)
+
             def _invoke() -> Any:
-                return self._execute_with_timeout(runner, timeout=timeout, tool_name=tool_name, run_threaded=run_threaded, ctx=ctx, **kwargs)
+                return self._execute_with_timeout(_run_tool, timeout=timeout, tool_name=tool_name, run_threaded=run_threaded)
 
             if bypass_thread_guard or tool.is_async():
                 result = _invoke()

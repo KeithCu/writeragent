@@ -663,7 +663,10 @@ def handle_errors(context_name: str) -> Any:
                 if is_real_disposal(e):
                     raise DocumentDisposedError(f"UNO object disposed during {context_name}", object_type=context_name, details={"original_error": str(e)}) from e
                 else:
-                    raise ToolExecutionError(f"{context_name} failed: {e}", code="INTERNAL_ERROR", details={"error": str(e), "type": e_name}) from e
+                    # Bugfix: handle_errors previously overrode the error code with code="INTERNAL_ERROR",
+                    # which bypassed ToolExecutionError's standard code "TOOL_EXECUTION_ERROR" and required
+                    # downstream handlers to rewrite it. Omitting code allows ToolExecutionError's default code to apply.
+                    raise ToolExecutionError(f"{context_name} failed: {e}", details={"error": str(e), "type": e_name}) from e
 
         return wrapper
 
@@ -674,6 +677,12 @@ def safe_call(fn: Any, context_name: str, *args: Any, **kwargs: Any) -> Any:
     """Safely call a UNO method. If it raises any exception (e.g., DisposedException), wrap it in UnoObjectError or DocumentDisposedError."""
     try:
         return fn(*args, **kwargs)
+    except WriterAgentException:
+        # Bugfix: safe_call previously caught all Exception instances and wrapped them
+        # in UnoObjectError, converting WriterAgentException subclasses (like
+        # ToolPermissionError) into generic UNO errors and losing their error codes.
+        # Catching WriterAgentException first preserves specific domain exceptions.
+        raise
     except Exception as e:
         # Only DisposedException is disposal. Treating RuntimeException as
         # disposal makes a live document look closed. Other UNO failures
