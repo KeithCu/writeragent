@@ -150,17 +150,17 @@ class FormulaProcessPool(BaseProcessPool):
     def _session_child_live(self, child: object) -> bool:
         """True when *child* still has a running process.
 
-        A stand-in with no ``proc`` stays live until the slot's ``child``
-        pointer changes. ``poll()`` reaps a zombie; that is a dead kernel.
+        A stand-in with no ``managed`` stays live until the slot's ``child``
+        pointer changes. ``is_alive`` reaps a zombie; that is a dead kernel.
         """
-        proc = getattr(child, "proc", None)
-        if proc is None:
+        managed = getattr(child, "managed", None)
+        if managed is None:
             return True
-        poll = getattr(proc, "poll", None)
-        if not callable(poll):
+        is_alive = getattr(managed, "is_alive", None)
+        if not callable(is_alive):
             return True
         try:
-            return poll() is None
+            return bool(is_alive())
         except Exception:
             log.debug("session child poll failed", exc_info=True)
             return False

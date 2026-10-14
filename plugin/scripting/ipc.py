@@ -1021,9 +1021,8 @@ def read_pickle_frame_with_timeout(
     The stream must be unbuffered (``bufsize=0``). ``select`` then
     ``stream.read`` is correct on raw ``FileIO``: ``read`` returns the bytes
     already available. A ``BufferedReader`` waits until ``n`` bytes arrive,
-    and ``select`` cannot see bytes already sitting in that userspace buffer.
-    ``process_worker``, ``editor_host``, and ``venv_worker`` open the pipe
-    with ``bufsize=0``.
+    ``ManagedSubprocess.start`` (compute and Kokoro), ``editor_host``, and
+    ``venv_worker`` open the pipe with ``bufsize=0``.
     """
     timeout_sec = max(0.0, float(timeout_sec))
     deadline = time.monotonic() + timeout_sec

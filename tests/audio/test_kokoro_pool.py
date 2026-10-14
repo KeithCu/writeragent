@@ -432,10 +432,13 @@ def test_kokoro_worker_managed_subprocess_env_and_wrapper(monkeypatch):
 
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", fake_popen)
     monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", lambda *_a, **_k: MagicMock())
+    monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
 
     worker = _KokoroWorker(sys.executable, "dummy_script.py", env=_child_env())
     # Command wrapper must be None
     assert worker._managed._command_wrapper is None
+    assert worker._managed._optimize_pipes is True
+    assert worker._managed._scrub_env is False
 
     worker._managed.start()
     worker.kill()

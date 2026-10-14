@@ -93,10 +93,24 @@ def test_replaced_child_drops_only_that_workers_session(monkeypatch: pytest.Monk
     )
     pool = FormulaProcessPool(num_workers=2, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
     try:
+        from plugin.framework.managed_subprocess import ManagedSubprocess
+
         owner, other = pool.workers
-        replaced = Child(_Running(), None, worker_name=owner.worker_name, worker_id=owner.worker_id)
-        current = Child(_Running(), None, worker_name=owner.worker_name, worker_id=owner.worker_id)
-        kept = Child(_Running(), None, worker_name=other.worker_name, worker_id=other.worker_id)
+        replaced = Child(
+            ManagedSubprocess.wrap_existing(_Running(), label=f"{owner.worker_name} #{owner.worker_id}"),
+            worker_name=owner.worker_name,
+            worker_id=owner.worker_id,
+        )
+        current = Child(
+            ManagedSubprocess.wrap_existing(_Running(), label=f"{owner.worker_name} #{owner.worker_id}"),
+            worker_name=owner.worker_name,
+            worker_id=owner.worker_id,
+        )
+        kept = Child(
+            ManagedSubprocess.wrap_existing(_Running(), label=f"{other.worker_name} #{other.worker_id}"),
+            worker_name=other.worker_name,
+            worker_id=other.worker_id,
+        )
         owner.child = current
         other.child = kept
         now = time.monotonic()
@@ -112,6 +126,47 @@ def test_replaced_child_drops_only_that_workers_session(monkeypatch: pytest.Monk
             assert "reused" not in pool._lost_sessions
             assert pool._sessions["reserved"].child is None
             assert "reserved" not in pool._lost_sessions
+    finally:
+        pool.shutdown()
+
+
+def test_dead_managed_child_drops_its_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A session whose Child is dead drops even when it is still the slot's child."""
+    from compute_service.formula_pool import _Session
+    from plugin.framework.managed_subprocess import ManagedSubprocess
+    from plugin.framework.process_worker import Child
+
+    class _Dead:
+        def poll(self) -> int | None:
+            return 0
+
+    monkeypatch.setattr(
+        "compute_service.worker_base.BaseProcessWorker.respawn",
+        lambda self, timeout_sec=0.0, deadline=None: None,
+    )
+    pool = FormulaProcessPool(num_workers=2, shared_kernel_ttl_sec=0, idle_worker_ttl_sec=0)
+    try:
+        w1, w2 = pool.workers
+        dead_managed = ManagedSubprocess.wrap_existing(_Dead(), label=f"{w1.worker_name} #{w1.worker_id}")
+        dead_child = Child(dead_managed, worker_name=w1.worker_name, worker_id=w1.worker_id)
+        w1.child = dead_child
+
+        class _LegacyChild:
+            def signal_from(self) -> bool:
+                return True
+
+        legacy_child = _LegacyChild()
+        w2.child = legacy_child  # type: ignore[assignment]
+
+        now = time.monotonic()
+        with pool._cond:
+            pool._sessions["dead"] = _Session(worker=w1, child=dead_child, last_active=now)
+            pool._sessions["legacy"] = _Session(worker=w2, child=legacy_child, last_active=now)  # type: ignore[arg-type]
+            pool._reap_dead_sessions_unlocked()
+            assert "dead" not in pool._sessions
+            assert "dead" in pool._lost_sessions
+            assert "legacy" in pool._sessions
+            assert "legacy" not in pool._lost_sessions
     finally:
         pool.shutdown()
 

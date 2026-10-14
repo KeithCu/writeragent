@@ -37,7 +37,7 @@ from plugin.scripting.ipc import (
     read_pickle_frame_with_timeout,
     write_packed_frame_with_timeout,
 )
-from plugin.scripting.sandbox import optimize_popen_pipes, resolve_venv_python, scrub_subprocess_env
+from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +90,8 @@ class _KokoroWorker:
             [python_executable, script_path],
             base_env=env,
             command_wrapper=None,
+            optimize_pipes=True,
+            label="Kokoro",
         )
         self._shutting_down = False
 
@@ -108,8 +110,6 @@ class _KokoroWorker:
             return
 
         proc = self._managed.popen
-        if proc is not None:
-            optimize_popen_pipes(proc)
 
         stdout = self._managed.stdout
         if stdout is None:
@@ -412,11 +412,7 @@ class KokoroProcessPool:
         self._retire_worker(worker)
 
     def _retire_worker(self, worker: _KokoroWorker) -> None:
-        """Signal *worker*. A child that survives is abandoned by the supervisor.
-
-        The slot drops that child, so the next job may spawn. The module
-        reaper keeps waiting, and the abandon path logs the pid.
-        """
+        """request_shutdown plus kill calls ManagedSubprocess.close (close stdin, SIGTERM, wait 3s, kill_process_tree, one 5s reaper wait if it is still alive). This is not the compute handshake and it is not five 1s passes."""
         worker.request_shutdown()
         worker.kill()
 

@@ -16,18 +16,19 @@
 
 """One persistent child process: spawn, handshake, framed request, and reap.
 
-Compute formula and vision pools and the Kokoro speech worker share this
-supervisor. The pool that leases several slots stays in
-``compute_service.worker_base``. This module does not import
-``compute_service``: that package is not part of the WriterAgent OXT.
+Formula and vision use this supervisor. Kokoro's warm worker is
+``ManagedSubprocess`` inside ``kokoro_pool._KokoroWorker``, not this class.
+The pool that leases several slots stays in ``compute_service.worker_base``.
+This module does not import ``compute_service``: that package is not part of
+the WriterAgent OXT.
 
 The slot holds at most one :class:`Child`. Adopt is one pointer swap.
 Another thread may only signal that child. The thread inside the ready
 read or the request closes stdin and stdout, then waits. A child still
-alive after ``_REAP_WAIT_SEC`` is handed to one module-level reaper and
-the slot can spawn again. The reaper retries that child
-``_REAPER_MAX_PASSES`` times, then stops. Stderr is a pipe drained into
-a bounded tail.
+alive after one 1s wait is handed to the five-pass reaper in
+``managed_subprocess`` and the slot can spawn again. The signal is
+``kill_tree`` (process group), not ``Popen.kill``. Stderr is still a pipe.
+The drain is started by ``ManagedSubprocess.start``.
 
 ``tasks_executed`` counts a response dict that was consumed. A timeout, a
 crash, or a spawn failure does not. A ready handshake resets the count.
@@ -42,21 +43,25 @@ A dead slot also refuses to spawn once less than
 from __future__ import annotations
 
 import logging
-import os
 import pickle
-import queue
 import subprocess
 import sys
 import threading
 import time
-from typing import IO, TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.framework.worker_pool import StderrTail, get_subprocess_creationflags, run_in_background, start_stderr_drain
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, IpcPartialFrameTimeout, pack_pickle_frame, read_pickle_frame_with_timeout, write_packed_frame_with_timeout
-from plugin.scripting.sandbox import optimize_popen_pipes, scrub_subprocess_env
+from plugin.framework.managed_subprocess import ManagedSubprocess
+from plugin.scripting.ipc import (
+    DEFAULT_MAX_PAYLOAD_BYTES,
+    IpcFrameError,
+    IpcPartialFrameTimeout,
+    pack_pickle_frame,
+    read_pickle_frame_with_timeout,
+    write_packed_frame_with_timeout,
+)
 
 __all__ = ["BaseProcessWorker", "Child", "Deadline", "MIN_REQUEST_SEC", "error_dict"]
 
@@ -68,11 +73,6 @@ _STDERR_SNIPPET = 500
 # One child writes stderr for its whole life. The drain keeps this many
 # characters. The snippet attached to an error is the last _STDERR_SNIPPET.
 _STDERR_LOG_CAP = 64 * 1024
-# The child is already SIGKILL'd. wait() must not stall shutdown.
-_REAP_WAIT_SEC = 1.0
-# One D-state child must not occupy the module reaper for the session.
-# The slot has already dropped it. Each pass waits _REAP_WAIT_SEC.
-_REAPER_MAX_PASSES = 5
 # A write, and a pool's decision to lift, is refused below one second.
 # The 0.01s select floor lives in plugin.scripting.ipc, and only for a
 # remainder that is already positive. formula_pool and vision import this.
@@ -84,12 +84,6 @@ _MIN_SPAWN_REMAINING_SEC = 0.25
 
 # Distinct from id=None, which is stored. A missing req_id omits the key.
 _OMIT_ID = object()
-
-# Children whose SIGKILL did not reap. One dedicated thread waits on them
-# so a slot can spawn again. Started on the first abandon, not at import.
-_abandoned: queue.Queue[Child] = queue.Queue()
-_reaper_lock = threading.Lock()
-_reaper_started = False
 
 
 def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, message: str | None = None) -> dict[str, Any]:
@@ -207,33 +201,6 @@ def _spawn_budget(deadline: Deadline) -> float | None:
     return remaining
 
 
-def _enqueue_abandoned(child: Child) -> None:
-    """Hand *child* to the process-wide reaper. The slot has already dropped it."""
-    global _reaper_started
-    _abandoned.put(child)
-    with _reaper_lock:
-        if _reaper_started:
-            return
-        _reaper_started = True
-    # dedicated: this loop waits on children and must not take a pooled slot.
-    # daemon: a child that never exits must not keep LibreOffice alive.
-    run_in_background(_reap_abandoned, name="process-worker-reaper", dedicated=True, daemon=True)
-
-
-def _reap_abandoned() -> None:
-    """Wait out children that survived the slot's one-second reap.
-
-    A pass that is still alive goes back on the queue after a short pause,
-    up to ``_REAPER_MAX_PASSES``. Then that child is left for the OS.
-    """
-    while True:
-        child = _abandoned.get()
-        try:
-            child.reaper_pass()
-        except Exception:
-            log.exception("abandoned child reap failed")
-
-
 class Child:
     """One spawned process: pipes, stderr tail, and a single reap.
 
@@ -248,29 +215,23 @@ class Child:
     which CPython's GIL provides. A free-threaded build would need a lock.
     """
 
-    proc: Any
-    tail: StderrTail | None
+    managed: ManagedSubprocess
     worker_name: str
     worker_id: int
     _io_owner: int | None
     _signaled: bool
-    _stdio_closed: bool
     _settled: bool
     _abandoned: bool
-    _reaper_passes: int
     _once: threading.Lock
 
-    def __init__(self, proc: Any, tail: StderrTail | None, *, worker_name: str, worker_id: int) -> None:
-        self.proc = proc
-        self.tail = tail
+    def __init__(self, managed: ManagedSubprocess, *, worker_name: str, worker_id: int) -> None:
+        self.managed = managed
         self.worker_name = worker_name
         self.worker_id = worker_id
         self._io_owner = None
         self._signaled = False
-        self._stdio_closed = False
         self._settled = False
         self._abandoned = False
-        self._reaper_passes = 0
         self._once = threading.Lock()
 
     def begin_io(self) -> None:
@@ -313,122 +274,36 @@ class Child:
                 return False
         return self._finish()
 
-    def reaper_pass(self) -> None:
-        """One wait from the module reaper. Requeue until ``_REAPER_MAX_PASSES``.
-
-        The slot has already dropped this child. A child that is still alive
-        after the cap is left for the OS. Logging every pass would repeat
-        the abandon warning for the rest of the session.
-        """
-        if self._io_owner is None:
-            self._close_stdio()
-        try:
-            if self.proc.poll() is not None:
-                self._join_drain()
-                return
-        except Exception:
-            log.debug("%s #%s abandoned pid poll failed", self.worker_name, self.worker_id, exc_info=True)
-            return
-        try:
-            self.proc.wait(timeout=_REAP_WAIT_SEC)
-        except Exception:
-            log.debug("%s #%s abandoned pid wait failed", self.worker_name, self.worker_id, exc_info=True)
-        try:
-            if self.proc.poll() is not None:
-                self._join_drain()
-                return
-        except Exception:
-            log.debug("%s #%s abandoned pid poll failed", self.worker_name, self.worker_id, exc_info=True)
-            return
-        self._reaper_passes += 1
-        if self._reaper_passes >= _REAPER_MAX_PASSES:
-            pid = getattr(self.proc, "pid", None)
-            log.warning("%s #%s pid=%s still alive; reaper giving up", self.worker_name, self.worker_id, pid)
-            return
-        time.sleep(0.1)
-        _enqueue_abandoned(self)
-
     def diagnostic_tail(self) -> str:
         """Last stderr characters. Join the drain only after a finished reap.
 
         An abandoned child is still holding the pipe. Joining that drain
         would wait out the timeout for text that cannot arrive yet.
         """
-        tail = self.tail
-        if tail is None:
+        if self.managed.stderr_tail is None:
             return ""
         if self._abandoned or not self._settled:
-            raw = tail.text()
+            raw = self.managed.stderr_text()
         else:
-            try:
-                raw = tail.finish_text(timeout=1.0)
-            except Exception:
-                log.debug("%s #%s could not join stderr drain", self.worker_name, self.worker_id, exc_info=True)
-                raw = tail.text()
+            raw = self.managed.join_stderr(1.0)
         text = raw.strip()
         if not text:
             return ""
         return text[-_STDERR_SNIPPET:]
 
     def _signal_proc(self) -> None:
-        proc = self.proc
-        try:
-            if proc.poll() is None:
-                proc.kill()
-        except Exception:
-            log.debug("%s #%s kill of pid=%s failed", self.worker_name, self.worker_id, getattr(proc, "pid", None), exc_info=True)
+        # close() would SIGTERM, wait 3s, and close stdout. The non-owner
+        # thread is only allowed to signal. kill_tree is the group SIGKILL.
+        self.managed.kill_tree()
 
     def _close_stdio(self) -> None:
-        """Close the parent's stdin and stdout. A second close is a no-op.
-
-        stderr belongs to the drain thread. Closing it here races that read.
-        ``getattr`` keeps test doubles that have no stdio attributes from raising.
-        """
-        if self._stdio_closed:
-            return
-        self._stdio_closed = True
-        for stream in (getattr(self.proc, "stdin", None), getattr(self.proc, "stdout", None)):
-            if stream is None:
-                continue
-            try:
-                stream.close()
-            except Exception:
-                log.debug("%s #%s could not close a pipe", self.worker_name, self.worker_id, exc_info=True)
+        self.managed.close_stdio()
 
     def _wait_once(self) -> bool:
-        """True when ``poll`` is not None after one ``_REAP_WAIT_SEC`` wait.
-
-        ``wait`` runs even when ``poll`` has already reaped the child.
-        ``respawn`` checks the spawn budget after ``kill`` returns, so a
-        slow reap stays inside the request clock. A real exited child
-        returns from ``wait`` immediately.
-        """
-        proc = self.proc
-        try:
-            proc.wait(timeout=_REAP_WAIT_SEC)
-        except Exception:
-            log.debug("%s #%s wait failed", self.worker_name, self.worker_id, exc_info=True)
-        try:
-            return proc.poll() is not None
-        except Exception:
-            log.debug("%s #%s poll failed", self.worker_name, self.worker_id, exc_info=True)
-            return False
+        return self.managed.wait_once()
 
     def _join_drain(self) -> None:
-        """Join the stderr drain after this child has exited.
-
-        A grandchild that inherited the stderr pipe never delivers EOF.
-        ``finish_text`` gives up after one second, and the drain thread
-        stays in ``read`` until that pipe closes. The thread is a daemon,
-        so it does not hold the process open.
-        """
-        tail = self.tail
-        if tail is None:
-            return
-        try:
-            tail.finish_text(timeout=1.0)
-        except Exception:
-            log.debug("%s #%s could not join stderr drain", self.worker_name, self.worker_id, exc_info=True)
+        self.managed.join_stderr(1.0)
 
     def _finish(self) -> bool:
         """Close stdio and wait once. True when the slot should drop this child.
@@ -450,11 +325,12 @@ class Child:
             self._settled = True
             if reaped:
                 self._join_drain()
+                self.managed.unregister()
                 return True
             self._abandoned = True
-            pid = getattr(self.proc, "pid", None)
+            pid = getattr(self.managed.popen, "pid", None)
             log.warning("%s #%s pid=%s still alive after SIGKILL; abandoning", self.worker_name, self.worker_id, pid)
-            _enqueue_abandoned(self)
+            self.managed.abandon()
             return True
 
 
@@ -527,7 +403,7 @@ class BaseProcessWorker:
         it. Production code publishes ``self.child`` from ``respawn``.
         """
         child = self.child
-        return None if child is None else child.proc
+        return None if child is None else child.managed.popen
 
     @process.setter
     def process(self, proc: Any) -> None:
@@ -535,9 +411,13 @@ class BaseProcessWorker:
             self.child = None
             return
         current = self.child
-        if current is not None and current.proc is proc:
+        if current is not None and current.managed.popen is proc:
             return
-        self.child = Child(proc, tail=None, worker_name=self.worker_name, worker_id=self.worker_id)
+        self.child = Child(
+            ManagedSubprocess.wrap_existing(proc, label=f"{self.worker_name} #{self.worker_id}"),
+            worker_name=self.worker_name,
+            worker_id=self.worker_id,
+        )
 
     def _drain_name(self) -> str:
         """Thread name so a log line shows which pool owns the drain.
@@ -634,30 +514,28 @@ class BaseProcessWorker:
         # pass usable() and spawn. _spawn_budget refuses that.
         if deadline is not None and _spawn_budget(deadline) is None:
             return
-        cmd = [self.executable, self.script_path]
-        child_env = self._child_env if self._child_env is not None else scrub_subprocess_env(dict(os.environ))
-        proc: Any = None
+        managed = ManagedSubprocess(
+            [self.executable, self.script_path],
+            base_env=None if self._child_env is None else self._child_env,
+            scrub_env=self._child_env is None,
+            optimize_pipes=True,
+            stderr_tail_chars=_STDERR_LOG_CAP,
+            stderr_name=self._drain_name(),
+            label=f"{self.worker_name} #{self.worker_id}",
+        )
         spawned: Child | None = None
         published = False
         try:
-            # Scrub matches the venv host: drop PYTHONHOME / credential-like
-            # names so the child does not inherit the parent's secret env.
-            # **creationflags kwargs make the type checker treat this as Popen[str].
-            # stderr is a pipe. start_stderr_drain reads it so the kernel
-            # buffer cannot fill and stall the handshake.
-            # A grandchild that inherits this stdout pipe holds the host read
-            # open until the request deadline; that timeout kills the child.
-            proc = cast("subprocess.Popen[bytes]", subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0, text=False, env=child_env, **get_subprocess_creationflags()))
-            tail = start_stderr_drain(proc.stderr, max_tail_chars=_STDERR_LOG_CAP, name=self._drain_name())
-            spawned = Child(proc, tail, worker_name=self.worker_name, worker_id=self.worker_id)
-            # Do not hold _lifecycle_lock across Popen or the handshake read.
+            managed.start()
+            spawned = Child(managed, worker_name=self.worker_name, worker_id=self.worker_id)
+            # Do not hold _lifecycle_lock across start() or the handshake read.
             # kill() takes that lock only to drop the pointer, and the
             # handshake can block for the spawn budget.
             if not self._adopt(spawned):
                 spawned.signal_from()
                 return
             published = True
-            optimize_popen_pipes(proc)
+            proc = managed.popen
             # Popen itself is not on the clock. If it ran past the deadline,
             # or left less than the spawn floor, kill the child here. A
             # handshake read of a spent clock used to floor at 0.01s and
@@ -673,26 +551,45 @@ class BaseProcessWorker:
             spawned.begin_io()
             try:
                 ready_data: Any = None
-                if proc.stdout is not None:
-                    ready_data = read_pickle_frame_with_timeout(proc.stdout, timeout_sec, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, require_dict=True, unpacker=self._unpacker)
+                if proc is not None and proc.stdout is not None:
+                    ready_data = read_pickle_frame_with_timeout(
+                        proc.stdout,
+                        timeout_sec,
+                        is_alive=self.is_alive,
+                        max_payload_bytes=self.max_payload_bytes,
+                        require_dict=True,
+                        unpacker=self._unpacker,
+                    )
                 # Only status "ready" counts. EOF or any other dict would mark the
                 # worker idle, and the next execute would wait out the full
                 # timeout before EMPTY_RESPONSE.
                 if not isinstance(ready_data, dict) or ready_data.get("status") != "ready":
                     status = ready_data.get("status") if isinstance(ready_data, dict) else None
                     self.kill()
-                    self._log_spawn_outcome(f"{self.worker_name} #{self.worker_id} spawn handshake was not ready (status={status!r})", spawned)
+                    self._log_spawn_outcome(
+                        f"{self.worker_name} #{self.worker_id} spawn handshake was not ready (status={status!r})",
+                        spawned,
+                    )
                     return
-                log.info("%s #%d spawned (pid=%s, status=%s)", self.worker_name, self.worker_id, ready_data.get("pid", proc.pid), ready_data.get("status"))
+                log.info(
+                    "%s #%d spawned (pid=%s, status=%s)",
+                    self.worker_name,
+                    self.worker_id,
+                    ready_data.get("pid", getattr(proc, "pid", None)),
+                    ready_data.get("status"),
+                )
                 self.tasks_executed = 0
             except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
                 # No-byte hang is TimeoutExpired. A deadline after the first
                 # handshake byte is IpcPartialFrameTimeout (a ConnectionError).
                 # That used to be logged as "Failed to spawn". The child is
                 # killed either way; the next lease respawns the slot.
-                rc = proc.poll()
+                rc = proc.poll() if proc is not None else None
                 self.kill()
-                self._log_spawn_outcome(f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})", spawned)
+                self._log_spawn_outcome(
+                    f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})",
+                    spawned,
+                )
             finally:
                 self._end_child_io(spawned)
         except Exception as exc:
@@ -708,23 +605,9 @@ class BaseProcessWorker:
                     log.error("%s", message)
                 if spawned is not None:
                     spawned.signal_from()
-                elif proc is not None:
-                    self._retire_untracked(proc)
             else:
                 self.kill()
                 self._log_spawn_outcome(message, spawned)
-
-    def _retire_untracked(self, proc: Any) -> None:
-        """Signal a Popen that never became a Child. The drain was not started."""
-        try:
-            if proc.poll() is None:
-                proc.kill()
-        except Exception:
-            log.debug("%s #%s kill of untracked pid failed", self.worker_name, self.worker_id, exc_info=True)
-        try:
-            proc.wait(timeout=_REAP_WAIT_SEC)
-        except Exception:
-            log.warning("%s #%s untracked pid=%s still alive after reap", self.worker_name, self.worker_id, getattr(proc, "pid", None))
 
     def is_alive(self) -> bool:
         """True only while the current child's ``poll()`` is None.
@@ -741,7 +624,7 @@ class BaseProcessWorker:
         if child is None:
             return False
         try:
-            return child.proc.poll() is None
+            return child.managed.is_alive()
         except Exception:
             log.debug("%s #%s poll failed", self.worker_name, self.worker_id, exc_info=True)
             return False
@@ -974,7 +857,7 @@ class BaseProcessWorker:
             # until this finally closes. A successful response leaves the
             # pipes open: end_io closes only after a signal.
             child = self.child
-            if child is not None and child.proc is proc:
+            if child is not None and child.managed.popen is proc:
                 child.begin_io()
             else:
                 child = None

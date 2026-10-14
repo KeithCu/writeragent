@@ -5,8 +5,10 @@
 Process pool supervisor for a bounded set of child workers.
 
 The child itself — spawn, handshake, framed request, and reap — lives in
-``plugin.framework.process_worker``. Formula, vision, and Kokoro share that
-class. This module keeps the multi-slot pool and the process-wide singleton.
+``plugin.framework.process_worker``. Formula and vision share
+``BaseProcessWorker``. Kokoro's warm process is ``ManagedSubprocess`` in
+``plugin/audio/kokoro_pool.py``, not this class. This module keeps the
+multi-slot pool and the process-wide singleton.
 
 Provides:
 - Exclusive worker occupancy. Idle means the process completed a handshake or

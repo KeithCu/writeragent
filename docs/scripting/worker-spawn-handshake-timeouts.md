@@ -34,6 +34,7 @@ ERROR compute_service.worker: Formula worker #1 spawn handshake timed out
 ```
 
 The 15s gap is `_SPAWN_READY_TIMEOUT_SEC` in [`plugin/framework/process_worker.py`](../../plugin/framework/process_worker.py), not CPU saturation.
+`Popen`, the env scrub, and the stderr drain run in `ManagedSubprocess.start`. The 15s constant is still `process_worker._SPAWN_READY_TIMEOUT_SEC`.
 
 UNO (`make test-uno`) is **out of scope** unless you prove the same spawn path runs there.
 
