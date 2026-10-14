@@ -25,47 +25,56 @@ from plugin.scripting.venv_diagnostics import (
     _format_self_check_success,
     _probe_nlp_packages,
     _probe_vector_search_packages,
+    probe_venv_path_with_progress,
     probe_vision_packages,
-    probe_venv_path,
-    run_venv_self_check,
+    run_venv_self_check_with_progress,
 )
 
-def test_probe_venv_path_not_directory():
-    ok, msg = probe_venv_path(__file__)
+def test_probe_venv_path_with_progress_not_directory():
+    shown: list[str] = []
+    ok, msg = probe_venv_path_with_progress(__file__, shown.append)
     assert ok is False
     assert "Not a Python executable" in msg
+    assert shown == [msg]
 
 
-def test_probe_venv_path_blank_uses_process_python():
+def test_probe_venv_path_with_progress_blank_uses_process_python():
+    shown: list[str] = []
     with patch("plugin.scripting.venv_diagnostics.resolve_libreoffice_python", return_value="/fake/lo/python") as mock_res:
-        with patch("plugin.scripting.venv_diagnostics.run_venv_self_check", return_value=(True, "ignored")) as mock_check:
-            ok, msg = probe_venv_path("  ")
+        with patch("plugin.scripting.venv_diagnostics.run_venv_self_check_with_progress", return_value=(True, "ignored")) as mock_check:
+            ok, msg = probe_venv_path_with_progress("  ", shown.append)
     assert ok is True
-    assert "LibreOffice process Python" in msg
-    assert "/fake/lo/python" in msg
+    assert msg == "LibreOffice process Python (/fake/lo/python) responds OK."
     mock_res.assert_called_once()
-    mock_check.assert_called_once_with("/fake/lo/python", timeout=None)
+    assert mock_check.call_args.args[0] == "/fake/lo/python"
+    assert mock_check.call_args.kwargs.get("include_vector_search") is True
+    assert mock_check.call_args.kwargs.get("include_audio") is True
+    assert mock_check.call_args.kwargs.get("on_status") is None
+    assert mock_check.call_args.kwargs.get("extra_lines_after_header") is None
+    assert "timeout" not in mock_check.call_args.kwargs
 
 
-def test_probe_venv_path_blank_fails_when_no_process_interpreter():
+def test_probe_venv_path_with_progress_blank_fails_when_no_process_interpreter():
+    shown: list[str] = []
     with patch("plugin.scripting.venv_diagnostics.resolve_libreoffice_python", return_value=None):
-        ok, msg = probe_venv_path("")
+        ok, msg = probe_venv_path_with_progress("", shown.append)
     assert ok is False
-    assert "No process interpreter" in msg
+    assert msg.startswith("No process interpreter:")
+    assert shown == [msg]
 
 
 @pytest.mark.integration
-def test_run_venv_self_check_success():
-    ok, msg = run_venv_self_check(sys.executable, timeout=10.0)
+def test_run_venv_self_check_with_progress_success():
+    ok, msg = run_venv_self_check_with_progress(sys.executable, lambda text: None)
     assert ok is True
     assert "OK" in msg or "ok" in msg.lower()
 
 
-def test_run_venv_self_check_worker_start_error():
+def test_run_venv_self_check_with_progress_worker_start_error():
     mock_mgr = MagicMock()
     mock_mgr.execute.side_effect = OSError("boom")
     with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr):
-        ok, msg = run_venv_self_check("/fake/python", timeout=1.0)
+        ok, msg = run_venv_self_check_with_progress("/fake/python", lambda text: None)
     assert ok is False
     assert "boom" in msg
 
@@ -73,19 +82,19 @@ def test_run_venv_self_check_worker_start_error():
 @pytest.mark.parametrize(
     "value, value_2",
     [
-        pytest.param("nope", "nope", id="test_run_venv_self_check_worker_error_response"),
-        pytest.param("Python worker failed: Command timed out after 1 seconds", "Timed out", id="test_run_venv_self_check_timeout"),
+        pytest.param("nope", "nope", id="test_run_venv_self_check_with_progress_worker_error_response"),
+        pytest.param("Python worker failed: Command timed out after 1 seconds", "Timed out", id="test_run_venv_self_check_with_progress_timeout"),
     ],
 )
-def test_run_venv_self_check_worker_error_response(value, value_2):
+def test_run_venv_self_check_with_progress_worker_error_response(value, value_2):
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {"status": "error", "message": value}
     with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr):
-        ok, msg = run_venv_self_check("/x/python", timeout=1.0)
+        ok, msg = run_venv_self_check_with_progress("/x/python", lambda text: None)
     assert ok is False
     assert value_2 in msg
 
-def test_run_venv_self_check_reports_architecture():
+def test_run_venv_self_check_with_progress_reports_architecture():
     """Self-check success message includes platform.machine() from the worker payload."""
     import platform
 
@@ -109,7 +118,7 @@ def test_run_venv_self_check_reports_architecture():
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_audio_packages", return_value=({}, None)),
     ):
-        ok, msg = run_venv_self_check("/x/python", timeout=1.0)
+        ok, msg = run_venv_self_check_with_progress("/x/python", lambda text: None)
     assert ok is True
     assert expected_arch in msg
 
@@ -449,7 +458,7 @@ def test_format_self_check_success_vector_search_probe_failure_hint():
     assert "sentence-transformers" in msg
 
 
-def test_run_venv_self_check_includes_vision():
+def test_run_venv_self_check_with_progress_includes_vision():
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {
         "status": "ok",
@@ -478,7 +487,7 @@ def test_run_venv_self_check_includes_vision():
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_audio_packages", return_value=({"sounddevice": "present", "input_device": "present"}, None)),
     ):
-        ok, msg = run_venv_self_check("/x/python", timeout=1.0)
+        ok, msg = run_venv_self_check_with_progress("/x/python", lambda text: None)
     assert ok is True
     assert "Text / NLP Libraries" in msg
     assert "Vision Libraries" in msg
@@ -489,7 +498,7 @@ def test_run_venv_self_check_includes_vision():
     assert "Helpers" not in msg
 
 
-def test_run_venv_self_check_includes_vector_search():
+def test_run_venv_self_check_with_progress_includes_vector_search():
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {
         "status": "ok",
@@ -520,14 +529,14 @@ def test_run_venv_self_check_includes_vector_search():
             return_value=(vector_search_probes, None),
         ),
     ):
-        ok, msg = run_venv_self_check("/x/python", timeout=1.0)
+        ok, msg = run_venv_self_check_with_progress("/x/python", lambda text: None)
     assert ok is True
     assert "Vector Search Libraries" in msg
     assert "Vector Search Libraries: envwrap, sqlite_vec" in msg
     assert "Missing: sentence_transformers" in msg
 
 
-def test_run_venv_self_check_uses_vision_probe_timeout():
+def test_run_venv_self_check_with_progress_uses_vision_probe_timeout():
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {
         "status": "ok",
@@ -539,11 +548,11 @@ def test_run_venv_self_check_uses_vision_probe_timeout():
         patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)) as mock_vision_probe,
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
-        run_venv_self_check("/x/python", timeout=1.0)
+        run_venv_self_check_with_progress("/x/python", lambda text: None)
     mock_vision_probe.assert_called_once_with("/x/python", timeout=float(VISION_PROBE_TIMEOUT_SEC))
 
 
-def test_run_venv_self_check_uses_vector_search_probe_timeout():
+def test_run_venv_self_check_with_progress_uses_vector_search_probe_timeout():
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {
         "status": "ok",
@@ -555,7 +564,7 @@ def test_run_venv_self_check_uses_vector_search_probe_timeout():
         patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)) as mock_probe,
     ):
-        run_venv_self_check("/x/python", timeout=1.0)
+        run_venv_self_check_with_progress("/x/python", lambda text: None)
     mock_probe.assert_called_once_with("/x/python", timeout=float(VECTOR_SEARCH_PROBE_TIMEOUT_SEC))
 
 
@@ -583,7 +592,7 @@ def test_probe_vision_packages_timeout_reports_failure():
             return_value=({"sounddevice": "present", "input_device": "present"}, None),
         ),
     ):
-        ok, msg = run_venv_self_check("/x/python", timeout=1.0)
+        ok, msg = run_venv_self_check_with_progress("/x/python", lambda text: None)
     assert ok is True
     assert "Vision Libraries" in msg
     assert timeout_hint in msg
@@ -715,52 +724,33 @@ def test_format_self_check_success_global_install_footer_mixed_groups():
     assert uv_idx < pip_idx
 
 
-def test_run_venv_self_check_default_uses_import_probe_timeout():
-    mock_mgr = MagicMock()
-    mock_mgr.execute.return_value = {
-        "status": "ok",
-        "result": {"v": "3.12.0", "p": {}, "sci": [], "eda": [], "ui": []},
-    }
-    with (
-        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
-        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
-    ):
-        run_venv_self_check("/x/python")
-    mock_mgr.execute.assert_called_once()
-    assert mock_mgr.execute.call_args.kwargs["timeout_sec"] == SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC
-
-
 def test_duckdb_probe_script_is_not_sandboxed():
-    from plugin.scripting.venv_diagnostics import _DIAGNOSTIC_SCRIPT, _SANDBOX_SELF_CHECK_GROUPS, _package_probe_script
-    assert "import duckdb" not in _DIAGNOSTIC_SCRIPT
+    from plugin.scripting.venv_diagnostics import _SANDBOX_SELF_CHECK_GROUPS, _VERSION_PROBE_SCRIPT, _package_probe_script
+
+    assert "import duckdb" not in _VERSION_PROBE_SCRIPT
     sandbox_pkgs = [pkg for _title, pkgs in _SANDBOX_SELF_CHECK_GROUPS for pkg in pkgs]
     assert "duckdb" not in sandbox_pkgs
     with pytest.raises(ValueError, match="unsupported probe module"):
         _package_probe_script("duckdb")
 
 
-def test_run_venv_self_check_batch_path_reports_duckdb():
+def test_run_venv_self_check_with_progress_reports_duckdb():
+    def fake_execute(script, timeout_sec=10):
+        if "platform" in script:
+            return {"status": "ok", "result": {"v": "3.12.0", "arch": "x86_64"}}
+        if "pint" in script:
+            return {"status": "ok", "result": "present"}
+        return {"status": "ok", "result": None}
+
     mock_mgr = MagicMock()
-    mock_mgr.execute.return_value = {
-        "status": "ok",
-        "result": {
-            "v": "3.12.0",
-            "p": {"pint": "present", "duckdb": None},
-            "sci": [],
-            "eda": [],
-            "ui": [],
-            "data_eng": ["pint", "duckdb"],
-        },
-    }
+    mock_mgr.execute.side_effect = fake_execute
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
-        ok, msg = run_venv_self_check("/x/python")
+        ok, msg = run_venv_self_check_with_progress("/x/python", lambda text: None)
     assert ok is True
     assert "Data Engineering Libraries: pint" in msg
     assert "duckdb" in msg
@@ -791,7 +781,7 @@ def test_probe_nlp_packages_subprocess_timeout():
     assert "timed out" in hint.lower()
 
 
-def test_run_venv_self_check_uses_nlp_probe_timeout():
+def test_run_venv_self_check_with_progress_uses_nlp_probe_timeout():
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {
         "status": "ok",
@@ -803,7 +793,7 @@ def test_run_venv_self_check_uses_nlp_probe_timeout():
         patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
-        run_venv_self_check("/x/python", timeout=1.0)
+        run_venv_self_check_with_progress("/x/python", lambda text: None)
     mock_nlp_probe.assert_called_once_with("/x/python", timeout=float(SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC))
 
 
@@ -1014,4 +1004,131 @@ def test_attach_external_probes_shares_one_helper(monkeypatch):
     assert "nlp" in data
     assert "vision" in data
     assert "vector_search" in data
+
+
+def test_probe_key_to_pip_webview_is_pywebview():
+    from plugin.scripting.venv_diagnostics import (
+        _UI_PACKAGE_KEYS,
+        _format_self_check_success,
+        _probe_key_to_pip,
+    )
+
+    assert _probe_key_to_pip("webview") == "pywebview"
+    p = {k: "present" for k in _UI_PACKAGE_KEYS}
+    p["webview"] = None
+    data = {
+        "v": "3.12.0",
+        "p": p,
+        "ui": list(_UI_PACKAGE_KEYS),
+        "sci": [],
+        "eda": [],
+        "nlp": [],
+        "audio": [],
+        "vector_search": [],
+        "vision": [],
+        "data_eng": [],
+    }
+    msg = _format_self_check_success(data)
+    footer_lines = msg.splitlines()
+    uv_line = next(line for line in footer_lines if line.startswith("uv pip install "))
+    pip_line = next(line for line in footer_lines if line.startswith("pip install "))
+    assert "pywebview" in uv_line.split()
+    assert "webview" not in uv_line.split()
+    assert "pywebview" in pip_line.split()
+    assert "webview" not in pip_line.split()
+
+
+def test_run_json_probe_ignores_stdout_banner():
+    with patch(
+        "plugin.scripting.venv_diagnostics.subprocess.run",
+        return_value=subprocess.CompletedProcess(
+            args=["python"],
+            returncode=0,
+            stdout='loading paddle\nWA_PROBE_JSON {"docling": "present"}\nbye\n',
+            stderr="noise",
+        ),
+    ):
+        probes, hint = probe_vision_packages("/x/python", timeout=30.0)
+    assert probes.get("docling") == "present"
+    assert hint is None
+
+
+def test_run_json_probe_rejects_stdout_without_prefix():
+    with patch(
+        "plugin.scripting.venv_diagnostics.subprocess.run",
+        return_value=subprocess.CompletedProcess(
+            args=["python"],
+            returncode=0,
+            stdout='{"docling": "present"}\n',
+            stderr="",
+        ),
+    ):
+        probes, hint = probe_vision_packages("/x/python", timeout=30.0)
+    assert probes == {}
+    assert hint is not None
+
+
+def test_audio_linux_portaudio_hint_has_no_package_manager():
+    from plugin.scripting.venv_diagnostics import _audio_linux_portaudio_hint
+
+    hint = _audio_linux_portaudio_hint()
+    assert "PortAudio" in hint
+    assert "pacman" not in hint
+    assert "apt-get" not in hint
+    assert "apt " not in hint
+
+
+def test_probe_scripts_print_json_prefix():
+    from plugin.scripting.venv_diagnostics import (
+        _AUDIO_PROBE_SCRIPT,
+        _DUCKDB_PROBE_SCRIPT,
+        _NLP_PROBE_SCRIPT,
+        _PROBE_JSON_PREFIX,
+        _UI_PROBE_SCRIPT,
+        _VECTOR_SEARCH_PROBE_SCRIPT,
+        _VISION_PROBE_SCRIPT,
+    )
+
+    assert _PROBE_JSON_PREFIX == "WA_PROBE_JSON "
+    scripts = [
+        _AUDIO_PROBE_SCRIPT,
+        _NLP_PROBE_SCRIPT,
+        _VISION_PROBE_SCRIPT,
+        _VECTOR_SEARCH_PROBE_SCRIPT,
+        _UI_PROBE_SCRIPT,
+        _DUCKDB_PROBE_SCRIPT,
+    ]
+    for script in scripts:
+        assert 'print("WA_PROBE_JSON " + json.dumps(out))' in script
+        assert "print(json.dumps(out))" not in script
+        compile(script, "<test_probe_script>", "exec")
+
+
+def test_partial_scientific_group_uses_translated_title(monkeypatch) -> None:
+    import plugin.scripting.venv_diagnostics as diag
+
+    monkeypatch.setattr(diag, "_", lambda message: f"L:{message}")
+    data = {
+        "v": "3.12.0",
+        "p": {"numpy": "present"},
+        "sci": ["numpy", "pandas"],
+        "eda": [],
+        "ui": [],
+        "viz": [],
+        "cas": [],
+        "quant": [],
+        "data_eng": [],
+        "nlp": [],
+        "audio": [],
+        "vision": [],
+        "vector_search": [],
+    }
+    msg = diag._build_probe_display(
+        data,
+        completed_groups=0,
+        partial_group_keys=("numpy",),
+        partial_group_title="L:Scientific Libraries",
+    )
+    assert "L:Scientific Libraries: numpy" in msg
+    assert "pandas" not in msg
 

@@ -37,7 +37,6 @@ def test_run_venv_self_check_with_progress_emits_grouped_present_missing() -> No
         ok, msg = run_venv_self_check_with_progress(
             "/fake/python",
             displays.append,
-            timeout=60.0,
             on_status=statuses.append,
             extra_lines_after_header=("Cython Accelerator: Active (Optimized)",),
         )
@@ -82,7 +81,7 @@ def test_run_venv_self_check_with_progress_continues_after_sandbox_probe_error()
         patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({"docling": "present"}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
     ):
-        ok, msg = run_venv_self_check_with_progress("/fake/python", displays.append, timeout=60.0)
+        ok, msg = run_venv_self_check_with_progress("/fake/python", displays.append)
 
     assert ok is True
     assert "Vision Libraries" in msg
@@ -110,7 +109,6 @@ def test_run_venv_self_check_with_progress_skips_audio_and_vector_search() -> No
         ok, msg = run_venv_self_check_with_progress(
             "/fake/python",
             displays.append,
-            timeout=60.0,
             include_vector_search=False,
             include_audio=False,
         )
@@ -121,3 +119,34 @@ def test_run_venv_self_check_with_progress_skips_audio_and_vector_search() -> No
     assert "Vector Search" not in msg
     assert "Audio Recording" not in msg
     assert "Vision Libraries" in msg
+
+
+def test_partial_group_title_is_translated(monkeypatch) -> None:
+    displays: list[str] = []
+
+    def fake_execute(_self, script, timeout_sec=10):
+        if "platform" in script:
+            return {"status": "ok", "result": {"v": "3.12.0", "arch": "x86_64"}}
+        if "numpy" in script:
+            return {"status": "ok", "result": "present"}
+        return {"status": "ok", "result": None}
+
+    mock_mgr = MagicMock()
+    mock_mgr.execute.side_effect = lambda script, timeout_sec=10: fake_execute(None, script, timeout_sec)
+
+    monkeypatch.setattr("plugin.scripting.venv_diagnostics._", lambda message: f"L:{message}")
+
+    with (
+        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
+        patch(
+            "plugin.scripting.venv_diagnostics._probe_audio_packages",
+            return_value=({"sounddevice": "present", "input_device": "present"}, None),
+        ),
+    ):
+        ok, _msg = run_venv_self_check_with_progress("/fake/python", displays.append)
+
+    assert ok is True
+    assert any("L:Scientific Libraries: numpy" in text and "pandas" not in text for text in displays)

@@ -32,8 +32,8 @@ Microphone capture runs in the **user-provided Python venv** configured under **
 uv pip install sounddevice
 ```
 
-3. **Linux only:** install system PortAudio, e.g. `sudo pacman -S portaudio`.
-4. Use **Settings → Python → Test** — the **Audio Recording** group reports `sounddevice` and microphone availability.
+3. **Linux only:** install the system PortAudio package from your distribution. The Python package `sounddevice` needs that library; the package name differs (for example `portaudio` or `libportaudio2`).
+4. Use **Settings → Python → Test** — the **Audio Recording & Speech** group reports `sounddevice` and microphone availability.
 
 Implementation modules:
 

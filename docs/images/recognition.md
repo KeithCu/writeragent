@@ -145,7 +145,7 @@ Docling pipeline defaults live in a **separate modeless dialog**, not on the cro
 | Launch | Role |
 |--------|------|
 | **WriterAgent → Vision OCR Settings…** menu | Opens [`VisionSettingsDialog`](../../extension/WriterAgentDialogs/) (General \| OCR \| Tables \| Advanced); persisted as `vision.*` keys in `writeragent.json` |
-| Settings → Python **Test** | [`run_venv_self_check`](../../plugin/scripting/venv_diagnostics.py) reports OCR ready (Docling or Paddle) under **Vision Libraries**; paddle/ultralytics/skimage as Optional; global uv/pip footer for Missing packages |
+| Settings → Python **Test** | [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) reports OCR ready (Docling or Paddle) under **Vision Libraries**; paddle/ultralytics/skimage as Optional; global uv/pip footer for Missing packages |
 
 | Related Settings key | Role |
 |---------------------|------|
@@ -759,7 +759,7 @@ pip install docling rapidocr-paddle numpy pillow onnxruntime
 
 **First run:** Uses the single long trusted budget (vision resolver chooses appropriate value for engine + optional `vision.worker_timeout_sec` override). Does not use the user `scripting.python_exec_timeout`.
 
-**Self-check (shipped):** [`run_venv_self_check`](../../plugin/scripting/venv_diagnostics.py) merges a **host subprocess** probe for vision packages (not the sandboxed warm-worker diagnostic — `docling`/`paddleocr` are intentionally absent from the LLM/venv AST whitelist per §15):
+**Self-check (shipped):** [`run_venv_self_check_with_progress`](../../plugin/scripting/venv_diagnostics.py) merges a **host subprocess** probe for vision packages (not the sandboxed warm-worker diagnostic — `docling`/`paddleocr` are intentionally absent from the LLM/venv AST whitelist per §15):
 
 | Probe | Report |
 |-------|--------|
