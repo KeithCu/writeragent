@@ -593,8 +593,9 @@ def test_nested_stream_drain_rejected():
     assert errors
 
 
-def test_nested_async_worker_does_not_start_before_drain_check():
-    """A second drain must not spawn a worker that writes to an unread queue."""
+@pytest.mark.parametrize("owner", ["outer", "stream"])
+def test_nested_async_worker_does_not_start_before_drain_check(owner: str):
+    """A second drain must not spawn a worker; both outer and same-name stream owners are refused."""
     from plugin.framework.async_stream import run_async_worker_with_drain
     from plugin.framework.queue_executor import drain_owner_scope
 
@@ -605,10 +606,10 @@ def test_nested_async_worker_does_not_start_before_drain_check():
         started.append(1)
 
     with patch("plugin.framework.uno_context.get_toolkit", return_value=DummyToolkit()):
-        with drain_owner_scope("outer"):
+        with drain_owner_scope(owner):
             run_async_worker_with_drain(MagicMock(), worker, None, None, errors.append)
     assert started == []
-    assert errors
+    assert len(errors) == 1
 
 
 def test_approval_handler_failure_ends_drain_and_sets_event():

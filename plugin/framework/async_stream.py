@@ -957,7 +957,13 @@ class _EventDrain:
                 log.exception("drain epilogue failed")
 
 
-def _notify_drain_failure(on_error: Callable[[Any], Any], job_done: list[bool], exc: BaseException, log_message: str) -> None:
+def _notify_drain_failure(
+    on_error: Callable[[Any], Any],
+    job_done: list[bool],
+    exc: BaseException,
+    log_message: str,
+    level: int = logging.ERROR,
+) -> None:
     """Log *exc*, report it once, and end the drain.
 
     Set ``job_done`` first, notify once, and log if that notify raises.
@@ -966,7 +972,10 @@ def _notify_drain_failure(on_error: Callable[[Any], Any], job_done: list[bool], 
     except and was reported again.
     """
     # crosshair: off
-    log.exception(log_message)
+    if level == logging.WARNING:
+        log.warning("%s: %s", log_message, exc)
+    else:
+        log.exception(log_message)
     job_done[0] = True
     try:
         on_error(format_error_payload(exc))
@@ -1046,7 +1055,7 @@ def run_stream_drain_loop(q: Any, toolkit: Any, job_done: Any, apply_chunk_fn: A
             except Exception:
                 log.exception("drain re-arm close failed")
         if isinstance(exc, NestedDrainOwnerError):
-            _notify_drain_failure(on_error, job_done, exc, "Nested stream drain rejected")
+            _notify_drain_failure(on_error, job_done, exc, "Nested stream drain rejected", level=logging.WARNING)
         else:
             _notify_drain_failure(on_error, job_done, exc, "Stream drain loop crashed")
 
@@ -1139,7 +1148,7 @@ def _run_stream_drain_blocking(state: _DrainState, toolkit: Any, stop_checker: A
                 pump_ui_idle(toolkit)
 
     except NestedDrainOwnerError as e:
-        _notify_drain_failure(on_error, job_done, e, "Nested stream drain rejected")
+        _notify_drain_failure(on_error, job_done, e, "Nested stream drain rejected", level=logging.WARNING)
 
     except Exception as e:
         _notify_drain_failure(on_error, job_done, e, "Stream drain loop crashed")
@@ -1329,6 +1338,13 @@ def run_async_worker_with_drain(
                 worker_fn(cast("queue.Queue[Any]", q))
             except BaseException as e:
                 error_item = (StreamQueueKind.ERROR, format_error_payload(e))
+                if saw_terminal[0]:
+                    # Bugfix: A worker that already queued a terminal item (ERROR, STREAM_DONE,
+                    # etc.) and then raised had its exception silently dropped without any log.
+                    # This happened because saw_terminal[0] prevents a duplicate ERROR from being
+                    # queued (which would trigger recovery twice). We now log.exception here so
+                    # the traceback is preserved without queuing a duplicate ERROR.
+                    log.exception("Worker raised after terminal item was already queued; exception not queued")
             try:
                 if _flush is not None:
                     _flush()
@@ -1355,10 +1371,14 @@ def run_async_worker_with_drain(
                 log.exception("Failed to notify error handler for toolkit creation failure")
         return
 
-    # Refuse before spawn. A nested-owner check inside the drain loop runs
-    # after this worker is already started. A second Send from
-    # processEventsToIdle then raises NestedDrainOwnerError and leaves the
-    # worker writing to a queue nobody reads.
+    # Refuse before spawn: this helper refuses every current owner, including
+    # "stream", before spawning a worker thread. The underlying drain would
+    # accept "stream" (nesting depth) and reject a different name. Refusing here
+    # ensures Extend, image, web, and agent tasks do not nest a second consumer
+    # over an active stream. Callers that must overlap two documents call
+    # run_stream_drain_loop directly. A different owner ("mcp", "outer") must
+    # not spawn either, as the drain would raise and leave the worker writing
+    # to an unread queue.
     existing_owner = get_drain_owner()
     if existing_owner is not None:
         nested = NestedDrainOwnerError(f"Nested stream drain while {existing_owner!r} already owns the UI pump")

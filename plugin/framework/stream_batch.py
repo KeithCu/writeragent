@@ -125,8 +125,7 @@ class _ReusableBurstTimer:
                 if self._stopped:
                     return
                 deadline = self._deadline
-                if deadline is None:
-                    continue
+                assert deadline is not None
                 remaining = deadline - time.monotonic()
                 if remaining > 0:
                     self._cv.wait(timeout=remaining)
@@ -154,7 +153,7 @@ class BatchingStreamQueue:
     display deltas should feed them through this wrapper (via .put() or the
     convenience callbacks returned by content_cb() / thinking_cb()).
 
-    Contract (per user direction 2026-05-25, refined 2026-05-25):
+    Contract:
     - Simple append: internal buffers just do buf.append(delta).
     - **Hard 250 ms max latency ("every 250 ms max, or when done")**:
       The *first* display delta that starts a new burst arms the batcher's
@@ -169,7 +168,10 @@ class BatchingStreamQueue:
       also causes immediate emission of whatever has accumulated so far
       (and cancels the pending timer).
     - No main-thread sleeps. All timer work happens in the producer thread(s).
-    - The consumer-side drain loop timeout (currently 0.1 s) is left unchanged.
+    - The blocking drain and the idle re-arm use 0.1 s (`_DRAIN_IDLE_REARM_SEC` /
+      `_drain_batch`); this class does not wait on that timeout.
+    - `put` is for one producer thread. The lock makes one boundary `put` atomic
+      with its flush; a second producer is not the supported use.
 
     Typical usage:
         raw_q = queue.Queue()
@@ -269,10 +271,15 @@ class BatchingStreamQueue:
           causes the accumulated text (one joined string per kind) to be emitted.
         """
         # crosshair: off
-        # Fast path for the two display kinds
+        # Fast path for the two display kinds.
+        # Bugfix: StreamQueueKind is a str enum, so "chunk" == StreamQueueKind.CHUNK
+        # evaluated to True. Bare string tags were batched into display runs instead of
+        # falling through to the boundary/raw queue, causing a mismatch with the drain
+        # which requires isinstance(kind, StreamQueueKind). Requiring isinstance here
+        # lets bare strings fall through so the drain's existing TypeError path reports them.
         if isinstance(item, (list, tuple)) and len(item) >= 1:
             kind = item[0]
-            if kind == StreamQueueKind.CHUNK or kind == StreamQueueKind.THINKING:
+            if isinstance(kind, StreamQueueKind) and (kind is StreamQueueKind.CHUNK or kind is StreamQueueKind.THINKING):
                 data = item[1] if len(item) > 1 else ""
                 with self._lock:
                     # Abort discarded this batcher. A later put must not arm the timer.

@@ -44,6 +44,21 @@ def test_batching_stream_queue_auto_flush_on_boundary():
     assert raw.empty()
 
 
+def test_batching_stream_queue_bare_string_kind_falls_through_as_boundary():
+    """Bare string kinds must not join with enum CHUNKs; they act as boundary items."""
+    raw = queue.Queue()
+    bq = BatchingStreamQueue(raw, batch_interval=10.0)
+
+    bq.put((StreamQueueKind.CHUNK, "ok"))
+    bq.put(("chunk", "bad"))
+
+    first = raw.get_nowait()
+    assert first == (StreamQueueKind.CHUNK, "ok")
+    second = raw.get_nowait()
+    assert second == ("chunk", "bad")
+    assert raw.empty()
+
+
 def test_discard_then_control_put_leaves_queue_empty():
     """discard() wins the lock before a later control put, so the item is dropped."""
     raw = queue.Queue()

@@ -30,7 +30,7 @@ import queue
 from enum import Enum
 from typing import Any, Callable, TypeAlias
 
-from plugin.framework.queue_executor import pump_ui_idle
+from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
@@ -104,20 +104,25 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
 
     # Do not take drain_owner_scope here: this helper may run under an active stream
     # drain. pump_ui_idle remains the owner-safe VCL pump path.
-    poll = (pump_idle and toolkit is not None) or stop_checker is not None
+    # Bugfix: When pump_idle was True and get_toolkit failed or returned None, poll was False
+    # and not pump_idle was False, causing q.get(timeout=None) to block forever. If a worker
+    # waited on execute_on_main_thread, the UI thread never drained the marshal queue, deadlocking.
+    # We now poll with a 0.1s timeout whenever pump_vcl is False (pump_idle=False or toolkit missing)
+    # and drain the marshal queue via pump_main_thread_work_queue without processEventsToIdle.
+    pump_vcl = pump_idle and toolkit is not None
+    poll = pump_vcl or stop_checker is not None
     while True:
         # Only the get waits on the queue. A worker that raised queue.Empty
         # must propagate: catching it here and calling get again with
         # timeout=None blocks forever, because that worker has already exited.
         try:
-            item = q.get(timeout=0.1 if (poll or not pump_idle) else None)
+            item = q.get(timeout=0.1 if (poll or not pump_vcl) else None)
         except queue.Empty:
             if stop_checker is not None and stop_checker():
                 raise BlockingWaitStopped("stopped")
-            if pump_idle and toolkit is not None:
+            if pump_vcl:
                 pump_ui_idle(toolkit)
-            elif not pump_idle:
-                from plugin.framework.queue_executor import pump_main_thread_work_queue
+            else:
                 pump_main_thread_work_queue()
             continue
         kind, data = item
