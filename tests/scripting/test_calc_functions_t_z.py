@@ -48,10 +48,10 @@ _BAD_INPUTS: list[tuple[str, str, tuple, str]] = [
     ("textbefore", "blank-delimiter", ("a-b", "", 1), "nan"),
     ("textbefore", "blank-instance", ("a-b", "-", None), "nan"),
     ("textbefore", "out-of-range-instance", ("a-b", "-", 99), "nan"),
-    ("textbefore", "out-of-range-inf-instance", ("a-b", "-", _INF), "nan"),
-    # textsplit: text, zero, and a wild match_mode still split. An empty
-    # delimiter is the blank that returns NaN.
+    # textsplit: an empty delimiter and empty text are NaN, and a non-empty
+    # text with a wild match_mode still splits.
     ("textsplit", "blank-delimiter", ("a-b", ""), "nan"),
+    ("textsplit", "blank-text", ("", ","), "nan"),
     # time: text hour and a negative remainder are already tested. Zero is a
     # real time (0).
     ("time", "blank", (None, 0, 0), "nan"),
@@ -308,6 +308,9 @@ def test_yearfrac_basis1_is_actual_actual():
     assert calc.yearfrac(_serial(2024, 1, 1), _serial(2025, 1, 1), 1) == 1.0
     # Same leap year uses 366 even when the slice misses 29 February.
     assert calc.yearfrac(_serial(2024, 3, 1), _serial(2024, 4, 1), 1) == 31 / 366
+    assert calc.yearfrac(_serial(2020, 1, 1), _serial(2022, 1, 1), 1) == 731 / (1096 / 3)
+    assert calc.yearfrac(_serial(2022, 1, 1), _serial(2020, 1, 1), 1) == 731 / (1096 / 3)
+    assert calc.yearfrac(_serial(2023, 1, 1), _serial(2024, 6, 1), 1) == 517 / (731 / 2)
 
 
 def test_yield_rejects_reversed_dates():
@@ -519,4 +522,37 @@ def test_xirr_and_xnpv_truncate_dates():
     # getXirr does not reject a date earlier than the first.
     early = calc.xnpv(0.1, [-100, 110], [10, 0])
     assert isinstance(early, float) and math.isfinite(early)
+
+
+def test_text_unknown_format_is_nan():
+    assert math.isnan(calc.text(1234.5, "$#,##0.00"))
+    assert math.isnan(calc.text(1234.5, "0.00E+00"))
+    assert math.isnan(calc.text(1234.5, "yyyy-mm-dd hh:mm"))
+    assert calc.text(1234.5, "") == "1234.5"
+    assert calc.text("abc", "0") == "abc"
+    assert calc.text(1234.5, "0.00") == "1234.50"
+
+
+def test_textjoin_propagates_errors_and_flattens_ranges():
+    assert calc.textjoin(",", True, ["a", "#VALUE!", "b"]) == "#VALUE!"
+    assert calc.textjoin(",", False, ["a", "#VALUE!"]) == "#VALUE!"
+    assert calc.textjoin(",", True, ["a", "#DIV/0!", "b"]) == "#DIV/0!"
+    assert math.isnan(calc.textjoin(",", True, ["a", float("nan"), "b"]))
+    assert calc.textjoin(",", True, ["a", None, "b"]) == "a,b"
+    assert calc.textjoin(",", False, ["a", None, "b"]) == "a,,b"
+    assert calc.textjoin(",", True, ["a", "  ", "b"]) == "a,b"
+    assert calc.textjoin(",", True, [[1, 2], [3]]) == "1,2,3"
+    assert calc.textjoin(",", True, [[1.0, 2.0], [3.0, 4.0]]) == "1,2,3,4"
+    assert calc.textjoin(",", True, "ab") == "ab"
+    assert calc.textjoin(",", True, [True, 1.0]) == "True,1"
+
+
+def test_textsplit_empty_text_is_nan_and_pad_is_nan():
+    assert math.isnan(calc.textsplit("", ","))
+    assert math.isnan(calc.textsplit("", ",", ignore_empty=True))
+    padded = calc.textsplit("a,b;c", ",", ";")
+    assert padded[0] == ["a", "b"]
+    assert padded[1][0] == "c"
+    assert math.isnan(padded[1][1])
+    assert calc.textsplit("a,b;c", ",", ";", pad_with="x") == [["a", "b"], ["c", "x"]]
 

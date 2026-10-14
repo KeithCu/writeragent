@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 
 from .calc_functions_util import (
+    _as_nonzero,
     _build_holiday_set,
     _calc_sort_key,
     _clean_paired_arrays,
@@ -1183,10 +1184,7 @@ def py_str(val: Any) -> str:
 def textafter(text: Any, delimiter: Any, instance_num: Any = 1, match_mode: Any = 0, match_end: Any = 0, if_not_found: Any = float("nan")) -> str | float:
     try:
         # bool("0") is true, so a zero flag invented a virtual delimiter.
-        # ScTextBeforeOrAfter uses GetBool(). Imported here so this module
-        # does not load t_z while t_z is still importing.
-        from .calc_functions_t_z import _as_nonzero
-
+        # ScTextBeforeOrAfter uses GetBool(), which is GetDouble() != 0.
         use_end = _as_nonzero(match_end)
         s, _delim, inst, idx, match_end_miss = _find_text_cut(
             text, delimiter, instance_num, match_mode, after=True
