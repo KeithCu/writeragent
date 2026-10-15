@@ -247,3 +247,18 @@ def test_insert_master_not_found_raises_warning():
     engine._apply_command({"InsertMasterSlide": 99})
     assert "InsertMasterSlide: Master page not found" in engine.warnings
     assert not any("InsertMasterSlide" in item for item in engine.applied)
+
+
+def test_move_slide_rollback_error_propagates_from_engine() -> None:
+    from plugin.draw.bridge import PageExchangeRollbackError
+
+    eng, _deck, bridge = _engine(0, 2)
+
+    def _boom(from_idx: int, to_idx: int) -> bool:
+        raise PageExchangeRollbackError("temporary page")
+
+    bridge.move_slide = _boom  # type: ignore[assignment]
+    with pytest.raises(PageExchangeRollbackError):
+        eng._move_slide(0, 1)
+    assert eng.current_slide == 0
+    assert eng.applied == []
