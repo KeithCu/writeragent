@@ -1162,7 +1162,7 @@ def test_table_set_cell_non_string_cell():
 
 
 def test_table_insert_draw_non_numeric_rows_columns():
-    """Bug 2: TableInsert on Draw document with non-numeric rows/columns returns tool error."""
+    """Bug 2: TableInsert schema rejects non-integer rows/columns, and Draw table dims < 1 are rejected."""
     from unittest.mock import MagicMock
     from plugin.draw.tables import insert_draw_table
 
@@ -1171,17 +1171,17 @@ def test_table_insert_draw_non_numeric_rows_columns():
     ctx = SimpleNamespace(doc=doc, active_page_index=0)
 
     tool = TableInsert()
-    res = tool.execute(ctx, rows="invalid", columns=2)
-    assert res["status"] == "error"
-    assert "rows and columns must be integers" in res["message"]
+    ok, err = tool.validate(rows="invalid", columns=2)
+    assert ok is False
+    assert err and "integer" in err
 
-    res_cols = tool.execute(ctx, rows=2, columns="invalid")
-    assert res_cols["status"] == "error"
-    assert "rows and columns must be integers" in res_cols["message"]
+    res_direct = insert_draw_table(ctx, rows=0, columns=2)
+    assert res_direct["status"] == "error"
+    assert "at least 1" in res_direct["message"]
 
-    direct_res = insert_draw_table(ctx, rows="not-a-number", columns=2)
-    assert direct_res["status"] == "error"
-    assert "rows and columns must be integers" in direct_res["message"]
+    res_exec = tool.execute(ctx, rows=0, columns=2)
+    assert res_exec["status"] == "error"
+    assert "at least 1" in res_exec["message"]
 
 
 class DisposedException(Exception):

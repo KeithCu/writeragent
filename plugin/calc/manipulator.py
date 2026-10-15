@@ -26,7 +26,6 @@ from __future__ import annotations
 import csv
 import io
 import logging
-import re
 import sys
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -52,7 +51,6 @@ from plugin.calc.address_utils import index_to_column
 from plugin.calc.array_formula import MAX_ARRAY_CELLS, result_range, returns_array
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.datetime_wire import coalesce_temporal_apply_rects, duration_serial_from_iso, is_compatible_temporal_template, match_iso_duration, match_iso_temporal, should_preserve_temporal_format
-from plugin.calc.error_detector import get_calc_error_name
 from plugin.calc.inspector import _format_category_from_type
 from plugin.framework.errors import safe_json_loads, is_disposed_exception
 from plugin.framework.uno_context import get_ctx
@@ -266,16 +264,6 @@ class CellManipulator:
                     arr_name = f"{index_to_column(existing.StartColumn)}{existing.StartRow + 1}:{index_to_column(existing.EndColumn)}{existing.EndRow + 1}"
                     raise CalcError(f"{cell_name} is part of array {arr_name}; edit or clear the whole array.")
 
-    def _is_valid_cell_address(self, address: str) -> bool:
-        """Validate if a string is a valid cell address (e.g., A1)."""
-        if not address:
-            return False
-        return bool(re.match(r"^[A-Za-z]+[1-9][0-9]*$", address.strip()))
-
-    def _get_error_name(self, error_code: int) -> str:
-        """Get a human-readable name for a Calc error code."""
-        return get_calc_error_name(error_code)
-
     def _apply_style_properties(self, obj: Any, bold: bool | None, italic: bool | None, bg_color: int | None, font_color: int | None, font_size: float | None, h_align: str | None, v_align: str | None, wrap_text: bool | None, border_color: int | None) -> None:
         """Apply common style properties to a cell or range object."""
         if bold is not None:
@@ -344,72 +332,6 @@ class CellManipulator:
 
     # ── Write operations ───────────────────────────────────────────────
 
-    def safe_get_cell_value(self, sheet: Any, cell_address: str) -> Any:
-        """Safely get cell value with comprehensive error handling."""
-        try:
-            # Validate sheet
-            if not sheet:
-                raise CalcError("Sheet is None", code="CALC_SHEET_NULL", details={"operation": "get_cell_value"})
-
-            # Validate cell address
-            if not self._is_valid_cell_address(cell_address):
-                raise CalcError(f"Invalid cell address: {cell_address}", code="CALC_INVALID_ADDRESS", details={"address": cell_address})
-
-            # Get cell
-            try:
-                cell = sheet.getCellRangeByName(cell_address)
-            except Exception as e:
-                if is_disposed_exception(e):
-                    raise
-                cell = None
-            if not cell:
-                raise CalcError(f"Cell not found: {cell_address}", code="CALC_CELL_NOT_FOUND", details={"address": cell_address})
-
-            # Get value with type handling
-            cell_type = cell.getType()
-
-            CCT = sys.modules.get("com.sun.star.table", None)
-            if CCT is not None and hasattr(CCT, "CellContentType"):
-                CCT = CCT.CellContentType
-
-            # Also try to import for unmocked case
-            if CCT is None:
-                try:
-                    from com.sun.star.table import CellContentType as CCT
-                except ImportError:
-                    pass
-
-            if CCT is not None and cell_type == CCT.EMPTY:
-                return None
-            elif CCT is not None and cell_type == CCT.VALUE:
-                return cell.getValue()
-            elif CCT is not None and cell_type == CCT.TEXT:
-                return cell.getString()
-            elif CCT is not None and cell_type == CCT.FORMULA:
-                try:
-                    # In LibreOffice Calc, cell.getError() returns 0 if no error
-                    error_code = cell.getError()
-                    if error_code != 0:
-                        raise Exception("Formula error")
-                    return cell.getValue()
-                except Exception as e:
-                    if is_disposed_exception(e):
-                        raise
-                    # Formula error
-                    error_code = cell.getError()
-                    raise CalcError(f"Formula error in {cell_address}: {self._get_error_name(error_code)}", code="CALC_FORMULA_ERROR", details={"address": cell_address, "error_code": error_code, "error_name": self._get_error_name(error_code)}) from e
-            else:
-                raise CalcError(f"Unknown cell type: {cell_type}", code="CALC_UNKNOWN_CELL_TYPE", details={"address": cell_address, "type": cell_type})
-
-        except CalcError:
-            # Re-raise our calc errors
-            raise
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            # Wrap other exceptions
-            raise CalcError(f"Failed to get cell value: {str(e)}", code="CALC_CELL_VALUE_ERROR", details={"address": cell_address, "original_error": str(e), "error_type": type(e).__name__}) from e
-
     # ── Style operations ───────────────────────────────────────────────
 
     def set_cell_style(
@@ -459,7 +381,8 @@ class CellManipulator:
             if is_disposed_exception(e):
                 raise
             log.exception("Style application failed for %s", address_or_range)
-            raise CalcError(str(e)) from e
+            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
+            raise
 
     def _set_range_style(
         self, range_str: str, bold: bool | None = None, italic: bool | None = None, bg_color: int | None = None, font_color: int | None = None, font_size: float | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: int | None = None
@@ -532,7 +455,8 @@ class CellManipulator:
             if is_disposed_exception(e):
                 raise
             log.exception("Range clear failed for %s", range_str)
-            raise CalcError(str(e)) from e
+            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
+            raise
 
     def merge_cells(self, range_str: str, center: bool = True) -> None:
         """Merge a cell range.
@@ -553,7 +477,8 @@ class CellManipulator:
             if is_disposed_exception(e):
                 raise
             log.exception("Cell merge failed for %s", range_str)
-            raise CalcError(str(e)) from e
+            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
+            raise
 
     def sort_range(self, range_str: str, sort_column: int = 0, ascending: bool = True, has_header: bool = True) -> str:
         """Sort a range.
@@ -606,7 +531,8 @@ class CellManipulator:
             if isinstance(e, CalcError):
                 raise
             log.exception("Sort failed for %s", range_str)
-            raise CalcError(str(e)) from e
+            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
+            raise
 
     def _make_number_formatter(self, doc: Any) -> Any:
         """Attach a NumberFormatter to *doc* once per write invocation.
@@ -1422,7 +1348,8 @@ class CellManipulator:
             if is_disposed_exception(e):
                 raise
             log.exception("Row deletion failed")
-            raise CalcError(str(e)) from e
+            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
+            raise
 
     def delete_columns(self, col_letter: str, count: int = 1) -> str:
         """Delete columns starting at *col_letter*."""
@@ -1437,7 +1364,8 @@ class CellManipulator:
             if is_disposed_exception(e):
                 raise
             log.exception("Column deletion failed")
-            raise CalcError(str(e)) from e
+            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
+            raise
 
     def delete_structure(self, structure_type: str, start: Any, count: int = 1) -> str:
         """Delete rows or columns.

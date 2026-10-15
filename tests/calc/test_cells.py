@@ -14,6 +14,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from xml.etree import ElementTree as ET
 
+import pytest
+
 from plugin.tests.testing_utils import TestingFactory
 
 # Smallest AFC-style repro for the chat cap: 9×9 = 81 cells (cap is 80).
@@ -111,6 +113,20 @@ def test_inspector_formula_string_zero_stays_string():
     res = inspector.read_cell("A1")
     assert res["value"] == "0"
     assert isinstance(res["value"], str)
+
+
+def test_read_cell_range_address_stays_value_error():
+    """The single-cell ValueError must not be rewrapped as ToolExecutionError."""
+    from plugin.calc.inspector import CellInspector
+
+    bridge = MagicMock()
+    mock_range = MagicMock()
+    mock_range.getRangeAddress.return_value = SimpleNamespace(
+        StartColumn=0, EndColumn=1, StartRow=0, EndRow=0
+    )
+    bridge.resolve_range_or_address.return_value = mock_range
+    with pytest.raises(ValueError, match="not a single cell"):
+        CellInspector(bridge).read_cell("A1:B1")
 
 
 def test_calc_serial_iso8601_uses_document_null_date():

@@ -17,7 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 """Calc chart management tools: list, info, create, edit, delete.
 Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties.
@@ -914,9 +914,8 @@ class UpsertChart(ToolBaseDummy):
 
     def _create_calc_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        data_range = kwargs.get("data_range")
-        if not data_range:
-            return self._tool_error("data_range is required for Calc charts.")
+        data_range = cast("str", kwargs.get("data_range"))
+        # Missing data_range is rejected by UpsertChart.validate for calc create.
 
         target_sheet_name = kwargs.get("sheet")
         if target_sheet_name:
@@ -1324,9 +1323,9 @@ class ManageCharts(ToolCalcChartBase):
         return UpsertChart().validate(doc_type=doc_type, **kwargs)
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        # action (required + enum), create chart_type, and edit name are
+        # rejected by validate() before execute. get_info/delete name are not.
         action = kwargs.get("action")
-        if not action:
-            return self._tool_error("Action parameter is required.", code="MISSING_PARAMETER")
 
         if action == "list":
             return ListCharts().execute(ctx, **kwargs)
@@ -1334,17 +1333,10 @@ class ManageCharts(ToolCalcChartBase):
             if "name" not in kwargs:
                 return self._tool_error("name parameter is required for action='get_info'.")
             return GetChartInfo().execute(ctx, **kwargs)
-        elif action == "create":
-            if "chart_type" not in kwargs:
-                return self._tool_error("chart_type parameter is required for action='create'.")
-            return UpsertChart().execute(ctx, **kwargs)
-        elif action == "edit":
-            if "name" not in kwargs:
-                return self._tool_error("name parameter is required for action='edit'.")
+        elif action in ("create", "edit"):
             return UpsertChart().execute(ctx, **kwargs)
         elif action == "delete":
             if "name" not in kwargs:
                 return self._tool_error("name parameter is required for action='delete'.")
             return DeleteChart().execute(ctx, **kwargs)
-        else:
-            return self._tool_error(f"Unsupported action: '{action}'")
+        return cast("Any", None)

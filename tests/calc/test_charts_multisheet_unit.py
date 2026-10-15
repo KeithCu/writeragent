@@ -124,17 +124,23 @@ def test_manage_charts_error_handling():
     ctx = MagicMock()
     ctx.doc = MagicMock()
 
-    # 1. ManageCharts missing action
     mc = ManageCharts()
-    res_no_action = mc.execute(ctx)
-    assert res_no_action["status"] == "error"
-    assert res_no_action["code"] == "MISSING_PARAMETER"
+    ok, err = mc.validate(doc_type="calc")
+    assert ok is False
+    assert err and "action" in err
 
-    # 2. ManageCharts unsupported action
-    res_bad_action = mc.execute(ctx, action="invalid_action")
-    assert res_bad_action["status"] == "error"
+    ok_bad, err_bad = mc.validate(doc_type="calc", action="invalid_action")
+    assert ok_bad is False
+    assert "Invalid value" in (err_bad or "")
 
-    # 3. UpsertChart edit not found
+    ok_type, err_type = mc.validate(doc_type="calc", action="create")
+    assert ok_type is False
+    assert err_type and "chart_type" in err_type
+
+    ok_range, err_range = mc.validate(doc_type="calc", action="create", chart_type="bar")
+    assert ok_range is False
+    assert err_range == "Parameter 'data_range' is required when action is 'create' in Calc"
+
     uc = UpsertChart()
     with patch("plugin.calc.charts.supportsService", return_value=True), patch("plugin.calc.charts._resolve_chart", return_value=None):
         res_edit_nf = uc.execute(ctx, action="edit", name="NonExistentChart")

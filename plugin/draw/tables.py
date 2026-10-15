@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 _A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
 
@@ -228,18 +228,9 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     from plugin.draw.bridge import DrawBridge
     from plugin.draw.layout import coerce_int
 
-    rows = kwargs.get("rows")
-    columns = kwargs.get("columns")
-    if rows is None or columns is None:
-        return {"status": "error", "message": "rows and columns are required.", "code": "TOOL_EXECUTION_ERROR"}
-    # Non-numeric rows or columns return a tool error. int() without
-    # a guard raises ValueError/TypeError past the tool boundary.
-    # Catch (TypeError, ValueError) around the conversion.
-    try:
-        rows = int(rows)
-        columns = int(columns)
-    except (TypeError, ValueError):
-        return {"status": "error", "message": "rows and columns must be integers.", "code": "TOOL_EXECUTION_ERROR"}
+    rows = cast("int", kwargs.get("rows"))
+    columns = cast("int", kwargs.get("columns"))
+    # Schema required + type integer already reject null and non-integers. minimum is not checked.
     if rows < 1 or columns < 1:
         return {"status": "error", "message": "rows and columns must be at least 1.", "code": "TOOL_EXECUTION_ERROR"}
 

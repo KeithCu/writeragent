@@ -25,8 +25,10 @@ from plugin.writer.math.math_mml_convert import MATH_CLSID, _file_url
 
 
 def _exception_message(exc: Exception) -> str:
+    # UNO exceptions often have an empty str() and the text on .Message.
     name = type(exc).__name__
-    text = str(exc).strip()
+    raw = getattr(exc, "Message", None) or str(exc)
+    text = raw.strip() if isinstance(raw, str) else ""
     return f"{name}: {text}" if text else name
 
 log = logging.getLogger("writeragent.writer")
@@ -296,13 +298,9 @@ def resolve_math_embed_name(doc: Any, embed: Any) -> str | None:
             obj = container.getByName(name)
         except Exception:
             continue
+        # Identity is only `obj is embed`. Repeating that compare cannot match a different object.
         if obj is embed:
             return str(name)
-        try:
-            if hasattr(embed, "getEmbeddedObject") and obj is embed:
-                return str(name)
-        except Exception:
-            continue
     return None
 
 
@@ -374,30 +372,14 @@ def _is_math_embed(obj: Any) -> bool:
 
 
 def _portion_embedded(portion: Any) -> Any | None:
+    # A false _is_math_embed result is the CLSID check. Repeating it cannot succeed.
     for key in ("TextEmbeddedObject", "EmbeddedObject", "TextContent"):
         try:
             obj = portion.getPropertyValue(key)
         except Exception:
             obj = getattr(portion, key, None)
-        if obj is None:
-            continue
-        if _is_math_embed(obj):
+        if obj is not None and _is_math_embed(obj):
             return obj
-        try:
-            inner = obj.getEmbeddedObject() if hasattr(obj, "getEmbeddedObject") else None
-            if inner is not None and hasattr(inner, "Formula"):
-                if _is_math_embed(obj) or str(getattr(obj, "CLSID", "")).lower() == MATH_CLSID.lower():
-                    return obj
-                # Some bridges expose the formula model directly.
-                if hasattr(obj, "Formula"):
-                    return obj
-        except Exception:
-            continue
-        try:
-            if hasattr(obj, "Formula") and _is_math_embed(obj):
-                return obj
-        except Exception:
-            continue
     return None
 
 
@@ -493,22 +475,11 @@ def _math_hits_in_paragraph(para: Any, para_index: int, ctx: Any | None) -> list
         return []
     while portion_enum.hasMoreElements():
         portion = portion_enum.nextElement()
-        try:
-            try:
-                ptype = str(portion.getPropertyValue("TextPortionType") or "")
-            except Exception:
-                ptype = str(getattr(portion, "TextPortionType", "") or "")
-        except Exception:
-            ptype = ""
+        # TextPortionType does not change _portion_embedded. A second call after None is the same miss.
         emb = _portion_embedded(portion)
         if emb is not None:
             embeds.append(emb)
             continue
-        if ptype in ("TextEmbeddedObject", "EmbeddedObject", "Frame"):
-            emb = _portion_embedded(portion)
-            if emb is not None:
-                embeds.append(emb)
-                continue
         try:
             chunk = portion.getString() or ""
         except Exception:

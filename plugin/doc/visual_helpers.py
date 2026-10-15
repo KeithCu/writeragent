@@ -331,25 +331,22 @@ def is_graphic_object(obj: Any) -> bool:
 
 
 def _controller_selection(model: Any) -> Any | None:
+    # Callers catch Exception. The inner tries already cover getCurrentController and getSelection.
+    controller = None
     try:
-        controller = None
-        try:
-            controller = model.getCurrentController()
-        except Exception:
-            controller = getattr(model, "CurrentController", None)
-        if controller is None:
-            return None
-        selection = None
-        try:
-            selection = controller.getSelection()
-        except Exception:
-            selection = None
-        if selection is None:
-            selection = getattr(controller, "Selection", None)
-        return selection if selection else None
-    except Exception as ex:
-        log.debug("_controller_selection failed: %s", ex)
+        controller = model.getCurrentController()
+    except Exception:
+        controller = getattr(model, "CurrentController", None)
+    if controller is None:
         return None
+    selection = None
+    try:
+        selection = controller.getSelection()
+    except Exception:
+        selection = None
+    if selection is None:
+        selection = getattr(controller, "Selection", None)
+    return selection if selection else None
 
 
 def _graphic_object_name(obj: Any) -> str:
