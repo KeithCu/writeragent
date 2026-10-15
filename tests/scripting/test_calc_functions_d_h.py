@@ -61,6 +61,18 @@ def test_dollarde_dollarfr_nonfinite_is_nan():
     assert math.isclose(calc.dollarfr(1.5, 4), 1.2)
 
 
+def test_dollarde_dollarfr_text_raises():
+    # Text is ValueError, which the =PY() worker maps to #VALUE!. NaN would be #NUM!.
+    with pytest.raises(ValueError):
+        calc.dollarde("x", 16)
+    with pytest.raises(ValueError):
+        calc.dollarde("", 16)
+    with pytest.raises(ValueError):
+        calc.dollarfr("x", 16)
+    with pytest.raises(ValueError):
+        calc.dollarfr("", 16)
+
+
 def test_db_period_past_final_stub_is_nan():
     # life+1 is still a real period. Past that, Calc returns #NUM!.
     partial = calc.db(1_000_000, 100_000, 6, 7, 7)
@@ -230,12 +242,8 @@ _D_H_BAD_INPUTS = [
     ("dollar-text", "dollar", ("abc",), _NAN),
     ("dollar-blank", "dollar", ("",), _NAN),
     ("dollar-oor", "dollar", (1, float("inf")), _NAN),
-    ("dollarde-text", "dollarde", ("x", 16), _NAN),
-    ("dollarde-blank", "dollarde", ("", 16), _NAN),
     ("dollarde-zero", "dollarde", (1.02, 0), _NAN),
     ("dollarde-oor", "dollarde", (1.02, float("inf")), _NAN),
-    ("dollarfr-text", "dollarfr", ("x", 16), _NAN),
-    ("dollarfr-blank", "dollarfr", ("", 16), _NAN),
     ("dollarfr-zero", "dollarfr", (1.5, 0), _NAN),
     ("dollarfr-oor", "dollarfr", (1.5, float("inf")), _NAN),
     ("dstdev-text", "dstdev", ("text", "Height", _CRIT), _NAN),
