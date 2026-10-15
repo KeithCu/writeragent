@@ -250,8 +250,9 @@ _D_H_BAD_INPUTS = [
     ("dollar-text", "dollar", ("abc",), ValueError),
     ("dollar-blank", "dollar", ("",), ValueError),
     ("dollar-oor", "dollar", (1, float("inf")), OverflowError),
-    ("dollarde-text", "dollarde", ("x", 16), _NAN),
-    ("dollarde-blank", "dollarde", ("", 16), _NAN),
+    # Native float() ValueError; the worker maps it to #VALUE! centrally (#1577), as Calc does.
+    ("dollarde-text", "dollarde", ("x", 16), ValueError),
+    ("dollarde-blank", "dollarde", ("", 16), ValueError),
     ("dollarde-zero", "dollarde", (1.02, 0), _NAN),
     ("dollarde-oor", "dollarde", (1.02, float("inf")), _NAN),
     ("dollarfr-zero", "dollarfr", (1.5, 0), _NAN),

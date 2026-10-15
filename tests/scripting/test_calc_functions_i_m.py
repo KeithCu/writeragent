@@ -316,14 +316,15 @@ def test_i_m_bad_inputs(label: str, name: str, args: tuple[object, ...], expecte
 
 
 _RAISES: list[tuple[str, str, tuple[object, ...], type[BaseException]]] = [
-    ("imabs-text", "imabs", ("text",), TypeError),
-    ("imabs-blank", "imabs", (None,), TypeError),
-    ("imaginary-text", "imaginary", ("text",), TypeError),
-    ("imaginary-blank", "imaginary", (None,), TypeError),
-    ("imargument-text", "imargument", ("text",), TypeError),
-    ("imargument-blank", "imargument", (None,), TypeError),
-    ("imreal-text", "imreal", ("text",), TypeError),
-    ("imreal-blank", "imreal", (None,), TypeError),
+    # Native complex() ValueError for text/blank; the worker maps it to #VALUE! centrally (#1577).
+    ("imabs-text", "imabs", ("text",), ValueError),
+    ("imabs-blank", "imabs", (None,), ValueError),
+    ("imaginary-text", "imaginary", ("text",), ValueError),
+    ("imaginary-blank", "imaginary", (None,), ValueError),
+    ("imargument-text", "imargument", ("text",), ValueError),
+    ("imargument-blank", "imargument", (None,), ValueError),
+    ("imreal-text", "imreal", ("text",), ValueError),
+    ("imreal-blank", "imreal", (None,), ValueError),
     ("intrate-text", "intrate", ("text", _DATE[1], 100, 105), ValueError),
     ("intrate-blank", "intrate", (None, _DATE[1], 100, 105), TypeError),
     ("intrate-basis-inf", "intrate", (_DATE[0], _DATE[1], 100, 105, _INF), OverflowError),
