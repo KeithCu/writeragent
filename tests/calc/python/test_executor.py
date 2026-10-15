@@ -298,6 +298,37 @@ def test_data_range_read_failure_returns_error_result():
         mock_exec.assert_not_called()
 
 
+def test_data_range_tool_execution_error_returns_calc_read_error() -> None:
+    """read_range's ToolExecutionError must become CALC_READ_ERROR, not a raise.
+
+    ToolExecutionError subclasses WriterAgentException. The old check re-raised
+    it, so the CALC_READ_ERROR return was unreachable for the exception
+    CellInspector.read_range actually raises. The script has not run, so the
+    error dict has no result or stdout.
+    """
+    from plugin.framework.errors import ToolExecutionError
+
+    tool = ExecutePythonScript()
+    ctx = MagicMock()
+    ctx.doc.getURL.return_value = "file:///test.ods"
+    ctx.doc.supportsService.return_value = True
+
+    with (
+        unittest.mock.patch("plugin.calc.python.executor.CellInspector") as MockInspector,
+        unittest.mock.patch("plugin.calc.python.executor.PythonExecutor.execute_with_return") as mock_exec,
+    ):
+        inst = MockInspector.return_value
+        inst.read_range.side_effect = ToolExecutionError("Bad range syntax")
+
+        res = tool.execute(ctx, code="data[0]", data_range="INVALID_RANGE")
+        assert res["status"] == "error"
+        assert res["code"] == "CALC_READ_ERROR"
+        assert "INVALID_RANGE" in res["message"]
+        assert "Bad range syntax" in res["message"]
+        assert "details" not in res
+        mock_exec.assert_not_called()
+
+
 def test_calc_helpers_fail_on_writer_document():
     from plugin.framework.errors import WriterAgentException
 
@@ -435,6 +466,34 @@ def test_target_range_write_failure_is_tool_error() -> None:
     with unittest.mock.patch("plugin.calc.python.executor.CellManipulator") as MockManip:
         inst = MockManip.return_value
         inst.write_formula_range.side_effect = RuntimeError("disk full")
+
+        res = tool.execute(ctx, code="print('logging')\n42", target_range="D1")
+        assert res["status"] == "error"
+        assert res["code"] == "CALC_WRITE_ERROR"
+        assert "disk full" in res["message"]
+        assert "D1" in res["message"]
+        assert res["details"]["result"] == 42
+        assert isinstance(res["details"]["stdout"], str)
+        assert "logging" in res["details"]["stdout"]
+
+
+def test_target_range_calc_error_preserves_result_and_stdout() -> None:
+    """write_formula_range's CalcError must be CALC_WRITE_ERROR and keep result and stdout.
+
+    CalcError subclasses WriterAgentException. The old check re-raised it, so
+    the CALC_WRITE_ERROR return was unreachable and the computed result and
+    stdout were dropped.
+    """
+    from plugin.framework.errors import CalcError
+
+    tool = ExecutePythonScript()
+    ctx = MagicMock()
+    ctx.doc.getURL.return_value = "file:///test.ods"
+    ctx.doc.supportsService.return_value = True
+
+    with unittest.mock.patch("plugin.calc.python.executor.CellManipulator") as MockManip:
+        inst = MockManip.return_value
+        inst.write_formula_range.side_effect = CalcError("disk full")
 
         res = tool.execute(ctx, code="print('logging')\n42", target_range="D1")
         assert res["status"] == "error"

@@ -35,7 +35,7 @@ from plugin.framework.tool import ToolBaseDummy
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.framework.errors import WriterAgentException, is_disposed_exception
+from plugin.framework.errors import CalcError, ToolExecutionError, WriterAgentException, is_disposed_exception
 from plugin.scripting.payload_codec import wire_str_key
 from plugin.scripting.import_policy import format_inprocess_import_policy_for_prompt
 from plugin.scripting.sandbox import CALC_AUTHORIZED_IMPORTS
@@ -253,7 +253,15 @@ class ExecutePythonScript(ToolBaseDummy):
                     py_data = [row[0] for row in py_data]
                 executor.inject_data(py_data)
             except Exception as exc:
-                if isinstance(exc, WriterAgentException) or is_disposed_exception(exc):
+                # CellInspector.read_range wraps a failed read as ToolExecutionError.
+                # That class subclasses WriterAgentException, so this check used to
+                # re-raise it and the CALC_READ_ERROR return below never ran for the
+                # exception production reads actually raise. CalcError is the same
+                # kind of typed failure. Map both onto the tool error. A disposed
+                # document and any other WriterAgentException still propagate.
+                if is_disposed_exception(exc) or (
+                    isinstance(exc, WriterAgentException) and not isinstance(exc, (CalcError, ToolExecutionError))
+                ):
                     raise
                 log.exception("Failed to inject data_range %s", data_range)
                 return self._tool_error(f"Failed to read data_range {data_range}: {exc}", code="CALC_READ_ERROR")
@@ -267,7 +275,17 @@ class ExecutePythonScript(ToolBaseDummy):
             try:
                 write_status = manipulator.write_formula_range(target_range, result)
             except Exception as exc:
-                if isinstance(exc, WriterAgentException) or is_disposed_exception(exc):
+                # CellManipulator.write_formula_range re-raises CalcError and wraps
+                # other write failures as CalcError. CalcError subclasses
+                # WriterAgentException, so this check used to re-raise it and the
+                # CALC_WRITE_ERROR return below never ran. The script result and
+                # stdout, already computed above, were dropped with the exception.
+                # Map CalcError and ToolExecutionError onto that return so the
+                # error result keeps them. A disposed document and any other
+                # WriterAgentException still propagate.
+                if is_disposed_exception(exc) or (
+                    isinstance(exc, WriterAgentException) and not isinstance(exc, (CalcError, ToolExecutionError))
+                ):
                     raise
                 log.exception("Failed to write to %s", target_range)
                 return self._tool_error(
