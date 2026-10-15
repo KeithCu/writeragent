@@ -356,6 +356,7 @@ def _clear_fake_tts_in_process() -> None:
                 setattr(tts_service.shutil, "which", _FAKE_TTS_ORIG["which"])
                 setattr(tts_service, "stop_speech", _FAKE_TTS_ORIG["stop_speech"])
                 setattr(tts_service, "_speak_system", _FAKE_TTS_ORIG["speak_system"])
+                setattr(tts_service, "_end_utterance", _FAKE_TTS_ORIG["end_utterance"])
             except Exception:
                 log.warning("clear_fake_tts: error restoring patches", exc_info=True)
             _FAKE_TTS_ORIG = None
@@ -436,12 +437,14 @@ def _apply_fake_tts(mode: str) -> None:
                 "which": tts_service.shutil.which,
                 "stop_speech": tts_service.stop_speech,
                 "speak_system": tts_service._speak_system,
+                "end_utterance": tts_service._end_utterance,
             }
 
         orig_popen = _FAKE_TTS_ORIG["Popen"]
         orig_which = _FAKE_TTS_ORIG["which"]
         orig_stop_speech = _FAKE_TTS_ORIG["stop_speech"]
         orig_speak_system = _FAKE_TTS_ORIG["speak_system"]
+        orig_end_utterance = _FAKE_TTS_ORIG["end_utterance"]
 
         if not getattr(tts_service.subprocess.Popen, "_writeragent_fake_tts", False):
             def fake_which(cmd: str, *args: Any, **kwargs: Any) -> str | None:
@@ -493,14 +496,28 @@ def _apply_fake_tts(mode: str) -> None:
 
             setattr(fake_popen, "_writeragent_fake_tts", True)
 
+            def fake_end_utterance(generation: int) -> bool:
+                # Paired with fake_stop_speech: the check must not run until the rewind is published.
+                with _FAKE_TTS_LOCK:
+                    return orig_end_utterance(generation)
+
+            setattr(fake_end_utterance, "_writeragent_fake_tts", True)
+
             def fake_stop_speech(*args: Any, **kwargs: Any) -> None:
-                try:
-                    cur_gen = getattr(tts_service, "_speech_generation", None)
-                    orig_stop_speech(*args, **kwargs)
-                    if cur_gen is not None:
-                        tts_service._speech_generation = cur_gen
-                finally:
-                    with _FAKE_TTS_LOCK:
+                # What was wrong: on_complete was skipped after a fake hold/stop even though the child was reaped.
+                # How it happened: stop_speech bumps _speech_generation and SIGKILLs before it returns.
+                # The tts-speak thread wakes from communicate/wait, _end_utterance sees the bump, returns
+                # False, and never calls on_complete. The rewind below that call ran too late. A slow
+                # tts-cleanup thread start (CI xdist) makes the window likely. The 2s wait cannot help.
+                # Why this fixes it: the rewind is published before this lock is released, and
+                # fake_end_utterance takes the same lock, so the worker observes the restored generation.
+                with _FAKE_TTS_LOCK:
+                    try:
+                        cur_gen = getattr(tts_service, "_speech_generation", None)
+                        orig_stop_speech(*args, **kwargs)
+                        if cur_gen is not None:
+                            tts_service._speech_generation = cur_gen
+                    finally:
                         for p in list(_FAKE_TTS_PROCS.values()):
                             if p.poll() is None:
                                 try:
@@ -548,6 +565,7 @@ def _apply_fake_tts(mode: str) -> None:
             setattr(tts_service.subprocess, "Popen", fake_popen)
             setattr(tts_service, "stop_speech", fake_stop_speech)
             setattr(tts_service, "_speak_system", fake_speak_system)
+            setattr(tts_service, "_end_utterance", fake_end_utterance)
 
         _fake_tts_refresh_locked()
 
