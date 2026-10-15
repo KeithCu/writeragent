@@ -553,13 +553,18 @@ def test_cleanup_failure_closes_wav(ctx):
     recorder.stream = stream
     recorder._silence_detector = MagicMock()
     recorder.state = AudioRecorderState(status="recording")
-    recorder._proc = MagicMock()
+    proc = MagicMock()
+    recorder._proc = proc
+    monitor = MagicMock()
+    handoff = MagicMock()
+    recorder._stdout_monitor = monitor
+    recorder._stop_handoff = handoff
     with (
         patch.object(recorder, "_apply_event", side_effect=RuntimeError("stop failed")),
         patch("plugin.chatbot.audio_recorder.terminate_recording_process") as term,
     ):
         recorder.cleanup()
-    term.assert_called_once()
+    term.assert_called_once_with(proc, monitor=monitor, handoff=handoff)
     stream.stop.assert_called_once()
     stream.close.assert_called_once()
     assert recorder.stream is None
@@ -684,3 +689,77 @@ def test_notify_auto_stop_once_per_take(ctx, monkeypatch):
     assert counts == 2
     assert recorder._auto_stopped_path == "/tmp/b.wav"
     recorder.stop_recording()
+
+
+def test_stop_forwards_stdout_monitor(ctx, recording_mocks):
+    recorder = AudioRecorder(ctx)
+    try:
+        recorder.start_recording()
+        monitor = recorder._stdout_monitor
+        handoff = recorder._stop_handoff
+        assert monitor is not None
+        assert handoff is not None
+        recorder.stop_recording()
+        call_kwargs = recording_mocks["stop_proc"].call_args.kwargs
+        assert call_kwargs["monitor"] is monitor
+        assert call_kwargs["handoff"] is handoff
+    finally:
+        if os.path.exists(recording_mocks["wav_path"]):
+            os.remove(recording_mocks["wav_path"])
+
+
+def test_error_after_ready_reaps_with_the_stdout_monitor(ctx, tmp_path):
+    from plugin.chatbot.audio_recorder_state import AudioRecorderState
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff
+
+    wav_path = tmp_path / "partial.wav"
+    wav_path.write_bytes(_WAV_WITH_AUDIO)
+    recorder = AudioRecorder(ctx)
+    recorder.state = AudioRecorderState(status="recording")
+    recorder.temp_filename = str(wav_path)
+    proc = MagicMock()
+    recorder._proc = proc
+    monitor = MagicMock()
+    monitor.is_current_thread.return_value = False
+    recorder._stdout_monitor = monitor
+    handoff = RecordingStopHandoff()
+    recorder._stop_handoff = handoff
+
+    with patch("plugin.chatbot.audio_recorder.terminate_recording_process") as term:
+        recorder._notify_recording_error("child died")
+
+    term.assert_called_once_with(proc, monitor=monitor, handoff=handoff)
+    assert wav_path.is_file()
+
+
+def test_next_recording_deletes_wav_kept_after_stdout_error(ctx, tmp_path, monkeypatch):
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    from plugin.chatbot.audio_recorder_state import AudioRecorderState
+
+    old_wav = tmp_path / "old.wav"
+    old_wav.write_bytes(_WAV_WITH_AUDIO)
+    recorder = AudioRecorder(ctx)
+    recorder.state = AudioRecorderState(status="recording")
+    recorder.temp_filename = str(old_wav)
+    recorder._proc = MagicMock()
+
+    try:
+        recorder._notify_recording_error("child died")
+        assert old_wav.is_file()
+        assert recorder.temp_filename == str(old_wav)
+
+        write_stub_recorder_control(skip=True)
+        recorder.start_recording()
+
+        assert not old_wav.exists()
+        assert recorder.temp_filename is not None
+        assert recorder.temp_filename != str(old_wav)
+        assert os.path.isfile(recorder.temp_filename)
+    finally:
+        clear_stub_recorder_control()
+        if recorder.temp_filename and os.path.isfile(recorder.temp_filename):
+            try:
+                os.remove(recorder.temp_filename)
+            except OSError:
+                pass
+

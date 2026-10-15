@@ -195,3 +195,47 @@ def test_run_text_analytics_string_spec_applies_sentiment_model(ctx):
     assert mock_run.call_args.kwargs["params"]["model"] == "xlm-roberta"
 
 
+def test_non_dict_spec_becomes_empty_helper(ctx):
+    with patch("plugin.scripting.client.run_trusted_worker_action", return_value={"status": "ok"}) as mock_run:
+        client.run_forecast(ctx, ["not-a-spec"], [])
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs["helper"] == ""
+    assert kwargs["params"] == {}
+
+
+def test_non_dict_params_become_empty_dict(ctx):
+    with patch("plugin.scripting.client.run_trusted_worker_action", return_value={"status": "ok"}) as mock_run:
+        client.run_analysis(ctx, {"helper": "demo", "params": ["a"]}, [])
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs["helper"] == "demo"
+    assert kwargs["params"] == {}
+
+
+def test_run_optimize_dunder_name():
+    assert client.run_optimize.__name__ == "run_optimize"
+    assert client.run_analysis.__name__ == "run_analysis"
+    assert client.run_forecast.__name__ == "run_forecast"
+
+
+def test_run_text_analytics_non_dict_spec(ctx):
+    with (
+        patch("plugin.framework.config.get_config_dict", return_value={}),
+        patch("plugin.scripting.client.run_trusted_worker_action", return_value={"status": "ok"}) as mock_run,
+    ):
+        client.run_text_analytics(ctx, None, "hi")
+    assert mock_run.call_args.kwargs["helper"] == ""
+    assert mock_run.call_args.kwargs["params"] == {}
+
+    with (
+        patch(
+            "plugin.framework.config.get_config_dict",
+            return_value={"text_analytics_sentiment_model": "xlm-roberta"},
+        ),
+        patch("plugin.scripting.client.run_trusted_worker_action", return_value={"status": "ok"}) as mock_run2,
+    ):
+        client.run_text_analytics(ctx, None, "hi")
+    assert mock_run2.call_args.kwargs["helper"] == ""
+    assert mock_run2.call_args.kwargs["params"]["model"] == "xlm-roberta"
+
+
+

@@ -404,4 +404,97 @@ def test_resolve_df_calc_range_uses_address_hint():
     assert list(res.df.columns) == ["a", "b"]
 
 
+def test_date_cols_integer_years_are_january_first():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import grid_to_dataframe
+
+    res = grid_to_dataframe([["HireYear", "Name"], [2019, "a"], [2020, "b"]], date_cols=True)
+    df = res.df
+    assert df["HireYear"].iloc[0] == pd.Timestamp("2019-01-01")
+    assert df["HireYear"].iloc[1] == pd.Timestamp("2020-01-01")
+    assert list(df["Name"]) == ["a", "b"]
+
+
+def test_date_cols_mixed_year_and_serial_stays_serial():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import grid_to_dataframe
+
+    res = grid_to_dataframe([["Date"], [2019], [45292]], date_cols=True)
+    df = res.df
+    assert df["Date"].iloc[0] == pd.Timestamp("1905-07-11")
+    assert df["Date"].iloc[1] == pd.Timestamp("2024-01-01")
+
+
+def test_date_cols_zero_is_first_column():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import grid_to_dataframe
+
+    res = grid_to_dataframe([["Code", "N"], [45292, 1]], date_cols=0, parse_strings=False)
+    df = res.df
+    assert df["Code"].iloc[0] == pd.Timestamp("2024-01-01")
+    assert df["N"].iloc[0] == 1
+
+
+def test_grid_to_dataframe_copies_a_dataframe():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import coerce_to_dataframe, grid_to_dataframe
+
+    orig = pd.DataFrame({"a": [1, 2]})
+    res = grid_to_dataframe(orig, header_row=5, parse_strings=False)
+    assert res.df.shape == (2, 1)
+    assert list(res.df.columns) == ["a"]
+    assert res.df.values.tolist() == [[1], [2]]
+    res.df.iloc[0, 0] = 9
+    assert orig.iloc[0, 0] == 1
+
+    res_coerce = coerce_to_dataframe(orig)
+    assert list(res_coerce.df.columns) == ["a"]
+    assert res_coerce.df.values.tolist() == [[1], [2]]
+
+
+def test_resolve_df_duplicate_columns_have_dtypes():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import resolve_df
+
+    df = pd.DataFrame([[1, 2], [3, 4]], columns=["a", "a"])
+    res = resolve_df(df)
+    assert res.metadata["n_cols"] == 2
+    assert res.metadata["numeric_cols"] == ["a", "a"]
+    assert res.metadata["categorical_cols"] == []
+    assert res.metadata["datetime_cols"] == []
+
+
+def test_coerce_bool_numpy_bool():
+    import numpy as np
+    from plugin.scripting.venv.coerce import coerce_bool
+
+    assert coerce_bool(np.bool_(True)) is True
+    assert coerce_bool(np.bool_(False)) is False
+    assert coerce_bool(np.int64(1)) is True
+    with pytest.raises(ValueError):
+        coerce_bool(np.int64(2))
+
+
+def test_header_row_and_index_col_out_of_range():
+    from plugin.scripting.venv.coerce import grid_to_dataframe
+
+    grid = [["h"], [1]]
+    with pytest.raises(ValueError, match=r"header_row 5"):
+        grid_to_dataframe(grid, header_row=5)
+    with pytest.raises(ValueError, match=r"header_row -1"):
+        grid_to_dataframe(grid, header_row=-1)
+
+    res_valid = grid_to_dataframe(grid, header_row=1)
+    assert list(res_valid.df.columns) == ["1"]
+    assert len(res_valid.df) == 0
+
+    with pytest.raises(ValueError, match=r"index_col 3"):
+        grid_to_dataframe(grid, index_col=3)
+    with pytest.raises(ValueError, match=r"index_col -1"):
+        grid_to_dataframe(grid, index_col=-1)
+
+    empty_res = grid_to_dataframe([], header_row=5, index_col=0)
+    assert len(empty_res.df) == 0
+
+
 

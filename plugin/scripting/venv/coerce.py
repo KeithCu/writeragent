@@ -269,6 +269,18 @@ def _normalize_input_grid(data: Any) -> list[list[Any]]:
     return [[data]]
 
 
+def _is_pandas_dataframe(data: Any) -> bool:
+    """Detect a pandas DataFrame by walking MRO without importing pandas."""
+    if data is None:
+        return False
+    for cls in type(data).__mro__:
+        if cls.__name__ == "DataFrame":
+            mod = getattr(cls, "__module__", "") or ""
+            if mod == "pandas" or mod.startswith("pandas."):
+                return True
+    return False
+
+
 _DATE_NAME_TOKENS = frozenset({
     "date",
     "time",
@@ -314,6 +326,19 @@ def _is_datetime_dtype(dtype: Any) -> bool:
     return bool(pd.api.types.is_datetime64_any_dtype(dtype))
 
 
+def _date_cols_requested(date_cols: Any) -> bool:
+    # not date_cols treated column index 0 as "no dates", so to_pandas(date_cols=0) left the first column as a float.
+    if isinstance(date_cols, bool):
+        return date_cols
+    if date_cols is None:
+        return False
+    if isinstance(date_cols, (int, str)):
+        return True
+    if isinstance(date_cols, (list, tuple, set)):
+        return len(date_cols) > 0
+    return False
+
+
 def _coerce_column_types(
     df: Any,
     *,
@@ -322,7 +347,7 @@ def _coerce_column_types(
     date_origin: str = "1899-12-30",
 ) -> Any:
     """Optional string→numeric/datetime inference and explicit date_cols conversion."""
-    if not parse_strings and not date_cols:
+    if not parse_strings and not _date_cols_requested(date_cols):
         return df
     import pandas as pd
     out = df.copy()
@@ -347,19 +372,11 @@ def _coerce_column_types(
 
     for col in target_date_cols:
         series = out[col]
-        # String prefix checks missed nullable extension dtypes like Float64 (capital F),
-        # which fell through to format="mixed" and became nanoseconds since 1970
-        # (e.g. 45292 -> 1970-01-01) instead of days since date_origin.
-        if _is_numeric_dtype(series.dtype):
-            try:
-                out[col] = pd.to_datetime(series, unit="D", origin=date_origin, errors="coerce")
-            except Exception:
-                pass
-        else:
-            try:
-                out[col] = pd.to_datetime(series, errors="coerce", format="mixed")
-            except Exception:
-                pass
+        # A numeric dtype, including nullable Float64, must go through
+        # parse_date_column: format="mixed" on that dtype used to store
+        # 45292 as nanoseconds since 1970, and integer years 2019/2020 used to
+        # become 1905-07-11 / 1905-07-12 because this loop always used unit="D".
+        out[col] = parse_date_column(series, date_origin=date_origin)
 
     # 2. General string inference if requested
     if parse_strings:
@@ -388,14 +405,16 @@ def _coerce_column_types(
 
 
 def _build_metadata(df: Any, *, sheet_hint: str | None, dropped_rows: int) -> dict[str, Any]:
-    # c not in numeric_cols compared a raw label to stringified names, so an
-    # integer column was both numeric and categorical on the resolve_df DataFrame path.
+    # What was wrong: resolve_df on a DataFrame with duplicate labels raised
+    # AttributeError: 'DataFrame' object has no attribute 'dtype'.
+    # How: df[col] is a DataFrame when that label appears twice.
+    # Why this fixes it: df.dtypes has one dtype per column position, so duplicate
+    # labels are classified instead of looked up by name.
     numeric_cols: list[str] = []
     categorical_cols: list[str] = []
     datetime_cols: list[str] = []
-    for col in df.columns:
+    for col, dtype in zip(df.columns, df.dtypes):
         label = str(col)
-        dtype = df[col].dtype
         if _is_datetime_dtype(dtype):
             datetime_cols.append(label)
         elif _is_numeric_dtype(dtype):
@@ -438,7 +457,7 @@ def resolve_df(
     return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
 
 
-def parse_date_column(series: Any) -> Any:
+def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
     """Parse date series supporting datetime64, years, serials, strings, and mixed.
 
     pd.to_datetime on a Calc serial is nanoseconds since 1970 (45292.0 ->
@@ -461,7 +480,7 @@ def parse_date_column(series: Any) -> Any:
         return pd.Series(pd.NaT, index=series.index, name=series.name, dtype="datetime64[ns]")
 
     if pd.api.types.is_numeric_dtype(series):
-        return _parse_numeric_date_series(series)
+        return _parse_numeric_date_series(series, date_origin=date_origin)
 
     # Object or string dtype
     is_num_cell = series.map(
@@ -474,7 +493,7 @@ def parse_date_column(series: Any) -> Any:
 
     if is_num_cell.any():
         num_slice = series[is_num_cell]
-        parsed_num = _parse_numeric_date_series(num_slice)
+        parsed_num = _parse_numeric_date_series(num_slice, date_origin=date_origin)
         result.loc[is_num_cell] = parsed_num
 
     not_num = ~is_num_cell
@@ -500,7 +519,7 @@ def parse_date_column(series: Any) -> Any:
     return result
 
 
-def _parse_numeric_date_series(series: Any) -> Any:
+def _parse_numeric_date_series(series: Any, *, date_origin: str = "1899-12-30") -> Any:
     import numpy as np
     import pandas as pd
 
@@ -537,7 +556,7 @@ def _parse_numeric_date_series(series: Any) -> Any:
             return float("nan")
 
         serials = series.map(to_serial)
-        return pd.to_datetime(serials, unit="D", origin="1899-12-30", errors="coerce").astype("datetime64[ns]")
+        return pd.to_datetime(serials, unit="D", origin=date_origin, errors="coerce").astype("datetime64[ns]")
 
 
 def coerce_int(value: Any, name: str = "value") -> int:
@@ -619,6 +638,15 @@ def coerce_bool(value: Any, *, name: str = "value", default: bool = False) -> bo
         return value
     try:
         import numpy as np
+
+        # What was wrong: coerce_bool(np.bool_(True)) raised ValueError.
+        # How: np.bool_ is not a subclass of bool or of np.integer. islogical
+        # already treats it as logical.
+        # Why this fixes it: a NumPy bool is returned with bool(value) before
+        # the 0/1 integer checks.
+        if isinstance(value, np.bool_):
+            return bool(value)
+
         int_types = (int, np.integer)
         float_types = (float, np.floating)
     except ImportError:
@@ -704,16 +732,43 @@ def grid_to_dataframe(
 ) -> CoerceResult:
     """Convert a rectangular grid / CalcRange into a typed DataFrame.
 
+    A DataFrame input is copied, keeps its columns, and ignores header_row.
+    Out-of-range header_row and index_col raise ValueError. date_cols converts
+    numeric serials/date strings or 1900..2200 integer years to datetime64.
+    date_origin applies only to numeric serials (not to integer years).
+
     Args:
         header_row: Row used as column names, or ``None`` for ``col_0..``.
-        index_col: Optional body column to become the index.
+            Raises ValueError if outside the grid. Ignored for DataFrame input.
+        index_col: Optional body column to become the index. Raises ValueError
+            if outside the columns.
         parse_strings: Opt-in currency/percent/numeric/datetime string parsing.
         date_cols: Specific column names/indices or True to coerce numeric
-            serials/date strings to datetime64.
+            serials/date strings or 1900..2200 integer years to datetime64.
         date_origin: Base epoch for serial numbers (default '1899-12-30').
+            Applies only to serials, not integer years.
         sheet_hint: Optional metadata tag.
     """
     import pandas as pd
+
+    if _is_pandas_dataframe(data):
+        df = data.copy()
+        df = _coerce_column_types(
+            df,
+            parse_strings=parse_strings,
+            date_cols=date_cols,
+            date_origin=date_origin,
+        )
+        if index_col is not None:
+            idx = int(index_col)
+            if len(df.columns) == 0:
+                raise ValueError(f"index_col {idx} is outside the columns (no columns)")
+            if idx < 0 or idx >= len(df.columns):
+                raise ValueError(f"index_col {idx} is outside the columns (0..{len(df.columns) - 1})")
+            col_name = df.columns[idx]
+            df = df.set_index(col_name)
+        return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=0))
+
     grid = _normalize_input_grid(data)
     dropped_rows = 0
     cell_fn = _coerce_cell_parse_strings if parse_strings else _coerce_cell_basic
@@ -723,7 +778,9 @@ def grid_to_dataframe(
         return CoerceResult(df=empty, metadata=_build_metadata(empty, sheet_hint=sheet_hint, dropped_rows=0))
 
     if header_row is not None:
-        header_idx = max(0, min(int(header_row), len(grid) - 1))
+        header_idx = int(header_row)
+        if header_idx < 0 or header_idx >= len(grid):
+            raise ValueError(f"header_row {header_idx} is outside the grid (0..{len(grid) - 1})")
         # Labels, not values. parse_strings on this row turned "00123" into the
         # column name "123.0" and str(2024.0) into "2024.0".
         raw_headers = [_coerce_cell_basic(cell) for cell in grid[header_idx]]
@@ -746,8 +803,13 @@ def grid_to_dataframe(
     df = pd.DataFrame(rows, columns=cast("Any", col_names))
     df = _coerce_column_types(df, parse_strings=parse_strings, date_cols=date_cols, date_origin=date_origin)
 
-    if index_col is not None and 0 <= int(index_col) < len(df.columns):
-        col_name = df.columns[int(index_col)]
+    if index_col is not None:
+        idx = int(index_col)
+        if len(df.columns) == 0:
+            raise ValueError(f"index_col {idx} is outside the columns (no columns)")
+        if idx < 0 or idx >= len(df.columns):
+            raise ValueError(f"index_col {idx} is outside the columns (0..{len(df.columns) - 1})")
+        col_name = df.columns[idx]
         df = df.set_index(col_name)
 
     return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=dropped_rows))

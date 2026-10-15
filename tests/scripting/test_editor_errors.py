@@ -67,3 +67,15 @@ def test_failure_detail_accepts_long_text():
     detail = failure_detail(detail="e" * (DEAL_MAX_SOURCE + 1))
     assert detail.startswith("e" * 20)
     assert len(detail) == DEAL_MAX_SOURCE + 1
+
+
+def test_exception_traceback_rejects_none():
+    import deal
+
+    with pytest.raises(deal.PreContractError):
+        exception_traceback(None)  # type: ignore[arg-type]
+
+
+def test_failure_message_accepts_long_summary():
+    summary = "s" * (DEAL_MAX_SOURCE + 1)
+    assert failure_message(summary) == summary

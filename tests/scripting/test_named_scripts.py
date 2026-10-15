@@ -98,6 +98,29 @@ def test_extract_library_source_rejects_class_import_time_calls():
         extract_library_source("class Box:\n    label: str = input()\n")
 
 
+def test_extract_library_source_rejects_class_body_target_calls():
+    for code in (
+        "class C:\n    make().x = 1\n",
+        "class C:\n    make().x: int = 1\n",
+        "class C:\n    make()[0]: int = 1\n",
+        "class C:\n    data[make()]: int = 1\n",
+        "class C:\n    make().x: int\n",
+        "class C:\n    data[make()]: int\n",
+        "class C:\n    (holder := obj).x = 1\n",
+        "class C:\n    a = make().b = 1\n",
+        "class C:\n    make().b.c = 1\n",
+        "class C:\n    items[make()].attr = 1\n",
+    ):
+        with pytest.raises(ValueError, match="lines 2"):
+            extract_library_source(code)
+
+    assert "obj.x = 1" in extract_library_source("class C:\n    obj.x = 1\n")
+    assert "obj.x" in extract_library_source("class C:\n    obj.x: int = 1\n")
+    assert "data[0]" in extract_library_source("class C:\n    data[0]: int = 1\n")
+    assert "data[0]" in extract_library_source("class C:\n    data[0]: int\n")
+    assert "side" in extract_library_source("class C:\n    data[lambda: side()]: int = 1\n")
+
+
 def test_extract_library_source_rejects_module_walrus():
     """A walrus Expr used to disappear with no error, so the name never bound."""
     with pytest.raises(ValueError, match="lines 1"):
@@ -799,6 +822,27 @@ def test_eval_library_binds_unpack_and_class_docstring():
         raise AssertionError("expected ValueError")
     except ValueError:
         pass
+    except InterpreterError:
+        raise AssertionError("expected ValueError, not InterpreterError")
+
+
+def test_eval_library_rejects_class_target_call():
+    from plugin.contrib.smolagents.local_python_executor import InterpreterError
+    from plugin.scripting.named_scripts import _eval_library
+    from plugin.scripting.venv.venv_sandbox import _new_executor
+
+    exe = _new_executor(10)
+    code = (
+        "def make():\n"
+        "    return object()\n"
+        "class C:\n"
+        "    make().x = 1\n"
+    )
+    try:
+        _eval_library(exe, code, "TestTargetCall")
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "lines 4" in str(exc)
     except InterpreterError:
         raise AssertionError("expected ValueError, not InterpreterError")
 

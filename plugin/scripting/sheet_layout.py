@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def extract_sheet_layout(source: dict[str, Any] | None) -> dict[str, Any]:
+def extract_sheet_layout(source: Any) -> dict[str, Any]:
     """Extract ``headers`` and ``header_row`` from a spec or packet dictionary."""
     layout: dict[str, Any] = {}
     if isinstance(source, dict):

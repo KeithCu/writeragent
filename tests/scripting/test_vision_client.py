@@ -89,3 +89,18 @@ def test_run_vision_worker_error(ctx):
     ):
         with pytest.raises(ToolExecutionError, match="boom"):
             run_vision(ctx, {"helper": "extract_text", "params": {}}, b"x")
+
+
+def test_run_vision_non_dict_spec_uses_long_budget(ctx):
+    worker_result = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
+    with (
+        patch("plugin.framework.config.get_config_int", return_value=300),
+        patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run,
+    ):
+        result = run_vision(ctx, ["extract_text"], b"png")
+    assert result["full_text"] == "hi"
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs["helper"] == ""
+    assert kwargs["params"] == {}
+    assert kwargs["timeout_sec"] == DOCLING_WORKER_TIMEOUT_SEC
+

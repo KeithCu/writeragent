@@ -61,20 +61,44 @@ def _domain_tools_map() -> dict[str, list[str]] | None:
     return DOMAIN_TOOLS
 
 
+_DOMAIN_NAMESPACE: dict[str, str] = {
+    "bookmarks": "bookmark",
+    "charts": "chart",
+    "comments": "comment",
+    "errors": "error",
+    "fields": "field",
+    "footnotes": "footnote",
+    "headers_footers": "headers_footer",
+    "indexes": "index",
+    "pivot_tables": "pivot_table",
+    "ranges": "range",
+    "shapes": "shape",
+    "sheets": "sheet",
+    "slide_layouts": "slide_layout",
+    "slide_masters": "slide_master",
+    "slide_transitions": "slide_transition",
+    "speaker_notes": "speaker_note",
+    "tables": "table",
+    "textframes": "textframe",
+}
+
+
 def singularize_domain(domain: str) -> str:
-    """Singularize a domain name (indexes -> index, footnotes -> footnote, shapes -> shape)."""
-    if domain == "indexes":
-        return "index"
-    if domain.endswith("s") and domain not in ("images", "styles", "forms"):
-        return domain[:-1]
-    return domain
+    """Map a specialized_domain name to its DOMAIN_TOOLS key.
+
+    This is the specialized_domain -> DOMAIN_TOOLS key map; names not listed
+    are unchanged; add a pair only when a new domain's public wa.* namespace
+    should drop a trailing s; do not strip trailing s in general.
+    Entries like indexes -> index and headers_footers -> headers_footer are
+    entries in the map, not special cases.
+    """
+    return _DOMAIN_NAMESPACE.get(domain, domain)
 
 
 def domain_proxy_namespace(python_tool_domain: str, tools: dict[str, list[str]]) -> str | None:
     """``DOMAIN_TOOLS`` key for one specialized domain name.
 
-    Same singularization as ``generate_tool_proxies`` (``shapes`` → ``shape``,
-    ``footnotes`` → ``footnote``, ``indexes`` → ``index``). ``None`` when
+    Tries the raw name, then ``singularize_domain``. ``None`` when
     *python_tool_domain* is not a key.
     """
     if python_tool_domain in tools:
@@ -98,6 +122,7 @@ def domain_proxy_tool_names(python_tool_domain: str) -> frozenset[str] | None:
         return None
     key = domain_proxy_namespace(python_tool_domain, tools)
     if key is None:
+        log.warning("Python tool domain %r is not a DOMAIN_TOOLS key", python_tool_domain)
         return frozenset()
     return frozenset(tools.get(key) or ())
 

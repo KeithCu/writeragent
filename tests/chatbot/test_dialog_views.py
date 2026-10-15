@@ -801,16 +801,106 @@ def test_download_audio_listener_appends_and_keeps_title() -> None:
 
     from plugin.chatbot.dialog_views import DownloadAudioListener
 
+    order: list[str] = []
+
+    def fake_download(_on_display, _on_status, *, bind_host=True):
+        order.append("download")
+        assert bind_host is False
+        return True
+
+    def fake_hop(fn):
+        order.append("hop")
+        fn()
+
+    def fake_ensure():
+        order.append("ensure")
+
+    def fake_invalidate():
+        order.append("invalidate")
+
     listener = DownloadAudioListener(fake_ctx, fake_dlg)
     with (
         patch("plugin.chatbot.dialog_views.VenvProbeProgressDialog", _FakeProgress),
-        patch("plugin.scripting.native_binaries.run_audio_download", return_value=True),
+        patch("plugin.scripting.native_binaries.run_audio_download", side_effect=fake_download),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_hop),
+        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=fake_ensure),
+        patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=fake_invalidate),
     ):
         listener.on_action_performed(MagicMock())
 
     assert len(captured_calls) == 1
     assert captured_calls[0]["title"] == "Audio Library Download"
     assert captured_calls[0]["append_log"] is True
+    assert order == ["download", "hop", "ensure", "invalidate"]
+
+
+def test_download_audio_listener_skips_bind_when_download_returns_false() -> None:
+    fake_ctx = MagicMock()
+    fake_dlg = MagicMock()
+    captured_calls: list[dict[str, object]] = []
+
+    class _FakeProgress:
+        def __init__(self, ctx, parent_dlg=None):
+            assert parent_dlg is fake_dlg
+
+        def run_modal_probe(self, probe_fn, *, title=None, append_log=False, **_kwargs):
+            captured_calls.append({"title": title, "append_log": append_log})
+            probe_fn(lambda _text: None, lambda _status: None)
+            return True
+
+    from plugin.chatbot.dialog_views import DownloadAudioListener
+
+    def fake_download(_on_display, _on_status, *, bind_host=True):
+        assert bind_host is False
+        return False
+
+    def boom(*args, **kwargs):
+        raise AssertionError("bind should not be called")
+
+    listener = DownloadAudioListener(fake_ctx, fake_dlg)
+    with (
+        patch("plugin.chatbot.dialog_views.VenvProbeProgressDialog", _FakeProgress),
+        patch("plugin.scripting.native_binaries.run_audio_download", side_effect=fake_download),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=boom),
+        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=boom),
+        patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=boom),
+    ):
+        listener.on_action_performed(MagicMock())
+
+    assert len(captured_calls) == 1
+    assert captured_calls[0]["append_log"] is True
+
+
+def test_download_audio_listener_skips_bind_when_download_raises() -> None:
+    fake_ctx = MagicMock()
+    fake_dlg = MagicMock()
+
+    class _FakeProgress:
+        def __init__(self, ctx, parent_dlg=None):
+            assert parent_dlg is fake_dlg
+
+        def run_modal_probe(self, probe_fn, *, title=None, append_log=False, **_kwargs):
+            probe_fn(lambda _text: None, lambda _status: None)
+            return True
+
+    from plugin.chatbot.dialog_views import DownloadAudioListener
+
+    def boom_download(*args, **kwargs):
+        raise RuntimeError("download failed")
+
+    def boom_bind(*args, **kwargs):
+        raise AssertionError("bind should not be called")
+
+    listener = DownloadAudioListener(fake_ctx, fake_dlg)
+    with (
+        patch("plugin.chatbot.dialog_views.VenvProbeProgressDialog", _FakeProgress),
+        patch("plugin.scripting.native_binaries.run_audio_download", side_effect=boom_download),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=boom_bind),
+        patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=boom_bind),
+        patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=boom_bind),
+    ):
+        with pytest.raises(RuntimeError, match="download failed"):
+            listener.on_action_performed(MagicMock())
 
 
 def test_populate_fields_skips_one_missing_control() -> None:
