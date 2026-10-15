@@ -84,6 +84,7 @@ def test_agent_backend_prompt_omits_mcp_when_server_stopped():
         panel._execute_agent_backend_effect("hello", MagicMock(), "writer", MagicMock(), MagicMock())
 
     adapter.send.assert_called_once()
+    assert adapter.send.call_args.kwargs["mcp_url"] is None
     system_prompt = adapter.send.call_args.kwargs["system_prompt"]
     assert "[MCP SERVER AVAILABLE]" not in system_prompt
 
@@ -106,6 +107,7 @@ def test_agent_backend_prompt_includes_mcp_when_server_running():
         panel._execute_agent_backend_effect("hello", MagicMock(), "writer", MagicMock(), MagicMock())
 
     adapter.send.assert_called_once()
+    assert adapter.send.call_args.kwargs["mcp_url"] == "http://localhost:18765/mcp"
     system_prompt = adapter.send.call_args.kwargs["system_prompt"]
     assert "[MCP SERVER AVAILABLE]" in system_prompt
 
@@ -766,7 +768,6 @@ def test_acp_approval_default_and_dead_turn():
             self.stop_requested = False
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
-            self._current_agent_backend = None
             self._terminal_status = "Ready"
         def _append_response(self, *args, **kwargs):
             pass
@@ -814,7 +815,6 @@ def test_acp_approval_auto_approve_when_configured():
             self.stop_requested = False
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
-            self._current_agent_backend = None
             self._terminal_status = "Ready"
         def _append_response(self, *args, **kwargs):
             pass
@@ -843,16 +843,17 @@ def test_acp_approval_auto_approve_when_configured():
             mock_dialog.assert_not_called()
             adapter.submit_approval.assert_called_once_with(999, True)
 
-def test_missing_agent_backend_does_not_store_user_row():
+def test_unavailable_agent_backend_does_not_store_user_row():
     panel = DummyChatbotPanel()
     panel.session.refresh_document_context = MagicMock()
     panel.session.document_context = ""
     state = SendHandlerState(handler_type="agent", status="starting")
     interpreter = EffectInterpreter(panel)
+    adapter = MagicMock()
+    adapter.is_available.return_value = False
 
-    with patch("plugin.chatbot.send_handlers.get_config", return_value="missing"):
-        with patch("plugin.chatbot.send_handlers.get_backend", return_value=None):
-            panel._execute_agent_backend_effect("hello", MockDocument(), "writer", state, interpreter)
+    with patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter):
+        panel._execute_agent_backend_effect("hello", MockDocument(), "writer", state, interpreter)
 
     panel.session.add_user_message.assert_not_called()
     assert "hello" not in panel.responses
@@ -2123,24 +2124,6 @@ def test_execute_agent_backend_effect_errors():
     assert panel._terminal_status == "Error"
     mock_defer.assert_called_once()
 
-def test_agent_worker_clearing_current_backend():
-    panel = DummyChatbotPanel()
-    adapter1 = MagicMock()
-    adapter2 = MagicMock()
-    panel._current_agent_backend = adapter2
-
-    def run_agent(): pass
-
-    # Simulate a deferred ready callback bound to adapter1
-    def _agent_ready():
-        if panel._terminal_status not in ("Error", "Stopped"):
-            panel._terminal_status = "Ready"
-        if panel._current_agent_backend is adapter1:
-            panel._current_agent_backend = None
-
-    _agent_ready()
-    # It should not clear adapter2
-    assert panel._current_agent_backend is adapter2
 
 def test_approval_dialog_wrapping():
     panel = DummyChatbotPanel()
@@ -2253,53 +2236,6 @@ def test_execute_direct_image_effect_aborted_turn_returns_early():
         panel._execute_direct_image_effect("draw a cat", MagicMock(), MagicMock(), MagicMock())
 
     panel._run_unified_worker_drain_loop.assert_not_called()
-
-
-def test_agent_worker_finally_preserves_newer_backend_on_worker_exit():
-    """Agent worker must not clear _current_agent_backend if a newer send installed its own backend."""
-    panel = DummyChatbotPanel()
-    adapter1 = MagicMock()
-    adapter1.is_available.return_value = True
-    adapter2 = MagicMock()
-
-    def fake_send(*args, **kwargs):
-        # A newer send arrives and replaces the active backend
-        panel._current_agent_backend = adapter2
-
-    adapter1.send.side_effect = fake_send
-
-    def fake_drain(drain_q, run_agent_fn, *args, **kwargs):
-        run_agent_fn()
-
-    panel._run_unified_worker_drain_loop = fake_drain
-    mock_turn = MagicMock()
-    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=mock_turn), \
-         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter1), \
-         patch("plugin.chatbot.send_handlers.get_config", return_value="backend1"), \
-         patch("plugin.mcp.is_mcp_server_running", return_value=False):
-        panel._execute_agent_backend_effect("test", MagicMock(), "writer", MagicMock(), MagicMock())
-
-    assert panel._current_agent_backend is adapter2
-
-
-def test_agent_worker_finally_clears_matching_backend():
-    """Agent worker clears _current_agent_backend when it still matches the worker's adapter."""
-    panel = DummyChatbotPanel()
-    adapter1 = MagicMock()
-    adapter1.is_available.return_value = True
-
-    def fake_drain(drain_q, run_agent_fn, *args, **kwargs):
-        run_agent_fn()
-
-    panel._run_unified_worker_drain_loop = fake_drain
-    mock_turn = MagicMock()
-    with patch("plugin.chatbot.send_handlers._turn_session_or_stop", return_value=mock_turn), \
-         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter1), \
-         patch("plugin.chatbot.send_handlers.get_config", return_value="backend1"), \
-         patch("plugin.mcp.is_mcp_server_running", return_value=False):
-        panel._execute_agent_backend_effect("test", MagicMock(), "writer", MagicMock(), MagicMock())
-
-    assert panel._current_agent_backend is None
 
 
 def test_retained_agent_backend_reuses_one_cli_until_the_id_changes():

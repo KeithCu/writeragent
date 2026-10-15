@@ -518,7 +518,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _ppt_master_topic: str
     panel: Any
     audio_wav_path: str | None
-    _current_agent_backend: Any
     _acp_backend: Any
     _acp_backend_id: str | None
     _approval_event: Any
@@ -629,9 +628,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.panel = None
         self.client = None
         self.audio_wav_path = None
-        self._current_agent_backend = None  # Set during _do_send_via_agent_backend for Stop button
-        # The CLI for this sidebar. _current_agent_backend is only the in-flight
-        # pointer and is cleared when the worker finishes.
+        # The CLI for this sidebar. Stop uses the cancel scope.
         self._acp_backend = None
         self._acp_backend_id = None
         self._button_mnemonics: dict[str, str] = {}

@@ -183,13 +183,11 @@ class TestI18n:
             "endpoint": "http://localhost:11434",
             "agent_backend.path": PO_JUNK,
             "agent_backend.args": PO_JUNK,
-            "agent_backend.acp_agent_name": PO_JUNK,
         }
         cfg = WriterAgentConfig.from_dict(data)
         cfg.validate()
         assert (cfg._extra_config.get("agent_backend.path")) == ("")
         assert (cfg._extra_config.get("agent_backend.args")) == ("")
-        assert (cfg._extra_config.get("agent_backend.acp_agent_name")) == ("")
 
     def test_po_strip_seed_to_minus_one(self):
         data = {"endpoint": "http://x", "seed": PO_JUNK}
