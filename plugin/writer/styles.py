@@ -456,8 +456,42 @@ def _apply_style_updates(style: Any, updates: dict[str, Any]) -> tuple[dict[str,
     applied: dict[str, Any] = {}
     failed: dict[str, str] = {}
     for prop_name, prop_val in updates.items():
+        if prop_name == "ParaBackColor":
+            # What was wrong: Writing the UNO property ParaBackColor on a style descriptor is
+            # replayed by SwXStyle::SetPropertyValue<RES_BACKGROUND> (unostyle.cxx line 1639 on
+            # LibreOffice 26.2.6.3) through setSvxBrushItemAsFillAttributesToTargetSet, and the
+            # following getByName on that style aborts soffice.
+            # How it happened: CI runs (e.g. #1618, #1607) and local reproduction showed soffice
+            # aborting with Signal 6 in test_styles_uno.py line 207 on fam.getByName(style_name)
+            # after StyleCreate had returned ok.
+            # Why this change: The getter GetStyleProperty<RES_BACKGROUND> (unostyle.cxx line 2309)
+            # already reads back the brush from drawing fill attributes (XATTR_FILLSTYLE / XATTR_FILLCOLOR).
+            # Writing FillStyle (0=NONE, 1=SOLID) and FillColor keeps the ParaBackColor read-back
+            # while skipping the problematic brush setter that triggers the crash.
+            parsed = _style_color_to_uno(prop_val)
+            if parsed is None:
+                failed[prop_name] = "Invalid color: %r" % (prop_val,)
+                continue
+            try:
+                if parsed == -1:
+                    _set_style_property(style, "FillStyle", 0)
+                else:
+                    _set_style_property(style, "FillStyle", 1)
+                    _set_style_property(style, "FillColor", int(parsed))
+                applied[prop_name] = _schema_prop_value(prop_name, parsed)
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
+                log.warning("Failed to set property %s: %s", prop_name, e, exc_info=True)
+                hint = ""
+                close = _close_style_names(prop_name, list(_UPDATE_SCHEMA_PROPERTIES))
+                if close and close[0] != prop_name:
+                    hint = " Did you mean '%s'?" % close[0]
+                failed[prop_name] = "%s%s" % (e, hint)
+            continue
+
         # Handle color conversions (None = unparseable; do not pass raw strings to UNO).
-        if prop_name in ("CharColor", "CharBackColor", "CharUnderlineColor", "ParaBackColor"):
+        if prop_name in ("CharColor", "CharBackColor", "CharUnderlineColor"):
             parsed = _style_color_to_uno(prop_val)
             if parsed is None:
                 failed[prop_name] = "Invalid color: %r" % (prop_val,)

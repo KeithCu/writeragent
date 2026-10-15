@@ -968,15 +968,21 @@ def test_style_color_par_back_and_automatic():
 
     res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": "#00FF00"})
     assert res["status"] == "ok"
-    style.setPropertyValue.assert_any_call("ParaBackColor", 0x00FF00)
+    style.setPropertyValue.assert_any_call("FillStyle", 1)
+    style.setPropertyValue.assert_any_call("FillColor", 0x00FF00)
+    assert not any(call[0][0] == "ParaBackColor" for call in style.setPropertyValue.call_args_list)
 
+    style.reset_mock()
     res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": -1})
     assert res["status"] == "ok"
-    style.setPropertyValue.assert_any_call("ParaBackColor", -1)
+    style.setPropertyValue.assert_any_call("FillStyle", 0)
+    assert not any(call[0][0] == "ParaBackColor" for call in style.setPropertyValue.call_args_list)
 
+    style.reset_mock()
     res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": "transparent"})
     assert res["status"] == "ok"
-    style.setPropertyValue.assert_any_call("ParaBackColor", -1)
+    style.setPropertyValue.assert_any_call("FillStyle", 0)
+    assert not any(call[0][0] == "ParaBackColor" for call in style.setPropertyValue.call_args_list)
 
     style.reset_mock()
     res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": "not-a-color"})
