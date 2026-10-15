@@ -199,7 +199,8 @@
       plainEl.checked = msg.save_as_plain;
     }
 
-    defaultStatusOkText = t("saved_default", t("status_ok_text", "Saved."));
+    // status_ok_text is a top-level load/saved field, not a ui key.
+    defaultStatusOkText = t("saved_default", "Saved.");
     if (msg.saved_ok_text) {
       defaultStatusOkText = msg.saved_ok_text;
     } else if (msg.status_ok_text) {

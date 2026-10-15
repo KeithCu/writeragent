@@ -30,7 +30,7 @@ _CONTRIB_BASE_URL = f"https://raw.githubusercontent.com/KeithCu/writeragent/{_CO
 # urlopen's default is no timeout, so a stalled native download blocked the caller.
 _NATIVE_DOWNLOAD_TIMEOUT_SEC = 60
 _MAX_VEC_PACK_BYTES = 1_048_576
-# sha256 of contrib/vec_pack blobs at _CONTRIB_COMMIT. Audio zips are not pinned.
+# sha256 of contrib/vec_pack blobs at _CONTRIB_COMMIT. Audio blobs are pinned in _AUDIO_SHA256.
 _VEC_PACK_SHA256 = {
     "__init__.py": "cc00e1b2a43a73974798085e64df9492f744dad2415dbfeefe5582cd67433fb7",
     "pack.cp311-win_amd64.pyd": "def6f088500d03379260528a2f278ebdf6b748db24f2f4a98b16e4db639943aa",
@@ -94,6 +94,10 @@ def _cleanup_stale_native_backups(bin_dir: str) -> None:
     aside files are only unlocked after the owning process exits, so we sweep them on
     the next startup once nothing maps them. POSIX never creates ``*.old`` backups
     (``os.replace`` keeps the old inode alive), so this is a no-op there.
+
+    If the destination name is missing, the highest-generation aside is renamed back
+    onto it before any older aside is deleted; that aside is the only remaining copy
+    after a failed replace-and-restore.
     """
     global _swept
     if os.name != "nt" or _swept:
@@ -102,17 +106,58 @@ def _cleanup_stale_native_backups(bin_dir: str) -> None:
     try:
         import re
 
+        backup_re = re.compile(r"^(?P<stem>.*)\.old(?:\.(?P<gen>\d+))?$")
+        # dest path -> (generation, aside path). .old is generation 0.
+        # _atomic_replace_native allocates the lowest free name, so the
+        # highest generation is the most recent dest.
+        grouped: dict[str, list[tuple[int, str]]] = {}
         for root, _dirs, files in os.walk(bin_dir):
             for name in files:
                 # '.old' in name also matches foo.older.py. Match only the
                 # .old and .old.<num> backup suffixes.
-                if not re.search(r"\.old(\.\d+)?$", name):
+                match = backup_re.fullmatch(name)
+                if match is None:
                     continue
-                stale = os.path.join(root, name)
+                stem = match.group("stem")
+                # A file named ".old" has no destination basename.
+                if not stem:
+                    continue
+                gen_text = match.group("gen")
+                generation = int(gen_text) if gen_text is not None else 0
+                dest = os.path.join(root, stem)
+                grouped.setdefault(dest, []).append((generation, os.path.join(root, name)))
+        for dest, asides in grouped.items():
+            asides.sort(key=lambda item: item[0])
+            if os.path.exists(dest):
+                for _generation, stale in asides:
+                    try:
+                        os.remove(stale)
+                    except OSError:
+                        # Still mapped by another live process; try again next startup.
+                        pass
+                continue
+            # What was wrong: a failed redownload could leave the only copy
+            # of a native at dest.old, and the next startup deleted it.
+            # How it happened: _atomic_replace_native renames dest aside, then
+            # if both the new replace and the restore fail, dest is missing.
+            # This sweep removed every .old file.
+            # Why this change: when dest is absent, rename the newest aside
+            # back and only then delete older asides.
+            _generation, newest = asides[-1]
+            try:
+                os.replace(newest, dest)
+            except OSError:
+                log.debug(
+                    "Failed to restore missing native %s from %s",
+                    dest,
+                    newest,
+                    exc_info=True,
+                )
+                continue
+            for _generation, stale in asides[:-1]:
                 try:
                     os.remove(stale)
                 except OSError:
-                    # Still mapped by another live process; try again next startup.
                     pass
     except OSError as exc:
         log.debug("Failed to sweep stale native backups in %s: %s", bin_dir, exc)
@@ -179,9 +224,23 @@ def _atomic_replace_native(partial_path: str, dest_path: str) -> None:
         os.replace(dest_path, aside)
         try:
             os.replace(partial_path, dest_path)
-        except OSError:
-            # Restore the original so we never leave dest missing.
-            os.replace(aside, dest_path)
+        except OSError as replace_exc:
+            try:
+                os.replace(aside, dest_path)
+            except OSError:
+                # What was wrong: if restoring dest from the aside also failed,
+                # the exception propagated and the next startup sweep deleted
+                # the aside, which was the only remaining copy.
+                # How it happened: the restore os.replace was unguarded, and
+                # the sweep treated every .old file as disposable.
+                # Why this change: log the failed restore and leave the aside
+                # so the startup sweep can rename it back.
+                log.exception(
+                    "Failed to restore %s after native replace failed; backup left at %s",
+                    dest_path,
+                    aside,
+                )
+                raise replace_exc
             raise
 
 
@@ -202,8 +261,9 @@ def _download_url_to_file(
 
     *max_bytes* aborts once the body grows past the cap. *expected_sha256*, when
     set, is checked on the partial before it replaces *dest_path*; a mismatch
-    leaves the previous file in place. Both default off so audio zip downloads
-    keep working without pins.
+    leaves the previous file in place. Both default to None so tests can exercise
+    an unpinned transfer. Production run_vec_pack_download and run_audio_download
+    always pass both.
     """
     import tempfile
     import urllib.error
@@ -346,8 +406,20 @@ def run_vec_pack_download(
     return True
 
 
-def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> bool:
-    """Download the pure-Python audio source zip and platform-specific compiled binaries from GitHub."""
+def run_audio_download(
+    on_display: Callable[[str], None],
+    on_status: Callable[[str], None],
+    *,
+    bind_host: bool = True,
+) -> bool:
+    """Download the pure-Python audio source zip and platform-specific compiled binaries from GitHub.
+
+    ``bind_host`` (default) is forwarded to ``run_vec_pack_download``, which
+    calls ``ensure_native_binaries_on_path`` and
+    ``invalidate_host_cython_accelerator`` on the caller before returning.
+    WriterAgent Settings passes False: that probe runs off the VCL thread, and
+    the listener binds on the main thread instead.
+    """
     import platform
     import sysconfig
     import zipfile
@@ -438,6 +510,6 @@ def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[s
     with open(init_dest, "w") as f:
         f.write("# Placeholder\n")
 
-    run_vec_pack_download(on_display, on_status, include_header=False)
+    run_vec_pack_download(on_display, on_status, include_header=False, bind_host=bind_host)
     on_display("\nAll downloaded files installed successfully!\n")
     return True

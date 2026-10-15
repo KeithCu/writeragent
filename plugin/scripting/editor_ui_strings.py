@@ -13,6 +13,9 @@
 #   - Native Cell Editor:       plugin/calc/python/cell_editor_ui.py
 #   - Native Cell Dialog:       extension/Dialogs/PythonCellEditorDialog.xdl
 # calc_cell msgids (Save without =PY(), Data:, status) must stay identical in native UI.
+# Plain-save status “Saved without =PY().” is status_ok_text on the saved frame
+# (editor.py) and the native fallback (cell_editor_ui.py). Do not put it back in
+# this catalog; editor.js does not read ui.saved_plain.
 # =========================================================================================
 
 from __future__ import annotations
@@ -21,18 +24,18 @@ from typing import Any
 
 from plugin.framework.i18n import _
 
-# Top-level load keys copied into ui. The value is the ui key.
-# saved_ok_text is the caller's name; editor.js reads ui.saved_default
-# via t("saved_default", ...). title and status_ok_text stay top-level:
-# document.title / window.title read msg.title, and the saved-status
-# fallback reads msg.saved_ok_text then msg.status_ok_text.
+# Top-level load keys copied into ui; the dict value is the ui key.
+# title, saved_ok_text, and status_ok_text stay top-level. document.title /
+# window.title read msg.title. The saved-status fallback reads msg.saved_ok_text,
+# then msg.status_ok_text, then t("saved_default"). Copying saved_ok_text into
+# ui.saved_default was shadowed by that top-level read, and the copy ran only
+# when the top-level field was present.
 _LOAD_UI_KEYS: dict[str, str] = {
     "save_label": "save_label",
     "run_label": "run_label",
     "close_label": "close_label",
     "plain_text_label": "plain_text_label",
     "data_binding_title": "data_binding_title",
-    "saved_ok_text": "saved_default",
 }
 
 
@@ -73,7 +76,6 @@ def _calc_cell_ui_strings() -> dict[str, str]:
                 "Data ranges apply only when saving as a =PY() formula."
             ),
             "saved_default": _("Saved."),
-            "saved_plain": _("Saved without =PY()."),
         }
     )
     return ui
