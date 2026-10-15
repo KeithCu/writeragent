@@ -65,6 +65,14 @@ def test_mode_labels_omit_brainstorming_for_calc():
     assert mode_from_label(labels[-1], include_brainstorming=False, include_writing_plan=True) == CHAT_MODE_LIBRARIAN
 
 
+def test_calc_sidebar_omits_writing_plan():
+    from plugin.chatbot.chat_sidebar_mode import sidebar_mode_flags_for_doc_type
+
+    flags = sidebar_mode_flags_for_doc_type("calc")
+    assert flags.include_writing_plan is False
+    assert "Writing Plan" not in get_mode_labels(**flags.__dict__)
+
+
 def test_mode_labels_ppt_master_for_impress():
     from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_PPT_MASTER, sidebar_mode_flags_for_doc_type
 

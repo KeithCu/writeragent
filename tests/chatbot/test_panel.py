@@ -418,13 +418,12 @@ class TestSendDispose:
                                             # causing the finally block to execute
                                             # we want to run the finally block of _run_send_drain
                                             with patch("plugin.chatbot.panel.SendButtonListener._sync_has_text_from_query"):
-                                                with patch("plugin.chatbot.panel.SendButtonListener._get_doc_type_str", return_value="Writer"):
-                                                    try:
-                                                        # Make it fail early to hit the finally block
-                                                        with patch("plugin.chatbot.panel.SendButtonListener._set_status", side_effect=ValueError("fail")):
-                                                            listener._run_send_drain()
-                                                    except ValueError:
-                                                        pass
+                                                try:
+                                                    # Make it fail early to hit the finally block
+                                                    with patch("plugin.chatbot.panel.SendButtonListener._set_status", side_effect=ValueError("fail")):
+                                                        listener._run_send_drain()
+                                                except ValueError:
+                                                    pass
                                             mock_drop.assert_called_once_with(listener)
                                             mock_kick.assert_called_once()
                                             mock_flush.assert_called_once()

@@ -1963,11 +1963,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             drop_turn(self)
             kick_pending_peer_starts()
 
-    def _get_doc_type_str(self, model: Any) -> str:
-        from plugin.doc.doc_type import doc_type_title_for_label
-
-        return doc_type_title_for_label(getattr(self, "cached_doc_type", None))
-
     def _restore_query_text(self, text: str) -> None:
         """Put text back in the Ask box after a send returns early (Stop, STT error).
 
@@ -2191,6 +2186,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self._run_brainstorming(query_text, model)
                 return
 
+            # Writing-plan tools are TextDocument-only. Non-Writer sidebars do not list this mode.
             if sidebar_mode == CHAT_MODE_WRITING_PLAN and doc_type_label == "writer":
                 if not getattr(self, "_writing_plan_topic", None):
                     self._writing_plan_topic = query_text

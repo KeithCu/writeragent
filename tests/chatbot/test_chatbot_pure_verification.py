@@ -42,6 +42,10 @@ def test_sidebar_mode_flags_contracts(doc_type: str) -> None:
         assert flags.include_brainstorming is False
         assert flags.include_writing_plan is False
         assert flags.include_ppt_master is True
+    else:
+        assert flags.include_brainstorming is False
+        assert flags.include_writing_plan is False
+        assert flags.include_ppt_master is False
 
 
 @given(label=st.text(max_size=DEAL_MAX_TOKEN))

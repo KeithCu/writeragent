@@ -40,10 +40,6 @@ class DummyChatbotPanel(SendHandlersMixin):
     def _set_status(self, text):
         self.status_history.append(text)
 
-    # We need to mock _get_doc_type_str since SendHandlersMixin uses it implicitly in some places
-    def _get_doc_type_str(self, model):
-        return "Writer"
-
     def resolve_stop_checker(self):
         return lambda: self.stop_requested
 

@@ -108,7 +108,7 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         _set_status=MagicMock(),
         _get_document_model=MagicMock(return_value=object()),
         _append_response=MagicMock(),
-        _get_doc_type_str=MagicMock(return_value="Writer"),
+        _run_writing_plan=MagicMock(),
         _run_librarian=MagicMock(),
         _do_send_chat_with_tools=MagicMock(),
         _do_send_direct_image=MagicMock(),
@@ -1026,6 +1026,31 @@ def test_do_send_enters_librarian_when_selector_is_librarian():
 
     listener._run_librarian.assert_called_once()
     listener._do_send_chat_with_tools.assert_not_called()
+
+
+def test_do_send_writer_writing_plan_uses_subagent():
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_WRITING_PLAN
+
+    listener = _make_listener()
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_WRITING_PLAN)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._run_writing_plan.assert_called_once()
+    listener._do_send_chat_with_tools.assert_not_called()
+
+
+def test_do_send_calc_writing_plan_stays_on_chat_tools():
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_WRITING_PLAN
+
+    listener = _make_listener()
+    listener.cached_doc_type = "calc"
+    patches = _patch_do_send(listener, sidebar_mode=CHAT_MODE_WRITING_PLAN)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+        SendButtonListener._do_send(listener)
+
+    listener._run_writing_plan.assert_not_called()
+    listener._do_send_chat_with_tools.assert_called_once()
 
 
 def test_do_send_chat_even_when_user_memory_missing():

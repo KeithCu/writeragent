@@ -94,7 +94,7 @@ Also skip: `/exit` `/quit` (no process to leave), `/editor-model` `/weak-model` 
 | `/image [prompt]` | Switch to Image mode, or generate/insert with the image model. | WA-native | stretch |
 | `/librarian` | Switch to Librarian (global transcript, not per-document). | WA-native | stretch |
 | `/brainstorm [topic]` | Start Brainstorming (Writer). | WA-native | stretch |
-| `/plan [topic]` | Start Writing Plan (Writer / Calc). | WA-native | stretch |
+| `/plan [topic]` | Start Writing Plan (Writer). | WA-native | stretch |
 | `/ppt [topic]` | Start PPT-Master (Draw / Impress). | WA-native | stretch |
 
 ### Python, Calc, notebooks

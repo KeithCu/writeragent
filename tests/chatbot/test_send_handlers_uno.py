@@ -61,9 +61,6 @@ class _DirectImageHost(SendHandlersMixin):
     def _set_status(self, text):
         self.status_history.append(text)
 
-    def _get_doc_type_str(self, model):
-        return "Writer"
-
     def resolve_stop_checker(self):
         return lambda: self.stop_requested
 

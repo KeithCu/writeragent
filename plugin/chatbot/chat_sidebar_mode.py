@@ -58,12 +58,12 @@ class SidebarModeFlags:
 @deal.pre(lambda doc_type_label: str_bounded(doc_type_label, DEAL_MAX_TOKEN))
 @deal.post(lambda result: isinstance(result, SidebarModeFlags))
 def sidebar_mode_flags_for_doc_type(doc_type_label: str) -> SidebarModeFlags:
-    """Writer: brainstorming + writing plan. Draw/Impress: PPT-Master. Calc: writing plan only."""
+    """Writer gets brainstorming and writing plan; Draw and Impress get PPT-Master; Calc and every other label get the shared modes only (Chat, Image, Web Research, Deep Research, Librarian)."""
     if doc_type_label == "writer":
         return SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=False)
     if doc_type_label in ("draw", "impress"):
         return SidebarModeFlags(include_brainstorming=False, include_writing_plan=False, include_ppt_master=True)
-    return SidebarModeFlags(include_brainstorming=False, include_writing_plan=True, include_ppt_master=False)
+    return SidebarModeFlags(include_brainstorming=False, include_writing_plan=False, include_ppt_master=False)
 
 
 def _label_chat() -> str:
