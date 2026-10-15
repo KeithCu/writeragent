@@ -1894,4 +1894,68 @@ def test_llm_request_lane_stop_is_polled_during_acquire() -> None:
             worker_thread.join(timeout=2.0)
 
 
+def test_pump_main_thread_work_queue_skips_off_main_and_runs_on_main() -> None:
+    from plugin.framework.queue_executor import QueueExecutor, pump_main_thread_work_queue
+
+    ex = QueueExecutor()
+    called: list[str] = []
+    ex._enqueue_work(lambda: called.append("ran"), (), {}, blocking=False, poke=False)
+    assert ex.pending_work_count() == 1
+
+    def worker() -> None:
+        pump_main_thread_work_queue(executor=ex)
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join(timeout=2.0)
+    assert not t.is_alive()
+    assert ex.pending_work_count() == 1
+    assert called == []
+
+    pump_main_thread_work_queue(executor=ex)
+    assert ex.pending_work_count() == 0
+    assert called == ["ran"]
+
+
+def test_pump_main_thread_work_queue_runs_on_designated_main() -> None:
+    from plugin.framework.queue_executor import QueueExecutor, pump_main_thread_work_queue
+    from plugin.framework.thread_guard import set_designated_main_thread
+
+    ex = QueueExecutor()
+    called: list[str] = []
+    ex._enqueue_work(lambda: called.append("ran"), (), {}, blocking=False, poke=False)
+    assert ex.pending_work_count() == 1
+
+    def worker() -> None:
+        pump_main_thread_work_queue(executor=ex)
+
+    t = threading.Thread(target=worker)
+    set_designated_main_thread(t)
+    try:
+        t.start()
+        t.join(timeout=2.0)
+        assert not t.is_alive()
+        assert ex.pending_work_count() == 0
+        assert called == ["ran"]
+    finally:
+        set_designated_main_thread(None)
+
+
+def test_pump_main_thread_work_queue_runs_in_sync_host_on_main() -> None:
+    from plugin.framework.queue_executor import QueueExecutor, pump_main_thread_work_queue
+    from plugin.framework.thread_guard import sync_host_dispatch
+
+    ex = QueueExecutor()
+    called: list[str] = []
+    ex._enqueue_work(lambda: called.append("ran"), (), {}, blocking=False, poke=False)
+    assert ex.pending_work_count() == 1
+
+    with sync_host_dispatch():
+        pump_main_thread_work_queue(executor=ex)
+
+    assert ex.pending_work_count() == 0
+    assert called == ["ran"]
+
+
+
 

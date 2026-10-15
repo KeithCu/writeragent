@@ -1152,8 +1152,20 @@ def pump_main_thread_work_queue(*, max_items: int = 1, executor: QueueExecutor |
 
     Async tools enqueue via :func:`execute_on_main_thread` while the chat drain loop
     waits for them; this must run on the same thread as ``run_stream_drain_loop`` so
-    workers are not blocked on AsyncCallback alone.
+    workers are not blocked on AsyncCallback alone. A caller that is not the main
+    thread (including a designated test main via `on_main_thread`) returns without
+    running items.
     """
+    from plugin.framework.thread_guard import on_main_thread
+
+    # Bugfix: This helper ran process_queue on the =PROMPT() bridge thread.
+    # That happened because the 0.1s poll in run_blocking_in_thread was added so a
+    # main-thread waiter with no toolkit could unblock execute_on_main_thread.
+    # Returning early when not on_main_thread() fixes it because off-main yellow
+    # recalc leaves the items queued for the UI thread, while on-main callers still drain.
+    if not on_main_thread():
+        return
+
     ex = executor or default_executor
     processed = 0
     for _unused in range(max_items):

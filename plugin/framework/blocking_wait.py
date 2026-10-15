@@ -109,6 +109,8 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     # waited on execute_on_main_thread, the UI thread never drained the marshal queue, deadlocking.
     # We now poll with a 0.1s timeout whenever pump_vcl is False (pump_idle=False or toolkit missing)
     # and drain the marshal queue via pump_main_thread_work_queue without processEventsToIdle.
+    # The callee returns immediately when the caller is not the main thread, so a bridge =PROMPT()
+    # does not run those items, while on-main notebook and on-main =PROMPT() still depend on that call.
     pump_vcl = pump_idle and toolkit is not None
     poll = pump_vcl or stop_checker is not None
     while True:

@@ -56,7 +56,7 @@ Contrast `=PY()`: last parameter is `sequence<any>`, which is how Calc packs tra
 4. `LlmClient.request_with_tools` via `run_blocking_in_thread(..., pump_idle=False, stream=False, tools=None)`.
 5. The cell gets a **string**. Empty assistant text becomes a diagnostic (`finish_reason`, token usage, model, short reasoning excerpt) — never a silent blank.
 
-`pump_idle=False` is required: pumping VCL during recalc re-enters the formula engine (`#VALUE!`).
+`pump_idle=False` is required: pumping VCL during recalc re-enters the formula engine (`#VALUE!`). The wait still polls `pump_main_thread_work_queue`; that helper returns without running items when the caller is not the main thread, while the same poll still drains the marshal queue on the UI thread.
 
 The add-in instance keeps one `LlmClient` across recalcs. XAddIn never names the calling cell; `=PROMPT()` does not locate the origin or spill.
 
