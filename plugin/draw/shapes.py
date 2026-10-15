@@ -83,6 +83,9 @@ def _try_writer_anchor_shape_before_add(doc: Any, shape: Any) -> None:
 
 def _log_shape_uno_snapshot(phase: str, shape: Any) -> None:
     """Best-effort UNO snapshot for debugging visibility/geometry (Writer vs Draw)."""
+    # Ungated, this ran on every create, including each create_diagram node.
+    if not SHAPE_VERBOSE_DEBUG:
+        return
     try:
         parts: list[str] = []
         try:
@@ -112,6 +115,9 @@ def _log_shape_uno_snapshot(phase: str, shape: Any) -> None:
 
 def _log_custom_shape_geometry_dump(shape: Any, phase: str) -> None:
     """Detailed ``CustomShapeGeometry`` dump (compare rectangle vs octagon)."""
+    # Ungated, this ran on every create, including each create_diagram node.
+    if not SHAPE_VERBOSE_DEBUG:
+        return
     try:
         g = shape.getPropertyValue("CustomShapeGeometry")
 
@@ -138,6 +144,9 @@ def _log_custom_shape_geometry_dump(shape: Any, phase: str) -> None:
 
 def _log_shape_property_names_sample(shape: Any, phase: str, limit: int = 60) -> None:
     """Sorted sample of ``PropertySetInfo`` names — diff rectangle vs CustomShape in Writer."""
+    # Ungated, this ran on every create, including each create_diagram node.
+    if not SHAPE_VERBOSE_DEBUG:
+        return
     try:
         ps = shape.getPropertySetInfo()
         if ps is None:
@@ -243,6 +252,9 @@ def _try_writer_invalidate_and_pump(doc: Any) -> None:
 
 def _log_create_shape_page_context(doc: Any, bridge: Any, page: Any) -> None:
     """How the target draw page was chosen (Writer vs Draw / controller vs first page)."""
+    # Ungated, this ran on every create, including each create_diagram node.
+    if not SHAPE_VERBOSE_DEBUG:
+        return
     try:
         is_writer = bool(doc and doc.supportsService("com.sun.star.text.TextDocument"))
         pages = bridge.get_pages()
@@ -440,10 +452,8 @@ class DrawShapes:
             # Add to page
             page.add(shape)
 
-            try:
-                n_after = page.getCount()
-            except Exception:
-                n_after = -1
+            # getCount after a successful add does not fail on a live page.
+            n_after = page.getCount()
             log.debug("create_shape safe_create: added uno=%s page_shape_count=%s", full_type, n_after)
             _log_shape_uno_snapshot("after_page_add", shape)
 
@@ -646,6 +656,14 @@ class UpsertShape(ToolDrawShapeBase):
     is_mutation: bool | None = True
 
     def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+        # This override replaced ToolBase.validate, so shape_upsert had no
+        # type or enum check. x="10" reached Point(), rotation_angle="5"
+        # was string-repeated by `* 100`, and a fill_style outside the enum
+        # was ignored with status ok.
+        ok, err = super().validate(doc_type=doc_type, **kwargs)
+        if not ok:
+            return False, err or "Invalid arguments"
+
         action = kwargs.get("action")
         if not action:
             return False, "Missing required parameter: 'action' must be 'create' or 'edit'"
@@ -727,7 +745,11 @@ class UpsertShape(ToolDrawShapeBase):
                 if is_custom_shape and geometry_applied:
                     _log_shape_uno_snapshot("after_custom_geometry", shape)
             except DrawError as e:
-                return self._tool_error(e.message)
+                # _tool_error(message) defaults to TOOL_EXECUTION_ERROR, so
+                # DRAW_INVALID_SIZE and DRAW_SHAPE_CREATION_ERROR were the
+                # same code. Do not pass e.details: position and size are
+                # UNO structs.
+                return self._tool_error(e.message, code=e.code)
 
             try:
                 _try_writer_at_page_shape_finalize(ctx.doc, bridge, page, shape)
@@ -855,10 +877,10 @@ class ConnectShapes(ToolDrawShapeBase):
         except ToolExecutionError as exc:
             return self._tool_error(str(exc))
 
-        start_idx = kwargs.get("start")
-        end_idx = kwargs.get("end")
-        if start_idx is None or end_idx is None:
-            return self._tool_error("start and end are required.")
+        # Schema requires start and end as integers. validate() rejects a
+        # missing or non-integer value before execute.
+        start_idx = kwargs["start"]
+        end_idx = kwargs["end"]
 
         try:
             start_shape = page.getByIndex(start_idx)
@@ -873,7 +895,11 @@ class ConnectShapes(ToolDrawShapeBase):
             # position and size are technically ignored since it's a connector, but safe_create_shape expects them
             shape, _unused, _unused2 = draw_shapes.safe_create_shape(ctx.doc, page, "com.sun.star.drawing.ConnectorShape", Point(0, 0), Size(100, 100))
         except DrawError as e:
-            return self._tool_error(e.message)
+            # _tool_error(message) defaults to TOOL_EXECUTION_ERROR, so
+            # DRAW_INVALID_SIZE and DRAW_SHAPE_CREATION_ERROR were the
+            # same code. Do not pass e.details: position and size are
+            # UNO structs.
+            return self._tool_error(e.message, code=e.code)
 
         # Connect the shapes
         try:
@@ -954,19 +980,14 @@ class GroupShapes(ToolDrawShapeBase):
         if not indices or len(indices) < 2:
             return self._tool_error("At least two shape indices are required to group.")
 
-        try:
-            # Global svx service — document createInstance does not provide it (see helper).
-            shape_collection = _create_shape_collection(ctx.ctx)
-            for i in indices:
-                shape = page.getByIndex(i)
-                shape_collection.add(shape)
-
-            # Group the shapes
-            page.group(shape_collection)
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error(f"Failed to group shapes: {str(e)}")
+        # page.group is the first page mutation. A failure propagates to
+        # execute_safe (TOOL_EXECUTION_ERROR and a log). The old catch
+        # repeated "Failed to group shapes" and dropped the traceback.
+        shape_collection = _create_shape_collection(ctx.ctx)
+        for i in indices:
+            shape = page.getByIndex(i)
+            shape_collection.add(shape)
+        page.group(shape_collection)
 
         return {
             "status": "ok",
@@ -1034,20 +1055,18 @@ class AlignShapes(ToolDrawShapeBase):
         from plugin.draw.layout import align_boxes
 
         indices = kwargs.get("indices") or []
-        alignment = str(kwargs.get("alignment") or "")
-        if not alignment:
-            return self._tool_error("alignment is required.")
+        # Schema requires alignment and rejects values outside the enum, including "".
+        alignment = kwargs["alignment"]
         if len(indices) < 2:
             return self._tool_error("At least two shape indices are required to align.")
         page, actual_idx, err = _resolve_shape_page(ctx, kwargs)
         if err or page is None:
             return self._tool_error(err or "No draw page available.")
-        try:
-            shapes = [page.getByIndex(i) for i in indices]
-            boxes = [_shape_box(s) for s in shapes]
-            new_boxes = align_boxes(boxes, alignment)
-        except Exception as exc:
-            return self._tool_error(str(exc))
+        # A bad index and align_boxes ValueError propagate. The old catch
+        # returned str(exc) and reported a closed document as a normal tool error.
+        shapes = [page.getByIndex(i) for i in indices]
+        boxes = [_shape_box(s) for s in shapes]
+        new_boxes = align_boxes(boxes, alignment)
         for shape, box in zip(shapes, new_boxes):
             _apply_box(shape, box)
         return {"status": "ok", "message": "Shapes aligned", "page": actual_idx, "indices": list(indices)}
@@ -1073,20 +1092,17 @@ class DistributeShapes(ToolDrawShapeBase):
         from plugin.draw.layout import distribute_boxes
 
         indices = kwargs.get("indices") or []
-        axis = str(kwargs.get("axis") or "")
-        if not axis:
-            return self._tool_error("axis is required.")
+        # Schema requires axis and rejects values outside the enum, including "".
+        axis = kwargs["axis"]
         if len(indices) < 3:
             return self._tool_error("At least three shape indices are required to distribute.")
         page, actual_idx, err = _resolve_shape_page(ctx, kwargs)
         if err or page is None:
             return self._tool_error(err or "No draw page available.")
-        try:
-            shapes = [page.getByIndex(i) for i in indices]
-            boxes = [_shape_box(s) for s in shapes]
-            new_boxes = distribute_boxes(boxes, axis)
-        except Exception as exc:
-            return self._tool_error(str(exc))
+        # Same as align: do not catch. A closed document must reach execute_safe.
+        shapes = [page.getByIndex(i) for i in indices]
+        boxes = [_shape_box(s) for s in shapes]
+        new_boxes = distribute_boxes(boxes, axis)
         for shape, box in zip(shapes, new_boxes):
             _apply_box(shape, box)
         return {"status": "ok", "message": "Shapes distributed", "page": actual_idx, "indices": list(indices)}
@@ -1157,20 +1173,23 @@ class CreateDiagram(ToolDrawShapeBase):
         upsert = UpsertShape()
         id_to_index: dict[str, int] = {}
         created: list[dict[str, Any]] = []
+        # Objects in create order (nodes, then each connector that succeeded).
+        # page.remove(shape) does not use the index from create time. Deleting
+        # a node by that index shifts later connectors onto node slots, and
+        # connectors were not in `created`, so a failed connector left the
+        # earlier connectors on the page.
+        tracked: list[Any] = []
 
         def cleanup_shapes() -> None:
-            try:
-                # Delete backward so indices don't shift
-                for cr in reversed(created):
-                    shape_idx = cr.get("index")
-                    if shape_idx is not None:
-                        try:
-                            shape = page.getByIndex(shape_idx)
-                            page.remove(shape)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+            # No outer try: reversed() and the list itself do not raise.
+            # The per-shape try is the cleanup. A closed document must not
+            # be swallowed as a failed cleanup.
+            for shape in reversed(tracked):
+                try:
+                    page.remove(shape)
+                except Exception as exc:
+                    if is_disposed_exception(exc):
+                        raise
 
         for node, box in zip(nodes, boxes):
             x, y, w, h = box
@@ -1185,6 +1204,7 @@ class CreateDiagram(ToolDrawShapeBase):
             if not isinstance(idx, int):
                 cleanup_shapes()
                 return self._tool_error("shape_upsert did not return a shape index.")
+            tracked.append(page.getByIndex(idx))
             id_to_index[str(node["id"])] = idx
             created.append({"id": node["id"], "index": idx, "x": x, "y": y, "width": w, "height": h})
 
@@ -1203,7 +1223,12 @@ class CreateDiagram(ToolDrawShapeBase):
             if isinstance(result, dict) and result.get("status") != "ok":
                 cleanup_shapes()
                 return result
-            connected.append({"from": conn.get("from"), "to": conn.get("to"), "index": result.get("index")})
+            conn_index = result.get("index")
+            if not isinstance(conn_index, int):
+                cleanup_shapes()
+                return self._tool_error("shape_connect did not return a connector index.")
+            tracked.append(page.getByIndex(conn_index))
+            connected.append({"from": conn.get("from"), "to": conn.get("to"), "index": conn_index})
 
         return {"status": "ok", "message": "Diagram created", "page": actual_idx, "layout": layout, "nodes": created, "id_to_index": id_to_index, "connections": connected}
 
@@ -1224,9 +1249,8 @@ class DeleteShape(ToolDrawShapeBase):
             page = _mutation_page(ctx, kwargs.get("page"))
         except ToolExecutionError as exc:
             return self._tool_error(str(exc))
-        shape_idx = kwargs.get("index")
-        if shape_idx is None:
-            return self._tool_error("index is required.")
+        # Schema requires index. validate() rejects a missing or non-integer value.
+        shape_idx = kwargs["index"]
         try:
             shape = page.getByIndex(shape_idx)
             page.remove(shape)

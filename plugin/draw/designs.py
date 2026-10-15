@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from typing import Any
 
 from plugin.doc.document_research import _path_settings_from_ctx, _resolve_lo_directory_path, _should_skip_filename
@@ -91,21 +92,13 @@ _OTP_EXT = ".otp"
 
 
 def _is_impress_doc(doc: Any) -> bool:
-    """True for Impress. PyUNO hasattr is unreliable (same as pages._is_impress_doc)."""
-    try:
-        return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
-    except Exception:
-        return False
+    """True for Impress. PyUNO hasattr is unreliable (same as pages._is_impress_doc).
 
-
-def _is_draw_only_doc(doc: Any) -> bool:
-    """True for Draw that is not also a presentation."""
-    try:
-        if _is_impress_doc(doc):
-            return False
-        return bool(doc.supportsService("com.sun.star.drawing.DrawingDocument"))
-    except Exception:
-        return False
+    supportsService raises on a disposed document. Catching that and
+    returning False made apply_design report UNSUPPORTED_DOC_TYPE
+    ("requires an Impress presentation") for a closed deck.
+    """
+    return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
 
 
 def not_impress_error(tool: ToolBase, action: str) -> dict[str, Any]:
@@ -198,7 +191,7 @@ def _design_name_from_path(path: str) -> str:
     return os.path.splitext(os.path.basename(path))[0]
 
 
-def enumerate_impress_designs(ctx: Any) -> list[dict[str, str]]:
+def enumerate_impress_designs(ctx: Any, *, include_look: bool = True) -> list[dict[str, str]]:
     """Walk PathSettings template dirs for ``.otp`` files. Stable id = stem lowercased."""
     designs: list[dict[str, str]] = []
     seen_paths: set[str] = set()
@@ -219,26 +212,24 @@ def enumerate_impress_designs(ctx: Any) -> list[dict[str, str]]:
                 if not os.path.isfile(full):
                     continue
                 seen_paths.add(key)
-                designs.append(
-                    {
-                        "id": _design_id_from_path(full),
-                        "name": _design_name_from_path(full),
-                        "path": full,
-                        "url": path_to_file_url(full),
-                        # ZIP thumbnail / Pictures / styles — never Desktop-open.
-                        "look": derive_otp_look(full),
-                    }
-                )
+                entry = {
+                    "id": _design_id_from_path(full),
+                    "name": _design_name_from_path(full),
+                    "path": full,
+                    "url": path_to_file_url(full),
+                    # ZIP thumbnail / Pictures / styles — never Desktop-open.
+                    # Name/path match does not need this. Opening every .otp
+                    # just to resolve a design name made apply_design scan
+                    # the template tree twice on a miss.
+                    "look": derive_otp_look(full) if include_look else "",
+                }
+                designs.append(entry)
     designs.sort(key=lambda d: (d["name"].lower(), d["path"]))
     return designs
 
 
-def resolve_design(ctx: Any, design: str) -> dict[str, str] | None:
+def _match_listed_design(designs: list[dict[str, str]], needle: str) -> dict[str, str] | None:
     """Match a listed design by id, name, path, or file URL."""
-    needle = str(design or "").strip()
-    if not needle:
-        return None
-    designs = enumerate_impress_designs(ctx)
     lower = needle.lower()
     path_norm = os.path.normcase(os.path.normpath(needle)) if not needle.startswith("file:") else ""
     for entry in designs:
@@ -249,6 +240,14 @@ def resolve_design(ctx: Any, design: str) -> dict[str, str] | None:
         if needle.startswith("file:") and entry["url"] == needle:
             return entry
     return None
+
+
+def resolve_design(ctx: Any, design: str) -> dict[str, str] | None:
+    """Match a listed design by id, name, path, or file URL."""
+    needle = str(design or "").strip()
+    if not needle:
+        return None
+    return _match_listed_design(enumerate_impress_designs(ctx, include_look=False), needle)
 
 
 def _master_entries(doc: Any) -> list[dict[str, Any]]:
@@ -266,11 +265,9 @@ def _master_entries(doc: Any) -> list[dict[str, Any]]:
     for i in range(masters.getCount()):
         m = masters.getByIndex(i)
         name = m.Name if hasattr(m, "Name") else ""
-        shapes = 0
-        try:
-            shapes = int(m.getCount())
-        except Exception:
-            pass
+        # MasterPage.getCount() does not fail on a live page. The old except
+        # left shape_count at 0 and swallowed a closed document.
+        shapes = int(m.getCount())
         out.append({"index": i, "name": name or "", "shape_count": shapes})
     return out
 
@@ -302,10 +299,8 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
     the new page actually sits at 1. With placement fixed, index
     0's neighbor is the previous first slide.
     """
-    try:
-        count = int(pages.getCount())
-    except Exception:
-        return ""
+    # pages.getCount() does not fail on a live deck. Returning "" hid a closed document.
+    count = int(pages.getCount())
     if count < 2:
         return ""
     from plugin.framework.uno_context import uno_same
@@ -328,9 +323,16 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
             master = ref.MasterPage
             new_page.MasterPage = master
             return master.Name if hasattr(master, "Name") else ""
-        except Exception:
+        except Exception as exc:
+            # Prefer the previous slide, then the following one. Returning
+            # here stopped on the first failure. is_real_disposal only:
+            # a live-doc RuntimeException must try the next neighbor.
+            # is_disposed_exception treats that name as disposal, and
+            # add_slide would then delete the new slide.
+            if is_real_disposal(exc):
+                raise
             log.debug("inherit_master_from_neighbor failed insert_at=%s ref=%s", insert_at, ref_idx, exc_info=True)
-            return ""
+            continue
     return ""
 
 
@@ -383,22 +385,14 @@ def open_design_source_hidden(uno_ctx: Any, design: dict[str, str], *, as_templa
 
 
 def _copy_uno_prop(dest: Any, src: Any, name: str) -> bool:
-    """Copy one UNO property. Returns True on success."""
+    """Copy one UNO property. False when that property is missing.
+
+    PyUNO getattr/setattr on a property are getPropertyValue/setPropertyValue.
+    Retrying the other after the first fails does not succeed. A missing
+    property returns False so the clone continues with the rest.
+    """
     try:
-        value = src.getPropertyValue(name) if hasattr(src, "getPropertyValue") else getattr(src, name)
-    except Exception:
-        try:
-            value = getattr(src, name)
-        except Exception:
-            return False
-    try:
-        if hasattr(dest, "setPropertyValue"):
-            dest.setPropertyValue(name, value)
-            return True
-    except Exception:
-        pass
-    try:
-        setattr(dest, name, value)
+        dest.setPropertyValue(name, src.getPropertyValue(name))
         return True
     except Exception:
         return False
@@ -511,15 +505,9 @@ def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any, *, otp_path
                     dest_shape.Graphic = new_graphic
                     return True
         finally:
-            try:
-                for name in os.listdir(tmp_dir):
-                    try:
-                        os.remove(os.path.join(tmp_dir, name))
-                    except Exception:
-                        pass
-                os.rmdir(tmp_dir)
-            except Exception:
-                pass
+            # Best-effort temp dir removal. ignore_errors covers a file
+            # vanishing between listing and remove.
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     # 2) Last resort: round-trip the live Graphic (may still be pool-sensitive).
     try:
@@ -592,11 +580,9 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
     design_id = str(design.get("id") or "").strip().lower()
     for i in range(src_masters.getCount()):
         candidate = src_masters.getByIndex(i)
-        name = ""
-        try:
-            name = str(candidate.Name or "")
-        except Exception:
-            name = ""
+        # MasterPage.Name does not fail on a live page. Swallowing a failure
+        # skipped that master and hid a closed document.
+        name = str(candidate.Name or "")
         lower = name.strip().lower()
         if lower and (lower == design_name.lower() or lower == design_id):
             src_master = candidate
@@ -606,10 +592,8 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
     if src_master is None:
         src_master = src_masters.getByIndex(0)
         if not design_name:
-            try:
-                design_name = str(src_master.Name or "") or "Imported"
-            except Exception:
-                design_name = "Imported"
+            # MasterPage.Name does not fail on a live page.
+            design_name = str(src_master.Name or "") or "Imported"
 
     dest_masters = dest_doc.getMasterPages()
     # Always insert a new master. Reusing a same-named master cleared its
@@ -646,18 +630,14 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
             if picture_index is not None:
                 graphic_index += 1
             log.info("clone_master step=shape_done i=%s type=%s", i, cloned_types[-1])
-        try:
-            dest_name = str(dest_master.Name or "") or design_name
-        except Exception:
-            dest_name = design_name
+        # MasterPage.Name does not fail on a live page.
+        dest_name = str(dest_master.Name or "") or design_name
         # Do not copy the presentation style family here. Blind style-prop copies
         # share the Hidden source SfxItemPool and abort soffice on source close
         # (GetUserOrPoolDefaultItem). Shape primitives + reimported Graphic are
         # enough for Metropolis chrome (title geom 14800 + SVG).
-        try:
-            shape_count = int(dest_master.getCount())
-        except Exception:
-            shape_count = len(cloned_types)
+        # MasterPage.getCount() does not fail on a live page.
+        shape_count = int(dest_master.getCount())
         if shape_count < 1:
             raise RuntimeError("Cloned master '%s' has no shapes." % dest_name)
         log.debug("clone_master_into_doc name=%s shapes=%s types=%s", dest_name, shape_count, cloned_types)
@@ -672,43 +652,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         raise
 
 
-def find_imported_master(doc: Any, design: dict[str, str], before_names: set[str]) -> tuple[Any | None, str, int]:
-    """Pick the cloned (or already-present) design master."""
-    try:
-        masters = doc.getMasterPages()
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        return None, "", 0
-    design_name = str(design.get("name") or "").strip().lower()
-    design_id = str(design.get("id") or "").strip().lower()
-    entries: list[tuple[Any, str, int]] = []
-    for i in range(masters.getCount()):
-        m = masters.getByIndex(i)
-        name = ""
-        try:
-            name = str(m.Name or "")
-        except Exception:
-            name = ""
-        shapes = 0
-        try:
-            shapes = int(m.getCount())
-        except Exception:
-            shapes = 0
-        entries.append((m, name, shapes))
 
-    for m, name, shapes in entries:
-        lower = name.strip().lower()
-        if lower and (lower == design_name or lower == design_id):
-            return m, name, shapes
-
-    new_ones = [(m, name, shapes) for m, name, shapes in entries if name not in before_names]
-    chrome = [row for row in new_ones if row[2] >= 6]
-    pool = chrome or new_ones
-    if pool:
-        pool.sort(key=lambda row: (-row[2], row[1].lower()))
-        return pool[0]
-    return None, "", 0
 
 
 def assign_master_to_all_slides(doc: Any, master: Any) -> int:
@@ -735,16 +679,10 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     take clipboard ownership when another owner is present. Clone never
     touches the clipboard.
     """
-    before_names = {str(m.get("name") or "") for m in _master_entries(dest_doc)}
-    original_count = 0
-    try:
-        original_count = int(dest_doc.getDrawPages().getCount())
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        original_count = 0
+    # getDrawPages().getCount() does not fail on a live document.
+    # A closed document must not be reported as zero slides.
+    original_count = int(dest_doc.getDrawPages().getCount())
     src = None
-    master: Any = None
     master_name = ""
     shape_count = 0
     slides_updated = 0
@@ -753,14 +691,11 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         log.info("apply_design current-doc step=open_hidden design=%s", design_label)
         src = open_design_source_hidden(uno_ctx, design, as_template=True)
         log.info("apply_design current-doc step=clone_master begin design=%s", design_label)
-        master, master_name, shape_count = clone_master_into_doc(dest_doc, src, design, uno_ctx)
+        _master, master_name, shape_count = clone_master_into_doc(dest_doc, src, design, uno_ctx)
         log.info("apply_design current-doc step=clone_master done master=%s shapes=%s", master_name, shape_count)
-        if master is None:
-            master, master_name, shape_count = find_imported_master(dest_doc, design, before_names)
-        if master is None:
-            raise RuntimeError("Master clone did not import a design master from %s" % design.get("name"))
+        # clone_master_into_doc raises or returns a master. It never returns None.
         log.info("apply_design current-doc step=assign_all master=%s slides~=%s", master_name, original_count)
-        slides_updated = assign_master_to_all_slides(dest_doc, master)
+        slides_updated = assign_master_to_all_slides(dest_doc, _master)
         log.info("apply_design current-doc step=assign_all done slides_updated=%s", slides_updated)
     finally:
         # Close after assign so any residual source-pool refs are unused.
@@ -768,16 +703,12 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
         _close_hidden_doc(src)
         log.info("apply_design current-doc step=close_hidden done design=%s", design_label)
     masters = _master_entries(dest_doc)
-    slide_count = original_count
-    try:
-        slide_count = int(dest_doc.getDrawPages().getCount())
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        slide_count = original_count
-    if master is None or slides_updated != slide_count:
+    # Same count read. Do not keep the pre-import count when it fails.
+    slide_count = int(dest_doc.getDrawPages().getCount())
+    if slides_updated != slide_count:
         return {
             "status": "error",
+            "code": "DESIGN_PARTIAL_APPLY",
             "message": "Applied design '%s' to %s of %s slides." % (design.get("name"), slides_updated, slide_count),
             "design": design,
             "applied_master": master_name,
@@ -869,16 +800,19 @@ class ApplyDesign(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if _is_draw_only_doc(ctx.doc):
-            return not_impress_error(self, "apply_design")
+        # Draw and every other non-Impress doc share this error.
+        # _is_draw_only_doc returned the same payload.
         if not _is_impress_doc(ctx.doc):
             return not_impress_error(self, "apply_design")
         design_key = str(kwargs.get("design") or "").strip()
         if not design_key:
             return self._tool_error("design is required.")
-        entry = resolve_design(ctx.ctx, design_key)
+        # One walk, no ZIP look. resolve_design used to open every .otp,
+        # and a miss enumerated the tree again.
+        listed = enumerate_impress_designs(ctx.ctx, include_look=False)
+        entry = _match_listed_design(listed, design_key)
         if entry is None:
-            available = [d["id"] for d in enumerate_impress_designs(ctx.ctx)]
+            available = [d["id"] for d in listed]
             return self._tool_error("Design not found: %s" % design_key, available=available[:40])
         try:
             return apply_design_to_current_doc(ctx.ctx, ctx.doc, entry)

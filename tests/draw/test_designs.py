@@ -8,6 +8,8 @@ import zipfile
 import zlib
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.draw.designs import (
     ApplyDesign,
     ListDesigns,
@@ -16,7 +18,6 @@ from plugin.draw.designs import (
     _split_pathsettings_value,
     apply_design_to_current_doc,
     enumerate_impress_designs,
-    find_imported_master,
     inherit_master_from_neighbor,
     resolve_design,
 )
@@ -97,10 +98,11 @@ def test_resolve_design_by_id_and_name(tmp_path):
         "path": str(tmp_path / "Metropolis.otp"),
         "url": "file:///tmp/Metropolis.otp",
     }
-    with patch("plugin.draw.designs.enumerate_impress_designs", return_value=[d]):
+    with patch("plugin.draw.designs.enumerate_impress_designs", return_value=[d]) as enum:
         assert resolve_design(None, "Metropolis")["id"] == "metropolis"
         assert resolve_design(None, "metropolis")["name"] == "Metropolis"
         assert resolve_design(None, "missing") is None
+    enum.assert_called_with(None, include_look=False)
 
 
 def test_apply_design_current_doc_calls_import_path():
@@ -115,7 +117,7 @@ def test_apply_design_current_doc_calls_import_path():
         "applied_master_shape_count": 6,
     }
     with (
-        patch("plugin.draw.designs.resolve_design", return_value=entry),
+        patch("plugin.draw.designs.enumerate_impress_designs", return_value=[entry]),
         patch("plugin.draw.designs.apply_design_to_current_doc", return_value=payload) as apply_cur,
     ):
         out = ApplyDesign().execute(ctx, design="Metropolis")
@@ -130,7 +132,7 @@ def test_apply_design_current_doc_import_failure():
     ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.presentation.PresentationDocument"
     entry = {"id": "metropolis", "name": "Metropolis", "path": "/tmp/Metropolis.otp"}
     with (
-        patch("plugin.draw.designs.resolve_design", return_value=entry),
+        patch("plugin.draw.designs.enumerate_impress_designs", return_value=[entry]),
         patch(
             "plugin.draw.designs.apply_design_to_current_doc",
             side_effect=RuntimeError("paste failed"),
@@ -162,7 +164,7 @@ def test_apply_design_ignores_legacy_new_document_kwarg():
     entry = {"id": "metropolis", "name": "Metropolis", "path": "/tmp/Metropolis.otp"}
     payload = {"status": "ok", "applied_master": "Metropolis", "import_method": "clone_master"}
     with (
-        patch("plugin.draw.designs.resolve_design", return_value=entry),
+        patch("plugin.draw.designs.enumerate_impress_designs", return_value=[entry]),
         patch("plugin.draw.designs.apply_design_to_current_doc", return_value=payload) as apply_cur,
         patch("plugin.draw.designs.create_presentation_from_design") as create_new,
     ):
@@ -333,26 +335,6 @@ def test_add_slide_reports_inherited_master():
     assert out["master"] == "Metropolis"
 
 
-def test_find_imported_master_prefers_design_name():
-    metro = MagicMock()
-    metro.Name = "Metropolis"
-    metro.getCount.return_value = 6
-    default = MagicMock()
-    default.Name = "Default"
-    default.getCount.return_value = 5
-    masters = MagicMock()
-    masters.getCount.return_value = 2
-    masters.getByIndex.side_effect = lambda i: default if i == 0 else metro
-    doc = MagicMock()
-    doc.getMasterPages.return_value = masters
-    found, name, shapes = find_imported_master(
-        doc, {"id": "metropolis", "name": "Metropolis"}, {"Default"}
-    )
-    assert found is metro
-    assert name == "Metropolis"
-    assert shapes == 6
-
-
 def test_apply_design_partial_assign_is_error():
     dest = MagicMock()
     dest.getDrawPages().getCount.return_value = 2
@@ -367,6 +349,7 @@ def test_apply_design_partial_assign_is_error():
     ):
         out = apply_design_to_current_doc(MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"})
     assert out["status"] == "error"
+    assert out["code"] == "DESIGN_PARTIAL_APPLY"
     assert out["slides_updated"] == 1
     assert out["slide_count"] == 2
 
@@ -426,9 +409,8 @@ def test_enumerate_impress_designs_limit():
             assert len(designs) == 1000
 
 
-def test_master_entries_and_find_imported_master_reraise_disposed():
-    import pytest
-    from plugin.draw.designs import _master_entries, find_imported_master
+def test_master_entries_reraise_disposed():
+    from plugin.draw.designs import _master_entries
 
     class DisposedException(Exception):
         pass
@@ -438,10 +420,94 @@ def test_master_entries_and_find_imported_master_reraise_disposed():
 
     with pytest.raises(DisposedException):
         _master_entries(doc)
-    with pytest.raises(DisposedException):
-        find_imported_master(doc, {"name": "Test"}, set())
 
     doc.getMasterPages.side_effect = RuntimeError("failed")
     assert _master_entries(doc) == []
-    assert find_imported_master(doc, {"name": "Test"}, set()) == (None, "", 0)
+
+
+def test_enumerate_skip_look_does_not_open_zip(tmp_path):
+    presnt = tmp_path / "presnt"
+    presnt.mkdir()
+    (presnt / "Metropolis.otp").write_bytes(b"PK")
+    settings = MagicMock()
+    settings.getPropertySetInfo.return_value = None
+    settings.getPropertyValue.side_effect = lambda name: path_to_file_url(str(presnt)) if name == "Template" else ""
+    ctx = MagicMock()
+    ctx.getValueByName.side_effect = lambda name: settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
+    with (
+        patch("plugin.draw.designs._resolve_lo_directory_path", return_value=str(presnt)),
+        patch("plugin.draw.designs.derive_otp_look") as look,
+    ):
+        designs = enumerate_impress_designs(ctx, include_look=False)
+    look.assert_not_called()
+    assert designs[0]["look"] == ""
+    assert designs[0]["id"] == "metropolis"
+
+
+def test_apply_design_missing_enumerates_once():
+    ctx = MagicMock()
+    ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.presentation.PresentationDocument"
+    with patch("plugin.draw.designs.enumerate_impress_designs", return_value=[]) as enum:
+        out = ApplyDesign().execute(ctx, design="Nope")
+    assert out["status"] == "error"
+    assert "not found" in out["message"].lower()
+    enum.assert_called_once_with(ctx.ctx, include_look=False)
+
+
+def test_apply_design_disposed_doc_is_not_unsupported():
+    class DisposedException(Exception):
+        pass
+
+    ctx = MagicMock()
+    ctx.doc.supportsService.side_effect = DisposedException("closed")
+    with pytest.raises(DisposedException):
+        ApplyDesign().execute(ctx, design="Metropolis")
+
+
+def test_inherit_master_from_neighbor_tries_next_after_failure():
+    designed = MagicMock()
+    designed.Name = "Designed"
+    good = MagicMock()
+    good.MasterPage = designed
+    new_page = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 3
+
+    def by_index(i):
+        if i == 0:
+            raise RuntimeError("neighbor broken")
+        if i == 1:
+            return new_page
+        return good
+
+    pages.getByIndex.side_effect = by_index
+    name = inherit_master_from_neighbor(pages, new_page, 1)
+    assert name == "Designed"
+    assert new_page.MasterPage is designed
+
+
+def test_inherit_master_from_neighbor_reraises_disposed():
+    class DisposedException(Exception):
+        pass
+
+    pages = MagicMock()
+    pages.getCount.return_value = 2
+    pages.getByIndex.side_effect = DisposedException("closed")
+    with pytest.raises(DisposedException):
+        inherit_master_from_neighbor(pages, MagicMock(), 1)
+
+    pages.getCount.side_effect = DisposedException("closed")
+    with pytest.raises(DisposedException):
+        inherit_master_from_neighbor(pages, MagicMock(), 1)
+
+
+def test_copy_uno_prop_does_not_retry_setattr():
+    from plugin.draw.designs import _copy_uno_prop
+
+    dest = MagicMock()
+    src = MagicMock()
+    src.getPropertyValue.return_value = 1
+    dest.setPropertyValue.side_effect = RuntimeError("nope")
+    assert _copy_uno_prop(dest, src, "FillColor") is False
+    dest.setPropertyValue.assert_called_once_with("FillColor", 1)
 

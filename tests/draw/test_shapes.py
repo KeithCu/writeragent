@@ -482,6 +482,7 @@ def test_shape_upsert_execute_line_zero_height():
         rejected = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=100, y=200, width=4000, height=0)
     assert ok["status"] == "ok", ok
     assert rejected["status"] == "error", rejected
+    assert rejected["code"] == "DRAW_INVALID_SIZE"
     doc.createInstance.assert_called_once_with("com.sun.star.drawing.LineShape")
     assert ("setSize", 4000, 0) in events
 
@@ -535,3 +536,68 @@ def test_align_shapes_bad_page_stays_invalid_index():
         out = AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=9)
     assert out["status"] == "error"
     assert "Invalid page index" in out["message"]
+
+
+def test_shape_upsert_validate_rejects_bad_types_and_enum():
+    tool = UpsertShape()
+    ok, err = tool.validate(action="create", shape_type="rectangle", x="10", y=0, width=10, height=10)
+    assert not ok
+    assert err is not None and "x" in err
+
+    ok, err = tool.validate(action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, rotation_angle="5")
+    assert not ok
+    assert err is not None and "rotation_angle" in err
+
+    ok, err = tool.validate(action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, fill_style="plaid")
+    assert not ok
+    assert err is not None and "fill_style" in err
+
+    ok, err = tool.validate(action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, fill_style="solid", rotation_angle=5)
+    assert ok
+    assert err is None
+
+
+def test_shape_upsert_creation_failure_keeps_draw_error_code():
+    """createInstance failure must stay DRAW_SHAPE_CREATION_ERROR, not TOOL_EXECUTION_ERROR."""
+    page = MagicMock()
+    pages = MagicMock()
+    pages.getByIndex.return_value = page
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    doc.createInstance.side_effect = RuntimeError("uno failed")
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = pages
+        bridge.get_active_page_index.return_value = 0
+        out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10)
+    assert out["status"] == "error"
+    assert out["code"] == "DRAW_SHAPE_CREATION_ERROR"
+
+
+def test_shape_group_failure_propagates():
+    shapes = [MagicMock(), MagicMock()]
+    page = MagicMock()
+    page.getByIndex.side_effect = lambda i, shapes=shapes: shapes[i]
+    page.group.side_effect = RuntimeError("nope")
+
+    collection = MagicMock()
+    uno_ctx = MagicMock()
+    uno_ctx.ServiceManager.createInstanceWithContext.return_value = collection
+
+    tool_ctx = MagicMock()
+    tool_ctx.doc = MagicMock()
+    tool_ctx.ctx = uno_ctx
+
+    pages = MagicMock()
+    pages.getByIndex.return_value = page
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = pages
+        bridge.get_active_page.return_value = page
+        bridge_cls.get_slide_for_tool.return_value = page
+        with pytest.raises(RuntimeError):
+            GroupShapes().execute(tool_ctx, indices=[0, 1])

@@ -3,6 +3,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.draw.shapes import AlignShapes, CreateDiagram, DistributeShapes
 
 
@@ -141,3 +143,100 @@ def test_create_diagram_unknown_connection_creates_nothing():
             )
             upsert_cls.return_value.execute.assert_not_called()
     assert out["status"] == "error"
+
+
+class DisposedException(Exception):
+    """Type name matches is_disposed_exception / is_real_disposal."""
+
+
+def _align_page(side_effect):
+    page = MagicMock()
+    page.getByIndex.side_effect = side_effect
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    return page, ctx
+
+
+def test_align_shapes_disposed_propagates():
+    page, ctx = _align_page(DisposedException("closed"))
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        with pytest.raises(DisposedException):
+            AlignShapes().execute(ctx, indices=[0, 1], alignment="left")
+
+
+def test_align_shapes_bad_index_propagates():
+    page, ctx = _align_page(IndexError("bad"))
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        with pytest.raises(IndexError):
+            AlignShapes().execute(ctx, indices=[0, 1], alignment="left")
+
+
+def test_distribute_shapes_disposed_propagates():
+    shapes = [_Shape(0, 0, 10, 10), _Shape(20, 0, 10, 10), _Shape(40, 0, 10, 10)]
+    page = MagicMock()
+
+    def get_by_index(i):
+        if i == 1:
+            raise DisposedException("closed")
+        return shapes[i]
+
+    page.getByIndex.side_effect = get_by_index
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        with pytest.raises(DisposedException):
+            DistributeShapes().execute(ctx, indices=[0, 1, 2], axis="horizontal")
+
+
+def test_create_diagram_connector_failure_removes_connectors():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    page = MagicMock()
+    page.Width = 28000
+    page.Height = 15750
+    shapes = [MagicMock(), MagicMock(), MagicMock()]
+    page.getByIndex.side_effect = shapes
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        with patch("plugin.draw.shapes.UpsertShape") as upsert_cls, patch("plugin.draw.shapes.ConnectShapes") as conn_cls:
+            upsert_cls.return_value.execute.side_effect = [
+                {"status": "ok", "index": 0},
+                {"status": "ok", "index": 1},
+            ]
+            conn_cls.return_value.execute.side_effect = [
+                {"status": "ok", "index": 2},
+                {"status": "error", "message": "connector failed"},
+            ]
+            out = CreateDiagram().execute(
+                ctx,
+                layout="horizontal_flow",
+                nodes=[{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],
+                connections=[{"from": "a", "to": "b"}, {"from": "b", "to": "a"}],
+            )
+    assert out["status"] == "error"
+    assert [c.args[0] for c in page.remove.call_args_list] == list(reversed(shapes))
+
+
+def test_create_diagram_cleanup_reraises_disposed():
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    page = MagicMock()
+    page.Width = 28000
+    page.Height = 15750
+    page.getByIndex.return_value = MagicMock()
+    page.remove.side_effect = DisposedException("closed")
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        with patch("plugin.draw.shapes.UpsertShape") as upsert_cls:
+            upsert_cls.return_value.execute.side_effect = [
+                {"status": "ok", "index": 0},
+                {"status": "error", "message": "second node failed"},
+            ]
+            with pytest.raises(DisposedException):
+                CreateDiagram().execute(
+                    ctx,
+                    nodes=[{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],
+                )
