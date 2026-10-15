@@ -1373,8 +1373,10 @@ def launch_monaco_editor(
             msgbox_with_report(ctx, title, msg, box_type=3, reportable=True, report_title="Python editor did not start", report_extra=msg)
             return False
 
-        # Trigger background pre-warming of the venv subprocess now that Monaco is successfully up.
-        run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=True)
+        # Finite pre-warm, same as the native script dialog; the shared daemon pool
+        # is for this; dedicated=True is for servers, pipe drains, and jobs another
+        # thread joins.
+        run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
 
     if not session.is_running:
         detail = session.read_stderr_tail()

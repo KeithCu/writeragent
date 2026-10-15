@@ -138,3 +138,71 @@ def test_trusted_dispatch_import_does_not_load_host_worker() -> None:
     )
     assert proc.returncode == 0, f"Child failed (stdout={proc.stdout}, stderr={proc.stderr})"
 
+
+def test_trusted_action_handlers_do_not_import_host_modules() -> None:
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = str(Path(__file__).resolve().parents[2])
+    env = dict(os.environ)
+    existing_pp = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{repo_root}:{existing_pp}" if existing_pp else repo_root
+
+    child_code = (
+        "import ast\n"
+        "import importlib\n"
+        "import inspect\n"
+        "import sys\n"
+        "import textwrap\n"
+        "from plugin.scripting.trusted_action_registry import _TRUSTED_ACTION_WIRING, _split_handler\n"
+        "\n"
+        "for wiring in _TRUSTED_ACTION_WIRING:\n"
+        "    mod_name, attr_name = _split_handler(wiring.handler)\n"
+        "    mod = importlib.import_module(mod_name)\n"
+        "    fn = getattr(mod, attr_name)\n"
+        "    source = textwrap.dedent(inspect.getsource(fn))\n"
+        "    tree = ast.parse(source)\n"
+        "    for node in ast.walk(tree):\n"
+        "        if isinstance(node, ast.Import):\n"
+        "            for alias in node.names:\n"
+        "                importlib.import_module(alias.name)\n"
+        "        elif isinstance(node, ast.ImportFrom):\n"
+        "            if node.level != 0:\n"
+        "                sys.stderr.write(f'Relative import in {wiring.handler}: level={node.level}\\n')\n"
+        "                sys.exit(1)\n"
+        "            if node.module:\n"
+        "                importlib.import_module(node.module)\n"
+        "\n"
+        "forbidden = {\n"
+        "    'plugin.scripting.trusted_rpc',\n"
+        "    'plugin.scripting.venv_worker',\n"
+        "    'plugin.framework.config',\n"
+        "    'plugin.framework.config_schema',\n"
+        "    'plugin.framework.worker_pool',\n"
+        "    'plugin.framework.thread_guard',\n"
+        "    'plugin.scripting.sandbox',\n"
+        "    'uno',\n"
+        "    'unohelper',\n"
+        "}\n"
+        "loaded_forbidden = [\n"
+        "    m for m in sys.modules\n"
+        "    if m in forbidden or m == 'plugin.writer' or m.startswith('plugin.writer.')\n"
+        "]\n"
+        "if loaded_forbidden:\n"
+        "    sys.stderr.write(f'Forbidden modules loaded: {sorted(loaded_forbidden)}\\n')\n"
+        "    sys.exit(1)\n"
+        "sys.exit(0)\n"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, "-c", child_code],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 0, f"Child failed (stdout={proc.stdout}, stderr={proc.stderr})"
+

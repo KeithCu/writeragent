@@ -337,6 +337,29 @@ def test_start_native_script_run_prepare_timeout_does_not_release():
     assert seen and seen[0]["ok"] is False
 
 
+def test_start_native_script_run_nondict_prepare_delivers_error():
+    ctx = MagicMock()
+    doc = MagicMock()
+    seen = []
+
+    def _inline(func, *args, **kwargs):
+        func()
+        return MagicMock()
+
+    with (
+        _deliver_posted_native_run(),
+        patch.object(ui, "run_in_background", side_effect=_inline),
+        patch("plugin.framework.queue_executor.execute_on_main_thread", return_value=None),
+        patch("plugin.scripting.session_manager.release_script_document") as mock_release,
+    ):
+        ui.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
+
+    mock_release.assert_not_called()
+    assert len(seen) == 1
+    assert seen[0]["ok"] is False
+    assert seen[0]["message"] == "Script preparation failed."
+
+
 
 def test_report_run_outcome_shows_stdout_alongside_result():
     """A returned value is inserted; printed text still belongs in the Output box."""

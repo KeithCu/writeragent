@@ -299,3 +299,16 @@ def test_proofreader_ignore_stable_rule(prefix: str, ignored_code: str, other_co
     assert dp._persist_to_udprops.called
 
 
+def test_rule_prefixes_come_from_framework_leaf() -> None:
+    import plugin.framework.grammar_rule_ids as ids
+    import plugin.writer.locale.grammar_ignore_rules as gir
+
+    assert ids.LANGUAGETOOL_RULE_PREFIX is gir.LANGUAGETOOL_RULE_PREFIX
+    assert ids.HARPER_RULE_PREFIX is gir.HARPER_RULE_PREFIX
+    assert ids.WA_G_RULE_PREFIX is gir.WA_G_RULE_PREFIX
+    assert ids.STABLE_RULE_PREFIXES is gir.STABLE_RULE_PREFIXES
+    assert ids.make_rule_identifier is gir.make_rule_identifier
+    assert ids.parse_prefixed_rule_identifier is gir.parse_prefixed_rule_identifier
+    assert ids.bare_code_for_persistence is gir.bare_code_for_persistence
+
+

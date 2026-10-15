@@ -331,7 +331,7 @@ def test_launch_monaco_editor_spawns_when_not_running():
                     )
 
     assert ok is True
-    mock_bg.assert_called_once_with(launch_mod.warm_venv_worker, ctx, name="warm-venv-worker", dedicated=True)
+    mock_bg.assert_called_once_with(launch_mod.warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
     assert pe.run_script_doc is mock_doc
     session.start_reader.assert_called_once()
     sent = session.send.call_args[0][0]

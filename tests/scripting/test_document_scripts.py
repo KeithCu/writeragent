@@ -1343,7 +1343,7 @@ def test_picker_delete_missing_script_returns_error():
 
 def test_enumerate_calc_documents_stops_on_stuck_enum():
     from plugin.scripting.document_scripts import _enumerate_calc_documents
-    from plugin.scripting.session_manager import _ENUM_CAP
+    from plugin.framework.uno_context import _ENUM_CAP
 
     enum = MagicMock()
     enum.hasMoreElements.return_value = True

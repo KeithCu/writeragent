@@ -82,6 +82,21 @@ class TestPythonRunnerFormatting:
         expected = '<table border="1"><thead><tr><th>Name</th><th>Age</th></tr></thead><tbody><tr><td>Alice</td><td>30</td></tr><tr><td>Bob</td><td>25</td></tr></tbody></table>'
         assert (format_result_for_writer(data)) == (expected)
 
+    def test_format_list_of_dicts_non_string_keys(self):
+        data = [{1: "a", 2: "b"}, {1: "c", "3": "d"}]
+        result = format_result_for_writer(data)
+        assert "<th>1</th><th>2</th><th>3</th>" in result
+        assert "<td>a</td><td>b</td><td></td>" in result
+        assert "<td>c</td><td></td><td>d</td>" in result
+
+    def test_format_list_of_dicts_matching_string_key_on_later_row(self):
+        data = [{1: "a"}, {"1": "b"}]
+        result = format_result_for_writer(data)
+        assert "<th>1</th>" in result
+        assert result.count("<th>") == 1
+        assert "<td>a</td>" in result
+        assert "<td>b</td>" in result
+
     def test_format_list_of_dicts_union_of_keys(self):
         # Union of keys in first-seen order across dict rows
         data = [{"a": 1, "b": 2}, {"b": 3, "c": 4}, {"d": 5}]

@@ -233,6 +233,12 @@ def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run,
     assert second_result["full_text"] == "text-Img2"
     assert insert.call_args_list[0].kwargs["params"]["image_name"] == "Img1"
     assert insert.call_args_list[1].kwargs["params"]["image_name"] == "Img2"
+    assert "results" not in result
+    assert len(result["individual_results"]) == 2
+    assert result["individual_results"][0]["html"] == "<p>Img1</p>"
+    assert result["individual_results"][1]["html"] == "<p>Img2</p>"
+    assert "images_processed" not in result["individual_results"][0]
+    assert "images_processed" not in result["individual_results"][1]
 
 
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
@@ -296,6 +302,11 @@ def test_run_and_insert_vision_for_selection_image_name_short_circuits(mock_pair
     assert mock_run.call_args.kwargs["params"]["image_name"] == "Photo1"
     insert.assert_called_once()
     assert result["images_processed"] == 1
+    assert "results" not in result
+    assert len(result["individual_results"]) == 1
+    assert result["individual_results"][0]["html"] == "<p>only</p>"
+    assert result["individual_results"][0]["full_text"] == "only"
+    assert "images_processed" not in result["individual_results"][0]
 
 
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))

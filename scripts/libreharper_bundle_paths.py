@@ -49,6 +49,7 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/constants.py",
     "plugin/framework/deal_shim.py",
     "plugin/framework/errors.py",
+    "plugin/framework/grammar_rule_ids.py",
     "plugin/framework/json_utils.py",
     "plugin/framework/i18n.py",
     "plugin/framework/event_bus.py",

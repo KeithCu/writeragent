@@ -50,7 +50,14 @@ def _probe_ready(python_exe: str) -> bool:
 
     probe, err = probe_vision_packages(python_exe, timeout=float(VISION_PROBE_TIMEOUT_SEC))
     if err:
+        # What was wrong: a timeout cached ready=False under (exe, mtime).
+        # How: probe_vision_packages returns ({}, hint) and vision_ocr_stack_ready({})
+        # is False, and that False was stored until the interpreter file changed.
+        # Why: err means the probe did not run. Do not cache it. err is None
+        # for a finished probe, including a real not-ready stack, and that
+        # result stays cached.
         log.debug("vision_packages_probe_ready: probe note: %s", err)
+        return False
     ready = vision_ocr_stack_ready(probe)
     _probe_cache[cache_key] = ready
     return ready
