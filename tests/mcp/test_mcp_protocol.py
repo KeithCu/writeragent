@@ -34,6 +34,22 @@ def test_attach_document_echo_shape_and_absence():
     assert r3["document"]["name"] == "keep"
 
 
+def test_document_echo_payload_logs_and_returns_none(caplog):
+    import logging
+    from plugin.mcp.mcp_protocol import _document_echo_payload
+
+    class _DocWithFailingURL:
+        @property
+        def URL(self):
+            raise RuntimeError("simulated document URL access failure")
+
+    caplog.set_level(logging.ERROR, logger="writeragent.mcp.protocol")
+    assert _document_echo_payload(_DocWithFailingURL()) is None
+    record = next(r for r in caplog.records if "MCP document echo failed" in r.message)
+    assert record.exc_info is not None
+    assert "simulated document URL access failure" in str(record.exc_info[1])
+
+
 def test_long_running_precomputes_echo_without_post_execute_doc_access():
     """Echo is captured once inside _prepare_mcp_execution (main-thread marshal); the worker path must not
     call _attach_document_echo or re-read the proxied doc after the tool body runs."""
@@ -417,6 +433,31 @@ def test_notification_batch_includes_session_id(monkeypatch):
     mcp._handle_mcp(batch, handler)
     handler.send_response.assert_called_with(202)
     assert ("Mcp-Session-Id", "sess-batch") in sent
+
+
+def test_stale_batch_containing_initialize_is_404(monkeypatch):
+    import plugin.mcp.mcp_protocol as proto
+
+    monkeypatch.setattr(proto, "_mcp_session_id", "live-session")
+
+    class _DeadHeaders:
+        def get(self, name, default=None):
+            if name == "Mcp-Session-Id":
+                return "dead-session"
+            return default
+
+    handler = MagicMock()
+    handler.headers = _DeadHeaders()
+    services = MagicMock()
+    mcp = MCPProtocolHandler(services)
+    batch = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}}},
+        {"jsonrpc": "2.0", "id": 2, "method": "ping"},
+    ]
+    with patch.object(MCPProtocolHandler, "_process_jsonrpc") as mock_process:
+        mcp._handle_mcp(batch, handler)
+        mock_process.assert_not_called()
+    handler.send_response.assert_called_with(404)
 
 
 def test_handle_debug_post_blocks_tunneled_request(monkeypatch):
