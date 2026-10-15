@@ -16,7 +16,12 @@ import pytest
 
 from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
 from plugin.scripting.payload_codec import host_unpack_data
-from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code, serialize_result
+from plugin.scripting.venv.venv_sandbox import (
+    clear_all_sandbox_sessions,
+    reset_sandbox_session,
+    run_sandboxed_code,
+    serialize_result,
+)
 
 
 @pytest.mark.parametrize(
@@ -413,4 +418,290 @@ def test_capture_closes_figures_when_figure_lookup_raises(monkeypatch: pytest.Mo
     with pytest.raises(RuntimeError, match="backend gone"):
         vs._capture_open_figures_payload()
     assert closed == ["all"]
+
+
+def test_unpickleable_init_result_closes_open_figures() -> None:
+    pytest.importorskip("matplotlib")
+    import matplotlib.pyplot as plt
+
+    init_script = (
+        "import matplotlib\n"
+        "matplotlib.use('Agg')\n"
+        "import matplotlib.pyplot as plt\n"
+        "plt.plot([1, 2, 3])\n"
+        "class Box:\n"
+        "    pass\n"
+        "Box()\n"
+    )
+    try:
+        res = run_sandboxed_code(
+            "result = 5",
+            session_id=None,
+            init_script=init_script,
+            init_session_id="isolated:fig-close:init",
+            init_script_hash="h-fig-close",
+        )
+        assert res["status"] == "ok"
+        assert res["result"] == 5
+    finally:
+        plt.close("all")
+        clear_all_sandbox_sessions()
+
+
+def test_init_executor_omits_cell_bindings() -> None:
+    from plugin.scripting.venv import venv_sandbox as vs
+
+    try:
+        res = run_sandboxed_code(
+            "result = 1",
+            data=None,
+            bindings={"scoped_dir": "/tmp/wa-init-ns"},
+            session_id="calc:init-namespace",
+            init_script="HELPER = 1",
+            init_session_id="calc:init-namespace:init",
+            init_script_hash="ns",
+        )
+        assert res["status"] == "ok"
+        init_state = vs._SESSION_EXECUTORS["calc:init-namespace:init"].state
+        assert init_state.get("HELPER") == 1
+        for name in (
+            "data",
+            "ranges",
+            "xl",
+            "scoped_dir",
+            "session_duckdb",
+            "run_sql",
+            "invalidate_session_tables",
+        ):
+            assert name not in init_state
+    finally:
+        clear_all_sandbox_sessions()
+
+
+def test_shared_init_import_session_duckdb_shares_catalog() -> None:
+    pytest.importorskip("duckdb")
+    from plugin.framework.uno_bootstrap import register_alias_importer
+
+    register_alias_importer()
+    init_script = (
+        "from writeragent.scripting.duckdb_sql import session_duckdb\n"
+        "session_duckdb().execute('CREATE TABLE init_marker AS SELECT 11 AS n')\n"
+        "HELPER = 3\n"
+    )
+    sid = "calc:init-duck"
+    init_sid = f"{sid}:init"
+    try:
+        r1 = run_sandboxed_code(
+            "result = HELPER",
+            session_id=sid,
+            init_script=init_script,
+            init_session_id=init_sid,
+            init_script_hash="h",
+        )
+        assert r1["status"] == "ok"
+        assert r1["result"] == 3
+
+        r2 = run_sandboxed_code(
+            "result = session_duckdb().execute('SELECT n FROM init_marker').fetchone()[0]",
+            session_id=sid,
+            init_script=init_script,
+            init_session_id=init_sid,
+            init_script_hash="h",
+        )
+        assert r2["status"] == "ok"
+        assert r2["result"] == 11
+    finally:
+        clear_all_sandbox_sessions()
+
+
+def test_isolated_init_import_session_duckdb_does_not_share_catalog() -> None:
+    pytest.importorskip("duckdb")
+    from plugin.framework.uno_bootstrap import register_alias_importer
+
+    register_alias_importer()
+    init_script = (
+        "from writeragent.scripting.duckdb_sql import session_duckdb\n"
+        "session_duckdb().execute('CREATE TABLE init_marker AS SELECT 11 AS n')\n"
+        "HELPER = 3\n"
+    )
+    try:
+        r1 = run_sandboxed_code(
+            "result = HELPER",
+            session_id=None,
+            init_script=init_script,
+            init_session_id="isolated:init-duck:init",
+            init_script_hash="h2",
+        )
+        assert r1["status"] == "ok"
+        assert r1["result"] == 3
+
+        r2 = run_sandboxed_code(
+            "result = session_duckdb().execute('SELECT n FROM init_marker').fetchone()[0]",
+            session_id=None,
+            init_script=init_script,
+            init_session_id="isolated:init-duck:init",
+            init_script_hash="h2",
+        )
+        assert r2["status"] == "error"
+        assert "init_marker" in str(r2.get("message", ""))
+    finally:
+        clear_all_sandbox_sessions()
+
+
+def test_init_result_lambda_is_not_seeded() -> None:
+    from plugin.scripting.venv.venv_sandbox import _new_executor, _seed_executor_from_init
+
+    init_script = "def helper():\n    return 4\nresult = lambda: 99\n"
+    init_sid = "isolated:skip-result:init"
+    try:
+        r1 = run_sandboxed_code(
+            "result = helper()",
+            session_id=None,
+            init_script=init_script,
+            init_session_id=init_sid,
+            init_script_hash="s",
+        )
+        assert r1["status"] == "ok"
+        assert r1["result"] == 4
+
+        exe = _new_executor(5)
+        _seed_executor_from_init(exe, init_sid, copy_values=True)
+        assert exe.state["helper"]() == 4
+        assert "result" not in exe.state
+        assert "result" not in exe.custom_tools
+        assert "helper" in exe.custom_tools
+
+        check_code = (
+            "try:\n"
+            "    result()\n"
+            "    result = 'present'\n"
+            "except (NameError, Exception):\n"
+            "    result = 'absent'\n"
+        )
+        r2 = run_sandboxed_code(
+            check_code,
+            session_id=None,
+            init_script=init_script,
+            init_session_id=init_sid,
+            init_script_hash="s",
+        )
+        assert r2["status"] == "ok"
+        assert r2["result"] == "absent"
+    finally:
+        clear_all_sandbox_sessions()
+
+
+def test_send_cell_owned_rejects_unknown_name() -> None:
+    from plugin.scripting.venv.venv_sandbox import (
+        _INIT_STATE_SKIP_KEYS,
+        _inject_data,
+        _inject_excel_xl,
+        _inject_session_duckdb,
+        _new_executor,
+        _send_cell_owned,
+    )
+
+    try:
+        exe = _new_executor(5)
+        with pytest.raises(RuntimeError, match="not_a_cell_name"):
+            _send_cell_owned(exe, {"not_a_cell_name": 1})
+        assert "not_a_cell_name" not in exe.state
+
+        _send_cell_owned(exe, {"data": None, "ranges": []})
+        assert exe.state.get("data") is None
+        assert exe.state.get("ranges") == []
+
+        _inject_data(exe, None)
+        _inject_excel_xl(exe, ())
+        _inject_session_duckdb(exe)
+
+        for name in ("data", "ranges", "xl"):
+            assert name in _INIT_STATE_SKIP_KEYS
+            assert name in exe.state
+    finally:
+        clear_all_sandbox_sessions()
+
+
+def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
+    from plugin.scripting.venv import venv_sandbox as vs
+
+    try:
+        for i in range(33):
+            r = run_sandboxed_code(
+                "result = 1",
+                session_id=None,
+                init_script=f"MARKER = {i}",
+                init_session_id=f"isolated:{i}:init",
+                init_script_hash=f"h{i}",
+                timeout_sec=8,
+            )
+            assert r["status"] == "ok"
+
+        assert "isolated:0:init" not in vs._SESSION_EXECUTORS
+        assert "isolated:0:init" not in vs._INIT_SCRIPT_HASH
+        assert "isolated:0:init" not in vs._ISOLATED_INIT_LRU
+
+        assert "isolated:32:init" in vs._SESSION_EXECUTORS
+        assert "isolated:32:init" in vs._INIT_SCRIPT_HASH
+        assert "isolated:32:init" in vs._ISOLATED_INIT_LRU
+
+        assert len(vs._ISOLATED_INIT_LRU) == 32
+
+        # Re-run i == 1 with the same script and hash "h1" (early return, LRU refresh)
+        r_refresh = run_sandboxed_code(
+            "result = 1",
+            session_id=None,
+            init_script="MARKER = 1",
+            init_session_id="isolated:1:init",
+            init_script_hash="h1",
+            timeout_sec=8,
+        )
+        assert r_refresh["status"] == "ok"
+
+        # Then one more id isolated:33:init with MARKER = 33 and hash "h33"
+        r_33 = run_sandboxed_code(
+            "result = 1",
+            session_id=None,
+            init_script="MARKER = 33",
+            init_session_id="isolated:33:init",
+            init_script_hash="h33",
+            timeout_sec=8,
+        )
+        assert r_33["status"] == "ok"
+
+        assert "isolated:1:init" in vs._SESSION_EXECUTORS
+        assert "isolated:1:init" in vs._ISOLATED_INIT_LRU
+
+        assert "isolated:2:init" not in vs._SESSION_EXECUTORS
+        assert "isolated:2:init" not in vs._INIT_SCRIPT_HASH
+        assert "isolated:2:init" not in vs._ISOLATED_INIT_LRU
+
+        assert len(vs._ISOLATED_INIT_LRU) == 32
+    finally:
+        clear_all_sandbox_sessions()
+
+
+def test_isolated_init_lru_pops_non_isolated_id() -> None:
+    from plugin.scripting.venv import venv_sandbox as vs
+
+    try:
+        clear_all_sandbox_sessions()
+        vs._SESSION_EXECUTORS["weird:1"] = vs._new_executor(5)
+        vs._SESSION_EXECUTORS["weird:1:init"] = vs._new_executor(5)
+        vs._INIT_SCRIPT_HASH["weird:1:init"] = "h"
+        vs._CELL_SESSION_INIT_DIGEST["weird:1"] = "h"
+
+        vs._record_isolated_init_access_unlocked("weird:1:init")
+        for i in range(32):
+            vs._record_isolated_init_access_unlocked(f"isolated:lru{i}:init")
+
+        assert "weird:1:init" not in vs._SESSION_EXECUTORS
+        assert "weird:1" not in vs._SESSION_EXECUTORS
+        assert "weird:1:init" not in vs._INIT_SCRIPT_HASH
+        assert "weird:1:init" not in vs._ISOLATED_INIT_LRU
+        assert "weird:1" not in vs._CELL_SESSION_INIT_DIGEST
+        assert len(vs._ISOLATED_INIT_LRU) == 32
+    finally:
+        clear_all_sandbox_sessions()
+
 

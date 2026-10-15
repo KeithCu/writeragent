@@ -215,6 +215,7 @@ def test_module_binds_name_ignores_nested_scopes():
     # The iter runs on the module state. The executor rejects := today;
     # the visitor still has to see it.
     assert _module_binds_name("[x for x in (result := 5)]", "result")
+    assert not _module_binds_name("a: [result := int]\npass", "result")
 
 
 def test_shared_session_multiple_explicit_result_assignments():

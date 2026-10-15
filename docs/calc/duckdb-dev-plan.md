@@ -399,7 +399,7 @@ Registered tables are **snapshots**, like other shared-kernel globals. F9 / part
 | `invalidate_session_tables(["sales"])` | drops that name only. For a flat file, also drops the stem view that selects from that table (ledger for ledger.csv). A user table that merely shares the stem is not dropped. |
 | Isolated `=PY()` / chat tool | No cache. Each call is a new connection. |
 
-Authoring: pass upstream ranges as `data` so Calc dirties the cell that re-registers; keep one-off `CREATE`/`register` in the init script or a setup cell. Do not assume row-major order.
+Authoring: pass upstream ranges as data so Calc dirties the cell that re-registers. A one-off CREATE or register in the init script imports session_duckdb from writeragent.scripting.duckdb_sql. The init executor does not inject that name. On a shared-kernel execute the sandbox session is already the workbook id, so the import and later cells share the catalog. Isolated init does not. A setup cell can call the injected session_duckdb() instead. Do not assume row-major order.
 
 ---
 

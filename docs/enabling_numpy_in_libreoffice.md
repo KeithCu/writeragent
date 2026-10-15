@@ -437,8 +437,11 @@ Workbook initialization scripts can be defined via **Edit Initialization Script�
 
 In the worker sandbox:
 - Functions and variables defined in the init script are executed in the companion `calc:…:init` session and snapshot into cell executors.
-- A class statement, and any last value that cannot cross the pickle boundary (a helper instance, a file, a lock), does not fail the init script or clear the init session. The names stay and are seeded into cells. The init result itself is still discarded. A cell whose value is a class, including `result = SomeClass`, returns `None`, same as a `def`. A cell whose value is an instance still errors, and that cell's prints are kept.
-- Custom functions (`def double(x): ...`) are registered into the executor's `custom_tools` dictionary so that safe sandbox evaluation permits them without raising `Forbidden function evaluation`.
+- The init executor does not receive data, ranges, xl, host bindings, scoped_dir, or the injected names session_duckdb, run_sql, and invalidate_session_tables. Those are applied to the cell after the snapshot is copied. An init assignment to one of those names is not copied into the cell.
+- A shared-kernel init script that needs the workbook catalog imports session_duckdb from writeragent.scripting.duckdb_sql. The sandbox session is already the workbook id while init runs, so that call uses the same catalog as later cells. An isolated execute has no persistable session id, so a connection opened in init is not the cell's connection.
+- A class statement, and any last value that cannot cross the pickle boundary (a helper instance, a file, a lock), does not fail the init script or clear the init session. The names stay and are seeded into cells. The init result itself is still discarded. A cell whose value is a class, including `result = SomeClass`, returns `None`, same as a `def`. A cell whose value is an instance still errors, and that cell's prints are kept. If that discarded init value leaves a pyplot figure open, the figure is closed and the init session is kept. The next cell does not return that figure.
+- An open pyplot figure replaces a non-image cell result. result = 42 in a cell that also leaves a figure open returns the figure.
+- A def in the init script or a cell is stored on executor state, which is what the cell calls. After the script finishes, callables whose names are not cell-owned (data, ranges, xl, result, scoped_dir, session_duckdb, run_sql, invalidate_session_tables) are copied into custom_tools. Named libraries (wa.scripts / wa.doc) evaluate with a fresh state and that dict, so they can call those helpers. Those tools are not written back onto state.
 - When **Reset Python Session** is invoked, both the base session (`calc:…`) and the companion `:init` session are dropped in the worker process, and the initialization script is immediately re-executed and re-seeded so helpers remain available.
 
 Example helpers (no special `excel` module needed; use auto-imported `np`/`pd`/`st`/`plt`/`dt`/`xl` or explicit imports):
@@ -473,7 +476,7 @@ Deliberate accumulation (running totals, etc.) is fine — treat it as a choice,
 
 #### Session DuckDB (Phase D)
 
-In **Shared kernel**, `session_duckdb()` (injected; also `from writeragent.scripting.duckdb_sql import session_duckdb`) returns one in-memory DuckDB connection per workbook. `query_folder_sql` uses that connection when called from a `=PY()` / RPS cell so later cells can `SELECT` previously registered tables. Isolated mode and chat `query_folder_sql` still open-and-close a connection per request.
+In **Shared kernel**, `session_duckdb()` (injected; also `from writeragent.scripting.duckdb_sql import session_duckdb`) returns one in-memory DuckDB connection per workbook. Injection is the cell executor only. The init script uses from writeragent.scripting.duckdb_sql import session_duckdb, which sees this workbook catalog during a shared-kernel execute. Isolated init does not share that connection with the cell. `query_folder_sql` uses that connection when called from a `=PY()` / RPS cell so later cells can `SELECT` previously registered tables. Isolated mode and chat `query_folder_sql` still open-and-close a connection per request.
 
 Registered tables are snapshots: a cell that passes `data` and re-registers refreshes that name; a query-only cell does not. **Reset Python Session** or `invalidate_session_tables()` drops the catalog. Full staleness table: [calc/duckdb-dev-plan.md § Phase D](calc/duckdb-dev-plan.md#phase-d--shared-kernel-session-cache).
 
