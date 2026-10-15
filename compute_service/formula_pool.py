@@ -700,11 +700,10 @@ class FormulaProcessPool(BaseProcessPool):
 
     @staticmethod
     def _build_execute_payload(*, code: str, data: Any = None, data_json: bytes | None = None, session_id: str | None = None, mode: str = "isolated", init_script: str | None = None, req_id: str | None = None, wire: str = WIRE_JSON_FORWARD) -> dict[str, Any]:
-        # Unknown wire is rejected, not rewritten to json_forward. ``pickle``
-        # is not a second payload on this envelope. timeout_sec is not set
-        # here: _run_execution overwrites it with the remaining budget.
-        eff_wire = require_execute_wire(wire)
-        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "init_script": init_script, "wire": eff_wire}
+        # execute() already called require_execute_wire. Repeating it here only
+        # rejected direct callers. pickle is not a second payload. timeout_sec
+        # is set later by _run_execution from the remaining budget.
+        payload: dict[str, Any] = {"id": req_id, "code": code, "session_id": session_id, "mode": mode, "init_script": init_script, "wire": wire}
         blob = data_json
         if blob is None and data is not None:
             # Convenience for pool tests / in-process callers. The HTTP

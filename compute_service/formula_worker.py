@@ -26,7 +26,7 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.config import DEFAULT_SETTINGS, clamp_timeout_sec
 from compute_service.json_egress import normalize_execute_response
-from compute_service.json_forward import ExecuteRequestError, canonical_execute_mode, dumps_response, require_execute_wire, validate_execute_response, validate_session_id
+from compute_service.json_forward import dumps_response, validate_execute_response, validate_session_id
 from compute_service.worker_base import configure_compute_worker_env, run_compute_worker
 
 # Default math/OpenMP thread pools to 1 thread early before any heavy math imports.
@@ -108,17 +108,9 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         return _json_forward_envelope(err, req_id=req_id, session_reset=session_reset)
 
     session_id = req.get("session_id")
-    # Same mode rule as the HTTP handler. Missing is isolated; anything else
-    # is rejected, so a typo is not rewritten on one path only.
-    raw_mode = req.get("mode", None)
-    try:
-        mode = canonical_execute_mode(raw_mode)
-        raw_wire = req.get("wire")
-        if raw_wire is not None:
-            require_execute_wire(raw_wire)
-    except ExecuteRequestError as exc:
-        err = {"id": req_id, "status": "error", "code": "INVALID_REQUEST", "error": str(exc), "stdout": ""}
-        return _json_forward_envelope(err, req_id=req_id, session_reset=session_reset)
+    # Pool execute() already rejected a bad mode or wire. The stdio dict
+    # carries that canonical mode; checking again duplicated the gate.
+    mode = req.get("mode", "isolated")
     timeout_sec = req.get("timeout_sec")
     init_script = req.get("init_script")
 

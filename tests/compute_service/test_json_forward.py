@@ -733,18 +733,24 @@ class TestFormulaPoolWire:
     def test_pickle_wire_is_rejected_not_rewritten(self) -> None:
         """``wire=pickle`` used to host_pack the grid and run the cell.
 
-        Rewriting it to json_forward, or packing ``data`` as a second payload,
-        accepts a request the JSON wire does not.
+        execute() rejects it. The builder does not rewrite it or pack ``data``.
         """
         grid = [[float(r * 30 + c) for c in range(30)] for r in range(40)]
-        with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack:
-            with pytest.raises(ExecuteRequestError, match="wire"):
-                FormulaProcessPool._build_execute_payload(
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack:
+                res = pool.execute(
                     code="result = len(data)",
                     data=grid,
                     wire="pickle",
+                    req_id="pickle-wire",
                 )
-        assert mock_pack.call_count == 0
+            assert mock_pack.call_count == 0
+            assert res.get("status") == "error"
+            assert res.get("code") == "INVALID_REQUEST"
+            assert res.get("result") != 1200
+        finally:
+            pool.shutdown()
 
     def test_data_json_bytes_reach_worker_unchanged(self) -> None:
         blob = b'[[1, 2], [3, "caf\xc3\xa9"]]'
