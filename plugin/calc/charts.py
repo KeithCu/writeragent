@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import is_disposed_exception, is_real_disposal
 import uno
 
 
@@ -45,7 +45,13 @@ def supportsService(obj: Any, service_name: str) -> bool:
         return False
     try:
         return obj.supportsService(service_name)
-    except Exception:
+    except Exception as exc:
+        # Bugfix: a closed document raises DisposedException from supportsService, and this
+        # except turned that into a missing chart or an empty list.
+        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+        # Any other failure stays on the existing error path.
+        if is_real_disposal(exc):
+            raise
         return False
 
 
@@ -137,6 +143,12 @@ def _chart_document_from_host(host: Any) -> Any | None:
                         return comp
                 return ed
     except Exception as e:
+        # Bugfix: a closed document raises DisposedException from the chart host, and this
+        # except turned that into a missing chart.
+        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+        # Any other failure stays on the existing error path.
+        if is_real_disposal(e):
+            raise
         log.debug("_chart_document_from_host getEmbeddedObject failed: %s", e)
 
     # 2. Try Model/Component properties (Standard for Shapes)
@@ -147,7 +159,9 @@ def _chart_document_from_host(host: Any) -> Any | None:
         c = getattr(host, "Component", None)
         if c is not None:
             return c
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         pass
 
     # 3. Writer Fallback: If we have a Name, try to find it in the DrawPage
@@ -157,7 +171,9 @@ def _chart_document_from_host(host: Any) -> Any | None:
         if name and hasattr(host, "getAnchor"):  # Likely a Writer object
             # We'll just assume the caller handles the doc-level search if this fails.
             pass
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         pass
 
     return None
@@ -634,8 +650,13 @@ def _resolve_chart(doc: Any, chart_name: str, sheet_name: str | None = None) -> 
                     if is_disposed_exception(exc):
                         continue
                     raise
-        except Exception:
-            pass
+        except Exception as exc:
+            # Bugfix: a closed document raises DisposedException from the Writer draw page, and this
+            # except turned that into a missing chart.
+            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+            # Any other failure stays on the existing error path.
+            if is_real_disposal(exc):
+                raise
     elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
         # Iterate all pages and shapes
         for i in range(doc.getDrawPages().getCount()):
@@ -701,8 +722,9 @@ class ListCharts(ToolBaseDummy):
                         if is_disposed_exception(exc):
                             continue
                         raise
-            except Exception:
-                pass
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
 
         elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
             for i in range(doc.getDrawPages().getCount()):
@@ -730,7 +752,13 @@ class ListCharts(ToolBaseDummy):
             if chart_doc:
                 entry["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
                 entry["diagram_type"] = chart_doc.getDiagram().getDiagramType()
-        except Exception:
+        except Exception as exc:
+            # Bugfix: a closed document raises DisposedException from the chart summary, and this
+            # except turned that into a chart list entry.
+            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+            # Any other failure stays on the existing error path.
+            if is_real_disposal(exc):
+                raise
             pass
         return entry
 
@@ -759,7 +787,13 @@ class GetChartInfo(ToolBaseDummy):
             bridge = CalcBridge(doc)
             try:
                 info["data_ranges"] = [bridge._range_to_str(r) for r in chart_obj.getRanges()]
-            except Exception:
+            except Exception as exc:
+                # Bugfix: a closed document raises DisposedException from the chart info read, and this
+                # except turned that into a partial chart.
+                # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+                # Any other failure stays on the existing error path.
+                if is_real_disposal(exc):
+                    raise
                 info["data_ranges"] = []
 
         try:
@@ -781,17 +815,23 @@ class GetChartInfo(ToolBaseDummy):
                             xs = _axis_title_shape_string(diagram.getXAxisTitle(), None)
                             if xs is not None:
                                 info["x_axis_title"] = xs
-                        except Exception:
+                        except Exception as exc:
+                            if is_real_disposal(exc):
+                                raise
                             pass
                     if hasattr(diagram, "HasYAxisTitle") and diagram.HasYAxisTitle:
                         try:
                             ys = _axis_title_shape_string(diagram.getYAxisTitle(), None)
                             if ys is not None:
                                 info["y_axis_title"] = ys
-                        except Exception:
+                        except Exception as exc:
+                            if is_real_disposal(exc):
+                                raise
                             pass
 
         except Exception as e:
+            if is_real_disposal(e):
+                raise
             log.debug("get_chart_info error: %s", e)
 
         return info
@@ -879,6 +919,12 @@ class UpsertChart(ToolBaseDummy):
                     return self._create_draw_chart(ctx, rect, chart_service, **kwargs)
                 return self._tool_error("Unsupported document type for chart creation.")
             except Exception as e:
+                # Bugfix: a closed document raises DisposedException during chart create, and this
+                # except turned that into CHART_CREATE_ERROR.
+                # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+                # Any other failure stays on the existing error path.
+                if is_real_disposal(e):
+                    raise
                 msg = _format_chart_exception_msg(e)
                 log.exception("Chart creation failed")
                 return self._tool_error(f"Failed to create chart: {msg}", code="CHART_CREATE_ERROR")
@@ -904,6 +950,8 @@ class UpsertChart(ToolBaseDummy):
 
                 _apply_chart_styling(chart_doc, **kwargs)
             except Exception as e:
+                if is_real_disposal(e):
+                    raise
                 msg = _format_chart_exception_msg(e)
                 log.exception("Chart edit failed")
                 return self._tool_error(f"Failed to edit chart: {msg}", code="CHART_EDIT_ERROR")
@@ -922,7 +970,13 @@ class UpsertChart(ToolBaseDummy):
         if target_sheet_name:
             try:
                 sheet = bridge.get_sheet(target_sheet_name)
-            except Exception:
+            except Exception as exc:
+                # Bugfix: a closed document raises DisposedException from get_sheet, and this
+                # except turned that into a missing sheet.
+                # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+                # Any other failure stays on the existing error path.
+                if is_real_disposal(exc):
+                    raise
                 return self._tool_error(f"Sheet '{target_sheet_name}' not found in document.")
         else:
             sheet = bridge.get_active_sheet()
@@ -1008,11 +1062,19 @@ class UpsertChart(ToolBaseDummy):
                     cursor = text.createTextCursorByRange(text.getEnd())
             else:
                 cursor = text.createTextCursorByRange(text.getEnd())
-        except Exception:
+        except Exception as exc:
+            # Bugfix: a closed document raises DisposedException while creating a Writer chart, and this
+            # except turned that into a chart configure or insert error.
+            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+            # Any other failure stays on the existing error path.
+            if is_real_disposal(exc):
+                raise
             cursor = text.createTextCursor()
             try:
                 cursor.gotoEnd(False)
-            except Exception:
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
                 pass
 
         # 2. Create and configure TextEmbeddedObject
@@ -1042,6 +1104,8 @@ class UpsertChart(ToolBaseDummy):
 
             log.info("Created and configured TextEmbeddedObject with CLSID: %s", chart_obj.CLSID)
         except Exception as e:
+            if is_real_disposal(e):
+                raise
             log.debug("Creation/config failed: %s", e)
             return self._tool_error(f"Failed to configure chart object: {e}")
 
@@ -1058,6 +1122,8 @@ class UpsertChart(ToolBaseDummy):
             text.insertTextContent(cursor, chart_obj, False)
             log.info("Successfully inserted chart object into text.")
         except Exception as e:
+            if is_real_disposal(e):
+                raise
             # Fallback 1: Try AT_PARAGRAPH
             log.debug("First insertion attempt failed (%s). Trying AT_PARAGRAPH anchor...", e)
             try:
@@ -1066,7 +1132,9 @@ class UpsertChart(ToolBaseDummy):
                 chart_obj.AnchorType = AT_PARAGRAPH
                 text.insertTextContent(cursor, chart_obj, False)
                 log.info("Successfully inserted chart object with AT_PARAGRAPH.")
-            except Exception:
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
                 # Fallback 2: Try CHART_CLSID_DRAW_OLE
                 log.debug("Second insertion attempt failed. Trying DRAW_OLE CLSID...")
                 try:
@@ -1074,6 +1142,8 @@ class UpsertChart(ToolBaseDummy):
                     text.insertTextContent(cursor, chart_obj, False)
                     log.info("Successfully inserted chart object with DRAW_OLE CLSID.")
                 except Exception as e3:
+                    if is_real_disposal(e3):
+                        raise
                     log.exception("All insertion attempts failed for chart object")
                     return self._tool_error(f"Failed to insert chart into document: {e3}")
 
@@ -1236,8 +1306,9 @@ class DeleteChart(ToolBaseDummy):
                     if shape and shape.Name == chart_name:
                         page.remove(shape)
                         return {"status": "ok", "deleted": chart_name}
-            except Exception:
-                pass
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
             return self._tool_error(f"Chart '{chart_name}' not found.")
         else:
             # Draw/Impress: find shape and remove from page

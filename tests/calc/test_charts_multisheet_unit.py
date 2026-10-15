@@ -10,7 +10,13 @@
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pytest
+
 from plugin.calc.charts import (
+    GetChartInfo,
+    ManageCharts,
+    UpsertChart,
     _format_chart_exception_msg,
     _get_all_calc_chart_names,
     _find_calc_chart_and_sheet,
@@ -375,3 +381,92 @@ def test_find_calc_chart_honors_sheet_name():
 
     chart_obj, sheet = _find_calc_chart_and_sheet(doc, "Chart_0", "Data")
     assert sheet is sheet_data
+
+
+class DisposedException(Exception):
+    pass
+
+
+class RuntimeException(Exception):
+    pass
+
+
+def test_calc_chart_create_disposal_is_not_chart_create_error():
+    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+    bridge.get_sheet.side_effect = DisposedException("gone")
+    with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
+        with pytest.raises(DisposedException):
+            tool.execute(ctx, action="create", chart_type="bar", data_range="A1:B6", sheet="Missing")
+        charts.addNewByName.assert_not_called()
+
+        res = ManageCharts().execute_safe(ctx, action="create", chart_type="bar", data_range="A1:B6", sheet="Missing")
+        assert res["status"] == "error"
+        assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_calc_chart_create_missing_sheet_stays_not_found():
+    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+    bridge.get_sheet.side_effect = RuntimeException("missing")
+    with patch("plugin.calc.charts.CalcBridge", return_value=bridge):
+        res = tool.execute(ctx, action="create", chart_type="bar", data_range="A1:B6", sheet="Missing")
+        assert res["status"] == "error"
+        assert "not found" in res["message"]
+
+
+def test_calc_diagram_disposal_propagates_after_removing_chart():
+    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+    chart_doc.setDiagram.side_effect = DisposedException("gone")
+    with (
+        patch("plugin.calc.charts.CalcBridge", return_value=bridge),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
+        patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct),
+    ):
+        with pytest.raises(DisposedException):
+            tool.execute(ctx, action="create", chart_type="bar", data_range="A1:B6")
+        added = charts.addNewByName.call_args[0][0]
+        charts.removeByName.assert_called_once_with(added)
+
+        res = ManageCharts().execute_safe(ctx, action="create", chart_type="bar", data_range="A1:B6")
+        assert res["status"] == "error"
+        assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_get_chart_info_ranges_disposal_propagates():
+    chart_obj = MagicMock()
+    chart_obj.getRanges.side_effect = DisposedException("gone")
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.charts._resolve_chart", return_value=chart_obj):
+        with pytest.raises(DisposedException):
+            GetChartInfo().execute(ctx, name="Chart_1")
+
+    chart_obj.getRanges.side_effect = RuntimeException("ranges gone")
+    with (
+        patch("plugin.calc.charts._resolve_chart", return_value=chart_obj),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=None),
+    ):
+        res = GetChartInfo().execute(ctx, name="Chart_1")
+        assert res["status"] == "ok"
+        assert res["data_ranges"] == []
+
+
+def test_upsert_edit_disposal_is_not_chart_edit_error():
+    chart_obj = MagicMock()
+    chart_doc = MagicMock()
+    chart_doc.setDiagram.side_effect = DisposedException("gone")
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.charts._resolve_chart", return_value=chart_obj),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+    ):
+        with pytest.raises(DisposedException):
+            UpsertChart().execute(ctx, action="edit", name="Chart_1", chart_type="bar")
+
+    chart_doc.setDiagram.side_effect = RuntimeException("edit error")
+    with (
+        patch("plugin.calc.charts._resolve_chart", return_value=chart_obj),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+    ):
+        res = UpsertChart().execute(ctx, action="edit", name="Chart_1", chart_type="bar")
+        assert res["status"] == "error"
+        assert res.get("code") == "CHART_EDIT_ERROR"

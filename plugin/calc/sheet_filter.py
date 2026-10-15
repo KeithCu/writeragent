@@ -32,7 +32,7 @@ from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
 from plugin.calc.sheet_filter_criteria import FILTER_OPERATOR2_LABELS, filter_operator2_code_to_name, parse_sheet_filter_criterion
-from plugin.framework.errors import ToolExecutionError, UnoObjectError
+from plugin.framework.errors import ToolExecutionError, UnoObjectError, is_real_disposal
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -46,11 +46,19 @@ def _field_to_dict(ff: Any, idx: int, uno_mod: Any) -> dict[str, Any]:
         op = int(ff.Operator)
         out["operator"] = filter_operator2_code_to_name(op)
         out["operator_code"] = op
-    except Exception:
+    except Exception as exc:
+        # Bugfix: a closed document raises DisposedException from a filter field, and this
+        # except turned that into a partial filter read.
+        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+        # Any other failure stays on the existing error path.
+        if is_real_disposal(exc):
+            raise
         pass
     try:
         out["field"] = int(ff.Field)
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         pass
     try:
         cv = ff.Connection
@@ -61,9 +69,13 @@ def _field_to_dict(ff: Any, idx: int, uno_mod: Any) -> dict[str, Any]:
                 out["connection"] = "AND"
             else:
                 out["connection"] = "OR" if int(cv) == 1 else "AND"
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             out["connection"] = "OR" if int(cv) == 1 else "AND"
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         out["connection"] = "AND"
     try:
         if ff.IsNumeric:
@@ -72,7 +84,9 @@ def _field_to_dict(ff: Any, idx: int, uno_mod: Any) -> dict[str, Any]:
         else:
             out["is_numeric"] = False
             out["value"] = ff.StringValue
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         pass
     return out
 
@@ -177,6 +191,12 @@ class ApplySheetFilter(ToolCalcSheetBase):
         except UnoObjectError:
             raise
         except Exception as e:
+            # Bugfix: a closed document raises DisposedException from the sheet filter, and this
+            # except turned that into ToolExecutionError.
+            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+            # Any other failure stays on the existing error path.
+            if is_real_disposal(e):
+                raise
             log.exception("apply_sheet_filter failed on %s", range_name)
             raise ToolExecutionError(str(e)) from e
 
@@ -219,6 +239,8 @@ class ClearSheetFilter(ToolCalcSheetBase):
         except UnoObjectError:
             raise
         except Exception as e:
+            if is_real_disposal(e):
+                raise
             log.exception("clear_sheet_filter failed on %s", range_name)
             raise ToolExecutionError(str(e)) from e
 
@@ -256,12 +278,16 @@ class GetSheetFilter(ToolCalcSheetBase):
             if ps is not None:
                 try:
                     ch = bool(ps.getPropertyValue("ContainsHeader"))
-                except Exception:
+                except Exception as exc:
+                    if is_real_disposal(exc):
+                        raise
                     pass
 
             return {"status": "ok", "range": range_name, "has_header": ch, "criteria": crit, "count": len(crit)}
         except UnoObjectError:
             raise
         except Exception as e:
+            if is_real_disposal(e):
+                raise
             log.exception("get_sheet_filter failed on %s", range_name)
             raise ToolExecutionError(str(e)) from e

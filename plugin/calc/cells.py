@@ -28,7 +28,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception
+from plugin.framework.errors import ToolExecutionError, is_disposed_exception, is_real_disposal
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -194,6 +194,12 @@ def _mutate_ranges(
             return {"status": "ok", "message": single_result}
         return {"status": "ok", "message": done_message}
     except Exception as exc:
+        # Bugfix: a closed document raises DisposedException during a range mutation, and this
+        # except turned that into a tool error.
+        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+        # Any other failure stays on the existing error path.
+        if is_real_disposal(exc):
+            raise
         undone = False
         if group is not None and getattr(group, "entered", False):
             undone = _undo_titled_group(doc, undo_title)
@@ -1047,4 +1053,10 @@ class DeleteStructure(ToolBase):
             result = manipulator.delete_structure(structure_type, start, count=count)
             return {"status": "ok", "message": result}
         except Exception as e:
+            # Bugfix: a closed document raises DisposedException from delete_structure, and this
+            # except turned that into a tool error.
+            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+            # Any other failure stays on the existing error path.
+            if is_real_disposal(e):
+                raise
             return self._tool_error(str(e))
