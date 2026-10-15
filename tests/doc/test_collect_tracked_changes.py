@@ -7,6 +7,7 @@ with their text, so a reader can tell new-vs-old and that changes await review. 
 required (drives the portion walk with light fakes). Inline live behavior is verified separately."""
 from unittest.mock import MagicMock
 
+import pytest
 
 from plugin.doc.text_helpers import collect_tracked_changes
 
@@ -94,3 +95,42 @@ def test_only_deletion():
 
 def test_mock_range_short_circuits_to_empty():
     assert collect_tracked_changes(MagicMock()) == []
+
+
+class _Table:
+    def __init__(self, cell):
+        self._cell = cell
+
+    def supportsService(self, name):
+        return name == "com.sun.star.text.TextTable"
+
+    def getCellNames(self):
+        return ("A1",)
+
+    def getCellByName(self, name):
+        assert name == "A1"
+        return self._cell
+
+    def createEnumeration(self):
+        raise RuntimeError("table is not portions")
+
+
+def test_table_cell_tracked_change_is_listed():
+    para = _Para([_ins_open(), _portion("Text", s="na celula"), _ins_open()])
+    cell = _Range([para])
+    out = collect_tracked_changes(_Range([_Table(cell)]))
+    assert out == [{"type": "insertion", "text": "na celula"}]
+
+
+def test_collect_tracked_changes_propagates_disposal():
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    class _Dead(object):
+        def createEnumeration(self):
+            raise DisposedException("closed")
+
+    with pytest.raises(DocumentDisposedError):
+        collect_tracked_changes(_Dead())

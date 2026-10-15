@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any, Iterator, Literal, overload
 from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_linebreaks, with_view_cursor_left_body_locked
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import uno_same
+from plugin.framework.worker_pool import run_in_background
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -35,6 +36,8 @@ log = logging.getLogger("writeragent.writer")
 MAX_SEARCH_REPLACEMENTS = 200
 DEFAULT_SEARCH_RESULTS = 20
 MAX_SEARCH_HITS = 10000
+_SHAPE_REGEX_TIMEOUT_SEC = 0.25
+_shape_regex_inflight: Any = None
 
 # Non-breaking / exotic spaces -> ASCII space. Length-preserving (each maps to a
 # single BMP char) so character offsets into the document text stay valid. NBSP
@@ -68,11 +71,10 @@ def find_next_after_match(doc: Any, found: Any, sd: Any) -> Any:
     A zero-length hit does not advance getEnd(), so returning None is what stops
     the edit-path loops at one empty range.
     """
-    try:
-        if found.getString() == "":
-            return None
-    except Exception:
-        pass
+    # A getString failure means the range is dead. Swallowing it only delayed the
+    # same error until findNext.
+    if found.getString() == "":
+        return None
     return doc.findNext(found.getEnd(), sd)
 
 
@@ -202,56 +204,51 @@ def find_text_ranges(
     FOLLOW-UP: seeds ``findNext`` from body text but measures each hit with
     ``found.getText()``; ``start``/``end`` are offsets within that nested text
     object, not guaranteed global document indices (tables, frames, etc.).
-    ``body_only=True`` drops other ``XText`` objects. ``limit is None`` means
+    ``body_only=True`` drops other ``XText`` objects. A failure (closed document
+    or UNO error) propagates. It is not an empty hit list. ``limit is None`` means
     no cap while ``limit <= 0`` returns no rows.
     """
     if limit is not None:
         if type(limit) is not int or limit <= 0:
             return []
-    try:
-        sd = model.createSearchDescriptor()
-        sd.SearchString = search
-        sd.SearchRegularExpression = False
-        sd.SearchCaseSensitive = case_sensitive
+    sd = model.createSearchDescriptor()
+    sd.SearchString = search
+    sd.SearchRegularExpression = False
+    sd.SearchCaseSensitive = case_sensitive
 
-        text = model.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoStart(False)
-        if start > 0:
-            _GO_RIGHT_CHUNK = 8192
-            remaining = start
-            while remaining > 0:
-                n = min(remaining, _GO_RIGHT_CHUNK)
-                if cursor.goRight(n, False) is False:
-                    break
-                remaining -= n
-
-        matches = []
-        found = model.findNext(cursor, sd)
-        while found:
-            if body_only:
-                try:
-                    if not uno_same(found.getText(), model.getText()):
-                        found = model.findNext(found.getEnd(), sd)
-                        continue
-                except Exception:
-                    found = model.findNext(found.getEnd(), sd)
-                    continue
-
-            measure = found.getText().createTextCursor()
-            measure.gotoStart(False)
-            measure.gotoRange(found.getStart(), True)
-            m_start = len(measure.getString())
-            matched_text = found.getString()
-            m_end = m_start + len(matched_text)
-            matches.append({"start": m_start, "end": m_end, "text": matched_text})
-            if limit is not None and len(matches) >= limit:
+    text = model.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    if start > 0:
+        _GO_RIGHT_CHUNK = 8192
+        remaining = start
+        while remaining > 0:
+            n = min(remaining, _GO_RIGHT_CHUNK)
+            if cursor.goRight(n, False) is False:
                 break
-            found = model.findNext(found.getEnd(), sd)
-        return matches
-    except Exception:
-        log.exception("find_text_ranges failed")
-        return []
+            remaining -= n
+
+    matches = []
+    found = model.findNext(cursor, sd)
+    while found:
+        if body_only:
+            # uno_same never raises. Swallowing getText dropped the hit and,
+            # with the outer handler, made a failed search look like zero hits.
+            if not uno_same(found.getText(), model.getText()):
+                found = model.findNext(found.getEnd(), sd)
+                continue
+
+        measure = found.getText().createTextCursor()
+        measure.gotoStart(False)
+        measure.gotoRange(found.getStart(), True)
+        m_start = len(measure.getString())
+        matched_text = found.getString()
+        m_end = m_start + len(matched_text)
+        matches.append({"start": m_start, "end": m_end, "text": matched_text})
+        if limit is not None and len(matches) >= limit:
+            break
+        found = model.findNext(found.getEnd(), sd)
+    return matches
 
 
 def _search_try_strings(search_string: str) -> Iterator[str]:
@@ -458,7 +455,11 @@ def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) 
                 # is semantically correct for a range endpoint and safe if it were ever non-collapsed.
                 end_range = last_end_cursor.getEnd() if last_end_cursor else found.getEnd()
 
-                try:
+                # A same-text combine failure used to be logged at debug and the hit
+                # dropped. That failure is a real UNO error and must propagate.
+                # Different XText endpoints cannot be one cursor; skipping those is
+                # not a dropped same-text hit.
+                if uno_same(start_range.getText(), end_range.getText()):
                     result_range = text.createTextCursorByRange(start_range)
                     result_range.gotoRange(end_range, True)
                     if not all_matches:
@@ -466,8 +467,8 @@ def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) 
                     matched_ranges.append(result_range)
                     if len(matched_ranges) >= MAX_SEARCH_REPLACEMENTS:
                         return matched_ranges
-                except Exception:
-                    log.debug("Failed creating combined XTextRange", exc_info=True)
+                else:
+                    log.debug("find_chained_range: chain crosses XText; no single range")
 
             found = find_next_after_match(doc, found, sd)
 
@@ -654,16 +655,48 @@ def _lower_with_origins(text: str) -> tuple[str, list[int]]:
     return "".join(lowered_chars), origins
 
 
+def _regex_find_hits(pattern: str, text: str, flags: int) -> list[str]:
+    """Python re on shape/comment text, off the LibreOffice main thread.
+
+    Catastrophic backtracking cannot be killed. A dedicated daemon is required:
+    the shared pool joins workers with no timeout at shutdown, so a stuck re
+    would hang process exit. One in-flight pattern at a time; a second call
+    while the first is still running returns no hits instead of starting
+    another thread.
+    """
+    global _shape_regex_inflight
+    inflight = _shape_regex_inflight
+    if inflight is not None and inflight.is_alive():
+        log.warning("shape_text_hits: regex still running; skipping")
+        return []
+    box: dict[str, Any] = {}
+
+    def _run() -> None:
+        try:
+            box["hits"] = [m.group(0) for m in re_mod.finditer(pattern, text, flags) if m.group(0)]
+        except Exception as exc:
+            box["err"] = exc
+
+    handle = run_in_background(_run, name="shape-text-regex", dedicated=True, daemon=True)
+    _shape_regex_inflight = handle
+    handle.join(_SHAPE_REGEX_TIMEOUT_SEC)
+    if handle.is_alive():
+        log.warning("shape_text_hits: regex exceeded %ss", _SHAPE_REGEX_TIMEOUT_SEC)
+        return []
+    err = box.get("err")
+    if err is not None:
+        log.debug("shape_text_hits: regex match failed", exc_info=err)
+        return []
+    hits = box.get("hits")
+    return hits if isinstance(hits, list) else []
+
+
 def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensitive: bool) -> list[str]:
     if not shape_text or not pattern:
         return []
     if use_regex:
         flags = 0 if case_sensitive else re_mod.IGNORECASE
-        try:
-            return [m.group(0) for m in re_mod.finditer(pattern, shape_text, flags) if m.group(0)]
-        except Exception:
-            log.debug("shape_text_hits: regex match failed", exc_info=True)
-            return []
+        return _regex_find_hits(pattern, shape_text, flags)
     if case_sensitive:
         hay = shape_text
         needle = pattern

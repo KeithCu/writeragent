@@ -419,3 +419,117 @@ def test_get_document_length_is_the_visible_writer_text():
     whole = model.getText.return_value.createTextCursor.return_value
     visible.assert_called_once_with(whole)
     whole.gotoEnd.assert_called_once_with(True)
+
+
+def test_get_document_length_propagates_disposal():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.doc import text_helpers
+
+    class DisposedException(Exception):
+        pass
+
+    model = MagicMock()
+    model.getText.side_effect = DisposedException("closed")
+    with pytest.raises(DocumentDisposedError):
+        text_helpers.get_document_length(model)
+
+
+def test_build_heading_tree_propagates_disposal_and_uno_error():
+    from plugin.framework.errors import DocumentDisposedError, UnoObjectError
+    from plugin.doc.text_helpers import build_heading_tree
+
+    closed = MagicMock()
+    closed.getText.side_effect = DocumentDisposedError("closed", object_type="Document")
+    with pytest.raises(DocumentDisposedError):
+        build_heading_tree(closed)
+
+    broken = MagicMock()
+    broken.getText.side_effect = RuntimeError("boom")
+    with pytest.raises(UnoObjectError):
+        build_heading_tree(broken)
+
+
+def test_char_offset_of_other_xtext_is_not_zero():
+    from plugin.doc.text_helpers import _char_offset_of_position
+
+    class _Text(MagicMock):
+        pass
+
+    class _Pos:
+        def __init__(self, text):
+            self._text = text
+
+        def getText(self):
+            return self._text
+
+    body = _Text()
+    other = _Text()
+    model = MagicMock()
+    model.getText.return_value = body
+    assert _char_offset_of_position(model, _Pos(other), 10) == -1
+    model.getText.return_value.createTextCursor.assert_not_called()
+
+
+def test_excerpt_overlap_other_xtext_is_false():
+    from plugin.doc.text_helpers import _writer_excerpt_overlaps_selection
+
+    class _Text(MagicMock):
+        pass
+
+    class _Pos:
+        def __init__(self, text):
+            self._text = text
+
+        def getText(self):
+            return self._text
+
+    body = _Text()
+    model = MagicMock()
+    model.getText.return_value = body
+    with patch("plugin.doc.text_helpers.get_text_cursor_at_range", return_value=MagicMock()):
+        assert _writer_excerpt_overlaps_selection(
+            model, 0, 10, _Pos(_Text()), _Pos(_Text())) is False
+    model.getText.return_value.compareRegionStarts.assert_not_called()
+
+
+def test_with_view_cursor_does_not_jump_when_clone_fails():
+    from plugin.doc.text_helpers import with_view_cursor_left_body_locked
+
+    doc = MagicMock()
+    vc = MagicMock()
+    vc.getText.side_effect = RuntimeError("cannot clone")
+    seen = []
+    result = with_view_cursor_left_body_locked(doc, vc, lambda: seen.append("ran") or "ok")
+    assert result == "ok"
+    assert seen == ["ran"]
+    vc.gotoRange.assert_not_called()
+    doc.lockControllers.assert_not_called()
+    doc.getText.assert_not_called()
+
+
+def test_visible_text_midwalk_failure_keeps_deletion_free_prefix():
+    from plugin.doc.text_helpers import get_string_without_tracked_deletions
+
+    class _BoomEnum:
+        def __init__(self):
+            self._n = 0
+
+        def hasMoreElements(self):
+            return self._n < 2
+
+        def nextElement(self):
+            self._n += 1
+            if self._n == 1:
+                return _Paragraph([_Portion("Keep ")], fallback_text="Keep DELETED")
+            raise RuntimeError("enum broke")
+
+    class _BoomRange:
+        def createEnumeration(self):
+            return _BoomEnum()
+
+        def getString(self):
+            return "Keep DELETED"
+
+    got = get_string_without_tracked_deletions(_BoomRange())
+    assert got == "Keep "
+    assert "DELETED" not in got

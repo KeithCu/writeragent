@@ -118,7 +118,10 @@ def collect_document_stats(doc: Any, doc_svc: Any) -> dict[str, Any]:
     try:
         tree = build_heading_tree(doc)
         heading_count = _count_headings(tree.get("children", []))
-    except Exception:
+    except Exception as exc:
+        from plugin.framework.errors import reraise_if_disposed
+        # A closed document is not a document with zero headings.
+        reraise_if_disposed(exc, object_type="Document")
         heading_count = 0
 
     page_count = 0

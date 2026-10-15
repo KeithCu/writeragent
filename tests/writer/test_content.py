@@ -418,6 +418,21 @@ def test_get_document_content_surfaces_tracked_changes():
     assert "tracked_changes_note" in res
 
 
+def test_get_document_content_tracked_changes_disposal_propagates():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.content import GetDocumentContent
+
+    doc = MagicMock()
+    doc.getRedlines.return_value.getCount.return_value = 1
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document.get_document_length.return_value = 3
+    with patch("plugin.writer.content.collect_tracked_changes", side_effect=DocumentDisposedError("closed", object_type="Document")), \
+         patch("plugin.writer.format.document_to_content", return_value="body"):
+        with pytest.raises(DocumentDisposedError):
+            GetDocumentContent().execute(ctx)
+
+
 @pytest.mark.parametrize("old, new, expected", [
     # deletion: the word goes with the space it names (was "Primeiro  inteiro.")
     (" paragrafo", "", ("", 1)),

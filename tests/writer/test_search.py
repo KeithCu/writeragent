@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Search descriptor helpers. No LibreOffice."""
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import pytest
 
 # ---- D6: regex / case in the edit path --------------------------------------
@@ -214,13 +214,13 @@ def test_find_next_after_match_stops_on_empty_string():
     assert res is None
     doc.findNext.assert_not_called()
 
-    # Second case: getString raises, findNext is still called
+    # Second case: getString raises, find_next_after_match propagates
     doc.reset_mock()
     found = MagicMock()
     found.getString.side_effect = RuntimeError("fail")
-    res = find_next_after_match(doc, found, sd)
-    assert res == doc.findNext.return_value
-    doc.findNext.assert_called_once_with(found.getEnd.return_value, sd)
+    with pytest.raises(RuntimeError, match="fail"):
+        find_next_after_match(doc, found, sd)
+    doc.findNext.assert_not_called()
 
 
 def test_find_ranges_regex_case_stops_after_one_empty_match():
@@ -418,3 +418,108 @@ def test_search_hit_cap_includes_shapes():
     assert res["count"] == 2
     assert res["truncated"] is True
     assert res["warning"] == "Search stopped after 2 matches; count may be incomplete."
+
+
+def test_find_text_ranges_does_not_report_failure_as_no_hits():
+    from plugin.writer.search import find_text_ranges
+
+    model = MagicMock()
+    model.createSearchDescriptor.side_effect = RuntimeError("search dead")
+    with pytest.raises(RuntimeError, match="search dead"):
+        find_text_ranges(model, MagicMock(), "foo")
+
+
+def test_return_offsets_does_not_report_failure_as_zero_hits():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.search import SearchInDocument
+
+    doc = MagicMock()
+    doc.createSearchDescriptor.side_effect = DocumentDisposedError("closed", object_type="Document")
+    ctx = MagicMock(doc=doc)
+    with pytest.raises(DocumentDisposedError):
+        SearchInDocument().execute(ctx, pattern="hello", return_offsets=True)
+
+
+def test_shape_text_hits_regex_timeout():
+    import threading
+    from plugin.writer import search as search_mod
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def _slow(*_args, **_kwargs):
+        started.set()
+        release.wait(2)
+        return iter(())
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(search_mod.re_mod, "finditer", _slow)
+    monkeypatch.setattr(search_mod, "_SHAPE_REGEX_TIMEOUT_SEC", 0.05)
+    search_mod._shape_regex_inflight = None
+    try:
+        assert search_mod.shape_text_hits("abc", "a+", True, True) == []
+        assert started.wait(1)
+    finally:
+        release.set()
+        handle = search_mod._shape_regex_inflight
+        if handle is not None:
+            handle.join(2)
+        search_mod._shape_regex_inflight = None
+        monkeypatch.undo()
+
+
+def test_find_chained_range_same_text_combine_failure_propagates():
+    from plugin.writer.search import find_chained_range
+
+    doc = MagicMock()
+    found = MagicMock()
+    found.getString.return_value = "Hello"
+    text = MagicMock()
+    found.getText.return_value = text
+    n = {"i": 0}
+
+    def _make(_arg):
+        n["i"] += 1
+        cursor = MagicMock()
+        cursor.getStart.return_value.getText.return_value = text
+        cursor.getEnd.return_value.getText.return_value = text
+        if n["i"] == 8:
+            raise RuntimeError("combine failed")
+        return cursor
+
+    text.createTextCursorByRange.side_effect = _make
+    doc.findFirst.return_value = found
+    with patch("plugin.writer.search.find_lo_regex_ranges", return_value=None), \
+         patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
+        with pytest.raises(RuntimeError, match="combine failed"):
+            find_chained_range(doc, "Hello\nWorld", all_matches=False)
+
+
+def test_find_chained_range_cross_text_is_skipped():
+    from plugin.writer.search import find_chained_range
+
+    doc = MagicMock()
+    found = MagicMock()
+    found.getString.return_value = "Hello"
+    text = MagicMock()
+    found.getText.return_value = text
+    doc.findNext.return_value = None
+    doc.findFirst.side_effect = [found, None]
+    body = object()
+    other = object()
+    n = {"i": 0}
+
+    def _make(_arg):
+        n["i"] += 1
+        cursor = MagicMock()
+        if n["i"] == 3:
+            cursor.getStart.return_value.getText.return_value = body
+        if n["i"] == 6:
+            cursor.getEnd.return_value.getText.return_value = other
+        return cursor
+
+    text.createTextCursorByRange.side_effect = _make
+    with patch("plugin.writer.search.find_lo_regex_ranges", return_value=None), \
+         patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
+        assert find_chained_range(doc, "Hello\nWorld", all_matches=False) is None
+    assert n["i"] == 7

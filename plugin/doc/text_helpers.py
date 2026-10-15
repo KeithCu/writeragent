@@ -24,8 +24,15 @@ if TYPE_CHECKING:
 import uno
 
 from plugin.doc import doc_type as _doc_type
-from plugin.framework.errors import UnoObjectError, check_disposed, safe_call
+from plugin.framework.errors import (
+    DocumentDisposedError,
+    UnoObjectError,
+    check_disposed,
+    reraise_if_disposed,
+    safe_call,
+)
 from plugin.framework.thread_guard import main_thread_only
+from plugin.framework.uno_context import uno_same
 
 _PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
 
@@ -86,6 +93,9 @@ def _writer_char_count(model: Any) -> int:
             else:
                 step //= 2
         return count
+    except DocumentDisposedError:
+        # safe_call maps disposal to DocumentDisposedError; do not swallow it.
+        raise
     except UnoObjectError:
         logging.getLogger(__name__).exception("_writer_char_count failed")
         return 0
@@ -93,6 +103,15 @@ def _writer_char_count(model: Any) -> int:
 
 def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int:
     """Character offset of a UNO text position from document start (no prefix getString())."""
+    get_pos_text = getattr(target_start, "getText", None)
+    if callable(get_pos_text):
+        pos_text = safe_call(get_pos_text, "Get position text")
+        body = safe_call(model.getText, "Get document text")
+        if not uno_same(pos_text, body):
+            # Selection is in a table cell, frame, or header. compareRegionStarts
+            # against the body raises, and the handler below used to return 0,
+            # which is the document start.
+            return -1
     if doc_len <= 0:
         return 0
     try:
@@ -125,6 +144,9 @@ def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int
                     offset += 1
                 return offset
         return doc_len
+    except DocumentDisposedError:
+        # safe_call maps disposal to DocumentDisposedError; do not swallow it.
+        raise
     except UnoObjectError:
         logging.getLogger(__name__).exception("_char_offset_of_position failed")
         return 0
@@ -148,6 +170,9 @@ def _get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
             return None
         text = safe_call(rng.getText, "Get range text")
         return text, safe_call(rng.getStart, "Get range start"), safe_call(rng.getEnd, "Get range end")
+    except DocumentDisposedError:
+        # safe_call maps disposal to DocumentDisposedError; do not swallow it.
+        raise
     except UnoObjectError:
         return None
 
@@ -155,7 +180,10 @@ def _get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
 @main_thread_only
 def get_selection_range(model: Any) -> tuple[int, int]:
     """Return (start_offset, end_offset) character positions into the document.
-    Cursor (no selection) = same start and end. Returns (0, 0) on error or no text range."""
+    Cursor (no selection) = same start and end. Returns (0, 0) when there is no
+    body-text range: no selection, an error other than a closed document, or the
+    selection is in a table cell, frame, or header. A closed document raises
+    DocumentDisposedError."""
     try:
         check_disposed(model, "Document Model")
         sel_positions = _get_writer_selection_positions(model)
@@ -165,7 +193,15 @@ def get_selection_range(model: Any) -> tuple[int, int]:
         doc_len = _writer_char_count(model)
         start_offset = _char_offset_of_position(model, sel_start_pos, doc_len)
         end_offset = _char_offset_of_position(model, sel_end_pos, doc_len)
+        if start_offset < 0 or end_offset < 0:
+            # Not in the body offset space. (0, 0) is "no body selection",
+            # not a cursor at the start. Chat overlap returns False first,
+            # so selection markers are not injected.
+            return (0, 0)
         return (start_offset, end_offset)
+    except DocumentDisposedError:
+        # safe_call maps disposal to DocumentDisposedError; do not swallow it.
+        raise
     except UnoObjectError:
         logging.getLogger(__name__).exception("get_selection_range failed")
         return (0, 0)
@@ -240,11 +276,10 @@ def find_heading_by_chapter_number(tree: Mapping[str, Any], label: str) -> Mappi
 def _portion_type(portion: Any) -> str | None:
     try:
         return portion.getPropertyValue("TextPortionType")
-    except Exception:
-        try:
-            return portion.TextPortionType
-        except Exception:
-            return None
+    except Exception as exc:
+        # PyUNO attribute access is the same property call; a second read cannot succeed.
+        reraise_if_disposed(exc, object_type="TextPortion")
+        return None
 
 
 def _range_is_paragraph(text_range: Any) -> bool:
@@ -257,14 +292,15 @@ def _range_is_paragraph(text_range: Any) -> bool:
     try:
         if text_range.supportsService(_PARAGRAPH_SERVICE):
             return True
-    except Exception:
-        pass
+    except Exception as exc:
+        reraise_if_disposed(exc, object_type="TextRange")
     try:
         enum = text_range.createEnumeration()
         if not enum.hasMoreElements():
             return False
         return _portion_type(enum.nextElement()) is not None
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc, object_type="TextRange")
         return False
 
 
@@ -378,8 +414,16 @@ def get_string_without_tracked_deletions(text_range: Any) -> str:
             # markers for this walk live in that para. Reset is inside
             # _visible_portions (same as UNO per-paragraph redline markers).
             parts.append(_paragraph_visible_text(para))
-    except Exception:
-        return text_range.getString()
+    except Exception as exc:
+        # What was wrong: a mid-walk enumeration error discarded portions already
+        # collected and returned getString(), which puts pending deletions back
+        # and shifts offsets.
+        # How: the except replaced `parts` with the unfiltered range string.
+        # Why: return the deletion-free prefix. Do not call getString() here.
+        reraise_if_disposed(exc, object_type="TextRange")
+        logging.getLogger(__name__).debug(
+            "get_string_without_tracked_deletions: portion walk stopped early", exc_info=True)
+        return "".join(parts)
 
     return "".join(parts)
 
@@ -434,6 +478,9 @@ def build_heading_tree(model: Any) -> HeadingTreeNode:
                 outline_level = 0
                 try:
                     outline_level = safe_call(element.getPropertyValue, "Get OutlineLevel", "OutlineLevel")
+                except DocumentDisposedError:
+                    # safe_call maps disposal to DocumentDisposedError; do not record level 0.
+                    raise
                 except UnoObjectError as e:
                     logging.getLogger(__name__).debug("build_heading_tree could not get OutlineLevel: %s", e)
 
@@ -458,8 +505,13 @@ def build_heading_tree(model: Any) -> HeadingTreeNode:
             para_index += 1
         return root
     except UnoObjectError:
+        # What was wrong: any UNO failure, including a closed document, became an
+        # empty root, which callers read as "no headings".
+        # How: DocumentDisposedError subclasses UnoObjectError, and this handler
+        # returned a successful empty tree.
+        # Why: a failed walk is not an empty outline.
         logging.getLogger(__name__).exception("build_heading_tree error")
-        return {"level": 0, "text": "root", "para_index": -1, "children": [], "body_paragraphs": 0}
+        raise
 
 
 @main_thread_only
@@ -468,19 +520,21 @@ def collect_tracked_changes(text_range: Any, max_per_change: int = 300, max_chan
     see what is pending and that it awaits the user's review (rather than the default read, which
     hides deletions and gives no hint that changes are pending).
 
-    Returns a list of ``{"type": "insertion"|"deletion", "text": str}`` in document order. Best-effort:
-    returns ``[]`` on any failure. Mirrors get_string_without_tracked_deletions' portion walk, but also
-    toggles on Insert redlines and buffers the text of each change instead of dropping deletions."""
+    Returns a list of ``{"type": "insertion"|"deletion", "text": str}`` in document order.
+    One bad portion is skipped. A closed document raises DocumentDisposedError.
+    TextTable cells are walked; headers and frames are not in the body XText this
+    function is given (content.py passes ``getText()``)."""
     out: list[dict[str, str]] = []
     if hasattr(text_range, "_mock_return_value") or type(text_range).__name__ in ("Mock", "MagicMock"):
         return out
     try:
         para_enum = text_range.createEnumeration()
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc, object_type="TextRange")
         return out
 
-    # Insert/Delete redlines can continue across paragraph boundaries, so these
-    # toggles follow document order rather than resetting each paragraph.
+    # Insert/Delete redlines can continue across paragraph and cell boundaries,
+    # so these toggles follow document order rather than resetting each paragraph.
     in_delete = False
     in_insert = False
     del_buf: list[str] = []
@@ -491,52 +545,80 @@ def collect_tracked_changes(text_range: Any, max_per_change: int = 300, max_chan
             out.append({"type": kind, "text": "".join(buf)[:max_per_change]})
         buf.clear()
 
-    try:
-        while para_enum.hasMoreElements() and len(out) < max_changes:
-            para = para_enum.nextElement()
-            try:
-                portion_enum = para.createEnumeration()
-            except Exception:
+    def _is_text_table(el: Any) -> bool:
+        try:
+            return el.supportsService("com.sun.star.text.TextTable") is True
+        except Exception as exc:
+            reraise_if_disposed(exc, object_type="TextTable")
+            return False
+
+    def _walk_portions(portion_enum: Any) -> None:
+        nonlocal in_delete, in_insert
+        while portion_enum.hasMoreElements() and len(out) < max_changes:
+            portion = portion_enum.nextElement()
+            ptype = _portion_type(portion)
+            if ptype is None:
                 continue
-            while portion_enum.hasMoreElements():
-                portion = portion_enum.nextElement()
+            if ptype == "Redline":
                 try:
-                    try:
-                        ptype = portion.getPropertyValue("TextPortionType")
-                    except Exception:
-                        ptype = portion.TextPortionType
-                except Exception:
-                    continue
+                    rtype = str(portion.getPropertyValue("RedlineType"))
+                except Exception as exc:
+                    reraise_if_disposed(exc, object_type="TextPortion")
+                    rtype = ""
+                if rtype == "Delete":
+                    if in_delete:
+                        _flush(del_buf, "deletion")
+                    in_delete = not in_delete
+                elif rtype == "Insert":
+                    if in_insert:
+                        _flush(ins_buf, "insertion")
+                    in_insert = not in_insert
+                continue
+            try:
+                chunk = portion.getString()
+            except Exception as exc:
+                reraise_if_disposed(exc, object_type="TextPortion")
+                chunk = ""
+            if not chunk:
+                continue
+            if in_delete:
+                del_buf.append(chunk)
+            elif in_insert:
+                ins_buf.append(chunk)
 
-                if ptype == "Redline":
-                    try:
-                        rtype = str(portion.getPropertyValue("RedlineType"))
-                    except Exception:
-                        rtype = ""
-                    if rtype == "Delete":
-                        if in_delete:
-                            _flush(del_buf, "deletion")
-                        in_delete = not in_delete
-                    elif rtype == "Insert":
-                        if in_insert:
-                            _flush(ins_buf, "insertion")
-                        in_insert = not in_insert
-                    continue
-
+    def _walk_elements(enum: Any) -> None:
+        while enum.hasMoreElements() and len(out) < max_changes:
+            el = enum.nextElement()
+            if _is_text_table(el):
+                # A table's createEnumeration does not yield portions, so the old
+                # `continue` skipped every tracked change that lived only in a cell.
                 try:
-                    chunk = portion.getString()
-                except Exception:
-                    chunk = ""
-                if not chunk:
+                    names = el.getCellNames() or ()
+                except Exception as exc:
+                    reraise_if_disposed(exc, object_type="TextTable")
                     continue
-                if in_delete:
-                    del_buf.append(chunk)
-                elif in_insert:
-                    ins_buf.append(chunk)
-        _flush(del_buf, "deletion")
-        _flush(ins_buf, "insertion")
-    except Exception:
-        return out
+                for name in names:
+                    if len(out) >= max_changes:
+                        return
+                    try:
+                        cell = el.getCellByName(name)
+                        _walk_elements(cell.createEnumeration())
+                    except Exception as exc:
+                        reraise_if_disposed(exc, object_type="TextTable")
+                        continue
+                continue
+            try:
+                portion_enum = el.createEnumeration()
+            except Exception as exc:
+                reraise_if_disposed(exc, object_type="TextRange")
+                continue
+            _walk_portions(portion_enum)
+
+    # No outer except: content.py already logs a failed walk. That outer except
+    # returned the partial list for every error, including a closed document.
+    _walk_elements(para_enum)
+    _flush(del_buf, "deletion")
+    _flush(ins_buf, "insertion")
     return out
 
 
@@ -583,6 +665,9 @@ def get_selection_text(model: Any) -> str | None:
                         parts.append(safe_call(shape.getString, "Get shape string"))
                 if parts:
                     return "\n".join(parts)
+    except DocumentDisposedError:
+        # safe_call maps disposal to DocumentDisposedError; do not swallow it.
+        raise
     except Exception:
         pass
     return None
@@ -601,6 +686,9 @@ def get_document_end(model: Any, max_chars: int = 4000) -> str:
         if len(full) <= max_chars:
             return full
         return full[-max_chars:]
+    except DocumentDisposedError:
+        # safe_call maps disposal to DocumentDisposedError; do not swallow it.
+        raise
     except UnoObjectError:
         logging.getLogger(__name__).exception("get_document_end failed")
         return ""
@@ -643,6 +731,14 @@ def _writer_excerpt_overlaps_selection(
     exc_cursor = get_text_cursor_at_range(model, excerpt_start, excerpt_end)
     if exc_cursor is None:
         return False
+    get_pos_text = getattr(sel_start_pos, "getText", None)
+    if callable(get_pos_text):
+        sel_text = safe_call(get_pos_text, "Get selection text")
+        body = safe_call(model.getText, "Get document text")
+        if not uno_same(sel_text, body):
+            # Different XText (table, frame, header). compareRegionStarts
+            # against the body raises and used to fail the whole chat context.
+            return False
     text = safe_call(model.getText, "Get document text")
     exc_start = safe_call(exc_cursor.getStart, "Excerpt getStart")
     exc_end = safe_call(exc_cursor.getEnd, "Excerpt getEnd")
@@ -690,6 +786,9 @@ def get_document_length(model: Any) -> int:
         safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
         length = len(normalize_linebreaks(safe_call(cursor.getString, "Cursor getString")))
         return length
+    except DocumentDisposedError:
+        # safe_call maps disposal to DocumentDisposedError; do not swallow it.
+        raise
     except UnoObjectError:
         logging.getLogger(__name__).exception("get_document_length failed")
         return 0
@@ -724,8 +823,20 @@ def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
     try:
         # Nested XText (table cell / frame): body getText() cannot clone this range.
         saved = clone_text_range(vc)
-    except Exception:
-        pass
+    except Exception as exc:
+        # What was wrong: a failed clone left saved as None, then the view cursor
+        # was moved to the body start and the restore was skipped, so the user
+        # was left at the document start.
+        # How: gotoRange(body start) ran whenever the move itself did not throw,
+        # independent of whether a restore position existed.
+        # Why: with no saved position, do not move the view cursor. The action
+        # still runs (page numbers); it must not be preceded by a jump to the start.
+        reraise_if_disposed(exc, object_type="ViewCursor")
+        logging.getLogger(__name__).debug(
+            "with_view_cursor_left_body_locked: clone failed; not moving the view cursor",
+            exc_info=True,
+        )
+        return action_fn()
     in_body = False
     try:
         vc.gotoRange(doc.getText().getStart(), False)
@@ -784,6 +895,9 @@ def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> 
                 break
             remaining -= n
         return cursor
+    except DocumentDisposedError:
+        # safe_call maps disposal to DocumentDisposedError; do not swallow it.
+        raise
     except UnoObjectError:
         logging.getLogger(__name__).exception("get_text_cursor_at_range failed")
         return None

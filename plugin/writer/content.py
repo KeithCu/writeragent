@@ -258,7 +258,9 @@ class GetDocumentContent(ToolBase):
                 (time.perf_counter() - t_tracked) * 1000.0,
                 n_tracked,
             )
-        except Exception:
+        except Exception as exc:
+            from plugin.framework.errors import reraise_if_disposed
+            reraise_if_disposed(exc, object_type="Document")
             log.debug("get_document_content: could not collect tracked changes", exc_info=True)
         log.debug(
             "get_document_content: done scope=%r content_len=%d document_length=%d n_tracked=%d total_ms=%.1f",
