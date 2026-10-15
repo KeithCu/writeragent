@@ -101,7 +101,6 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         audio_wav_path=None,
         chat_mode_selector=MagicMock(),
         model_selector=MagicMock(),
-        sidebar_include_brainstorming=True,
         query_control=query_control,
         _in_librarian_mode=in_librarian_mode,
         _terminal_status="Ready",

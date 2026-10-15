@@ -469,7 +469,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     chat_mode_selector: Any
     aspect_ratio_selector: Any
     base_size_input: Any
-    sidebar_include_brainstorming: bool
     sidebar_mode_flags: Any
     ensure_path_fn: Any
     client: LlmClient | None
@@ -547,7 +546,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         chat_mode_selector: Any = None,
         aspect_ratio_selector: Any = None,
         base_size_input: Any = None,
-        sidebar_include_brainstorming: bool = True,
         ensure_path_fn: Any = None,
         clear_control: Any = None,
     ) -> None:
@@ -566,10 +564,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.chat_mode_selector = chat_mode_selector
         self.aspect_ratio_selector = aspect_ratio_selector
         self.base_size_input = base_size_input
-        self.sidebar_include_brainstorming = sidebar_include_brainstorming
         from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
-        self.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=sidebar_include_brainstorming)
+        self.sidebar_mode_flags = SidebarModeFlags()
         self.ensure_path_fn = ensure_path_fn
         self.initial_doc_type = None  # Set by _wireControls
         self.cached_doc_type = None
