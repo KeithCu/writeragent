@@ -649,6 +649,42 @@ def uno_same(a: Any, b: Any) -> bool:
         return False
 
 
+# Desktop component enums. A stuck UNO enum must not spin.
+_ENUM_CAP = 32
+
+
+def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bool:
+    """True when *has_more* indicates more elements and *seen* is below ``_ENUM_CAP``."""
+    # What was wrong: is not True treats SAL integer 1 as the end of the enum,
+    # so _iter_desktop_models yields nothing and session lookup/reset misses
+    # every open model.
+    # How: 8a8e33d42 replaced not has_more, which treated 1 as more, while
+    # stopping MagicMock.
+    # Why: != 1 matches iter_open_models, and a mock still stops because its
+    # inequality is truthy.
+    if has_more is not True and has_more != 1:
+        return False
+    if seen >= _ENUM_CAP:
+        log.error("%s: desktop enum hit cap=%s; stopping", label, _ENUM_CAP)
+        return False
+    return True
+
+
+def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]
+    """False when *enum* is exhausted or past ``_ENUM_CAP``.
+
+    Swallows ``hasMoreElements`` errors and returns False. Callers that need
+    disposal re-raising (such as :func:`iter_open_models`) must handle
+    ``hasMoreElements`` themselves and call :func:`_desktop_enum_value_continues`
+    instead.
+    """
+    try:
+        has_more = enum.hasMoreElements()
+    except Exception:
+        return False
+    return _desktop_enum_value_continues(has_more, seen, label=label)
+
+
 def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
     """Iterate open document models from desktop components enumeration.
 
@@ -672,14 +708,16 @@ def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
     if enum is None:
         return
 
+    seen = 0
     while True:
         try:
             more = enum.hasMoreElements()
         except Exception as e:
             _reraise_document_disposed(e, "Desktop")
             break
-        if more is not True and more != 1:
+        if not _desktop_enum_value_continues(more, seen, label="iter_open_models"):
             break
+        seen += 1
         try:
             elem = enum.nextElement()
         except Exception as e:

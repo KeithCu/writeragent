@@ -439,7 +439,7 @@ In the worker sandbox:
 - Functions and variables defined in the init script are executed in the companion `calc:…:init` session and snapshot into cell executors.
 - A class statement, and any last value that cannot cross the pickle boundary (a helper instance, a file, a lock), does not fail the init script or clear the init session. The names stay and are seeded into cells. The init result itself is still discarded. A cell whose value is a class, including `result = SomeClass`, returns `None`, same as a `def`. A cell whose value is an instance still errors, and that cell's prints are kept.
 - Custom functions (`def double(x): ...`) are registered into the executor's `custom_tools` dictionary so that safe sandbox evaluation permits them without raising `Forbidden function evaluation`.
-- When **Reset Python Session** is invoked, both the base session (`calc:…`) and the companion `:init` session are dropped in the worker process, and the initialization script is immediately re-executed and re-seeded so helpers remain available.
+- When **Reset Python Session** is invoked, both the base session (`calc:…`) and the companion `:init` session are dropped in the worker process, and the initialization script is immediately re-executed and re-seeded so helpers remain available. If the workbook has a file URL and still stores an `unsaved:` id, Reset also drops that leftover kernel (`calc:`, `rps:`, `notebook:`, and `ppt_master:`) before the URL session. A workbook that has never started a worker session shows a dialog and does not create one.
 
 Example helpers (no special `excel` module needed; use auto-imported `np`/`pd`/`st`/`plt`/`dt`/`xl` or explicit imports):
 
