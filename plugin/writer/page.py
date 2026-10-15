@@ -25,7 +25,7 @@ import logging
 from collections import deque
 from typing import TYPE_CHECKING, Any, cast
 
-from plugin.framework.errors import is_disposed_exception, make_tool_error
+from plugin.framework.errors import ToolExecutionError, is_disposed_exception, make_tool_error
 from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
 from .format import PAGE_NUMBER_NUMBERING_TYPE_NAMES, record_walk_cap
@@ -977,6 +977,10 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
                 pass
             return result
         except Exception as e:
+            # xtext_to_content used to return "". It now raises. Re-raise so
+            # execute_safe keeps DOCUMENT_DISPOSED and the named export error.
+            if is_disposed_exception(e) or isinstance(e, ToolExecutionError):
+                raise
             return self._tool_error(f"Error reading {region} text from page style '{style_name}': {e}")
 
 

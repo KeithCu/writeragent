@@ -27,8 +27,8 @@ from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     _visible_portions as _shared_visible_portions,
 )
-from plugin.framework.errors import ToolExecutionError
-from plugin.framework.uno_context import new_blank_writer
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
+from plugin.framework.uno_context import new_blank_writer, uno_same
 from . import xhtml_style_postprocess as xhtml_post
 from . import format as format_mod
 
@@ -353,6 +353,25 @@ def _inject_exported_math_tex(model: Any, ctx: Any, content: str) -> str:
 
 
 
+def _truncate_html(content: str, max_chars: int) -> str:
+    """Cut *content* to *max_chars* without ending inside a tag or an entity.
+
+    The old slice ``content[:max_chars]`` handed the model an unclosed
+    ``<a href="…`` or a trailing ``&nb``. The marker stays so
+    get_document_content can set ``truncated``.
+    """
+    window = content[:max_chars]
+    last_lt = window.rfind("<")
+    last_gt = window.rfind(">")
+    if last_lt > last_gt:
+        window = window[:last_lt]
+    amp = window.rfind("&")
+    if amp >= 0 and ";" not in window[amp:]:
+        window = window[:amp]
+    return window + "\n\n[... truncated ...]"
+
+
+
 def _export_xhtml(doc: Any, config_svc: Any) -> str:
     """Export *doc* via the XHTML Writer File filter; return the raw XHTML string."""
     with format_mod._with_temp_buffer(None, config_svc, ext=format_mod.XHTML_EXTENSION) as (path, file_url):
@@ -672,11 +691,10 @@ def _apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
 
 def _trim_to_source(text: Any, element: Any, para_text: str, source: Any) -> tuple[int, int]:
     """Visible-text window of *element* that lies inside *source*."""
-    try:
-        start_inside = _starts_before(text, element.getStart(), source.getStart())
-        end_inside = _ends_after(text, element.getEnd(), source.getEnd())
-    except Exception:
-        return 0, len(para_text)
+    # getStart/getEnd do not fail on a live range. Compare helpers already
+    # catch. Swallowing a failure here exported the whole paragraph.
+    start_inside = _starts_before(text, element.getStart(), source.getStart())
+    end_inside = _ends_after(text, element.getEnd(), source.getEnd())
     if not start_inside and not end_inside:
         return 0, len(para_text)
     trim_start = 0
@@ -711,12 +729,17 @@ def _range_to_content_via_temp_doc(
     """
     temp_doc = None
     try:
-        ctx.getServiceManager()
+        # ctx.getServiceManager() was an unused probe; new_blank_writer is the check.
         # Blank scratch doc: the factory URL honours the user's default template,
         # and this function reads the whole body back (see new_blank_writer).
         temp_doc = new_blank_writer(ctx, target="_default")
         if not temp_doc or not hasattr(temp_doc, "getText"):
-            return ""
+            # Bugfix: returning "" made scope=range/selection report ok with
+            # empty content when the scratch Writer could not be created
+            # (relato #63).
+            raise ToolExecutionError(
+                "Could not read that part of the document (no scratch document)."
+            )
 
         temp_text = temp_doc.getText()
         temp_cursor = temp_text.createTextCursor()
@@ -741,16 +764,17 @@ def _range_to_content_via_temp_doc(
                 continue
             if source_range is not None and _starts_at_or_after(text, el.getStart(), source_range.getEnd()):
                 break
-            try:
-                style = el.getPropertyValue("ParaStyleName")
-            except Exception:
+            if _supports_service(el, "com.sun.star.text.TextTable"):
+                # Tables are in this enumeration and have no ParaStyleName.
                 style = ""
+            else:
+                # Paragraphs always have ParaStyleName.
+                style = el.getPropertyValue("ParaStyleName") or ""
             # Same _visible_portions walk as get_string_without_tracked_deletions so
             # paint offsets match the helper string. Still walk here (not just the
             # helper) because we need the portion objects to copy Char* properties.
             portions = list(_visible_portions(el, truncated_out=walk_warnings))
             para_text = "".join(chunk for _unused, chunk in portions)
-            style = style or ""
             if source_range is not None:
                 if not _element_overlaps(text, el, source_range):
                     continue
@@ -758,15 +782,12 @@ def _range_to_content_via_temp_doc(
                 para_text = para_text[trim_start:trim_end]
             else:
                 gap = text.createTextCursorByRange(walker.getStart())
-                try:
-                    gap.gotoRange(el.getStart(), True)
-                    running += len(get_string_without_tracked_deletions(gap))
-                except Exception:
-                    log.debug("_range_to_content_via_temp_doc: paragraph offset gap skipped", exc_info=True)
-                try:
-                    walker.gotoRange(el.getStart(), False)
-                except Exception:
-                    log.debug("_range_to_content_via_temp_doc: offset walker skipped", exc_info=True)
+                # An offset failure must not shift the window. Swallowing it
+                # mapped every later paragraph to the wrong range and returned
+                # that slice as ok.
+                gap.gotoRange(el.getStart(), True)
+                running += len(get_string_without_tracked_deletions(gap))
+                walker.gotoRange(el.getStart(), False)
                 para_start = running
                 para_end = para_start + len(para_text)
                 if para_end <= start or para_start >= end:
@@ -810,7 +831,9 @@ def _range_to_content_via_temp_doc(
             xhtml = _export_xhtml(temp_doc, config_svc)
             parents, overrides, _unused_ruby = _autostyle_maps(temp_doc, config_svc)
             content = xhtml_post.xhtml_to_semantic_html(xhtml, parents, overrides)
-        except Exception:
+        except Exception as e:
+            # A closed document must not start a second export.
+            reraise_if_disposed(e)
             log.exception("_range_to_content_via_temp_doc (XHTML) failed; falling back to StarWriter")
             filter_name, _unused = format_mod._get_format_props(config_svc)
             with format_mod._with_temp_buffer(None, config_svc) as (path, file_url):
@@ -824,9 +847,14 @@ def _range_to_content_via_temp_doc(
         content = _inject_exported_math_tex(model, ctx, content)
         content = inject_ruby_into_html(content, copied_ruby)
         if max_chars and len(content) > max_chars:
-            content = content[:max_chars] + "\n\n[... truncated ...]"
+            content = _truncate_html(content, max_chars)
         return content
     except Exception as e:
+        # Disposal is not "could not read that part". A ToolExecutionError
+        # raised above (missing scratch doc) must not be wrapped again.
+        reraise_if_disposed(e)
+        if isinstance(e, ToolExecutionError):
+            raise
         # Same silent "ok with empty content" as the full read (relato #63): say why instead.
         log.exception("_range_to_content_via_temp_doc failed")
         raise ToolExecutionError("Could not read that part of the document (%s)." % _reason(e)) from e
@@ -936,7 +964,7 @@ def document_to_content(
         content = _inject_ruby_from_model(model, content, fodt_has_ruby)
         _raise_if_empty_export(model, content, "the XHTML export came back empty")
         if max_chars and len(content) > max_chars:
-            content = content[:max_chars] + "\n\n[... truncated ...]"
+            content = _truncate_html(content, max_chars)
         log.debug(
             "document_to_content: phase=postprocess elapsed_ms=%.1f content_len=%d",
             (time.perf_counter() - t_phase) * 1000.0,
@@ -944,6 +972,8 @@ def document_to_content(
         )
         return _done(content, "xhtml")
     except Exception as e:
+        # A closed document must not start a second export.
+        reraise_if_disposed(e)
         xhtml_error = e
         log.exception("document_to_content (full, XHTML) failed; falling back to StarWriter")
 
@@ -962,7 +992,7 @@ def document_to_content(
             content = _inject_ruby_from_model(model, content, None)
             _raise_if_empty_export(model, content, "the HTML export came back empty")
             if max_chars and len(content) > max_chars:
-                content = content[:max_chars] + "\n\n[... truncated ...]"
+                content = _truncate_html(content, max_chars)
             log.debug(
                 "document_to_content: phase=starwriter_fallback elapsed_ms=%.1f content_len=%d",
                 (time.perf_counter() - t_phase) * 1000.0,
@@ -970,6 +1000,8 @@ def document_to_content(
             )
             return _done(content, "starwriter")
     except Exception as e:
+        # Disposal is not a double export failure.
+        reraise_if_disposed(e)
         # When both exports fail, returning "" makes get_document_content
         # answer status ok with empty content (relato #63: document_length
         # 57003, content ""), so neither the agent nor the log reader can
@@ -1008,53 +1040,11 @@ def _supports_service(obj: Any, name: str) -> bool:
         return False
 
 
-def _xtext_has_tables(text_obj: Any) -> bool:
-    try:
-        enum = text_obj.createEnumeration()
-    except Exception:
-        return False
-    while enum.hasMoreElements() is True:
-        try:
-            el = enum.nextElement()
-        except Exception:
-            break
-        if _supports_service(el, "com.sun.star.text.TextTable"):
-            return True
-    return False
-
-
-def _whole_xtext_range(text_obj: Any) -> Any:
-    cursor = text_obj.createTextCursor()
-    cursor.gotoStart(False)
-    cursor.gotoEnd(True)
-    return cursor
-
-
 def _goto_doc_end(doc: Any) -> None:
     try:
         doc.getCurrentController().getViewCursor().gotoEnd(False)
     except Exception:
         pass
-
-
-def _paste_range(src_doc: Any, rng: Any, dest_doc: Any) -> bool:
-    """Copy a range via the document transferable (fields, images, char format).
-
-    Selecting a header/footer *table* and pasting this way drops the table
-    (probed: ``insertTransferable`` yields an empty dest). Paragraphs,
-    page-number fields, and AS_CHARACTER images survive.
-    """
-    try:
-        src_ctrl = src_doc.getCurrentController()
-        src_ctrl.select(rng)
-        xfer = src_ctrl.getTransferable()
-        dest_ctrl = dest_doc.getCurrentController()
-        _goto_doc_end(dest_doc)
-        dest_ctrl.insertTransferable(xfer)
-        return True
-    except Exception:
-        log.debug("_paste_range failed", exc_info=True)
-        return False
 
 
 def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any) -> bool:
@@ -1095,10 +1085,8 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
 def _copy_cell_xtext(src_doc: Any, src_cell: Any, dest_doc: Any, dest_cell: Any) -> None:
     """Copy one table cell: text + fields. Images in cells are not copied here."""
     dest_text = dest_cell
-    try:
-        dest_cell.setString("")
-    except Exception:
-        pass
+    # Fresh cell; setString cannot fail here.
+    dest_cell.setString("")
     dest_cursor = dest_text.createTextCursor()
     dest_cursor.gotoStart(False)
     try:
@@ -1246,10 +1234,8 @@ def _copy_table(src_doc: Any, src_table: Any, dest_doc: Any, dest_text: Any = No
     first-row box count and can be 1) still copies D2. Dest is sized to the
     max Writer name coordinate so those names exist; merges are not recreated.
     """
-    try:
-        dest_rows, dest_cols, names = _writer_table_copy_layout(src_table)
-    except Exception:
-        return
+    # _writer_table_copy_layout already returns a size when a metric read fails.
+    dest_rows, dest_cols, names = _writer_table_copy_layout(src_table)
     if dest_rows < 1 or dest_cols < 1:
         return
     dest_table = dest_doc.createInstance("com.sun.star.text.TextTable")
@@ -1332,6 +1318,19 @@ def _copy_xtext_by_portions(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
                 except Exception:
                     continue
                 _copy_field_into(dest_doc, dest_text, dest_cursor, field)
+            elif kind == "Text":
+                try:
+                    chunk = portion.getString()
+                except Exception:
+                    chunk = ""
+                if not chunk:
+                    continue
+                start = dest_cursor.getStart()
+                dest_text.insertString(dest_cursor, chunk, False)
+                run = dest_text.createTextCursorByRange(start)
+                run.gotoRange(dest_cursor.getEnd(), True)
+                _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES)
+                dest_cursor.gotoRange(run.getEnd(), False)
             else:
                 try:
                     chunk = portion.getString()
@@ -1339,6 +1338,12 @@ def _copy_xtext_by_portions(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
                     chunk = ""
                 if chunk:
                     dest_text.insertString(dest_cursor, chunk, False)
+        para_cursor = dest_text.createTextCursor()
+        para_cursor.gotoEnd(False)
+        para_cursor.gotoStartOfParagraph(False)
+        para_cursor.gotoEndOfParagraph(True)
+        _copy_properties(el, para_cursor, _COPIED_PARA_PROPERTIES)
+        dest_cursor.gotoRange(para_cursor.getEnd(), False)
 
 
 def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # pyright: ignore[reportUnusedFunction]
@@ -1454,45 +1459,89 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
     return fields_copied
 
 
+# Same list as page._PAGE_GRAPHIC_PROPS. The temp Writer does not offer every
+# orient property; the per-property except is that miss, not a missing Graphic.
+_ANCHORED_GRAPHIC_PROPS = (
+    "AnchorType", "Graphic", "Width", "Height",
+    "HoriOrient", "HoriOrientPosition", "HoriOrientRelation",
+    "VertOrient", "VertOrientPosition", "VertOrientRelation",
+    "HyperLinkURL", "HyperLinkTarget", "Title", "Description",
+)
+
+
+def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
+    """Clone TextGraphicObjects anchored in *src_text* onto *dest_doc*.
+
+    The portion walk does not carry Graphic. controller.select + transferable
+    into the scratch Writer is the pattern _copy_flow_into_xtext removed
+    (heap corruption / SIGSEGV on the following XHTML export). Shapes are
+    found the way page._scan_region_content finds them: draw page, uno_same
+    on the anchor's XText.
+    """
+    try:
+        draw_page = src_doc.getDrawPage()
+        count = int(draw_page.getCount())
+    except Exception:
+        log.debug("_copy_anchored_graphics: no draw page", exc_info=True)
+        return
+    shapes: list[Any] = []
+    for i in range(min(count, 5000)):
+        try:
+            shapes.append(draw_page.getByIndex(i))
+        except Exception:
+            break
+    dest_text = dest_doc.getText()
+    for shape in shapes:
+        try:
+            anchor = shape.getAnchor()
+            if not uno_same(anchor.getText(), src_text):
+                continue
+            # `is True`: MagicMock supportsService() is truthy.
+            if shape.supportsService("com.sun.star.text.TextGraphicObject") is not True:
+                continue
+        except Exception:
+            continue
+        try:
+            clone = dest_doc.createInstance("com.sun.star.text.TextGraphicObject")
+            if not clone:
+                continue
+            for prop in _ANCHORED_GRAPHIC_PROPS:
+                try:
+                    clone.setPropertyValue(prop, shape.getPropertyValue(prop))
+                except Exception:
+                    log.debug("_copy_anchored_graphics: skip %s", prop)
+            cursor = dest_text.createTextCursor()
+            cursor.gotoStart(False)
+            offset = 0
+            try:
+                measure = src_text.createTextCursor()
+                measure.gotoStart(False)
+                measure.gotoRange(anchor.getStart(), True)
+                offset = len(measure.getString() or "")
+            except Exception:
+                # A bad anchor still inserts the logo at the start. Dropping
+                # it here would hide the letterhead.
+                offset = 0
+            if offset:
+                cursor.goRight(offset, False)
+            dest_text.insertTextContent(cursor, clone, False)
+        except Exception:
+            log.debug("_copy_anchored_graphics: skipped a graphic", exc_info=True)
+
+
 def _copy_xtext_into_doc(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
     """Copy *src_text* (body, header, footer, cell) into *dest_doc*'s body.
 
-    Paragraphs use the transferable so fields and AS_CHARACTER images survive.
-    Tables are recreated — LO's transferable drops a header table (probed).
-    When the view is on the first page, ``select(HeaderText)`` pastes empty;
-    fall back to a portion walk so shared vs first-page regions still export.
+    Bugfix: this called controller.select on the user's document and
+    insertTransferable into the scratch Writer, then xtext_to_content ran
+    XHTML and closed that Writer. That moved the visible caret and is the
+    select + clipboard + hidden-export pattern that corrupted the heap on
+    header reads (see _copy_flow_into_xtext). Portion copy keeps fields,
+    tables, and direct formatting. Anchored graphics are cloned afterwards
+    because setString in the portion walk would drop a graphic inserted first.
     """
-    dest_doc.getText().setString("")
-    src_plain = (src_text.getString() if src_text else "") or ""
-    if not _xtext_has_tables(src_text):
-        pasted = _paste_range(src_doc, _whole_xtext_range(src_text), dest_doc)
-        dest_plain = dest_doc.getText().getString() or ""
-        if pasted and dest_plain.strip():
-            return
-        if src_plain.strip():
-            _copy_xtext_by_portions(src_doc, src_text, dest_doc)
-        return
-    try:
-        enum = src_text.createEnumeration()
-    except Exception:
-        dest_doc.getText().setString(src_plain)
-        return
-    while enum.hasMoreElements() is True:
-        try:
-            el = enum.nextElement()
-        except Exception:
-            break
-        if _supports_service(el, "com.sun.star.text.TextTable"):
-            _copy_table(src_doc, el, dest_doc)
-        else:
-            if not _paste_range(src_doc, el, dest_doc):
-                try:
-                    dest_doc.getText().insertString(dest_doc.getText().getEnd(), el.getString(), False)
-                except Exception:
-                    pass
-    dest_plain = dest_doc.getText().getString() or ""
-    if not dest_plain.strip() and src_plain.strip():
-        _copy_xtext_by_portions(src_doc, src_text, dest_doc)
+    _copy_xtext_by_portions(src_doc, src_text, dest_doc)
+    _copy_anchored_graphics(src_doc, src_text, dest_doc)
 
 
 def _open_hidden_writer(ctx: Any) -> Any:
@@ -1574,21 +1623,11 @@ def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
                 try:
                     field = portion.getPropertyValue("TextField")
                     if field.supportsService("com.sun.star.text.textfield.PageNumber"):
-                        try:
-                            subtype = field.getPropertyValue("SubType")
-                        except Exception as e:
-                            log.debug("extract_page_number_fields SubType read failed: %s", e)
-                            subtype = 1
-                        try:
-                            offset = field.getPropertyValue("Offset")
-                        except Exception as e:
-                            log.debug("extract_page_number_fields Offset read failed: %s", e)
-                            offset = 0
-                        try:
-                            numbering = field.getPropertyValue("NumberingType")
-                        except Exception as e:
-                            log.debug("extract_page_number_fields NumberingType read failed: %s", e)
-                            numbering = 4
+                        # A PageNumber field always has these three. A failed
+                        # read skips the field instead of inventing CURRENT/0/ARABIC.
+                        subtype = field.getPropertyValue("SubType")
+                        offset = field.getPropertyValue("Offset")
+                        numbering = field.getPropertyValue("NumberingType")
                         fields.append({
                             "SubType": subtype,
                             "Offset": offset,
@@ -1652,7 +1691,12 @@ def xtext_to_content(
     try:
         temp_doc = _open_hidden_writer(ctx)
         if not temp_doc or not hasattr(temp_doc, "getText"):
-            return ""
+            # Bugfix: returning "" made page_get_header_footer_text report
+            # status ok with empty content (relato #63), including when
+            # document_to_content had already raised ToolExecutionError.
+            raise ToolExecutionError(
+                "Could not read the document: no scratch document."
+            )
         _copy_xtext_into_doc(model, text_obj, temp_doc)
         content = document_to_content(
             temp_doc,
@@ -1683,11 +1727,8 @@ def xtext_to_content(
                     if st_name != "CURRENT":
                         attrs.append(f' data-subtype="{st_name}"')
 
-                    try:
-                        offset_val = int(field_props.get("Offset", 0))
-                    except Exception as e:
-                        log.debug("Invalid field Offset: %s", e)
-                        offset_val = 0
+                    # Offset is a UNO short; it is already an int.
+                    offset_val = field_props.get("Offset", 0)
                     if offset_val != 0:
                         attrs.append(f' data-offset="{offset_val}"')
 
@@ -1718,9 +1759,6 @@ def xtext_to_content(
                 )
 
         return content
-    except Exception:
-        log.exception("xtext_to_content failed")
-        return ""
     finally:
         if temp_doc is not None:
             try:

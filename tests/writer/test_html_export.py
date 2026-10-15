@@ -1,6 +1,7 @@
 import re
-
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from plugin.writer.html_export import _range_to_content_via_temp_doc, inject_ruby_into_html, xtext_to_content
 
@@ -26,6 +27,7 @@ class _Portion:
 
 def _para(style: str):
     element = MagicMock()
+    element.supportsService.return_value = False
     element.getString.return_value = "Hello"
 
     def _prop(name: str) -> str:
@@ -393,4 +395,304 @@ def test_copy_flow_into_xtext_breaks_only_between_paragraphs():
     assert break_idx is not None
     assert insert_a_idx is not None
     assert insert_a_idx < break_idx
+
+
+def test_xtext_to_content_propagates_export_error_and_closes():
+    """The export catch used to return "" and the header tool said ok."""
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_export
+
+    temp = MagicMock()
+    temp.getText.return_value = MagicMock()
+    with (
+        patch.object(html_export, "_open_hidden_writer", return_value=temp),
+        patch.object(html_export, "_copy_xtext_into_doc"),
+        patch.object(
+            html_export,
+            "document_to_content",
+            side_effect=ToolExecutionError("Could not read the document: boom"),
+        ),
+        pytest.raises(ToolExecutionError, match="boom"),
+    ):
+        html_export.xtext_to_content(MagicMock(), MagicMock(), MagicMock())
+    temp.close.assert_called_once_with(True)
+
+
+def test_xtext_to_content_raises_when_scratch_missing():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_export
+
+    with (
+        patch.object(html_export, "_open_hidden_writer", return_value=None),
+        pytest.raises(ToolExecutionError, match="no scratch document"),
+    ):
+        html_export.xtext_to_content(MagicMock(), MagicMock(), MagicMock())
+
+
+def test_range_export_raises_when_scratch_missing():
+    from plugin.framework.errors import ToolExecutionError
+
+    with (
+        patch("plugin.writer.html_export.new_blank_writer", return_value=None),
+        pytest.raises(ToolExecutionError, match="no scratch document"),
+    ):
+        _range_to_content_via_temp_doc(MagicMock(), MagicMock(), 0, 5, None, None)
+
+
+def test_range_offset_failure_is_not_a_successful_slice():
+    """A failed gap used to leave running short and return the wrong slice as ok."""
+    from plugin.framework.errors import ToolExecutionError
+
+    class _GapCursor:
+        def gotoRange(self, *_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("offset")
+
+    text = MagicMock()
+    para = _para("Standard")
+    text.createEnumeration.return_value = _Enum([para])
+    text.createTextCursor.return_value = MagicMock()
+    text.createTextCursorByRange.return_value = _GapCursor()
+    model = MagicMock()
+    model.getText.return_value = text
+    temp = MagicMock()
+    temp.getText.return_value = MagicMock()
+
+    def _portions(element, truncated_out=None):
+        yield (_Portion(), "Hello")
+
+    with (
+        patch("plugin.writer.html_export.new_blank_writer", return_value=temp),
+        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
+        pytest.raises(ToolExecutionError, match="offset"),
+    ):
+        _range_to_content_via_temp_doc(model, MagicMock(), 0, 5, None, None)
+    temp.close.assert_called_once_with(True)
+
+
+class _DisposedException(Exception):
+    pass
+
+
+def test_full_export_disposal_does_not_fall_back():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer import html_export
+
+    model = _content_doc()
+    with (
+        patch.object(html_export, "_export_xhtml", side_effect=_DisposedException("disposed")),
+        pytest.raises(DocumentDisposedError),
+    ):
+        html_export.document_to_content(model, None, None)
+    model.storeToURL.assert_not_called()
+
+
+def test_starwriter_disposal_is_not_wrapped():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer import html_export
+
+    model = _content_doc()
+    model.storeToURL.side_effect = _DisposedException("disposed")
+    with (
+        patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")),
+        pytest.raises(DocumentDisposedError),
+    ):
+        html_export.document_to_content(model, None, None)
+
+
+def test_range_xhtml_disposal_does_not_fall_back():
+    from plugin.framework.errors import DocumentDisposedError
+
+    temp_doc = MagicMock()
+    temp_text = MagicMock()
+    temp_doc.getText.return_value = temp_text
+    temp_text.createTextCursor.return_value = MagicMock()
+    text = MagicMock()
+    text.createEnumeration.return_value = _Enum([_para("Standard")])
+    source = MagicMock()
+    source.getText.return_value = text
+
+    def _portions(element, truncated_out=None):
+        yield (_Portion(), "Hello")
+
+    with (
+        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
+        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
+        patch("plugin.writer.html_export._element_overlaps", return_value=True),
+        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
+        patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
+        patch("plugin.writer.html_export._paint_direct_formatting"),
+        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
+        patch("plugin.writer.html_export._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_export._export_xhtml", side_effect=_DisposedException("disposed")),
+        pytest.raises(DocumentDisposedError),
+    ):
+        _range_to_content_via_temp_doc(
+            MagicMock(), MagicMock(), 0, 0, None, None, source_range=source,
+        )
+    temp_doc.storeToURL.assert_not_called()
+
+
+def test_trim_to_source_does_not_swallow_get_start():
+    from plugin.writer.html_export import _trim_to_source
+
+    element = MagicMock()
+    element.getStart.side_effect = _DisposedException("disposed")
+    with pytest.raises(_DisposedException):
+        _trim_to_source(MagicMock(), element, "Hello", MagicMock())
+
+
+def test_range_export_does_not_read_para_style_on_a_table():
+    """SwXTextTable has no ParaStyleName. The walk must not abort on it."""
+    table = MagicMock()
+    table.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextTable"
+    text = MagicMock()
+    text.createEnumeration.return_value = _Enum([table, _para("Standard")])
+    source = MagicMock()
+    source.getText.return_value = text
+
+    def _portions(element, truncated_out=None):
+        if element is not table:
+            yield (_Portion(), "Hello")
+
+    temp_doc = MagicMock()
+    temp_text = MagicMock()
+    temp_cursor = MagicMock()
+    temp_doc.getText.return_value = temp_text
+    temp_text.createTextCursor.return_value = temp_cursor
+    styles = MagicMock()
+    styles.hasByName.return_value = True
+    temp_doc.getStyleFamilies.return_value.getByName.return_value = styles
+    with (
+        patch("plugin.writer.html_export.new_blank_writer", return_value=temp_doc),
+        patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
+        patch("plugin.writer.html_export._element_overlaps", return_value=True),
+        patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
+        patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
+        patch("plugin.writer.html_export._paint_direct_formatting"),
+        patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
+        patch("plugin.writer.html_export._ruby_spans_in_window", return_value=[]),
+        patch("plugin.writer.html_export._export_xhtml", return_value="<p>Hello</p>"),
+        patch("plugin.writer.html_export._autostyle_maps", return_value=({}, {}, False)),
+        patch("plugin.writer.html_export._inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch(
+            "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
+            side_effect=lambda xhtml, parents, overrides: xhtml,
+        ),
+    ):
+        html = _range_to_content_via_temp_doc(
+            MagicMock(), MagicMock(), 0, 0, None, None, source_range=source,
+        )
+    assert "Hello" in html
+    table.getPropertyValue.assert_not_called()
+
+
+def test_truncate_html_keeps_tag_and_entity_closed():
+    from plugin.writer.html_export import _truncate_html
+
+    html = '<p><a href="https://example.com/very-long-path">x</a></p>'
+    out = _truncate_html(html, 12)
+    assert out.endswith("[... truncated ...]")
+    body = out.split("[... truncated ...]", 1)[0]
+    assert "<" not in body or body.rfind("<") < body.rfind(">")
+    entity = _truncate_html("hello&nbsp;world", 8)
+    assert "&n" not in entity.split("[... truncated ...]", 1)[0]
+    assert entity.startswith("hello")
+
+
+def test_document_to_content_max_chars_does_not_split_a_tag():
+    from plugin.writer import html_export
+
+    long_html = '<p><a href="https://example.com/very-long-path">visible</a></p>'
+    with (
+        patch.object(html_export, "_export_xhtml", return_value=long_html),
+        patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)),
+        patch.object(html_export, "_inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
+        patch.object(html_export, "_inject_ruby_from_model", side_effect=lambda model, content, fodt_has_ruby=None: content),
+        patch(
+            "plugin.writer.html_export.xhtml_post.xhtml_to_semantic_html",
+            side_effect=lambda xhtml, parents, overrides: xhtml,
+        ),
+    ):
+        out = html_export.document_to_content(_content_doc(), None, None, max_chars=12)
+    body = out.split("[... truncated ...]", 1)[0]
+    assert "<" not in body or body.rfind("<") < body.rfind(">")
+
+
+def test_extract_page_number_fields_reads_properties():
+    from plugin.writer.html_export import extract_page_number_fields
+
+    field = MagicMock()
+    field.supportsService.return_value = True
+    field.getPropertyValue.side_effect = lambda name: {"SubType": 2, "Offset": 1, "NumberingType": 3}[name]
+    portion = MagicMock()
+    portion.getPropertyValue.side_effect = lambda name: "TextField" if name == "TextPortionType" else field
+    para = MagicMock()
+    para.supportsService.return_value = False
+    para.createEnumeration.return_value = _Enum([portion])
+    text = MagicMock()
+    text.createEnumeration.return_value = _Enum([para])
+    assert extract_page_number_fields(text) == [
+        {"SubType": 2, "Offset": 1, "NumberingType": 3}
+    ]
+
+
+def test_xtext_injects_nonzero_page_offset():
+    from plugin.writer import html_export
+
+    html = '<p><span title="page-number"></span></p>'
+    temp = MagicMock()
+    temp.getText.return_value = MagicMock()
+    fields = [{"SubType": 2, "Offset": 1, "NumberingType": 4}]
+    with (
+        patch.object(html_export, "_open_hidden_writer", return_value=temp),
+        patch.object(html_export, "_copy_xtext_into_doc"),
+        patch.object(html_export, "extract_page_number_fields", return_value=fields),
+        patch.object(html_export, "document_to_content", return_value=html),
+    ):
+        out = html_export.xtext_to_content(MagicMock(), MagicMock(), MagicMock())
+    assert 'data-offset="1"' in out
+    assert 'data-subtype="NEXT"' in out
+    assert "data-numbering-type" not in out
+
+
+def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
+    from plugin.writer.html_export import _copy_xtext_into_doc
+
+    src_text = MagicMock()
+    src_text.createEnumeration.return_value = _Enum([])
+    src_doc = MagicMock()
+    graphic = object()
+    shape = MagicMock()
+    shape.getAnchor.return_value.getText.return_value = src_text
+    shape.getAnchor.return_value.getStart.return_value = object()
+    shape.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextGraphicObject"
+    shape.getPropertyValue.side_effect = lambda name: {
+        "AnchorType": 1, "Graphic": graphic, "Width": 100, "Height": 100,
+    }.get(name)
+    draw_page = MagicMock()
+    draw_page.getCount.return_value = 1
+    draw_page.getByIndex.return_value = shape
+    src_doc.getDrawPage.return_value = draw_page
+
+    dest_text = MagicMock()
+    dest_cursor = MagicMock()
+    dest_text.createTextCursor.return_value = dest_cursor
+    dest_text.getString.return_value = ""
+    dest_doc = MagicMock()
+    dest_doc.getText.return_value = dest_text
+    clone = MagicMock()
+    dest_doc.createInstance.return_value = clone
+
+    measure = MagicMock()
+    measure.getString.return_value = ""
+    src_text.createTextCursor.return_value = measure
+    src_text.getString.return_value = ""
+
+    _copy_xtext_into_doc(src_doc, src_text, dest_doc)
+
+    src_doc.getCurrentController().select.assert_not_called()
+    dest_doc.createInstance.assert_called_with("com.sun.star.text.TextGraphicObject")
+    clone.setPropertyValue.assert_any_call("Graphic", graphic)
+    dest_text.insertTextContent.assert_called()
+
 

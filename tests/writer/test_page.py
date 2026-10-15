@@ -364,6 +364,27 @@ def test_get_header_footer_returns_html_and_still_lists_logo_and_field():
     assert "apply_document_content" not in str(res)
 
 
+def test_get_header_propagates_export_error_and_disposal():
+    from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+
+    text_obj = MagicMock()
+    doc, _style = _page_style_doc(text_obj)
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    with (
+        patch("plugin.writer.html_export.xtext_to_content", side_effect=ToolExecutionError("Could not read the document: boom")),
+        pytest.raises(ToolExecutionError, match="boom"),
+    ):
+        PageGetHeaderFooterText().execute(ctx, style="Standard", region="header")
+    with (
+        patch(
+            "plugin.writer.html_export.xtext_to_content",
+            side_effect=DocumentDisposedError("closed", object_type="document"),
+        ),
+        pytest.raises(DocumentDisposedError),
+    ):
+        PageGetHeaderFooterText().execute(ctx, style="Standard", region="header")
+
+
 def test_set_header_footer_imports_html_even_when_a_logo_is_present():
     """HTML set with a logo must succeed — no force, no refuse-on-held."""
     from unittest.mock import patch
@@ -545,7 +566,10 @@ def test_get_header_reports_logo_when_anchor_text_wrapper_differs():
     other = MagicMock()
     doc, _style = _page_style_doc(text_obj, shapes=[_logo_anchored_in(other)])
 
-    with patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {text_obj, other}, create=True):
+    with (
+        patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {text_obj, other}, create=True),
+        patch("plugin.writer.html_export.xtext_to_content", return_value=""),
+    ):
         res = PageGetHeaderFooterText().execute(
             TestingFactory.create_context(doc=doc, doc_type="writer"), style="Standard", region="header")
 
