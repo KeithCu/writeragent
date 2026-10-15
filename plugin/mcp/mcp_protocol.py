@@ -671,6 +671,14 @@ class MCPProtocolHandler:
         body = self._read_body(handler)
         if body is None:
             return
+        # What was wrong: a JSON array or scalar is a successful read_json_body
+        # result (a list is a legal MCP batch on POST /mcp). body.get ran before
+        # the try, so the error left this function.
+        # How: GenericRequestHandler._dispatch turned that AttributeError into HTTP 500.
+        # Why: /debug actions are objects. 400 here. read_json_body must still return lists.
+        if not isinstance(body, dict):
+            self._send_json(handler, 400, {"error": "JSON body must be an object"})
+            return
         action = body.get("action", "")
         try:
             if action == "call_tool":

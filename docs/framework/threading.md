@@ -28,7 +28,7 @@ The plugin runs an embedded HTTP server to provide a local API and support the M
 
 #### MCP tool execution paths
 
-MCP `tools/call` routes to one of two handlers in [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py), depending on the tool's `long_running` flag:
+MCP `tools/call` routes to one of two handlers in [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.py), when `is_async()` returns exactly `True`. `long_running = True` alone stays on `_execute_with_backpressure`:
 
 | Path | Method | Tool body | Global limit | Per-document gate |
 |------|--------|-----------|--------------|-------------------|
@@ -56,7 +56,7 @@ flowchart TB
     BodyLr --> Uno
 ```
 
-**Why two layers?** The global semaphore keeps fast MCP tools from piling up on the main thread and surfaces `BusyError` (HTTP 429) under overload. Long-running tools (image generation, delegate sub-agents) skip the semaphore so a minutes-long job does not block every other MCP client. That left a hole: parallel long-running mutators could target the same document. The per-document gate closes that without blocking read-only work or work on other documents.
+**Why two layers?** The global semaphore keeps fast MCP tools from piling up on the main thread and surfaces `BusyError` (HTTP 429) under overload. Tools whose `is_async()` is exactly `True` (image generation, delegate sub-agents) skip the semaphore so a minutes-long job does not block every other MCP client. That left a hole: parallel long-running mutators could target the same document. The per-document gate closes that without blocking read-only work or work on other documents.
 
 A mutating backpressure call holds `_tool_semaphore` for prepare, releases it before `_document_mutation_gate`, and acquires it again only for the tool body. Waiting on a document another mutator already holds does not 429 fast calls for other documents. Read-only backpressure never takes the gate, so it keeps the semaphore from prepare through the body. Long-running tools still take only the gate.
 

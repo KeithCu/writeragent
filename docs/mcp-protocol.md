@@ -359,10 +359,10 @@ External MCP hosts often fire several `tools/call` requests at once (e.g. resear
 
 | Layer | Applies to | Effect |
 |-------|------------|--------|
-| **Global semaphore** | Backpressure (non-`long_running`) tools only | At most one fast tool on the main thread; overload → HTTP 429 `BusyError` |
+| **Global semaphore** | Backpressure tools (`is_async()` is not exactly `True`) | At most one fast tool on the main thread; overload → HTTP 429 `BusyError` |
 | **Per-document gate** | Mutating tools on **both** backpressure and long-running paths | Same resolved document key (`document_url` / RuntimeUID) → mutating runs serialize; different docs and read-only runs stay concurrent |
 
-Tools with `long_running = True` (e.g. `delegate_to_specialized_*`, `image_generate`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. They still take the per-document gate when they mutate. Read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
+Tools whose `is_async()` is exactly `True` (e.g. `delegate_to_specialized_*`, `image_generate`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. The `long_running` attribute does not select this path. A positive `timeout` is checked later in `_prepare_mcp_execution`; it does not choose the path. They still take the per-document gate when they mutate. Read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
 
 **UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden). Both paths wait for that gate on the HTTP worker. A backpressure tool then runs its body on the main thread, so a long-running mutator cannot freeze the LibreOffice UI for the gate timeout. A `tools/call` argument cannot disable the thread guard. A fast mutating call releases the global semaphore before that gate wait and takes it again only to run the tool body, so one document's slow edit does not turn other documents' fast calls into HTTP 429.
 

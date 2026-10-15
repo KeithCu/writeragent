@@ -491,6 +491,22 @@ def test_handle_debug_post_blocks_tunneled_request(monkeypatch):
     assert 200 in req4.sent_responses
 
 
+@pytest.mark.parametrize("payload", [[1, 2], 1, "x", True])
+def test_handle_debug_post_rejects_non_object_json(payload):
+    from tests.mcp.test_mcp_server import MockHandler
+
+    services = MagicMock()
+    handler = MCPProtocolHandler(services)
+
+    raw = json.dumps(payload).encode("utf-8")
+    mock_req = MockHandler({"Content-Length": str(len(raw))}, body=raw)
+    handler.handle_debug_post(mock_req)
+
+    assert 400 in mock_req.sent_responses
+    assert 500 not in mock_req.sent_responses
+    assert json.loads(mock_req.wfile.getvalue().decode("utf-8")) == {"error": "JSON body must be an object"}
+
+
 def test_http_server_stop_ends_sse_keepalive():
     """stop() must wake the SSE request thread instead of leaving it in select."""
     import socket

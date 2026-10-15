@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 import plugin.mcp.mcp_protocol as proto
 
-def test_batch_jsonrpc_omits_mcp_session_id():
+def test_batch_jsonrpc_includes_mcp_session_id():
     services = MagicMock()
     handler = MCPProtocolHandler(services)
 
