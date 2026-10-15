@@ -409,6 +409,13 @@ def test_future_stored_exception_identity():
     assert _future_stored_this_exception(cancelled_fut, CancelledError()) is True
     assert _future_stored_this_exception(cancelled_fut, RuntimeError()) is False
 
+    class SubclassedCancelledError(CancelledError):
+        pass
+
+    UnrelatedCancelledError = type("CancelledError", (Exception,), {})
+    assert _future_stored_this_exception(cancelled_fut, SubclassedCancelledError()) is True
+    assert _future_stored_this_exception(cancelled_fut, UnrelatedCancelledError()) is False
+
 
 def test_pooled_worker_tags_then_clears_task_name():
     seen = []

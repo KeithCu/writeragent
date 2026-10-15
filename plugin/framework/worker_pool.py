@@ -49,11 +49,11 @@ import sys
 import threading
 import uuid
 from collections import deque
-from concurrent.futures import Future, TimeoutError as FuturesTimeoutError
+from concurrent.futures import CancelledError, Future, TimeoutError as FuturesTimeoutError
 from typing import Optional, Callable, Any, ClassVar, IO, Iterator
 
 from plugin.framework.constants import BACKGROUND_POOL_MAX_WORKERS
-from plugin.framework.errors import WorkerPoolError
+from plugin.framework.errors import ToolExecutionError, WorkerPoolError
 
 log = logging.getLogger("writeragent.framework.worker_pool")
 
@@ -98,7 +98,8 @@ def _future_stored_this_exception(fut: Future[Any], exc: BaseException) -> bool:
     if not fut.done():
         return False
     if fut.cancelled():
-        return type(exc).__name__ == "CancelledError"
+        # result() raises a new CancelledError. exception() raises too, so identity cannot see a cancel.
+        return isinstance(exc, CancelledError)
     return fut.exception() is exc
 
 
@@ -708,8 +709,6 @@ class AsyncProcess:
             proc: subprocess.Popen[Any] = subprocess.Popen(self.args, **self._popen_kwargs)
         except Exception as e:
             log.exception("Failed to start process: %s", self.args)
-            from plugin.framework.errors import ToolExecutionError
-
             raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
 
         self.process = proc
