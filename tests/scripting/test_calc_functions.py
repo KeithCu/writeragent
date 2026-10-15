@@ -331,6 +331,14 @@ def test_permut():
     res = permut(5, 2)
     assert res == 20.0
     assert math.isnan(permut(2, 5))
+    # 170! fits in float64. 171! does not. 1e7! is the hang: without the
+    # lgamma pre-check math.perm builds that integer and this exceeds the
+    # pytest timeout. Same pattern as combin(1e9, 5e8).
+    assert permut(170, 170) == float(math.perm(170, 170))
+    assert math.isnan(permut(171, 171))
+    assert math.isnan(permut(10**7, 10**7))
+    assert permut(1000, 10) == float(math.perm(1000, 10))
+    assert permut(10, 0) == 1.0
 
 def test_poisson():
     from plugin.scripting.calc_functions import poisson
@@ -1463,11 +1471,16 @@ def test_odd_price_yield_negates_frequency_is_nan():
     assert not math.isnan(calc.oddlprice(40000, 41000, 39000, 0.05, -0.5, 100, 2))
 
 
-def test_quartile_text_cell_is_nan():
+def test_quartile_text_cell_is_value_error():
     data = [1.0, 2.0, 3.0, 4.0]
-    assert math.isnan(calc.quartile([1.0, "text", 3.0], 1))
-    assert math.isnan(calc.quartile(["a", "b"], 2))
+    # Any text fails dtype=float. The code is #VALUE!, not #NUM!.
+    assert calc.quartile([1.0, "text", 3.0], 1) == "#VALUE!"
+    assert calc.quartile(["a", "b"], 2) == "#VALUE!"
+    assert calc.quartile("text", 1) == "#VALUE!"
     assert calc.quartile(data, 1) == calc.quartile(data, 1.0)
+    # Numeric NaNs are stripped. An all-NaN range is empty, which stays #NUM!.
+    assert math.isnan(calc.quartile([float("nan"), float("nan")], 1))
+    assert calc.quartile([1.0, None, 3.0], 0) == 1.0
 
 
 def test_sort_out_of_bounds_index_is_nan():

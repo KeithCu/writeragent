@@ -117,7 +117,7 @@ _CASES: list[tuple[str, tuple[object, ...], object, str]] = [
     ("rank", ("text", [1, 2, 3]), "nan", "rank-text"),
     ("rank", ("", [1, 2, 3]), "nan", "rank-blank"),
     ("rank", (0, [0, 1, 2]), 3.0, "rank-zero"),
-    ("rank", (9, [1, 2, 3]), "nan", "rank-out-of-range"),
+    ("rank", (9, [1, 2, 3]), "#N/A", "rank-out-of-range"),
     ("regex", ("abc", ""), "", "regex-blank-pattern"),
     ("rept", ("ab", "text"), "nan", "rept-text-count"),
     ("rept", ("ab", ""), "nan", "rept-blank-count"),
@@ -227,6 +227,43 @@ def test_npv_skips_non_numeric():
     assert abs(with_text - base) < 1e-9
 
 
+def test_nan_cells_propagate_in_npv_sumsq_subtotal_sumifs():
+    # na() is float nan. LibreOffice and Excel propagate that error through
+    # NPV, SUMSQ, and SUBTOTAL's numeric functions, and through SUMIFS when
+    # the row matches. COUNT skips it. COUNTA counts it. A non-matching
+    # SUMIFS row does not. None, text, bools, and the "#N/A" string stay
+    # on the old skip path. A split_grid blank is also nan and follows the
+    # error path; there is no blank bit to test here.
+    nan = float("nan")
+    base = calc.npv(0.1, 100, 100)
+    assert math.isnan(calc.npv(0.1, 100, nan, 100))
+    assert math.isnan(calc.npv(0.1, nan))
+    assert abs(calc.npv(0.1, 100, "#N/A", 100) - base) < 1e-9
+    assert abs(calc.npv(0.1, 100, True, 100) - base) < 1e-9
+
+    assert math.isnan(calc.sumsq(nan))
+    assert math.isnan(calc.sumsq([1.0, nan, 3.0]))
+    assert calc.sumsq(["#N/A", 3]) == 9.0
+    assert calc.sumsq(["5", 3]) == 9.0
+
+    assert math.isnan(calc.subtotal(9, [1.0, nan, 2.0]))
+    assert math.isnan(calc.subtotal(1, [1.0, nan, 3.0]))
+    assert math.isnan(calc.subtotal(4, [1.0, nan]))
+    assert math.isnan(calc.subtotal(6, [2.0, nan]))
+    assert math.isnan(calc.subtotal(7, [1.0, 3.0, nan]))
+    assert calc.subtotal(2, [1.0, nan, 2.0]) == 2.0
+    assert calc.subtotal(2, [nan]) == 0.0
+    assert calc.subtotal(3, [1.0, nan]) == 2.0
+    assert calc.subtotal(3, [nan]) == 1.0
+    assert calc.subtotal(9, []) == 0.0
+    # 109 subtracts 100 once and is still SUM, so the NaN still propagates.
+    assert math.isnan(calc.subtotal(109, [1.0, nan, 2.0]))
+
+    assert math.isnan(calc.sumifs([1.0, nan, 3.0], [1.0, 1.0, 1.0], ">0"))
+    assert calc.sumifs([1.0, nan, 3.0], [1.0, 0.0, 1.0], ">0") == 4.0
+    assert calc.sumifs([1.0, "#N/A", 3.0], [1.0, 1.0, 1.0], ">0") == 4.0
+
+
 def test_numbervalue_grp_equals_dec():
     # Bug Z4: numbervalue("1,5", ",") should not drop grp when grp==dec
     assert calc.numbervalue("1,5", ",") == 1.5
@@ -249,6 +286,15 @@ def test_rank_small_extract_numeric():
     assert calc.small([1, float("nan"), 3], 1) == 1.0
     assert calc.small([1, "a", 3], 1) == 1.0
     assert calc.small([1, True, 3], 1) == 1.0
+
+    # Missing number is #N/A. A NaN lookup and an empty numeric list stay #NUM!.
+    assert calc.rank(4, [1, 2, 3]) == "#N/A"
+    assert calc.rank(0, [1, 2, 3], 1) == "#N/A"
+    assert calc.rank(2, [1, 3]) == "#N/A"
+    assert math.isnan(calc.rank(float("nan"), [1, 2, 3]))
+    assert math.isnan(calc.rank(1, []))
+    assert math.isnan(calc.rank(1, ["a", "b"]))
+    assert math.isnan(calc.rank(1, [float("nan")]))
 
 
 def test_regex_calc_replacement_syntax():
@@ -331,10 +377,12 @@ def test_regex_occurrence_and_whole_match():
 
 
 def test_rept_length_cap_and_bad_count():
-    assert len(calc.rept("a", 10**6)) == 10**6
-    # kScInterpreterMaxStrLen is 2**31 // 8. Do not allocate the product.
-    assert math.isnan(calc.rept("a", 10**9))
-    assert math.isnan(calc.rept("ab", (2**31 // 8) // 2 + 1))
+    # Excel REPT allows 32767 characters. The old cap was 2**31 // 8.
+    assert len(calc.rept("a", 32767)) == 32767
+    assert math.isnan(calc.rept("a", 32768))
+    assert len(calc.rept("ab", 16383)) == 32766
+    assert math.isnan(calc.rept("ab", 16384))
+    assert calc.rept("", 10**9) == ""
     assert math.isnan(calc.rept("a", "x"))
     assert math.isnan(calc.rept("ab", "text"))
 

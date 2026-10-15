@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import sys
 import re
 import statistics
 from typing import Any
@@ -245,12 +246,25 @@ def npv(rate: Any, *args: Any) -> float:
     vals = []
     for arg in args:
         for v in np.asarray(arg, dtype=object).ravel():
+            # What was wrong: NPV skipped a NaN cash flow, so a range that
+            # contained NA() returned a finite discount.
+            # How it happened: is_missing_value() is true for float nan, and
+            # the isnan check below dropped it again. ScNPV walks
+            # ScHorizontalValueIterator, which yields a formula error;
+            # SetError then stops the call. Excel NPV of a cash-flow error
+            # returns that error. na() is float nan. A pure-numeric
+            # split_grid blank is also nan (docs/calc/py-data-shapes.md);
+            # there is no blank-vs-error bit, so this helper treats that
+            # nan as the error. None and "" stay blanks and do not take a
+            # period. Error-token strings stay on the is_missing_value skip.
+            # Why this change fixes it: a float or numpy nan returns nan
+            # before the missing-value skip.
+            if isinstance(v, (float, np.floating)) and math.isnan(float(v)):
+                return float("nan")
             if v is None or is_missing_value(v) or isinstance(v, (bool, np.bool_)):
                 continue
             try:
-                vf = float(v)
-                if not math.isnan(vf):
-                    vals.append(vf)
+                vals.append(float(v))
             except (ValueError, TypeError, OverflowError):
                 continue
     res = 0.0
@@ -516,10 +530,26 @@ def permut(n: Any, k: Any) -> float:
         k_val = int(float(k))
         if n_val < 0 or k_val < 0 or n_val < k_val:
             return float("nan")
+        # What was wrong: PERMUT(1e6, 1e6) stalled the shared venv worker
+        # for seconds, and PERMUT(1e7, 1e7) for minutes.
+        # How it happened: math.perm builds n!/(n-k)! as a Python int
+        # before float() raises OverflowError. ScPermut multiplies in
+        # double and PushDouble turns the overflow into #NUM!. Excel
+        # PERMUT of that overflow is #NUM!.
+        # Why this change fixes it: P(n,k) = n!/(n-k)!, so the log is
+        # lgamma(n+1)-lgamma(n-k+1). The same pre-check as _binom_float
+        # rejects a log that is not finite or is above
+        # log(sys.float_info.max) before math.perm runs. Do not call
+        # _binom_float: that also subtracts lgamma(k+1). 170! fits;
+        # 171! does not.
+        log_p = math.lgamma(n_val + 1) - math.lgamma(n_val - k_val + 1)
+        if not math.isfinite(log_p) or log_p > math.log(sys.float_info.max):
+            return float("nan")
         return float(math.perm(n_val, k_val))
     except (ValueError, TypeError, OverflowError):
         # int(float(+inf)) and float() of a huge permutation raise
-        # OverflowError. The old except missed them. Excel PERMUT is #NUM!.
+        # OverflowError. lgamma of int(float(1e308)) raises OverflowError
+        # too. Excel PERMUT is #NUM!.
         return float("nan")
 
 
@@ -596,7 +626,7 @@ def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -
     return _npf_result("pv", r, n, pm, f, t)
 
 
-def quartile(r: Any, q: Any) -> float:
+def quartile(r: Any, q: Any) -> float | str:
     # Non-numeric quart used to raise ValueError from float(). Out-of-range
     # quart fell through to `qi * 25` and np.percentile raised ValueError
     # (percentile outside 0..100). Excel QUARTILE returns #NUM! for both.
@@ -606,26 +636,42 @@ def quartile(r: Any, q: Any) -> float:
         return float("nan")
     if qi < 0 or qi > 4:
         return float("nan")
-    # dtype=float raises ValueError on a text cell. The quart try above does
-    # not cover the range, so that used to crash. Excel QUARTILE is #VALUE!.
+    # What was wrong: QUARTILE of a text range returned nan, so the sheet
+    # showed #NUM!.
+    # How it happened: dtype=float raises ValueError on a text cell. The
+    # handler returned nan. ScQuartile's empty number sequence is
+    # PushNoValue (FormulaError::NoValue, #VALUE!). Excel QUARTILE of a
+    # text range is #VALUE!.
+    # Why this change fixes it: the handler returns the "#VALUE!" token.
+    # Any text still fails the conversion; this does not start skipping
+    # text the way GetNumberSequenceArray does. A raise would show #VALUE!
+    # too, and would drop the rest of a spill. Blanks and numeric NaNs
+    # still become nan and are stripped below; an all-NaN range stays nan.
     try:
         arr = np.asarray(r, dtype=float).ravel()
     except (ValueError, TypeError):
-        return float("nan")
+        return "#VALUE!"
     arr = arr[~np.isnan(arr)]
     pct = (0.0, 25.0, 50.0, 75.0, 100.0)[qi]
     return float(np.percentile(arr, pct)) if len(arr) else float("nan")
 
 
-def rank(val: Any, r: Any, order: int | float = 0) -> float:
+def rank(val: Any, r: Any, order: int | float = 0) -> float | str:
     # Numbers only. Text, bools, and NaN are ignored; one text cell must not abort the call.
     try:
         target = float(val)
-        # NaN is never found; the not-found except returns NaN.
+        # Keep this. Not-found below is "#N/A", and list.index(nan) raises
+        # ValueError, so a NaN lookup would become #N/A. A NaN lookup is
+        # #NUM! (plain NaN is IllegalFPOperation).
+        if math.isnan(target):
+            return float("nan")
         descending = int(float(order)) == 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
     arr = _extract_numeric_array(r, propagate_nan=False).tolist()
+    # Empty after dropping text, bools, and NaN. ScRank PushNoValue is
+    # #VALUE!, Excel's empty ref is #N/A. This helper already returns nan
+    # here; that path is not the not-found bug. Leave it.
     if not arr:
         return float("nan")
     if descending:
@@ -635,7 +681,13 @@ def rank(val: Any, r: Any, order: int | float = 0) -> float:
     try:
         return float(arr.index(target) + 1)
     except ValueError:
-        return float("nan")
+        # What was wrong: RANK of a number that is not in the list returned
+        # nan, so the sheet showed #NUM!.
+        # How it happened: arr.index raises ValueError and this handler
+        # returned nan. ScRank PushError(NotAvailable) is #N/A. Excel RANK
+        # of a missing number is #N/A.
+        # Why this change fixes it: the token "#N/A" is the real #N/A.
+        return "#N/A"
 
 
 def _translate_calc_replacement(rep: str) -> str:
@@ -704,8 +756,15 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
         return float("nan")
 
 
-# ScRept rejects a result longer than kScInterpreterMaxStrLen (SAL_MAX_INT32 / 8).
-_MAX_REPT_CHARS = 2**31 // 8
+# Excel REPT allows 32767 characters. LibreOffice ScRept uses
+# kScInterpreterMaxStrLen (SAL_MAX_INT32 / 8 == 268435455, Err:513).
+# That ceiling is hundreds of MB in the shared venv worker, and the IPC
+# frame cap is 16 MiB, so the result cannot be returned anyway.
+# What was wrong: REPT allowed 2**31//8 characters per call.
+# How it happened: the constant copied the LO interpreter limit.
+# Why this change fixes it: the cap is Excel's 32767. The failure value
+# stays nan, same as a negative count. Length is Python len (code points).
+_MAX_REPT_CHARS = 32767
 
 
 def rept(text: Any, n: Any) -> str | float:
@@ -719,7 +778,7 @@ def rept(text: Any, n: Any) -> str | float:
     if count < 0:
         return float("nan")
     body = str(text)
-    # Check before allocating. Excel's 32767 is not this limit.
+    # Check before allocating. Exactly 32767 characters is allowed.
     if count and body and count > _MAX_REPT_CHARS // len(body):
         return float("nan")
     return body * count
@@ -1086,8 +1145,21 @@ def subtotal(fn_num: Any, r: Any) -> float:
             return float("nan")
         except (ValueError, TypeError):
             continue
-        if v is None or math.isnan(v):
+        if v is None:
             continue
+        # What was wrong: SUBTOTAL skipped a numeric NaN, so SUM of an
+        # error cell matched SUM of a blank.
+        # How it happened: math.isnan(v) continued. ScSubTotal does not
+        # set IgnoreErrVal, so SUM/AVERAGE/MAX/MIN/PRODUCT/STDEV/VAR
+        # SetError on a formula error. COUNT (2) does not count it.
+        # COUNTA (3) counts it in the flat scan below. Excel matches that
+        # split. A split_grid blank is also nan; see npv. Do not change
+        # _cell_number. Error-token strings are still None from that helper.
+        # Why this change fixes it: functions other than 2 and 3 return nan.
+        if math.isnan(v):
+            if fn == 2 or fn == 3:
+                continue
+            return float("nan")
         nums.append(v)
     arr = np.asarray(nums, dtype=float)
     if fn == 1:
@@ -1164,8 +1236,18 @@ def sumifs(sr: Any, *args: Any) -> float:
                 continue
             try:
                 val = float(cell)
-                if not np.isnan(val):
-                    total += val
+                # What was wrong: SUMIFS skipped a NaN on a row that met
+                # the criteria, so an error in the sum range vanished.
+                # How it happened: np.isnan(val) continued. ScSumIfs calls
+                # GetCellValue only for a matching cell, and that SetError
+                # on a formula error. A failing row never enters this
+                # block, so a NaN there stays ignored. Excel SUMIFS returns
+                # the error when the summed cell is an error.
+                # Why this change fixes it: a matching NaN returns nan.
+                # This block does not run for a non-matching row.
+                if math.isnan(val):
+                    return float("nan")
+                total += val
             except (ValueError, TypeError, OverflowError):
                 pass
     return float(total)
@@ -1219,8 +1301,19 @@ def sumsq(*args: Any) -> float:
                 return float("nan")
             except (ValueError, TypeError):
                 continue
-            if num is None or math.isnan(num):
+            if num is None:
                 continue
+            # What was wrong: SUMSQ skipped a numeric NaN, so an error cell
+            # dropped out of the sum of squares.
+            # How it happened: math.isnan(num) continued. ScSumSQ
+            # (IterateParameters ifSUMSQ) SetError on a formula error.
+            # Excel SUMSQ of a reference that contains an error returns
+            # the error. None from _cell_number is still a blank or text,
+            # including an error-token string. A split_grid blank is also
+            # nan; see npv. Do not change _cell_number.
+            # Why this change fixes it: a nan number returns nan.
+            if math.isnan(num):
+                return float("nan")
             total += num * num
     # What was wrong: SUMSQ(1e200) returned inf.
     # How it happened: the square overflows without raising. SUMSQ reaches
