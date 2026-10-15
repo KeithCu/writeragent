@@ -5,10 +5,12 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import tempfile
 from unittest.mock import MagicMock, patch
 
 from plugin.doc.document_research_grep import grep_nearby_files, resolve_grep_candidates
+from plugin.framework.url_utils import path_to_file_url
 
 
 def test_resolve_grep_candidates_budget_filter():
@@ -46,9 +48,41 @@ def test_resolve_grep_candidates_single_absolute_path():
         assert err is None
         assert truncated is False
         assert len(candidates) == 1
-        assert candidates[0]["path"] == os.path.normpath(os.path.abspath(path))
+        norm = os.path.normpath(os.path.abspath(path))
+        assert candidates[0]["path"] == norm
+        assert candidates[0]["url"] == path_to_file_url(norm)
     finally:
         os.unlink(path)
+
+
+def test_resolve_grep_candidates_file_url_opens_that_file():
+    with tempfile.NamedTemporaryFile(suffix=".ods", delete=False) as f:
+        path = f.name
+    try:
+        file_url = Path(path).as_uri()
+        with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
+            candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=file_url)
+            mock_list.assert_not_called()
+        assert err is None
+        assert truncated is False
+        assert len(candidates) == 1
+        norm = os.path.normpath(os.path.abspath(path))
+        assert candidates[0]["path"] == norm
+        assert candidates[0]["url"] == path_to_file_url(norm)
+    finally:
+        os.unlink(path)
+
+
+def test_resolve_grep_candidates_missing_file_url_is_an_error():
+    missing_path = "/nonexistent/path/to/missing.ods"
+    missing_url = Path(missing_path).as_uri()
+    with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
+        candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=missing_url)
+        mock_list.assert_not_called()
+    assert candidates == []
+    assert truncated is False
+    assert err is not None
+    assert f"No file matching {missing_url!r}" in err
 
 
 def test_resolve_grep_candidates_listing_truncated_flag():
@@ -96,12 +130,11 @@ def test_resolve_grep_candidates_open_files_first():
     assert candidates[0]["path"] == open_f
 
 
-@patch("plugin.doc.document_research_grep._process_events_if_available")
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep._search_opened_document")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_aggregates_hits(mock_resolve, mock_search, mock_open, mock_close, mock_events):
+def test_grep_nearby_files_aggregates_hits(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
         [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
         False,
@@ -125,12 +158,11 @@ def test_grep_nearby_files_aggregates_hits(mock_resolve, mock_search, mock_open,
     mock_close.assert_called_once()
 
 
-@patch("plugin.doc.document_research_grep._process_events_if_available")
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep._search_opened_document")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search, mock_open, mock_close, mock_events):
+def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
         [
             {"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
@@ -159,12 +191,11 @@ def test_grep_nearby_files_stopped_early_on_total_cap(mock_resolve, mock_search,
     assert result["files_scanned"] == 1
 
 
-@patch("plugin.doc.document_research_grep._process_events_if_available")
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep._search_opened_document")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_stop_checker(mock_resolve, mock_search, mock_open, mock_close, mock_events):
+def test_grep_nearby_files_stop_checker(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
         [
             {"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False},
@@ -194,11 +225,10 @@ def test_grep_nearby_files_stop_checker(mock_resolve, mock_search, mock_open, mo
     assert result["code"] == "USER_STOPPED"
 
 
-@patch("plugin.doc.document_research_grep._process_events_if_available")
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_open_error_continues(mock_resolve, mock_open, mock_close, mock_events):
+def test_grep_nearby_files_open_error_continues(mock_resolve, mock_open, mock_close):
     mock_resolve.return_value = (
         [{"path": "/tmp/bad.ods", "name": "bad.ods", "url": "", "doc_type_guess": "calc", "is_open": False}],
         False,
@@ -380,6 +410,125 @@ def test_grep_text_in_writer_stop_checker_skips_later_paragraphs():
     assert partial is True
 
 
+def test_grep_text_in_writer_uses_visible_text():
+    from plugin.doc.document_research_grep import _grep_text_in_writer
+
+    model = MagicMock()
+    services = MagicMock()
+
+    # Paragraph test
+    para = MagicMock()
+    para.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para.getString.return_value = "deleted keyword"
+    services.document.get_paragraph_ranges.return_value = [para]
+
+    with patch("plugin.doc.document_research_grep.get_string_without_tracked_deletions") as mock_helper:
+        mock_helper.return_value = "visible keyword"
+
+        matches, count, partial = _grep_text_in_writer(
+            model,
+            services,
+            pattern="visible",
+            max_results=5,
+        )
+        assert count == 1
+        assert partial is False
+        mock_helper.assert_called_with(para)
+
+        matches_del, count_del, _ = _grep_text_in_writer(
+            model,
+            services,
+            pattern="deleted",
+            max_results=5,
+        )
+        assert count_del == 0
+
+    # Table cell test
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    table.getCellNames.return_value = ("A1",)
+    cell = MagicMock()
+    cell.getString.return_value = "deleted cell keyword"
+    table.getCellByName.return_value = cell
+    services.document.get_paragraph_ranges.return_value = [table]
+
+    with patch("plugin.doc.document_research_grep.get_string_without_tracked_deletions") as mock_helper:
+        mock_helper.return_value = "visible cell keyword"
+
+        matches, count, partial = _grep_text_in_writer(
+            model,
+            services,
+            pattern="visible",
+            max_results=5,
+        )
+        assert count == 1
+        assert partial is False
+        mock_helper.assert_called_with(cell)
+
+        matches_del, count_del, _ = _grep_text_in_writer(
+            model,
+            services,
+            pattern="deleted",
+            max_results=5,
+        )
+        assert count_del == 0
+
+
+def test_grep_text_in_calc_partial_when_more_hits_exist():
+    from plugin.doc.document_research_grep import _grep_text_in_calc
+
+    hits = [
+        {"sheet": "Sheet1", "cell": "A1", "value": "val1"},
+        {"sheet": "Sheet1", "cell": "A2", "value": "val2"},
+    ]
+    with patch("plugin.doc.document_research_grep.search_spreadsheet_cells") as mock_search:
+        mock_search.return_value = hits
+        matches, count, partial = _grep_text_in_calc(MagicMock(), "val", max_results=1)
+
+        assert mock_search.call_args.kwargs.get("max_results") == 2
+        assert len(matches) == 1
+        assert count == 1
+        assert partial is True
+
+
+def test_grep_text_in_calc_not_partial_when_results_fit():
+    from plugin.doc.document_research_grep import _grep_text_in_calc
+
+    hits = [{"sheet": "Sheet1", "cell": "A1", "value": "val1"}]
+    with patch("plugin.doc.document_research_grep.search_spreadsheet_cells") as mock_search:
+        mock_search.return_value = hits
+        matches, count, partial = _grep_text_in_calc(MagicMock(), "val", max_results=1)
+
+        assert mock_search.call_args.kwargs.get("max_results") == 2
+        assert len(matches) == 1
+        assert count == 1
+        assert partial is False
+
+
+def test_search_opened_document_calc_forwards_partial():
+    from plugin.doc.document_research_grep import _search_opened_document
+
+    hits = [
+        {"sheet": "Sheet1", "cell": "A1", "value": "val1"},
+        {"sheet": "Sheet1", "cell": "A2", "value": "val2"},
+    ]
+    with patch("plugin.doc.document_research_grep.search_spreadsheet_cells") as mock_search:
+        mock_search.return_value = hits
+        matches, count, partial, err = _search_opened_document(
+            MagicMock(),
+            "calc",
+            MagicMock(),
+            "val",
+            regex=False,
+            case_sensitive=False,
+            max_results_per_file=1,
+        )
+        assert err is None
+        assert partial is True
+        assert count == 1
+        assert len(matches) == 1
+
+
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
 def test_grep_nearby_files_invalid_regex_does_not_open_files(mock_resolve, mock_open):
@@ -396,12 +545,11 @@ def test_grep_nearby_files_invalid_regex_does_not_open_files(mock_resolve, mock_
     mock_open.assert_not_called()
 
 
-@patch("plugin.doc.document_research_grep._process_events_if_available")
 @patch("plugin.doc.document_research_grep.close_document_research_document")
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep._search_opened_document")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mock_open, mock_close, mock_events):
+def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
         [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
         False,
@@ -445,3 +593,71 @@ def test_grep_nearby_files_stop_checker_aborts_during_directory_scan(mock_omt, m
 
     assert result["status"] == "error"
     assert result["code"] == "USER_STOPPED"
+
+
+@patch("plugin.doc.document_research_grep.close_document_research_document")
+@patch("plugin.doc.document_research_grep.open_document_for_read")
+@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep.resolve_grep_candidates")
+def test_grep_nearby_files_stop_during_last_file_is_user_stopped(mock_resolve, mock_search, mock_open, mock_close):
+    mock_resolve.return_value = (
+        [{"path": "/tmp/a.ods", "name": "a.ods", "url": "", "doc_type_guess": "calc", "is_open": False}],
+        False,
+        None,
+    )
+    mock_open.return_value = (MagicMock(), "calc", None, True)
+    mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], 1, True, None)
+
+    calls = {"n": 0}
+
+    def stop_after_top():
+        calls["n"] += 1
+        return calls["n"] > 1
+
+    result = grep_nearby_files(
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        "x",
+        stop_checker=stop_after_top,
+    )
+
+    assert result["status"] == "error"
+    assert result["code"] == "USER_STOPPED"
+    assert "hits" not in result
+    mock_close.assert_called_once()
+
+
+@patch("plugin.doc.document_research_grep.close_document_research_document")
+@patch("plugin.doc.document_research_grep.open_document_for_read")
+@patch("plugin.doc.document_research_grep._search_opened_document")
+@patch("plugin.doc.document_research_grep.resolve_grep_candidates")
+def test_grep_nearby_files_close_post_timeout_keeps_result(mock_resolve, mock_search, mock_open, mock_close):
+    mock_resolve.return_value = (
+        [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
+        False,
+        None,
+    )
+    mock_open.return_value = (MagicMock(), "calc", None, True)
+    mock_search.return_value = (
+        [{"sheet": "Sheet1", "cell": "A1", "value": "Q4 revenue"}],
+        1,
+        False,
+        None,
+    )
+
+    call_count = {"n": 0}
+
+    def mock_execute(fn):
+        call_count["n"] += 1
+        if call_count["n"] == 3:  # close call
+            raise TimeoutError("Main thread timed out")
+        return fn()
+
+    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute), \
+         patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=TimeoutError("Queue full")):
+        result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4")
+
+    assert result["status"] == "ok"
+    assert result["files_with_hits"] == 1
+    assert len(result["hits"]) == 1

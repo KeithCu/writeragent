@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.embeddings import embeddings_cache
 from plugin.embeddings.embeddings_fs import ParagraphChunk, content_hash
+from plugin.embeddings.folder_fts_cache import fts_index_is_empty
 
 
 def test_folder_corpus_key_stable_and_normalized():
@@ -157,6 +158,33 @@ def test_index_is_empty_with_corrupt_meta_and_db(tmp_path):
     # Even though read_corpus_meta would return {} and chunk_count=0,
     # index_is_empty must explicitly return False because DB exists
     assert embeddings_cache.index_is_empty(meta_path, db_path) is False
+
+
+def test_index_is_empty_omitted_db_path_uses_sibling_corpus(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    db_path = tmp_path / "corpus.db"
+    db_path.write_text("sqlite", encoding="utf-8")
+    meta_path.write_text("{ corrupt", encoding="utf-8")
+
+    assert embeddings_cache.index_is_empty(meta_path) is False
+    assert fts_index_is_empty(meta_path) is False
+
+    meta_path.write_text("[]", encoding="utf-8")
+    assert embeddings_cache.index_is_empty(meta_path) is False
+    assert fts_index_is_empty(meta_path) is False
+
+
+def test_index_is_empty_omitted_db_path_without_sibling_db_is_empty(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    meta_path.write_text("{ corrupt", encoding="utf-8")
+    assert embeddings_cache.index_is_empty(meta_path) is True
+
+
+def test_index_is_empty_omitted_db_path_missing_meta_with_sibling_db_is_empty(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    db_path = tmp_path / "corpus.db"
+    db_path.write_text("sqlite", encoding="utf-8")
+    assert embeddings_cache.index_is_empty(meta_path) is True
 
 
 def test_needs_cold_rebuild_with_corrupt_meta(tmp_path):

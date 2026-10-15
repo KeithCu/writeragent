@@ -60,7 +60,10 @@ def fts_schema_matches(meta_path: Path) -> bool:
 
 
 def fts_index_is_empty(meta_path: Path, db_path: Path | None = None) -> bool:
-    """True when there is no usable FTS corpus."""
+    """True when there is no usable FTS corpus.
+
+    The default *db_path* is resolved by ``index_is_empty`` to the sibling corpus.db.
+    """
     return index_is_empty(meta_path, db_path)
 
 

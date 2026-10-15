@@ -36,7 +36,7 @@ class GrepNearbyFiles(ToolBase):
             "pattern": {"type": "string", "description": "Text or regex to search for."},
             "file_subset": {
                 "type": "string",
-                "description": "Optional basename token (e.g. 'budget' matches *budget*.od*) or absolute path to one file.",
+                "description": "Optional basename token (e.g. 'budget' matches *budget*.od*), an absolute path, or a file:// URL of one file.",
             },
             "regex": {"type": "boolean", "description": "Treat pattern as regular expression (default: false)."},
             "case_sensitive": {"type": "boolean", "description": "Case-sensitive search (default: false)."},

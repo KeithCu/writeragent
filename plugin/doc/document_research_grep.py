@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 import os
 from typing import TYPE_CHECKING, Any
+from urllib.parse import unquote, urlparse
+from urllib.request import url2pathname
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -26,13 +28,50 @@ from plugin.doc.document_research import (
 )
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import search_paragraph_texts
+from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_file_url
+from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger(__name__)
 
+# Listing can already be truncated (list_nearby_files max 100). At most 50
+# candidates are opened. Each file returns at most 5 matches, and the scan
+# stops at 30 snippets (stopped_early). Draw also sets that hit's partial
+# when _DRAW_GREP_SHAPE_CAP (200) is hit with result budget left. A hit's
+# partial: true means that file has more matches than were returned. Stop
+# returns USER_STOPPED and drops hits.
 DEFAULT_GREP_MAX_FILES = 50
 DEFAULT_GREP_MAX_RESULTS_PER_FILE = 5
 DEFAULT_GREP_MAX_TOTAL_RESULTS = 30
 _DRAW_GREP_SHAPE_CAP = 200
+
+
+def _file_url_to_local_path(url: str) -> str | None:
+    if not url.startswith("file:"):
+        return None
+    norm = normalize_file_url(url)
+    parsed = urlparse(norm)
+    path = url2pathname(unquote(parsed.path))
+    return os.path.normpath(path)
+
+
+def _file_entry_for_path(path: str) -> FileEntry:
+    norm = os.path.normpath(os.path.abspath(path))
+    entry = FileEntry(
+        path=norm,
+        name=os.path.basename(norm),
+        url=path_to_file_url(norm),
+        modified=0.0,
+        size_bytes=0,
+        doc_type_guess=guess_doc_type_from_path(norm),
+        is_open=False,
+    )
+    try:
+        st = os.stat(norm)
+        entry["modified"] = st.st_mtime
+        entry["size_bytes"] = st.st_size
+    except OSError:
+        pass
+    return entry
 
 
 def resolve_grep_candidates(
@@ -47,28 +86,19 @@ def resolve_grep_candidates(
 ) -> tuple[list[FileEntry], bool, str | None]:
     """Return (candidates, truncated_files, error_message).
 
-    *file_subset* is a basename token (e.g. ``budget`` → ``*budget*.od*``) or an absolute path to one file.
+    *file_subset* is a basename token (e.g. ``budget`` → ``*budget*.od*``),
+    an absolute path, or a ``file://`` URL of one file.
     """
     raw = str(file_subset).strip() if file_subset else None
 
+    if raw and raw.startswith("file:"):
+        local_path = _file_url_to_local_path(raw)
+        if local_path and os.path.isfile(local_path):
+            return [_file_entry_for_path(local_path)], False, None
+        return [], False, f"No file matching {raw!r}"
+
     if raw and os.path.isabs(raw) and os.path.isfile(raw):
-        norm = os.path.normpath(os.path.abspath(raw))
-        entry = FileEntry(
-            path=norm,
-            name=os.path.basename(norm),
-            url="",
-            modified=0.0,
-            size_bytes=0,
-            doc_type_guess=guess_doc_type_from_path(norm),
-            is_open=False,
-        )
-        try:
-            st = os.stat(norm)
-            entry["modified"] = st.st_mtime
-            entry["size_bytes"] = st.st_size
-        except OSError:
-            pass
-        return [entry], False, None
+        return [_file_entry_for_path(raw)], False, None
 
     listing = list_nearby_files(
         ctx,
@@ -110,19 +140,23 @@ def _grep_text_in_writer(
     doc_svc = services.document
     para_ranges = doc_svc.get_paragraph_ranges(model)
     para_texts: list[str] = []
+    # getString() includes tracked deletions, so a keyword the author
+    # removed still matched. Grep is a read of the visible document;
+    # this is the same helper other reads use. The search is already on
+    # the main thread.
     for para in para_ranges:
         if stop_checker and stop_checker():
             break
         try:
             if para.supportsService("com.sun.star.text.Paragraph"):
-                para_texts.append(para.getString())
+                para_texts.append(get_string_without_tracked_deletions(para))
             elif para.supportsService("com.sun.star.text.TextTable"):
                 cell_texts = []
                 names = para.getCellNames() or ()
                 for name in names:
                     try:
                         cell = para.getCellByName(name)
-                        cell_texts.append(cell.getString())
+                        cell_texts.append(get_string_without_tracked_deletions(cell))
                     except Exception:
                         continue
                 if cell_texts:
@@ -138,7 +172,9 @@ def _grep_text_in_writer(
     # paragraph scan. stop_checker was on the signature but never called,
     # and search_paragraph_texts never received it, so a large document
     # finished getString and the match walk before grep_nearby_files could
-    # return USER_STOPPED. The outer file loop still decides USER_STOPPED.
+    # return USER_STOPPED. The outer file loop still decides USER_STOPPED:
+    # the check after each file's search covers the last file, so Stop during
+    # that search is not status: ok.
     matches, total = search_paragraph_texts(
         pattern,
         para_texts,
@@ -166,17 +202,22 @@ def _grep_text_in_calc(
     case_sensitive: bool = False,
     max_results: int,
     stop_checker: Callable[[], bool] | None = None,
-) -> tuple[list[dict[str, Any]], int]:
-    matches = search_spreadsheet_cells(
+) -> tuple[list[dict[str, Any]], int, bool]:
+    # search_spreadsheet_cells stops at max_results with no truncated flag,
+    # and search_in_spreadsheet still needs the list. One extra hit
+    # distinguishes a full cap from a short sheet. partial here is truncation only.
+    fetched = search_spreadsheet_cells(
         model,
         pattern,
         regex=regex,
         case_sensitive=case_sensitive,
-        max_results=max_results,
+        max_results=max_results + 1,
         all_sheets=True,
         stop_checker=stop_checker,
     )
-    return matches, len(matches)
+    partial = len(fetched) > max_results
+    matches = fetched[:max_results]
+    return matches, len(matches), partial
 
 
 def _shape_text_matches_pattern(
@@ -362,7 +403,7 @@ def _search_opened_document(
             )
             return matches, count, partial, None
         if doc_type == "calc":
-            matches, count = _grep_text_in_calc(
+            matches, count, partial = _grep_text_in_calc(
                 model,
                 pattern,
                 regex=regex,
@@ -370,7 +411,7 @@ def _search_opened_document(
                 max_results=max_results_per_file,
                 stop_checker=stop_checker,
             )
-            return matches, count, False, None
+            return matches, count, partial, None
         if doc_type == "draw":
             matches, count, partial = _grep_text_in_draw(
                 model,
@@ -387,16 +428,6 @@ def _search_opened_document(
     except Exception as e:
         log.exception("grep search failed for doc_type=%s", doc_type)
         return [], 0, False, str(e)
-
-
-def _process_events_if_available(ctx: Any) -> None:
-    try:
-        from plugin.framework.uno_context import process_events_to_idle
-
-        # No-ops while chat/MCP drain_owner_scope is active (avoids nested VCL pumps).
-        process_events_to_idle(ctx)
-    except Exception:
-        log.debug("processEventsToIdle during grep failed", exc_info=True)
 
 
 def grep_nearby_files(
@@ -485,7 +516,6 @@ def grep_nearby_files(
 
         if model is None or doc_type is None:
             errors.append({"path": path, "message": open_err or "Open failed"})
-            _process_events_if_available(ctx)
             continue
 
         per_file_limit = min(DEFAULT_GREP_MAX_RESULTS_PER_FILE, DEFAULT_GREP_MAX_TOTAL_RESULTS - total_snippets)
@@ -514,9 +544,19 @@ def grep_nearby_files(
                 from plugin.framework.queue_executor import post_to_main_thread
                 # Post unscoped (bound_scope=None) so the cancelled turn scope does not drop
                 # this close during queue processing or cancel_pending_work.
-                post_to_main_thread(_close, bound_scope=None)
+                # post raises TimeoutError when AsyncCallback is missing and the
+                # pending list is full. An exception from finally replaced the grep
+                # return and left the hidden document open.
+                try:
+                    post_to_main_thread(_close, bound_scope=None)
+                except Exception:
+                    log.exception(
+                        "grep close fallback failed; hidden read document may stay open"
+                    )
 
-        _process_events_if_available(ctx)
+        if stop_checker and stop_checker():
+            user_stopped = True
+            break
 
         if search_err:
             errors.append({"path": path, "message": search_err})
