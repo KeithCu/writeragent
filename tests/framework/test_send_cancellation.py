@@ -60,6 +60,57 @@ def test_send_cancellation_late_register_after_cancel_stops_immediately():
     client.stop.assert_called_once()
 
 
+def test_register_client_dedupes_same_client():
+    scope = SendCancellation()
+    client = MagicMock()
+    scope.register_client(client)
+    scope.register_client(client)
+    scope.cancel()
+    client.stop.assert_called_once()
+
+
+def test_register_client_duplicate_after_cancel_stops_once():
+    scope = SendCancellation()
+    scope.cancel()
+    client = MagicMock()
+    scope.register_client(client)
+    scope.register_client(client)
+    client.stop.assert_called_once()
+
+
+def test_register_on_cancel_dedupes_bound_method():
+    class _Adapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def stop(self) -> None:
+            self.calls += 1
+
+    adapter = _Adapter()
+    scope = SendCancellation()
+    scope.register_on_cancel(adapter.stop)
+    scope.register_on_cancel(adapter.stop)
+    scope.cancel()
+    assert adapter.calls == 1
+
+
+def test_register_on_cancel_duplicate_after_cancel_does_not_run_again():
+    class _Adapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def stop(self) -> None:
+            self.calls += 1
+
+    adapter = _Adapter()
+    scope = SendCancellation()
+    scope.register_on_cancel(adapter.stop)
+    scope.cancel()
+    assert adapter.calls == 1
+    scope.register_on_cancel(adapter.stop)
+    assert adapter.calls == 1
+
+
 def test_llm_client_registers_under_agent_session():
     config = {"endpoint": "http://127.0.0.1:5000", "model": "test"}
     with agent_session() as scope:
