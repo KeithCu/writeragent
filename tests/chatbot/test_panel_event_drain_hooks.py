@@ -53,9 +53,10 @@ def _reset_drain_and_watchdog():
         session._finish()
     stream_mod._event_drain = None
     reset_sentry_state()
-    with logging_mod._activity_lock:
-        logging_mod._activity_state["phase"] = ""
-        logging_mod._activity_state["status_control"] = None
+    shared = logging_mod._shared()
+    with shared["activity_lock"]:
+        shared["activity"]["phase"] = ""
+        shared["activity"]["status_control"] = None
 
 
 def _audio_listener() -> SendButtonListener:
@@ -114,8 +115,9 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         # The first slice has not even run: the turn is still streaming.
         assert _has_audio(listener)
         assert all(c.args[:1] != ("",) for c in activity.call_args_list)
-        assert logging_mod._activity_state["phase"] == "do_send"
-        assert logging_mod._activity_state["status_control"] is status_ctrl
+        act = logging_mod._shared()["activity"]
+        assert act["phase"] == "do_send"
+        assert act["status_control"] is status_ctrl
         post_main.assert_not_called()
         drop_turn.assert_not_called()
 
@@ -135,8 +137,9 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         assert not _has_audio(listener)
         assert listener.session.messages[-1]["content"] == [{"type": "text", "text": "hello"}]
         assert [c.args[:1] for c in activity.call_args_list].count(("",)) == 1
-        assert logging_mod._activity_state["phase"] == ""
-        assert logging_mod._activity_state["status_control"] is None
+        act = logging_mod._shared()["activity"]
+        assert act["phase"] == ""
+        assert act["status_control"] is None
         post_main.assert_called_once_with(logging_mod._clear_hung_status, status_ctrl)
         drop_turn.assert_called_once()
 
@@ -190,8 +193,7 @@ def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
     ):
         listener._run_send_drain()
 
-        # The first slice has not even run: the turn is still streaming.
-        assert logging_mod._activity_state["phase"] == "do_send"
+        assert logging_mod._shared()["activity"]["phase"] == "do_send"
 
         # Dispose mid-stream (calls SendButtonListener.disposing() which sets _panel_teardown = True and cancels scope)
         listener.disposing()

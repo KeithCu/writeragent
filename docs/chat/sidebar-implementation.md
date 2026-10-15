@@ -135,7 +135,7 @@ That means `Dialogs/ChatPanelDialog.xdl` was not loadable. A past hot-deploy bug
 
 ### Debug Logging
 
-All extension logging goes through `plugin/framework/logging.py` (`init_logging`). The single log file is **`writeragent_debug.log`** in the LibreOffice user config directory (same folder as `writeragent.json`, e.g. `~/.config/libreoffice/4/user/` on Linux; `%APPDATA%\LibreOffice\4\user\config\` on Windows). Use `log_level` in `writeragent.json` and standard `logging.getLogger(...)` calls; optional structured agent traces use `agent_log()` when `enable_agent_log` is set (same file).
+All extension logging goes through `plugin/framework/logging.py` (`init_logging`). The single log file is **`writeragent_debug.log`** in the LibreOffice user config directory (same folder as `writeragent.json`, e.g. `~/.config/libreoffice/4/user/` on Linux; `%APPDATA%\LibreOffice\4\user\config\` on Windows). `log_level` in `writeragent.json` filters ordinary `logging.getLogger(...)` calls; when `enable_agent_log` is true, `agent_log()` writes `[Agent]` lines on logger `writeragent.agent` into the same `writeragent_debug.log` even if `log_level` is WARN or higher.
 
 ### UI Lifecycle Exception Handling (`suppress_disposed`)
 

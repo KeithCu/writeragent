@@ -437,9 +437,9 @@ def _setup_grammar_persistence_test_env():
     grammar_persistence.grammar_registry.doc_persistence_instances.clear()
 
     # Save logging state
-    old_debug_log_path = logging_mod._debug_log_path
-    old_enable_agent_log = logging_mod._enable_agent_log
-    old_log_level_numeric = logging_mod._log_level_numeric
+    shared = logging_mod._shared()
+    old_debug_log_path = shared["debug_log_path"]
+    old_enable_agent_log = shared["enable_agent_log"]
 
     # Save log handlers
     wa_logger = logging.getLogger("writeragent")
@@ -469,9 +469,9 @@ def _setup_grammar_persistence_test_env():
         config_mod._resolved_config_path = old_resolved
 
         # Restore logging state
-        logging_mod._debug_log_path = old_debug_log_path
-        logging_mod._enable_agent_log = old_enable_agent_log
-        logging_mod._log_level_numeric = old_log_level_numeric
+        shared = logging_mod._shared()
+        shared["debug_log_path"] = old_debug_log_path
+        shared["enable_agent_log"] = old_enable_agent_log
 
         # Close and remove any handlers added during the test
         for h in list(wa_logger.handlers):
