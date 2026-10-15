@@ -14,6 +14,7 @@ import hashlib
 import logging
 import math
 import re
+import struct
 import threading
 import time
 from typing import Any, ClassVar, Iterator, cast
@@ -135,6 +136,149 @@ def result_to_calc_grid(result: Any, *, include_dataframe_header: bool = True) -
     if listed is not None:
         return listed
     return result
+
+
+_ERR_NUM = 503
+_ERR_VALUE = 519
+_ERR_NULL = 521
+_ERR_REF = 524
+_ERR_NAME = 525
+_ERR_DIV0 = 532
+_ERR_NA = 0x7FFF
+
+_CALC_ERROR_TOKEN_CODES: dict[str, int] = {
+    "#VALUE!": 519,
+    "#NUM!": 503,
+    "#DIV/0!": 532,
+    "#N/A": 32767,
+    "#N/A N/A": 32767,
+    "#REF!": 524,
+    "#NAME?": 525,
+    "#NULL!": 521,
+}
+
+_WORKER_EXC_CODES: dict[str, int] = {
+    "ZeroDivisionError": 532,
+    "OverflowError": 503,
+    "FloatingPointError": 503,
+    "NameError": 525,
+    "UnboundLocalError": 525,
+}
+
+_DUE_TO_EXC_RE = re.compile(r" due to: ([A-Za-z_][A-Za-z0-9_]*): ")
+
+
+def calc_formula_error_double(code: int) -> float:
+    """Return a quiet-NaN double carrying a LibreOffice FormulaError code in its low bits.
+
+    In LibreOffice Calc (interpr4.cxx TreatDoubleError and formula/errorcodes.hxx
+    GetDoubleErrorValue), ScInterpreter::PushDouble checks for non-finite doubles.
+    If the double is a quiet NaN, GetDoubleErrorValue inspects the low 32 bits
+    (fraction_lo). If fraction_lo matches a valid FormulaError code, PushError is called
+    with that code instead of storing a standard float. A plain NaN (fraction_lo == 0)
+    evaluates to FormulaError::IllegalFPOperation (#NUM!) only; encoding the integer error
+    code into fraction_lo allows returning #VALUE!, #DIV/0!, #REF!, #NAME?, #NULL!, etc.
+    """
+    bits = 0x7FF8000000000000 | (code & 0xFFFF)
+    return struct.unpack("d", struct.pack("Q", bits))[0]
+
+
+def calc_error_code_for_token(text: str) -> int | None:
+    return _CALC_ERROR_TOKEN_CODES.get(text.strip())
+
+
+def worker_exception_error_code(message: str) -> int:
+    matches = _DUE_TO_EXC_RE.findall(message)
+    if matches:
+        return _WORKER_EXC_CODES.get(matches[-1], _ERR_VALUE)
+    return _ERR_VALUE
+
+
+def _worker_failure_stays_text(res: dict[str, Any]) -> bool:
+    if res.get("code") == "USER_STOPPED":
+        return True
+    message = str(res.get("message") or res.get("error") or "")
+    msg_lower = message.lower()
+    if "no python executable found under configured venv" in msg_lower or "venv not found" in msg_lower:
+        return True
+    if _DUE_TO_EXC_RE.search(message):
+        return False
+    if "timed out" in msg_lower or "timeout" in msg_lower:
+        return True
+    return False
+
+
+def _map_addin_error_tokens(val: Any) -> Any:
+    if isinstance(val, str):
+        code = calc_error_code_for_token(val)
+        if code is not None:
+            return calc_formula_error_double(code)
+        return val
+    if isinstance(val, tuple):
+        return tuple(_map_addin_error_tokens(elem) for elem in val)
+    return val
+
+
+def py_addin_cell_value(val: Any) -> float | str | tuple[Any, ...]:
+    """Return the LibreOffice Calc add-in cell value for a Python result.
+
+    This maps formula error tokens (e.g. #VALUE!, #DIV/0!) into quiet-NaN doubles
+    carrying Calc FormulaError codes. to_calc_compatible itself remains a type
+    coercion so quant/tabular egress keeps token strings as text.
+    """
+    return cast("float | str | tuple[Any, ...]", _map_addin_error_tokens(to_calc_compatible(val)))
+
+
+def _flat_result_equal(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
+    """Compare flat worker result tuples across matrix session recalculations.
+
+    Bugfix:
+    - What was wrong: state.flat != tuple(flat) used standard inequality (!=).
+      In Python, float('nan') != float('nan') is always True, so any list containing
+      an error double reset next_index on every array formula cell, causing every cell
+      to display the first element instead of advancing through the list.
+    - How it happened: Calc error tokens (e.g. #VALUE!) are mapped into quiet-NaN
+      doubles with error payload bits in flat.
+    - Why this change fixes it: Comparing IEEE 754 bit representations of non-finite
+      floats (NaN and inf) allows identical error doubles to compare equal, keeping
+      the matrix session active and next_index advancing.
+    """
+    if len(left) != len(right):
+        return False
+    for val_left, val_right in zip(left, right):
+        if isinstance(val_left, float) and isinstance(val_right, float):
+            if not math.isfinite(val_left) or not math.isfinite(val_right):
+                if struct.pack("d", val_left) != struct.pack("d", val_right):
+                    return False
+            else:
+                if val_left != val_right:
+                    return False
+        else:
+            if val_left != val_right:
+                return False
+    return True
+
+
+def _addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
+    """Return add-in cell result for non-ok worker status (payload NaN error or text message).
+
+    Bugfix:
+    - What was wrong: The formula cell displayed the plain English string
+      "Error: Code execution failed at line ..." from _format_python_addin_worker_error.
+      Because this was returned as a string, LibreOffice Calc treated it as text rather than
+      a formula error, so Calc functions like ISERROR returned FALSE.
+    - How it happened: The worker caught Python exceptions and packed them into a formatted
+      message string which was returned directly as cell text.
+    - Why this change fixes it: Returning a quiet-NaN double carrying the LibreOffice
+      FormulaError code causes ScInterpreter::PushDouble -> TreatDoubleError to store a
+      real FormulaError in the cell. The descriptive error message remains accessible in
+      the log and in LibrePy workbook diagnostics.
+    """
+    message = str(res.get("message") or res.get("error") or "")
+    if _worker_failure_stays_text(res):
+        return _format_python_addin_worker_error(message)
+    log.error("=PY() worker failure: %s", message)
+    return calc_formula_error_double(worker_exception_error_code(message))
 
 
 def coerce_index(value: Any) -> int:
@@ -397,7 +541,7 @@ def _expire_matrix_sessions_locked(now: float) -> None:
 
 def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any = None, doc: Any | None = None) -> float | str | bool:
     """Return one Calc scalar per invocation when the worker produced a list."""
-    flat: list[Any] = [to_calc_compatible(v) for v in flatten_result_values(result)]
+    flat: list[Any] = [py_addin_cell_value(v) for v in flatten_result_values(result)]
     if not flat:
         return ""
     tid = threading.get_ident()
@@ -412,7 +556,7 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
         state = _MATRIX_SCALAR_SESSIONS.get(key)
         if (
             not isinstance(state, WorkerResultSession)
-            or state.flat != tuple(flat)
+            or not _flat_result_equal(state.flat, tuple(flat))
             or (now - state.timestamp) > _PY_PASS_GAP_SEC
         ):
             state = WorkerResultSession(result, flat, timestamp=now)
@@ -437,8 +581,8 @@ _SPILL_CLEAR_FLAGS = 1 | 2 | 4 | 16 | 32
 class SpillCell:
     row: int
     col: int
-    kind: str  # "n" float, "s" str, "e" empty, "u" unknown (load of old JSON only)
-    value: float | str | None
+    kind: str  # "n" float, "s" str, "e" empty, "err" formula error code, "u" unknown (load of old JSON only)
+    value: float | str | int | None
 
 
 @dataclass
@@ -539,6 +683,19 @@ def _cell_matches_stored_value(sheet: Any, row: int, col: int, cell_rec: SpillCe
             return False
         if cell_rec.kind == "s":
             return cell.getString() == (cell_rec.value or "")
+        if cell_rec.kind == "err":
+            get_err = getattr(cell, "getError", None)
+            if not callable(get_err) or cell_rec.value is None:
+                return False
+            try:
+                err_val = get_err()
+                if not isinstance(err_val, (int, float, str)):
+                    return False
+                if not isinstance(cell_rec.value, (int, float, str)):
+                    return False
+                return int(err_val) == int(cell_rec.value)
+            except (TypeError, ValueError):
+                return False
         if cell_rec.kind == "u":
             return False
     except Exception:
@@ -881,6 +1038,17 @@ def _coerce_spill_value(val: Any, null_dt: datetime.date = datetime.date(1899, 1
         stripped = val.strip()
         if not stripped:
             return "", {"is_temporal": False, "is_empty": True}
+        err = _CALC_ERROR_TOKEN_CODES.get(stripped)
+        if err is not None:
+            # setDataArray of None maps in PyUNO to an empty Any (UNO void), which Calc's
+            # lcl_PutDataArray handles via SetError(NotAvailable) for #N/A. A NaN double written via
+            # SetValue is treated as a plain numeric cell with no error code, so ISERROR would be false.
+            # #ERR32767! is not a published constant, so we cannot use setFormula for #N/A.
+            # For other codes, "" serves as an empty placeholder in setDataArray and perform_deferred_spill
+            # assigns the formula f"=#ERR{code}!".
+            if err == _ERR_NA:
+                return None, {"is_temporal": False, "is_empty": False, "is_calc_error": True, "error_code": err}
+            return "", {"is_temporal": False, "is_empty": False, "is_calc_error": True, "error_code": err}
         if match_iso_duration(stripped):
             try:
                 serial = duration_serial_from_iso(stripped)
@@ -1076,6 +1244,16 @@ def perform_deferred_spill(
                     remaining_range = sheet.getCellRangeByPosition(formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1)
                     remaining_range.setDataArray(tuple(tuple(row) for row in coerced_grid[1:]))
 
+                for r_offset in range(num_rows):
+                    for c_offset in range(num_cols):
+                        if (r_offset, c_offset) == (0, 0):
+                            continue
+                        meta = cell_metas[r_offset][c_offset]
+                        if meta.get("is_calc_error") and meta.get("error_code") != _ERR_NA:
+                            sheet.getCellByPosition(formula_col + c_offset, formula_row + r_offset).setFormula(
+                                f"=#ERR{int(meta['error_code'])}!"
+                            )
+
                 new_cells: list[SpillCell] = []
                 for r_offset in range(num_rows):
                     for c_offset in range(num_cols):
@@ -1085,8 +1263,11 @@ def perform_deferred_spill(
                         c = formula_col + c_offset
                         meta = cell_metas[r_offset][c_offset]
                         calc_val = coerced_grid[r_offset][c_offset]
-                        stored_val: float | str | None = None
-                        if meta.get("is_empty"):
+                        stored_val: float | str | int | None = None
+                        if meta.get("is_calc_error"):
+                            kind = "err"
+                            stored_val = int(meta["error_code"])
+                        elif meta.get("is_empty"):
                             kind = "e"
                             stored_val = None
                         elif isinstance(calc_val, float):
@@ -1421,8 +1602,8 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
                 if not on_main_thread():
                     if doc is not None:
                         _queue_off_main_auto_spill(ctx, code, grid_to_spill, doc)
-                    # We return the corner as to_calc_compatible (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
-                    return to_calc_compatible(grid_to_spill[0][0])
+                    # We return the corner as py_addin_cell_value (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
+                    return py_addin_cell_value(grid_to_spill[0][0])
 
                 target_doc = doc
                 if target_doc is not None:
@@ -1431,8 +1612,8 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
                         return "#SPILL!"
                     if isinstance(prepared, PreparedSpill):
                         _queue_deferred_spill_write(ctx, code, grid_to_spill, target_doc, prepared)
-                        # We return the corner as to_calc_compatible (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
-                        return to_calc_compatible(grid_to_spill[0][0])
+                        # We return the corner as py_addin_cell_value (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
+                        return py_addin_cell_value(grid_to_spill[0][0])
             except Exception:
                 log.exception("Error checking spill collision or locating formula cell")
 
@@ -1442,7 +1623,7 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
             idx = coerce_index(index_arg)
             if idx < 0 or idx >= len(flat):
                 return f"Error: index {idx} out of range (result length {len(flat)})"
-            return to_calc_compatible(flat[idx])
+            return py_addin_cell_value(flat[idx])
 
         from plugin.framework.thread_guard import on_main_thread
 
@@ -1451,7 +1632,7 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
         scalar_doc = doc if on_main_thread() else None
         return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=scalar_doc)
 
-    return to_calc_compatible(result)
+    return py_addin_cell_value(result)
 
 
 def _format_error_for_display(exc: BaseException) -> str:
@@ -1852,10 +2033,15 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             log.debug("PYTHON returning scalar: %r (type: %s)", final_ret, type(final_ret).__name__)
             return final_ret
 
-        err_msg = _format_python_addin_worker_error(str(res.get("message") or res.get("error") or ""))
-        _record_py_diagnostic(ctx, code, res, status="error", message=err_msg, doc=target_doc)
-        log.debug("PYTHON returning worker error: %r", err_msg)
-        return err_msg
+        raw_message = str(res.get("message") or res.get("error") or "")
+        cell = _addin_result_for_worker_status(res)
+        if isinstance(cell, str):
+            _record_py_diagnostic(ctx, code, res, status="error", message=cell, doc=target_doc)
+            log.debug("PYTHON returning worker error: %r", cell)
+        else:
+            _record_py_diagnostic(ctx, code, res, status="error", message=raw_message, doc=target_doc)
+            log.debug("PYTHON returning formula error for worker failure")
+        return cell
     except Exception as e:
         log.exception("PYTHON unexpected error during execution")
         err_msg = _format_error_for_display(e)
