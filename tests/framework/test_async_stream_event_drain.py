@@ -783,3 +783,65 @@ def test_idle_rearm_gives_up_after_max_failures(monkeypatch: pytest.MonkeyPatch)
         assert len(calls) == 3
     finally:
         thread.stop()
+
+
+def test_finish_runs_epilogues_when_idle_callback_raises_recursion_error() -> None:
+    from plugin.framework import async_stream
+    from plugin.framework.async_drain_guard import (
+        add_drain_idle_callback,
+        remove_drain_idle_callback,
+        get_drain_owner,
+        reset_sentry_state,
+    )
+
+    q: queue.Queue = queue.Queue()
+    job_done = [False]
+
+    class MockScheduler:
+        def __init__(self):
+            self.posts = []
+
+        def post(self, fn):
+            self.posts.append(("now", fn))
+
+        def post_after(self, delay, fn):
+            self.posts.append(("later", delay, fn))
+
+    scheduler = MockScheduler()
+
+    drain = async_stream._EventDrain(
+        async_stream._DrainState(
+            q=q,
+            apply_chunk_fn=lambda _text, _thinking: None,
+            on_stream_done=lambda _item: True,
+            on_stopped=lambda: None,
+            on_error=lambda _e: None,
+            on_status_fn=None,
+            on_approval_required=None,
+            show_search_thinking=False,
+            job_done=job_done,
+        ),
+        scheduler,
+        None,
+        None,
+    )
+
+    def failing_cb() -> None:
+        raise RecursionError("failing idle cb")
+
+    add_drain_idle_callback(failing_cb)
+    epilogues_ran: list[int] = []
+
+    try:
+        drain.start()
+        drain.epilogues.append(lambda: epilogues_ran.append(1))
+        drain._finish()
+
+        assert epilogues_ran == [1]
+        assert get_drain_owner() is None
+        assert drain.closed is True
+    finally:
+        remove_drain_idle_callback(failing_cb)
+        _clear_event_drain()
+        reset_sentry_state()
+

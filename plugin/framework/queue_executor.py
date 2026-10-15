@@ -77,11 +77,10 @@ from plugin.framework.async_drain_guard import (
     get_drain_depth as get_drain_depth,
     get_drain_owner as get_drain_owner,
     get_suppressed_vcl_pump_count as get_suppressed_vcl_pump_count,
+    is_vcl_pump_allowed as is_vcl_pump_allowed,
     note_suppressed_vcl_pump as note_suppressed_vcl_pump,
     reset_suppressed_vcl_pump_count as reset_suppressed_vcl_pump_count,
 )
-
-_note_suppressed_vcl_pump = note_suppressed_vcl_pump
 
 
 def set_force_marshal_mode(enabled: bool) -> None:
@@ -1163,11 +1162,11 @@ def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecu
     a :func:`drain_owner_scope` is active.
     """
     pump_main_thread_work_queue(max_items=max_queue_items, executor=executor)
-    # Depth > 1 notes the suppression and skips VCL. The marshal queue
-    # above still runs so execute_on_main_thread is not stuck behind it.
+    # is_vcl_pump_allowed (depth > 1) notes the suppression and skips VCL.
+    # The marshal queue above still runs so execute_on_main_thread is not stuck behind it.
     # Pumping VCL on every idle tick, including when a nested stream drain
     # (depth > 1) is already inside the outer pump, re-enters the owner.
-    if get_drain_depth() > 1:
+    if not is_vcl_pump_allowed():
         note_suppressed_vcl_pump(get_drain_owner())
         return
     _pump_vcl_events(toolkit)

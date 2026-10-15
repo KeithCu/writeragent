@@ -31,8 +31,11 @@ log = logging.getLogger("writeragent.framework.async_drain_guard")
 
 _drain_lock = threading.Lock()
 _active_owner_name: str | None = None
+_owner_thread_ident: int | None = None
 _drain_depth: int = 0
 _suppressed_vcl_count: int = 0
+_idle_notify = threading.local()
+_IDLE_NOTIFY_MAX_PASSES = 8
 # Peer messaging (and similar): start queued work only after the pump is free.
 # Callbacks must not start a drain on this stack when ``post`` would run inline.
 _drain_idle_callbacks: list[Callable[[], None]] = []
@@ -46,18 +49,26 @@ def acquire_drain_owner(owner_name: str) -> None:
     """Mark *owner_name* as the pump owner.
 
     A different owner raises :class:`NestedDrainOwnerError`. The same name
-    re-enters and increments the depth counter. Pair with
+    re-enters and increments the depth counter only on the owner thread;
+    another thread raises :class:`NestedDrainOwnerError`. Pair with
     :func:`release_drain_owner`. The event-driven stream drain holds this
     across VCL callbacks, so it cannot use the context manager (that would
     drop the owner when the callback returns).
     """
-    global _active_owner_name, _drain_depth
+    global _active_owner_name, _drain_depth, _owner_thread_ident
+    caller = threading.get_ident()
     with _drain_lock:
         if _active_owner_name is not None and _active_owner_name != owner_name:
             msg = f"[SENTRY VIOLATION] Nested UI drain attempted by {owner_name!r} while {_active_owner_name!r} owns event loop"
             log.warning(msg)
             raise NestedDrainOwnerError(msg)
-        _active_owner_name = owner_name
+        if _active_owner_name is not None and _owner_thread_ident != caller:
+            msg = f"[SENTRY VIOLATION] Drain owner {owner_name!r} re-entered from thread {caller} while thread {_owner_thread_ident} holds it"
+            log.warning(msg)
+            raise NestedDrainOwnerError(msg)
+        if _active_owner_name is None:
+            _active_owner_name = owner_name
+            _owner_thread_ident = caller
         _drain_depth += 1
 
 
@@ -69,23 +80,39 @@ def release_drain_owner() -> None:
     the name when the first drain finishes would let a different owner (MCP)
     start under the drain that is still pumping. Acquire refuses a different
     name while one is set, so every holder at depth > 0 already has that name.
-    An underflow logs a warning and does not run idle callbacks.
+    A foreign release logs and returns; it does not raise and does not run
+    idle callbacks. An underflow logs a warning and does not run idle
+    callbacks.
     """
+    # Bugfix: name-only depth let any thread share or drop the pump; the
+    # ident check closes that.
     # Bugfix: An extra release used to decrement through zero, clamp, and
     # still run idle callbacks, so a mismatched release looked like a real
     # transition to idle and hid the missing acquire. Underflow now logs
     # and returns without running idle callbacks.
-    global _active_owner_name, _drain_depth
+    global _active_owner_name, _drain_depth, _owner_thread_ident
+    caller = threading.get_ident()
     became_idle = False
     with _drain_lock:
+        if _drain_depth > 0 and _owner_thread_ident != caller:
+            log.warning(
+                "release_drain_owner ignored: caller thread %s is not owner thread %s (owner=%r depth=%s)",
+                caller,
+                _owner_thread_ident,
+                _active_owner_name,
+                _drain_depth,
+            )
+            return
         if _drain_depth <= 0:
             log.warning("release_drain_owner underflow (owner=%r depth=%s)", _active_owner_name, _drain_depth)
             _drain_depth = 0
             _active_owner_name = None
+            _owner_thread_ident = None
             return
         _drain_depth -= 1
         if _drain_depth == 0:
             _active_owner_name = None
+            _owner_thread_ident = None
             became_idle = True
     if became_idle:
         _notify_drain_idle()
@@ -172,28 +199,50 @@ def remove_drain_idle_callback(fn: Callable[[], None]) -> None:
 
 def _notify_drain_idle() -> None:
     """Invoke idle callbacks. Never raise into the drain ``finally``."""
-    # Copy under the lock, then drop it before calling. Peer ``_on_drain_idle``
-    # calls ``get_drain_owner()``, which takes this same non-reentrant lock.
-    # Do not clear the list. peer_message.py registers one process-wide
-    # callback (add_drain_idle_callback(_on_drain_idle)) that must stay across
-    # drain cycles so a peer turn queued during a drain still gets kicked.
-    with _drain_lock:
-        callbacks = list(_drain_idle_callbacks)
-    for cb in callbacks:
-        try:
-            cb()
-        except RecursionError:
-            # RecursionError subclasses Exception; re-raise explicitly so recursive
-            # callbacks propagate instead of being logged and swallowed.
-            raise
-        except Exception:
-            log.exception("drain idle callback failed")
+    # Bugfix: re-raising RecursionError escaped release_drain_owner, and
+    # _EventDrain._finish calls that before epilogues, so _close_peer_drain
+    # never ran and the peer agent_session stayed open.
+    if getattr(_idle_notify, "active", False):
+        _idle_notify.again = True
+        return
+
+    _idle_notify.active = True
+    _idle_notify.again = False
+    try:
+        for _ in range(_IDLE_NOTIFY_MAX_PASSES):
+            _idle_notify.again = False
+            # Copy under the lock, then drop it before calling. Peer ``_on_drain_idle``
+            # calls ``get_drain_owner()``, which takes this same non-reentrant lock.
+            # Do not clear the list. peer_message.py registers one process-wide
+            # callback (add_drain_idle_callback(_on_drain_idle)) that must stay across
+            # drain cycles so a peer turn queued during a drain still gets kicked.
+            with _drain_lock:
+                if _drain_depth != 0:
+                    return
+                callbacks = list(_drain_idle_callbacks)
+            for cb in callbacks:
+                try:
+                    cb()
+                except Exception:
+                    log.exception("drain idle callback failed")
+            if not _idle_notify.again:
+                return
+        log.warning("drain idle notification stopped after %d passes", _IDLE_NOTIFY_MAX_PASSES)
+    finally:
+        _idle_notify.active = False
+        _idle_notify.again = False
 
 
 def reset_sentry_state() -> None:
-    """Test hook: reset sentry state and counters completely."""
-    global _active_owner_name, _drain_depth, _suppressed_vcl_count
+    """Test hook: reset owner name, owner thread ident, depth, and suppressed-VCL counter.
+
+    Deliberately leaves ``_drain_idle_callbacks`` in place because import-time
+    subscribers (such as peer messaging) must stay registered across tests.
+    """
+    global _active_owner_name, _drain_depth, _owner_thread_ident, _suppressed_vcl_count
     with _drain_lock:
         _active_owner_name = None
+        _owner_thread_ident = None
         _drain_depth = 0
         _suppressed_vcl_count = 0
+

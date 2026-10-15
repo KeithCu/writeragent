@@ -96,7 +96,7 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
     Returns True if at least one VCL pump ran. Blocking secondary waits should
     use :func:`wait_while_pumping` rather than a local PE2I loop.
     """
-    from plugin.framework.queue_executor import _note_suppressed_vcl_pump, _pump_vcl_events, get_drain_owner
+    from plugin.framework.queue_executor import note_suppressed_vcl_pump, _pump_vcl_events, get_drain_owner
     from plugin.framework.uno_context import get_toolkit
 
     if not on_main_thread():
@@ -107,7 +107,7 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
             return False
         owner = get_drain_owner()
         if owner is not None:
-            _note_suppressed_vcl_pump(owner)
+            note_suppressed_vcl_pump(owner)
             return False
 
     try:

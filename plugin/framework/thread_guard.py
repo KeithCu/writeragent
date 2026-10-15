@@ -128,10 +128,10 @@ def get_background_task_name() -> str | None:
 
 
 def _notify_thread_violation(msg: str) -> None:
-    """Log and post a main-thread message box for guard-on violations (dev only)."""
+    """Log always; post one dialog except under WRITERAGENT_TESTING; the post is unscoped so Stop cannot drop it."""
+    log.error(msg, stack_info=True)
     if os.environ.get("WRITERAGENT_TESTING") == "1":
         return
-    log.error(msg, stack_info=True)
     # Capture full stack trace for display
     import traceback
 
@@ -178,8 +178,12 @@ def _notify_thread_violation(msg: str) -> None:
     try:
         from plugin.framework.queue_executor import post_to_main_thread
 
-        # Non-blocking post: enqueues into VCL loop without waiting.
-        post_to_main_thread(_show_popup)
+        # Bugfix: run_in_background copies the send ContextVar, so an omitted
+        # scope binds the active SendCancellation. cancel() -> cancel_pending_work
+        # and process_queue's scope.is_cancelled() skip then drop _show_popup
+        # after _violation_dialog_open was set, leaving the flag stuck. An
+        # unscoped post (bound_scope=None) ensures the popup survives cancellation.
+        post_to_main_thread(_show_popup, bound_scope=None)
     except Exception:
         log.exception("Failed to post thread violation message box on main thread")
         with _violation_ui_lock:
@@ -281,7 +285,10 @@ class _UnoThreadGuardProxy:
 
     # --- Assignment to properties (e.g. para.NumberingRules = rules) ---
     def __setattr__(self, name: str, value: Any) -> None:
-        if name.startswith("_"):
+        # Bugfix: startswith("_") wrote the proxy __dict__ and skipped
+        # assert_main_thread, so a dev write never reached the UNO target.
+        # Only _target is stored locally on the proxy.
+        if name == "_target":
             object.__setattr__(self, name, value)
             return
         assert_main_thread(f"UNO set .{name}")
@@ -428,6 +435,13 @@ class _UnoThreadGuardProxy:
         # used to raise from __eq__ after hash succeeded.
         assert_main_thread("UNO hash")
         return hash(self._target)
+
+    # Intentionally not overridden: __int__, __index__, __float__, __format__,
+    # __reduce__, __copy__, __deepcopy__, __getstate__, __setstate__.
+    # Implicit special methods do not use __getattr__, so these do not reach
+    # _target (TypeError or object's default). copy and pickle restore
+    # __dict__["_target"] and are covered by test_proxy_copy / test_proxy_pickle.
+
 
 
 def guard_uno(obj: Any) -> Any:

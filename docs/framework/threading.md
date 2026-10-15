@@ -221,7 +221,7 @@ flowchart TD
 
 ### Architectural Invariants
 
-1. **One active stream drain per UI session:** `run_stream_drain_loop` / `acquire_drain_owner("stream")` allow the same name and raise for a different name. `run_async_worker_with_drain` refuses any current owner before spawn. Same-name depth > 1 still skips VCL inside `pump_ui_idle`. Peer execute stays on `drain_owner_scope` plus the idle queue, not a nested `run_async_worker_with_drain`.
+1. **One active stream drain per UI session:** `run_stream_drain_loop` / `acquire_drain_owner("stream")` allow the same name and raise for a different name. The owner is the name plus the acquiring thread; the same name on another thread raises `NestedDrainOwnerError`; a release from another thread logs and does not change depth. `run_async_worker_with_drain` refuses any current owner before spawn. Same-name depth > 1 still skips VCL inside `pump_ui_idle`. Peer execute stays on `drain_owner_scope` plus the idle queue, not a nested `run_async_worker_with_drain`. Idle callbacks never propagate exceptions, including `RecursionError`. A nested notify from a callback coalesces into at most 8 passes and then returns, so `_EventDrain._finish` still runs epilogues.
 2. **Approved pump entry points only:**
    - [`pump_ui_idle`](../../plugin/framework/queue_executor.py): Drains the `QueueExecutor` work queue **then** pumps VCL (only when called by the active owner or when no owner is active).
    - [`process_events_to_idle`](../../plugin/framework/uno_context.py): Pumps VCL only when permitted (no active owner or called by owner).
