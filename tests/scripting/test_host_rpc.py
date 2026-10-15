@@ -833,3 +833,42 @@ def test_handle_tool_call_frame_write_timeout_propagates():
                 stdin_write=_timeout_write,
             )
 
+
+def test_every_domain_tool_resolves_to_a_proxy_method():
+    from plugin.scripting.host_rpc import _proxy_methods_by_tool
+    import plugin.scripting.writeragent_api as api
+
+    methods = _proxy_methods_by_tool()
+    assert methods is not None
+    assert methods["style_import"] == api.styles.import_
+    assert methods["query_folder_sql"] == api.python_sql.query_folder_sql
+    missing_or_not_callable = [
+        tool_name
+        for tool_names in api.DOMAIN_TOOLS.values()
+        for tool_name in tool_names
+        if tool_name not in methods or not callable(methods[tool_name])
+    ]
+    assert missing_or_not_callable == []
+    assert api.TOOL_METHODS["style_import"] == ("styles", "import_")
+    assert api.TOOL_METHODS["query_folder_sql"] == ("python_sql", "query_folder_sql")
+
+
+def test_format_script_api_catalog_prints_identifier_safe_calls():
+    import inspect
+    import plugin.scripting.writeragent_api as api
+    from plugin.scripting.host_rpc import (
+        _format_script_api_catalog_cached,
+        format_script_api_catalog,
+    )
+
+    _format_script_api_catalog_cached.cache_clear()
+    catalog = format_script_api_catalog(["styles", "python/sql"])
+    assert "python/sql:\n" in catalog
+    assert "styles:\n" in catalog
+    assert "wa.styles.import_(" in catalog
+    assert "wa.python_sql.query_folder_sql(" in catalog
+    assert inspect.cleandoc(api.styles.import_.__doc__ or "") in catalog
+    assert inspect.cleandoc(api.python_sql.query_folder_sql.__doc__ or "") in catalog
+    assert "wa.python/sql." not in catalog
+
+

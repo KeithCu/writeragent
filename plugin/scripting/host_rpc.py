@@ -29,6 +29,7 @@ from __future__ import annotations
 import functools
 import inspect
 import logging
+import re
 from typing import Any, Callable
 
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
@@ -217,11 +218,18 @@ def _proxy_methods_by_tool() -> dict[str, Any] | None:
 
 
 def _format_proxy_call(namespace: str, method: Any) -> str:
-    """``wa.shape.upsert(action, *, ...)`` without the return annotation."""
+    """``wa.shape.upsert(action, *, ...)`` without the return annotation.
+
+    *namespace* is the ``DOMAIN_TOOLS`` key; the printed attribute is
+    ``re.sub(r"\\W", "_", namespace)``, the same rule as
+    ``generate_tool_proxies._proxy_namespace_attr``. ``method.__name__`` is
+    already keyword-escaped.
+    """
     sig = inspect.signature(method)
     if sig.return_annotation is not inspect.Signature.empty:
         sig = sig.replace(return_annotation=inspect.Signature.empty)
-    return f"wa.{namespace}.{method.__name__}{sig}"
+    safe_ns = re.sub(r"\W", "_", namespace)
+    return f"wa.{safe_ns}.{method.__name__}{sig}"
 
 
 def _catalog_lead(namespaces: list[str]) -> str:
