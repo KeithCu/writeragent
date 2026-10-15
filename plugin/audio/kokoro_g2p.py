@@ -33,7 +33,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
-from typing import Callable
+from typing import Any, Callable
 
 from plugin.framework.i18n import _
 
@@ -69,6 +69,33 @@ _MISAKI_G2P_SNIPPETS: dict[str, str] = {
     **{lang: _espeak_g2p_snippet(lang) for lang in ("es", "fr-fr", "it", "hi", "pt-br")},
 }
 
+_g2p_cache: dict[str, Any] = {}
+
+
+def _get_misaki_g2p(lang: str) -> Any:
+    # JAG2P() reloads fugashi and the unidic dictionary, and EspeakG2P rebuilds
+    # the espeak map; the warm worker exists so later sentences skip that.
+    # The stdio loop is single-threaded, so the dict needs no lock.
+    inst = _g2p_cache.get(lang)
+    if inst is not None:
+        return inst
+    if lang == "ja":
+        from misaki.ja import JAG2P  # type: ignore[import-not-found, ty:unresolved-import]
+
+        inst = JAG2P()
+    elif lang == "zh":
+        from misaki.zh import ZHG2P  # type: ignore[import-not-found, ty:unresolved-import]
+
+        inst = ZHG2P()
+    elif lang in ("es", "fr-fr", "it", "hi", "pt-br"):
+        from misaki.espeak import EspeakG2P  # type: ignore[import-not-found, ty:unresolved-import]
+
+        inst = EspeakG2P(language=lang)
+    else:
+        raise RuntimeError("no Misaki G2P for %s" % lang)
+    _g2p_cache[lang] = inst
+    return inst
+
 _PROBE_TIMEOUT_SEC = 90.0
 _PIP_TIMEOUT_SEC = 300.0
 _UNIDIC_TIMEOUT_SEC = 300.0
@@ -82,19 +109,15 @@ def kokoro_lang_uses_misaki(lang: str) -> bool:
 def misaki_phonemes(text: str, lang: str) -> str:
     """Phonemes for ``lang``. Empty when this voice stays on espeak-ng.
 
-    Runs the same snippets as ``KOKORO_ONNX_SCRIPT``. Only the venv Kokoro
-    worker may call this: the import of misaki happens here, and LibreOffice's
-    Python must not take that dependency. The host installs via
-    ``ensure_kokoro_misaki`` and otherwise uses the generated ``python -c``
-    script.
+    Only the venv Kokoro worker may call this: the import of misaki happens
+    here, and LibreOffice's Python must not take that dependency. A successful
+    construct is reused for that ``lang`` until the process exits. English is
+    not cached and does not import misaki.
     """
-    snippet = _MISAKI_G2P_SNIPPETS.get(lang)
-    if not snippet:
+    if lang not in _MISAKI_G2P_SNIPPETS:
         return ""
-    namespace: dict[str, object] = {"text": text}
-    # Fixed Misaki snippets from this module, not caller text.
-    exec(snippet, namespace, namespace)  # nosec B102  # noqa: S102
-    phonemes = namespace.get("phonemes", "")
+    g2p = _get_misaki_g2p(lang)
+    phonemes, _tokens = g2p(text)
     if not isinstance(phonemes, str):
         return ""
     return phonemes

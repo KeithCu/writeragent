@@ -7,6 +7,8 @@ import sys
 import types
 from unittest.mock import patch
 
+import pytest
+
 from plugin.audio.kokoro_g2p import (
     KOKORO_ONNX_SCRIPT,
     KOKORO_PIP_INSTALL,
@@ -153,16 +155,105 @@ def _run(lang: str, voice: str, text: str, voices: dict[str, int] | None = None)
 
 def test_misaki_phonemes_helper_uses_the_same_snippets(monkeypatch):
     """The warm worker calls this helper; it must match the one-shot script."""
-    from plugin.audio.kokoro_g2p import misaki_phonemes
+    from plugin.audio.kokoro_g2p import _g2p_cache, misaki_phonemes
 
-    g2p_calls: list = []
-    modules = _fake_stack(g2p_calls, [], {"jf_alpha": 1})
-    for name, module in modules.items():
-        monkeypatch.setitem(sys.modules, name, module)
+    _g2p_cache.clear()
+    try:
+        g2p_calls: list = []
+        modules = _fake_stack(g2p_calls, [], {"jf_alpha": 1})
+        for name, module in modules.items():
+            monkeypatch.setitem(sys.modules, name, module)
 
-    assert misaki_phonemes("非常に強力", "ja") == "JA:非常に強力"
-    assert misaki_phonemes("Hello", "en-us") == ""
-    assert g2p_calls == [("ja", "非常に強力")]
+        assert misaki_phonemes("非常に強力", "ja") == "JA:非常に強力"
+        assert misaki_phonemes("Hello", "en-us") == ""
+        assert g2p_calls == [("ja", "非常に強力")]
+    finally:
+        _g2p_cache.clear()
+
+
+def test_misaki_phonemes_caches_g2p_per_lang(monkeypatch):
+    from plugin.audio.kokoro_g2p import _g2p_cache, misaki_phonemes
+
+    _g2p_cache.clear()
+    try:
+        ja_inits: list[FakeJAG2P] = []
+        zh_inits: list[object] = []
+        espeak_inits: list[str] = []
+
+        class FakeJAG2P:
+            def __init__(self) -> None:
+                ja_inits.append(self)
+
+            def __call__(self, text: str):
+                return "P:" + text, None
+
+        class FakeZHG2P:
+            def __init__(self, version=None) -> None:
+                zh_inits.append(version)
+
+            def __call__(self, text: str):
+                return "P:" + text, None
+
+        class FakeEspeakG2P:
+            def __init__(self, language: str) -> None:
+                espeak_inits.append(language)
+
+            def __call__(self, text: str):
+                return "P:" + text, None
+
+        misaki = types.ModuleType("misaki")
+        ja = types.ModuleType("misaki.ja")
+        ja.JAG2P = FakeJAG2P
+        zh = types.ModuleType("misaki.zh")
+        zh.ZHG2P = FakeZHG2P
+        espeak = types.ModuleType("misaki.espeak")
+        espeak.EspeakG2P = FakeEspeakG2P
+
+        monkeypatch.setitem(sys.modules, "misaki", misaki)
+        monkeypatch.setitem(sys.modules, "misaki.ja", ja)
+        monkeypatch.setitem(sys.modules, "misaki.zh", zh)
+        monkeypatch.setitem(sys.modules, "misaki.espeak", espeak)
+
+        assert misaki_phonemes("text_ja1", "ja") == "P:text_ja1"
+        assert misaki_phonemes("text_ja2", "ja") == "P:text_ja2"
+        assert misaki_phonemes("text_zh1", "zh") == "P:text_zh1"
+        assert misaki_phonemes("text_zh2", "zh") == "P:text_zh2"
+        assert misaki_phonemes("text_es1", "es") == "P:text_es1"
+        assert misaki_phonemes("text_es2", "es") == "P:text_es2"
+        assert misaki_phonemes("text_en", "en-us") == ""
+
+        assert len(ja_inits) == 1
+        assert zh_inits == [None]
+        assert espeak_inits == ["es"]
+        assert "en-us" not in _g2p_cache
+    finally:
+        _g2p_cache.clear()
+
+
+def test_misaki_phonemes_does_not_cache_a_failed_construct(monkeypatch):
+    from plugin.audio.kokoro_g2p import _g2p_cache, misaki_phonemes
+
+    _g2p_cache.clear()
+    try:
+        class BrokenJAG2P:
+            def __init__(self) -> None:
+                raise RuntimeError("no dict")
+
+        misaki = types.ModuleType("misaki")
+        ja = types.ModuleType("misaki.ja")
+        ja.JAG2P = BrokenJAG2P
+        monkeypatch.setitem(sys.modules, "misaki", misaki)
+        monkeypatch.setitem(sys.modules, "misaki.ja", ja)
+
+        with pytest.raises(RuntimeError, match="no dict"):
+            misaki_phonemes("a", "ja")
+        assert "ja" not in _g2p_cache
+
+        with pytest.raises(RuntimeError, match="no dict"):
+            misaki_phonemes("a", "ja")
+        assert "ja" not in _g2p_cache
+    finally:
+        _g2p_cache.clear()
 
 
 def test_script_japanese_french_spanish_use_misaki_phonemes():

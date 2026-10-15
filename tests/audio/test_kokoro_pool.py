@@ -564,3 +564,148 @@ def test_execute_serializes_callers(tmp_path) -> None:
         assert r1["end"] <= r2["start"]
     finally:
         pool.shutdown()
+
+
+def test_signal_kokoro_child_does_not_close_stdin() -> None:
+    from unittest.mock import MagicMock
+    from plugin.audio.kokoro_pool import _KokoroWorker, _signal_kokoro_child
+
+    worker = _KokoroWorker(sys.executable, "unused.py")
+    mock_managed = MagicMock()
+    mock_popen = MagicMock()
+    mock_stdin = MagicMock()
+    mock_managed.popen = mock_popen
+    mock_managed.stdin = mock_stdin
+    worker._managed = mock_managed
+
+    _signal_kokoro_child(worker)
+
+    mock_stdin.close.assert_not_called()
+    assert not hasattr(mock_managed, "close_stdio") or mock_managed.close_stdio.call_count == 0
+    if sys.platform == "win32":
+        mock_popen.terminate.assert_called_once()
+        mock_popen.kill.assert_not_called()
+    else:
+        mock_popen.kill.assert_called_once()
+        mock_popen.terminate.assert_not_called()
+
+
+def test_cancel_check_true_keeps_warm_worker() -> None:
+    class _Stub:
+        def __init__(self) -> None:
+            self.kills = 0
+            self.executes = 0
+
+        def is_alive(self) -> bool:
+            return True
+
+        def is_shutting_down(self) -> bool:
+            return False
+
+        def request_shutdown(self) -> None:
+            return None
+
+        def kill(self) -> bool:
+            self.kills += 1
+            return True
+
+        def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
+            del timeout_sec
+            self.executes += 1
+            return {"status": "ok", "echo": payload.get("text")}
+
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    stub = _Stub()
+    pool._worker = stub  # type: ignore[assignment]
+    try:
+        res = pool.execute({"text": "hi"}, cancel_check=lambda: True)
+        assert res.get("code") == "WORKER_CANCELLED"
+        assert stub.kills == 0
+        assert stub.executes == 0
+        assert pool._worker is stub
+        assert not pool._inflight
+        assert pool._exec_token is None
+
+        res2 = pool.execute({"text": "next"})
+        assert res2.get("status") == "ok"
+        assert res2.get("echo") == "next"
+        assert stub.executes == 1
+        assert stub.kills == 0
+        assert pool._worker is stub
+    finally:
+        pool.shutdown()
+
+
+def test_cancel_check_true_does_not_spawn(tmp_path) -> None:
+    pool = KokoroProcessPool(
+        sys.executable,
+        script_path=str(tmp_path / "missing.py"),
+        idle_worker_ttl_sec=None,
+    )
+    try:
+        assert pool._worker is None
+        res = pool.execute({"text": "hi"}, cancel_check=lambda: True)
+        assert res.get("code") == "WORKER_CANCELLED"
+        assert pool._worker is None
+    finally:
+        pool.shutdown()
+
+
+def test_execute_logs_each_warning_once(caplog) -> None:
+    import logging
+
+    warning_msg = "Kokoro fell back to espeak-ng for ja; non-English text may be misread"
+
+    class _Stub:
+        def __init__(self) -> None:
+            self.warning = warning_msg
+
+        def is_alive(self) -> bool:
+            return True
+
+        def is_shutting_down(self) -> bool:
+            return False
+
+        def request_shutdown(self) -> None:
+            return None
+
+        def kill(self) -> bool:
+            return True
+
+        def execute(self, payload: dict[str, Any], timeout_sec: float) -> dict[str, Any]:
+            del payload, timeout_sec
+            return {"status": "ok", "warning": self.warning}
+
+    caplog.set_level(logging.DEBUG, logger="plugin.audio.kokoro_pool")
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    stub = _Stub()
+    pool._worker = stub  # type: ignore[assignment]
+    try:
+        pool.execute({"text": "one"})
+        pool.execute({"text": "two"})
+
+        warning_records = [
+            r for r in caplog.records
+            if r.name == "plugin.audio.kokoro_pool" and r.levelname == "WARNING" and r.getMessage().startswith("Kokoro:")
+        ]
+        debug_records = [
+            r for r in caplog.records
+            if r.name == "plugin.audio.kokoro_pool" and r.levelname == "DEBUG" and r.getMessage().startswith("Kokoro:")
+        ]
+        assert len(warning_records) == 1
+        assert len(debug_records) == 1
+        assert warning_records[0].getMessage() == f"Kokoro: {warning_msg}"
+        assert debug_records[0].getMessage() == f"Kokoro: {warning_msg}"
+
+        stub.warning = "Different warning message"
+        pool.execute({"text": "three"})
+
+        warning_records2 = [
+            r for r in caplog.records
+            if r.name == "plugin.audio.kokoro_pool" and r.levelname == "WARNING" and r.getMessage().startswith("Kokoro:")
+        ]
+        assert len(warning_records2) == 2
+        assert warning_records2[1].getMessage() == "Kokoro: Different warning message"
+    finally:
+        pool.shutdown()
+
