@@ -24,6 +24,17 @@ def _drain_scheduler_override_for_tests():
         set_drain_scheduler_override(previous)
 
 
+@pytest.fixture(autouse=True)
+def _reset_sentry_state_for_tests():
+    """Ensure async drain guard sentry state does not leak across tests."""
+    from plugin.framework.async_drain_guard import reset_sentry_state
+    reset_sentry_state()
+    try:
+        yield
+    finally:
+        reset_sentry_state()
+
+
 _WORKER_ENV_VARS = ("WRITERAGENT_IS_WORKER", "WRITERAGENT_COMPUTE_WORKER")
 for _worker_var in _WORKER_ENV_VARS:
     os.environ.pop(_worker_var, None)

@@ -1550,6 +1550,7 @@ def test_run_cells_between_cell_pump_disposal_stops_execution():
         pumps.append("flush")
 
     with (
+        patch("plugin.framework.async_drain_guard.get_drain_owner", return_value=None),
         patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
         patch("plugin.notebook.form_lookup.read_code_from_field", side_effect=_code_for_field),
         patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
