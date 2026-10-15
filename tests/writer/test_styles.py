@@ -513,8 +513,9 @@ def test_create_style_rejects_para_adjust_integer():
     family.insertByName.assert_not_called()
 
 
-@patch("plugin.writer.styles.NamedValue")
-def test_create_style_conditional_failure_rolls_back(mock_nv):
+def test_create_style_conditional_failure_rolls_back():
+    from plugin.writer import styles as styles_mod
+
     family = _style_family({"Standard": MagicMock(), "Heading 1": MagicMock()})
 
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
@@ -542,11 +543,11 @@ def test_create_style_conditional_failure_rolls_back(mock_nv):
     new_style.setPropertyValue.side_effect = RuntimeError("Boom")
 
     nv_instance = MagicMock()
-    mock_nv.return_value = nv_instance
 
     tool = StyleCreate()
     rules = [{"context": "Table", "target_style": "Heading 1"}]
-    res = tool.execute(mock_ctx, style="CondStyle", conditional_rules=rules)
+    with patch.object(styles_mod.uno, "createUnoStruct", return_value=nv_instance, create=True):
+        res = tool.execute(mock_ctx, style="CondStyle", conditional_rules=rules)
 
     assert res["status"] == "error"
     assert "Boom" in res["message"]
@@ -554,19 +555,20 @@ def test_create_style_conditional_failure_rolls_back(mock_nv):
     family.removeByName.assert_called_once_with("CondStyle")
 
 
-@patch("plugin.writer.styles.NamedValue")
-def test_create_style_conditional(mock_nv):
+def test_create_style_conditional():
+    from plugin.writer import styles as styles_mod
+
     family = _style_family({"Standard": MagicMock(), "Heading 1": MagicMock()})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
     new_style = MagicMock()
     mock_ctx.doc._created["com.sun.star.style.ConditionalParagraphStyle"] = new_style
 
     nv_instance = MagicMock()
-    mock_nv.return_value = nv_instance
 
     tool = StyleCreate()
     rules = [{"context": "Table", "target_style": "Heading 1"}]
-    res = tool.execute(mock_ctx, style="CondStyle", conditional_rules=rules)
+    with patch.object(styles_mod.uno, "createUnoStruct", return_value=nv_instance, create=True):
+        res = tool.execute(mock_ctx, style="CondStyle", conditional_rules=rules)
 
     assert res["status"] == "ok"
     assert res["service"] == "com.sun.star.style.ConditionalParagraphStyle"
@@ -620,9 +622,9 @@ def test_clone_style_rejects_unknown_family_and_existing_name():
     family = _style_family({"Src": MagicMock(), "Dst": MagicMock()})
     mock_ctx = _ctx_with_families(ParagraphStyles=family)
 
-    bad_family = StyleClone().execute(mock_ctx, style="Src", new_style="Other", family="FrameStyles")
-    assert bad_family["status"] == "error"
-    assert "family must be one of" in bad_family["message"]
+    ok, err = StyleClone().validate(style="Src", new_style="Other", family="FrameStyles")
+    assert ok is False
+    assert err is not None and "Invalid value for family" in err
 
     collision = StyleClone().execute(mock_ctx, style="Src", new_style="Dst")
     assert collision["status"] == "error"
@@ -1226,4 +1228,119 @@ def test_style_list_family_description():
     assert "families" in res1
     res2 = tool.execute(ctx, family="ParagraphStyles")
     assert res2["status"] == "ok"
+
+
+def test_apply_style_unknown_family_is_validation_error():
+    ok, err = ApplyStyle().validate(style="Heading 1", family="PageStyles")
+    assert ok is False
+    assert err is not None and "Invalid value for family" in err
+
+
+def test_apply_style_occurrence_string_is_validation_error():
+    ok, err = ApplyStyle().validate(
+        style="Heading 1", target="search", old_content="a", occurrence="1")
+    assert ok is False
+    assert err is not None and "Invalid type for occurrence" in err
+    ok_bool, err_bool = ApplyStyle().validate(
+        style="Heading 1", target="search", old_content="a", occurrence=True)
+    assert ok_bool is False
+    assert err_bool is not None and "Invalid type for occurrence" in err_bool
+
+
+def test_apply_style_single_target_reraises_disposed():
+    DisposedEx = type("DisposedException", (Exception,), {})
+    cursor = MagicMock()
+    cursor.setPropertyValue.side_effect = DisposedEx("gone")
+    ctx = _style_ctx()
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor):
+        with pytest.raises(Exception) as exc_info:
+            ApplyStyle().execute(
+                ctx, style="Source Text", family="CharacterStyles", target="selection")
+    assert "DisposedException" in type(exc_info.value).__name__
+
+
+def test_apply_style_all_matches_leave_failure_is_not_ok():
+    r1, r2 = MagicMock(), MagicMock()
+    for found in (r1, r2):
+        text = MagicMock()
+        text.createTextCursorByRange.return_value = MagicMock()
+        found.getText.return_value = text
+    tool = ApplyStyle()
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.leaveUndoContext.side_effect = RuntimeError("leave failed")
+    doc.getUndoManager.return_value = mgr
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    tool._apply_one = MagicMock(return_value=None)
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+         patch("plugin.writer.edit_review.next_agent_edit_undo_title", return_value="Agent Edit"):
+        res = tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert "could not be closed" in res["message"]
+    assert "leave failed" in res["message"]
+
+
+def test_apply_style_all_matches_leave_disposed_reraises():
+    from plugin.framework.errors import DocumentDisposedError
+
+    r1, r2 = MagicMock(), MagicMock()
+    tool = ApplyStyle()
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.leaveUndoContext.side_effect = type("DisposedException", (Exception,), {})("gone")
+    doc.getUndoManager.return_value = mgr
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+    tool._apply_one = MagicMock(return_value=None)
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+         patch("plugin.writer.edit_review.next_agent_edit_undo_title", return_value="Agent Edit"):
+        with pytest.raises(DocumentDisposedError):
+            tool.execute(ctx, style="Heading 1", target="search", old_content="foo", all_matches=True)
+
+
+def test_style_get_info_unreadable_property_is_none_and_dispose_raises():
+    from plugin.framework.errors import DocumentDisposedError
+
+    style = MagicMock()
+    style.getParentStyle.return_value = "Standard"
+
+    def get_prop(name):
+        if name == "CharHidden":
+            raise RuntimeError("no such property")
+        return None
+
+    style.getPropertyValue.side_effect = get_prop
+    fam = _style_family({"MyStyle": style})
+    ctx = _ctx_with_families(ParagraphStyles=fam)
+    res = StyleGetInfo().execute(ctx, style="MyStyle", family="ParagraphStyles")
+    assert res["status"] == "ok"
+    assert "CharHidden" in res and res["CharHidden"] is None
+
+    style.getPropertyValue.side_effect = type("DisposedException", (Exception,), {})("gone")
+    with pytest.raises(DocumentDisposedError):
+        StyleGetInfo().execute(ctx, style="MyStyle", family="ParagraphStyles")
+
+
+def test_installed_font_names_cached_after_success_not_after_none():
+    from plugin.writer import styles as styles_mod
+
+    styles_mod._installed_font_names_cache = None
+    ctx = MagicMock()
+    font = MagicMock()
+    font.Name = "Liberation Serif"
+    device = MagicMock()
+    device.getFontDescriptors.return_value = [font]
+    toolkit = MagicMock()
+    toolkit.createScreenCompatibleDevice.return_value = device
+    try:
+        with patch("plugin.framework.uno_context.get_toolkit", return_value=None):
+            assert styles_mod._installed_font_names(ctx) is None
+        with patch("plugin.framework.uno_context.get_toolkit", return_value=toolkit):
+            assert styles_mod._installed_font_names(ctx) == {"liberation serif"}
+            assert styles_mod._installed_font_names(ctx) == {"liberation serif"}
+        toolkit.createScreenCompatibleDevice.assert_called_once()
+    finally:
+        styles_mod._installed_font_names_cache = None
 

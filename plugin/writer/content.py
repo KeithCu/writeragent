@@ -49,7 +49,12 @@ from plugin.writer.edit_review import (
     close_surgical_context,
 )
 from plugin.writer.specialized.shapes import replace_text_in_shape
-from plugin.framework.errors import safe_json_loads, ToolExecutionError
+from plugin.framework.errors import (
+    ToolExecutionError,
+    format_error_payload,
+    reraise_if_disposed,
+    safe_json_loads,
+)
 from plugin.writer import search as search_mod
 from plugin.writer.hyperlink_fixup import (
     capture_outline_hyperlinks,
@@ -166,6 +171,17 @@ def _attach_table_deletion(resp: dict[str, Any], names: list[str], tracked: bool
     return resp
 
 
+def _note_unlisted_tracked_changes(result: dict[str, Any]) -> None:
+    """The HTML hides deletions. An empty list must not look like a clean document."""
+    note = (
+        "could not list tracked changes. The document has pending tracked "
+        "changes; do not accept or reject them."
+    )
+    prev = result.get("warning")
+    if not isinstance(prev, str) or not prev:
+        result["warning"] = note
+    elif note not in prev:
+        result["warning"] = "%s %s" % (prev, note)
 
 
 # ------------------------------------------------------------------
@@ -242,7 +258,12 @@ class GetDocumentContent(ToolBase):
         n_tracked = 0
         try:
             t_tracked = time.perf_counter()
-            if hasattr(ctx.doc, "getRedlines") and ctx.doc.getRedlines().getCount() > 0:
+            # collect_tracked_changes swallows its own walk and returns [].
+            # getCount() > 0 is the signal that redlines exist. getCount() is an
+            # int on a live document; a non-int (unit-test MagicMock) is not a failure.
+            redlines = ctx.doc.getRedlines() if hasattr(ctx.doc, "getRedlines") else None
+            count = redlines.getCount() if redlines is not None else 0
+            if isinstance(count, int) and not isinstance(count, bool) and count > 0:
                 changes = collect_tracked_changes(ctx.doc.getText())
                 if changes:
                     n_tracked = len(changes)
@@ -253,13 +274,18 @@ class GetDocumentContent(ToolBase):
                         "not errors and not yet final. Do NOT accept or reject them yourself; that is the "
                         "user's decision." % len(changes)
                     )
+                else:
+                    _note_unlisted_tracked_changes(result)
             log.debug(
                 "get_document_content: phase=tracked_changes elapsed_ms=%.1f n_tracked=%d",
                 (time.perf_counter() - t_tracked) * 1000.0,
                 n_tracked,
             )
-        except Exception:
-            log.debug("get_document_content: could not collect tracked changes", exc_info=True)
+        except Exception as exc:
+            # A closed document is not an ok read with the changes omitted.
+            reraise_if_disposed(exc)
+            log.exception("get_document_content: could not collect tracked changes")
+            _note_unlisted_tracked_changes(result)
         log.debug(
             "get_document_content: done scope=%r content_len=%d document_length=%d n_tracked=%d total_ms=%.1f",
             scope,
@@ -564,21 +590,34 @@ class ApplyDocumentContent(ToolBase):
                                     "change; edit it via the shapes toolset "
                                     "(delegate_to_specialized_writer_toolset domain='shapes')."),
                         "replaced_count": 0}, session
-            undo = None
             undo_title = next_agent_edit_undo_title()
             try:
                 undo = doc.getUndoManager()
+                # `is True`: MagicMock isLocked() is truthy and must not look locked.
+                if undo is None or undo.isLocked() is True:
+                    raise RuntimeError("undo manager is locked")
                 undo.enterUndoContext(undo_title)
-            except Exception:
-                undo = None
+            except Exception as exc:
+                # What was wrong: a failed enter left undo as None and the shape
+                # text was still replaced, so the edit was not one Ctrl+Z.
+                # How it happened: the except only cleared undo.
+                # Why this fixes it: no usable undo context means no edit.
+                reraise_if_disposed(exc)
+                log.exception("apply_document_content: shape edit undo context failed")
+                return self._tool_error(
+                    "Cannot edit text inside the drawing shape '%s' atomically "
+                    "(no usable undo context); refusing rather than leave an edit "
+                    "that is not one Ctrl+Z." % shape_name,
+                    code="UNDO_UNAVAILABLE",
+                ), session
             try:
                 edited = replace_text_in_shape(shape, search_string, new_text)
             finally:
-                if undo is not None:
-                    try:
-                        undo.leaveUndoContext()
-                    except Exception:
-                        log.exception("apply_document_content: shape edit leaveUndoContext failed")
+                try:
+                    undo.leaveUndoContext()
+                except Exception as leave_exc:
+                    reraise_if_disposed(leave_exc)
+                    log.exception("apply_document_content: shape edit leaveUndoContext failed")
             if edited:
                 result = attach_edited_context(
                     {"status": "ok",
@@ -1257,6 +1296,7 @@ class ApplyDocumentContent(ToolBase):
             changes_before = len(session.changes)
             applied_ok = False
             count = 0
+            link_failure: dict[str, Any] | None = None
             link_reports: list[dict[str, Any]] = []
             tracked_delete = False
             # What was wrong: _plain_preview and _replacement_plain called per match in all_matches loop.
@@ -1283,6 +1323,7 @@ class ApplyDocumentContent(ToolBase):
                             plain_preview=plain_preview,
                             replacement_plain=replacement_plain)
                         if link_err:
+                            link_failure = link_err
                             raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
                         if reports:
                             link_reports.extend(reports)
@@ -1293,13 +1334,27 @@ class ApplyDocumentContent(ToolBase):
             except Exception as e:
                 log.exception("apply_document_content all_matches failed mid-batch")
                 rolled_back = close_surgical_context(mgr, session, changes_before, False, undo_title)
-                if rolled_back:
-                    msg = "all_matches aborted after %d replacement(s); document rolled back (%s)." % (count, e)
+                # What was wrong: every failure, including a closed document and a
+                # ToolExecutionError, became status=error with no code.
+                # How it happened: this except returned a hand-built dict.
+                # Why this fixes it: disposal is re-raised after the rollback;
+                # every other result keeps its code.
+                reraise_if_disposed(e)
+                payload: dict[str, Any]
+                if isinstance(e, ToolExecutionError):
+                    payload = format_error_payload(e)
+                elif link_failure is not None:
+                    payload = dict(link_failure)
                 else:
-                    msg = "all_matches aborted after %d replacement(s); the document could not be rolled back and may be partially edited (%s)." % (count, e)
-                return {"status": "error",
-                        "message": msg,
-                        "replaced_count": 0, "partial_failure": True, "attempted": count}, session
+                    payload = {"status": "error", "code": "TOOL_EXECUTION_ERROR"}
+                if rolled_back:
+                    payload["message"] = "all_matches aborted after %d replacement(s); document rolled back (%s)." % (count, e)
+                else:
+                    payload["message"] = "all_matches aborted after %d replacement(s); the document could not be rolled back and may be partially edited (%s)." % (count, e)
+                payload["replaced_count"] = 0
+                payload["partial_failure"] = True
+                payload["attempted"] = count
+                return payload, session
             finally:
                 if applied_ok:
                     close_surgical_context(mgr, session, changes_before, True, undo_title)
@@ -1353,11 +1408,10 @@ class ApplyDocumentContent(ToolBase):
                 return self._tool_error(
                     "position='before'/'after' does not support content with math segments yet; "
                     "use position='replace' including the math, or target='end'."), session
-            try:
-                in_cell = found.getText().createTextCursorByRange(
-                    found.getStart()).getPropertyValue("TextTable") is not None
-            except Exception:
-                in_cell = False
+            # TextTable is None outside a cell. A throw is a closed document;
+            # do not treat it as "not a cell" and run the cell-unsafe import.
+            in_cell = found.getText().createTextCursorByRange(
+                found.getStart()).getPropertyValue("TextTable") is not None
             if in_cell:
                 return self._tool_error(
                     "position='before'/'after' next to a match inside a table cell is not "
@@ -1384,14 +1438,13 @@ class ApplyDocumentContent(ToolBase):
             else:
                 is_block = format_support.content_has_block_markup(str(content)) or "\n" in str(content)
             text_obj = found.getText()
-            try:
-                if is_block:
-                    insert_cursor, snapped = _paragraph_boundary_cursor(text_obj, found, position)
-                else:
-                    edge = found.getStart() if position == "before" else found.getEnd()
-                    insert_cursor, snapped = text_obj.createTextCursorByRange(edge), False
-            except Exception as e:
-                return self._tool_error("Could not anchor the %s-match insert: %s" % (position, e)), session
+            # execute_safe reports a failed cursor. This catch hid a closed document
+            # as "Could not anchor".
+            if is_block:
+                insert_cursor, snapped = _paragraph_boundary_cursor(text_obj, found, position)
+            else:
+                edge = found.getStart() if position == "before" else found.getEnd()
+                insert_cursor, snapped = text_obj.createTextCursorByRange(edge), False
 
             def _insert_next_to_match() -> None:
                 if not is_block:
@@ -1453,12 +1506,11 @@ class ApplyDocumentContent(ToolBase):
 
         doomed = writer_tables_emptied_by_matches([found], content)
         if doomed:
-            try:
-                with session:
-                    tracked_delete = self._record_table_deletions(session, doc, ctx, doomed)
-            except Exception as e:
-                log.exception("apply_document_content: deleting the emptied table failed")
-                return self._tool_error("Could not delete table: %s" % e), session
+            # execute_safe reports a failed delete. This catch hid a closed
+            # document as "Could not delete table". _execute still releases
+            # the session.
+            with session:
+                tracked_delete = self._record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete), session
         reports, link_err = self._replace_found(
             session, doc, found, use_preserve=use_preserve, raw_content=raw_content,

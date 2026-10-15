@@ -726,3 +726,189 @@ def test_outline_undo_says_when_rollback_fails():
     assert "could not be rolled back" not in err2["message"]
 
 
+def test_get_document_content_warns_when_redlines_are_not_listed():
+    from plugin.writer.content import GetDocumentContent
+
+    doc = MagicMock()
+    doc.getRedlines.return_value.getCount.return_value = 2
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document.get_document_length.return_value = 10
+    with patch("plugin.writer.content.collect_tracked_changes", return_value=[]), \
+         patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+        res = GetDocumentContent().execute(ctx)
+    assert res["status"] == "ok"
+    assert "tracked_changes" not in res
+    assert "could not list tracked changes" in res["warning"]
+    assert "do not accept or reject" in res["warning"]
+
+
+def test_get_document_content_redline_read_reraises_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.content import GetDocumentContent
+
+    doc = MagicMock()
+    doc.getRedlines.side_effect = type("DisposedException", (Exception,), {})("gone")
+    ctx = MagicMock()
+    ctx.doc = doc
+    ctx.services.document.get_document_length.return_value = 10
+    with patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+        with pytest.raises(DocumentDisposedError):
+            GetDocumentContent().execute(ctx)
+
+
+def test_shape_edit_refuses_without_undo_context():
+    from plugin.writer.content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    ctx.doc.getUndoManager.return_value.isLocked.return_value = True
+    shape = MagicMock()
+    shape.Name = "Box"
+    with patch("plugin.writer.search.find_first_range", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
+         patch("plugin.writer.content.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.content.replace_text_in_shape") as replace:
+        res = ApplyDocumentContent().execute(
+            ctx, target="search", old_content="foo", content="bar")
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    replace.assert_not_called()
+
+    ctx.doc.getUndoManager.return_value.isLocked.return_value = False
+    ctx.doc.getUndoManager.return_value.enterUndoContext.side_effect = RuntimeError("no undo")
+    with patch("plugin.writer.search.find_first_range", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
+         patch("plugin.writer.content.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.content.replace_text_in_shape") as replace:
+        res = ApplyDocumentContent().execute(
+            ctx, target="search", old_content="foo", content="bar")
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    replace.assert_not_called()
+
+
+def test_shape_edit_enter_disposed_reraises():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    ctx.doc.getUndoManager.side_effect = type("DisposedException", (Exception,), {})("gone")
+    shape = MagicMock()
+    shape.Name = "Box"
+    with patch("plugin.writer.search.find_first_range", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
+         patch("plugin.writer.content.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.content.replace_text_in_shape") as replace:
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent().execute(
+                ctx, target="search", old_content="foo", content="bar")
+    replace.assert_not_called()
+
+
+def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
+    from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+    from plugin.writer.content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    r1, r2 = MagicMock(), MagicMock()
+    calls = {"n": 0}
+
+    def replace_found(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return [], None
+        raise RuntimeError("boom")
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.specialized.tables.writer_tables_emptied_by_matches", return_value=[]), \
+         patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_found):
+        res = ApplyDocumentContent().execute(
+            ctx, content="x", target="search", old_content="old", all_matches=True)
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert res["partial_failure"] is True
+    assert "rolled back" in res["message"]
+
+    calls["n"] = 0
+
+    def replace_coded(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return [], None
+        raise ToolExecutionError("coded", code="HYPERLINK_UPDATE_FAILED")
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.specialized.tables.writer_tables_emptied_by_matches", return_value=[]), \
+         patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_coded):
+        res = ApplyDocumentContent().execute(
+            ctx, content="x", target="search", old_content="old", all_matches=True)
+    assert res["code"] == "HYPERLINK_UPDATE_FAILED"
+    assert res["partial_failure"] is True
+
+    calls["n"] = 0
+
+    def replace_link(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return [], None
+        return None, {
+            "status": "error",
+            "code": "INVALID_PARAM",
+            "message": "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
+        }
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.specialized.tables.writer_tables_emptied_by_matches", return_value=[]), \
+         patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_link):
+        res = ApplyDocumentContent().execute(
+            ctx, content="x", target="search", old_content="old", all_matches=True)
+    assert res["code"] == "INVALID_PARAM"
+    assert res["partial_failure"] is True
+
+    def replace_disposed(*_args, **_kwargs):
+        raise type("DisposedException", (Exception,), {})("gone")
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.specialized.tables.writer_tables_emptied_by_matches", return_value=[]), \
+         patch.object(ApplyDocumentContent, "_replace_found", side_effect=replace_disposed):
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent().execute(
+                ctx, content="x", target="search", old_content="old", all_matches=True)
+
+
+def test_position_after_cell_probe_reraises_disposed():
+    from plugin.writer import format as format_support
+    from plugin.writer.content import ApplyDocumentContent
+
+    found, cursor = _next_to_match_found(at_paragraph_edge=False)
+    cursor.getPropertyValue.side_effect = type("DisposedException", (Exception,), {})("gone")
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch.object(format_support, "html_fragment_contains_mixed_math", return_value=False), \
+         patch.object(format_support, "insert_html_at_cursor") as ins:
+        with pytest.raises(Exception) as exc_info:
+            ApplyDocumentContent().execute(
+                _edit_ctx(), content=["<p>x</p>"], target="search", old_content="c", position="after")
+    assert "DisposedException" in type(exc_info.value).__name__
+    ins.assert_not_called()
+
+
+def test_emptied_table_delete_reraises_disposed():
+    from plugin.writer.content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.specialized.tables.writer_tables_emptied_by_matches", return_value=[(MagicMock(), "T1")]), \
+         patch.object(ApplyDocumentContent, "_record_table_deletions",
+                      side_effect=type("DisposedException", (Exception,), {})("gone")):
+        with pytest.raises(Exception) as exc_info:
+            ApplyDocumentContent().execute(
+                ctx, target="search", old_content="x", content="")
+    assert "DisposedException" in type(exc_info.value).__name__
+
+
