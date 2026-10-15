@@ -175,7 +175,7 @@ def _schedule_mcp_snippet_refresh(dlg: Any) -> None:
         deadline = time.time() + 1.2
         while time.time() < deadline:
             tunnel = _shared_tunnel
-            if tunnel is None or not getattr(tunnel, "is_running", False) or getattr(tunnel, "_public_url", None):
+            if tunnel is None or not getattr(tunnel, "is_running", False) or getattr(tunnel, "public_url", None):
                 break
             time.sleep(0.1)
 
@@ -252,7 +252,7 @@ def sync_mcp_config_snippet(
     if not active_url:
         from plugin.mcp import _shared_tunnel
 
-        if _shared_tunnel and _shared_tunnel.is_running and getattr(_shared_tunnel, "_provider", None) == selected_provider:
+        if _shared_tunnel and _shared_tunnel.is_running and getattr(_shared_tunnel, "provider", None) == selected_provider:
             active_url = _shared_tunnel.mcp_public_url()
             if active_url:
                 remember_tested_tunnel_url(selected_provider, active_url)
@@ -327,9 +327,6 @@ class TestTunnelListener(BaseActionListener):
         if not provider:
             provider = DEFAULT_PROVIDER
 
-        token_ctrl = get_optional(self._dlg, "mcp__tunnel_provider_token")
-        token = str(get_control_text(token_ctrl) or "").strip() if token_ctrl else ""
-
         port_ctrl = get_optional(self._dlg, "mcp__mcp_port")
         port = 18765
         if port_ctrl:
@@ -353,7 +350,7 @@ class TestTunnelListener(BaseActionListener):
                 pass
 
         def _worker() -> None:
-            _ok, msg, pub_url = test_tunnel_connectivity(provider=provider, provider_token=token, port=port)
+            _ok, msg, pub_url = test_tunnel_connectivity(provider=provider, port=port)
 
             def _apply() -> None:
                 if btn:

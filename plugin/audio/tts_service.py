@@ -977,6 +977,7 @@ def _kokoro_warm_to_file(
                 "voices_path": voices_path,
                 "out_path": tmp_wav,
             },
+            timeout_sec=max(pool.job_timeout_sec, _kokoro_synth_timeout(text)),
             cancel_check=lambda: _playback_blocked(generation),
         )
     except Exception:

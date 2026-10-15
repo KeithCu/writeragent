@@ -211,3 +211,50 @@ def test_rename_slide_ok():
 def test_rename_slide_missing_name():
     out = RenameSlide().execute(_ctx(), page=0, name="")
     assert out["status"] == "error"
+
+
+def test_move_slide_reports_rollback_message():
+    from plugin.draw.bridge import PageExchangeRollbackError
+
+    ctx = _ctx()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.move_slide.side_effect = PageExchangeRollbackError("shapes are on the last slide")
+        out = MoveSlide().execute(ctx, from_page=0, to_page=1)
+    assert out["status"] == "error"
+    assert "shapes are on the last slide" in out["message"]
+    assert "Could not move slide" not in out["message"]
+
+
+def test_add_slide_cleanup_reraises_dispose():
+    import pytest
+
+    class DisposedException(Exception):
+        pass
+
+    ctx = _impress_ctx()
+    page = MagicMock()
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.designs.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
+    ):
+        bridge = _add_slide_bridge(page)
+        bridge.get_pages.return_value.remove.side_effect = DisposedException("doc disposed")
+        bridge_cls.return_value = bridge
+        with pytest.raises(DisposedException):
+            AddSlide().execute(ctx)
+
+
+def test_add_slide_cleanup_still_returns_layout_error_when_remove_fails():
+    ctx = _impress_ctx()
+    page = MagicMock()
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.designs.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
+    ):
+        bridge = _add_slide_bridge(page)
+        bridge.get_pages.return_value.remove.side_effect = RuntimeError("remove failed")
+        bridge_cls.return_value = bridge
+        out = AddSlide().execute(ctx)
+    assert out["status"] == "error"
+    assert "Failed to set layout or master" in out["message"]
+    assert "no master" in out["message"]

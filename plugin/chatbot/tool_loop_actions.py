@@ -77,6 +77,7 @@ class TurnController:
     stripper: StreamingHTMLStripper | None
     _alive: bool
     _stop_banner_appended: bool
+    _stop_committed: bool
     _stop_partial_text: str | None
     closed_by_document: bool
     _overflow_compact_attempts: int
@@ -103,6 +104,7 @@ class TurnController:
         self.stripper = StreamingHTMLStripper()
         self._alive = True
         self._stop_banner_appended = False
+        self._stop_committed = False
         self._stop_partial_text = None
         self.closed_by_document = False
         self._overflow_compact_attempts = 0
@@ -219,6 +221,16 @@ class TurnController:
         """
         if self.closed_by_document or not self.accepts_history(host) or self.session is None:
             return
+        # A second call sees a finished stripper and a last row that is not
+        # _open_transcript, so open_text() is empty and it stores another
+        # "No response." plus another _STOP_LINE (including when the first
+        # call had already stored the open row). send_handlers.on_stopped and
+        # tool_loop._handle_stream_stopped both call this; the drain invokes
+        # on_stopped once, and the turn did not. _stop_committed is not
+        # _stop_banner_appended.
+        if self._stop_committed:
+            return
+        self._stop_committed = True
         tail = self.take_stripper_tail()
         if tail:
             self.fold_chunk(host, tail, "assistant")
@@ -246,6 +258,13 @@ def _discard_batcher(batcher: Any) -> None:
         discard()
 
 
+# current_turn: host._turn while it is a TurnController, including after
+# abort, until drop_turn. Not a liveness check.
+# running_turn: that turn when it is still alive and accepts history.
+# Spawn and in-flight work. None after Stop, Clear, or a newer send.
+# session_for_turn: the session when this turn is still current and the
+# message list is the one it captured, including an aborted turn. Close,
+# TTS, and other transcript reads. None after Clear or a newer send.
 def current_turn(host: Any) -> TurnController | None:
     turn = getattr(host, "_turn", None)
     if isinstance(turn, TurnController):
@@ -304,23 +323,6 @@ def session_for_turn(host: Any) -> Any:
 def spawn_queue(turn: TurnController) -> Any:
     """The queue the drain attached. The batcher wraps it when batching is on."""
     return turn.batcher or turn.queue
-
-
-def stopped_assistant_text(host: Any, partial: str | None) -> str:
-    """Text already on the open row, else the worker partial.
-
-    Stop must not store ``No response.`` after the sidebar has already
-    shown streamed tokens. Those tokens are the open row. The open row wins;
-    the partial is only used when nothing was folded yet.
-    """
-    turn = current_turn(host)
-    emitted = turn.open_text() if isinstance(turn, TurnController) else ""
-    if emitted:
-        return emitted
-    text = partial.strip() if isinstance(partial, str) else ""
-    if text and text != "No response.":
-        return text
-    return ""
 
 
 def _tool_call_id(call: Any) -> str:
@@ -409,7 +411,7 @@ def persist_assistant_on_turn(
     turn.persist_assistant(host, content=content, tool_calls=tool_calls, reasoning_replay=reasoning_replay)
 
 
-def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: Any = None, q: Any = None, *, model: Any) -> None:
+def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: str, exc: BaseException, turn: Any = None, *, model: Any) -> None:
     """Queue a tool failure. A disposed document ends the loop.
 
     A closed document is not a normal tool error. Turning every exception
@@ -426,12 +428,11 @@ def _queue_tool_failure(host: Any, call_id: str, func_name: str, func_args_str: 
     """
     if turn is None:
         turn = current_turn(host)
-    payload_error = (StreamQueueKind.ERROR, format_error_payload(exc))
-    payload_done = (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(exc), default=str))
+    formatted = format_error_payload(exc)
     if is_tool_document_disposed(exc, model):
-        put_for_turn(turn, payload_error)
+        put_for_turn(turn, (StreamQueueKind.ERROR, formatted))
         return
-    put_for_turn(turn, payload_done)
+    put_for_turn(turn, (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(formatted, default=str)))
 
 
 def persist_tool_on_turn(host: Any, call_id: str | None, content: Any) -> None:
@@ -452,7 +453,6 @@ class ToolLoopActionHost(Protocol):
     _active_execute_tool_fn: Callable[..., Any]
     _active_query_text: str | None
     _active_supports_status: bool
-    _current_tool_call_id: str | None
     _terminal_status: str
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
@@ -488,8 +488,6 @@ def build_tool_execute_fn(
         stop_checker: Callable[[], bool] | None = None,
         *,
         captured_turn: Any = None,
-        captured_q: Any = None,
-        captured_call_id: str | None = None,
         send_cancellation: Any = _SEND_SCOPE_UNSET,
     ) -> str:
         from plugin.main import get_tools as _get_tools
@@ -500,9 +498,6 @@ def build_tool_execute_fn(
             err = ToolExecutionError("Tool arguments must be a dictionary", code="TOOL_ARGS_INVALID")
             return json.dumps(format_error_payload(err), default=str)
         safe_args = args if isinstance(args, dict) else {}
-        # The spawn passes the queue it already attached to the turn.
-        # This worker must not install a different one.
-        del captured_q
 
         delegate_domain = str(safe_args.get("domain") or "") if name in DELEGATE_GATEWAY_TOOL_NAMES else ""
         # Delegate gateways forward domain=web_research to WebResearchTool with the same ctx;
@@ -763,6 +758,10 @@ class ToolLoopEffectInterpreter:
     def _cleanup_audio(self) -> None:
         """Clean up recording file and record audio support for the captured model.
 
+        current_turn, not running_turn: Stop has already aborted the turn when
+        this effect runs, and the model that streamed audio is still that turn
+        until drop_turn.
+
         Read model and endpoint from the turn captured at spawn.
         ``get_text_model()`` and ``get_current_endpoint()`` at cleanup time
         follow the combobox, so a mid-send model change marks the new model
@@ -786,14 +785,12 @@ class ToolLoopEffectInterpreter:
         func_args_str = effect.func_args_str
         func_args = effect.func_args
         call_id = effect.call_id
-        host._current_tool_call_id = call_id
         # The drain attached the queue and the document before this spawn.
         # A later send replaces the host's turn. This worker keeps the one
         # it captured and must not assign that turn's queue.
         turn = running_turn(host)
         if not isinstance(turn, TurnController):
             return True
-        worker_q = turn.queue
         model = turn.model
 
         def emit(item: Any) -> None:
@@ -814,10 +811,20 @@ class ToolLoopEffectInterpreter:
         # panel field when the tool later runs.
         bound_scope, bound_stop = capture_send_stop(host)
 
-        image_model_override = execute_on_main_thread(lambda: host.image_model_selector.getText()) if host.image_model_selector else None
-        if image_model_override and func_name == "image_generate" and isinstance(func_args, dict):
-            func_args = dict(func_args)
-            func_args["image_model"] = image_model_override
+        # Bugfix: getText ran for every tool whenever the sidebar combobox
+        # existed, and execute_on_main_thread re-raises, so a disposed or
+        # unwired control left _spawn_tool_worker and the drain treated it as
+        # a stream error. Only image_generate uses the override; a widget
+        # failure leaves that call's arguments unchanged.
+        if func_name == "image_generate" and isinstance(func_args, dict) and host.image_model_selector:
+            try:
+                image_model_override = execute_on_main_thread(lambda: host.image_model_selector.getText())
+            except Exception:
+                log.debug("image model selector unusable; image_generate keeps its arguments", exc_info=True)
+                image_model_override = None
+            if image_model_override:
+                func_args = dict(func_args)
+                func_args["image_model"] = image_model_override
 
         def tool_status_callback(msg: str) -> None:
             emit((StreamQueueKind.STATUS, msg))
@@ -838,8 +845,6 @@ class ToolLoopEffectInterpreter:
                     "stop_checker": bound_stop,
                     "send_cancellation": bound_scope,
                     "captured_turn": turn,
-                    "captured_q": worker_q,
-                    "captured_call_id": call_id,
                 }
                 if supports_status:
                     call_kwargs["status_callback"] = tool_status_callback
@@ -856,7 +861,7 @@ class ToolLoopEffectInterpreter:
             except Exception as e:
                 if sync:
                     log.debug("sync tool failed name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
-                _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, worker_q, model=spawn_doc)
+                _queue_tool_failure(host, call_id, func_name, func_args_str, e, turn, model=spawn_doc)
 
         # Use the same dedicated worker as async tools. Calling the tool
         # on the drain thread skips pump_ui_idle, so Stop is not delivered

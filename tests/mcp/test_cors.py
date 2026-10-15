@@ -23,6 +23,7 @@ from plugin.mcp.cors import (
     normalize_origins_list,
     origin_is_forbidden,
     reject_forbidden_host,
+    send_cors_headers,
     set_allow_private_origins,
     set_extra_allowed_origins,
 )
@@ -119,6 +120,13 @@ def test_reject_forbidden_host():
 def test_normalize_cors_origin_rejects_invalid():
     assert normalize_cors_origin("localai.local") is None
     assert normalize_cors_origin("") is None
+    assert normalize_cors_origin("http://host:99999") is None
+    assert normalize_cors_origin("http://host:abc") is None
+    assert normalize_cors_origin("http://host:-1") is None
+    assert normalize_cors_origin("http://host:65536") is None
+    assert normalize_cors_origin("http://[::1]:99999") is None
+    assert normalize_cors_origin("http://host:0") == "http://host:0"
+    assert normalize_cors_origin("http://host:65535") == "http://host:65535"
 
 
 def test_normalize_origins_list_dedupes():
@@ -232,6 +240,27 @@ def test_origin_is_forbidden_public_and_junk():
     # Alphabet / length fail _deal_origin_ok — must not raise into is_safe_origin.
     assert origin_is_forbidden(_OriginHandler("http://example.com/?x")) is True
     assert origin_is_forbidden(_OriginHandler("h" * (DEAL_MAX_ORIGIN + 1))) is True
+    assert origin_is_forbidden(_OriginHandler("http://host:99999")) is True
+    assert origin_is_forbidden(_OriginHandler("http://host:abc")) is True
+    assert origin_is_forbidden(_OriginHandler("http://host:-1")) is True
+
+
+def test_bad_port_origin_is_unsafe_and_cors_headers_do_not_raise():
+    assert is_safe_origin("http://host:99999") is False
+    assert is_private_browser_origin("http://host:99999") is False
+
+    class DummyHandler:
+        def __init__(self, headers):
+            self.headers = headers
+            self.sent_headers = []
+
+        def send_header(self, k, v):
+            self.sent_headers.append((k, v))
+
+    handler = DummyHandler({"Origin": "http://host:99999"})
+    send_cors_headers(handler, preflight=False)
+    headers_dict = dict(handler.sent_headers)
+    assert "Access-Control-Allow-Origin" not in headers_dict
 
 
 def _expose_headers(response) -> str:
@@ -338,6 +367,7 @@ def _assert_forbidden_origin(err: urllib.error.HTTPError) -> None:
     [
         pytest.param("http://example.com", id="test_options_mcp_unsafe_origin_no_allow_origin"),
         pytest.param("http://example.com/?x", id="test_options_mcp_junk_origin_is_403_not_500"),
+        pytest.param("http://host:99999", id="test_options_mcp_bad_port_origin_is_403"),
     ],
 )
 def test_options_mcp_unsafe_origin_no_allow_origin(mcp_server, value):

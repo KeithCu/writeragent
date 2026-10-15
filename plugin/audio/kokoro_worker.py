@@ -5,10 +5,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Long-lived Kokoro subprocess. Loads the ONNX model once and writes wav paths.
 
-The stdio loop matches ``compute_service.worker_base.run_worker_stdio_loop``
-(Pickle 5 length-prefix from ``plugin.scripting.ipc``). ``compute_service`` is
-not shipped inside the WriterAgent OXT, so this child keeps its own copy of
-that small loop and talks to ``plugin.audio.kokoro_pool`` with the same frames.
+The stdio loop is a local copy because ``compute_service`` is not shipped inside
+the WriterAgent OXT, and that loop's restricted unpickler and signal handling do
+not apply here. Child stdout is claimed for frames with ``claim_ipc_channel``, and
+a failed frame read exits so the pool can respawn.
 
 Jobs are ``{text, voice, speed, lang, model_path, voices_path, out_path}``.
 The response carries the wav **path**, not the samples: a sentence of audio
@@ -20,6 +20,7 @@ parent; only Kokoro pays the ONNX + voices load this worker exists to avoid.
 
 from __future__ import annotations
 
+import io
 import os
 import sys
 from typing import Any
@@ -35,6 +36,7 @@ if _ROOT not in sys.path:
 
 from plugin.scripting.ipc import (  # noqa: E402
     DEFAULT_MAX_PAYLOAD_BYTES,
+    claim_ipc_channel,
     read_pickle_frame,
     write_pickle_frame,
 )
@@ -51,15 +53,27 @@ def run_kokoro_stdio_loop(
 ) -> int:
     """Pickle 5 request loop. First frame is ``{"status": "ready", "pid": ...}``."""
     stdin_bin = sys.stdin.buffer
-    stdout_bin = sys.stdout.buffer
-    # Redirect sys.stdout to sys.stderr so print() calls don't corrupt the pickle stream
-    sys.stdout = sys.stderr
+    try:
+        is_real_fd1 = hasattr(sys.stdout, "fileno") and sys.stdout.fileno() == 1
+    except (io.UnsupportedOperation, AttributeError, OSError):
+        is_real_fd1 = False
+    stdout_bin = claim_ipc_channel()
+    if is_real_fd1:
+        sys.stdout = sys.stderr
     write_pickle_frame(stdout_bin, {"status": "ready", "pid": os.getpid()})
     while True:
+        # A length-prefix or decode error has consumed stdin mid-frame;
+        # writing an error and reading again would desync every later job.
         try:
             req = read_pickle_frame(stdin_bin, max_payload_bytes=max_payload_bytes)
-            if req is None:
-                break
+        except Exception as exc:
+            sys.stderr.write(
+                f"Fatal: failed to read/decode IPC frame from stdin: {exc}\n"
+            )
+            break
+        if req is None:
+            break
+        try:
             if not isinstance(req, dict):
                 res: dict[str, Any] = {"status": "error", "error": "Request must be a dict"}
             else:
@@ -67,7 +81,7 @@ def run_kokoro_stdio_loop(
                 if not isinstance(res, dict):
                     res = {"status": "error", "error": "Handler must return a dict"}
         except Exception as exc:
-            res = {"status": "error", "error": f"Invalid IPC frame or unhandled error: {exc}"}
+            res = {"status": "error", "error": f"Unhandled error: {exc}"}
         try:
             write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
         except Exception:
@@ -87,14 +101,22 @@ def _has_voice(kokoro: Any, name: str) -> bool:
 
 
 def _fallback_voice(kokoro: Any) -> str:
+    """Choose a fallback voice if the requested voice is missing.
+
+    What was wrong: voices[0] on an NpzFile raises KeyError ('0 is not a file
+    in the archive').
+    How it happened: kokoro_onnx stores np.load of the voices pack (NpzFile);
+    the tests used a list and a pack that still contained af_sky.
+    Why this change: next(iter(...)) yields the archive keys, matching
+    KOKORO_ONNX_SCRIPT which lists keys from iteration.
+    """
     if _has_voice(kokoro, "af_sky"):
         return "af_sky"
     voices = _voice_names(kokoro)
-    if isinstance(voices, dict) and voices:
+    try:
         return str(next(iter(voices)))
-    if voices:
-        return str(voices[0])
-    return "af_sky"
+    except (StopIteration, TypeError):
+        return "af_sky"
 
 
 def _get_kokoro(model_path: str, voices_path: str) -> Any:
@@ -158,10 +180,15 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         return {"status": "error", "error": "voices_path is required"}
 
     voice = str(req.get("voice") or "af_sky")
-    try:
-        speed = float(req.get("speed") or 1.0)
-    except (TypeError, ValueError):
+    raw_speed = req.get("speed")
+    if raw_speed is None:
         speed = 1.0
+    else:
+        # What was wrong: float(req.get("speed") or 1.0) mapped a real 0.0 to 1.0.
+        try:
+            speed = float(raw_speed)
+        except (TypeError, ValueError):
+            speed = 1.0
     lang = str(req.get("lang") or "en-us")
 
     try:
