@@ -39,6 +39,10 @@ cdef inline void _update_column_state(list column_states, int c, object val):
         if st == 0:
             column_states[c] = 1
     elif PyLong_Check(val):
+        # PyLong_Check is true for int subclasses (IntEnum, Widget(int)).
+        # payload_codec._flatten_update_column_state uses
+        # isinstance(val, int) and not isinstance(val, bool) for that case.
+        # This arm must not become an exact type check.
         if st < 2:
             column_states[c] = 2
     else:

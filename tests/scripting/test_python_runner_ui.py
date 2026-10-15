@@ -453,7 +453,7 @@ def test_save_current_script_fallback_collision():
     assert res.channel == "modal"
     assert (
         res.text
-        == "Could not save to this document (Document is read-only or properties cannot be written.). A script named 'MyDocScript' already exists in My Scripts."
+        == "Could not save 'MyDocScript' to this document (Document is read-only or properties cannot be written.). A script named 'MyDocScript' already exists in My Scripts."
     )
     mock_save_user.assert_not_called()
     mock_refresh.assert_not_called()
@@ -483,7 +483,7 @@ def test_save_current_script_fallback_success():
     assert res.channel == "modal"
     assert (
         res.text
-        == "Could not save to this document (Document is read-only or properties cannot be written.). Saved to My Scripts instead."
+        == "Could not save 'MyDocScript' to this document (Document is read-only or properties cannot be written.). Saved it to My Scripts instead."
     )
     mock_save_user.assert_called_once_with("MyDocScript", "new code")
     mock_refresh.assert_called_once_with(select_display="MyDocScript")

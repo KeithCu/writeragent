@@ -75,6 +75,8 @@ from plugin.scripting.document_scripts import (
     delete_user_script,
     get_user_scripts,
     read_only_helper_message,
+    readonly_fallback_name_taken_message,
+    readonly_fallback_saved_message,
     resolve_script_picker_entry,
     save_document_script,
     save_user_script,
@@ -510,8 +512,7 @@ class NativePythonScriptDialog:
                 return _ScriptSaveResult(str(err), "modal")
             if real_name in get_user_scripts():
                 return _ScriptSaveResult(
-                    _("Could not save to this document (%s). A script named '%s' already exists in My Scripts.")
-                    % (err, real_name),
+                    readonly_fallback_name_taken_message(real_name, err),
                     "modal",
                 )
             user_err = save_user_script(real_name, t)
@@ -522,7 +523,7 @@ class NativePythonScriptDialog:
             # selected disagrees with where the script was stored.
             self._refresh_script_dropdown(select_display=real_name)
             return _ScriptSaveResult(
-                _("Could not save to this document (%s). Saved to My Scripts instead.") % err,
+                readonly_fallback_saved_message(real_name, err),
                 "modal",
             )
         user_err = save_user_script(real_name, t)

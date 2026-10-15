@@ -881,6 +881,10 @@ def test_ensure_running_joins_dead_child_before_spawn(monkeypatch: pytest.Monkey
     mgr._reap_handles = []
     mgr._primed = False
     mgr._stderr_drain = None
+    mgr._spawn_handle = None
+    mgr._spawn_queue = None
+    mgr._spawn_ident = None
+    mgr._spawn_ready = None
 
     class _Dead:
         def poll(self) -> int:
@@ -905,9 +909,12 @@ def test_ensure_running_joins_dead_child_before_spawn(monkeypatch: pytest.Monkey
     mgr._terminate_worker = _terminate  # type: ignore[method-assign]
     mgr._join_reaps = _join  # type: ignore[method-assign]
     monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", _popen)
-    with pytest.raises(RuntimeError, match="stop before spawn"):
-        mgr._ensure_running()
-    assert order == ["join", ("terminate", False), "join", "popen"]
+    try:
+        with pytest.raises(RuntimeError, match="stop before spawn"):
+            mgr._ensure_running()
+        assert order == ["join", ("terminate", False), "join", "popen"]
+    finally:
+        mgr._stop_spawn_thread(wait=True)
 
 
 
@@ -3243,4 +3250,92 @@ def test_empty_id_error_after_exec_started_still_kills() -> None:
     assert mgr._terminate_worker.call_count == 1
     assert mgr._terminate_worker.call_args_list == [call(wait=False)]
 
+
+def test_ensure_running_popen_runs_on_spawn_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    recorded_ident: int | None = None
+
+    def fake_popen(*args: Any, **kwargs: Any) -> Any:
+        nonlocal recorded_ident
+        recorded_ident = threading.get_ident()
+        proc = MagicMock()
+        proc.pid = -1
+        proc.stdin = None
+        proc.stdout = None
+        proc.stderr = None
+        proc.poll.return_value = None
+        proc.wait.return_value = 0
+        proc.kill.return_value = None
+        return proc
+
+    monkeypatch.setattr(ms.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", lambda *args, **kwargs: None)
+    monkeypatch.setattr("plugin.scripting.venv_worker.wrap_command_for_sandbox", lambda cmd, *args, **kwargs: cmd)
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    helper_ident: int | None = None
+
+    def helper_run() -> None:
+        nonlocal helper_ident
+        helper_ident = threading.get_ident()
+        mgr._ensure_running()
+
+    try:
+        t = threading.Thread(target=helper_run)
+        t.start()
+        t.join()
+
+        assert recorded_ident is not None
+        assert recorded_ident != helper_ident
+        assert mgr._spawn_handle is not None and mgr._spawn_handle.is_alive()
+        assert mgr._spawn_ident == recorded_ident
+    finally:
+        mgr._retired = True
+        mgr._terminate_worker(wait=True)
+        mgr._stop_spawn_thread(wait=True)
+
+
+def test_caller_thread_exit_does_not_pdeathsig_the_worker() -> None:
+    from plugin.scripting.sandbox import detect_sandbox
+
+    if sys.platform != "linux" or detect_sandbox() == "flatpak":
+        pytest.skip("Linux host-only parent-death signal test")
+
+    mgr = PythonWorkerManager(sys.executable, {"PATH": os.environ.get("PATH", "/usr/bin")})
+    helper_err: BaseException | None = None
+
+    def run_start() -> None:
+        nonlocal helper_err
+        try:
+            mgr._ensure_running()
+        except BaseException as exc:
+            helper_err = exc
+
+    try:
+        t = threading.Thread(target=run_start)
+        t.start()
+        t.join()
+        if helper_err is not None:
+            stderr = mgr._drain_stderr()
+            raise AssertionError(f"_ensure_running failed on helper: {helper_err}{stderr}") from helper_err
+
+        time.sleep(0.5)
+        assert mgr._proc is not None
+        assert mgr._proc.poll() is None
+
+        mgr._stop_spawn_thread(wait=True)
+
+        deadline = time.monotonic() + 2.0
+        exit_code = None
+        while time.monotonic() < deadline:
+            exit_code = mgr._proc.poll()
+            if exit_code is not None:
+                break
+            time.sleep(0.05)
+        assert exit_code is not None
+    finally:
+        if mgr._proc is not None and mgr._proc.poll() is None:
+            mgr._terminate_worker(wait=True)
+        mgr._stop_spawn_thread(wait=True)
 

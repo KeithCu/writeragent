@@ -90,16 +90,6 @@ JSON_TO_PYTHON = {
     "array": "list[Any]",
 }
 
-DEFAULTS_BY_TYPE = {
-    "string": '""',
-    "integer": "0",
-    "boolean": "True",
-    "number": "0.0",
-    "object": "{}",
-    "array": "[]",
-}
-
-
 def _get_schema_type(schema: dict) -> str:
     t = schema.get("type", "")
     if isinstance(t, list):
@@ -125,10 +115,14 @@ def _python_type(schema: dict) -> str:
 
 
 def _param_default(schema: dict) -> str:
-    """Derive a Python default value from a JSON Schema property."""
-    if "default" in schema:
-        return repr(schema["default"])
-    return DEFAULTS_BY_TYPE.get(_get_schema_type(schema), "None")
+    """Derive a Python default value from a JSON Schema property.
+
+    Only called when "default" in schema. There is no per-type default table
+    because a boolean True made apply_document_content(..., dry_run=True) a
+    silent no-op. Optionals without a schema default stay None in
+    schema_to_signature so _rpc_call can drop them.
+    """
+    return repr(schema["default"])
 
 
 def _python_param_name(schema_key: str) -> str:
@@ -358,6 +352,16 @@ def group_tools(tools: list["ToolBase"]) -> dict[str, list[tuple[str, "ToolBase"
     return dict(groups)
 
 
+def _proxy_namespace_attr(namespace: str) -> str:
+    """Namespace -> Python attribute / class name prefix (e.g. 'python/sql' -> 'python_sql')."""
+    return re.sub(r"\W", "_", namespace)
+
+
+def _proxy_method_name(short_name: str) -> str:
+    """Short name -> Python method name escaping keywords (e.g. 'import' -> 'import_')."""
+    return short_name + "_" if keyword.iskeyword(short_name) else short_name
+
+
 def generate_module(tools: list["ToolBase"]) -> str:
     """Generate the complete writeragent_api.py module."""
     groups = group_tools(tools)
@@ -428,11 +432,30 @@ def generate_module(tools: list["ToolBase"]) -> str:
     # Domain tools whitelist for host-side enforcement
     domain_tools_map = {}
     tool_methods_map = {}
+    seen_methods: dict[tuple[str, str], str] = {}
     for ns, tool_list in sorted(groups.items()):
         domain_tools_map[ns] = sorted([t.name for _, t in tool_list if t.name])
         for short_name, t in tool_list:
-            if t.name:
-                tool_methods_map[t.name] = (ns, short_name)
+            if not t.name:
+                continue
+            safe_ns = _proxy_namespace_attr(ns)
+            method = _proxy_method_name(short_name)
+            key = (safe_ns, method)
+            prev = seen_methods.get(key)
+            if prev is not None and prev != t.name:
+                # Two tools that strip to one method used to emit def twice,
+                # the later def won, and the catalog advertised one call for two
+                # tools. make proxy-stubs stops instead.
+                raise ValueError(
+                    f"proxy method {safe_ns}.{method} is produced by both {prev!r} and {t.name!r}"
+                )
+            seen_methods[key] = t.name
+            # TOOL_METHODS used to store the raw domain and the unescaped short
+            # name, so _proxy_methods_by_tool did getattr(api, "python/sql") and
+            # getattr(proxy, "import"), both missing, and format_script_api_catalog
+            # logged no proxy method and omitted query_folder_sql and style_import.
+            # The tuple is now the attribute the class body emits.
+            tool_methods_map[t.name] = (safe_ns, method)
 
     pretty_map = pprint.pformat(domain_tools_map, indent=4, width=120)
     lines.append(f"DOMAIN_TOOLS = {pretty_map}")
@@ -444,7 +467,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
 
     builtin_names = set(dir(builtins))
     all_exports = sorted(
-        {re.sub(r"\W", "_", ns) for ns in groups if re.sub(r"\W", "_", ns) not in builtin_names}
+        {_proxy_namespace_attr(ns) for ns in groups if _proxy_namespace_attr(ns) not in builtin_names}
         | {
             "DOMAIN_TOOLS",
             "TOOL_METHODS",
@@ -462,7 +485,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
         # Emit a class that acts as a namespace. Domain names may hold characters that are invalid
         # in Python identifiers: hyphens, and the slash in "python/sql" (plugin/calc/base.py),
         # which produced "class _Python/sqlProxy:" and a module that does not import.
-        safe_ns = re.sub(r"\W", "_", namespace)
+        safe_ns = _proxy_namespace_attr(namespace)
         class_name = "".join(part.capitalize() for part in safe_ns.split("_")) + "Proxy"
         lines.append(f"class _{class_name}:")
         lines.append(f'    """Proxy for {namespace} tools."""')
@@ -470,8 +493,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
 
         for short_name, tool in sorted(tool_list, key=lambda x: x[0]):
             # domain_verb strip can yield a Python keyword (style_import -> import).
-            if keyword.iskeyword(short_name):
-                short_name = short_name + "_"
+            short_name = _proxy_method_name(short_name)
             # Generate method
             pos, kw = schema_to_signature(tool)
             # Add self

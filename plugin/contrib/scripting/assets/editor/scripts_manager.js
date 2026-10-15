@@ -366,12 +366,31 @@
     }
   }
 
+  // Save As prefills the storage name. The dropdown value for a document or
+  // helper script is the display key ("[Doc] Regional", "[Vision] Blur").
+  // Sending that key with origin "user" makes save_user_script reject it as
+  // a reserved prefix. The native dialog prefills resolve_script_picker_entry's
+  // real name. User-script keys have no prefix and stay unchanged.
+  function storageNameForSaveAs(displayName) {
+    var entry = scriptIndex[displayName];
+    var origin = entry ? (entry.origin || "") : "";
+    if (origin === "user" || origin === "") {
+      return displayName;
+    }
+    var marker = "] ";
+    var at = displayName.indexOf(marker);
+    if (at > 0 && displayName.charAt(0) === "[") {
+      return displayName.substring(at + marker.length);
+    }
+    return displayName;
+  }
+
   // Bugfix: scripts_list keys This Document with the [Doc] display name
   // (document_script_display_name / DOC_SCRIPT_DISPLAY_PREFIX). New / Save As
   // still passes the raw name the user typed. That lookup missed the row, so
   // confirm() never ran and save_document_script replaced the existing script.
-  // A name that is already a display key (Save As prefills the dropdown value)
-  // is left unchanged. My Scripts keys stay the raw name.
+  // A name that is already a display key is left unchanged, so a typed "[Doc] Regional" still matches the row. Save As prefills the storage name via storageNameForSaveAs.
+  // My Scripts keys stay the raw name.
   function documentScriptListKey(name) {
     var prefix = "[Doc] ";
     return name.indexOf(prefix) === 0 ? name : prefix + name;
@@ -415,7 +434,7 @@
         : t("create_label", "Create");
     }
     if (nameInput) {
-      nameInput.value = currentModalAction === "save_as" ? (currentSelectedName || "") : "";
+      nameInput.value = currentModalAction === "save_as" ? storageNameForSaveAs(currentSelectedName || "") : "";
     }
     if (attachCheck) {
       if (currentModalAction === "save_as") {

@@ -13,6 +13,8 @@ import subprocess
 import sys
 from unittest.mock import MagicMock, patch
 
+from typing import Any
+
 import pytest
 
 from plugin.scripting.config_limits import (
@@ -73,10 +75,12 @@ def test_run_venv_self_check_with_progress_success():
 def test_run_venv_self_check_with_progress_worker_start_error():
     mock_mgr = MagicMock()
     mock_mgr.execute.side_effect = OSError("boom")
+    shown: list[str] = []
     with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr):
-        ok, msg = run_venv_self_check_with_progress("/fake/python", lambda text: None)
+        ok, msg = run_venv_self_check_with_progress("/fake/python", shown.append)
     assert ok is False
     assert "boom" in msg
+    assert shown == [msg]
 
 
 @pytest.mark.parametrize(
@@ -89,10 +93,86 @@ def test_run_venv_self_check_with_progress_worker_start_error():
 def test_run_venv_self_check_with_progress_worker_error_response(value, value_2):
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {"status": "error", "message": value}
+    shown: list[str] = []
     with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr):
-        ok, msg = run_venv_self_check_with_progress("/x/python", lambda text: None)
+        ok, msg = run_venv_self_check_with_progress("/x/python", shown.append)
     assert ok is False
     assert value_2 in msg
+    assert shown == [msg]
+
+
+def test_run_venv_self_check_with_progress_get_oserror_is_displayed():
+    shown: list[str] = []
+    with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", side_effect=OSError("spawn failed")):
+        ok, msg = run_venv_self_check_with_progress("/x/python", shown.append)
+    assert ok is False
+    assert "spawn failed" in msg
+    assert shown == [msg]
+
+
+def test_run_venv_self_check_with_progress_unexpected_version_is_displayed():
+    mock_mgr = MagicMock()
+    mock_mgr.execute.return_value = {"status": "ok", "result": "nope"}
+    shown: list[str] = []
+    with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr):
+        ok, msg = run_venv_self_check_with_progress("/x/python", shown.append)
+    assert ok is False
+    assert msg == "Unexpected output from test run: 'nope'"
+    assert shown == [msg]
+
+
+def test_run_venv_self_check_with_progress_mid_loop_oserror_appends():
+    mock_mgr = MagicMock()
+
+    def _execute(script, timeout_sec=None):
+        if "platform" in script:
+            return {"status": "ok", "result": {"v": "3.12.0", "arch": "x86_64"}}
+        if "numpy" in script:
+            return {"status": "ok", "result": "present"}
+        raise OSError("died")
+
+    mock_mgr.execute.side_effect = _execute
+    shown: list[str] = []
+    with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr):
+        ok, msg = run_venv_self_check_with_progress("/x/python", shown.append, include_audio=False)
+    assert ok is False
+    assert msg == "Could not run Python: died"
+    assert "Scientific Libraries" in shown[-1]
+    assert "\n\nCould not run Python: died" in shown[-1]
+    assert "Scientific Libraries" not in msg
+
+
+def test_run_venv_self_check_with_progress_parse_error_appends():
+    mock_mgr = MagicMock()
+    mock_mgr.execute.side_effect = (
+        lambda script, timeout_sec=None: {
+            "status": "ok",
+            "result": {"v": "3.12.0", "arch": "x86_64"},
+        }
+        if "platform" in script
+        else {"status": "ok", "result": None}
+    )
+    from plugin.scripting.venv_diagnostics import _build_probe_display as real_build
+
+    def _fake_build(*args, **kwargs):
+        if kwargs.get("include_install_footer"):
+            raise RuntimeError("parse boom")
+        return real_build(*args, **kwargs)
+
+    shown: list[str] = []
+    with (
+        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._build_probe_display", side_effect=_fake_build),
+    ):
+        ok, msg = run_venv_self_check_with_progress("/x/python", shown.append, include_audio=False)
+    assert ok is False
+    assert "Failed to parse diagnostic output" in msg
+    assert "parse boom" in msg
+    assert "Python 3.12.0" in shown[-1]
+    assert "\n\nFailed to parse diagnostic output" in shown[-1]
 
 def test_run_venv_self_check_with_progress_reports_architecture():
     """Self-check success message includes platform.machine() from the worker payload."""
@@ -352,6 +432,73 @@ def test_format_self_check_success_vision_paddle_only_ready():
     msg = _format_self_check_success(data)
     assert "OCR: ready (Paddle)" in msg
     assert "Optional (not installed): ultralytics, skimage, docling, rapidocr" in msg
+    assert "Missing (OCR)" not in msg
+    assert "pip install" not in msg
+
+
+def test_format_self_check_success_docling_without_rapidocr_is_not_ready():
+    from plugin.scripting.venv_diagnostics import _VISION_PACKAGE_KEYS
+
+    data = {
+        "v": "3.12.0",
+        "p": {
+            "docling": "present",
+            "rapidocr": None,
+            "css_inline": "present",
+            "paddleocr": None,
+            "paddle": None,
+            "ultralytics": None,
+            "skimage": None,
+        },
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "nlp": [],
+        "audio": [],
+        "vector_search": [],
+        "data_eng": [],
+        "vision": list(_VISION_PACKAGE_KEYS),
+    }
+    msg = _format_self_check_success(data)
+    assert "OCR: not ready" in msg
+    assert "OCR: ready" not in msg
+    assert "Missing (OCR): rapidocr" in msg
+    present_line = [line for line in msg.splitlines() if line.startswith("Vision Libraries:")][0]
+    assert "docling" in present_line
+    assert "uv pip install rapidocr-paddle onnxruntime" in msg
+    footer = msg[msg.index("To install remaining packages:") :]
+    for pkg in ("docling", "css-inline", "paddleocr", "ultralytics"):
+        assert pkg not in footer
+    assert "rapidocr-paddle" in footer
+
+
+def test_format_self_check_success_paddle_ready_when_docling_lacks_rapidocr():
+    from plugin.scripting.venv_diagnostics import _VISION_PACKAGE_KEYS
+
+    data = {
+        "v": "3.12.0",
+        "p": {
+            "docling": "present",
+            "rapidocr": None,
+            "css_inline": "present",
+            "paddleocr": "present",
+            "paddle": "present",
+            "ultralytics": None,
+            "skimage": None,
+        },
+        "sci": [],
+        "eda": [],
+        "ui": [],
+        "nlp": [],
+        "audio": [],
+        "vector_search": [],
+        "data_eng": [],
+        "vision": list(_VISION_PACKAGE_KEYS),
+    }
+    msg = _format_self_check_success(data)
+    assert "OCR: ready (Paddle)" in msg
+    assert "OCR: ready (Docling)" not in msg
+    assert "Optional (not installed): ultralytics, skimage, rapidocr" in msg
     assert "Missing (OCR)" not in msg
     assert "pip install" not in msg
 
@@ -1066,6 +1213,45 @@ def test_run_json_probe_rejects_stdout_without_prefix():
         probes, hint = probe_vision_packages("/x/python", timeout=30.0)
     assert probes == {}
     assert hint is not None
+
+
+def test_parse_probe_stdout_accepts_marker_glued_to_banner():
+    from plugin.scripting.venv_diagnostics import _parse_probe_stdout
+
+    res1 = _parse_probe_stdout('banner without newlineWA_PROBE_JSON {"rapidocr": "present"}\n')
+    assert res1 == {"rapidocr": "present"}
+    res2 = _parse_probe_stdout('WA_PROBE_JSON {"docling": "present"}\nnoise WA_PROBE_JSON not-json\n')
+    assert res2 == {"docling": "present"}
+
+
+def test_run_json_probe_uses_utf8():
+    from plugin.scripting.venv_diagnostics import _run_json_probe
+
+    captured_kwargs: dict[str, Any] = {}
+
+    def _fake_run(*args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return subprocess.CompletedProcess(
+            args=["python"],
+            returncode=0,
+            stdout='café\nWA_PROBE_JSON {"docling": "present"}\n',
+            stderr="",
+        )
+
+    with patch("plugin.scripting.venv_diagnostics.subprocess.run", side_effect=_fake_run):
+        probes, hint = _run_json_probe(
+            sys.executable,
+            "print(1)\n",
+            30,
+            timeout_hint="t",
+            fail_hint="f",
+            log_label="t",
+        )
+    assert captured_kwargs.get("encoding") == "utf-8"
+    assert captured_kwargs.get("errors") == "replace"
+    assert "text" not in captured_kwargs
+    assert probes == {"docling": "present"}
+    assert hint is None
 
 
 def test_audio_linux_portaudio_hint_has_no_package_manager():

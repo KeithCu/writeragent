@@ -203,10 +203,19 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
         "invalidate_session_tables": invalidate_session_tables,
         "run_sql": run_sql_bound,
     }
-    executor.send_variables(helpers)
+    _send_cell_owned(executor, helpers)
     executor.custom_tools.update(helpers)
 
 
+_DUCKDB_HELPER_NAMES = ("session_duckdb", "invalidate_session_tables", "run_sql")
+_CELL_OWNED_NAMES = (
+    "result",
+    "data",
+    "ranges",
+    "xl",
+    "scoped_dir",
+    *_DUCKDB_HELPER_NAMES,
+)
 _INIT_STATE_SKIP_KEYS = frozenset(
     {
         "__name__",
@@ -214,16 +223,25 @@ _INIT_STATE_SKIP_KEYS = frozenset(
         # stay so a future filter change does not seed the framework counters.
         "_print_outputs",
         "_operations_count",
-        "result",
-        "data",
-        "ranges",  # always-list of CalcRange; re-injected each run
-        "xl",  # binding-only Excel data bridge; re-injected each run
-        "session_duckdb",  # rebound each execute; not an init-script binding
-        "invalidate_session_tables",
-        "run_sql",
-        "scoped_dir",  # document folder; rebound each =PY() from the host
+        *_CELL_OWNED_NAMES,
     }
 )
+
+
+def _send_cell_owned(executor: LocalPythonExecutor, variables: dict[str, Any]) -> None:
+    """Bind names the cell rebinds on every execute.
+
+    An init script can assign the same names. _snapshot_init_bindings drops
+    _INIT_STATE_SKIP_KEYS so those assignments are not seeded into later cells.
+    A fixed injector that gains a key and forgets the tuple used to seed it.
+    """
+    unknown = set(variables) - _INIT_STATE_SKIP_KEYS
+    if unknown:
+        raise RuntimeError(
+            "cell-owned names missing from _INIT_STATE_SKIP_KEYS: "
+            + ", ".join(sorted(unknown))
+        )
+    executor.send_variables(variables)
 
 
 def is_module_imported(code_str: str, module_name: str) -> bool:
@@ -357,10 +375,12 @@ def _node_binds_module_name(node: ast.AST, name: str) -> bool:
                     return True
             continue
         # ``result: int`` has a Store target but evaluate_annassign does not
-        # write the name unless there is a value.
+        # write it, and does not evaluate the annotation, when value is None
+        # (local_python_executor.evaluate_annassign). Recursing into the
+        # annotation treated ``a: [result := int]`` as a module bind. The
+        # executor rejects NamedExpr before result selection; the visitor
+        # still must not report that Store.
         if isinstance(child, ast.AnnAssign) and child.value is None:
-            if _node_binds_module_name(child.annotation, name):
-                return True
             continue
         if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store) and child.id == name:
             return True
@@ -1039,6 +1059,8 @@ def reset_sandbox_session(session_id: str) -> dict[str, Any]:
 
     Also clears the ``{id}:init`` companion when *session_id* is a cell id,
     and clears the cell session companion when *session_id* is an init id.
+    _clear_init_session_unlocked closes DuckDB for this id and for the
+    :init companion. Do not close again after the lock.
     """
     if not (session_id or "").strip():
         return {"status": "error", "message": "No session_id provided."}
@@ -1051,7 +1073,6 @@ def reset_sandbox_session(session_id: str) -> dict[str, Any]:
             init_sid = _related_init_session_id(session_id)
             if init_sid:
                 _clear_init_session_unlocked(init_sid)
-    _reset_session_duckdb(session_id)
     return {"status": "ok"}
 
 
@@ -1119,7 +1140,12 @@ def _seed_executor_from_init(executor: LocalPythonExecutor, init_session_id: str
     custom_tools = _snapshot_init_custom_tools(init_session_id)
     if custom_tools:
         executor.custom_tools.update(custom_tools)
-        executor.state.update(custom_tools)
+        # What was wrong: custom_tools was written back into state, so an init
+        # ``result = lambda: 99`` (skipped by _snapshot_init_bindings, copied by
+        # _sync_custom_tools) became the next cell's result.
+        # How it happened: state.update ran after the snapshot filter.
+        # Why this change: state comes only from the snapshot. custom_tools stays
+        # the library-visible copy and does not reintroduce a skipped name.
 
 
 def _resolve_init_digest(init_script: str | None, init_script_hash: str | None) -> str:
@@ -1239,7 +1265,7 @@ def _inject_excel_xl(executor: LocalPythonExecutor, ranges: tuple[Any, ...] | No
     """Inject binding-only Excel ``xl()`` closed over *ranges* (may be empty)."""
     from plugin.scripting.excel_xl import make_xl
 
-    executor.send_variables({"xl": make_xl(ranges)})
+    _send_cell_owned(executor, {"xl": make_xl(ranges)})
 
 
 def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> tuple[Any, ...]:
@@ -1252,7 +1278,7 @@ def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> tuple[Any, 
     can bind Excel ``xl()`` to the same ranges.
     """
     if data is None:
-        executor.send_variables({"data": None, "ranges": []})
+        _send_cell_owned(executor, {"data": None, "ranges": []})
         return ()
     from plugin.scripting.calc_range import materialize_inputs
     from plugin.scripting.payload_codec import describe_wire_value, is_calc_range_payload, is_multi_data, is_split_grid
@@ -1274,7 +1300,7 @@ def _inject_data(executor: LocalPythonExecutor, data: Any | None) -> tuple[Any, 
         "data": data_var,
         "ranges": ranges_list,
     }
-    executor.send_variables(variables)
+    _send_cell_owned(executor, variables)
     return ranges
 
 
@@ -1310,10 +1336,21 @@ def _ensure_mpl_agg() -> None:
 
 
 def _sync_custom_tools(executor: LocalPythonExecutor) -> None:
-    """Sync newly bound user functions from state into custom_tools."""
-    for k, v in executor.state.items():
-        if callable(v) and k not in executor.custom_tools and not (isinstance(k, str) and k.startswith("_")):
-            executor.custom_tools[k] = v
+    """Copy user callables into custom_tools for named-library eval.
+
+    evaluate_name and evaluate_call read executor.state before custom_tools,
+    so the cell finds a def without this copy. named_scripts._eval_library
+    evaluates with a fresh state and a copy of custom_tools, so an init or
+    earlier-cell helper is visible there only after this copy.
+
+    Cell-owned names stay out. An init ``result = lambda: ...`` or
+    ``def session_duckdb`` must not be seeded into the next cell.
+    """
+    for key, value in executor.state.items():
+        if key in _INIT_STATE_SKIP_KEYS or (isinstance(key, str) and key.startswith("_")):
+            continue
+        if callable(value) and key not in executor.custom_tools:
+            executor.custom_tools[key] = value
 
 
 def _is_non_value_result(obj: Any) -> bool:
@@ -1386,6 +1423,8 @@ def _serialize_cell_result(result: Any, *, log_failure: bool = True) -> tuple[An
     check rejects those objects, or the figures stay open and the next
     script returns that SVG. A class statement is the same kind of
     non-value as a function statement.
+
+    A non-image value, including result = 42, is replaced when a figure is still open. That replacement stays.
     """
     if _is_non_value_result(result):
         result = None
@@ -1479,6 +1518,14 @@ def _run_on_executor(
                 type(result).__name__,
                 exc_info=True,
             )
+            # What was wrong: an unpickleable init result left pyplot figures
+            # open. The next cell's implicit capture returned that SVG.
+            # How it happened: serialize_result raises before
+            # _capture_open_figures_payload's finally, and this arm did not
+            # close. result_optional is only the init path.
+            # Why this change: close here, and do not render. The init value
+            # is discarded. _fail_cell already closes on a real error.
+            _close_open_figures()
             serialized, extra_stdout = None, ""
 
         if is_split_grid(serialized):

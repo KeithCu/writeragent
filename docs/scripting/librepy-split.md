@@ -294,7 +294,7 @@ Required for NumPy domain helpers, Vision OCR, and any `run_trusted_worker_actio
 | [`plugin/scripting/import_policy.py`](../../plugin/scripting/import_policy.py) | LLM import-policy text generation |
 | [`plugin/scripting/venv_diagnostics.py`](../../plugin/scripting/venv_diagnostics.py) | Settings → Python **Test** self-check |
 
-**Core-build note:** The whole [`trusted_action_registry.py`](../../plugin/scripting/trusted_action_registry.py) and [`trusted_dispatch.py`](../../plugin/scripting/venv/trusted_dispatch.py) files ship. WriterAgent-only domains (`sql`, embeddings, languagetool, vale) are dead in LibrePy if invoked; that is **accepted** — do not add a core-only filter or second file. SQL picker already skips missing `duckdb_sql`.
+**Core-build note:** The whole [`trusted_action_registry.py`](../../plugin/scripting/trusted_action_registry.py) and [`trusted_dispatch.py`](../../plugin/scripting/venv/trusted_dispatch.py) files ship. WriterAgent-only domains (`sql`, embeddings, languagetool, vale) are dead in LibrePy if invoked; that is **accepted** — do not add a core-only filter or second file. `plugin/scripting/venv/vale.py` and `plugin/scripting/venv/languagetool.py` are on the LibrePy exclude list, same as `venv/duckdb_sql.py`. SQL picker already skips missing `duckdb_sql`.
 
 **Trusted RPC flow:**
 
