@@ -28,6 +28,8 @@ refresh does not rewrite it.
 import logging
 from typing import Any, Callable, cast
 
+from plugin.framework.errors import reraise_if_disposed
+
 from ..specialized_base import ToolWriterIndexBase
 from ..target_resolver import resolve_target_cursor
 
@@ -266,7 +268,9 @@ def index_kind_from_uno(idx: Any) -> str:
     if hasattr(idx, "getServiceName"):
         try:
             service = idx.getServiceName()
-        except Exception:
+        except Exception as exc:
+            # A missing service name falls through; a closed document must not list as "unknown".
+            reraise_if_disposed(exc)
             service = None
     if isinstance(service, str) and service in _INDEX_SERVICE_TO_KIND:
         return _INDEX_SERVICE_TO_KIND[service]
@@ -275,7 +279,8 @@ def index_kind_from_uno(idx: Any) -> str:
     if hasattr(idx, "getImplementationName"):
         try:
             impl = idx.getImplementationName()
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             impl = None
     if isinstance(impl, str) and impl in _INDEX_IMPL_TO_KIND:
         return _INDEX_IMPL_TO_KIND[impl]
@@ -292,11 +297,9 @@ def is_bibliography_text_field(field: Any) -> bool:
         return False
     if hasattr(field, "supportsService"):
         for service in (_BIB_CITE_SERVICE, _BIB_CITE_SERVICE_ALT):
-            try:
-                if field.supportsService(service):
-                    return True
-            except Exception:
-                continue
+            # supportsService does not throw on a live field.
+            if field.supportsService(service):
+                return True
     return False
 
 
@@ -474,6 +477,10 @@ def _commit_toc_mutation(
     failure_message: str,
     failure_code: str = "TOOL_EXECUTION_ERROR",
     fallback_message: str = "TOC entry update failed.",
+    undo_unavailable_message: str = (
+        "Cannot edit the TOC entry atomically (no usable undo context)."
+    ),
+    manage_protection: bool = True,
 ) -> dict[str, Any] | None:
     """Unprotect one TOC, run *mutate* in one undo context, then protect again.
 
@@ -482,23 +489,31 @@ def _commit_toc_mutation(
     ``IsProtected`` only for the edit, then restoring it, keeps the flag the
     document had. On failure the undo title is undone so neighbors stay put.
     *mutate* returns an error payload to roll back, or None on success.
+
+    ``manage_protection`` is False for ``indexes_create`` target=search. That
+    index is not in the document yet. The helper is only the undo context
+    around the match deletion, ``insertTextContent``, and ``update()``.
     """
     from ..edit_review import next_agent_edit_undo_title
 
-    try:
-        was_protected = bool(idx.getPropertyValue("IsProtected"))
-    except Exception:
-        was_protected = bool(getattr(idx, "IsProtected", False))
+    was_protected = False
+    if manage_protection:
+        try:
+            was_protected = bool(idx.getPropertyValue("IsProtected"))
+        except Exception as exc:
+            # Attribute fallback is for a live index without getPropertyValue.
+            # A disposed index must not be edited.
+            reraise_if_disposed(exc)
+            was_protected = bool(getattr(idx, "IsProtected", False))
     try:
         mgr = doc.getUndoManager()
         if mgr is None or mgr.isLocked():
             raise RuntimeError("undo manager is locked")
         undo_title = next_agent_edit_undo_title()
         mgr.enterUndoContext(undo_title)
-    except Exception:
-        return tool._tool_error(
-            "Cannot edit the TOC entry atomically (no usable undo context).",
-            code="UNDO_UNAVAILABLE")
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return tool._tool_error(undo_unavailable_message, code="UNDO_UNAVAILABLE")
     applied = False
     error: dict[str, Any] | None = None
     try:
@@ -510,12 +525,19 @@ def _commit_toc_mutation(
         else:
             applied = True
     except Exception as exc:
+        # What was wrong: DisposedException became HYPERLINK_UPDATE_FAILED or
+        # TOOL_EXECUTION_ERROR ("rolled back").
+        # How it happened: this except wrapped every failure, including disposal.
+        # Why this change: disposal leaves after finally rolls the edit back,
+        # and execute_safe reports DOCUMENT_DISPOSED.
+        reraise_if_disposed(exc)
         error = tool._tool_error(failure_message % exc, code=failure_code)
     finally:
         if was_protected:
             try:
                 _set_protected(idx, True)
-            except Exception:
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 applied = False
                 if error is None:
                     error = tool._tool_error(
@@ -524,7 +546,8 @@ def _commit_toc_mutation(
         try:
             mgr.leaveUndoContext()
             left = True
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             applied = False
             if error is None:
                 error = tool._tool_error("Could not close the TOC edit undo context.")
@@ -533,10 +556,25 @@ def _commit_toc_mutation(
                 titles = mgr.getAllUndoActionTitles()
                 if titles and titles[0] == undo_title:
                     mgr.undo()
-            except Exception:
+            except Exception as rollback_exc:
                 log.exception("TOC edit rollback failed")
-                if error is not None:
-                    error = tool._tool_error(fallback_message)
+                reraise_if_disposed(rollback_exc)
+                # What was wrong: a failed undo replaced the real error with
+                # fallback_message, and failure_message had already said the
+                # edit was rolled back.
+                # How it happened: mgr.undo() raised after leaveUndoContext,
+                # and this handler discarded error.
+                # Why this change: keep the cause, say the rollback failed,
+                # and use a different code from the successful-rollback path.
+                if isinstance(error, dict) and error.get("message"):
+                    cause = str(error["message"])
+                else:
+                    cause = fallback_message
+                error = tool._tool_error(
+                    "Rollback failed; the document may be only partly edited (%s). Cause: %s"
+                    % (rollback_exc, cause),
+                    code="ROLLBACK_FAILED",
+                )
     if error is not None or not applied:
         if error is not None:
             return error
@@ -575,7 +613,9 @@ def _is_contents_level_style(style: str) -> bool:
 def _para_style_name(para: Any) -> str:
     try:
         return str(para.getPropertyValue("ParaStyleName") or "")
-    except Exception:
+    except Exception as exc:
+        # Unknown on some objects inside the anchor; a disposed paragraph is not an empty style.
+        reraise_if_disposed(exc)
         return ""
 
 
@@ -583,17 +623,17 @@ def _paragraph_style_exists(doc: Any, name: str) -> bool:
     try:
         styles = doc.getStyleFamilies().getByName("ParagraphStyles")
         return bool(styles.hasByName(name))
-    except Exception:
+    except Exception as exc:
+        # A missing style family is "not found"; disposal is not.
+        reraise_if_disposed(exc)
         return False
 
 
 def _paragraphs_in_anchor(anchor: Any) -> list[Any]:
     """Paragraphs of the document text that lie inside the TOC anchor."""
     text = anchor.getText()
-    try:
-        enum = text.createEnumeration()
-    except Exception:
-        return []
+    # createEnumeration does not fail on a live text. A failure is not an empty TOC.
+    enum = text.createEnumeration()
     rows: list[Any] = []
     while _enum_has_more(enum):
         para = enum.nextElement()
@@ -604,11 +644,10 @@ def _paragraphs_in_anchor(anchor: Any) -> list[Any]:
 
 def _paragraph_element(found: Any) -> Any | None:
     """The paragraph object that contains the search hit *found*."""
-    try:
-        text = found.getText()
-        enum = text.createEnumeration()
-    except Exception:
-        return None
+    # A failed read is not "no paragraph". The loop still returns None when
+    # no paragraph contains the hit.
+    text = found.getText()
+    enum = text.createEnumeration()
     while _enum_has_more(enum):
         para = enum.nextElement()
         if _contained(text, para, found):
@@ -617,10 +656,8 @@ def _paragraph_element(found: Any) -> Any | None:
 
 
 def _entry_text(para: Any) -> str:
-    try:
-        value = para.getString() or ""
-    except Exception:
-        return ""
+    # getString on a live paragraph does not fail. A failure must not look like a blank row.
+    value = para.getString() or ""
     return value if isinstance(value, str) else ""
 
 
@@ -644,14 +681,17 @@ def _paragraph_hyperlink(para: Any) -> str:
     other = ""
     try:
         portions = para.createEnumeration()
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         portions = None
     if portions is not None:
         while _enum_has_more(portions):
             portion = portions.nextElement()
             try:
                 url = portion.getPropertyValue("HyperLinkURL") or ""
-            except Exception:
+            except Exception as exc:
+                # Some portion types have no HyperLinkURL. Disposal is not that case.
+                reraise_if_disposed(exc)
                 url = ""
             if not isinstance(url, str) or not url:
                 continue
@@ -666,7 +706,8 @@ def _paragraph_hyperlink(para: Any) -> str:
         return outline or internal or other
     try:
         url = para.getPropertyValue("HyperLinkURL") or ""
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         return ""
     return url if isinstance(url, str) else ""
 
@@ -754,7 +795,8 @@ def _char_props(para: Any) -> dict[str, Any]:
     props: dict[str, Any] = {}
     try:
         portions = para.createEnumeration()
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         return props
     while _enum_has_more(portions):
         portion = portions.nextElement()
@@ -762,14 +804,17 @@ def _char_props(para: Any) -> dict[str, Any]:
             if portion.getPropertyValue("TextPortionType") != "Text":
                 continue
             chunk = portion.getString() or ""
-        except Exception:
+        except Exception as exc:
+            reraise_if_disposed(exc)
             continue
         if not isinstance(chunk, str) or not chunk:
             continue
         for name in _CLONED_CHAR_PROPS:
             try:
                 value = portion.getPropertyValue(name)
-            except Exception:
+            except Exception as exc:
+                # Unknown on this portion type; disposal is not an unknown property.
+                reraise_if_disposed(exc)
                 continue
             if value is None:
                 continue
@@ -788,7 +833,8 @@ def _snapshot_tab_stops(para: Any) -> tuple[Any, ...]:
     """
     try:
         tabs = list(para.getPropertyValue("ParaTabStops") or ())
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         return ()
     if not tabs:
         return ()
@@ -816,20 +862,6 @@ def _apply_tab_stops(cursor: Any, stops: tuple[Any, ...]) -> None:
     )
 
 
-def _paragraph_break() -> int:
-    import uno
-
-    try:
-        raw = cast("Any", uno).getConstantByName(
-            "com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
-    except Exception:
-        return 0
-    # 0 is PARAGRAPH_BREAK. The constant is an int; anything else falls back.
-    if isinstance(raw, int) and not isinstance(raw, bool):
-        return raw
-    return 0
-
-
 def _select_paragraph(cursor: Any) -> Any:
     text = cursor.getText()
     para = text.createTextCursorByRange(cursor.getStart())
@@ -855,7 +887,8 @@ def _insert_toc_paragraph(
     so the neighbor's text is not prefixed. A break at the end already leaves
     the cursor in the new paragraph (probed on LibreOffice).
     """
-    brk = _paragraph_break()
+    # 0 is ControlCharacter.PARAGRAPH_BREAK. The lookup always returned 0.
+    brk = 0
     if where == "before":
         cursor = text.createTextCursorByRange(ref_para.getStart())
         cursor.gotoStartOfParagraph(False)
@@ -881,7 +914,9 @@ def _insert_toc_paragraph(
     for name, value in char_props.items():
         try:
             para.setPropertyValue(name, value)
-        except Exception:
+        except Exception as exc:
+            # A property this paragraph rejects is skipped; disposal rolls the insert back.
+            reraise_if_disposed(exc)
             continue
     lived = para.getString() or ""
     return lived if isinstance(lived, str) else new_text
@@ -976,10 +1011,8 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         if index_error or idx is None:
             return self._tool_error(
                 index_error or "Could not find the table of contents.", code="INVALID_PARAM")
-        try:
-            anchor = idx.getAnchor()
-        except Exception:
-            return self._tool_error("Could not read the table of contents.", code="TOOL_EXECUTION_ERROR")
+        # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
+        anchor = idx.getAnchor()
         found, find_error = self._toc_match(doc, anchor, str(old_content).strip(), occurrence)
         if find_error:
             return self._tool_error(find_error, code="NOT_FOUND")
@@ -1002,15 +1035,12 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
     def _preview(self, found: Any, content: str, override: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         from ..hyperlink_fixup import (
             capture_outline_hyperlinks,
-            empty_snapshot,
             plan_outline_updates,
             public_hyperlink_reports,
         )
 
-        try:
-            snapshot = capture_outline_hyperlinks(found)
-        except Exception:
-            snapshot = empty_snapshot()
+        # capture_outline_hyperlinks returns a snapshot and does not raise.
+        snapshot = capture_outline_hyperlinks(found)
         if override and len(snapshot.links) != 1:
             return None, self._tool_error(
                 "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
@@ -1032,15 +1062,12 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         from ..format import replace_preserving_format
         from ..hyperlink_fixup import (
             capture_outline_hyperlinks,
-            empty_snapshot,
             restore_outline_hyperlinks,
         )
 
         def mutate() -> dict[str, Any] | None:
-            try:
-                snapshot = capture_outline_hyperlinks(found)
-            except Exception:
-                snapshot = empty_snapshot()
+            # capture_outline_hyperlinks returns a snapshot and does not raise.
+            snapshot = capture_outline_hyperlinks(found)
             if override and len(snapshot.links) != 1:
                 return self._tool_error(
                     "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
@@ -1114,10 +1141,8 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
         if index_error or idx is None:
             return self._tool_error(
                 index_error or "Could not find the table of contents.", code="INVALID_PARAM")
-        try:
-            anchor = idx.getAnchor()
-        except Exception:
-            return self._tool_error("Could not read the table of contents.", code="TOOL_EXECUTION_ERROR")
+        # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
+        anchor = idx.getAnchor()
         found, find_error = toc_match(doc, anchor, str(old_content).strip(), kwargs.get("occurrence"))
         if find_error or found is None:
             return self._tool_error(find_error or "No table-of-contents entry contains that text.", code="NOT_FOUND")
@@ -1211,9 +1236,8 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             return self._tool_error(url_error, code="INVALID_PARAM")
         if url is not None and ("\n" in url or "\r" in url):
             url = url.replace("\n", "").replace("\r", "")
+        # schema enum. Omitted position defaults to end.
         position = kwargs.get("position") or "end"
-        if position not in ("before", "after", "end"):
-            return self._tool_error("position must be before, after, or end.", code="INVALID_PARAM")
         old_content = kwargs.get("old_content")
         occurrence = kwargs.get("occurrence")
         if position == "end":
@@ -1245,10 +1269,8 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
         if index_error or idx is None:
             return self._tool_error(
                 index_error or "Could not find the table of contents.", code="INVALID_PARAM")
-        try:
-            anchor = idx.getAnchor()
-        except Exception:
-            return self._tool_error("Could not read the table of contents.", code="TOOL_EXECUTION_ERROR")
+        # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
+        anchor = idx.getAnchor()
         paragraphs = _paragraphs_in_anchor(anchor)
         if position == "end":
             ref = self._end_anchor(paragraphs)
@@ -1441,12 +1463,8 @@ class IndexesListTocEntries(ToolWriterIndexBase):
             return self._tool_error(
                 index_error or "Could not find the table of contents.",
                 code="INVALID_PARAM")
-        try:
-            anchor = idx.getAnchor()
-        except Exception:
-            return self._tool_error(
-                "Could not read the table of contents.",
-                code="TOOL_EXECUTION_ERROR")
+        # execute_safe reports anchor failures, including DOCUMENT_DISPOSED.
+        anchor = idx.getAnchor()
         entries = toc_entry_rows(anchor)
         if isinstance(index, int) and not isinstance(index, bool):
             position: int | None = index
@@ -1547,45 +1565,68 @@ class IndexesCreate(ToolWriterIndexBase):
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
 
+        # schema enum rejects an unknown kind before execute.
+        service_map = {
+            "toc": "com.sun.star.text.ContentIndex",
+            "alphabetical": "com.sun.star.text.DocumentIndex",
+            "user": "com.sun.star.text.UserIndex",
+            "illustration": "com.sun.star.text.IllustrationsIndex",
+            "table": "com.sun.star.text.TableIndex",
+            "object": "com.sun.star.text.ObjectIndex",
+            "bibliography": "com.sun.star.text.Bibliography",
+        }
+        service_name = service_map[index_kind]
+
+        index = doc.createInstance(service_name)
+        if title is not None and hasattr(index, "Title"):
+            index.Title = title
+
+        if index_kind == "toc" and hasattr(index, "CreateFromOutline"):
+            index.CreateFromOutline = create_from_outline
+
         try:
-            service_map = {
-                "toc": "com.sun.star.text.ContentIndex",
-                "alphabetical": "com.sun.star.text.DocumentIndex",
-                "user": "com.sun.star.text.UserIndex",
-                "illustration": "com.sun.star.text.IllustrationsIndex",
-                "table": "com.sun.star.text.TableIndex",
-                "object": "com.sun.star.text.ObjectIndex",
-                "bibliography": "com.sun.star.text.Bibliography",
-            }
-            if index_kind not in service_map:
-                return self._tool_error(f"Unknown index kind: {index_kind}", code="INVALID_PARAM")
-            service_name = service_map[index_kind]
+            cursor = resolve_target_cursor(ctx, target, old_content)
+        except ValueError as ve:
+            return self._tool_error(str(ve))
 
-            index = doc.createInstance(service_name)
-            if title is not None and hasattr(index, "Title"):
-                index.Title = title
+        if not cursor:
+            return self._tool_error("Failed to resolve target location.")
 
-            if index_kind == "toc" and hasattr(index, "CreateFromOutline"):
-                index.CreateFromOutline = create_from_outline
-
-            try:
-                cursor = resolve_target_cursor(ctx, target, old_content)
-            except ValueError as ve:
-                return self._tool_error(str(ve))
-
-            if not cursor:
-                return self._tool_error("Failed to resolve target location.")
-
-            if target == "search" and old_content:
+        if target == "search" and old_content:
+            # What was wrong: setString("") deleted the match before
+            # insertTextContent and update(), with no undo context.
+            # How it happened: a failure of either later call returned an
+            # error and left the matched text gone.
+            # Why this change: the undo helper rolls that deletion back.
+            # A locked undo manager returns before setString.
+            def mutate() -> dict[str, Any] | None:
                 cursor.setString("")
+                text = cursor.getText()
+                text.insertTextContent(cursor, index, False)
+                index.update()
+                return None
 
+            error = _commit_toc_mutation(
+                self,
+                doc,
+                index,
+                mutate,
+                failure_message="Failed to create index; the change was rolled back (%s).",
+                fallback_message="Failed to create index.",
+                undo_unavailable_message=(
+                    "Cannot replace the matched text atomically (no usable undo context)."
+                ),
+                manage_protection=False,
+            )
+            if error is not None:
+                return error
+        else:
+            # execute_safe reports insert and update failures.
             text = cursor.getText()
             text.insertTextContent(cursor, index, False)
             index.update()
 
-            return {"status": "ok", "message": f"Created '{index_kind}' index successfully", "title": title}
-        except Exception as e:
-            return self._tool_error(f"Failed to create index: {str(e)}")
+        return {"status": "ok", "message": f"Created '{index_kind}' index successfully", "title": title}
 
 
 class IndexesAddMark(ToolWriterIndexBase):
@@ -1647,42 +1688,30 @@ class IndexesAddMark(ToolWriterIndexBase):
         if not cursor:
             return self._tool_error("Failed to resolve target location.")
 
-        try:
-            if index_kind not in ("alphabetical", "user", "bibliography"):
-                return self._tool_error(f"Unknown index mark kind: {index_kind}", code="INVALID_PARAM")
-            if index_kind == "bibliography":
-                return self._insert_bibliography_cite(
-                    doc, cursor, kwargs, unused_reserved
-                )
+        # schema enum.
+        if index_kind == "bibliography":
+            return self._insert_bibliography_cite(
+                doc, cursor, kwargs, unused_reserved
+            )
 
-            service_name = "com.sun.star.text.DocumentIndexMark"
-            if index_kind == "user":
-                service_name = "com.sun.star.text.UserIndexMark"
+        service_name = "com.sun.star.text.DocumentIndexMark"
+        if index_kind == "user":
+            service_name = "com.sun.star.text.UserIndexMark"
 
-            mark = doc.createInstance(service_name)
+        mark = doc.createInstance(service_name)
 
-            try:
-                mark.setPropertyValue("AlternativeText", mark_text)
-            except Exception:
-                log.debug("Failed to set AlternativeText on index mark", exc_info=True)
+        # A mark without its text is useless.
+        mark.setPropertyValue("AlternativeText", mark_text)
 
-            if index_kind == "alphabetical":
-                if hasattr(mark, "PrimaryKey") and primary_key is not None:
-                    mark.PrimaryKey = primary_key
-                if hasattr(mark, "SecondaryKey") and secondary_key is not None:
-                    mark.SecondaryKey = secondary_key
-                try:
-                    mark.setPropertyValue("PrimaryKey", primary_key or "")
-                    mark.setPropertyValue("SecondaryKey", secondary_key or "")
-                except Exception:
-                    pass
+        if index_kind == "alphabetical":
+            # One write. The attribute assignment duplicated these two calls.
+            mark.setPropertyValue("PrimaryKey", primary_key or "")
+            mark.setPropertyValue("SecondaryKey", secondary_key or "")
 
-            text = cursor.getText()
-            text.insertTextContent(cursor, mark, False)
+        text = cursor.getText()
+        text.insertTextContent(cursor, mark, False)
 
-            return {"status": "ok", "message": f"Added '{index_kind}' index mark for '{mark_text}'"}
-        except Exception as e:
-            return self._tool_error(f"Failed to add index mark: {str(e)}")
+        return {"status": "ok", "message": f"Added '{index_kind}' index mark for '{mark_text}'"}
 
     def _insert_bibliography_cite(self, doc: Any, cursor: Any, kwargs: Any, unused_reserved: Any) -> dict[str, Any]:
         pairs = collect_bibliography_field_pairs(kwargs)
