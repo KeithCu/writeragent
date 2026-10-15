@@ -4,12 +4,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Dual-stack HTTP server: reuse, TLS wrap, cancel, and daemon workers."""
 
+from concurrent.futures import Future
 import socket
 import ssl
 import threading
+import time
+from typing import Any
 from unittest.mock import MagicMock
 
-from plugin.framework.http_server import DualStackThreadPoolHTTPServer
+from plugin.framework.http_server import DualStackThreadPoolHTTPServer, _RequestThreads
 
 
 class _Handler:
@@ -127,3 +130,102 @@ def test_request_workers_are_daemon_and_not_on_executor_atexit() -> None:
             assert thread not in cf_thread._threads_queues
     finally:
         server.server_close()
+
+
+def test_burst_submit_runs_every_call_until_cap() -> None:
+    for _iteration in range(40):
+        pool = _RequestThreads(max_workers=8, thread_name_prefix=f"test_burst_{_iteration}")
+        entered = 0
+        lock = threading.Lock()
+        hold = threading.Event()
+        reached = threading.Event()
+
+        def _task() -> None:
+            nonlocal entered
+            with lock:
+                entered += 1
+                if entered == 7:
+                    reached.set()
+            hold.wait(timeout=5)
+
+        futures: list[Future[Any]] = []
+        threads: list[threading.Thread] = []
+        futures_lock = threading.Lock()
+        gate = threading.Event()
+
+        def _submitter() -> None:
+            gate.wait(timeout=5)
+            fut = pool.submit(_task)
+            with futures_lock:
+                futures.append(fut)
+
+        for _i in range(7):
+            t = threading.Thread(target=_submitter, daemon=True)
+            threads.append(t)
+            t.start()
+
+        gate.set()
+        for t in threads:
+            t.join(timeout=2)
+
+        try:
+            assert reached.wait(timeout=1.0)
+            with lock:
+                assert entered == 7
+            assert len(pool._threads) == 7
+        finally:
+            hold.set()
+            for fut in futures:
+                fut.result(timeout=5)
+            pool.shutdown(wait=True)
+
+
+def test_serial_submit_reuses_the_idle_thread() -> None:
+    pool = _RequestThreads(max_workers=4, thread_name_prefix="test_serial")
+    try:
+        fut1 = pool.submit(lambda: 1)
+        assert fut1.result(timeout=2) == 1
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline and pool._pending > 0:
+            time.sleep(0.001)
+        assert len(pool._threads) == 1
+        fut2 = pool.submit(lambda: 2)
+        assert fut2.result(timeout=2) == 2
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline and pool._pending > 0:
+            time.sleep(0.001)
+        assert len(pool._threads) == 1
+    finally:
+        pool.shutdown(wait=True)
+
+
+def test_pool_cap_queues_the_overflow() -> None:
+    pool = _RequestThreads(max_workers=1, thread_name_prefix="test_cap")
+    entered = 0
+    lock = threading.Lock()
+    hold = threading.Event()
+    first_entered = threading.Event()
+
+    def _task() -> None:
+        nonlocal entered
+        with lock:
+            entered += 1
+        first_entered.set()
+        hold.wait(timeout=5)
+
+    try:
+        fut1 = pool.submit(_task)
+        fut2 = pool.submit(_task)
+        assert first_entered.wait(timeout=2)
+        time.sleep(0.2)
+        with lock:
+            assert entered == 1
+        assert len(pool._threads) == 1
+    finally:
+        hold.set()
+        fut1.result(timeout=5)
+        fut2.result(timeout=5)
+        pool.shutdown(wait=True)
+
+    assert len(pool._threads) == 1
+
