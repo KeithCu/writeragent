@@ -93,6 +93,19 @@ class TestDefaultExtraArgs:
         assert (backend._extra_args) == ([])
         assert ("ACP agent config load failed") in (caplog.text)
 
+    def test_unmatched_quote_keeps_configured_path(self, caplog):
+        caplog.set_level("ERROR", logger="plugin.acp.acp_backend")
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/hermes", args='--config "foo')),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value=None),
+        ):
+            backend = HermesBackend()
+        assert backend._binary_path == "/usr/bin/hermes"
+        assert backend._extra_args == ["acp"]
+        assert "ACP agent_backend.args could not be parsed" in caplog.text
+        assert "ACP agent config load failed" not in caplog.text
+
     @pytest.mark.parametrize(
         "path, expected",
         [
@@ -421,6 +434,7 @@ def _bare_backend():
     backend._prompt_done = threading.Event()
     backend._prompt_done.set()
     backend._state_lock = threading.Lock()
+    backend._send_lock = threading.Lock()
     backend._pending_permissions = {}
     backend.display_name = "Test"
     backend.get_binary_name = lambda: "test-agent"
@@ -1155,6 +1169,150 @@ class TestStopAndShutdown:
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
         assert (order.index("callback")) < (order.index("session/new"))
         assert ((StreamQueueKind.CHUNK, "during-new")) in (_drain(q))
+
+    def test_overlapping_send_waits_for_first_send_finally(self):
+        backend = _bare_backend()
+        conn = MagicMock()
+        conn.is_alive = True
+        backend._conn = conn
+        backend._ready = True
+        backend._session_id = "sess-1"
+        backend._session_prompted = True
+        backend._ensure_connection = lambda stop_checker=None: None
+        backend._ensure_session = lambda **kwargs: None
+
+        order = []
+        current_callback = [None]
+
+        def set_notification_callback(cb):
+            order.append(("set", cb is not None))
+            current_callback[0] = cb
+
+        conn.set_notification_callback.side_effect = set_notification_callback
+
+        prompt_1_started = threading.Event()
+        prompt_1_release = threading.Event()
+        prompt_count = 0
+
+        def send_request(method, params=None, timeout=120):
+            nonlocal prompt_count
+            if method == "session/prompt":
+                prompt_count += 1
+                if prompt_count == 1:
+                    order.append("first-enter")
+                    prompt_1_started.set()
+                    if not prompt_1_release.wait(timeout=5):
+                        raise TimeoutError("prompt 1 timed out")
+                    order.append("first-leave")
+                    return {"stopReason": "end_turn"}
+                if prompt_count == 2:
+                    assert current_callback[0] is not None
+                    current_callback[0](
+                        "session/update",
+                        {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "second"}}},
+                        None,
+                    )
+                    assert backend._prompt_inflight is True
+                    return {"stopReason": "end_turn"}
+            raise AssertionError(f"Unexpected send_request: {method}")
+
+        conn.send_request.side_effect = send_request
+
+        real_send_lock = backend._send_lock
+        thread2_entered_acquire = threading.Event()
+
+        class _LockWrapper:
+            def acquire(self, *args, **kwargs):
+                if threading.current_thread().name == "second-send":
+                    thread2_entered_acquire.set()
+                return real_send_lock.acquire(*args, **kwargs)
+
+            def release(self):
+                return real_send_lock.release()
+
+            def __enter__(self):
+                if threading.current_thread().name == "second-send":
+                    thread2_entered_acquire.set()
+                return real_send_lock.__enter__()
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                return real_send_lock.__exit__(exc_type, exc_val, exc_tb)
+
+        backend._send_lock = _LockWrapper()
+
+        q1 = queue.Queue()
+        q2 = queue.Queue()
+
+        t1 = threading.Thread(
+            target=lambda: backend.send(queue=q1, user_message="one", document_context=None, document_url=None),
+            name="first-send",
+        )
+        t2 = threading.Thread(
+            target=lambda: (backend.prepare_turn(), backend.send(queue=q2, user_message="two", document_context=None, document_url=None)),
+            name="second-send",
+        )
+
+        t1.start()
+        assert prompt_1_started.wait(timeout=5)
+        t2.start()
+        assert thread2_entered_acquire.wait(timeout=5)
+        time.sleep(0.05)
+        prompt_1_release.set()
+
+        t1.join(timeout=5)
+        t2.join(timeout=5)
+        assert not t1.is_alive()
+        assert not t2.is_alive()
+
+        first_enter_idx = order.index("first-enter")
+        first_leave_idx = order.index("first-leave")
+        between = order[first_enter_idx + 1 : first_leave_idx]
+        assert ("set", True) not in between
+        after = order[first_leave_idx + 1 :]
+        assert ("set", True) in after
+
+        assert (StreamQueueKind.CHUNK, "second") in _drain(q2)
+
+    def test_stop_does_not_wait_for_send_lock(self):
+        backend = _bare_backend()
+        conn = MagicMock()
+        conn.is_alive = True
+        backend._conn = conn
+        backend._ready = True
+        backend._session_id = "sess-1"
+        backend._session_prompted = True
+        backend._ensure_connection = lambda stop_checker=None: None
+        backend._ensure_session = lambda **kwargs: None
+
+        prompt_started = threading.Event()
+        prompt_release = threading.Event()
+
+        def send_request(method, params=None, timeout=120):
+            if method == "session/prompt":
+                prompt_started.set()
+                if not prompt_release.wait(timeout=5):
+                    raise TimeoutError("prompt timed out")
+                return {"stopReason": "end_turn"}
+            raise AssertionError(f"Unexpected send_request: {method}")
+
+        conn.send_request.side_effect = send_request
+
+        q = queue.Queue()
+        t_send = threading.Thread(
+            target=lambda: backend.send(queue=q, user_message="one", document_context=None, document_url=None),
+            name="send-thread",
+        )
+        t_send.start()
+        assert prompt_started.wait(timeout=5)
+
+        t_stop = threading.Thread(target=backend.stop, name="stop-thread")
+        t_stop.start()
+        t_stop.join(timeout=0.5)
+        assert not t_stop.is_alive()
+
+        prompt_release.set()
+        t_send.join(timeout=5)
+        assert not t_send.is_alive()
 
 
 def _startup_conn(*, alive: bool = True):

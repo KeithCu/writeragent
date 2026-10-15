@@ -326,6 +326,7 @@ class ACPBackend(AgentBackend):
     default_extra_args: Tuple[str, ...] = ()
     _stop_requested: bool
     _state_lock: threading.Lock
+    _send_lock: threading.Lock
     _pending_permissions: dict[Any, tuple[ACPConnection, list[Any]]]
     _turn: int
     _turn_pending: bool
@@ -358,6 +359,7 @@ class ACPBackend(AgentBackend):
         # lock guards the stop latch so send() cannot clear a Stop that
         # landed as this turn began.
         self._state_lock = threading.Lock()
+        self._send_lock = threading.Lock()
         self._pending_permissions = {}
         self._load_config()
 
@@ -379,7 +381,16 @@ class ACPBackend(AgentBackend):
             args_str = str(get_config("agent_backend.args") or "").strip()
             # str.split() breaks a quoted path into several argv entries.
             # posix=False on Windows so backslashes in paths stay literal.
-            self._extra_args = _split_cli_args(args_str, posix=(os.name != "nt")) if args_str else []
+            try:
+                self._extra_args = _split_cli_args(args_str, posix=(os.name != "nt")) if args_str else []
+            except ValueError:
+                # What was wrong: an unmatched quote in agent_backend.args raised
+                # ValueError from shlex.split, and the config handler below then
+                # replaced a resolved agent_backend.path with a PATH search.
+                # Why: the path is already set. Empty args still pick up
+                # default_extra_args when the basename matches.
+                log.exception("ACP agent_backend.args could not be parsed")
+                self._extra_args = []
         except Exception:
             # A failed reload used to keep the previous argv, and the
             # exception was swallowed so a broken config looked like a
@@ -931,111 +942,119 @@ class ACPBackend(AgentBackend):
 
     def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any) -> None:
         """Send one prompt. The CLI stays up for the next message on this sidebar."""
-        # ``register_on_cancel(adapter.stop)`` can run before this worker
-        # enters ``send()``. Clearing ``_stop_requested`` on entry, and never
-        # reading ``stop_checker``, wiped that latch. The UI showed Stopped
-        # while the CLI, session, and prompt still started. Under the same
-        # lock ``stop()`` sets, honor a Stop for this turn or a true
-        # ``stop_checker`` and return without starting a new process.
-        if self._turn_already_stopped(stop_checker):
-            self._finish_stopped(queue)
-            return
-
-        queue.put((StreamQueueKind.STATUS, f"Starting {self.display_name}..."))
-
-        try:
-            try:
-                self._ensure_connection(stop_checker)
-            except Exception as e:
-                self._report_failure(queue, format_error_payload(RuntimeError(f"Cannot start {self.display_name} ACP. Is {self.get_binary_name()} installed? Error: {e}")))
-                return
-
-            if self._stop_requested:
+        # What was wrong: Stop ends the UI drain while this worker is still
+        # blocked in session/prompt (up to the cancel grace). The next send
+        # installed its notification callback on the same connection, and this
+        # finally cleared it. This _request finally also cleared the next
+        # turn's _prompt_inflight.
+        # Why: one send() at a time on the retained CLI. stop() and shutdown()
+        # do not take this lock, so session/cancel still runs while we wait.
+        with self._send_lock:
+            # ``register_on_cancel(adapter.stop)`` can run before this worker
+            # enters ``send()``. Clearing ``_stop_requested`` on entry, and never
+            # reading ``stop_checker``, wiped that latch. The UI showed Stopped
+            # while the CLI, session, and prompt still started. Under the same
+            # lock ``stop()`` sets, honor a Stop for this turn or a true
+            # ``stop_checker`` and return without starting a new process.
+            if self._turn_already_stopped(stop_checker):
                 self._finish_stopped(queue)
                 return
 
-            # Agents emit session/update and session/request_permission while
-            # session/new is in flight. Installing this callback afterwards
-            # leaves _notify_callback None, and the reader drops them.
-            # Register as soon as the process is up, before session/new.
-            conn = self._conn
-            if conn is not None:
-                # What was wrong: on_notification closed over conn. send() reassigns
-                # conn later (before prompt and in finally), so a closure would
-                # see that later value or a slot swap.
-                # Why: bind the connection as a default argument so callbacks run
-                # against the exact connection set_notification_callback was called on.
-                def on_notification(method: str, params: Any, msg_id: Any = None, bound_conn: ACPConnection = conn) -> None:
-                    self._dispatch_notification(bound_conn, method, params, msg_id, queue)
-
-                conn.set_notification_callback(on_notification)
+            queue.put((StreamQueueKind.STATUS, f"Starting {self.display_name}..."))
 
             try:
-                self._ensure_session(mcp_url=mcp_url, document_url=document_url)
-            except Exception as e:
-                self._report_failure(queue, format_error_payload(RuntimeError(f"Session creation failed: {e}")))
-                return
-
-            if self._stop_requested:
-                self._finish_stopped(queue)
-                return
-
-            queue.put((StreamQueueKind.STATUS, f"Sending to {self.display_name}..."))
-
-            prompt_blocks = self._build_prompt_blocks(user_message=user_message, document_context=document_context, system_prompt=system_prompt, selection_text=selection_text, document_url=document_url, include_system=not self._session_prompted)
-
-            try:
-                # What was wrong: ``not self._conn`` then ``self._conn.send_request``
-                # loaded the connection twice. stop() sets it to None in
-                # between, and None.send_request raised AttributeError, which
-                # the generic handler reported as Stopped. A missing process
-                # with no Stop took that same Stopped path. Why: one local.
-                # No process and no Stop is an error.
-                conn = self._conn
-                if self._stop_requested:
-                    self._finish_stopped(queue)
-                    return
-                if conn is None:
-                    self._report_failure(queue, format_error_payload(RuntimeError(f"{self.display_name} ACP process is not running.")))
-                    return
-
-                result = self._request(conn, "session/prompt", {"sessionId": self._session_id, "prompt": prompt_blocks}, _PROMPT_IDLE_SEC)
-                self._session_prompted = True
-
-                if self._stop_requested:
-                    self._finish_stopped(queue)
-                    return
-
-                self._finish_prompt_result(result, queue)
-
-            except _TurnStopped:
-                self._finish_stopped(queue)
-            except TimeoutError:
-                # No accepted stdout for the idle window. The CLI is wedged.
-                self._report_failure(queue, format_error_payload(RuntimeError(f"{self.display_name} prompt timed out")))
-                if not self._stop_requested:
-                    self.shutdown()
-            except Exception as e:
-                if self._stop_requested:
-                    self._finish_stopped(queue)
-                else:
-                    log.exception("Prompt execution failed")
-                    self._report_failure(queue, format_error_payload(e))
-                    # The exception can land before ``conn`` is known to be
-                    # live. A dead child is dropped. A JSON-RPC error on a
-                    # live child keeps the process for the next message.
-                    if conn is not None and not conn.is_alive:
-                        self.shutdown()
-        finally:
-            # The process stays. Drop the callback so a late notification
-            # does not write into this turn's queue. The next send installs
-            # its own. shutdown() may already have cleared the connection.
-            conn = self._conn
-            if conn is not None:
                 try:
-                    conn.set_notification_callback(None)
-                except Exception:
-                    log.exception("Failed to clear ACP notification callback")
+                    self._ensure_connection(stop_checker)
+                except Exception as e:
+                    self._report_failure(queue, format_error_payload(RuntimeError(f"Cannot start {self.display_name} ACP. Is {self.get_binary_name()} installed? Error: {e}")))
+                    return
+
+                if self._stop_requested:
+                    self._finish_stopped(queue)
+                    return
+
+                # Agents emit session/update and session/request_permission while
+                # session/new is in flight. Installing this callback afterwards
+                # leaves _notify_callback None, and the reader drops them.
+                # Register as soon as the process is up, before session/new.
+                conn = self._conn
+                if conn is not None:
+                    # What was wrong: on_notification closed over conn. send() reassigns
+                    # conn later (before prompt and in finally), so a closure would
+                    # see that later value or a slot swap.
+                    # Why: bind the connection as a default argument so callbacks run
+                    # against the exact connection set_notification_callback was called on.
+                    def on_notification(method: str, params: Any, msg_id: Any = None, bound_conn: ACPConnection = conn) -> None:
+                        self._dispatch_notification(bound_conn, method, params, msg_id, queue)
+
+                    conn.set_notification_callback(on_notification)
+
+                try:
+                    self._ensure_session(mcp_url=mcp_url, document_url=document_url)
+                except Exception as e:
+                    self._report_failure(queue, format_error_payload(RuntimeError(f"Session creation failed: {e}")))
+                    return
+
+                if self._stop_requested:
+                    self._finish_stopped(queue)
+                    return
+
+                queue.put((StreamQueueKind.STATUS, f"Sending to {self.display_name}..."))
+
+                prompt_blocks = self._build_prompt_blocks(user_message=user_message, document_context=document_context, system_prompt=system_prompt, selection_text=selection_text, document_url=document_url, include_system=not self._session_prompted)
+
+                try:
+                    # What was wrong: ``not self._conn`` then ``self._conn.send_request``
+                    # loaded the connection twice. stop() sets it to None in
+                    # between, and None.send_request raised AttributeError, which
+                    # the generic handler reported as Stopped. A missing process
+                    # with no Stop took that same Stopped path. Why: one local.
+                    # No process and no Stop is an error.
+                    conn = self._conn
+                    if self._stop_requested:
+                        self._finish_stopped(queue)
+                        return
+                    if conn is None:
+                        self._report_failure(queue, format_error_payload(RuntimeError(f"{self.display_name} ACP process is not running.")))
+                        return
+
+                    result = self._request(conn, "session/prompt", {"sessionId": self._session_id, "prompt": prompt_blocks}, _PROMPT_IDLE_SEC)
+                    self._session_prompted = True
+
+                    if self._stop_requested:
+                        self._finish_stopped(queue)
+                        return
+
+                    self._finish_prompt_result(result, queue)
+
+                except _TurnStopped:
+                    self._finish_stopped(queue)
+                except TimeoutError:
+                    # No accepted stdout for the idle window. The CLI is wedged.
+                    self._report_failure(queue, format_error_payload(RuntimeError(f"{self.display_name} prompt timed out")))
+                    if not self._stop_requested:
+                        self.shutdown()
+                except Exception as e:
+                    if self._stop_requested:
+                        self._finish_stopped(queue)
+                    else:
+                        log.exception("Prompt execution failed")
+                        self._report_failure(queue, format_error_payload(e))
+                        # The exception can land before ``conn`` is known to be
+                        # live. A dead child is dropped. A JSON-RPC error on a
+                        # live child keeps the process for the next message.
+                        if conn is not None and not conn.is_alive:
+                            self.shutdown()
+            finally:
+                # The process stays. Drop the callback so a late notification
+                # does not write into this turn's queue. The next send installs
+                # its own. shutdown() may already have cleared the connection.
+                conn = self._conn
+                if conn is not None:
+                    try:
+                        conn.set_notification_callback(None)
+                    except Exception:
+                        log.exception("Failed to clear ACP notification callback")
 
     def _finish_prompt_result(self, result: Any, queue: Any) -> None:
         """Queue the terminal event for a ``session/prompt`` result.
