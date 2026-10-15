@@ -819,6 +819,25 @@ def test_piper_timeout_scaling_and_reap(tmp_path):
         mock_proc.wait.assert_called_once()
 
 
+def test_piper_rejects_nonzero_exit_even_when_wav_is_nonempty(tmp_path):
+    from plugin.audio.tts_service import _piper_audio_file
+
+    wav = tmp_path / "out.wav"
+    wav.write_bytes(b"RIFF")
+    mock_proc = MagicMock()
+    mock_proc.communicate.return_value = ("", "boom")
+    mock_proc.returncode = 2
+
+    with patch("plugin.audio.tts_service._venv_python", return_value="/venv/bin/python"), \
+         patch("plugin.audio.tts_models._resolve_piper_model_file", return_value="/models/v.onnx"), \
+         patch("os.path.isfile", return_value=True), \
+         patch("plugin.audio.tts_service._new_speech_temp", return_value=str(wav)), \
+         patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc), \
+         patch("plugin.audio.tts_service._release_temp") as release:
+        assert _piper_audio_file("hello", "voice", 1.0, None, None) is None
+    release.assert_called_with(str(wav))
+
+
 def test_play_audio_file_player_order_and_fallback(tmp_path):
     """Bug 3: Player chosen by suffix, exit code checked, fallback on failure."""
     from plugin.audio.tts_service import _play_audio_file
@@ -1175,3 +1194,70 @@ def test_stop_speech_spd_say_stop_uses_managed_run() -> None:
     else:
         proc.kill.assert_called_once()
         proc.terminate.assert_not_called()
+
+
+def test_speak_text_async_clears_active_when_worker_fails_to_start():
+    def _cfg(key, default=None):
+        if key == "audio.tts_enabled":
+            return True
+        if key == "audio.tts_provider":
+            return "system"
+        if key == "audio.tts_speed":
+            return 1.0
+        return default
+
+    def _fake_run_in_background(fn, **kw):
+        if kw.get("name") == "tts-speak":
+            raise RuntimeError("no thread")
+        return None
+
+    on_complete_called = False
+
+    def _done():
+        nonlocal on_complete_called
+        on_complete_called = True
+
+    try:
+        with patch("plugin.framework.config.get_config", side_effect=_cfg), \
+             patch("plugin.audio.tts_service.run_in_background", side_effect=_fake_run_in_background):
+            with pytest.raises(RuntimeError, match="no thread"):
+                speak_text_async("Hello", on_complete=_done)
+        assert not on_complete_called
+        assert is_speaking() is False
+    finally:
+        stop_speech()
+
+
+def test_stop_speech_reaps_on_a_dedicated_thread():
+    with patch("plugin.audio.tts_service.run_in_background") as mock_bg:
+        stop_speech()
+    mock_bg.assert_called_once()
+    assert mock_bg.call_args.kwargs.get("dedicated") is True
+    assert mock_bg.call_args.kwargs.get("name") == "tts-cleanup"
+
+
+def test_popen_cancelled_during_spawn_reaps_on_dedicated_thread():
+    import plugin.audio.tts_service as tts
+    from plugin.framework.managed_subprocess import ManagedSubprocess
+
+    generation = tts._begin_utterance()
+    calls: list[tuple[Any, Any]] = []
+
+    def _fake_run_in_background(fn, **kw):
+        calls.append((kw.get("name"), kw.get("dedicated")))
+        return None
+
+    def _fake_start(self):
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        self._proc = mock_proc
+        tts._speech_generation += 1
+
+    try:
+        with patch.object(ManagedSubprocess, "start", _fake_start), \
+             patch("plugin.audio.tts_service.run_in_background", side_effect=_fake_run_in_background):
+            proc = tts._popen_for_speech(["true"], generation, slot="play")
+            assert proc is None
+            assert ("tts-reap", True) in calls
+    finally:
+        tts.stop_speech()

@@ -15,7 +15,10 @@ from plugin.audio.model_cache_paths import (
 )
 from plugin.audio.tts_models import (
     _KOKORO_RELEASE_BASE,
+    _clear_tts_status,
     _download_to,
+    _failed_model_downloads,
+    _notify_tts_status,
     _resolve_kokoro_model_files,
     _resolve_piper_model_file,
     clear_generation_downloads,
@@ -88,18 +91,73 @@ def test_download_to_cancellable_and_cleans_tmp(tmp_path):
 
 def test_download_failure_remembered_per_generation():
     """Bug 1: Failed model downloads are remembered per generation and not retried every sentence."""
-    clear_generation_downloads(1)
-    clear_generation_downloads(2)
+    import plugin.audio.tts_service as tts
 
-    assert not is_download_failed(1, "kokoro")
-    remember_download_failed(1, "kokoro")
-    assert is_download_failed(1, "kokoro")
-    # Different generation should not be affected
-    assert not is_download_failed(2, "kokoro")
+    saved_gen = tts._speech_generation
+    tts._speech_generation = 1
+    try:
+        clear_generation_downloads(1)
+        clear_generation_downloads(2)
 
-    # Clear generation 1
-    clear_generation_downloads(1)
-    assert not is_download_failed(1, "kokoro")
+        assert not is_download_failed(1, "kokoro")
+        remember_download_failed(1, "kokoro")
+        assert is_download_failed(1, "kokoro")
+        # Different generation should not be affected
+        assert not is_download_failed(2, "kokoro")
+
+        # Clear generation 1
+        clear_generation_downloads(1)
+        assert not is_download_failed(1, "kokoro")
+    finally:
+        tts._speech_generation = saved_gen
+        clear_generation_downloads(1)
+        clear_generation_downloads(2)
+
+
+def test_remember_download_failed_ignores_stale_generation():
+    import plugin.audio.tts_service as tts
+
+    generation = tts._begin_utterance()
+    try:
+        remember_download_failed(generation, "kokoro")
+        assert is_download_failed(generation, "kokoro")
+        tts.stop_speech()
+        remember_download_failed(generation, "kokoro")
+        assert generation not in _failed_model_downloads
+    finally:
+        tts.stop_speech()
+        clear_generation_downloads(generation)
+
+
+def test_notify_tts_status_progress_prefers_progress_method():
+    calls: list[str] = []
+
+    class Sink:
+        def progress(self, text: str) -> None:
+            calls.append(f"progress:{text}")
+
+        def __call__(self, text: str) -> None:
+            calls.append(f"call:{text}")
+
+        def clear(self) -> None:
+            calls.append("clear")
+
+    sink = Sink()
+    _notify_tts_status("Downloading…", sink, progress=True)
+    assert calls == ["progress:Downloading…"]
+
+    _notify_tts_status("Speech request failed.", sink)
+    assert calls == ["progress:Downloading…", "call:Speech request failed."]
+
+    plain_calls: list[str] = []
+    _notify_tts_status("Downloading…", plain_calls.append, progress=True)
+    assert plain_calls == ["Downloading…"]
+
+    _clear_tts_status(plain_calls.append)
+    assert plain_calls == ["Downloading…"]
+
+    _clear_tts_status(sink)
+    assert calls == ["progress:Downloading…", "call:Speech request failed.", "clear"]
 
 
 def test_resolve_piper_model_file_ondemand_download(tmp_path, monkeypatch):

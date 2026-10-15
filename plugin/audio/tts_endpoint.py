@@ -294,6 +294,13 @@ def _download_endpoint_speech(
         _notify_tts_status(_speech_failure_message(code, err_body), on_status)
         return None
 
+    if not audio_bytes:
+        log.warning("TTS endpoint %s returned empty audio body", public_target(url))
+        # b"" is not None, so a 2xx empty body used to be written out and played;
+        # an empty PCM body would also be wrapped into a header-only wav that looks non-empty.
+        _notify_tts_status(_speech_failure_message(code, ""), on_status)
+        return None
+
     # Trust response content_type and magic bytes to determine format and whether to wrap PCM.
     sniffed = _sniff_audio_format(audio_bytes)
     actual_format: str

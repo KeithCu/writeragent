@@ -419,7 +419,9 @@ def stop_speech() -> None:
         for path in paths:
             _unlink_quiet(path)
 
-    run_in_background(_bg_cleanup)
+    # This job blocks in _reap_proc (wait timeout 5s per process, plus
+    # spd-say -S timeout 2s) and the shared pool has two workers.
+    run_in_background(_bg_cleanup, dedicated=True, name="tts-cleanup")
 
 
 def _begin_utterance() -> int:
@@ -507,7 +509,8 @@ def _popen_for_speech(
         if _playback_blocked_locked(generation):
             log.info("Speech cancelled during process spawn, killing process")
             _signal_stop_proc(proc)
-            run_in_background(lambda: _reap_proc(proc))
+            # That reap waits up to 5s and must not take a pool slot.
+            run_in_background(lambda: _reap_proc(proc), dedicated=True, name="tts-reap")
             return None
         if slot == "play":
             _play_proc = proc
@@ -1225,6 +1228,11 @@ def _piper_audio_file(
         code, _stdout, stderr = result
         if code != 0:
             log.warning("Piper process failed (code %d): %s", code, stderr)
+            # A non-zero exit used to return the file whenever getsize > 0, so
+            # a partial wav was played; Kokoro CLI was fixed the same way and
+            # Piper was left on the old path when both moved onto _run_synth.
+            _release_temp(tmp_wav)
+            return None
         if os.path.isfile(tmp_wav) and os.path.getsize(tmp_wav) > 0:
             return tmp_wav
         log.warning("Piper produced empty audio for voice %s", voice)
@@ -1499,4 +1507,13 @@ def speak_text_async(
                 except Exception:
                     log.debug("on_complete callback error", exc_info=True)
 
-    run_in_background(_worker, dedicated=True, name="tts-speak")
+    try:
+        run_in_background(_worker, dedicated=True, name="tts-speak")
+    except Exception:
+        # _begin_utterance has already set _speech_active. Thread.start can
+        # raise (RuntimeError at shutdown or when the process cannot create a
+        # thread). The worker finally never runs, so is_speaking() stayed true
+        # and the sidebar Stop control stayed enabled.
+        log.exception("speak_text_async: failed to start speech worker")
+        _end_utterance(generation)
+        raise
