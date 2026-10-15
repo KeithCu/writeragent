@@ -582,8 +582,8 @@ def get_runtime_uid(model: Any) -> str:
     ``assert_main_thread``'s ``RuntimeError`` and returns ``""`` (an
     untitled document with no id) — the same ladder ``uno_same`` used
     before it was decorated. On-thread disposal still returns ``""``.
-    Callers that LibreOffice invokes on Dummy-N (notebook File Open) use
-    ``_read_runtime_uid`` instead of this guard.
+    An untagged Dummy upcall may call this; notebook File Open still uses
+    ``_read_runtime_uid`` so it does not depend on the guard.
     """
     return _read_runtime_uid(model)
 

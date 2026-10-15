@@ -68,9 +68,10 @@ def bootstrap(ctx: Any | None = None) -> None:
     global _initialized
     if _initialized:
         return
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.thread_guard import on_python_main_thread
 
-    if not on_main_thread():
+    # A status-listener Dummy upcall is allowed to touch UNO, and it must not enter bootstrap.
+    if not on_python_main_thread():
         return
     with _init_lock:
         if _initialized:

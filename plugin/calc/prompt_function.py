@@ -14,7 +14,7 @@ from plugin.framework.client.errors import format_error_for_display
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config import get_api_config, get_config_int, get_config_str
 from plugin.framework.client.model_fetcher import get_text_model
-from plugin.framework.thread_guard import sync_host_dispatch
+from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch
 
 log = logging.getLogger(__name__)
 
@@ -62,8 +62,9 @@ def _call_prompt_llm(ctx: Any, client: LlmClient, messages: list[dict[str, str]]
 
 def execute_prompt_addin(ctx: Any, message: str, system_prompt: Any, model: Any, max_tokens: Any, *, client_holder: list[LlmClient | None]) -> str:
     """Call the chat API for =PROMPT(); *client_holder* is a one-element list for reuse across recalcs."""
-    with sync_host_dispatch():
-        return _execute_prompt_addin_impl(ctx, message, system_prompt, model, max_tokens, client_holder=client_holder)
+    with background_if_dummy_thread("prompt_addin"):
+        with sync_host_dispatch():
+            return _execute_prompt_addin_impl(ctx, message, system_prompt, model, max_tokens, client_holder=client_holder)
 
 
 def _execute_prompt_addin_impl(ctx: Any, message: str, system_prompt: Any, model: Any, max_tokens: Any, *, client_holder: list[LlmClient | None]) -> str:

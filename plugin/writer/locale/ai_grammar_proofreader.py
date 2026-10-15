@@ -90,6 +90,7 @@ from plugin.writer.locale.grammar_work_queue import (
     grammar_queue,
     next_enqueue_seq,
 )
+from plugin.framework.thread_guard import background_if_dummy_thread
 
 
 def _mark_grammar_disabled_notice() -> bool:
@@ -800,153 +801,154 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         return False
 
     def doProofreading(self, aDocumentIdentifier: str, aText: str, aLocale: Any, nStartOfSentencePosition: int, nSuggestedBehindEndOfSentencePosition: int, aProperties: Any) -> Any:
-        if uno_mod is None:
-            log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
-            raise RuntimeError("uno not available")
+        with background_if_dummy_thread("proofreading"):
+            if uno_mod is None:
+                log.warning("[grammar] doProofreading: uno_mod is None (import failed)")
+                raise RuntimeError("uno not available")
 
-        # Build the empty result before the try. ``_create_empty_result`` already
-        # logs and re-raises (missing ``uno``, ``createUnoStruct`` failure). The
-        # handler used to call it again with the same arguments when ``a_res``
-        # was still None. That second failure left the Linguistic worker with an
-        # unhandled exception and could crash or hang Writer.
-        a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
-        try:
-            from plugin.writer.locale.grammar_persistence import get_document_model_for_id
+            # Build the empty result before the try. ``_create_empty_result`` already
+            # logs and re-raises (missing ``uno``, ``createUnoStruct`` failure). The
+            # handler used to call it again with the same arguments when ``a_res``
+            # was still None. That second failure left the Linguistic worker with an
+            # unhandled exception and could crash or hang Writer.
+            a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
+            try:
+                from plugin.writer.locale.grammar_persistence import get_document_model_for_id
 
-            if get_document_model_for_id(self.ctx, aDocumentIdentifier) is None:
-                _run_on_main_thread(_ensure_persistence_bound, self.ctx, aDocumentIdentifier)
+                if get_document_model_for_id(self.ctx, aDocumentIdentifier) is None:
+                    _run_on_main_thread(_ensure_persistence_bound, self.ctx, aDocumentIdentifier)
 
-            loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
-            if not loc_key:
-                return a_res
+                loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
+                if not loc_key:
+                    return a_res
 
-            # In Writer, grammar ignore receives the doc_id and stores rules per doc.
-            # In Draw, ignoreRule only gets the locale, and no aDocumentIdentifier.
-            # Thus, we store the known doc_id by a resolved model UID, avoiding
-            # the focused desktop guess.
-            model = get_document_model_for_id(self.ctx, aDocumentIdentifier)
-            if model is not None:
-                from plugin.framework.uno_context import get_runtime_uid
-                try:
-                    # Linguistic Dummy-* called @main_thread_only get_runtime_uid
-                    # directly. The guard posted a violation dialog, then this
-                    # except swallowed the RuntimeError, so the ignore map stayed
-                    # empty. Same UI-thread hop as the persistence bind above.
-                    uid = _run_on_main_thread(get_runtime_uid, model)
-                    if uid:
-                        if not hasattr(self, "_doc_id_for_ignore"):
-                            self._doc_id_for_ignore = {}
-                        self._doc_id_for_ignore[uid] = aDocumentIdentifier
-                except Exception:
-                    pass
+                # In Writer, grammar ignore receives the doc_id and stores rules per doc.
+                # In Draw, ignoreRule only gets the locale, and no aDocumentIdentifier.
+                # Thus, we store the known doc_id by a resolved model UID, avoiding
+                # the focused desktop guess.
+                model = get_document_model_for_id(self.ctx, aDocumentIdentifier)
+                if model is not None:
+                    from plugin.framework.uno_context import get_runtime_uid
+                    try:
+                        # Linguistic Dummy-* called @main_thread_only get_runtime_uid
+                        # directly. The guard posted a violation dialog, then this
+                        # except swallowed the RuntimeError, so the ignore map stayed
+                        # empty. Same UI-thread hop as the persistence bind above.
+                        uid = _run_on_main_thread(get_runtime_uid, model)
+                        if uid:
+                            if not hasattr(self, "_doc_id_for_ignore"):
+                                self._doc_id_for_ignore = {}
+                            self._doc_id_for_ignore[uid] = aDocumentIdentifier
+                    except Exception:
+                        pass
 
-            ident = getattr(self, "_checker_identity", self._active_grammar_provider())
+                ident = getattr(self, "_checker_identity", self._active_grammar_provider())
 
-            # 1. One BreakIterator + dialogue-merge pass for the whole paragraph.
-            paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, 0, len(aText))
-            paragraph_spans = filter_sentence_spans_for_thresholds(paragraph_spans)
+                # 1. One BreakIterator + dialogue-merge pass for the whole paragraph.
+                paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, 0, len(aText))
+                paragraph_spans = filter_sentence_spans_for_thresholds(paragraph_spans)
 
-            # 2. Active window: overlap-filter those spans (n_start==0 keeps all).
-            active_spans = self._resolve_work_spans(
-                aDocumentIdentifier,
-                loc_key,
-                aText,
-                nStartOfSentencePosition,
-                nSuggestedBehindEndOfSentencePosition,
-                paragraph_spans,
-            )
-            if not active_spans:
+                # 2. Active window: overlap-filter those spans (n_start==0 keeps all).
+                active_spans = self._resolve_work_spans(
+                    aDocumentIdentifier,
+                    loc_key,
+                    aText,
+                    nStartOfSentencePosition,
+                    nSuggestedBehindEndOfSentencePosition,
+                    paragraph_spans,
+                )
+                if not active_spans:
+                    _obs_result_window(
+                        aDocumentIdentifier,
+                        loc_key,
+                        a_res,
+                        (),
+                        paragraph_span_count=len(paragraph_spans),
+                        active_span_count=0,
+                        uncached_active_count=0,
+                        source="no_active_spans",
+                        skip="no_active_spans",
+                    )
+                    return a_res
+
+                # We set the covered end to the end of the active spans we are checking
+                covered_end = calculate_covered_span_end(active_spans)
+                _apply_proofreading_end_positions(a_res, aText, covered_end)
+
+                grammar_obs(
+                    "do_proofreading_covered_span",
+                    doc_id=aDocumentIdentifier,
+                    grammar_bcp47=loc_key,
+                    covered_end=covered_end,
+                    sentence_count=len(active_spans),
+                    n_start_lo=nStartOfSentencePosition,
+                    n_suggested_behind_end=nSuggestedBehindEndOfSentencePosition,
+                    n_next=getattr(a_res, "nStartOfNextSentencePosition", None),
+                )
+
+                # 3. Cache lookup. Harper is synchronous: return only the sentence(s)
+                #    this call asked about. LLM / queued providers still look up the
+                #    whole paragraph so a later call can carry earlier sentences'
+                #    now-warm cache (Writer honors aErrors outside the active window).
+                is_harper = self._active_grammar_provider() == "harper"
+                cache_spans = active_spans if is_harper else paragraph_spans
+                combined_errors, uncached_cache_spans = self._process_cache_hits(
+                    aDocumentIdentifier, loc_key, cache_spans
+                )
+
+                if combined_errors:
+                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
+
+                # 4. Uncached work is only the active window. Harper already looked
+                #    up active_spans; queued providers intersect paragraph misses.
+                uncached_active_spans = (
+                    uncached_cache_spans
+                    if is_harper
+                    else reconcile_active_and_paragraph_spans(active_spans, uncached_cache_spans)
+                )
+
+                # Result-window obs waits until Harper (or enqueue) has built the
+                # list we actually return. Emitting n_errors before _try_harper_fast_path
+                # looked like an empty lint when headed later dropped paint.
+                result_source = "cache"
+                if not uncached_active_spans:
+                    grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, sentence_count=len(active_spans), error_count=len(combined_errors))
+                else:
+                    cached_ct = len(active_spans) - len(uncached_active_spans)
+                    miss_reason = "partial_miss" if cached_ct > 0 else "all_uncached"
+                    grammar_obs(
+                        "do_proofreading_cache_partial_hit",
+                        doc_id=aDocumentIdentifier,
+                        grammar_bcp47=loc_key,
+                        cached_count=cached_ct,
+                        uncached_count=len(uncached_active_spans),
+                        cache_error_count=len(combined_errors),
+                        miss_reason=miss_reason,
+                    )
+                    if self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors):
+                        if combined_errors:
+                            a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
+                        result_source = "harper_fast"
+                    else:
+                        self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_active_spans, ident)
+                        log.debug("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
+                        result_source = "enqueue"
+
                 _obs_result_window(
                     aDocumentIdentifier,
                     loc_key,
                     a_res,
-                    (),
+                    combined_errors,
                     paragraph_span_count=len(paragraph_spans),
-                    active_span_count=0,
-                    uncached_active_count=0,
-                    source="no_active_spans",
-                    skip="no_active_spans",
+                    active_span_count=len(active_spans),
+                    uncached_active_count=len(uncached_active_spans),
+                    source=result_source,
                 )
                 return a_res
 
-            # We set the covered end to the end of the active spans we are checking
-            covered_end = calculate_covered_span_end(active_spans)
-            _apply_proofreading_end_positions(a_res, aText, covered_end)
-
-            grammar_obs(
-                "do_proofreading_covered_span",
-                doc_id=aDocumentIdentifier,
-                grammar_bcp47=loc_key,
-                covered_end=covered_end,
-                sentence_count=len(active_spans),
-                n_start_lo=nStartOfSentencePosition,
-                n_suggested_behind_end=nSuggestedBehindEndOfSentencePosition,
-                n_next=getattr(a_res, "nStartOfNextSentencePosition", None),
-            )
-
-            # 3. Cache lookup. Harper is synchronous: return only the sentence(s)
-            #    this call asked about. LLM / queued providers still look up the
-            #    whole paragraph so a later call can carry earlier sentences'
-            #    now-warm cache (Writer honors aErrors outside the active window).
-            is_harper = self._active_grammar_provider() == "harper"
-            cache_spans = active_spans if is_harper else paragraph_spans
-            combined_errors, uncached_cache_spans = self._process_cache_hits(
-                aDocumentIdentifier, loc_key, cache_spans
-            )
-
-            if combined_errors:
-                a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
-
-            # 4. Uncached work is only the active window. Harper already looked
-            #    up active_spans; queued providers intersect paragraph misses.
-            uncached_active_spans = (
-                uncached_cache_spans
-                if is_harper
-                else reconcile_active_and_paragraph_spans(active_spans, uncached_cache_spans)
-            )
-
-            # Result-window obs waits until Harper (or enqueue) has built the
-            # list we actually return. Emitting n_errors before _try_harper_fast_path
-            # looked like an empty lint when headed later dropped paint.
-            result_source = "cache"
-            if not uncached_active_spans:
-                grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, sentence_count=len(active_spans), error_count=len(combined_errors))
-            else:
-                cached_ct = len(active_spans) - len(uncached_active_spans)
-                miss_reason = "partial_miss" if cached_ct > 0 else "all_uncached"
-                grammar_obs(
-                    "do_proofreading_cache_partial_hit",
-                    doc_id=aDocumentIdentifier,
-                    grammar_bcp47=loc_key,
-                    cached_count=cached_ct,
-                    uncached_count=len(uncached_active_spans),
-                    cache_error_count=len(combined_errors),
-                    miss_reason=miss_reason,
-                )
-                if self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors):
-                    if combined_errors:
-                        a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
-                    result_source = "harper_fast"
-                else:
-                    self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_active_spans, ident)
-                    log.debug("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
-                    result_source = "enqueue"
-
-            _obs_result_window(
-                aDocumentIdentifier,
-                loc_key,
-                a_res,
-                combined_errors,
-                paragraph_span_count=len(paragraph_spans),
-                active_span_count=len(active_spans),
-                uncached_active_count=len(uncached_active_spans),
-                source=result_source,
-            )
-            return a_res
-
-        except Exception as e:
-            log.exception("[grammar] doProofreading failed: %s", e)
-            return a_res
+            except Exception as e:
+                log.exception("[grammar] doProofreading failed: %s", e)
+                return a_res
 
     def _resolve_doc_id_for_ignore(self) -> str | None:
         from plugin.framework.thread_guard import on_main_thread

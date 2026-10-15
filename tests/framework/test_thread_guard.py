@@ -5,7 +5,10 @@
 """Unit tests for the Layer A UNO thread-safety guard (thread_guard.py)."""
 
 import importlib
+import os
 import threading
+import _thread
+from typing import Any
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -818,6 +821,179 @@ def test_pyuno_callable_is_not_proxied(monkeypatch):
         assert not isinstance(res, tg._UnoThreadGuardProxy)
     finally:
         tg.GUARD_ON = saved_guard
+
+
+def _run_in_dummy_thread(fn: Any, timeout: float = 5.0) -> None:
+    done = threading.Event()
+    exc: list[BaseException] = []
+
+    def target() -> None:
+        try:
+            fn()
+        except BaseException as err:
+            exc.append(err)
+        finally:
+            done.set()
+
+    _thread.start_new_thread(target, ())
+    assert done.wait(timeout=timeout), "Dummy thread timed out"
+    if exc:
+        raise exc[0]
+
+
+def test_untagged_dummy_is_allowed() -> None:
+    was_guard = tg.GUARD_ON
+    was_testing = os.environ.get("WRITERAGENT_TESTING")
+    tg.GUARD_ON = True
+    os.environ["WRITERAGENT_TESTING"] = "1"
+    try:
+        def worker() -> None:
+            current = threading.current_thread()
+            assert isinstance(current, threading._DummyThread)
+            assert tg.on_main_thread() is True
+            tg.assert_main_thread("get_runtime_uid")
+
+        _run_in_dummy_thread(worker)
+    finally:
+        tg.GUARD_ON = was_guard
+        if was_testing is None:
+            os.environ.pop("WRITERAGENT_TESTING", None)
+        else:
+            os.environ["WRITERAGENT_TESTING"] = was_testing
+        tg.set_designated_main_thread(None)
+        tg.set_background_task(None)
+
+
+def test_real_worker_still_flagged() -> None:
+    was_guard = tg.GUARD_ON
+    was_testing = os.environ.get("WRITERAGENT_TESTING")
+    tg.GUARD_ON = True
+    os.environ["WRITERAGENT_TESTING"] = "1"
+    try:
+        worker_exc: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                assert tg.on_main_thread() is False
+                with pytest.raises(RuntimeError) as exc_info:
+                    tg.assert_main_thread("get_runtime_uid")
+                assert "UNO thread violation" in str(exc_info.value)
+            except BaseException as err:
+                worker_exc.append(err)
+
+        worker_thread = threading.Thread(target=worker)
+        worker_thread.start()
+        worker_thread.join(timeout=5.0)
+        assert not worker_thread.is_alive()
+        if worker_exc:
+            raise worker_exc[0]
+    finally:
+        tg.GUARD_ON = was_guard
+        if was_testing is None:
+            os.environ.pop("WRITERAGENT_TESTING", None)
+        else:
+            os.environ["WRITERAGENT_TESTING"] = was_testing
+        tg.set_designated_main_thread(None)
+        tg.set_background_task(None)
+
+
+def test_tagged_dummy_still_flagged() -> None:
+    was_guard = tg.GUARD_ON
+    was_testing = os.environ.get("WRITERAGENT_TESTING")
+    tg.GUARD_ON = True
+    os.environ["WRITERAGENT_TESTING"] = "1"
+    try:
+        def worker() -> None:
+            try:
+                tg.set_background_task("proofreading")
+                assert tg.on_main_thread() is False
+                with pytest.raises(RuntimeError) as exc_info:
+                    tg.assert_main_thread("get_runtime_uid")
+                assert "UNO thread violation" in str(exc_info.value)
+            finally:
+                tg.set_background_task(None)
+
+        _run_in_dummy_thread(worker)
+    finally:
+        tg.GUARD_ON = was_guard
+        if was_testing is None:
+            os.environ.pop("WRITERAGENT_TESTING", None)
+        else:
+            os.environ["WRITERAGENT_TESTING"] = was_testing
+        tg.set_designated_main_thread(None)
+        tg.set_background_task(None)
+
+
+def test_designated_hook_wins() -> None:
+    was_guard = tg.GUARD_ON
+    was_testing = os.environ.get("WRITERAGENT_TESTING")
+    tg.GUARD_ON = True
+    os.environ["WRITERAGENT_TESTING"] = "1"
+    try:
+        other_thread = threading.Thread()
+        tg.set_designated_main_thread(other_thread)
+
+        def worker() -> None:
+            assert tg.on_main_thread() is False
+
+        _run_in_dummy_thread(worker)
+    finally:
+        tg.GUARD_ON = was_guard
+        if was_testing is None:
+            os.environ.pop("WRITERAGENT_TESTING", None)
+        else:
+            os.environ["WRITERAGENT_TESTING"] = was_testing
+        tg.set_designated_main_thread(None)
+        tg.set_background_task(None)
+
+
+def test_helper_does_not_tag_python_main_thread() -> None:
+    was_guard = tg.GUARD_ON
+    was_testing = os.environ.get("WRITERAGENT_TESTING")
+    tg.GUARD_ON = True
+    os.environ["WRITERAGENT_TESTING"] = "1"
+    try:
+        with tg.background_if_dummy_thread("python_addin"):
+            assert tg.get_background_task_name() is None
+            assert tg.on_main_thread() is True
+
+        def worker() -> None:
+            with tg.background_if_dummy_thread("python_addin"):
+                assert tg.on_main_thread() is False
+            assert tg.get_background_task_name() is None
+
+        _run_in_dummy_thread(worker)
+    finally:
+        tg.GUARD_ON = was_guard
+        if was_testing is None:
+            os.environ.pop("WRITERAGENT_TESTING", None)
+        else:
+            os.environ["WRITERAGENT_TESTING"] = was_testing
+        tg.set_designated_main_thread(None)
+        tg.set_background_task(None)
+
+
+def test_on_python_main_thread() -> None:
+    was_guard = tg.GUARD_ON
+    was_testing = os.environ.get("WRITERAGENT_TESTING")
+    tg.GUARD_ON = True
+    os.environ["WRITERAGENT_TESTING"] = "1"
+    try:
+        assert tg.on_python_main_thread() is True
+
+        def worker() -> None:
+            assert tg.on_python_main_thread() is False
+
+        _run_in_dummy_thread(worker)
+    finally:
+        tg.GUARD_ON = was_guard
+        if was_testing is None:
+            os.environ.pop("WRITERAGENT_TESTING", None)
+        else:
+            os.environ["WRITERAGENT_TESTING"] = was_testing
+        tg.set_designated_main_thread(None)
+        tg.set_background_task(None)
+
 
 
 
