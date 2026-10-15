@@ -672,6 +672,19 @@ class TestPermissionResult:
         assert (backend._pending_permissions) == ({})
         assert ("ACP permission request missing id") in (caplog.text)
 
+    def test_permission_with_unhashable_id_is_cancelled(self, caplog):
+        caplog.set_level("WARNING", logger="plugin.acp.acp_backend")
+        backend = _bare_backend()
+        conn = MagicMock()
+        conn.is_alive = True
+        backend._conn = conn
+        q = queue.Queue()
+        backend._dispatch_notification("session/request_permission", {"toolCall": {"title": "Edit"}, "options": []}, [1], q)
+        conn.send_response.assert_called_once_with([1], result={"outcome": {"outcome": "cancelled"}})
+        assert _drain(q) == []
+        assert backend._pending_permissions == {}
+        assert "ACP permission request id is unhashable; cancelling without storing it" in caplog.text
+
 
 class TestStopAndShutdown:
     """Stop cancels the in-flight ACP turn. A healthy CLI stays up."""
@@ -716,6 +729,37 @@ class TestStopAndShutdown:
         arm.assert_called_once_with(backend._turn)
         conn.stop.assert_not_called()
         assert (backend._conn) is conn
+
+    def test_stop_cancel_uses_the_inflight_connection_and_session(self):
+        backend = _bare_backend()
+        backend._turn = 4
+        backend._prompt_inflight = True
+        backend._prompt_done.clear()
+        backend._session_id = "sess-old"
+
+        recorded = []
+        replacement = MagicMock()
+        replacement.is_alive = True
+
+        class _OldConn:
+            @property
+            def is_alive(self):
+                backend._conn = replacement
+                backend._session_id = "sess-new"
+                return True
+
+            def send_notification(self, method, params):
+                recorded.append((method, params))
+
+        old = _OldConn()
+        backend._conn = old
+
+        with patch.object(backend, "_arm_cancel_grace") as arm:
+            backend.stop()
+
+        assert recorded == [("session/cancel", {"sessionId": "sess-old"})]
+        replacement.send_notification.assert_not_called()
+        arm.assert_called_once_with(4)
 
     def test_send_keeps_the_cli_after_success(self):
         backend = _bare_backend()
@@ -1261,6 +1305,32 @@ class TestUnknownAcpRequest:
         backend._dispatch_notification("fs/read_text_file", {}, 3, q)
         conn.send_response.assert_called_once_with(3, error={"code": -32601, "message": "Method not found: fs/read_text_file"})
         assert (_drain(q)) == ([])
+
+    @pytest.mark.parametrize(
+        "method",
+        ["session/update", "notifications/session", "agent/update", "notifications/agent"],
+    )
+    def test_update_request_while_stopped_is_acked_without_queue(self, method):
+        backend = _bare_backend()
+        backend._stop_requested = True
+        conn = MagicMock()
+        backend._conn = conn
+        q = queue.Queue()
+        params = {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hi"}}}
+        backend._dispatch_notification(method, params, 9, q)
+        conn.send_response.assert_called_once_with(9, result={})
+        assert _drain(q) == []
+
+    def test_session_update_notification_while_stopped_is_not_queued(self):
+        backend = _bare_backend()
+        backend._stop_requested = True
+        conn = MagicMock()
+        backend._conn = conn
+        q = queue.Queue()
+        params = {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hi"}}}
+        backend._dispatch_notification("session/update", params, None, q)
+        conn.send_response.assert_not_called()
+        assert _drain(q) == []
 
 
 class TestSessionId:

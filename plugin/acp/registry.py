@@ -62,10 +62,10 @@ def normalize_backend_id(backend_id: Any) -> str:
     return "builtin"
 
 
-def get_backend(backend_id: Any, ctx: Any | None = None) -> AgentBackend | None:
+def get_backend(backend_id: Any) -> AgentBackend | None:
     """Return an adapter instance for the given backend id, or None."""
     backend_id = normalize_backend_id(backend_id)
     cls = AGENT_BACKEND_REGISTRY.get(backend_id)
     if cls is None:
         return None
-    return cls(ctx=ctx)
+    return cls()

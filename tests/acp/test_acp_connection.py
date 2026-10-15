@@ -1010,6 +1010,66 @@ def test_reader_answers_a_request_when_the_callback_is_gone():
     ]
 
 
+def test_agent_request_ids_are_echoed_and_do_not_complete_an_integer_request():
+    conn = ACPConnection(["agent"])
+    conn._running = True
+    conn._notify_callback = None
+    recorder = []
+
+    def send_response(msg_id, result=None, error=None):
+        recorder.append((msg_id, result, error))
+
+    conn.send_response = send_response  # type: ignore[method-assign]
+    event = threading.Event()
+    pending = _Pending(event)
+    conn._pending[1] = pending
+
+    lines = [
+        b'{"jsonrpc":"2.0","id":1.0,"method":"session/update","params":{}}\n',
+        b'{"jsonrpc":"2.0","id":1.5,"method":"fs/read_text_file","params":{}}\n',
+        b'{"jsonrpc":"2.0","id":true,"method":"session/request_permission","params":{}}\n',
+        b'{"jsonrpc":"2.0","id":[1],"method":"fs/read_text_file","params":{}}\n',
+    ]
+    done = threading.Event()
+    calls = {"n": 0}
+
+    def readline() -> bytes:
+        calls["n"] += 1
+        index = calls["n"] - 1
+        if index < len(lines):
+            return lines[index]
+        assert done.wait(timeout=5)
+        return b""
+
+    proc = _live_proc()
+    proc.stdout.readline.side_effect = readline
+    conn._proc = proc
+
+    reader = threading.Thread(target=conn._reader_loop, daemon=True)
+    reader.start()
+
+    try:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and len(recorder) < 4:
+            time.sleep(0.01)
+
+        assert recorder == [
+            (1.0, None, {"code": -32601, "message": "Method not found: session/update"}),
+            (1.5, None, {"code": -32601, "message": "Method not found: fs/read_text_file"}),
+            (True, {"outcome": {"outcome": "cancelled"}}, None),
+            ([1], None, {"code": -32601, "message": "Method not found: fs/read_text_file"}),
+        ]
+        assert type(recorder[0][0]) is float
+        assert type(recorder[1][0]) is float
+        assert type(recorder[2][0]) is bool
+        assert pending.event.is_set() is False
+        assert pending.response is None
+    finally:
+        done.set()
+        conn.stop()
+        reader.join(timeout=2)
+
+
 def _wait_until(pred) -> bool:
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:

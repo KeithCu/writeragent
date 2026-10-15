@@ -683,7 +683,7 @@ class SendHandlersMixin:
                 log.exception("ACP shutdown on backend switch failed")
             self._acp_backend = None
             self._acp_backend_id = None
-        adapter = get_backend(backend_id, ctx=self.ctx)
+        adapter = get_backend(backend_id)
         if adapter is None:
             return None
         self._acp_backend = adapter
