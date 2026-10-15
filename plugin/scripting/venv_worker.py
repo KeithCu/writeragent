@@ -701,6 +701,25 @@ class PythonWorkerManager:
                 stdin = proc.stdin
                 stdout = proc.stdout
                 write_timeout_sec = min(float(timeout_sec), float(VENV_IPC_WRITE_TIMEOUT_SEC))
+                # What was wrong: resolve_allowed_tools and host_script_session_id ran
+                # after the request frame was written and before _read_until_terminal.
+                # How it happened: tool RPC was added in the attempt loop after the write
+                # (24a737750). OSError and RuntimeError from that import are in the retry
+                # tuple, and may_have_run is still false because the read has not started,
+                # so the same request id was sent to a new child.
+                # Why this change: both values are host-only. A failure here is a pre-write
+                # retry. The child does not have the request yet.
+                from plugin.scripting.host_rpc import resolve_allowed_tools
+
+                allowed_tools = resolve_allowed_tools(python_tool_domain)
+                # Pin wins over the kernel session id. Chat passes doc:… and
+                # leaves request session_id unset. RPS / =PY() / PPT-Master
+                # omit the pin and keep the request id.
+                resolved_script_session_id = host_script_session_id(request.get("session_id"), script_session_id)
+                # The host read timeout includes a grace buffer so the child's in-process
+                # signal/thread timeout fires first and returns a clean error frame without
+                # terminating the warm subprocess (preserving shared workbook sessions).
+                host_read_timeout_sec = float(timeout_sec) + float(HOST_IPC_READ_GRACE_SEC)
                 try:
                     self._write_frame_with_timeout(stdin, request, timeout_sec=write_timeout_sec, label="request")
                 except IpcFrameError as e:
@@ -714,18 +733,6 @@ class PythonWorkerManager:
                         f"Failed to serialize request: {e}",
                         details={"exe": self.exe},
                     )
-
-                # The host read timeout includes a grace buffer so the child's in-process
-                # signal/thread timeout fires first and returns a clean error frame without
-                # terminating the warm subprocess (preserving shared workbook sessions).
-                host_read_timeout_sec = float(timeout_sec) + float(HOST_IPC_READ_GRACE_SEC)
-                from plugin.scripting.host_rpc import resolve_allowed_tools
-
-                allowed_tools = resolve_allowed_tools(python_tool_domain)
-                # Pin wins over the kernel session id. Chat passes doc:… and
-                # leaves request session_id unset. RPS / =PY() / PPT-Master
-                # omit the pin and keep the request id.
-                resolved_script_session_id = host_script_session_id(request.get("session_id"), script_session_id)
 
                 # A tool_call frame can already have mutated the document. A later
                 # pipe error must not resend the original script (the write-timeout
@@ -787,6 +794,25 @@ class PythonWorkerManager:
                     log.warning("Python worker failed after execution started (not replaying): %s", e)
                     return self._fail_ipc_no_replay(e)
                 req_id = request.get("id")
+                # What was wrong: the harness writes {"id": "", "status": "error",
+                # "message": "Invalid pickle request: ..."} and loops. The host treated
+                # that as an id mismatch and _fail_no_replay killed a child that was
+                # already back at read().
+                # How it happened: read_pickle_frame raises ValueError for a non-dict or
+                # a bad unpickle after the length prefix and payload are consumed
+                # (worker_harness.main). The pipe stays aligned. The host only compared ids.
+                # Why this change: that empty id is only used on this pre-exec reject.
+                # Return the child's message and leave the process up. Any other id, or
+                # this frame after exec_started / a tool frame, still kills.
+                if (
+                    response.get("id") == ""
+                    and response.get("status") == "error"
+                    and not state.may_have_run
+                ):
+                    message = response.get("message")
+                    text = message if isinstance(message, str) and message else "Invalid pickle request"
+                    log.warning("Python worker rejected the request frame (worker kept): %s", text)
+                    return _worker_error("WORKER_IPC_ERROR", text, details={"exe": self.exe})
                 if response.get("id") != req_id:
                     # exchange_tool_call already checks ids. A mismatched terminal
                     # frame used to be accepted, so one cell could receive another's result.
@@ -1055,6 +1081,20 @@ class PythonWorkerManager:
         # Join that reap before reuse or spawn so the old tree is gone first.
         self._join_reaps()
         if self._proc is not None and self._proc.poll() is None:
+            # What was wrong: _retired was checked only on entry. get() and
+            # shutdown_all set the flag, then kill. _join_reaps() can block, so
+            # the flag can flip during that wait and this return handed the
+            # still-live child to the writer.
+            # How it happened: the _retired re-check under _proc_lock runs only
+            # before Popen, to stop an untracked spawn. The live-proc return skipped it.
+            # Why this change: refuse the return with the same _WorkerRetired the
+            # spawn path raises. Do not take a lock here. get() must not take
+            # _io_lock, and holding _proc_lock across the later write would deadlock
+            # a retire that already needs _proc_lock inside _terminate_worker.
+            if self._retired:
+                raise _WorkerRetired(
+                    "Python worker was replaced by a new venv path and will not be restarted"
+                )
             return
         # The join above ran before this reap existed. wait=False starts it
         # without blocking; the join below is the one that runs before Popen,
@@ -1072,6 +1112,10 @@ class PythonWorkerManager:
             # preexec_fn=os.setsid runs between fork and exec and deadlocks a threaded host.
             # start_new_session is the C spawn path, same new process group, pgid == pid.
             # register=False because desktop shutdown_all would close() this child.
+            # notifyTermination does not call PythonWorkerManager.shutdown_all.
+            # That reap joins on the UI thread. An idle child exits on stdin EOF.
+            # Linux native stalls use PR_SET_PDEATHSIG in the harness. Windows and
+            # macOS do not; quit does not wait on this process.
             # log_start_failure=False because a missing interpreter must stay OSError.
             managed = ManagedSubprocess(
                 [self.exe, _HARNESS_PATH],

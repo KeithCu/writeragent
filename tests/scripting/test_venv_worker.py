@@ -3090,3 +3090,157 @@ def test_read_response_empty_dict_is_terminal():
         assert res == {}
         assert mock_unpack.call_count == 1
 
+
+def test_allowed_tools_resolved_before_request_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+
+    events: list[str] = []
+
+    def _resolve(domain: str | None) -> frozenset[str]:
+        events.append("resolve")
+        return frozenset()
+
+    monkeypatch.setattr("plugin.scripting.host_rpc.resolve_allowed_tools", _resolve)
+
+    def _write(stdin: Any, message: Any, **kwargs: Any) -> None:
+        events.append("write")
+
+    mgr._write_frame_with_timeout = _write  # type: ignore[method-assign]
+
+    def _read(stdout: Any, stdin: Any, request: dict[str, Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"id": request["id"], "status": "ok", "result": 1}
+
+    mgr._read_until_terminal = _read  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1, python_tool_domain="")
+
+    assert result["status"] == "ok"
+    assert result["result"] == 1
+    assert events == ["resolve", "write"]
+
+
+def test_resolve_allowed_tools_failure_does_not_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+
+    def _fail_resolve(domain: str | None) -> frozenset[str]:
+        raise RuntimeError("domain map failed")
+
+    monkeypatch.setattr("plugin.scripting.host_rpc.resolve_allowed_tools", _fail_resolve)
+    mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["status"] == "error"
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "domain map failed" in result["message"]
+    assert mgr._write_frame_with_timeout.call_count == 0
+    assert mgr._terminate_worker.call_count == 2
+    assert mgr._terminate_worker.call_args_list == [call(wait=False), call(wait=False)]
+
+
+def test_ensure_running_retired_during_reap_join_does_not_return_live_proc() -> None:
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    mgr._proc = proc
+    mgr._retired = False
+
+    def _join_reaps_retires() -> None:
+        mgr._retired = True
+
+    mgr._join_reaps = _join_reaps_retires  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="will not be restarted"):
+        mgr._ensure_running()
+
+    assert mgr._terminate_worker.call_count == 0
+    assert mgr._proc is proc
+
+
+def test_invalid_pickle_request_frame_keeps_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+    mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+    mgr._read_response_bytes = MagicMock(  # type: ignore[method-assign]
+        return_value=pickle.dumps(
+            {"id": "", "status": "error", "message": "Invalid pickle request: nope"},
+            protocol=5,
+        )
+    )
+    cleared: list[bool] = []
+    monkeypatch.setattr(
+        "plugin.calc.python.function.clear_python_addin_cache",
+        lambda: cleared.append(True),
+    )
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "Invalid pickle request: nope" in result["message"]
+    assert "id mismatch" not in result["message"]
+    assert mgr._write_frame_with_timeout.call_count == 1
+    assert mgr._terminate_worker.call_count == 0
+    assert cleared == []
+
+
+def test_empty_id_error_after_exec_started_still_kills() -> None:
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    mgr._proc = proc
+    mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
+
+    captured: dict[str, dict[str, Any]] = {}
+    writes = {"n": 0}
+
+    def _write_frame(stdin: Any, request: dict[str, Any], **kwargs: Any) -> None:
+        writes["n"] += 1
+        captured["request"] = request
+
+    mgr._write_frame_with_timeout = _write_frame  # type: ignore[method-assign]
+    reads = {"n": 0}
+
+    def _read(stdout: Any, timeout_sec: float | int, stop_checker: Any = None) -> bytes:
+        reads["n"] += 1
+        request = captured["request"]
+        if reads["n"] == 1:
+            return pickle.dumps({"type": "exec_started", "id": request["id"]}, protocol=5)
+        return pickle.dumps(
+            {"id": "", "status": "error", "message": "Invalid pickle request: late"},
+            protocol=5,
+        )
+
+    mgr._read_response_bytes = _read  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+
+    result = mgr._execute_ipc_unlocked("result = 1", timeout_sec=1)
+
+    assert result["code"] == "WORKER_IPC_ERROR"
+    assert "id mismatch" in result["message"]
+    assert writes["n"] == 1
+    assert mgr._terminate_worker.call_count == 1
+    assert mgr._terminate_worker.call_args_list == [call(wait=False)]
+
+
