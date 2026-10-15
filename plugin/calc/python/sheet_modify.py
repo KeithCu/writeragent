@@ -207,12 +207,18 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
     timer_holder: list[Any] = []
 
     def _fire() -> None:
+        sheet_name_to_run = name
         with _PENDING_LOCK:
-            if timer_holder and _PENDING_TIMERS.get(key) is timer_holder[0]:
-                _PENDING_TIMERS.pop(key, None)
+            if timer_holder:
+                this_timer = timer_holder[0]
+                for pkey, val in list(_PENDING_TIMERS.items()):
+                    if val is this_timer:
+                        _PENDING_TIMERS.pop(pkey, None)
+                        sheet_name_to_run = pkey[1]
+                        break
         from plugin.framework.queue_executor import post_to_main_thread
 
-        post_to_main_thread(lambda: run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=name))
+        post_to_main_thread(lambda: run_sheet_modify_pass(ctx, doc, sheet, doc_url=url, sheet_name=sheet_name_to_run))
 
     from plugin.calc.python.function import start_deferred_sheet_timer
 

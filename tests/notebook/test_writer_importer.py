@@ -1746,3 +1746,93 @@ def test_doc_body_nonempty_uses_region_compare():
 
     mock_text.compareRegionStarts.return_value = 1
     assert _doc_body_nonempty(mock_doc) is True
+
+
+def test_fetch_remote_image_timeout_returns_none(monkeypatch):
+    import urllib.request
+    from plugin.notebook.writer_importer import _fetch_remote_image
+
+    def raise_timeout(*_args, **_kwargs):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(urllib.request, "urlopen", raise_timeout)
+    assert _fetch_remote_image("https://example.com/a.png", timeout=1.0) is None
+
+
+def test_import_cells_keeps_later_cell_when_one_cell_fails(tmp_path, monkeypatch):
+    ipynb = tmp_path / "two.ipynb"
+    ipynb.write_text(
+        '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
+        '{"cell_type":"markdown","metadata":{},"source":"kept"},'
+        '{"cell_type":"code","metadata":{},"source":"boom","outputs":[]}'
+        "]}",
+        encoding="utf-8",
+    )
+    doc, body_text, _cursor = _writer_doc_mock(with_bookmarks=True)
+
+    real = __import__(
+        "plugin.notebook.notebook_controls", fromlist=["_insert_code_input_in_flow"]
+    )._insert_code_input_in_flow
+
+    def fail_field(*_args, **_kwargs):
+        raise RuntimeError("field failed")
+
+    monkeypatch.setattr(
+        "plugin.notebook.writer_importer._insert_code_input_in_flow", fail_field)
+    monkeypatch.setattr(
+        "plugin.notebook.cell_registry.save_registry", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "plugin.notebook.cell_registry.save_notebook_source_path", lambda *_a, **_k: None)
+
+    stats = import_ipynb_to_writer(doc, str(ipynb))
+    inserted = [call.args[1] for call in body_text.insertString.call_args_list]
+    assert stats["markdown"] == 1
+    assert stats["cells"] == 2
+    assert any(text == "[Notebook cell 1 could not be imported]" for text in inserted)
+    assert real is not fail_field
+
+
+def test_import_failed_output_image_writes_placeholder(tmp_path, monkeypatch):
+    png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    ipynb = tmp_path / "img.ipynb"
+    ipynb.write_text(
+        '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
+        '{"cell_type":"code","metadata":{},"source":"plot()","outputs":['
+        '{"output_type":"display_data","data":{"image/png":"' + png_b64 + '"}}'
+        "]}]}",
+        encoding="utf-8",
+    )
+    doc, body_text, _cursor = _writer_doc_mock()
+    monkeypatch.setattr(
+        "plugin.notebook.writer_importer._insert_image_in_flow", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("plugin.notebook.notebook_controls.Size", lambda w, h: None)
+
+    stats = import_ipynb_to_writer(doc, str(ipynb))
+    inserted = [call.args[1] for call in body_text.insertString.call_args_list]
+    assert stats["images"] == 0
+    assert "[image output omitted]" in inserted
+
+
+def test_import_cells_closed_document_aborts(monkeypatch):
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.notebook.writer_importer import _import_cells
+
+    class _Cell:
+        cell_type = "raw"
+        source = "x"
+        outputs = []
+
+    class _Nb:
+        cells = [_Cell(), _Cell()]
+
+    def fail_append(*_args, **_kwargs):
+        raise type("DisposedException", (Exception,), {})("closed")
+
+    monkeypatch.setattr(
+        "plugin.notebook.writer_importer._append_body_text_block", fail_append)
+    doc = MagicMock()
+    stats = {"cells": 0, "markdown": 0, "code": 0, "raw": 0, "shapes": 0, "images": 0, "outputs": 0, "controls": 0}
+    with pytest.raises(DocumentDisposedError):
+        _import_cells(doc, _Nb(), stats, 2, 0.0)
+    # Counted before the try. The second cell must not run.
+    assert stats["cells"] == 1

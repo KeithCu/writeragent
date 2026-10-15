@@ -2993,7 +2993,7 @@ def test_harness_main_reads_claimed_stdin(monkeypatch):
     assert started == {"type": "exec_started", "id": "req-claim-in"}
 
 
-def test_first_frame_stall_uses_timeout_not_grace():
+def test_first_frame_stall_uses_timeout_not_grace(caplog: pytest.LogCaptureFixture):
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = "python"
 
@@ -3016,6 +3016,12 @@ def test_first_frame_stall_uses_timeout_not_grace():
     elapsed = time.monotonic() - started
     assert elapsed < 1.0
     assert excinfo.value.timeout == pytest.approx(0.2)
+    unknown_logs = [
+        rec
+        for rec in caplog.records
+        if rec.levelno >= logging.WARNING and "ignoring unknown frame" in rec.getMessage()
+    ]
+    assert len(unknown_logs) == 1
 
 
 def test_heartbeat_then_stall_uses_grace():

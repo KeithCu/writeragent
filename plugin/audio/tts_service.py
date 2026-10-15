@@ -67,7 +67,6 @@ __all__ = [
     "speak_text_async",
     "stop_speech",
     "_release_temp",
-    "_terminate_proc",
 ]
 
 log = logging.getLogger(__name__)
@@ -273,12 +272,6 @@ def _reap_proc(proc: subprocess.Popen[Any] | None) -> None:
             proc.wait(timeout=5)
     except Exception as exc:
         log.debug("speech reap error: %s", exc)
-
-
-def _terminate_proc(proc: subprocess.Popen[Any] | None) -> None:
-    """Terminate and reap a process (used in tests or synchronous cleanup paths)."""
-    _signal_stop_proc(proc)
-    _reap_proc(proc)
 
 
 def _unlink_quiet(path: str | None) -> None:
@@ -1142,18 +1135,18 @@ def _kokoro_audio_file(
         )
         if wav_path or not allow_fallback:
             return wav_path
-    if py_exe:
-        bin_dir = os.path.dirname(py_exe)
-        cand_cli = os.path.join(bin_dir, "kokoro.exe" if sys.platform == "win32" else "kokoro")
-        if os.path.isfile(cand_cli) and os.access(cand_cli, os.X_OK):
-            wav_path = _kokoro_cli_to_file(cand_cli, text, voice, speed, generation)
-            if wav_path or _playback_blocked(generation):
-                return wav_path
-        if os.path.isfile(model_path) and os.path.isfile(voices_path):
-            return _kokoro_oneshot_to_file(
-                py_exe, text, voice, speed, model_path, voices_path, generation,
-                on_status=on_status, misaki_ready=misaki_ready,
-            )
+    # py_exe is set: an empty venv already returned above, so this is not checked again.
+    bin_dir = os.path.dirname(py_exe)
+    cand_cli = os.path.join(bin_dir, "kokoro.exe" if sys.platform == "win32" else "kokoro")
+    if os.path.isfile(cand_cli) and os.access(cand_cli, os.X_OK):
+        wav_path = _kokoro_cli_to_file(cand_cli, text, voice, speed, generation)
+        if wav_path or _playback_blocked(generation):
+            return wav_path
+    if os.path.isfile(model_path) and os.path.isfile(voices_path):
+        return _kokoro_oneshot_to_file(
+            py_exe, text, voice, speed, model_path, voices_path, generation,
+            on_status=on_status, misaki_ready=misaki_ready,
+        )
     return None
 
 

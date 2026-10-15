@@ -456,3 +456,39 @@ def test_endpoint_empty_body_is_failure_not_a_file():
             assert cfg.cached_tts_response_format("m") is None
     finally:
         cfg._tts_response_format.clear()
+
+
+def test_speak_endpoint_later_chunk_failure_still_reports_status():
+    recorded_status: list[object] = []
+    downloads: list[str] = []
+
+    def fake_download(chunk, *args, on_status=None, **kwargs):
+        del args, kwargs
+        recorded_status.append(on_status)
+        downloads.append(chunk)
+        if len(downloads) == 1:
+            return "/tmp/first_chunk.wav"
+        return None
+
+    sentinel_status: object = object()
+    text = ("A" * 4000) + " tail stays"
+
+    with patch("plugin.audio.tts_endpoint._download_endpoint_speech", side_effect=fake_download), \
+         patch("plugin.audio.tts_service._play_audio_file", return_value=True), \
+         patch("plugin.audio.tts_service._release_temp"), \
+         patch("plugin.audio.tts_service._speak_system") as system, \
+         patch("plugin.audio.tts_service._playback_blocked", return_value=False):
+        _speak_endpoint(
+            text,
+            "https://api.openai.com/v1",
+            "k",
+            model="tts-1",
+            voice="alloy",
+            on_status=sentinel_status,  # type: ignore[arg-type]
+        )
+
+    assert len(downloads) == 2
+    assert recorded_status == [sentinel_status, sentinel_status]
+    system.assert_called_once()
+    assert system.call_args.args[0] == downloads[1]
+    assert "tail stays" in system.call_args.args[0]
