@@ -1292,3 +1292,122 @@ def test_kokoro_warm_passes_scaled_timeout() -> None:
     assert len(calls) == 2
     assert calls[0]["timeout_sec"] == 120.0
     assert calls[1]["timeout_sec"] == _kokoro_synth_timeout(long_text)
+
+
+def test_kokoro_audio_file_skips_model_download_without_venv() -> None:
+    from plugin.audio.tts_service import _kokoro_audio_file
+
+    with patch("plugin.audio.tts_service._venv_python", return_value=None), \
+         patch("plugin.audio.tts_models._resolve_kokoro_model_files") as resolve:
+        res = _kokoro_audio_file("Hello", "af_sky", 1.0, None, None)
+        assert res is None
+        resolve.assert_not_called()
+
+
+def test_kokoro_audio_file_resolves_models_when_venv_exists() -> None:
+    from plugin.audio.tts_service import _kokoro_audio_file
+
+    with patch("plugin.audio.tts_service._venv_python", return_value="/venv/bin/python"), \
+         patch("plugin.audio.tts_service._resolve_kokoro_model_files", return_value=("/no/model.onnx", "/no/voices.bin")) as resolve:
+        res = _kokoro_audio_file("Hello", "af_sky", 1.0, None, None)
+        resolve.assert_called_once()
+        assert res is None
+
+
+def test_sentence_kokoro_without_venv_warns_once_and_uses_os_speech(caplog: pytest.LogCaptureFixture) -> None:
+    import plugin.audio.tts_service as tts
+
+    generation = tts._begin_utterance()
+    try:
+        with patch.object(tts, "_venv_python", return_value=None), \
+             patch("plugin.audio.tts_models._resolve_kokoro_model_files") as resolve, \
+             patch.object(tts, "_speak_system") as system:
+            with caplog.at_level("WARNING"):
+                tts._run_sentence_pipeline(["One.", "Two."], "kokoro", "af_sky", 1.0, None, generation)
+        resolve.assert_not_called()
+        assert [c.args[0] for c in system.call_args_list] == ["One.", "Two."]
+        assert caplog.text.count("Local Kokoro TTS requires a configured Python venv") == 1
+    finally:
+        tts.stop_speech()
+
+
+def test_spd_say_nonzero_exit_stops_remaining_chunks(caplog: pytest.LogCaptureFixture) -> None:
+    from plugin.audio.tts_service import _speak_system
+
+    def fake_which(cmd: str) -> str | None:
+        return "/usr/bin/spd-say" if cmd == "spd-say" else None
+
+    mock_proc = MagicMock()
+    mock_proc.wait.return_value = 1
+
+    with patch("sys.platform", "linux"), \
+         patch("shutil.which", side_effect=fake_which), \
+         patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc) as mock_popen:
+        with caplog.at_level("WARNING"):
+            _speak_system("a" * 4001, speed=1.0)
+    mock_popen.assert_called_once()
+    assert "spd-say exited with code 1" in caplog.text
+
+
+def test_spd_say_zero_exit_speaks_every_chunk(caplog: pytest.LogCaptureFixture) -> None:
+    from plugin.audio.tts_service import _speak_system
+
+    def fake_which(cmd: str) -> str | None:
+        return "/usr/bin/spd-say" if cmd == "spd-say" else None
+
+    mock_proc = MagicMock()
+    mock_proc.wait.return_value = 0
+
+    with patch("sys.platform", "linux"), \
+         patch("shutil.which", side_effect=fake_which), \
+         patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc) as mock_popen:
+        with caplog.at_level("WARNING"):
+            _speak_system("a" * 4001, speed=1.0)
+    assert mock_popen.call_count == 2
+    assert "spd-say exited" not in caplog.text
+
+
+def test_spd_say_killed_by_stop_does_not_warn(caplog: pytest.LogCaptureFixture) -> None:
+    import plugin.audio.tts_service as tts
+
+    def fake_which(cmd: str) -> str | None:
+        return "/usr/bin/spd-say" if cmd == "spd-say" else None
+
+    generation = tts._begin_utterance()
+    try:
+        mock_proc = MagicMock()
+
+        def fake_wait() -> int:
+            tts._speech_generation += 1
+            return -9
+
+        mock_proc.wait.side_effect = fake_wait
+
+        with patch("sys.platform", "linux"), \
+             patch("shutil.which", side_effect=fake_which), \
+             patch.object(tts, "_popen_for_speech", return_value=mock_proc) as mock_popen:
+            with caplog.at_level("WARNING"):
+                tts._speak_system("a" * 4001, speed=1.0, generation=generation)
+        mock_popen.assert_called_once()
+        assert "spd-say exited" not in caplog.text
+    finally:
+        tts.stop_speech()
+
+
+def test_stop_speech_reaps_inline_when_cleanup_thread_fails(tmp_path: Any) -> None:
+    import plugin.audio.tts_service as tts
+
+    clip = tmp_path / "clip.wav"
+    clip.write_bytes(b"RIFF")
+    clip_str = str(clip)
+    tts._tracked_temps.add(clip_str)
+    patcher = patch.object(tts, "run_in_background", side_effect=RuntimeError("no thread"))
+    patcher.start()
+    try:
+        tts.stop_speech()
+        assert not clip.exists()
+        assert clip_str not in tts._tracked_temps
+    finally:
+        patcher.stop()
+        tts.stop_speech()
+
