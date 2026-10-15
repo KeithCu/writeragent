@@ -19,6 +19,7 @@
 #   - long-running READ-ONLY, same document             -> concurrent (2)
 #   - long-running + backpressure MUTATING, same doc    -> serialized (1)
 #   - backpressure waits for that gate off the main-thread executor
+#   - backpressure mutating call blocked on doc A’s gate does not block a fast call on doc B
 import threading
 import time
 
@@ -392,3 +393,88 @@ def test_readonly_backpressure_does_not_wait_on_held_mutation_gate():
     t_long.join(timeout=2)
     t_bp.join(timeout=2)
     assert not errors, errors
+
+
+def test_gate_wait_does_not_hold_global_semaphore():
+    release = threading.Event()
+    long_in_body = threading.Event()
+    a_entered = threading.Event()
+    b_done = threading.Event()
+
+    class _Reg(_Registry):
+        def execute(self, name, context, **kwargs):
+            if name == "long_tool":
+                long_in_body.set()
+                assert release.wait(timeout=3), "long-running body was not released"
+                return {"status": "ok"}
+            if name == "fast_a":
+                a_entered.set()
+                return {"status": "ok"}
+            if name == "fast_b":
+                b_done.set()
+                return {"status": "ok"}
+            return {"status": "ok"}
+
+    main = _DepthMainThread()
+    reg = _Reg(is_mutation=True, hold=0)
+    handler = MCPProtocolHandler(_FakeServices(reg))
+    handler.queue_executor = main
+    errors = []
+
+    def run_long():
+        try:
+            handler._execute_long_running("long_tool", {}, document_url="file:///a.odt")
+        except Exception as e:  # noqa: BLE001
+            errors.append("long: %s" % e)
+
+    def run_fast_a():
+        try:
+            handler._execute_with_backpressure("fast_a", {}, document_url="file:///a.odt")
+        except Exception as e:  # noqa: BLE001
+            errors.append("fast_a: %s" % e)
+
+    def run_fast_b():
+        try:
+            handler._execute_with_backpressure("fast_b", {}, document_url="file:///b.odt")
+        except Exception as e:  # noqa: BLE001
+            errors.append("fast_b: %s" % e)
+
+    t_long = threading.Thread(target=run_long)
+    t_long.start()
+    assert long_in_body.wait(timeout=2), "long-running tool never reached body"
+
+    t_fast_a = threading.Thread(target=run_fast_a)
+    t_fast_a.start()
+
+    deadline = time.perf_counter() + 2.0
+    blocked_off_main = False
+    while time.perf_counter() < deadline:
+        with main._lock:
+            names = list(main.seen)
+            depth = main.depth
+        if "_execute_tool_on_main" in names:
+            release.set()
+            t_long.join(timeout=2)
+            t_fast_a.join(timeout=2)
+            raise AssertionError("gate wait ran inside the main-thread dispatch: %s" % names)
+        if names.count("_prepare_mcp_execution") >= 2 and depth == 0 and not a_entered.is_set():
+            blocked_off_main = True
+            break
+        time.sleep(0.01)
+
+    assert blocked_off_main, "fast_a never reached the off-thread gate wait (seen=%s)" % main.seen
+
+    t_fast_b = threading.Thread(target=run_fast_b)
+    t_fast_b.start()
+
+    assert b_done.wait(timeout=2), "fast_b timed out waiting on semaphore"
+    assert not a_entered.is_set(), "fast_a entered body before long_tool released the gate"
+
+    release.set()
+    t_long.join(timeout=2)
+    t_fast_a.join(timeout=2)
+    t_fast_b.join(timeout=2)
+
+    assert not errors, "errors occurred: %s" % errors
+    assert a_entered.is_set(), "fast_a never finished after release"
+

@@ -128,14 +128,6 @@ def _attach_precomputed_echo(result: Any, echo: dict[str, Any] | None) -> None:
         result["document"] = echo
 
 
-def _attach_document_echo(result: Any, doc: Any) -> None:  # pyright: ignore[reportUnusedFunction]
-    """Echo the resolved target document ({name, uid}) in a tool result. Without an explicit
-    document_url the target follows the USER'S window focus and can change between two calls —
-    the echo lets the agent detect that instead of silently editing the wrong document.
-    MAIN-THREAD callers only (see _document_echo_payload). Imported by tests.
-    """
-    _attach_precomputed_echo(result, _document_echo_payload(doc))
-
 
 # Pointer to the on-demand manual (T4 / G2 consolidation). The full how-to — editing, editing-html,
 # review-modes, search, navigation, images, concurrency — is served per topic by get_guidance(topic), so the model
@@ -218,12 +210,15 @@ def _send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -
         handler.send_header("Mcp-Session-Id", session_id)
 
 
-# Backpressure — one fast MCP tool at a time (_execute_with_backpressure).
-# The semaphore and the per-document gate are taken on the HTTP worker; only
-# document resolve and the tool body are marshalled to the main thread.
-# Long-running tools skip the semaphore; see docs/framework/threading.md § MCP tool execution paths.
+# Backpressure — one fast MCP tool body at a time (_execute_with_backpressure).
+# The semaphore covers prepare and, for a read-only tool, the body. A mutating
+# fast call releases it before the per-document gate and takes it again only
+# for the body, so a wait on one document does not 429 other documents.
+# Long-running tools skip the semaphore and take only the gate.
+# See docs/framework/threading.md § MCP tool execution paths.
 _tool_semaphore = threading.Semaphore(1)
 _WAIT_TIMEOUT = 5.0
+_BUSY_MESSAGE = "LibreOffice is busy processing another tool call. Please wait a moment and retry."
 _PROCESS_TIMEOUT = 60.0
 
 _ACTIVE_DOCUMENT_SENTINEL = "__active_document__"
@@ -302,7 +297,7 @@ def _arguments_without_thread_guard_bypass(arguments: dict[str, Any]) -> dict[st
 
     ``tools/call`` and the localhost ``/debug`` ``call_tool`` action spread
     arguments into ``ToolRegistry.execute``. ``bypass_thread_guard`` is
-    keyword-only, so a client value bound to it. The registry then called
+    keyword-only, so a client value in that spread was bound to the parameter. The registry then called
     ``tool.execute`` instead of ``execute_safe`` (no disposed-document check)
     and, for a sync long-running tool, ran UNO on the HTTP worker. The flag
     is an internal eval-harness switch. Drop the key and do not pass the
@@ -393,6 +388,30 @@ def _reject_stale_session(handler: Any, msg: Any = None) -> bool:
     return True
 
 
+def _echoable_jsonrpc_id(msg: Any) -> str | int | None:
+    """Request id to copy onto a JSON-RPC error, or None when it cannot be detected.
+
+    JSON-RPC 2.0 uses null when the id itself is missing or not a string or
+    integer. A bool is an int subclass and is not a valid id.
+    """
+    if not isinstance(msg, dict):
+        return None
+    req_id = msg.get("id")
+    if isinstance(req_id, bool) or not isinstance(req_id, (str, int)):
+        return None
+    return req_id
+
+
+def _mcp_unknown_tool_result(message: str) -> dict[str, Any]:
+    """tools/call content block for a tool this exposure mode will not run.
+
+    Same shape as the old hand-built dict: text JSON of status/code/message,
+    isError true. make_tool_error omits empty details.
+    """
+    payload = make_tool_error(message, code="UNKNOWN_TOOL")
+    return wire_types.call_tool_result(json.dumps(payload, ensure_ascii=False), is_error=True)
+
+
 class MCPProtocolHandler:
     """MCP JSON-RPC protocol — route handlers for the HTTP server."""
 
@@ -423,7 +442,15 @@ class MCPProtocolHandler:
     # ── Raw handlers (receive GenericRequestHandler) ─────────────────
 
     def _extract_session(self, handler: Any) -> Any:
-        """Extract a client session key from headers or peer address for cancellation isolation."""
+        """Cancellation key: echoed session header plus client IP.
+
+        The header is the process-wide Mcp-Session-Id when the client sends it
+        (every spec client after initialize). X-Session-Id is used only when that
+        header is absent. The peer is the IP, not the source port: a cancel is a
+        second HTTP request and cannot be paired with the in-flight tools/call by
+        TCP port. Loopback clients share one Mcp-Session-Id and one IP, so they
+        share this key. That is the one-session contract, not a second session id.
+        """
         if handler is None:
             return None
         session_id = _get_request_session_id(handler)
@@ -866,9 +893,8 @@ class MCPProtocolHandler:
         # the default (delegate) behavior would not really be unchanged.
         mode = self._tool_exposure_mode()
         if tool_name == "find_tools" and mode != "direct_discovery":
-            return {"content": [{"type": "text", "text": json.dumps({"status": "error", "code": "UNKNOWN_TOOL", "message": "Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'."}, ensure_ascii=False)}], "isError": True}
+            return _mcp_unknown_tool_result("Tool 'find_tools' is only available when mcp.tool_exposure_mode is 'direct_discovery'.")
 
-        tool = self.tool_registry.get(tool_name)
         if tool:
             tier = getattr(tool, "tier", "core")
             # direct_discovery advertises specialized tools via find_tools, so
@@ -881,7 +907,7 @@ class MCPProtocolHandler:
                 exclude_tiers = MCP_DELEGATE_EXCLUDE_TIERS
 
             if tier in exclude_tiers:
-                return {"content": [{"type": "text", "text": json.dumps({"status": "error", "code": "UNKNOWN_TOOL", "message": f"Tool '{tool_name}' is not available in the current exposure mode."}, ensure_ascii=False)}], "isError": True}
+                return _mcp_unknown_tool_result(f"Tool '{tool_name}' is not available in the current exposure mode.")
 
         # One off-thread path: a long-running tool is is_async() exactly True
         # (positive timeout checked in _prepare_mcp_execution) and runs through
@@ -964,7 +990,7 @@ class MCPProtocolHandler:
         Returns (http_status, response_dict) or None for notifications (no ``id``).
         """
         if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
-            return (400, wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"))
+            return (400, wire_types.jsonrpc_failure(_echoable_jsonrpc_id(msg), wire_types.INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"))
 
         # Handle cancellation notifications globally.
         # Key cancellations by (session, requestId). An id alone lets one
@@ -984,7 +1010,7 @@ class MCPProtocolHandler:
 
         parsed = wire_types.parse_jsonrpc_request(msg)
         if isinstance(parsed, wire_types.JsonRpcParseError):
-            return (400, wire_types.jsonrpc_failure(None, parsed.code, parsed.message))
+            return (400, wire_types.jsonrpc_failure(_echoable_jsonrpc_id(msg), parsed.code, parsed.message))
 
         method = parsed.method
         params = parsed.params
@@ -1049,33 +1075,52 @@ class MCPProtocolHandler:
     def _execute_with_backpressure(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:
         """Execute a fast tool with backpressure.
 
-        The semaphore and the per-document mutation gate are acquired on this
-        HTTP worker. Document resolve and the tool body are marshalled to the
-        VCL main thread. UNO still runs only on that thread.
+        Document resolve and the tool body are marshalled to the VCL main thread.
+        UNO still runs only on that thread. The per-document gate is acquired on
+        this HTTP worker.
 
-        The gate used to be acquired inside ``_execute_tool_on_main``, which
-        this method dispatched as one main-thread job. A long-running mutator
-        already holding the gate (on its worker) made the UI thread block for
-        up to the 30s gate timeout, and that mutator could not marshal its own
-        UNO work until the wait gave up with BusyError. Wait for the gate
-        here, then dispatch only the tool body.
+        What was wrong: the semaphore was held across the gate wait (up to 30s).
+        A long-running mutator on document A made every other fast tools/call,
+        including one for document B, time out as BusyError.
+        How: prepare still runs under the semaphore. A mutating call releases it
+        before the gate and acquires it again only for the body. Read-only calls
+        never take the gate, so they keep the semaphore straight through.
+        Why: long-running tools take only the gate, so releasing before the wait
+        cannot deadlock, and one slow edit no longer 429s unrelated fast calls.
         """
         acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
         if not acquired:
-            raise BusyError("LibreOffice is busy processing another tool call. Please wait a moment and retry.")
+            raise BusyError(_BUSY_MESSAGE)
+        holding = True
         try:
             from plugin.framework.queue_executor import get_current_send_cancellation
+
             send_cancellation = get_current_send_cancellation()
             prepared = self.queue_executor.execute(self._prepare_mcp_execution, tool_name, arguments, document_url, req_id, timeout=10.0, bound_scope=send_cancellation, send_cancellation=send_cancellation, session=session)
             if not isinstance(prepared, _PreparedMcpCall):
                 return prepared
-            with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
+            if not prepared.needs_gate:
                 return self.queue_executor.execute(self._invoke_prepared_mcp_tool, prepared, tool_name, arguments, timeout=_PROCESS_TIMEOUT)
-        finally:
-            # We release the semaphore on a marshal TimeoutError, not keep it held, because QueueExecutor raises it only for work that never started.
-            # If the tool body actually started executing on the main thread, QueueExecutor waits indefinitely instead of raising TimeoutError.
-            # This ensures we don't accidentally release the semaphore or gate while a long-running tool is actively mutating LibreOffice.
+            # Gate key is known only after prepare. Drop the process-wide permit
+            # before waiting so other documents can take it.
             _tool_semaphore.release()
+            holding = False
+            with _document_mutation_gate(prepared.doc_key, enabled=True):
+                acquired = _tool_semaphore.acquire(timeout=_WAIT_TIMEOUT)
+                if not acquired:
+                    raise BusyError(_BUSY_MESSAGE)
+                holding = True
+                try:
+                    return self.queue_executor.execute(self._invoke_prepared_mcp_tool, prepared, tool_name, arguments, timeout=_PROCESS_TIMEOUT)
+                finally:
+                    # TimeoutError means the body never started. A body that did
+                    # start is not timed out, so this release is not under a live
+                    # main-thread tool.
+                    _tool_semaphore.release()
+                    holding = False
+        finally:
+            if holding:
+                _tool_semaphore.release()
 
     def _add_other_open_doc_schemas(self, schemas: list[dict[str, Any]], active_doc_type: str | None, exclude_tiers: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Append tools for the other open document types, active type first.
@@ -1221,7 +1266,15 @@ class MCPProtocolHandler:
         Client ``bypass_thread_guard`` is dropped and the keyword is not passed,
         so ``ToolRegistry.execute`` keeps ``execute_safe`` (see
         ``_arguments_without_thread_guard_bypass``). Do not call ``tool.execute``.
+        A latched Stop is refused here so the fast path and the long-running path share one pre-execute check.
         """
+        stop_checker = prepared.context.stop_checker
+        if callable(stop_checker) and stop_checker() is True:
+            # What was wrong: only _run_prepared_mcp_execute checked Stop, so a fast
+            # tool cancelled during prepare or the gate wait still ran.
+            # How: both paths call this method.
+            # Why: the checker only reads the cancel set and the send scope.
+            return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
         safe_args = _arguments_without_thread_guard_bypass(dict(arguments))
         t0 = time.perf_counter()
 
@@ -1240,9 +1293,6 @@ class MCPProtocolHandler:
         registry is marshalled to the main thread from there.
         """
         with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
-            stop_checker = prepared.context.stop_checker
-            if callable(stop_checker) and stop_checker() is True:
-                return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
             return self._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
 
     def _execute_long_running(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:
@@ -1329,17 +1379,6 @@ class MCPProtocolHandler:
         return {key: value, "persisted": True}
 
     # ── Helpers ───────────────────────────────────────────────────────
-
-    def _detect_active_doc_type(self) -> Any:
-        try:
-            doc_svc = self.services.document
-            doc = _real_active_document(doc_svc)
-            if doc:
-                return doc_svc.detect_doc_type(doc)
-        except Exception as e:
-            log.warning("Error detecting doc type: %s", type(e).__name__)
-            pass
-        return None
 
     def _read_body(self, handler: Any) -> Any:
         """Read and parse JSON body from an HTTP handler.

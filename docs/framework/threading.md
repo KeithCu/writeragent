@@ -32,17 +32,19 @@ MCP `tools/call` routes to one of two handlers in [`mcp_protocol.py`](../../plug
 
 | Path | Method | Tool body | Global limit | Per-document gate |
 |------|--------|-----------|--------------|-------------------|
-| Backpressure | `_execute_with_backpressure` | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only; **acquired on the HTTP worker** |
+| Backpressure | `_execute_with_backpressure` | Main (via queue) | `_tool_semaphore(1)` → `BusyError` if busy | Mutating tools only; acquired on the HTTP worker after the semaphore is released |
 | Long-running | `_execute_long_running` | HTTP worker (UNO marshalled) | None (by design) | Mutating tools only; acquired on the HTTP worker |
 
 ```mermaid
 flowchart TB
-    subgraph backpressure [Backpressure path]
+    subgraph backpressure [Mutating backpressure path]
         Sem["_tool_semaphore on HTTP worker"]
         PrepBp["prepare on main thread"]
+        Rel["release semaphore"]
         GateBp["gate acquire on HTTP worker"]
+        Sem2["reacquire semaphore"]
         BodyBp["tool body on main thread"]
-        Sem --> PrepBp --> GateBp --> BodyBp
+        Sem --> PrepBp --> Rel --> GateBp --> Sem2 --> BodyBp
     end
     subgraph longrun [Long-running path]
         PrepLr["prepare on main thread"]
@@ -56,11 +58,13 @@ flowchart TB
 
 **Why two layers?** The global semaphore keeps fast MCP tools from piling up on the main thread and surfaces `BusyError` (HTTP 429) under overload. Long-running tools (image generation, delegate sub-agents) skip the semaphore so a minutes-long job does not block every other MCP client. That left a hole: parallel long-running mutators could target the same document. The per-document gate closes that without blocking read-only work or work on other documents.
 
+A mutating backpressure call holds `_tool_semaphore` for prepare, releases it before `_document_mutation_gate`, and acquires it again only for the tool body. Waiting on a document another mutator already holds does not 429 fast calls for other documents. Read-only backpressure never takes the gate, so it keeps the semaphore from prepare through the body. Long-running tools still take only the gate.
+
 **Per-document gate:** [`_document_mutation_gate`](../../plugin/mcp/mcp_protocol.py) serializes mutating MCP runs that share a normalized document key (`X-Document-URL`, `doc.getURL()`, or `RuntimeUID`). Tools opt out via [`ToolBase.requires_document_lock()`](../../plugin/framework/tool.py) (defaults to `detects_mutation()`). Delegate gateways return `False` for read-only domains (`document_research`, `web_research`, `vision`). Both paths acquire the gate on the HTTP worker. The backpressure path used to acquire it inside the main-thread dispatch, so a long-running mutator holding the gate froze the UI for up to the 30s timeout and stalled that mutator's own UNO marshal.
 
 **UNO thread safety:** All UNO access is marshalled to the LibreOffice main thread. The per-document gate is **logical** serialization — it prevents overlapping mutating MCP tool runs on the same file, not raw cross-thread UNO calls. `bypass_thread_guard` is an eval-harness switch on `ToolRegistry.execute`. MCP and the sidebar tool loop pass `False`. A JSON object spread into `execute` cannot set it: `True` counts only when the caller writes that keyword in the call.
 
-**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../../tests/mcp/test_long_running_concurrency.py) covers same/different document, read-only, delegate opt-out, normalized URLs, cross-path (long-running + backpressure), unknown-tool conservative locking, and backpressure waiting for the gate off the main thread. [`tests/mcp/test_mcp_protocol.py`](../../tests/mcp/test_mcp_protocol.py) covers a client `bypass_thread_guard` argument. [`tests/chatbot/test_tool_loop_actions.py`](../../tests/chatbot/test_tool_loop_actions.py) covers a chat tool-call dict. [`tests/framework/test_tool.py`](../../tests/framework/test_tool.py) covers an explicit keyword versus a spread dict.
+**Tests:** [`tests/mcp/test_long_running_concurrency.py`](../../tests/mcp/test_long_running_concurrency.py) covers same/different document, read-only, delegate opt-out, normalized URLs, cross-path (long-running + backpressure), unknown-tool conservative locking, backpressure waiting for the gate off the main thread, and gate wait does not hold the global semaphore. [`tests/mcp/test_mcp_protocol.py`](../../tests/mcp/test_mcp_protocol.py) covers a client `bypass_thread_guard` argument. [`tests/chatbot/test_tool_loop_actions.py`](../../tests/chatbot/test_tool_loop_actions.py) covers a chat tool-call dict. [`tests/framework/test_tool.py`](../../tests/framework/test_tool.py) covers an explicit keyword versus a spread dict.
 
 **Not covered by MCP gates (different models):**
 *   **Sidebar chat** ([`tool_loop.py`](../../plugin/chatbot/tool_loop.py)) — one tool per LLM round; async tools run on worker threads but the loop waits for `TOOL_RESULT` before spawning the next.
