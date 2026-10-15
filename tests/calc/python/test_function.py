@@ -2261,6 +2261,197 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     assert key_spill in python_function.SPILL_REGISTRY
 
 
+def test_py_addin_cell_value_helper_error_dict(caplog: pytest.LogCaptureFixture) -> None:
+    from plugin.calc.analysis_egress import format_analysis_for_calc
+    from plugin.calc.quant_egress import format_quant_for_calc
+
+    quick = {
+        "status": "error",
+        "code": "UNKNOWN_COLUMN",
+        "message": "Unknown columns: Region",
+        "helper": "quick_stats",
+    }
+    # Egress formatters keep the dict as text rows. to_calc_compatible still stringifies it.
+    assert format_analysis_for_calc(quick) == [["Analysis error (UNKNOWN_COLUMN)"], ["Unknown columns: Region"]]
+    assert format_quant_for_calc(quick) == [["Quant error (UNKNOWN_COLUMN)"], ["Unknown columns: Region"]]
+    assert to_calc_compatible(quick) == str(quick)
+    assert isinstance(to_calc_compatible(quick), str)
+
+    mapped = [
+        (quick, 519, "quick_stats: UNKNOWN_COLUMN: Unknown columns: Region"),
+        ({"status": "error", "code": "INVALID_PARAM", "message": "bad"}, 519, "INVALID_PARAM: bad"),
+        (
+            {
+                "status": "error",
+                "code": "INVALID_PARAM",
+                "message": "bad",
+                "helper": "describe_data",
+                "details": {"col": "A"},
+            },
+            519,
+            "describe_data: INVALID_PARAM: bad",
+        ),
+        (
+            {
+                "status": "error",
+                "code": "MISSING_PACKAGE",
+                "message": "scipy is required for detect_outliers.",
+                "helper": "detect_outliers",
+            },
+            519,
+            "detect_outliers: MISSING_PACKAGE: scipy is required for detect_outliers.",
+        ),
+        ({"status": "error", "code": "#VALUE!", "message": "x"}, 519, "#VALUE!: x"),
+        ({"status": "error", "code": "#NUM!", "message": "x"}, 503, "#NUM!: x"),
+        ({"status": "error", "code": "#DIV/0!", "message": "x"}, 532, "#DIV/0!: x"),
+        ({"status": "error", "code": "  #DIV/0!  ", "message": "x"}, 532, "#DIV/0!: x"),
+        ({"status": "error", "code": "#N/A", "message": "x"}, 32767, "#N/A: x"),
+        ({"status": "error", "code": "#N/A N/A", "message": "x"}, 32767, "#N/A N/A: x"),
+        ({"status": "error", "code": "#REF!", "message": "x"}, 524, "#REF!: x"),
+        ({"status": "error", "code": "#NAME?", "message": "x"}, 525, "#NAME?: x"),
+        ({"status": "error", "code": "#NULL!", "message": "x"}, 521, "#NULL!: x"),
+        ({"status": "error", "code": "ZeroDivisionError", "message": "x"}, 532, "ZeroDivisionError: x"),
+        ({"status": "error", "code": "OverflowError", "message": "x"}, 503, "OverflowError: x"),
+        ({"status": "error", "code": "FloatingPointError", "message": "x"}, 503, "FloatingPointError: x"),
+        ({"status": "error", "code": "NameError", "message": "x"}, 525, "NameError: x"),
+        ({"status": "error", "code": "UnboundLocalError", "message": "x"}, 525, "UnboundLocalError: x"),
+        ({"status": "error", "code": "ValueError", "message": "x"}, 519, "ValueError: x"),
+        (
+            {
+                "status": "error",
+                "code": "INVALID_PARAM",
+                "message": "failed due to: ZeroDivisionError: div",
+                "helper": "describe_data",
+            },
+            519,
+            "describe_data: INVALID_PARAM: failed due to: ZeroDivisionError: div",
+        ),
+    ]
+    for err, bits, logged in mapped:
+        caplog.clear()
+        with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+            val = python_function.py_addin_cell_value(err)
+        assert isinstance(val, float)
+        assert not math.isfinite(val)
+        assert struct.unpack("Q", struct.pack("d", val))[0] & 0xFFFF == bits
+        assert logged in caplog.text
+        assert "=PY() worker failure" in caplog.text
+
+    stay_text = [
+        {"a": 1, "b": 2},
+        {"status": "ok", "helper": "describe_data", "metrics": {"n": 1}},
+        {"status": "error", "message": "nope"},
+        {"status": "error", "code": "UNKNOWN_COLUMN"},
+        {"status": "error", "code": "", "message": "x"},
+        {"status": "error", "code": "   ", "message": "x"},
+        {"status": "error", "code": "UNKNOWN_COLUMN", "message": "Unknown columns: Region", "rows": [1]},
+        {
+            "status": "error",
+            "code": "TEXT_ANALYTICS_ERROR",
+            "helper": "topics",
+            "message": "install scikit-learn for topics",
+            "result": {"error": "MISSING_PACKAGE"},
+        },
+        {"status": "Error", "code": "X", "message": "Y"},
+        {"status": "error", "code": 519, "message": "Y"},
+        {"status": "error", "code": "X", "message": None},
+        {"status": "error", "code": "X", "message": "Y", "helper": ""},
+        {"status": "error", "code": "X", "message": "Y", "helper": "   "},
+        {"status": "error", "code": "X", "message": "Y", "details": "nope"},
+        {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user.", "stdout": ""},
+    ]
+    for err in stay_text:
+        caplog.clear()
+        with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+            val = python_function.py_addin_cell_value(err)
+        assert val == str(err)
+        assert isinstance(val, str)
+        assert caplog.text == ""
+
+
+def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    python_function.clear_python_addin_cache()
+    doc = CalcDocStub()
+    ctx = _ctx_with_doc(doc)
+    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
+    rec_diag = MagicMock()
+    monkeypatch.setattr(python_function, "_record_py_diagnostic", rec_diag)
+
+    err = {
+        "status": "error",
+        "code": "UNKNOWN_COLUMN",
+        "message": "Unknown columns: Region",
+        "helper": "quick_stats",
+    }
+    worker = {"status": "ok", "result": err}
+    monkeypatch.setattr(python_function, "run_code_in_user_venv", lambda *_a, **_k: worker)
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+        out = python_function.execute_python_addin(ctx, "helper_err", doc=doc)
+    assert isinstance(out, float)
+    assert struct.unpack("Q", struct.pack("d", out))[0] & 0xFFFF == 519
+    assert "quick_stats: UNKNOWN_COLUMN: Unknown columns: Region" in caplog.text
+    assert caplog.text.count("=PY() worker failure") == 1
+    rec_diag.assert_called_once_with(
+        ctx,
+        "helper_err",
+        worker,
+        status="error",
+        message="quick_stats: UNKNOWN_COLUMN: Unknown columns: Region",
+        doc=doc,
+    )
+
+    # Message text that would stay a Settings string on the worker-status path is still #VALUE! here.
+    caplog.clear()
+    rec_diag.reset_mock()
+    timed = {
+        "status": "error",
+        "code": "INVALID_PARAM",
+        "message": "connection timed out",
+        "helper": "describe_data",
+    }
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": timed},
+    )
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+        out_timed = python_function.execute_python_addin(ctx, "helper_timeout_word", doc=doc)
+    assert isinstance(out_timed, float)
+    assert struct.unpack("Q", struct.pack("d", out_timed))[0] & 0xFFFF == 519
+    assert "describe_data: INVALID_PARAM: connection timed out" in caplog.text
+
+    # Ordinary dict stays text. Diagnostic is the ok record, not an error record.
+    caplog.clear()
+    rec_diag.reset_mock()
+    plain = {"hello": "world"}
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": plain},
+    )
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+        out_plain = python_function.execute_python_addin(ctx, "plain_dict", doc=doc)
+    assert isinstance(out_plain, str)
+    assert "hello" in out_plain
+    assert caplog.text == ""
+    rec_diag.assert_called_once_with(ctx, "plain_dict", {"status": "ok", "result": plain}, status="ok", doc=doc)
+
+    # Worker USER_STOPPED is still the text path (status on the envelope, not a helper result).
+    caplog.clear()
+    rec_diag.reset_mock()
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."},
+    )
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+        out_stop = python_function.execute_python_addin(ctx, "stop_still_text", doc=doc)
+    assert isinstance(out_stop, str)
+    assert "Stopped" in out_stop
+    assert caplog.text == ""
+
+
 def test_flat_result_equal_and_scalar_matrix_session(monkeypatch: pytest.MonkeyPatch) -> None:
     # Two payload NaNs with the same bits compare equal
     nan519_a = python_function.calc_formula_error_double(519)
