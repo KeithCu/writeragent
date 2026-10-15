@@ -10,22 +10,10 @@ import traceback
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_SOURCE,
-    UNDER_CROSSHAIR,
     _profile,
     deal,
     str_bounded,
 )
-
-
-def _deal_exc_ok_pytest(exc: object) -> bool:
-    return isinstance(exc, BaseException)
-
-
-def _deal_exc_ok_crosshair(exc: object) -> bool:
-    return exc is None
-
-
-_deal_exc_ok = _profile(_deal_exc_ok_crosshair, _deal_exc_ok_pytest)
 
 
 def _deal_optional_exc_ok_pytest(exc: object) -> bool:
@@ -50,17 +38,30 @@ def _deal_failure_detail_ok_crosshair(detail: object = None, exc: object = None)
 _deal_failure_detail_ok = _profile(_deal_failure_detail_ok_crosshair, _deal_failure_detail_ok_pytest)
 
 
-def _deal_failure_message_ok(summary: object, detail: object = None, exc: object = None) -> bool:
-    if not isinstance(summary, str):
-        return False
-    if UNDER_CROSSHAIR and not str_bounded(summary, DEAL_MAX_SOURCE):
-        return False
-    return _deal_failure_detail_ok(detail, exc)
+def _deal_failure_message_ok_pytest(summary: object, detail: object = None, exc: object = None) -> bool:
+    return isinstance(summary, str) and _deal_failure_detail_ok(detail, exc)
 
 
-@deal.pre(lambda exc: _deal_exc_ok(exc))
+def _deal_failure_message_ok_crosshair(summary: object, detail: object = None, exc: object = None) -> bool:
+    return (
+        isinstance(summary, str)
+        and str_bounded(summary, DEAL_MAX_SOURCE)
+        and _deal_failure_detail_ok(detail, exc)
+    )
+
+
+_deal_failure_message_ok = _profile(_deal_failure_message_ok_crosshair, _deal_failure_message_ok_pytest)
+
+
+@deal.pre(lambda exc: isinstance(exc, BaseException))
 def exception_traceback(exc: BaseException) -> str:
-    """Full traceback string for *exc*."""
+    """Full traceback for *exc*.
+
+    The pre is isinstance(exc, BaseException) on both profiles because a
+    CrossHair domain of exc is None has no __traceback__; the callable
+    stays # crosshair: off so traceback.format_exception is not a
+    check/cover entry.
+    """
     # crosshair: off
     return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
 

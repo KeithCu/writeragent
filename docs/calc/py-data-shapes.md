@@ -253,12 +253,14 @@ LLM/MCP sheet reads are a **different, always-on** path: `read_cell_range` enric
 - **Ingress:** serials arrive as floats (or strings if stored as text).
 - **Convenience coercion in `to_pandas()`:**
   - `data.to_pandas(date_cols=True)` — automatically detects date-like columns by column-name token only (`Date`, `OrderDate`, `datetime`, `year`, and the other tokens in decision 1), not by serial magnitude. A numeric column is converted only when its name matches or the caller passes it in `date_cols`. `Update`, `Runtime`, and `Consolidated` are not dates.
+    A selected numeric column uses the same rule as `parse_date_column`. When every non-null value is a finite integer from 1900 through 2200 inclusive, each value becomes 1 January of that year (`2019` → `2019-01-01`, not `1905-07-11`). Any other numeric column is days since `date_origin` (default `1899-12-30`), including a mix of a year-like integer and a real serial. `date_origin` is not applied to the year case. Values in that year window do not by themselves select a column; `Amount` stays numeric unless the caller names it.
   - `data.to_pandas(date_cols=["OrderDate", 1])` — parses specific columns by name or index.
   - `data.to_pandas(date_cols=True, date_origin="1904-01-01")` — for workbooks using a custom `NullDate`.
   - Manual coercion: `pd.to_datetime(df["date_col"], unit="D", origin="1899-12-30")` or `pd.to_datetime(df["date_col"])` for text.
 - **Text stays text** by default (`"00123"` remains a string). Opt in with `to_pandas(parse_strings=True)`.
 - **Header row is labels.** `parse_strings` does not rewrite it. A Calc number `2024` (stored as `2024.0`) becomes the column name `"2024"`, not `"2024.0"`. A header `"00123"` stays `"00123"`.
 - **Mixed columns stay mixed** under `parse_strings`. A column is promoted to numeric or datetime only when every non-null cell parses. One text cell used to NaN out and flip the column to float.
+- `header_row` outside `0 .. n_rows-1`, and `index_col` outside the columns that remain after the header row, raise `ValueError`. They are not clamped, and a negative index is not wrapped. An empty grid still returns an empty DataFrame.
 
 ### Egress (locked — do not add a datetime wire lane)
 

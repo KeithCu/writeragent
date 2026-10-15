@@ -21,6 +21,8 @@ from .coerce import _LO_ERROR_TOKENS, header_label, is_missing_value
 
 __all__ = [
     "_SERIAL_OFFSET",
+    "_as_bool_flag",
+    "_as_nonzero",
     "_bessel_iv_jv",
     "_bessel_kn_yn",
     "_build_holiday_set",
@@ -164,6 +166,39 @@ def nan_on_error(*exceptions: type[BaseException]) -> Callable[[Callable[..., An
         return wrapper
 
     return decorator
+
+
+def _as_bool_flag(val: Any) -> bool:
+    """LINEST / LOGEST ``const``.
+
+    A blank cell is false (``GetBool`` of an empty cell). ``"TRUE"`` and
+    ``"FALSE"`` are those booleans. ``"0"`` is false. ``bool("0")`` and
+    ``bool("FALSE")`` used to be true, so the fit kept an intercept.
+    """
+    if isinstance(val, (bool, np.bool_)):
+        return bool(val)
+    if val is None or val == "":
+        return False
+    if isinstance(val, str):
+        token = val.strip().upper()
+        if token == "TRUE":
+            return True
+        if token == "FALSE":
+            return False
+    return bool(float(val))
+
+
+def _as_nonzero(val: Any) -> bool:
+    """Calc ``GetDouble() != 0`` for a flag.
+
+    ``bool("0")`` and ``bool("FALSE")`` are true. GetDouble of ``"0"`` is
+    0, and a non-numeric string is ``#VALUE!``. The words TRUE and FALSE
+    are not booleans here; that map is LINEST's ``_as_bool_flag``. A blank
+    cell is 0.
+    """
+    if val is None or val == "":
+        return False
+    return bool(float(val))
 
 
 def _build_holiday_set(holidays: Any | None = None) -> set[dt.date]:

@@ -19,6 +19,8 @@ from typing import Any, cast
 import numpy as np
 
 from .calc_functions_util import (
+    _as_bool_flag,
+    _as_nonzero,
     _build_holiday_set,
     _clean_paired_arrays,
     _collect_a_values,
@@ -32,7 +34,7 @@ from .calc_functions_util import (
     _scipy_stats,
     _serial_to_date,
 )
-from .coerce import _LO_ERROR_TOKENS, is_missing_value
+from .coerce import _LO_ERROR_TOKENS, is_blank_value
 
 
 __all__ = [
@@ -171,7 +173,7 @@ def _format_number_pattern(value: float, places: int, grouped: bool, *, scale: i
     return f"-{body}" if negative else body
 
 
-def text(val: Any, fmt: Any) -> str:
+def text(val: Any, fmt: Any) -> str | float:
     fmt_str = str(fmt).strip('"').strip("'")
     spec = _TEXT_NUMBER_FORMATS.get(fmt_str)
     if spec is not None:
@@ -202,7 +204,14 @@ def text(val: Any, fmt: Any) -> str:
             return day.strftime(date_fmt)
         except (ValueError, TypeError, OverflowError):
             return str(val)
-    return str(val)
+    # ScText calls NFGetPreviewStringGuess and PushIllegalArgument (Err:502)
+    # when the format is rejected. The tables above are the whole set this
+    # helper implements. str(val) made text(1234.5, "$#,##0.00") return
+    # "1234.5". An empty format stays the value's text. A known format that
+    # cannot parse the value still returns str(val) above.
+    if fmt_str == "":
+        return str(val)
+    return float("nan")
 
 
 # Alias for spreadsheet-import emission: Calc's formula lexer treats ``TEXT(`` inside
@@ -263,20 +272,7 @@ def _textjoin_piece(val: Any) -> str:
     return str(val)
 
 
-def _as_nonzero(val: Any) -> bool:
-    """Calc ``GetDouble() != 0`` for a flag.
-
-    ``bool("0")`` and ``bool("FALSE")`` are true. GetDouble of ``"0"`` is
-    0, and a non-numeric string is ``#VALUE!``. The words TRUE and FALSE
-    are not booleans here; that map is LINEST's ``_as_bool_flag``. A blank
-    cell is 0.
-    """
-    if val is None or val == "":
-        return False
-    return bool(float(val))
-
-
-def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str:
+def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
     # bool("0") and bool("FALSE") are true, so a zero or text flag skipped
     # empty cells. ScTextJoin_MS uses GetDouble() != 0.
     try:
@@ -285,10 +281,25 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str:
         return "#VALUE!"
     parts = []
     for arg in args:
-        # dtype=object. A mixed list would otherwise become strings, and the
-        # general-format spelling above would never see the number.
-        for val in np.asarray(arg, dtype=object).ravel():
-            if is_missing_value(val):
+        # asarray of a ragged list is an object array of lists, and
+        # _flatten_range does not recurse into those elements. Flatten the
+        # Python range first. A string is not a range (_is_calc_range).
+        values = _flatten_range(arg) if _is_calc_range(arg) else np.asarray(arg, dtype=object).ravel()
+        for val in values:
+            # What was wrong: textjoin(",", True, ["a", "#VALUE!", "b"])
+            # returned "a,b", and a ragged [[1, 2], [3]] joined as "[1, 2],[3]".
+            # How it happened: is_missing_value treats an error token and NaN
+            # as a blank, so ignore_empty dropped them. asarray().ravel()
+            # left inner lists intact.
+            # Why this change fixes it: ScTextJoin_MS GetCellString SetError
+            # on a formula error, and PushString then pushes that error.
+            # The first error stops the join. A blank (is_blank_value) is
+            # still skipped or inserted as "".
+            if _is_calc_error(val):
+                if isinstance(val, str):
+                    return val.strip()
+                return float("nan")
+            if is_blank_value(val):
                 if not skip_empty:
                     parts.append("")
             else:
@@ -309,6 +320,11 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
     # change the pieces, not just the match.
     try:
         s = str(text)
+        # ScTextSplit PushIllegalParameter on empty text. This helper's
+        # illegal parameter is NaN, same as an empty delimiter. "" used to
+        # split to [[""]].
+        if s == "":
+            return float("nan")
         ci = (match_mode == 1)
         # bool("0") is true, so a zero flag dropped empty pieces.
         # ScTextSplit uses GetBool(), which is GetDouble() != 0.
@@ -334,6 +350,8 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
             max_cols = max(len(row) for row in res) if res else 0
             for row in res:
                 while len(row) < max_cols:
+                    # Omitted pad_with is NaN: ScTextSplit PutError(NotAvailable).
+                    # Do not use xlookup's "#N/A" string here.
                     row.append(pad_with)
             return res
         else:
@@ -441,12 +459,8 @@ def trend(*args: Any) -> Any:
             return "#VALUE!"
 
         # bool("FALSE") is True, so a const string kept the intercept.
-        # LINEST's GetBool helper already maps "FALSE" / "TRUE" / 0.
-        # i_m imports yearfrac only inside a function, so this import
-        # does not cycle.
+        # _as_bool_flag maps "FALSE" / "TRUE" / 0.
         if len(args) > 3:
-            from .calc_functions_i_m import _as_bool_flag
-
             const = _as_bool_flag(args[3])
         else:
             const = True
@@ -833,6 +847,8 @@ def _workday_serial(
     end = _advance_workdays(curr, remaining, weekend_days, _build_holiday_set(holidays))
     if end is None:
         return float("nan")
+    # The return retyped 693594. _date_to_serial subtracts _SERIAL_OFFSET,
+    # the one Excel epoch in this package.
     return _date_to_serial(end)
 
 

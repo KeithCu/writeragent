@@ -10,6 +10,8 @@ import io
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.scripting.ipc import read_pickle_frame
 from plugin.scripting.host_rpc import (
     TOOL_RPC_DISABLED,
@@ -28,15 +30,36 @@ def test_resolve_allowed_tools_disabled():
     assert resolve_allowed_tools("") == frozenset()
 
 
-def test_resolve_allowed_tools_librepy_domain_stays_unrestricted():
+def test_resolve_allowed_tools_librepy_domain_stays_unrestricted(caplog):
     """No writeragent_api: a domain string must not disable every tool RPC."""
-    with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
-        assert resolve_allowed_tools("writer") is None
-        assert resolve_allowed_tools("shapes, footnotes, core") is None
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        with patch("plugin.scripting.host_rpc._domain_tools_map", return_value=None):
+            assert resolve_allowed_tools("writer") is None
+            assert resolve_allowed_tools("shapes, footnotes, core") is None
+        assert "not a DOMAIN_TOOLS key" not in caplog.text
     # The proxy is present: an unknown name is still a real allowlist.
     unknown = resolve_allowed_tools("not-a-domain")
     assert unknown is not None
     assert "list_open_documents" in unknown
+
+
+def test_unknown_domain_logs_warning(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        caplog.clear()
+        allowed = resolve_allowed_tools("not-a-domain")
+        assert allowed is not None
+        assert "list_open_documents" in allowed
+        assert "not-a-domain" in caplog.text
+        assert "not a DOMAIN_TOOLS key" in caplog.text
+
+        caplog.clear()
+        allowed_footnotes = resolve_allowed_tools("footnotes")
+        assert allowed_footnotes is not None
+        assert "not a DOMAIN_TOOLS key" not in caplog.text
 
 
 def test_resolve_allowed_tools_writer_domain_includes_apply():
@@ -562,14 +585,67 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
 def test_singularize_domain():
     from plugin.scripting.host_rpc import singularize_domain
 
-    assert singularize_domain("footnotes") == "footnote"
-    assert singularize_domain("bookmarks") == "bookmark"
-    assert singularize_domain("indexes") == "index"
+    for plural, singular in (
+        ("bookmarks", "bookmark"),
+        ("charts", "chart"),
+        ("comments", "comment"),
+        ("errors", "error"),
+        ("fields", "field"),
+        ("footnotes", "footnote"),
+        ("headers_footers", "headers_footer"),
+        ("indexes", "index"),
+        ("pivot_tables", "pivot_table"),
+        ("ranges", "range"),
+        ("shapes", "shape"),
+        ("sheets", "sheet"),
+        ("slide_layouts", "slide_layout"),
+        ("slide_masters", "slide_master"),
+        ("slide_transitions", "slide_transition"),
+        ("speaker_notes", "speaker_note"),
+        ("tables", "table"),
+        ("textframes", "textframe"),
+    ):
+        assert singularize_domain(plural) == singular
+
     assert singularize_domain("images") == "images"
     assert singularize_domain("styles") == "styles"
     assert singularize_domain("forms") == "forms"
-    assert singularize_domain("shapes") == "shape"
     assert singularize_domain("core") == "core"
+    assert singularize_domain("analysis") == "analysis"
+    assert singularize_domain("status") == "status"
+    assert singularize_domain("shape") == "shape"
+    assert singularize_domain("style") == "style"
+
+
+@pytest.mark.parametrize(
+    "plural,key",
+    [
+        ("bookmarks", "bookmark"),
+        ("charts", "chart"),
+        ("comments", "comment"),
+        ("errors", "error"),
+        ("fields", "field"),
+        ("footnotes", "footnote"),
+        ("headers_footers", "headers_footer"),
+        ("indexes", "index"),
+        ("pivot_tables", "pivot_table"),
+        ("ranges", "range"),
+        ("shapes", "shape"),
+        ("sheets", "sheet"),
+        ("slide_layouts", "slide_layout"),
+        ("slide_masters", "slide_master"),
+        ("slide_transitions", "slide_transition"),
+        ("speaker_notes", "speaker_note"),
+        ("tables", "table"),
+        ("textframes", "textframe"),
+    ],
+)
+def test_singularize_domain_map_pairs_in_domain_tools(plural, key):
+    from plugin.scripting.host_rpc import singularize_domain
+    from plugin.scripting.writeragent_api import DOMAIN_TOOLS
+
+    assert singularize_domain(plural) == key
+    assert key in DOMAIN_TOOLS
 
 
 def test_proxy_methods_by_tool_uses_tool_methods():

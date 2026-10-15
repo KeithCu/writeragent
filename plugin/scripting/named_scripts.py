@@ -149,7 +149,8 @@ def _class_import_time_call_lines(node: ast.ClassDef) -> list[int]:
 
     Allowed statements in class bodies are FunctionDef without decorators or load-time effects,
     AnnAssign with Name/Attribute/Subscript target, Assign with Name/Attribute targets, Pass,
-    and a docstring as the first statement.
+    and a docstring as the first statement. Allowed attribute and subscript targets are scanned
+    with that same check, including an AnnAssign that has no value.
     """
     lines: list[int] = []
     for dec in node.decorator_list:
@@ -167,11 +168,20 @@ def _class_import_time_call_lines(node: ast.ClassDef) -> list[int]:
             if isinstance(stmt.target, (ast.Name, ast.Attribute, ast.Subscript)):
                 _record_load_time_expr(lines, stmt.value)
                 _record_load_time_expr(lines, stmt.annotation)
+                # What was wrong: a call in a class-body assignment target was kept
+                # (make().x = 1, make()[0]: int = 1) and ran while the library loaded.
+                # How it happened: only the value and the annotation were scanned.
+                # evaluate_class_def evaluates an Attribute target's value, and a
+                # Subscript target's value and slice, even when the AnnAssign has no value.
+                # Why this change: scan the target with the same load-time check.
+                _record_load_time_expr(lines, stmt.target)
             else:
                 _record_line(lines, stmt)
         elif isinstance(stmt, ast.Assign):
             if all(isinstance(t, (ast.Name, ast.Attribute)) for t in stmt.targets):
                 _record_load_time_expr(lines, stmt.value)
+                for target in stmt.targets:
+                    _record_load_time_expr(lines, target)
             else:
                 _record_line(lines, stmt)
         elif isinstance(stmt, ast.Pass):
@@ -195,10 +205,10 @@ def extract_library_source(code: str) -> str:
     Reject every decorator, every load-time async def, a nested class, a
     class-body unpack or subscript assignment, a class-body string that is not
     the first statement, and any call or := that runs while the library loads
-    (defaults, annotations, bases, class-body values). Calls and := inside defs
-    and lambdas stay. Omit other module-level expressions when a definition
-    remains; raise when those expressions are the whole library. pass and an
-    empty body return an empty string.
+    (defaults, annotations, bases, class-body values, class-body assignment
+    targets). Calls and := inside defs and lambdas stay. Omit other module-level
+    expressions when a definition remains; raise when those expressions are the
+    whole library. pass and an empty body return an empty string.
     """
     try:
         tree = ast.parse(code or "")

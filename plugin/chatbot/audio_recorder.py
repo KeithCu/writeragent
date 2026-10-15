@@ -54,6 +54,7 @@ from plugin.scripting.audio_silence_detector import SilenceDetector, load_silenc
 
 if TYPE_CHECKING:
     from plugin.framework.managed_subprocess import ManagedSubprocess
+    from plugin.framework.worker_pool import BackgroundHandle
 
 log = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ class AudioRecorder:
         self.ctx = ctx
         self.temp_filename: str | None = None
         self._proc: ManagedSubprocess | None = None
-        self._stdout_monitor: threading.Thread | Any = None
+        self._stdout_monitor: BackgroundHandle | None = None
         self._stop_handoff: RecordingStopHandoff | None = None
         self._auto_stopped_path: str | None = None
         self._auto_stop_notified = False
@@ -227,8 +228,22 @@ class AudioRecorder:
             handoff=handoff,
         )
 
+    def _take_new_temp_wav(self) -> None:
+        # Bugfix:
+        # - What was wrong: a child error after ready keeps a non-empty WAV
+        #   (_cleanup_failed_start used to unlink it). The next InitializeDeviceEffect
+        #   assigned a new mkstemp path over temp_filename, so the old file stayed
+        #   in the temp directory.
+        # - How: stop_recording is what clears the pointer after the caller takes
+        #   the path. The error effect does not. Sidebar cleanup deletes only the
+        #   path still stored.
+        # - Why this fixes it: the three new-take assignments delete the abandoned
+        #   file first. A path already returned to the sidebar is None here.
+        self._delete_wav()
+        self.temp_filename = make_temp_wav_path()
+
     def _cleanup_failed_start(self) -> None:
-        terminate_recording_process(self._proc)
+        terminate_recording_process(self._proc, monitor=self._stdout_monitor, handoff=self._stop_handoff)
         self._proc = None
         self._stdout_monitor = None
         self._stop_handoff = None
@@ -257,6 +272,9 @@ class AudioRecorder:
         proc: ManagedSubprocess | None,
         auto_path: str | None,
         exc: BaseException,
+        *,
+        monitor: BackgroundHandle | None = None,
+        handoff: RecordingStopHandoff | None = None,
     ) -> None:
         """Prefer an on-disk WAV over deleting it when stop's handshake fails.
 
@@ -269,17 +287,19 @@ class AudioRecorder:
         """
         if auto_path:
             self.temp_filename = auto_path
-            terminate_recording_process(proc)
+            terminate_recording_process(proc, monitor=monitor, handoff=handoff)
             return
         if _wav_file_has_bytes(self.temp_filename):
             log.warning("Stop handshake failed; using WAV already on disk: %s", exc)
-            terminate_recording_process(proc)
+            terminate_recording_process(proc, monitor=monitor, handoff=handoff)
             return
         log.debug("Failed to stop recording subprocess: %s", exc)
         # Cleanup terminates ``self._proc``. The stop effect already cleared it,
         # so put the child back or the mic process is leaked and the empty
         # temp file is left behind.
         self._proc = proc
+        self._stdout_monitor = monitor
+        self._stop_handoff = handoff
         self._cleanup_failed_start()
 
     def _write_injected_wav(self) -> None:
@@ -342,7 +362,7 @@ class AudioRecorder:
                         ErrorOccurredEvent(f"Recording subprocess timed out after {shown:g} seconds.")
                     )
                     return
-                self.temp_filename = make_temp_wav_path()
+                self._take_new_temp_wav()
                 self._proc = None
                 self._apply_event(DeviceReadyEvent())
                 if ctrl.get("auto_stop"):
@@ -370,7 +390,8 @@ class AudioRecorder:
             exe, _err = resolve_recording_python(self.ctx)
             if exe:
                 try:
-                    self.temp_filename = make_temp_wav_path()
+                    self._take_new_temp_wav()
+                    assert self.temp_filename is not None
                     self._proc = spawn_recording_process(exe, self.temp_filename, silence_config=silence_config)
                     log.info(
                         "audio recorder: venv subprocess path (silence_stop_ms=%d)",
@@ -389,7 +410,8 @@ class AudioRecorder:
                     ensure_native_binaries_on_path()
                     import sounddevice as sd
 
-                    self.temp_filename = make_temp_wav_path()
+                    self._take_new_temp_wav()
+                    assert self.temp_filename is not None
                     self.wav_file = wave.open(self.temp_filename, "wb")
                     self.wav_file.setnchannels(self.channels)
                     self.wav_file.setsampwidth(2)  # 16-bit
@@ -481,9 +503,10 @@ class AudioRecorder:
             self._silence_detector = None
 
             proc = self._proc
+            monitor = self._stdout_monitor
+            handoff = self._stop_handoff
             self._proc = None
             self._stdout_monitor = None
-            handoff = self._stop_handoff
             self._stop_handoff = None
             auto_path = self._auto_stopped_path
             self._auto_stopped_path = None
@@ -495,7 +518,7 @@ class AudioRecorder:
                         # Reap it and drop the stderr drain; updating
                         # temp_filename alone leaves that thread in
                         # _recording_stderr_drains.
-                        terminate_recording_process(proc)
+                        terminate_recording_process(proc, monitor=monitor, handoff=handoff)
                         self.temp_filename = auto_path
                     elif proc.is_alive():
                         if handoff is None:
@@ -503,17 +526,19 @@ class AudioRecorder:
                             # Building a new one here waits out the stop timeout
                             # and then reaps. No monitor means there is nothing to
                             # wait for.
-                            terminate_recording_process(proc)
+                            terminate_recording_process(proc, monitor=monitor, handoff=handoff)
                         else:
-                            path = stop_recording_process(proc, fallback_path=auto_path, handoff=handoff)
+                            path = stop_recording_process(
+                                proc, fallback_path=auto_path, handoff=handoff, monitor=monitor
+                            )
                             self.temp_filename = path
                     else:
-                        terminate_recording_process(proc)
+                        terminate_recording_process(proc, monitor=monitor, handoff=handoff)
                         self.temp_filename = auto_path or self.temp_filename
                 except Exception as exc:
-                    self._keep_recorded_wav_or_cleanup(proc, auto_path, exc)
+                    self._keep_recorded_wav_or_cleanup(proc, auto_path, exc, monitor=monitor, handoff=handoff)
             else:
-                terminate_recording_process(proc)
+                terminate_recording_process(proc, monitor=monitor, handoff=handoff)
 
             if self.state.status == "error":
                 # Failed start still deletes an empty file. A child error
@@ -567,7 +592,7 @@ class AudioRecorder:
                 # A failed Stop must not leave the host WAV open. The
                 # callback can still be inside writeframes, so stop the
                 # stream first (that waits for the callback) and close after.
-                terminate_recording_process(self._proc)
+                terminate_recording_process(self._proc, monitor=self._stdout_monitor, handoff=self._stop_handoff)
                 self._proc = None
                 self._stdout_monitor = None
                 self._stop_handoff = None

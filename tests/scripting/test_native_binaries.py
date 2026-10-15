@@ -324,6 +324,63 @@ def test_atomic_replace_native_windows_picks_unique_aside(tmp_path):
     assert (tmp_path / "pack.pyd.old.1").read_bytes() == b"LOADED_OLD"
 
 
+def test_atomic_replace_native_windows_restore_puts_old_bytes_back(tmp_path):
+    partial = tmp_path / "pack.pyd.partial"
+    dest = tmp_path / "pack.pyd"
+    partial.write_bytes(b"NEW")
+    dest.write_bytes(b"LOADED_OLD")
+
+    real_replace = os.replace
+
+    def flaky_replace(src, dst):
+        if src == str(partial):
+            raise PermissionError("loaded DLL")
+        return real_replace(src, dst)
+
+    with (
+        patch("os.name", "nt"),
+        patch("os.replace", side_effect=flaky_replace),
+        patch("plugin.scripting.native_binaries.log.exception") as mock_log,
+    ):
+        with pytest.raises(PermissionError, match="loaded DLL"):
+            _atomic_replace_native(str(partial), str(dest))
+
+    assert dest.read_bytes() == b"LOADED_OLD"
+    assert not (tmp_path / "pack.pyd.old").exists()
+    assert partial.exists()
+    mock_log.assert_not_called()
+
+
+def test_atomic_replace_native_windows_restore_failure_keeps_aside(tmp_path):
+    partial = tmp_path / "pack.pyd.partial"
+    dest = tmp_path / "pack.pyd"
+    partial.write_bytes(b"NEW")
+    dest.write_bytes(b"LOADED_OLD")
+    aside = tmp_path / "pack.pyd.old"
+
+    real_replace = os.replace
+
+    def flaky_replace(src, dst):
+        if src == str(partial):
+            raise PermissionError("loaded DLL")
+        if src == str(aside):
+            raise PermissionError("restore failed")
+        return real_replace(src, dst)
+
+    with (
+        patch("os.name", "nt"),
+        patch("os.replace", side_effect=flaky_replace),
+        patch("plugin.scripting.native_binaries.log.exception") as mock_log,
+    ):
+        with pytest.raises(PermissionError, match="loaded DLL"):
+            _atomic_replace_native(str(partial), str(dest))
+
+    assert not dest.exists()
+    assert aside.read_bytes() == b"LOADED_OLD"
+    assert partial.exists()
+    mock_log.assert_called_once()
+
+
 def test_cleanup_stale_native_backups_removes_old_files(tmp_path, monkeypatch):
     import plugin.scripting.native_binaries as nb
     monkeypatch.setattr(nb, "_swept", False)
@@ -333,6 +390,7 @@ def test_cleanup_stale_native_backups_removes_old_files(tmp_path, monkeypatch):
     (vec_dir / "pack.cp314-win_amd64.pyd").write_bytes(b"live")
     (vec_dir / "pack.cp314-win_amd64.pyd.old").write_bytes(b"stale")
     (vec_dir / "pack.cp314-win_amd64.pyd.old.1").write_bytes(b"stale1")
+    (tmp_path / "_cffi_backend.pyd").write_bytes(b"live_cffi")
     (tmp_path / "_cffi_backend.pyd.old").write_bytes(b"stale2")
     (tmp_path / "helper.older.py").write_bytes(b"keep_me")
     (tmp_path / "archive.oldest").write_bytes(b"keep_me_too")
@@ -343,6 +401,7 @@ def test_cleanup_stale_native_backups_removes_old_files(tmp_path, monkeypatch):
     assert (vec_dir / "pack.cp314-win_amd64.pyd").exists()
     assert not (vec_dir / "pack.cp314-win_amd64.pyd.old").exists()
     assert not (vec_dir / "pack.cp314-win_amd64.pyd.old.1").exists()
+    assert (tmp_path / "_cffi_backend.pyd").exists()
     assert not (tmp_path / "_cffi_backend.pyd.old").exists()
     assert (tmp_path / "helper.older.py").exists()
     assert (tmp_path / "archive.oldest").exists()
@@ -352,6 +411,7 @@ def test_cleanup_stale_native_backups_tolerates_locked_file(tmp_path, monkeypatc
     import plugin.scripting.native_binaries as nb
     monkeypatch.setattr(nb, "_swept", False)
 
+    (tmp_path / "pack.pyd").write_bytes(b"live")
     (tmp_path / "pack.pyd.old").write_bytes(b"stale")
 
     def boom(_path):
@@ -361,6 +421,57 @@ def test_cleanup_stale_native_backups_tolerates_locked_file(tmp_path, monkeypatc
         _cleanup_stale_native_backups(str(tmp_path))
 
     assert (tmp_path / "pack.pyd.old").exists()
+
+
+def test_cleanup_restores_newest_aside_when_dest_missing(tmp_path, monkeypatch):
+    import plugin.scripting.native_binaries as nb
+    monkeypatch.setattr(nb, "_swept", False)
+
+    (tmp_path / "pack.pyd.old").write_bytes(b"OLDER")
+    (tmp_path / "pack.pyd.old.1").write_bytes(b"NEWER")
+    (tmp_path / "_cffi_backend.pyd.old").write_bytes(b"CFFI")
+    (tmp_path / "other.pyd.old.2").write_bytes(b"GEN2")
+    (tmp_path / "helper.older.py").write_bytes(b"keep_me")
+    (tmp_path / ".old").write_bytes(b"dotold")
+
+    with patch("os.name", "nt"):
+        _cleanup_stale_native_backups(str(tmp_path))
+
+    assert (tmp_path / "pack.pyd").read_bytes() == b"NEWER"
+    assert not (tmp_path / "pack.pyd.old").exists()
+    assert not (tmp_path / "pack.pyd.old.1").exists()
+
+    assert (tmp_path / "_cffi_backend.pyd").read_bytes() == b"CFFI"
+    assert not (tmp_path / "_cffi_backend.pyd.old").exists()
+
+    assert (tmp_path / "other.pyd").read_bytes() == b"GEN2"
+    assert not (tmp_path / "other.pyd.old.2").exists()
+
+    assert (tmp_path / "helper.older.py").read_bytes() == b"keep_me"
+    assert (tmp_path / ".old").read_bytes() == b"dotold"
+
+
+def test_cleanup_leaves_asides_when_restore_fails(tmp_path, monkeypatch):
+    import plugin.scripting.native_binaries as nb
+    monkeypatch.setattr(nb, "_swept", False)
+
+    (tmp_path / "pack.pyd.old").write_bytes(b"ONLY")
+
+    def boom_replace(_src, _dst):
+        raise PermissionError("cannot restore")
+
+    def boom_remove(_path):
+        raise AssertionError("should not attempt to remove older asides")
+
+    with (
+        patch("os.name", "nt"),
+        patch("os.replace", side_effect=boom_replace),
+        patch("os.remove", side_effect=boom_remove),
+    ):
+        _cleanup_stale_native_backups(str(tmp_path))
+
+    assert (tmp_path / "pack.pyd.old").read_bytes() == b"ONLY"
+    assert not (tmp_path / "pack.pyd").exists()
 
 
 def test_cleanup_stale_native_backups_noop_on_posix(tmp_path, monkeypatch):
@@ -387,3 +498,175 @@ def test_wave_open_failure_message_does_not_mention_portaudio():
         msg = str(exc_info.value)
         assert "Failed to create audio WAV file" in msg
         assert "PortAudio" not in msg
+
+
+@pytest.mark.parametrize(
+    ("system", "machine", "ext_suffix", "portaudio_basename"),
+    [
+        ("Linux", "x86_64", ".cpython-312-x86_64-linux-gnu.so", None),
+        ("Darwin", "arm64", ".cpython-312-darwin.so", "libportaudio.dylib"),
+        ("Windows", "AMD64", ".cp312-win_amd64.pyd", "libportaudio64bit.dll"),
+        ("Windows", "ARM64", ".cp312-win_arm64.pyd", "libportaudioarm64.dll"),
+    ],
+)
+def test_run_audio_download_selects_cffi_and_portaudio(
+    tmp_path, system, machine, ext_suffix, portaudio_basename
+):
+    from plugin.scripting import native_binaries
+    from plugin.scripting.native_binaries import run_audio_download
+
+    native_dir = os.path.join(str(tmp_path), "audio_binaries")
+    zip_path = os.path.join(native_dir, "audio_source.zip")
+    cffi_name = f"_cffi_backend{ext_suffix}"
+    cffi_path = os.path.join(native_dir, cffi_name)
+
+    extracted_targets: list[str] = []
+    zip_opened: list[tuple[str, str]] = []
+
+    class _MockZip:
+        def __init__(self, path, mode):
+            zip_opened.append((path, mode))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def extractall(self, target):
+            extracted_targets.append(target)
+
+    dl_calls: list[tuple[str, str, dict[str, object]]] = []
+
+    def fake_download(url, dest_path, on_status, **kwargs):
+        dl_calls.append((url, dest_path, kwargs))
+
+    with (
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("sysconfig.get_config_var", return_value=ext_suffix),
+        patch("platform.system", return_value=system),
+        patch("platform.machine", return_value=machine),
+        patch("zipfile.ZipFile", _MockZip),
+        patch("plugin.scripting.native_binaries._download_url_to_file", side_effect=fake_download),
+        patch("plugin.scripting.native_binaries.run_vec_pack_download", return_value=True) as mock_vec,
+    ):
+        result = run_audio_download(lambda _t: None, lambda _s: None)
+
+    assert result is True
+
+    expected_dests = [zip_path, cffi_path]
+    expected_basenames = ["audio_source.zip", cffi_name]
+    if portaudio_basename is not None:
+        pa_path = os.path.join(native_dir, "_sounddevice_data", "portaudio-binaries", portaudio_basename)
+        expected_dests.append(pa_path)
+        expected_basenames.append(portaudio_basename)
+
+    actual_dests = [call[1] for call in dl_calls]
+    assert actual_dests == expected_dests
+
+    for i, basename in enumerate(expected_basenames):
+        kwargs = dl_calls[i][2]
+        assert kwargs["max_bytes"] == native_binaries._MAX_AUDIO_BYTES
+        assert kwargs["expected_sha256"] == native_binaries._AUDIO_SHA256[basename]
+
+    assert zip_opened == [(zip_path, "r")]
+    assert extracted_targets == [native_dir]
+
+    mock_vec.assert_called_once()
+    assert mock_vec.call_args.kwargs == {"include_header": False, "bind_host": True}
+
+    placeholder_file = tmp_path / "audio_binaries" / "_sounddevice_data" / "__init__.py"
+    assert placeholder_file.read_text() == "# Placeholder\n"
+
+    if system == "Linux":
+        assert not any("portaudio" in dest for dest in actual_dests)
+
+
+def test_run_audio_download_forwards_bind_host_false(tmp_path):
+    from plugin.scripting.native_binaries import run_audio_download
+
+    class _MockZip:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def extractall(self, *args, **kwargs):
+            pass
+
+    with (
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
+        patch("platform.system", return_value="Linux"),
+        patch("platform.machine", return_value="x86_64"),
+        patch("zipfile.ZipFile", _MockZip),
+        patch("plugin.scripting.native_binaries._download_url_to_file"),
+        patch("plugin.scripting.native_binaries.run_vec_pack_download", return_value=True) as mock_vec,
+    ):
+        result = run_audio_download(lambda _t: None, lambda _s: None, bind_host=False)
+
+    assert result is True
+    mock_vec.assert_called_once()
+    assert mock_vec.call_args.kwargs == {"include_header": False, "bind_host": False}
+
+
+def test_run_audio_download_stops_before_vec_pack_when_cffi_download_fails(tmp_path):
+    from plugin.scripting.native_binaries import run_audio_download
+
+    class _MockZip:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def extractall(self, *args, **kwargs):
+            pass
+
+    dl_count = 0
+
+    def download_side_effect(*args, **kwargs):
+        nonlocal dl_count
+        dl_count += 1
+        if dl_count == 2:
+            raise RuntimeError("cffi failed")
+
+    with (
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("sysconfig.get_config_var", return_value=".cpython-312-x86_64-linux-gnu.so"),
+        patch("platform.system", return_value="Linux"),
+        patch("platform.machine", return_value="x86_64"),
+        patch("zipfile.ZipFile", _MockZip),
+        patch("plugin.scripting.native_binaries._download_url_to_file", side_effect=download_side_effect),
+        patch("plugin.scripting.native_binaries.run_vec_pack_download") as mock_vec,
+    ):
+        with pytest.raises(RuntimeError, match="cffi failed"):
+            run_audio_download(lambda _t: None, lambda _s: None)
+
+    mock_vec.assert_not_called()
+    placeholder_file = tmp_path / "audio_binaries" / "_sounddevice_data" / "__init__.py"
+    assert not placeholder_file.exists()
+
+
+def test_unpinned_ext_suffix_raises_before_download(tmp_path):
+    from plugin.scripting.native_binaries import run_audio_download, run_vec_pack_download
+
+    with (
+        patch("sysconfig.get_config_var", return_value=".pyd"),
+        patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
+        patch("plugin.scripting.native_binaries._download_url_to_file") as mock_dl,
+    ):
+        with pytest.raises(RuntimeError, match="No pinned sha256 for pack.pyd"):
+            run_vec_pack_download(lambda _t: None, lambda _s: None)
+        mock_dl.assert_not_called()
+
+        with pytest.raises(RuntimeError, match="No pinned sha256 for _cffi_backend.pyd"):
+            run_audio_download(lambda _t: None, lambda _s: None)
+        mock_dl.assert_not_called()

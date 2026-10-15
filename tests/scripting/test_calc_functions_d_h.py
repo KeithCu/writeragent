@@ -71,9 +71,21 @@ def test_db_period_past_final_stub_is_nan():
     assert not math.isnan(calc.db(10000, 1000, 5, 1))
 
 
+def test_db_rate_rounds_half_away_from_zero():
+    assert math.isclose(calc.db(1, 0.0635, 1, 1), 0.937)
+    assert calc.db(1, 0.0645, 1, 1) == 0.936
+    assert math.isclose(calc.db(1_000_000, 100_000, 6, 7, 7), 15845.098473848071, rel_tol=1e-9)
+
+
 def test_disc_zero_redemption_is_nan():
     assert math.isnan(calc.disc(43831, 43983, 95, 0))
     assert math.isfinite(calc.disc(43831, 43983, 95, 100))
+    assert math.isnan(calc.disc(45000, 44000, 95, 100))
+    assert math.isnan(calc.disc(44000, 44000, 95, 100))
+    assert math.isnan(calc.disc(44000, 45000, 0, 100))
+    assert math.isnan(calc.disc(44000, 45000, -1, 100))
+    assert math.isnan(calc.disc(44000, 45000, 95, -100))
+    assert math.isclose(calc.disc(44000, 45000, 95, 100), 0.018237082066869303)
     assert math.isnan(calc.disc(43831, 43983, float("inf"), 100))
 
 
@@ -108,8 +120,9 @@ def test_duration_huge_yield_is_nan():
 
 
 def test_growth_rejects_non_positive_known_y():
-    assert calc.growth([1.0, 2.0, -1.0], [1.0, 2.0, 3.0], 4) == []
-    assert calc.growth([1.0, 0.0, 3.0], [1.0, 2.0, 3.0], 4) == []
+    assert calc.growth([1.0, 2.0, -1.0], [1.0, 2.0, 3.0], 4) == "#NUM!"
+    assert calc.growth([1.0, 0.0, 3.0], [1.0, 2.0, 3.0], 4) == "#NUM!"
+    assert calc.growth([1.0, 2.0, float("inf")], [1.0, 2.0, 3.0], 4) == "#NUM!"
     fitted = calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4)
     assert math.isclose(fitted[0], 8.0, rel_tol=1e-9)
     through_origin = calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, False)
@@ -117,7 +130,9 @@ def test_growth_rejects_non_positive_known_y():
     assert math.isfinite(through_origin[0])
     # A text "0" is truthy in Python. It must follow the numeric 0 path.
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "0") == through_origin
-    assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "FALSE") == []
+    assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4, "FALSE") == "#VALUE!"
+    assert calc.growth([]) == "#VALUE!"
+    assert calc.growth([1.0, 2.0], [1.0, 2.0, 3.0], 4) == "#VALUE!"
     assert calc.growth([1.0, 2.0, 4.0], [1.0, 2.0, 3.0], 4) == fitted
 
 
@@ -135,12 +150,35 @@ def test_days360_us_february_month_end():
     assert calc.days360(44927, 45292) == 360.0
 
 
+def test_days360_method_is_numeric():
+    d1 = _serial(2023, 2, 28)
+    d2 = _serial(2023, 3, 1)
+    assert calc.days360(d1, d2, False) == 1.0
+    assert calc.days360(d1, d2, 0) == 1.0
+    assert calc.days360(d1, d2, "0") == 1.0
+    assert calc.days360(d1, d2, True) == 3.0
+    assert calc.days360(d1, d2, 1) == 3.0
+    assert math.isnan(calc.days360(d1, d2, "FALSE"))
+    assert math.isnan(calc.days360(d1, d2, "TRUE"))
+
+
+def test_finv_and_gammainv_open_bounds_are_nan():
+    assert math.isnan(calc.finv(0, 2, 5))
+    assert math.isnan(calc.finv(1e-300, 2, 5))
+    assert calc.finv(1, 2, 5) == 0.0
+    assert math.isclose(calc.finv(0.05, 5, 10), 3.3258345304130112)
+    assert math.isnan(calc.gammainv(1, 2, 1))
+    assert calc.gammainv(0, 2, 1) == 0.0
+    assert math.isclose(calc.gammainv(0.5, 2, 1), 1.6783469900166612)
+
+
 # One row per bad input these tests did not already cover.
 # "nan" is the helper's #NUM! / #VALUE! / #DIV/0! stand-in. A quoted token
 # is the string the helper returns. geomean and harmean already have this
 # table. DCOUNT, DCOUNTA, DPRODUCT, DSUM, ENCODEURL, FMT, and FREQUENCY do
-# not return NaN or a spreadsheet error for these inputs. GROWTH's
-# non-positive cases are already asserted as an empty result.
+# not return NaN or a spreadsheet error for these inputs. Non-positive or
+# non-finite known y is "#NUM!", and a bad const or a shape error is "#VALUE!",
+# both asserted in test_growth_rejects_non_positive_known_y.
 _DB = [["Tree", "Height"], ["Apple", 18.0], ["Pear", 12.0], ["Apple", 8.0]]
 _CRIT = [["Tree"], ["Apple"]]
 _NAN = "nan"
@@ -459,4 +497,13 @@ def test_frequency_bincount():
     # >10: count 0
     freqs = calc.frequency(data, bins)
     assert freqs == [4, 1, 2, 0]
+
+
+def test_frequency_conversion_error_is_value():
+    class BadArray:
+        def __array__(self, *args: Any, **kwargs: Any) -> Any:
+            raise ValueError("conversion failed")
+
+    assert calc.frequency(BadArray(), [1, 2]) == "#VALUE!"
+
 

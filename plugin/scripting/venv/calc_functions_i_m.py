@@ -19,6 +19,7 @@ from typing import Any, Callable
 import numpy as np
 
 from .calc_functions_util import (
+    _as_bool_flag,
     _clean_paired_arrays,
     _collect_a_values,
     _extract_numeric_array,
@@ -620,26 +621,6 @@ def large(r: Any, k: Any) -> float:
         return float("nan")
     # The kth largest sits at index -ki. The rest of the array stays unsorted.
     return float(np.partition(arr, -ki)[-ki])
-
-
-def _as_bool_flag(val: Any) -> bool:
-    """LINEST / LOGEST ``const``.
-
-    A blank cell is false (``GetBool`` of an empty cell). ``"TRUE"`` and
-    ``"FALSE"`` are those booleans. ``"0"`` is false. ``bool("0")`` and
-    ``bool("FALSE")`` used to be true, so the fit kept an intercept.
-    """
-    if isinstance(val, (bool, np.bool_)):
-        return bool(val)
-    if val is None or val == "":
-        return False
-    if isinstance(val, str):
-        token = val.strip().upper()
-        if token == "TRUE":
-            return True
-        if token == "FALSE":
-            return False
-    return bool(float(val))
 
 
 def _regression_inputs(

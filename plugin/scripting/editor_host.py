@@ -261,7 +261,7 @@ class EditorSessionState:
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
-    def target_key(self) -> tuple[str, str, str, str, str, str]:
+    def target_key(self) -> tuple[str, ...]:
         return target_identity_key(self.mode, self.target)
 
 
@@ -380,6 +380,7 @@ class PersistentEditor:
         ``proc.terminate()`` leaves Qt grandchildren alive, and a surviving
         parent is then reused as if it were healthy.
         ManagedSubprocess.close() (SIGTERM, 3s, reaper) and kill_tree() (no wait, no pipe close) are a different shutdown.
+        ``kill_process_tree`` runs even when ``poll()`` is already set. ``wait`` / ``proc.kill`` run only if the leader was alive before the tree kill.
         """
         # Bugfix: send read self._proc three times under _stdin_lock while terminate
         # nulled it and closed the pipes without the lock, so a concurrent config-thread
@@ -394,8 +395,17 @@ class PersistentEditor:
         if proc is None:
             return
         try:
-            if proc.poll() is None:
-                kill_process_tree(proc)
+            # What was wrong: the group kill was skipped once the leader had
+            # exited. How it happened: terminate() gated kill_process_tree on
+            # poll() is None, so a crashed editor_main left Qt/WebEngine
+            # grandchildren in the session (start_new_session). Why this
+            # change fixes it: always signal the group. kill_process_tree
+            # already killpg's a reaped session leader. Sample liveness first
+            # so wait/kill still reap a leader this call killed, and an
+            # already-reaped leader is not waited.
+            leader_alive = proc.poll() is None
+            kill_process_tree(proc)
+            if leader_alive:
                 try:
                     proc.wait(timeout=2)
                 except subprocess.TimeoutExpired:
@@ -629,6 +639,8 @@ class PersistentEditor:
 
     def _on_picker(self, kind: str, msg: dict[str, Any]) -> None:
         target_session = self.resolve_incoming(msg)
+        if session_id_of(msg) and target_session is None:
+            return
 
         def _picker_send(reply: dict[str, Any]) -> None:
             self.send(reply, session=target_session)
@@ -652,15 +664,27 @@ class PersistentEditor:
                     log.exception("Editor script picker could not send the error frame")
 
         try:
-            self.executor.execute(_handle_picker, timeout=self._marshal_timeout())
-        except TimeoutError:
-            log.exception("Editor script picker timed out")
+            self.executor.execute(_handle_picker, timeout=self._marshal_timeout(), bound_scope=None)
+        except Exception as exc:
+            timed_out = isinstance(exc, TimeoutError)
+            if timed_out:
+                log.exception("Editor script picker timed out")
+            else:
+                log.exception("Editor script picker marshal failed")
+            message = (
+                _("The script list update timed out.")
+                if timed_out
+                else _("The script list update failed.")
+            )
             try:
-                _picker_send({"type": "error", "message": _("The script list update timed out.")})
+                _picker_send({"type": "error", "message": message})
             except Exception:
-                # A bare self.send on timeout lets a closed pipe escape the handler
-                # and the reader loop then terminates the editor. Log and continue.
-                log.warning("Editor script picker could not send timeout error frame", exc_info=True)
+                log.warning(
+                    "Editor script picker could not send timeout error frame"
+                    if timed_out
+                    else "Editor script picker could not send marshal-failure error frame",
+                    exc_info=True,
+                )
 
     def _on_dirty(self, msg: dict[str, Any]) -> None:
         state = self.resolve_incoming(msg)
@@ -758,21 +782,38 @@ class PersistentEditor:
                     log.exception("Editor save handler could not send the error frame")
 
         try:
-            self.executor.execute(_handle_save, timeout=self._marshal_timeout())
-        except TimeoutError:
-            log.exception("Editor save handler timed out")
+            self.executor.execute(_handle_save, timeout=self._marshal_timeout(), bound_scope=None)
+        except Exception as exc:
+            timed_out = isinstance(exc, TimeoutError)
+            if timed_out:
+                log.exception("Editor save handler timed out")
+            else:
+                log.exception("Editor save handler marshal failed")
             with self._save_lock:
                 self._save_token = None
                 captured.save_token = None
+            captured.pending_load = None
+            captured.pending_on_save = None
+            captured.pending_on_closed = None
+            message = (
+                _("Saving the script timed out.")
+                if timed_out
+                else _("Saving the script failed.")
+            )
             try:
                 self.send(
-                    {"type": "error", "message": _("Saving the script timed out.")},
+                    {"type": "error", "message": message},
                     session=captured,
                 )
             except Exception:
                 # A bare self.send on save timeout lets a broken pipe escape
                 # _dispatch_incoming and terminate() the editor. Log and continue.
-                log.warning("Editor save handler could not send timeout error frame", exc_info=True)
+                log.warning(
+                    "Editor save handler could not send timeout error frame"
+                    if timed_out
+                    else "Editor save handler could not send marshal-failure error frame",
+                    exc_info=True,
+                )
 
     def _on_close(self, kind: str, msg: dict[str, Any]) -> None:
         log.info("editor_host _dispatch_incoming: received close/cancel kind=%r", kind)
@@ -793,28 +834,34 @@ class PersistentEditor:
                     set_active_session(None)
 
         try:
-            self.executor.execute(_handle_close, timeout=self._marshal_timeout())
-        except TimeoutError:
-            log.exception("Editor close handler timed out")
+            self.executor.execute(_handle_close, timeout=self._marshal_timeout(), bound_scope=None)
+        except Exception as exc:
+            if isinstance(exc, TimeoutError):
+                log.exception("Editor close handler timed out")
+            else:
+                log.exception("Editor close handler marshal failed")
 
     def _dispatch_incoming(self, msg: dict[str, Any]) -> None:
-        kind = message_type(msg)
-        if kind in SCRIPT_PICKER_MESSAGE_TYPES:
-            self._on_picker(kind, msg)
-            return
-        if kind == "dirty":
-            self._on_dirty(msg)
-            return
-        if kind == "save":
-            self._on_save(msg)
-            return
-        if kind in ("closed", "cancel"):
-            self._on_close(kind, msg)
-            return
-        if kind == "ready":
-            self._ready_event.set()
-            return
-        log.debug("Editor child message: %s", kind)
+        try:
+            kind = message_type(msg)
+            if kind in SCRIPT_PICKER_MESSAGE_TYPES:
+                self._on_picker(kind, msg)
+                return
+            if kind == "dirty":
+                self._on_dirty(msg)
+                return
+            if kind == "save":
+                self._on_save(msg)
+                return
+            if kind in ("closed", "cancel"):
+                self._on_close(kind, msg)
+                return
+            if kind == "ready":
+                self._ready_event.set()
+                return
+            log.debug("Editor child message: %s", kind)
+        except Exception:
+            log.exception("Editor incoming message dispatch failed type=%s", message_type(msg))
 
     def _handle_disconnect(self) -> None:
         """Handle case where the subprocess exits or disconnects unexpectedly."""
@@ -835,9 +882,12 @@ class PersistentEditor:
                     set_active_session(None)
 
         try:
-            self.executor.execute(_handle_close, timeout=self._marshal_timeout())
-        except TimeoutError:
-            log.exception("Editor disconnect handler timed out")
+            self.executor.execute(_handle_close, timeout=self._marshal_timeout(), bound_scope=None)
+        except Exception as exc:
+            if isinstance(exc, TimeoutError):
+                log.exception("Editor disconnect handler timed out")
+            else:
+                log.exception("Editor disconnect handler marshal failed")
 
 
 _PERSISTENT_EDITOR = PersistentEditor()
