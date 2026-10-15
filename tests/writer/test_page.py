@@ -1189,8 +1189,8 @@ def test_replace_header_footer_rejects_bad_args():
     assert both["status"] == "error" and "all_matches" in both["message"]
     empty = tool.execute(SimpleNamespace(doc=doc), region="footer", old_content="", content="A")
     assert empty["status"] == "error" and "old_content" in empty["message"]
-    missing = tool.execute(SimpleNamespace(doc=doc), region="nope", old_content="Annex", content="A")
-    assert missing["status"] == "error" and "region" in missing["message"]
+    ok, err = tool.validate(region="nope", old_content="Annex", content="A")
+    assert ok is False and err is not None and "region" in err
     doc.getStyleFamilies.assert_not_called()
 
 
@@ -1323,8 +1323,8 @@ def test_set_page_style_bad_mm_writes_nothing():
     doc.getStyleFamilies().getByName().getByName.return_value = style
     ctx = SimpleNamespace(doc=doc)
 
-    res = PageSetStyleProperties().execute(ctx, width_mm="wide")
-    assert res["status"] == "error"
+    with pytest.raises(ValueError, match="non-negative"):
+        PageSetStyleProperties().execute(ctx, width_mm=-1)
     style.setPropertyValue.assert_not_called()
 
 
@@ -1378,8 +1378,9 @@ def test_page_style_layout_read_and_write():
     assert res["properties"]["page_style_layout"] == 0
 
     ctx = SimpleNamespace(doc=doc)
-    res_bad = PageSetStyleProperties().execute(ctx, page_style_layout=4)
-    assert res_bad["status"] == "error"
+    with pytest.raises(ValueError, match="page_style_layout"):
+        PageSetStyleProperties().execute(ctx, page_style_layout=4)
+    style.setPropertyValue.assert_not_called()
 
     res_ok = PageSetStyleProperties().execute(ctx, page_style_layout=1)
     assert res_ok["status"] == "ok"
@@ -1454,8 +1455,9 @@ def test_set_columns_spacing_zero_clears_inner_margins():
     text_columns.setColumns.assert_called_once()
 
     text_columns.setColumnCount.reset_mock()
-    res_err = PageSetColumns().execute(ctx, column_count="2")
+    res_err = PageSetColumns().execute(ctx, column_count=0)
     assert res_err["status"] == "error"
+    assert "at least 1" in res_err["message"]
     text_columns.setColumnCount.assert_not_called()
 
 

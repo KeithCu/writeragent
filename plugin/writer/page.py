@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from plugin.framework.errors import is_disposed_exception, make_tool_error
 from plugin.framework.uno_context import uno_same
@@ -805,39 +805,23 @@ class PageSetStyleProperties(ToolWriterPageBase):
         if blocked:
             return self._tool_error(blocked)
 
-        # Preflight validation: validate every supplied value before any UNO mutation
+        # type/enum checks are done by the tool schema in ToolRegistry
+        # Convert before any UNO write. _mm_to_hmm and _page_style_layout_to_uno still
+        # raise on negatives and layouts outside 0..3; execute_safe codes that.
         conversions: dict[str, Any] = {}
         if "is_landscape" in kwargs:
-            val = kwargs["is_landscape"]
-            if not isinstance(val, bool):
-                return self._tool_error("is_landscape must be a boolean.")
-            conversions["is_landscape"] = val
+            conversions["is_landscape"] = kwargs["is_landscape"]
 
         for kwarg, _label, _uno_prop, kind in _PAGE_SET_SPECS:
-            if kwarg in kwargs:
-                val = kwargs[kwarg]
-                if kind == "mm":
-                    try:
-                        conversions[kwarg] = _mm_to_hmm(val)
-                    except (ValueError, TypeError) as e:
-                        return self._tool_error(str(e))
-                elif kind == "bool":
-                    if not isinstance(val, bool):
-                        return self._tool_error(f"{kwarg} must be a boolean.")
-                    conversions[kwarg] = val
-                elif kind in ("color_int", "int"):
-                    if isinstance(val, bool) or not isinstance(val, int):
-                        return self._tool_error(f"{kwarg} must be an integer.")
-                    conversions[kwarg] = val
-                elif kind == "str":
-                    if not isinstance(val, str):
-                        return self._tool_error(f"{kwarg} must be a string.")
-                    conversions[kwarg] = val
-                elif kind == "layout":
-                    try:
-                        conversions[kwarg] = _page_style_layout_to_uno(val)
-                    except ValueError as e:
-                        return self._tool_error(str(e))
+            if kwarg not in kwargs:
+                continue
+            val = kwargs[kwarg]
+            if kind == "mm":
+                conversions[kwarg] = _mm_to_hmm(val)
+            elif kind == "layout":
+                conversions[kwarg] = _page_style_layout_to_uno(val)
+            else:
+                conversions[kwarg] = val
 
         updated: list[str] = []
 
@@ -938,10 +922,9 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         from .html_export import xtext_to_content
 
         style_name = kwargs.get("style", "Standard")
-        region = kwargs.get("region")
+        region = cast("str", kwargs.get("region"))
         include_images = bool(kwargs.get("include_images", True))
-        if region not in _REGION_PROPS:
-            return self._tool_error("region is required, one of: %s." % ", ".join(_REGIONS))
+        # type/enum checks are done by the tool schema in ToolRegistry
 
         try:
             style, style_name = resolve_page_style(ctx.doc, style_name)
@@ -1054,11 +1037,10 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         from .html_import import replace_xtext_with_html
 
         style_name = kwargs.get("style", "Standard")
-        region = kwargs.get("region")
+        region = cast("str", kwargs.get("region"))
         content = kwargs.get("content", "")
 
-        if region not in _REGION_PROPS:
-            return self._tool_error("region is required, one of: %s." % ", ".join(_REGIONS))
+        # type/enum checks are done by the tool schema in ToolRegistry
 
         try:
             style, style_name = resolve_page_style(ctx.doc, style_name)
@@ -1472,29 +1454,22 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs.get("style", "Standard")
-        region = kwargs.get("region")
-        old_content = kwargs.get("old_content")
-        new_text = kwargs.get("content")
-        if region not in _REGION_PROPS:
-            return self._tool_error("region is required, one of: %s." % ", ".join(_REGIONS))
-        if not isinstance(old_content, str) or old_content == "":
+        region = cast("str", kwargs.get("region"))
+        old_content = cast("str", kwargs.get("old_content"))
+        new_text = cast("str", kwargs.get("content"))
+        # type/enum checks are done by the tool schema in ToolRegistry
+        if old_content == "":
             return self._tool_error("old_content must be a non-empty string.")
         if _FIELD_CURSOR_STEP in old_content:
             return self._tool_error("old_content cannot include a field.")
-        if not isinstance(new_text, str):
-            return self._tool_error("content must be a string.")
         case_sensitive = kwargs.get("case_sensitive", True)
-        if not isinstance(case_sensitive, bool):
-            return self._tool_error("case_sensitive must be a boolean.")
         all_matches = kwargs.get("all_matches", False)
-        if not isinstance(all_matches, bool):
-            return self._tool_error("all_matches must be a boolean.")
         raw_occurrence = kwargs.get("occurrence", None)
         if all_matches and raw_occurrence is not None:
             return self._tool_error("occurrence cannot be combined with all_matches=true.")
         occurrence = 0
         if raw_occurrence is not None:
-            if isinstance(raw_occurrence, bool) or not isinstance(raw_occurrence, int) or raw_occurrence < 0:
+            if raw_occurrence < 0:
                 return self._tool_error("occurrence must be a non-negative integer.")
             occurrence = raw_occurrence
 
@@ -1665,18 +1640,14 @@ class PageSetColumns(ToolWriterPageBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs.get("style", "Standard")
-        column_count = kwargs.get("column_count")
+        column_count = cast("int", kwargs.get("column_count"))
         spacing_raw = kwargs.get("spacing_mm", 0)
 
-        # What was wrong: column_count="2" raised TypeError when compared against < 1.
-        # Why this change fixes it: validate column_count is int and not bool before comparing.
-        if isinstance(column_count, bool) or not isinstance(column_count, int) or column_count < 1:
+        # type/enum checks are done by the tool schema in ToolRegistry
+        if column_count < 1:
             return self._tool_error("column_count must be at least 1.")
 
-        try:
-            spacing_hmm = _mm_to_hmm(spacing_raw)
-        except (ValueError, TypeError) as e:
-            return self._tool_error(str(e))
+        spacing_hmm = _mm_to_hmm(spacing_raw)
 
         doc = ctx.doc
 
@@ -1844,10 +1815,8 @@ class PageInsertBreak(ToolWriterPageBase):
         try:
             if before_text or after_text:
                 anchor = str(before_text or after_text)
-                try:
-                    occurrence = int(kwargs.get("occurrence", 0) or 0)
-                except (TypeError, ValueError):
-                    return self._tool_error("occurrence must be an integer.")
+                # type/enum checks are done by the tool schema in ToolRegistry
+                occurrence = kwargs.get("occurrence", 0)
                 if occurrence < 0:
                     return self._tool_error("occurrence must be non-negative.")
                 sd = doc.createSearchDescriptor()

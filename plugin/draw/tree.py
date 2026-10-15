@@ -482,15 +482,11 @@ class GetDrawTree(ToolBase):
         try:
             page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
         except Exception as exc:
-            from plugin.framework.errors import ToolExecutionError, is_disposed_exception
+            # get_slide_for_tool never returns None; a bad index raises ToolExecutionError
+            from plugin.framework.errors import ToolExecutionError
 
-            if is_disposed_exception(exc):
-                raise
             if isinstance(exc, ToolExecutionError):
                 return self._tool_error(str(exc))
-            return self._tool_error("Invalid page index: %s" % actual_idx)
-
-        if page is None:
-            return self._tool_error("No draw page available.")
+            raise
 
         return {"status": "ok", "page": actual_idx, "tree": build_shape_tree(page)}
