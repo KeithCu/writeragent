@@ -214,6 +214,9 @@ def _die_with_parent() -> None:
     to ``read`` used to keep the venv process (and the microphone, or a BLAS
     thread) after soffice quit. Linux ``PR_SET_PDEATHSIG`` is the parent-death
     signal; the ppid check covers the parent dying before prctl runs.
+    ``PR_SET_PDEATHSIG`` follows the thread that created the process;
+    ``PythonWorkerManager`` spawns this harness on ``venv-worker-spawn``,
+    which lives until that manager is retired or ``shutdown_all``.
     """
     if sys.platform != "linux":
         return

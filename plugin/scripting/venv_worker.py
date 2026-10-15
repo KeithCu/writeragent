@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import queue
 import select
 import subprocess
 import sys
@@ -271,6 +272,13 @@ class _TurnState:
         return self.execution_started or self.dispatched_intermediate
 
 
+@dataclass
+class _SpawnJob:
+    done: threading.Event
+    start: Callable[[], None]
+    error: BaseException | None = None
+
+
 class PythonWorkerManager:
     """One warm child process per (pool, Python executable path) pair."""
 
@@ -281,6 +289,10 @@ class PythonWorkerManager:
     _retired: bool
     _proc_lock: threading.Lock
     _reap_handles: list[BackgroundHandle]
+    _spawn_handle: BackgroundHandle | None
+    _spawn_queue: queue.Queue[_SpawnJob | None] | None
+    _spawn_ident: int | None
+    _spawn_ready: threading.Event | None
 
     def __init__(self, exe: str, env: dict[str, str]) -> None:
         self.exe = exe
@@ -303,6 +315,10 @@ class PythonWorkerManager:
         # In-flight background reaps. get() moves a replaced manager's handles
         # onto the replacement so the next spawn waits for the old tree.
         self._reap_handles = []
+        self._spawn_handle = None
+        self._spawn_queue = None
+        self._spawn_ident = None
+        self._spawn_ready = None
 
     @contextlib.contextmanager
     def _io_session(self) -> Iterator[None]:
@@ -362,6 +378,7 @@ class PythonWorkerManager:
             # replacement joins these handles before its next Popen.
             old._terminate_worker(wait=False)
             inherited.extend(old._take_reap_handles())
+            old._stop_spawn_thread(wait=False)
         if inherited:
             mgr._inherit_reaps(inherited)
         return mgr
@@ -381,6 +398,7 @@ class PythonWorkerManager:
             _instances.clear()
         for mgr in managers:
             mgr._terminate_worker()
+            mgr._stop_spawn_thread(wait=True)
 
     @classmethod
     def pool_is_running(cls, pool: str = WORKER_POOL_DEFAULT) -> bool:
@@ -1046,6 +1064,63 @@ class PythonWorkerManager:
         out["traceback"] = str(tb or "")
         return out
 
+    def _ensure_spawn_thread(self) -> None:
+        if self._retired:
+            raise _WorkerRetired(
+                "Python worker was replaced by a new venv path and will not be restarted"
+            )
+        if self._spawn_handle is not None and self._spawn_handle.is_alive():
+            return
+        spawn_queue: queue.Queue[_SpawnJob | None] = queue.Queue()
+        ready = threading.Event()
+        self._spawn_queue = spawn_queue
+        self._spawn_ready = ready
+        self._spawn_ident = None
+        self._spawn_handle = run_in_background(
+            self._spawn_loop,
+            name="venv-worker-spawn",
+            dedicated=True,
+        )
+        if not ready.wait(timeout=5.0):
+            raise RuntimeError("venv worker spawn thread did not start")
+
+    def _spawn_loop(self) -> None:
+        self._spawn_ident = threading.get_ident()
+        if self._spawn_ready is not None:
+            self._spawn_ready.set()
+        q = self._spawn_queue
+        if q is None:
+            return
+        while True:
+            job = q.get()
+            if job is None:
+                return
+            try:
+                if self._retired:
+                    job.error = _WorkerRetired(
+                        "Python worker was replaced by a new venv path and will not be restarted"
+                    )
+                else:
+                    try:
+                        job.start()
+                    except BaseException as exc:
+                        job.error = exc
+            finally:
+                job.done.set()
+
+    def _start_child(self, managed: ManagedSubprocess) -> None:
+        if threading.get_ident() == self._spawn_ident:
+            managed.start()
+            return
+        self._ensure_spawn_thread()
+        if self._spawn_queue is None:
+            raise RuntimeError("venv worker spawn queue is missing")
+        job = _SpawnJob(done=threading.Event(), start=managed.start)
+        self._spawn_queue.put(job)
+        job.done.wait()
+        if job.error is not None:
+            raise job.error
+
     def _ensure_running(self) -> None:
         if self._retired:
             raise _WorkerRetired(
@@ -1084,7 +1159,17 @@ class PythonWorkerManager:
                 log_start_failure=False,
                 label="Python worker",
             )
-            managed.start()
+            # What was wrong: Popen ran on the execute / warm caller. Linux
+            # PR_SET_PDEATHSIG kills the child when that thread exits, so a warm
+            # worker died while LibreOffice was still running and shared sessions
+            # were dropped.
+            # How it happened: _die_with_parent arms SIGKILL for the creating
+            # thread. warm_venv_worker, corpus index, and chat tool workers are
+            # dedicated=True threads that return after the call.
+            # Why this change: ManagedSubprocess.start runs on this manager's
+            # venv-worker-spawn thread, which stays alive until the manager is
+            # retired or shutdown_all.
+            self._start_child(managed)
             # Publish the drain before _proc. A reader can observe _proc without
             # _proc_lock. The old order let that reader see a live proc with no drain.
             self._stderr_drain = managed.stderr_tail
@@ -1345,6 +1430,23 @@ class PythonWorkerManager:
             return
         with self._proc_lock:
             self._reap_handles.extend(handles)
+
+    def _stop_spawn_thread(self, *, wait: bool) -> None:
+        handle: BackgroundHandle | None = getattr(self, "_spawn_handle", None)
+        queue_: queue.Queue[_SpawnJob | None] | None = getattr(self, "_spawn_queue", None)
+        spawn_ident: int | None = getattr(self, "_spawn_ident", None)
+        if handle is None or not handle.is_alive():
+            return
+        if queue_ is not None:
+            queue_.put(None)
+        if not wait:
+            return
+        if threading.get_ident() != spawn_ident:
+            handle.join()
+        self._spawn_handle = None
+        self._spawn_queue = None
+        self._spawn_ident = None
+        self._spawn_ready = None
 
 
 # --- Public entrypoints ---
