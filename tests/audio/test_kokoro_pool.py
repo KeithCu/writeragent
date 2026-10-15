@@ -13,6 +13,8 @@ import threading
 import time
 from typing import Any
 
+import pytest
+
 from plugin.audio.kokoro_pool import KokoroProcessPool
 
 
@@ -28,12 +30,16 @@ def _fake_worker_script(directory) -> str:
         "    text = req.get('text')\n"
         "    if text == 'block':\n"
         "        time.sleep(30)\n"
+        "    t0 = time.monotonic()\n"
+        "    if text == 'slow':\n"
+        "        time.sleep(0.4)\n"
+        "    t1 = time.monotonic()\n"
         "    out = req.get('out_path')\n"
         "    if not isinstance(out, str) or not out:\n"
         "        return {'status': 'error', 'error': 'missing out_path'}\n"
         "    with open(out, 'wb') as handle:\n"
         "        handle.write(b'wav')\n"
-        "    return {'status': 'ok', 'path': out, 'echo': text, 'pid': os.getpid()}\n"
+        "    return {'status': 'ok', 'path': out, 'echo': text, 'pid': os.getpid(), 'start': t0, 'end': t1}\n"
         "\n"
         "raise SystemExit(run_kokoro_stdio_loop(handler))\n",
         encoding="utf-8",
@@ -281,8 +287,11 @@ def test_cancel_clears_the_slot_so_the_next_job_can_spawn(monkeypatch):
     try:
         pool.cancel_inflight(token)
         assert pool._worker is None
-        assert stuck.kills == 1
         assert stuck.shutdowns == 1
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and stuck.kills == 0:
+            time.sleep(0.01)
+        assert stuck.kills == 1
         recovered = pool.execute({"text": "after"})
         assert recovered["status"] == "ok"
         assert recovered["echo"] == "after"
@@ -466,3 +475,92 @@ def test_worker_kill_signals_and_abandons_without_close() -> None:
     mock_managed.kill_tree.assert_called_once()
     mock_managed.abandon.assert_called_once()
     mock_managed.close.assert_not_called()
+
+
+def test_cancel_inflight_returns_while_reap_blocks() -> None:
+    class _SlowKill:
+        def __init__(self) -> None:
+            self.kills = 0
+            self.shutdowns = 0
+
+        def request_shutdown(self) -> None:
+            self.shutdowns += 1
+
+        def kill(self) -> bool:
+            time.sleep(2)
+            self.kills += 1
+            return True
+
+        def is_alive(self) -> bool:
+            return True
+
+        def is_shutting_down(self) -> bool:
+            return False
+
+    pool = KokoroProcessPool(sys.executable, script_path="unused.py", idle_worker_ttl_sec=None)
+    slow = _SlowKill()
+    token = object()
+    pool._worker = slow  # type: ignore[assignment]
+    pool._inflight = True
+    pool._exec_token = token
+    try:
+        t0 = time.monotonic()
+        pool.cancel_inflight(token)
+        elapsed = time.monotonic() - t0
+        assert elapsed < 0.3
+        assert pool._worker is None
+        assert slow.shutdowns == 1
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline and slow.kills == 0:
+            time.sleep(0.02)
+        assert slow.kills == 1
+    finally:
+        pool.shutdown()
+
+
+def test_raising_cancel_check_releases_inflight(tmp_path) -> None:
+    pool = KokoroProcessPool(sys.executable, script_path=str(tmp_path / "missing.py"), idle_worker_ttl_sec=None)
+
+    def _boom() -> bool:
+        raise RuntimeError("boom")
+
+    try:
+        with pytest.raises(RuntimeError, match="boom"):
+            pool.execute({"text": "hi"}, cancel_check=_boom)
+        assert not pool._inflight
+        assert pool._exec_token is None
+        result = pool.execute({"text": "hi"})
+        assert result["code"] == "WORKER_SPAWN_FAILED"
+    finally:
+        pool.shutdown()
+
+
+def test_execute_serializes_callers(tmp_path) -> None:
+    script = _fake_worker_script(tmp_path)
+    pool = KokoroProcessPool(sys.executable, script_path=script, idle_worker_ttl_sec=None)
+    barrier = threading.Barrier(2)
+    results: list[dict[str, Any]] = []
+    lock = threading.Lock()
+
+    def _call(name: str) -> None:
+        out = tmp_path / f"{name}.wav"
+        barrier.wait()
+        res = pool.execute({"text": "slow", "out_path": str(out)})
+        with lock:
+            results.append(res)
+
+    t1 = threading.Thread(target=_call, args=("one",))
+    t2 = threading.Thread(target=_call, args=("two",))
+    try:
+        t1.start()
+        t2.start()
+        t1.join(5)
+        t2.join(5)
+        assert len(results) == 2
+        r1, r2 = sorted(results, key=lambda r: r["start"])
+        assert r1["status"] == "ok"
+        assert r2["status"] == "ok"
+        assert r1["pid"] == r2["pid"]
+        assert r1["end"] <= r2["start"]
+    finally:
+        pool.shutdown()

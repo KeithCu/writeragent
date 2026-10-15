@@ -691,10 +691,12 @@ def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
         if sys.platform == "win32" or not hasattr(os, "set_blocking"):
             # Do not stream.read() here — that can block on a live pipe.
             return b""
-        # Restore blocking when the peek ends. Leaving set_blocking(False) in
-        # place made a later read (compute/kokoro loops catch the frame error
-        # and read again) return None or raise BlockingIOError, which the
-        # frame reader treats as EOF. The peek is only for the error text.
+        # Restore blocking when the peek ends. The blocking mode is restored
+        # because a later read on a fd left non-blocking returns None or
+        # BlockingIOError, and the frame reader treats that as EOF. The peek
+        # only fills the error text. A bad length prefix has already desynced
+        # the stream; Kokoro and the compute worker exit instead of reading
+        # another frame.
         try:
             with _nonblocking(fd):
                 return os.read(fd, n)

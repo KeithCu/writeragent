@@ -1175,3 +1175,34 @@ def test_stop_speech_spd_say_stop_uses_managed_run() -> None:
     else:
         proc.kill.assert_called_once()
         proc.terminate.assert_not_called()
+
+
+def test_kokoro_warm_passes_scaled_timeout() -> None:
+    import plugin.audio.tts_service as tts
+    from plugin.audio.tts_service import _kokoro_synth_timeout, _kokoro_warm_to_file
+
+    calls: list[dict[str, Any]] = []
+
+    class MockPool:
+        job_timeout_sec = 120.0
+
+        def execute(self, payload: dict[str, Any], timeout_sec: float | None = None, cancel_check=None):
+            calls.append({"payload": payload, "timeout_sec": timeout_sec})
+            return {"status": "error", "code": "WORKER_CANCELLED"}
+
+    short_text = "Short text."
+    long_text = "A" * 400
+    assert _kokoro_synth_timeout(short_text) < 120.0
+    assert _kokoro_synth_timeout(long_text) > 120.0
+
+    mock_pool = MockPool()
+    with patch.object(tts, "get_kokoro_pool", return_value=mock_pool), \
+         patch.object(tts, "_playback_blocked", return_value=False), \
+         patch.object(tts, "_new_speech_temp", return_value="/tmp/test.wav"), \
+         patch.object(tts, "_release_temp"):
+        _kokoro_warm_to_file(short_text, "af_sky", 1.0, "/models/k.onnx", "/models/v.bin", generation=None)
+        _kokoro_warm_to_file(long_text, "af_sky", 1.0, "/models/k.onnx", "/models/v.bin", generation=None)
+
+    assert len(calls) == 2
+    assert calls[0]["timeout_sec"] == 120.0
+    assert calls[1]["timeout_sec"] == _kokoro_synth_timeout(long_text)
