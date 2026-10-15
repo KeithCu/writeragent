@@ -53,24 +53,11 @@ class ModuleBase(ABC):
                       registered services (services.config, services.events …).
         """
 
-    def start(self, services: Any) -> None:
-        """Phase 2a: Called on the VCL main thread after ALL modules
-        have initialized.
-
-        Safe for UNO operations: document listeners, UI setup, toolkit
-        calls. Dispatched via QueueExecutor.execute() (blocking).
-        Called in dependency order.
-
-        Args:
-            services: ServiceRegistry with attribute access to all
-                      registered services.
-        """
-
     def start_background(self, services: Any) -> None:
-        """Phase 2b: Called on the Job thread after all start() complete.
+        """Called from bootstrap on the main thread after every module's
+        initialize has returned, in manifest order.
 
         Launch background tasks: HTTP servers, LLM connections, polling.
-        Called in dependency order.
 
         Args:
             services: ServiceRegistry with attribute access to all
@@ -78,9 +65,11 @@ class ModuleBase(ABC):
         """
 
     def shutdown(self) -> None:
-        """Stop background tasks, close connections.
+        """Release work this module registered, after initialize raised.
 
-        Called in reverse dependency order on extension unload."""
+        ModuleLoader.load_modules calls this on that module only, then omits
+        it. Desktop termination does not call it.
+        """
 
     # ── Action dispatch ──────────────────────────────────────────────
 

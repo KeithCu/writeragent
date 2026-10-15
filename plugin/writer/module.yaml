@@ -1,6 +1,6 @@
 name: writer
 title: Writer
-requires: [document, config, format, events]
+requires: [document, config, events]
 provides_services: [writer_bookmarks, writer_tree, writer_proximity, writer_index]
 
 config: {}
