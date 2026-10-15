@@ -463,6 +463,23 @@ def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
             ctrl.setPosSize(rect.X, rect.Y, rect.Width, rect.Height, 15)
 
 
+def _get_mcp_turn_lock(listener: Any) -> threading.Lock:
+    """Return the MCP turn lock for the listener, allocating lazily if absent.
+
+    Bugfix: duck-typed listeners (e.g. test DummyListener) borrow _on_mcp_result
+    without inheriting from SendButtonListener. Allocating lazily if missing
+    ensures MCP turn popping and synchronization work without raising AttributeError.
+    """
+    lock = getattr(listener, "_mcp_turn_lock", None)
+    if lock is None:
+        lock = threading.Lock()
+        try:
+            listener._mcp_turn_lock = lock
+        except Exception:
+            pass
+    return lock
+
+
 class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener):
     """Listener for the Send button - runs chat with document, supports tool-calling."""
 
@@ -525,13 +542,32 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _mcp_event_bus: Any
     _turn: Any
     _last_mcp_turn: dict[str, Any]
-    _mcp_turn_lock: threading.Lock
     _last_mcp_req_id: int | str | None
     _send_start_msg_count: int | None
     _stop_mouse_listener: Any
     _stop_mouse_control: Any
     _record_mouse_listener: Any
     _record_mouse_control: Any
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> SendButtonListener:
+        inst = super().__new__(cls)
+        inst.__dict__["_mcp_turn_lock"] = threading.Lock()
+        return inst
+
+    @property
+    def _mcp_turn_lock(self) -> threading.Lock:
+        # Bugfix: tests build SendButtonListener via __new__ without calling __init__,
+        # or access _mcp_turn_lock before __init__ finishes, raising AttributeError.
+        # Allocating lazily on access guarantees the lock is always available.
+        lock = self.__dict__.get("_mcp_turn_lock")
+        if lock is None:
+            lock = threading.Lock()
+            self.__dict__["_mcp_turn_lock"] = lock
+        return lock
+
+    @_mcp_turn_lock.setter
+    def _mcp_turn_lock(self, val: threading.Lock) -> None:
+        self.__dict__["_mcp_turn_lock"] = val
 
     def clear_pending_audio_wav(self) -> None:
         """Clear and delete any un-sent audio recording."""
@@ -1203,7 +1239,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
-        if getattr(self, "_panel_teardown", False) or self.ctx is None:
+        if getattr(self, "_panel_teardown", False) or getattr(self, "ctx", None) is None:
             return
 
         try:
@@ -1217,10 +1253,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             # prevents data races and stops late requests from storing turns after teardown.
             rid = str(kwargs.get("req_id", ""))
             turn = current_turn(self)
-            with self._mcp_turn_lock:
-                if getattr(self, "_panel_teardown", False) or self.ctx is None:
+            with _get_mcp_turn_lock(self):
+                if getattr(self, "_panel_teardown", False) or getattr(self, "ctx", None) is None:
                     return
-                kept = {k: v for k, v in self._last_mcp_turn.items() if getattr(v, "alive", False)}
+                kept = {k: v for k, v in getattr(self, "_last_mcp_turn", {}).items() if getattr(v, "alive", False)}
                 kept[rid] = turn
                 self._last_mcp_turn = kept
             from plugin.framework.logging import format_tool_call_for_display
@@ -1236,7 +1272,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # The bus callback and the queued UI hop are different turns, so a
         # result posted before disposing still runs _append_response after
         # the panel is gone.
-        if self._panel_teardown or self.ctx is None:
+        if getattr(self, "_panel_teardown", False) or getattr(self, "ctx", None) is None:
             return
 
         # Each request is tied to its originating TurnController in
@@ -1247,7 +1283,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
             rid = str(kwargs.get("req_id", ""))
-            with self._mcp_turn_lock:
+            with _get_mcp_turn_lock(self):
                 last_turn = self._last_mcp_turn.pop(rid, None)
             if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
                 return
@@ -1255,7 +1291,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
 
         def _update_ui() -> None:
-            if self._panel_teardown or self.ctx is None:
+            if getattr(self, "_panel_teardown", False) or getattr(self, "ctx", None) is None:
                 return
             try:
                 from plugin.chatbot.tool_loop_actions import TurnController, current_turn
@@ -2426,8 +2462,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # the drain stop checker fires instead of streaming into a dead panel.
         # Match StopSendEffect: cancel the scope and latch the fallback.
         self._panel_teardown = True
-        with self._mcp_turn_lock:
-            self._last_mcp_turn.clear()
+        with _get_mcp_turn_lock(self):
+            if hasattr(self, "_last_mcp_turn"):
+                self._last_mcp_turn.clear()
         # Drop silence auto-stop lambdas before cleanup. They stay on the
         # recorder and post UI work after this listener is gone, and stop
         # then re-enters the panel.
