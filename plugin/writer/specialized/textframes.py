@@ -23,6 +23,8 @@ nelson-mcp/plugin/writer/tools/frames.py
 import logging
 from typing import Any
 
+from plugin.doc.visual_helpers import anchor_type_index
+from plugin.framework.errors import reraise_if_disposed
 from ..specialized_base import ToolWriterTextFramesBase
 
 log = logging.getLogger("writeragent.writer")
@@ -95,12 +97,9 @@ class FrameGetInfo(ToolWriterTextFramesBase):
         # Anchor type
         anchor_type = None
         try:
-            anchor_type = int(frame.getPropertyValue("AnchorType").value)
-        except Exception:
-            try:
-                anchor_type = int(frame.getPropertyValue("AnchorType"))
-            except Exception:
-                pass
+            anchor_type = anchor_type_index(frame.getPropertyValue("AnchorType"))
+        except Exception as exc:
+            reraise_if_disposed(exc)
 
         # Orientation
         hori_orient = None

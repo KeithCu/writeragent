@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for images.py helpers (no LibreOffice required)."""
+import os
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +12,8 @@ from plugin.tests.testing_utils import TestingFactory
 
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.doc.document_research_tools import ListNearbyFiles
+from plugin.doc.visual_helpers import anchor_type_index
+from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.tool import ToolContext, ToolRegistry
 from plugin.writer.images.images import (
     ImageDelete,
@@ -17,8 +21,10 @@ from plugin.writer.images.images import (
     ImageGenerate,
     ImageGetInfo,
     ImageInsert,
+    ImageList,
     ImageListNearbyFiles,
     ImageReplace,
+    ImageSetProperties,
     _download_image_to_cache,
     _object_size,
     _replacement_size_units,
@@ -179,29 +185,11 @@ def test_image_generate_inserts_even_if_stopped_after_download():
     mock_insert.assert_called_once()
 
 
-def test_image_generate_invalid_base_size_falls_back_to_1024():
-    ctx = TestingFactory.create_context(doc_type="writer")
-    svc = MagicMock()
-    svc.generate_image.return_value = (["/tmp/new.png"], None)
-
-    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
-        return fn(*args, **kwargs)
-
-    with (
-        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
-        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
-        patch("plugin.writer.images.images.ImageService", return_value=svc),
-        patch("plugin.writer.images.images.replace_image_in_place"),
-        patch("plugin.writer.images.images.insert_image"),
-        patch("plugin.writer.images.images.get_config_int", return_value=1024),
-        patch("plugin.writer.images.images.get_config_bool", return_value=False),
-        patch("plugin.writer.images.images.get_config_str", return_value="square"),
-        patch("plugin.writer.images.images.get_image_model", return_value=""),
-    ):
-        res = ImageGenerate().execute(ctx, prompt="a tabby cat", base_size="nope")
-    assert res["status"] == "ok"
-    assert svc.generate_image.call_args.kwargs.get("width") == 1024
-    assert svc.generate_image.call_args.kwargs.get("height") == 1024
+def test_image_generate_rejects_non_integer_base_size():
+    ok, err = ImageGenerate().validate(prompt="a tabby cat", base_size="nope")
+    assert ok is False
+    assert err is not None
+    assert "integer" in err
 
 
 def test_resolve_image_generate_is_edit_defaults_to_selection():
@@ -390,24 +378,38 @@ def test_download_image_to_cache_does_not_disable_tls(tmp_path, monkeypatch):
     seen = {}
 
     class _Resp:
-        def read(self):
-            return b"\x89PNG"
+        def __init__(self) -> None:
+            self._chunks = [b"\x89PNG"]
+            self.headers = {}
 
-        def __enter__(self):
+        def read(self, _size: int = -1) -> bytes:
+            if not self._chunks:
+                return b""
+            return self._chunks.pop(0)
+
+        def __enter__(self) -> "_Resp":
             return self
 
-        def __exit__(self, *args):
+        def __exit__(self, *_args: object) -> bool:
             return False
 
-    def _open(request, context=None):
+    def _open(request, context=None, timeout=None):
         seen["context"] = context
+        seen["timeout"] = timeout
         return _Resp()
 
     monkeypatch.setattr(images_mod.urllib.request, "urlopen", _open)
+    monkeypatch.setattr(
+        "plugin.writer.images.images.get_config_int",
+        lambda key, default=0: 15 if key == "request_timeout" else 1024,
+    )
     path = _download_image_to_cache("https://example.com/logo.png")
     assert path.startswith(str(tmp_path))
     assert seen["context"] is None
     assert not isinstance(seen["context"], ssl.SSLContext)
+    assert seen["timeout"] == 15
+    with open(path, "rb") as fh:
+        assert fh.read() == b"\x89PNG"
 
 
 def test_image_download_omitted_verify_ssl_requests_verification():
@@ -648,5 +650,412 @@ def test_image_delete_draw_ambiguous_name():
     assert res["status"] == "error"
     assert res["code"] == "AMBIGUOUS_NAME"
     assert "Several shapes named 'Pic'" in res["message"]
+
+
+def test_download_cache_hit_skips_second_urlopen(tmp_path, monkeypatch):
+    from plugin.writer.images import images as images_mod
+
+    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+
+    class _Resp:
+        def __init__(self) -> None:
+            self._chunks = [b"\x89PNG"]
+            self.headers = {}
+
+        def read(self, _size: int = -1) -> bytes:
+            if not self._chunks:
+                return b""
+            return self._chunks.pop(0)
+
+        def __enter__(self) -> "_Resp":
+            return self
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _Resp())
+    path1 = _download_image_to_cache("https://example.com/logo.png")
+    assert os.path.isfile(path1)
+
+    def _fail_open(*args, **kwargs):
+        raise AssertionError("urlopen called on cache hit")
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", _fail_open)
+    path2 = _download_image_to_cache("https://example.com/logo.png")
+    assert path1 == path2
+
+
+def test_download_over_cap_is_not_cached(tmp_path, monkeypatch):
+    import pytest
+    from plugin.writer.images import images as images_mod
+
+    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr("plugin.writer.images.images._IMAGE_DOWNLOAD_MAX_BYTES", 4)
+
+    opens = 0
+
+    class _OverResp:
+        def __init__(self) -> None:
+            self.headers = {}
+            self._chunks = [b"abcdef", b""]
+
+        def read(self, _size: int = -1) -> bytes:
+            if not self._chunks:
+                return b""
+            return self._chunks.pop(0)
+
+        def __enter__(self) -> "_OverResp":
+            return self
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+    def _open(request, context=None, timeout=None):
+        nonlocal opens
+        opens += 1
+        return _OverResp()
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", _open)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        _download_image_to_cache("https://example.com/big.png")
+    assert "exceeded" in str(exc_info.value)
+    assert list(tmp_path.iterdir()) == []
+    assert opens == 1
+
+    with pytest.raises(RuntimeError):
+        _download_image_to_cache("https://example.com/big.png")
+    assert opens == 2
+
+    # Cover Content-Length: 999999 with the real cap: read must not be called, directory stays empty.
+    monkeypatch.setattr("plugin.writer.images.images._IMAGE_DOWNLOAD_MAX_BYTES", 32 * 1024 * 1024)
+    read_called = False
+
+    class _CLResp:
+        def __init__(self) -> None:
+            self.headers = {"Content-Length": "99999999"}
+
+        def read(self, _size: int = -1) -> bytes:
+            nonlocal read_called
+            read_called = True
+            return b"data"
+
+        def __enter__(self) -> "_CLResp":
+            return self
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _CLResp())
+    with pytest.raises(RuntimeError) as exc_info:
+        _download_image_to_cache("https://example.com/huge.png")
+    assert "exceeded" in str(exc_info.value)
+    assert not read_called
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_download_partial_read_is_not_cached(tmp_path, monkeypatch):
+    import urllib.error
+    import pytest
+    from plugin.writer.images import images as images_mod
+
+    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+    opens = 0
+
+    class _PartialResp:
+        def __init__(self) -> None:
+            self.headers = {}
+            self._calls = 0
+
+        def read(self, _size: int = -1) -> bytes:
+            self._calls += 1
+            if self._calls == 1:
+                return b"abc"
+            raise urllib.error.URLError("reset")
+
+        def __enter__(self) -> "_PartialResp":
+            return self
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+    def _open(request, context=None, timeout=None):
+        nonlocal opens
+        opens += 1
+        return _PartialResp()
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", _open)
+
+    with pytest.raises(urllib.error.URLError):
+        _download_image_to_cache("https://example.com/part.png")
+    assert list(tmp_path.iterdir()) == []
+    assert opens == 1
+
+    with pytest.raises(urllib.error.URLError):
+        _download_image_to_cache("https://example.com/part.png")
+    assert opens == 2
+
+
+def test_download_empty_body_is_not_cached(tmp_path, monkeypatch):
+    import pytest
+    from plugin.writer.images import images as images_mod
+
+    monkeypatch.setattr("plugin.writer.images.image_tools._image_cache_dir", lambda: str(tmp_path))
+
+    class _EmptyResp:
+        def __init__(self) -> None:
+            self.headers = {}
+
+        def read(self, _size: int = -1) -> bytes:
+            return b""
+
+        def __enter__(self) -> "_EmptyResp":
+            return self
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+    monkeypatch.setattr(images_mod.urllib.request, "urlopen", lambda req, context=None, timeout=None: _EmptyResp())
+
+    with pytest.raises(RuntimeError) as exc_info:
+        _download_image_to_cache("https://example.com/empty.png")
+    assert "empty image download" in str(exc_info.value)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_image_download_insert_replace_are_async():
+    assert ImageDownload().is_async() is True
+    assert ImageInsert().is_async() is True
+    assert ImageReplace().is_async() is True
+    assert ImageList().is_async() is False
+
+
+def test_image_insert_downloads_before_main_thread():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    order = []
+
+    def _mock_download(url, **kwargs):
+        order.append("download")
+        return "/tmp/logo.png"
+
+    def _mock_run_on_main(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        order.append("main-enter")
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            order.append("main-exit")
+
+    graphic = MagicMock()
+    graphic.getName.return_value = "Pic"
+
+    with (
+        patch("plugin.writer.images.images._download_image_to_cache", side_effect=_mock_download),
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.writer.images.images.insert_image_at_locator", return_value=graphic),
+        patch("plugin.writer.images.images._run_on_main", side_effect=_mock_run_on_main),
+    ):
+        res = ImageInsert().execute(ctx, path="https://example.com/logo.png")
+
+    assert res["status"] == "ok"
+    assert order == ["download", "main-enter", "main-exit"]
+
+
+def test_image_replace_downloads_between_uno_calls():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    order = []
+    graphic = MagicMock()
+
+    def _mock_download(url, **kwargs):
+        order.append("download")
+        return "/tmp/logo.png"
+
+    def _mock_run_on_main(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        order.append("main")
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images._download_image_to_cache", side_effect=_mock_download),
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.writer.images.images.replace_graphic_source", return_value=True),
+        patch("plugin.writer.images.images._run_on_main", side_effect=_mock_run_on_main),
+    ):
+        res = ImageReplace().execute(ctx, name="Pic", path="https://example.com/logo.png")
+
+    assert res["status"] == "ok"
+    assert order == ["main", "download", "main"]
+
+
+def test_image_get_info_anchor_type_from_enum_name():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    extra = {
+        "AnchorType": SimpleNamespace(value="AT_PAGE"),
+        "HoriOrient": 0,
+        "VertOrient": 3,
+    }
+    graphic = _graphic_for_info(extra)
+    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+        res = ImageGetInfo().execute(ctx, name="Pic")
+    assert res["status"] == "ok"
+    assert res["anchor_type"] == 2
+    assert res["hori_orient"] == 0
+    assert res["vert_orient"] == 3
+
+    extra2 = {
+        "AnchorType": SimpleNamespace(value="NO_SUCH"),
+        "HoriOrient": 0,
+        "VertOrient": 3,
+    }
+    graphic2 = _graphic_for_info(extra2)
+    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic2):
+        res2 = ImageGetInfo().execute(ctx, name="Pic")
+    assert res2["status"] == "ok"
+    assert res2["anchor_type"] is None
+
+    assert anchor_type_index(SimpleNamespace(value="AT_CHARACTER")) == 4
+    assert anchor_type_index(2) == 2
+    assert anchor_type_index(True) is None
+    assert anchor_type_index(9) is None
+
+
+def test_image_get_info_ignores_fill_bitmap_repr():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = _graphic_for_info({"GraphicURL": "", "GraphicObjectFillBitmap": object()})
+    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+        res = ImageGetInfo().execute(ctx, name="Pic")
+    assert res["status"] == "ok"
+    assert res["graphic_url"] == ""
+
+
+def test_image_get_info_disposal_propagates():
+    import pytest
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    size = MagicMock()
+    size.Width = 700
+    size.Height = 390
+    props: dict[str, Any] = {
+        "Size": size,
+        "GraphicURL": "",
+        "Graphic": None,
+    }
+    graphic = MagicMock()
+    graphic.Graphic = None
+
+    def _get(name: str) -> Any:
+        if name == "Title":
+            raise DocumentDisposedError("closed")
+        if name not in props:
+            raise Exception("missing %s" % name)
+        return props[name]
+
+    graphic.getPropertyValue.side_effect = _get
+    graphic.getAnchor.side_effect = Exception("no anchor")
+
+    with patch("plugin.writer.images.images._get_graphic_object", return_value=graphic):
+        with pytest.raises(DocumentDisposedError):
+            ImageGetInfo().execute(ctx, name="Pic")
+
+
+def test_image_list_reports_unreadable_image():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.doc.getGraphicObjects = MagicMock()
+    good = MagicMock()
+    bad = MagicMock()
+
+    good.getPropertyValue.side_effect = Exception("no Title")
+    good.getAnchor.side_effect = Exception("no anchor")
+    bad.getPropertyValue.side_effect = Exception("no Title")
+    bad.getAnchor.side_effect = Exception("no anchor")
+
+    good_size = MagicMock()
+    good_size.Width = 1000
+    good_size.Height = 500
+
+    def _mock_size(obj):
+        if obj is good:
+            return good_size
+        raise RuntimeError("boom")
+
+    with (
+        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Good", good), ("Bad", bad)]),
+        patch("plugin.writer.images.images._object_size", side_effect=_mock_size),
+    ):
+        res = ImageList().execute(ctx)
+
+    assert res["status"] == "ok"
+    assert res["count"] == 1
+    assert res["images"][0]["name"] == "Good"
+    assert res["skipped"] == [{"name": "Bad", "error": "boom"}]
+
+
+def test_image_list_disposal_is_not_a_short_list():
+    import pytest
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ctx.doc.getGraphicObjects = MagicMock()
+    good = MagicMock()
+    good.getPropertyValue.side_effect = Exception("no Title")
+    good.getAnchor.side_effect = Exception("no anchor")
+
+    with (
+        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="writer"),
+        patch("plugin.doc.visual_helpers.list_graphic_objects", return_value=[("Good", good)]),
+        patch("plugin.writer.images.images._object_size", side_effect=DocumentDisposedError("closed")),
+    ):
+        with pytest.raises(DocumentDisposedError):
+            ImageList().execute(ctx)
+
+
+def test_image_set_properties_rejects_anchor_type():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    ok, err = ImageSetProperties().validate(name="G", anchor_type=9)
+    assert not ok
+
+    with patch("plugin.writer.images.images._get_graphic_object") as mock_get:
+        res = ImageSetProperties().execute(ctx, name="G", anchor_type=9)
+        assert res["code"] == "INVALID_PARAMETER"
+        mock_get.assert_not_called()
+
+        res_bool = ImageSetProperties().execute(ctx, name="G", anchor_type=True)
+        assert res_bool["code"] == "INVALID_PARAMETER"
+        mock_get.assert_not_called()
+
+    ok2, err2 = ImageSetProperties().validate(name="G", anchor_type=2)
+    assert ok2
+
+
+def test_image_replace_size_disposal_propagates():
+    import pytest
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.writer.images.images._object_size", side_effect=DocumentDisposedError("closed")),
+        patch("plugin.writer.images.images.replace_graphic_source") as mock_replace,
+    ):
+        with pytest.raises(DocumentDisposedError):
+            ImageReplace().execute(ctx, name="Graphic1", path="/tmp/new.png", width_mm=40)
+    mock_replace.assert_not_called()
+
+
+def test_image_generate_export_disposal_propagates():
+    import pytest
+
+    ctx = TestingFactory.create_context(doc_type="writer")
+
+    def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.get_selected_image_base64", side_effect=DocumentDisposedError("closed")),
+    ):
+        with pytest.raises(DocumentDisposedError):
+            ImageGenerate().execute(ctx, prompt="make it purple", source_image="selection")
+
 
 
