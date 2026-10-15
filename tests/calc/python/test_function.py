@@ -1642,6 +1642,55 @@ def test_prepare_auto_spill_with_16384_columns() -> None:
         assert prepared.formula_col == 1020
 
 
+def test_prepare_auto_spill_fallback_columns_are_16384() -> None:
+    from unittest.mock import MagicMock, patch
+
+    class FallbackCellStub:
+        def getType(self) -> int:
+            return 0  # EMPTY
+
+    class FallbackSheetStub:
+        def __init__(self, cell: FallbackCellStub) -> None:
+            self._cell = cell
+
+        def getName(self) -> str:
+            return "Sheet1"
+
+        def getCellByPosition(self, col: int, row: int) -> FallbackCellStub:
+            return self._cell
+
+    cell = FallbackCellStub()
+    sheet = FallbackSheetStub(cell)
+    doc = CalcDocStub(url="file:///wide-fallback.ods", props={"RuntimeUID": "uid-wide-fallback"})
+    ctx = MagicMock()
+    grid = [[1, 2]]
+
+    doc_id = "uid-wide-fallback"
+    try:
+        with patch(
+            "plugin.calc.python.function.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (0, 16300)),
+        ):
+            prepared = python_function._prepare_auto_spill(ctx, "py_code", grid, doc)
+            assert prepared != "#SPILL!"
+            assert isinstance(prepared, python_function.PreparedSpill)
+            assert prepared.doc_key == doc_id
+            assert prepared.sheet_name == "Sheet1"
+            assert prepared.formula_row == 0
+            assert prepared.formula_col == 16300
+
+        with patch(
+            "plugin.calc.python.function.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (0, 16383)),
+        ):
+            prepared_spill = python_function._prepare_auto_spill(ctx, "py_code", grid, doc)
+            assert prepared_spill == "#SPILL!"
+    finally:
+        python_function.LOADED_DOCUMENTS.discard(doc_id)
+        for key in [k for k in python_function.SPILL_REGISTRY if k[0] == doc_id]:
+            python_function.SPILL_REGISTRY.pop(key, None)
+
+
 def test_ragged_results_handling() -> None:
     """Item 4: Ragged results in flatten_result_values and _result_as_spill_grid."""
     # flatten_result_values:
@@ -2731,5 +2780,31 @@ def test_spill_registry_doc_key_uses_runtime_uid_ladder() -> None:
 
     non_str_stub = CalcDocStub(url="file:///x.ods", props={"RuntimeUID": NonStrIntObj()})
     assert python_function._spill_registry_doc_key(non_str_stub) == "file:///x.ods"
+
+
+def test_spill_registry_doc_key_stable_without_runtime_uid(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.workbook_lifecycle import _forget_doc_lifecycle_key
+
+    doc = CalcDocStub(url="", props={})
+    counter = 0
+
+    def sid(_doc: Any) -> str:
+        nonlocal counter
+        counter += 1
+        return f"calc:unsaved:{counter}"
+
+    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id", sid)
+
+    key1 = ""
+    try:
+        key1 = python_function._spill_registry_doc_key(doc)
+        assert key1 == "calc:unsaved:1"
+        key2 = python_function._spill_registry_doc_key(doc)
+        assert key2 == "calc:unsaved:1"
+        assert counter == 1
+    finally:
+        if key1:
+            _forget_doc_lifecycle_key(key1)
+
 
 

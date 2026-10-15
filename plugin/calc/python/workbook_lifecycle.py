@@ -145,8 +145,29 @@ def _runtime_uid(doc: Any) -> str:
 
 
 def _lifecycle_key(doc: Any) -> str:
-    key = _runtime_uid(doc) or calc_workbook_base_session_id(doc)
-    _remember_doc_lifecycle_key(doc, key)
+    """Per-open identity: RuntimeUID, else the first session id remembered for this object.
+
+    Bugfix: What was wrong: with no RuntimeUID, every call minted a new
+    ``calc:unsaved:{uuid}`` and overwrote the remembered key, so a deferred
+    spill's scheduled key never matched the live key and the write returned
+    without touching the sheet.
+    How it happened: ``_lifecycle_key`` always called
+    ``calc_workbook_base_session_id``, and ``_workbook_session_key`` returns a
+    fresh uuid when the session property does not stick.
+    Why this change fixes it: a missing RuntimeUID reuses the key already
+    stored for this object. A new session id is computed only the first time.
+    A RuntimeUID read still replaces that fallback.
+    """
+    uid = _runtime_uid(doc)
+    if uid:
+        _remember_doc_lifecycle_key(doc, uid)
+        return uid
+    known = lifecycle_key_if_known(doc)
+    if known:
+        return known
+    key = calc_workbook_base_session_id(doc)
+    if key:
+        _remember_doc_lifecycle_key(doc, key)
     return key
 
 

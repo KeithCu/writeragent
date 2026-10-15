@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,6 +14,7 @@ from plugin.calc.python.workbook_lifecycle import (
     _CalcPythonUnloadListener,
     _lifecycle_key,
     ensure_calc_workbook_unload_resets_python,
+    lifecycle_key_if_known,
 )
 from plugin.tests.testing_utils import CalcDocStub
 
@@ -282,4 +284,38 @@ def test_lifecycle_key_rejects_non_string_runtime_uid(monkeypatch: pytest.Monkey
 def test_lifecycle_key_accepts_int_runtime_uid():
     doc = CalcDocStub(props={"RuntimeUID": 42})
     assert _lifecycle_key(doc) == "42"
+
+
+def test_lifecycle_key_reuses_session_fallback_without_runtime_uid(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc1 = CalcDocStub(url="", props={})
+    doc2 = CalcDocStub(url="", props={})
+
+    counter = 0
+
+    def sid(_doc: Any) -> str:
+        nonlocal counter
+        counter += 1
+        return f"calc:unsaved:{counter}"
+
+    monkeypatch.setattr("plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id", sid)
+
+    assert _lifecycle_key(doc1) == "calc:unsaved:1"
+    assert _lifecycle_key(doc1) == "calc:unsaved:1"
+    assert counter == 1
+    assert _lifecycle_key(doc2) == "calc:unsaved:2"
+    assert counter == 2
+
+
+def test_lifecycle_key_runtime_uid_replaces_remembered_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="", props={})
+    monkeypatch.setattr(
+        "plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id",
+        lambda _doc: "calc:unsaved:sticky",
+    )
+
+    assert _lifecycle_key(doc) == "calc:unsaved:sticky"
+    doc.setPropertyValue("RuntimeUID", "uid-later")
+    assert _lifecycle_key(doc) == "uid-later"
+    assert lifecycle_key_if_known(doc) == "uid-later"
+
 
