@@ -383,9 +383,11 @@ def _speak_endpoint(
     for index, chunk in enumerate(chunks):
         if _playback_blocked(generation):
             return
+        # Pass on_status on every chunk: later chunks only hit on_status for a
+        # failed or empty download, and chunk 0 already shows that line.
         wav_path = _download_endpoint_speech(
             chunk, endpoint_url, api_key, model, voice, speed=speed, generation=generation,
-            on_status=on_status if index == 0 else None,
+            on_status=on_status,
         )
         played = False
         if wav_path:
