@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+import struct
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -2055,6 +2056,360 @@ def test_second_spill_timer_cancels_the_first() -> None:
     assert t1 not in active_timers
     assert t2 in active_timers
     assert t3 in active_timers
+
+
+def test_calc_formula_error_double_and_tokens() -> None:
+    tokens = [
+        ("#VALUE!", 519),
+        ("  #VALUE!  ", 519),
+        ("#NUM!", 503),
+        ("#DIV/0!", 532),
+        ("#N/A", 32767),
+        ("#N/A N/A", 32767),
+        ("#REF!", 524),
+        ("#NAME?", 525),
+        ("#NULL!", 521),
+    ]
+    for token, expected_code in tokens:
+        val = python_function.py_addin_cell_value(token)
+        assert isinstance(val, float)
+        assert not math.isfinite(val)
+        raw = struct.unpack("Q", struct.pack("d", val))[0]
+        assert raw & 0xFFFF == expected_code
+        assert raw == (0x7FF8000000000000 | expected_code)
+        assert python_function.calc_error_code_for_token(token) == expected_code
+
+    # Direct calc_formula_error_double
+    for _token, code in tokens:
+        d = python_function.calc_formula_error_double(code)
+        raw = struct.unpack("Q", struct.pack("d", d))[0]
+        assert raw & 0xFFFF == code
+        assert raw == (0x7FF8000000000000 | code)
+
+    # Strings that stay str
+    for non_err in ["hello", "#value!", "#VALUE! extra", "#SPILL!", "Error: Code execution failed"]:
+        val = python_function.py_addin_cell_value(non_err)
+        assert val == non_err
+        assert isinstance(val, str)
+        assert python_function.calc_error_code_for_token(non_err) is None
+
+    # None, nan, inf
+    assert python_function.py_addin_cell_value(None) == ""
+    nan_val = python_function.py_addin_cell_value(float("nan"))
+    assert isinstance(nan_val, float) and math.isnan(nan_val)
+    assert struct.unpack("Q", struct.pack("d", nan_val))[0] & 0xFFFF == 0
+    inf_val = python_function.py_addin_cell_value(float("inf"))
+    assert inf_val == float("inf")
+    ninf_val = python_function.py_addin_cell_value(float("-inf"))
+    assert ninf_val == float("-inf")
+
+    # Tuple maps only first element when it has error token
+    tup = python_function.py_addin_cell_value(("#DIV/0!", 1.0, "ok"))
+    assert isinstance(tup, tuple)
+    first_raw = struct.unpack("Q", struct.pack("d", tup[0]))[0]
+    assert first_raw & 0xFFFF == 532
+    assert tup[1] == 1.0
+    assert tup[2] == "ok"
+
+
+def test_worker_exception_error_code_and_stays_text() -> None:
+    cases = [
+        ("Code execution failed at line '1/0' due to: ZeroDivisionError: division by zero", 532),
+        ("Code execution failed at line 'x' due to: OverflowError: math range error", 503),
+        ("Code execution failed at line 'x' due to: FloatingPointError: underflow", 503),
+        ("Code execution failed at line 'x' due to: NameError: name 'nope' is not defined", 525),
+        ("Code execution failed at line 'x' due to: UnboundLocalError: local variable referenced before assignment", 525),
+        ("Code execution failed at line 'x' due to: ValueError: invalid literal", 519),
+        ("Code execution failed at line 'x' due to: IndexError: list index out of range", 519),
+        ("Code execution failed at line 'x' due to: NotImplementedError: bahttext", 519),
+        ("Code execution failed at line 'x' due to: ValueError: connection timeout while reading", 519),
+        ("Code execution failed at line 'x' due to: NameError: nope due to: ZeroDivisionError: div zero", 532),
+        ("Unknown worker error", 519),
+    ]
+    for msg, expected_code in cases:
+        assert python_function.worker_exception_error_code(msg) == expected_code
+
+    # _worker_failure_stays_text
+    assert python_function._worker_failure_stays_text({"code": "USER_STOPPED", "message": "Stopped by user."}) is True
+    assert python_function._worker_failure_stays_text({"status": "error", "message": "No python executable found under configured venv: '/missing'"}) is True
+    assert python_function._worker_failure_stays_text({"status": "error", "message": "Python worker failed: timed out after 10 seconds"}) is True
+    assert python_function._worker_failure_stays_text({"status": "error", "message": "Code execution failed at line 'x' due to: ValueError: connection timeout"}) is False
+
+
+def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    python_function.clear_python_addin_cache()
+    doc = CalcDocStub()
+    ctx = _ctx_with_doc(doc)
+    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
+
+    # 1. ValueError-shaped worker dict -> the 519 double, not a string
+    rec_diag = MagicMock()
+    monkeypatch.setattr(python_function, "_record_py_diagnostic", rec_diag)
+    err_msg = "Code execution failed at line 'bad' due to: ValueError: invalid literal"
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "message": err_msg},
+    )
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+        out = python_function.execute_python_addin(ctx, "bad_code", doc=doc)
+    assert isinstance(out, float)
+    raw = struct.unpack("Q", struct.pack("d", out))[0]
+    assert raw & 0xFFFF == 519
+    assert "Code execution failed" in caplog.text
+    assert "ValueError" in caplog.text
+    rec_diag.assert_called_with(ctx, "bad_code", {"status": "error", "message": err_msg}, status="error", message=err_msg, doc=doc)
+
+    # 2. ZeroDivisionError-shaped dict -> 532
+    div_msg = "Code execution failed at line '1/0' due to: ZeroDivisionError: division by zero"
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "message": div_msg},
+    )
+    out_div = python_function.execute_python_addin(ctx, "1/0", doc=doc)
+    assert isinstance(out_div, float)
+    raw_div = struct.unpack("Q", struct.pack("d", out_div))[0]
+    assert raw_div & 0xFFFF == 532
+
+    # 3. Existing timeout and venv-not-found tests still expect a string containing Settings
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "message": "No python executable found under configured venv: '/missing'"},
+    )
+    out_venv = python_function.execute_python_addin(ctx, "venv_code", doc=doc)
+    assert isinstance(out_venv, str) and "Settings" in out_venv
+
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "message": "Python worker failed: timed out after 10 seconds"},
+    )
+    out_to = python_function.execute_python_addin(ctx, "to_code", doc=doc)
+    assert isinstance(out_to, str) and "timed out" in out_to.lower()
+
+    # 4. code="USER_STOPPED", message Stopped by user. -> a string, no ERROR log
+    caplog.clear()
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."},
+    )
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+        out_stop = python_function.execute_python_addin(ctx, "stop_code", doc=doc)
+    assert isinstance(out_stop, str)
+    assert "Stopped" in out_stop or "USER_STOPPED" in out_stop
+    assert caplog.text == ""
+
+    # 5. Monkeypatch run_code_in_user_venv to raise RuntimeError("host blew up") -> still a string from _format_error_for_display
+    def _raise_runtime(*_a, **_k):
+        raise RuntimeError("host blew up")
+    monkeypatch.setattr(python_function, "run_code_in_user_venv", _raise_runtime)
+    out_exc = python_function.execute_python_addin(ctx, "exc_code", doc=doc)
+    assert isinstance(out_exc, str)
+    assert "host blew up" in out_exc
+
+    # 6. Successful result="#N/A" -> the 32767 double
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": "#N/A"},
+    )
+    out_na = python_function.execute_python_addin(ctx, "na_code", doc=doc)
+    assert isinstance(out_na, float)
+    raw_na = struct.unpack("Q", struct.pack("d", out_na))[0]
+    assert raw_na & 0xFFFF == 32767
+
+    # 7. Successful result=["#NUM!", 2] is a column spill; worker status: error does not write SPILL_REGISTRY
+    python_function.SPILL_REGISTRY.clear()
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "error", "message": err_msg},
+    )
+    python_function.execute_python_addin(ctx, "spill_fail_code", doc=doc)
+    assert len(python_function.SPILL_REGISTRY) == 0
+
+    class DummyTimer:
+        def __init__(self, interval, function, args=(), kwargs={}):
+            self.function = function
+            self.args = args
+            self.kwargs = kwargs
+        def start(self):
+            self.function(*self.args, **self.kwargs)
+
+    monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.post_to_main_thread",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
+    doc_spill = CalcDocStub(url="file:///fake_col_addin.ods", selection="A1")
+    sheet_spill = doc_spill.getSheets().getByName("Sheet1")
+    sheet_spill.getCellByPosition(0, 0).setFormula('=PYTHON("num_spill_code")')
+    ctx_spill = _ctx_with_doc(doc_spill)
+    monkeypatch.setattr(
+        python_function,
+        "run_code_in_user_venv",
+        lambda *_a, **_k: {"status": "ok", "result": ["#NUM!", 2]},
+    )
+    out_spill = python_function.execute_python_addin(ctx_spill, "num_spill_code", doc=doc_spill)
+    assert isinstance(out_spill, float)
+    assert struct.unpack("Q", struct.pack("d", out_spill))[0] & 0xFFFF == 503
+    key_spill = ("file:///fake_col_addin.ods", "Sheet1", 0, 0)
+    assert key_spill in python_function.SPILL_REGISTRY
+
+
+def test_flat_result_equal_and_scalar_matrix_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Two payload NaNs with the same bits compare equal
+    nan519_a = python_function.calc_formula_error_double(519)
+    nan519_b = python_function.calc_formula_error_double(519)
+    nan532 = python_function.calc_formula_error_double(532)
+    assert python_function._flat_result_equal((nan519_a,), (nan519_b,)) is True
+    assert python_function._flat_result_equal((nan519_a,), (nan532,)) is False
+
+    # float("nan") compares equal to float("nan")
+    assert python_function._flat_result_equal((float("nan"),), (float("nan"),)) is True
+    # 1.0 equals 1.0
+    assert python_function._flat_result_equal((1.0,), (1.0,)) is True
+    # #VALUE! mapped values of 519 equal each other
+    val519_a = python_function.py_addin_cell_value("#VALUE!")
+    val519_b = python_function.py_addin_cell_value("#VALUE!")
+    assert python_function._flat_result_equal((val519_a,), (val519_b,)) is True
+    val503 = python_function.py_addin_cell_value("#NUM!")
+    assert python_function._flat_result_equal((val519_a,), (val503,)) is False
+
+    # Monkeypatch session_key to ("u", "Sheet1", "sid", code, "0,0")
+    # Call scalar_for_list_result twice on ["#VALUE!", "#DIV/0!"]
+    code = "test_matrix_session_err"
+    monkeypatch.setattr(
+        python_function,
+        "session_key",
+        lambda _ctx, _c, doc=None: ("u", "Sheet1", "sid", code, "0,0"),
+    )
+    ctx = MagicMock()
+    try:
+        ret1 = python_function.scalar_for_list_result(ctx, code, ["#VALUE!", "#DIV/0!"])
+        ret2 = python_function.scalar_for_list_result(ctx, code, ["#VALUE!", "#DIV/0!"])
+        assert isinstance(ret1, float)
+        assert struct.unpack("Q", struct.pack("d", ret1))[0] & 0xFFFF == 519
+        assert isinstance(ret2, float)
+        assert struct.unpack("Q", struct.pack("d", ret2))[0] & 0xFFFF == 532
+    finally:
+        with python_function._MATRIX_SCALAR_SESSIONS_LOCK:
+            python_function._MATRIX_SCALAR_SESSIONS.clear()
+
+
+def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.doc_stubs import CalcRangeStub
+
+    class DummyTimer:
+        def __init__(self, interval, function, args=(), kwargs={}):
+            self.function = function
+            self.args = args
+            self.kwargs = kwargs
+        def start(self):
+            self.function(*self.args, **self.kwargs)
+
+    monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.post_to_main_thread",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
+    python_function.LOADED_DOCUMENTS.clear()
+    python_function.SPILL_REGISTRY.clear()
+
+    recorded_set_data: list[tuple[Any, ...]] = []
+    orig_set_data = CalcRangeStub.setDataArray
+
+    def recording_set_data(self, data):
+        recorded_set_data.append(data)
+        return orig_set_data(self, data)
+
+    monkeypatch.setattr(CalcRangeStub, "setDataArray", recording_set_data)
+
+    # 1. Column [1, "#VALUE!", "#DIV/0!", "#N/A"]
+    doc = CalcDocStub(url="file:///fake_col.ods", selection="A1")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PYTHON("col_err_test")')
+    ctx = _ctx_with_doc(doc)
+
+    col_result = [1, "#VALUE!", "#DIV/0!", "#N/A"]
+    ret_corner = python_function.finalize_python_return(ctx, "col_err_test", col_result, doc=doc)
+    assert ret_corner == 1.0
+    assert sheet.getCellByPosition(0, 1).getFormula() == "=#ERR519!"
+    assert sheet.getCellByPosition(0, 2).getFormula() == "=#ERR532!"
+    # The #N/A slot in the recorded setDataArray data is None, and that cell is not given a formula
+    assert sheet.getCellByPosition(0, 3).getFormula() == ""
+    all_recorded_cells = [cell for call in recorded_set_data for row in call for cell in row]
+    assert None in all_recorded_cells
+    key_col = ("file:///fake_col.ods", sheet.getName(), 0, 0)
+    assert key_col in python_function.SPILL_REGISTRY
+    col_cells = python_function.SPILL_REGISTRY[key_col].cells
+    assert len(col_cells) == 3
+    assert col_cells[0].kind == "err" and col_cells[0].value == 519
+    assert col_cells[1].kind == "err" and col_cells[1].value == 532
+    assert col_cells[2].kind == "err" and col_cells[2].value == 32767
+
+    # 2. 2x2 [[1, "#NUM!"], ["#REF!", "#NAME?"]]
+    recorded_set_data.clear()
+    python_function.SPILL_REGISTRY.clear()
+    doc2 = CalcDocStub(url="file:///fake_2x2.ods", selection="A1")
+    sheet2 = doc2.getSheets().getByName("Sheet1")
+    sheet2.getCellByPosition(0, 0).setFormula('=PYTHON("grid_2x2_test")')
+    ctx2 = _ctx_with_doc(doc2)
+
+    grid_result = [[1, "#NUM!"], ["#REF!", "#NAME?"]]
+    ret_corner2 = python_function.finalize_python_return(ctx2, "grid_2x2_test", grid_result, doc=doc2)
+    assert ret_corner2 == 1.0
+    assert sheet2.getCellByPosition(1, 0).getFormula() == "=#ERR503!"
+    assert sheet2.getCellByPosition(0, 1).getFormula() == "=#ERR524!"
+    assert sheet2.getCellByPosition(1, 1).getFormula() == "=#ERR525!"
+    recorded_cells_2x2 = [cell for call in recorded_set_data for row in call for cell in row]
+    assert all(c == "" for c in recorded_cells_2x2)
+
+    # 3. [[ "#NULL!" ]] (one cell): return value is the 521 double. No neighbor formula.
+    python_function.SPILL_REGISTRY.clear()
+    doc3 = CalcDocStub(url="file:///fake_1x1.ods", selection="A1")
+    sheet3 = doc3.getSheets().getByName("Sheet1")
+    sheet3.getCellByPosition(0, 0).setFormula('=PYTHON("one_cell_test")')
+    ctx3 = _ctx_with_doc(doc3)
+    ret_corner3 = python_function.finalize_python_return(ctx3, "one_cell_test", [["#NULL!"]], doc=doc3)
+    assert isinstance(ret_corner3, float)
+    assert struct.unpack("Q", struct.pack("d", ret_corner3))[0] & 0xFFFF == 521
+    assert sheet3.getCellByPosition(1, 0).getFormula() == ""
+    assert sheet3.getCellByPosition(0, 1).getFormula() == ""
+
+    # 4. Index path: finalize_python_return(..., ["a", "#NUM!"], index_arg=1) is the 503 double.
+    # index_arg=5 on a 2-element list is still the Error: index … string.
+    val_idx = python_function.finalize_python_return(ctx3, "idx_code", ["a", "#NUM!"], index_arg=1)
+    assert isinstance(val_idx, float)
+    assert struct.unpack("Q", struct.pack("d", val_idx))[0] & 0xFFFF == 503
+    val_idx_err = python_function.finalize_python_return(ctx3, "idx_code", ["a", "#NUM!"], index_arg=5)
+    assert isinstance(val_idx_err, str)
+    assert "Error: index 5 out of range" in val_idx_err
+
+
+def test_cell_matches_stored_value_err() -> None:
+    fake_cell_519 = SimpleNamespace(getError=lambda: 519)
+    fake_cell_no_err = SimpleNamespace()
+    rec_519 = python_function.SpillCell(row=0, col=0, kind="err", value=519)
+
+    class FakeSheet:
+        def __init__(self, cell):
+            self._cell = cell
+        def getCellByPosition(self, col, row):
+            return self._cell
+
+    sheet_519 = FakeSheet(fake_cell_519)
+    assert python_function._cell_matches_stored_value(sheet_519, 0, 0, rec_519) is True
+
+    rec_532 = python_function.SpillCell(row=0, col=0, kind="err", value=532)
+    assert python_function._cell_matches_stored_value(sheet_519, 0, 0, rec_532) is False
+
+    sheet_no_err = FakeSheet(fake_cell_no_err)
+    assert python_function._cell_matches_stored_value(sheet_no_err, 0, 0, rec_519) is False
 
 
 def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPatch) -> None:
