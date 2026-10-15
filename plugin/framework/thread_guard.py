@@ -25,8 +25,6 @@ When active:
 - Returned PyUNO objects are wrapped in a transparent proxy that asserts on
   every subsequent access/call, so arbitrary object-graph walks are covered
   with zero per-site annotations.
-- A PyUNO_callable is wrapped so the guard follows method calls, not only the
-  first attribute read.
 
 When inactive, violations log a warning with full stack (no crash).
 
@@ -244,11 +242,25 @@ def _is_pyuno(obj: Any) -> bool:
     # TypeDetection / loadComponentFromURL which require real structs in tuples.
     if hasattr(obj, "__pyunostruct__"):
         return False
-    # Method objects use that tp_name (pyuno/source/module/pyuno_callable.cxx);
-    # without this branch __getattr__ returns the raw callable, __call__ never
-    # runs, and the return value is unguarded.
-    if tname == "PyUNO_callable":
-        return True
+    # Bugfix: do not treat PyUNO_callable as a guardable UNO object.
+    # What was wrong: returning True for tp_name "PyUNO_callable"
+    # (pyuno/source/module/pyuno_callable.cxx, module builtins, no
+    # queryInterface) made __getattr__ wrap the method and __call__
+    # wrap its return.
+    # How it happened: pyuno.invoke keeps uno.Any only when the target
+    # is a real PyUNO instance (pyuno.cxx PyUNO_invoke). A proxy takes
+    # the else branch, which drops Any before the call, and
+    # replaceByIndex / setPropertyValue of a PropertyValue or TabStop
+    # sequence raises IllegalArgumentException. pyObject2Any extracts
+    # the real XInterface only for a PyUNO instance
+    # (pyuno_runtime.cxx). Any other object whose getTypes() returns
+    # types — this proxy forwards getTypes — becomes an invocation
+    # adapter with a different identity, so XDrawPage.group and graphic
+    # export miss the real shape.
+    # Why this change: leave the name to fall through. __getattr__
+    # still asserts, then _wrap_uno returns the raw callable. Its
+    # return value stays a real PyUNO object. Deepening _unwrap_uno
+    # cannot fix this: invoke and pyObject2Any never call it.
     mod = getattr(t, "__module__", "") or ""
     if "pyuno" in mod:
         return True
@@ -263,8 +275,8 @@ class _UnoThreadGuardProxy:
 
     Every attribute access and call runs assert_main_thread, then recursively
     wraps any PyUNO result so the guard follows the object graph. A method
-    lookup returns a proxy around the PyUNO_callable, and calling that proxy
-    wraps the return.
+    lookup returns the raw PyUNO_callable. Calling that callable does not
+    enter this proxy, and the value it returns is not wrapped here.
 
     Plain Python values pass through. Only installed when GUARD_ON.
     """
