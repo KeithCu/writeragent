@@ -144,7 +144,7 @@ def test_tunnel_stop_and_failure_clear_snippet_cache(monkeypatch) -> None:
 
     try:
         with (
-            patch("plugin.mcp.tunnel.binary_available", return_value=True),
+            patch("plugin.mcp.tunnel.binary_available", return_value=None),
             patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
         ):
             mgr = TunnelManager()
@@ -174,7 +174,7 @@ def test_tunnel_stop_and_failure_clear_snippet_cache(monkeypatch) -> None:
             assert _snippet_url(snippet) == "https://<subdomain>.trycloudflare.com/mcp"
             mgr.stop()
 
-        with patch("plugin.mcp.tunnel.binary_available", return_value=False):
+        with patch("plugin.mcp.tunnel.binary_available", return_value="cloudflared binary not found on PATH"):
             remember = TunnelManager()
             mcp_ui.remember_tested_tunnel_url("cloudflare", "https://stale.trycloudflare.com/mcp")
             assert remember.start(18765, "cloudflare") is False

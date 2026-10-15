@@ -193,7 +193,7 @@ def test_tailscale_funnel_stdout_publishes_url(monkeypatch):
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", return_value=MagicMock(returncode=0)),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
@@ -240,7 +240,7 @@ def test_start_fails_unknown_provider(monkeypatch):
 def test_start_fails_when_binary_missing(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mgr = TunnelManager()
-    with patch("plugin.mcp.tunnel.binary_available", return_value=False):
+    with patch("plugin.mcp.tunnel.binary_available", return_value="cloudflared binary not found on PATH"):
         assert mgr.start(18765, "cloudflare") is False
     assert mgr.public_url is None
 
@@ -266,7 +266,7 @@ def test_start_parses_url_and_restarts_on_provider_change(monkeypatch):
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
     ):
         assert mgr.start(18765, "cloudflare") is True
@@ -304,7 +304,7 @@ def test_start_passes_provider_config_per_provider(monkeypatch):
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
@@ -354,7 +354,7 @@ def test_detect_tunnel_auth_error():
 def test_start_sets_last_error_when_binary_missing(monkeypatch):
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mgr = TunnelManager()
-    with patch("plugin.mcp.tunnel.binary_available", return_value=False):
+    with patch("plugin.mcp.tunnel.binary_available", return_value="cloudflared binary not found on PATH"):
         assert mgr.start(18765, "cloudflare") is False
     assert mgr.last_error == "cloudflared binary not found on PATH"
 
@@ -384,7 +384,7 @@ def test_start_returns_false_when_status_is_failed_with_custom_message(monkeypat
             )
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch.object(mgr, "_spawn_process_unlocked", side_effect=_fail_spawn),
     ):
         assert mgr.start(18765, "cloudflare") is False
@@ -411,7 +411,7 @@ def test_auth_line_and_exit_without_url_set_last_error(monkeypatch):
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
     ):
         assert mgr.start(18765, "ngrok") is False
@@ -443,7 +443,7 @@ def test_successful_url_clears_last_error_exit_without_prior_sets_code(monkeypat
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
     ):
         assert mgr.start(18765, "cloudflare") is True
@@ -464,7 +464,7 @@ def test_successful_url_clears_last_error_exit_without_prior_sets_code(monkeypat
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_die),
     ):
         assert mgr.start(18765, "bore") is True
@@ -494,7 +494,7 @@ def test_tunnel_manager_reconnect_and_url_recovery(monkeypatch):
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
     ):
         # 1. Initial successful start
@@ -537,7 +537,7 @@ def test_tunnel_manager_max_retries_failure(monkeypatch):
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_die_process),
     ):
         def _expire_retry() -> None:
@@ -603,7 +603,7 @@ def test_stale_retry_timer_does_not_spawn_second_process(monkeypatch):
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
     ):
         assert mgr.start(18765, "cloudflare") is True
@@ -660,7 +660,7 @@ def test_stale_exit_does_not_drop_replacement_process(monkeypatch):
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
     ):
         assert mgr.start(18765, "cloudflare") is True
@@ -747,7 +747,7 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
@@ -798,7 +798,7 @@ def test_leaving_tailscale_resets_funnel_for_old_port_on_port_change(monkeypatch
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
@@ -849,7 +849,7 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
     tailscale_reset = _tailscale_reset_cmds()
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
@@ -952,9 +952,11 @@ def _fake_running_process(spawned: list):
     return _fake
 
 
-def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch):
+def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch, tmp_path):
     """A reset scheduled by stop() must no-op after a newer Tailscale start."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    marker = tmp_path / "writeragent-tailscale-funnel-armed"
+    monkeypatch.setattr("plugin.mcp.tunnel._tailscale_arm_path", lambda: str(marker))
     mgr = TunnelManager()
     reset_cmds: list[list[str]] = []
     scheduled: list = []
@@ -969,7 +971,7 @@ def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch):
         return completed
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
@@ -984,6 +986,8 @@ def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch):
         scheduled[0]()
         assert reset_cmds == tailscale_reset * 2
         assert len(spawned) == 2
+        assert marker.exists()
+        assert mgr._tailscale_resets_in_flight == 0
 
 
 def test_tailscale_post_stop_runs_when_no_newer_session_started(monkeypatch):
@@ -1003,7 +1007,7 @@ def test_tailscale_post_stop_runs_when_no_newer_session_started(monkeypatch):
         return completed
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
@@ -1033,7 +1037,7 @@ def test_tailscale_post_stop_still_runs_after_cloudflare_start(monkeypatch):
         return completed
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
@@ -1071,12 +1075,145 @@ def test_stopped_stop_resets_tailscale_when_crash_marker_exists(monkeypatch, tmp
     ):
         mgr.stop()
         assert len(scheduled) == 1
+        assert mgr._tailscale_resets_in_flight == 1
+        mgr.stop()
+        assert len(scheduled) == 1
+        assert mgr._tailscale_resets_in_flight == 1
         scheduled[0]()
         assert reset_cmds == _tailscale_reset_cmds()
         assert not marker.exists()
+        assert mgr._tailscale_resets_in_flight == 0
         mgr.stop()
         assert len(scheduled) == 1
         assert reset_cmds == _tailscale_reset_cmds()
+
+
+def test_failed_tailscale_reset_keeps_crash_marker_for_retry(monkeypatch, tmp_path):
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    marker = tmp_path / "writeragent-tailscale-funnel-armed"
+    marker.write_text("armed\n", encoding="utf-8")
+    monkeypatch.setattr("plugin.mcp.tunnel._tailscale_arm_path", lambda: str(marker))
+
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    scheduled: list = []
+    completed = MagicMock()
+    completed.returncode = 1
+    completed.stderr = "failed"
+    completed.stdout = ""
+
+    def _run(cmd, **kwargs):
+        del kwargs
+        reset_cmds.append(list(cmd))
+        return completed
+
+    with (
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
+    ):
+        mgr.stop()
+        assert len(scheduled) == 1
+        scheduled[0]()
+        assert marker.exists()
+        assert mgr._tailscale_resets_in_flight == 0
+        assert reset_cmds == [["tailscale", "funnel", "--https=443", "off"]]
+
+        completed.returncode = 0
+        completed.stderr = ""
+        mgr.stop()
+        assert len(scheduled) == 2
+        scheduled[1]()
+        assert not marker.exists()
+        assert mgr._tailscale_resets_in_flight == 0
+
+        mgr.stop()
+        assert len(scheduled) == 2
+
+
+def test_tailscale_reset_oserror_keeps_crash_marker_for_retry(monkeypatch, tmp_path):
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    marker = tmp_path / "writeragent-tailscale-funnel-armed"
+    marker.write_text("armed\n", encoding="utf-8")
+    monkeypatch.setattr("plugin.mcp.tunnel._tailscale_arm_path", lambda: str(marker))
+
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    scheduled: list = []
+    completed = MagicMock()
+    completed.returncode = 0
+    completed.stderr = ""
+    completed.stdout = ""
+    fail = True
+
+    def _run(cmd, **kwargs):
+        del kwargs
+        reset_cmds.append(list(cmd))
+        if fail:
+            raise OSError("boom")
+        return completed
+
+    with (
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
+    ):
+        mgr.stop()
+        assert len(scheduled) == 1
+        scheduled[0]()
+        assert marker.exists()
+        assert mgr._tailscale_resets_in_flight == 0
+
+        fail = False
+        mgr.stop()
+        assert len(scheduled) == 2
+        scheduled[1]()
+        assert not marker.exists()
+        assert mgr._tailscale_resets_in_flight == 0
+
+
+def test_stale_tailscale_reset_does_not_drop_a_newer_inflight_count(monkeypatch, tmp_path):
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    marker = tmp_path / "writeragent-tailscale-funnel-armed"
+    monkeypatch.setattr("plugin.mcp.tunnel._tailscale_arm_path", lambda: str(marker))
+    mgr = TunnelManager()
+    reset_cmds: list[list[str]] = []
+    scheduled: list = []
+    spawned: list = []
+    tailscale_reset = _tailscale_reset_cmds()
+
+    def _run(cmd, **kwargs):
+        del kwargs
+        reset_cmds.append(list(cmd))
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
+
+    with (
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
+        patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
+        patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
+    ):
+        assert mgr.start(18765, "tailscale") is True
+        assert reset_cmds == tailscale_reset
+        mgr.stop()
+        assert len(scheduled) == 1
+        assert mgr._tailscale_resets_in_flight == 1
+
+        assert mgr.start(18765, "tailscale") is True
+        assert reset_cmds == tailscale_reset * 2
+        mgr.stop()
+        assert len(scheduled) == 2
+        assert mgr._tailscale_resets_in_flight == 2
+
+        scheduled[0]()
+        assert reset_cmds == tailscale_reset * 2
+        assert marker.exists()
+        assert mgr._tailscale_resets_in_flight == 1
+
+        scheduled[1]()
+        assert reset_cmds == tailscale_reset * 3
+        assert not marker.exists()
+        assert mgr._tailscale_resets_in_flight == 0
 
 
 def test_tailscale_spawn_writes_arm_marker_and_post_stop_clears_it(monkeypatch, tmp_path):
@@ -1095,7 +1232,7 @@ def test_tailscale_spawn_writes_arm_marker_and_post_stop_clears_it(monkeypatch, 
         return completed
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
@@ -1159,7 +1296,7 @@ def test_tailscale_pre_start_does_not_hold_tunnel_lock(monkeypatch):
 
     stopper: threading.Thread | None = None
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_running_process(spawned)),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
@@ -1370,11 +1507,11 @@ def test_start_does_not_hold_lock_during_binary_probe(monkeypatch):
     release = threading.Event()
     result: dict[str, bool] = {}
 
-    def _slow(provider: str) -> bool:
+    def _slow(provider: str) -> str | None:
         del provider
         probed.set()
         assert release.wait(2)
-        return True
+        return None
 
     def _run() -> None:
         result["ok"] = mgr.start(18765, "cloudflare")
@@ -1418,7 +1555,7 @@ def test_stop_cancels_a_start_that_was_only_armed(monkeypatch):
     mgr.note_pending_start(token)
     mgr.stop()
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=AssertionError("should not spawn")),
     ):
         assert mgr.start(18765, "cloudflare", start_token=token) is False
@@ -1459,12 +1596,12 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
     release = threading.Event()
     probe_thread: dict[str, threading.Thread] = {}
 
-    def _slow(provider: str) -> bool:
+    def _slow(provider: str) -> str | None:
         del provider
         probe_thread["t"] = threading.current_thread()
         probed.set()
         assert release.wait(2)
-        return False
+        return "cloudflared binary not found on PATH"
 
     monkeypatch.setattr("plugin.mcp.tunnel.binary_available", _slow)
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
@@ -1496,7 +1633,7 @@ def test_start_absent_token_in_env_and_args(monkeypatch):
         return proc
 
     with (
-        patch("plugin.mcp.tunnel.binary_available", return_value=True),
+        patch("plugin.mcp.tunnel.binary_available", return_value=None),
         patch("plugin.framework.worker_pool.AsyncProcess", side_effect=_fake_async_process),
     ):
         assert mgr.start(18765, "cloudflare", provider_token="") is True
@@ -1513,7 +1650,7 @@ def test_tailscale_reset_warns_on_nonzero_exit(caplog):
     completed.stdout = ""
     with patch("subprocess.run", return_value=completed):
         with caplog.at_level(logging.WARNING, logger="writeragent.mcp.tunnel"):
-            _tailscale_reset(18765)
+            assert _tailscale_reset(18765) is False
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert "exited 1" in warnings[0].message
@@ -1530,9 +1667,20 @@ def test_tailscale_reset_info_on_success(caplog):
     completed.stdout = ""
     with patch("subprocess.run", return_value=completed):
         with caplog.at_level(logging.INFO, logger="writeragent.mcp.tunnel"):
-            _tailscale_reset(18765)
+            assert _tailscale_reset(18765) is True
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert not warnings
+
+
+def test_tailscale_reset_returns_false_on_exception(caplog):
+    import logging
+
+    with patch("subprocess.run", side_effect=OSError("boom")):
+        with caplog.at_level(logging.ERROR, logger="writeragent.mcp.tunnel"):
+            assert _tailscale_reset(18765) is False
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert any(r.exc_info for r in errors)
 
 
 def test_binary_available_missing_is_warning(caplog):
@@ -1540,9 +1688,59 @@ def test_binary_available_missing_is_warning(caplog):
 
     with patch("subprocess.run", side_effect=FileNotFoundError):
         with caplog.at_level(logging.WARNING, logger="writeragent.mcp.tunnel"):
-            assert binary_available("cloudflare") is False
+            assert binary_available("cloudflare") == "cloudflared binary not found on PATH"
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert "not found" in warnings[0].message
     assert not any(r.exc_info for r in caplog.records)
+
+
+def test_binary_available_timeout_is_warning(caplog):
+    import logging
+    import subprocess
+
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["cloudflared", "--version"], timeout=10)):
+        with caplog.at_level(logging.WARNING, logger="writeragent.mcp.tunnel"):
+            assert binary_available("cloudflare") == "cloudflared binary check timed out"
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "not found" not in warnings[0].message
+    assert not any(r.exc_info for r in caplog.records)
+
+
+def test_binary_available_permission_error(caplog):
+    import logging
+
+    with patch("subprocess.run", side_effect=PermissionError("denied")):
+        with caplog.at_level(logging.ERROR, logger="writeragent.mcp.tunnel"):
+            assert binary_available("cloudflare") == "could not execute cloudflared"
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "not found" not in errors[0].message
+    assert any(r.exc_info for r in errors)
+
+
+def test_binary_available_nonzero_version_is_available():
+    completed = MagicMock()
+    completed.returncode = 1
+    completed.stdout = ""
+    completed.stderr = "tailscale 1.2.3"
+    with patch("subprocess.run", return_value=completed):
+        assert binary_available("tailscale") is None
+
+
+def test_binary_available_unknown_provider():
+    assert binary_available("not-a-provider") == "unknown tunnel provider: not-a-provider"
+
+
+def test_start_uses_binary_probe_error_verbatim(monkeypatch):
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    from plugin.mcp.tunnel_state import TunnelStatus
+
+    mgr = TunnelManager()
+    with patch("plugin.mcp.tunnel.binary_available", return_value="cloudflared binary check timed out"):
+        assert mgr.start(18765, "cloudflare") is False
+    assert mgr.status == TunnelStatus.FAILED
+    assert mgr.last_error == "cloudflared binary check timed out"
+    assert mgr.public_url is None
 
