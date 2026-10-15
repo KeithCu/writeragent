@@ -269,9 +269,10 @@ def test_int_bitwise():
     assert _int_bitwise(operator.xor, 5, 3) == 6.0
     assert _int_bitwise(operator.and_, "5", "3") == 1.0
 
-    # Errors return NaN
-    assert math.isnan(_int_bitwise(operator.and_, "invalid", 1))
-    assert math.isnan(_int_bitwise(operator.and_, None, 1))
+    with pytest.raises(ValueError):
+        _int_bitwise(operator.and_, "invalid", 1)
+    with pytest.raises(TypeError):
+        _int_bitwise(operator.and_, None, 1)
     assert math.isnan(_int_bitwise(operator.and_, float("inf"), 1))
 
 
@@ -286,7 +287,8 @@ def test_int_shift():
     assert _int_shift(8, -1, left=False) == 16.0
 
     # Invalid / inf inputs return NaN
-    assert math.isnan(_int_shift("invalid", 1, left=True))
+    with pytest.raises(ValueError):
+        _int_shift("invalid", 1, left=True)
     assert math.isnan(_int_shift(1, float("inf"), left=True))
     assert math.isnan(_int_shift(float("inf"), 1, left=False))
 
@@ -298,8 +300,8 @@ def test_bessel_iv_jv():
     assert _bessel_iv_jv(dummy_fn, 2.5, 3) == 32.5
     # n < 0 returns NaN
     assert math.isnan(_bessel_iv_jv(dummy_fn, 2.5, -1))
-    # Errors return NaN
-    assert math.isnan(_bessel_iv_jv(dummy_fn, "invalid", 1))
+    with pytest.raises(ValueError):
+        _bessel_iv_jv(dummy_fn, "invalid", 1)
 
 
 def test_bessel_kn_yn():
@@ -310,8 +312,8 @@ def test_bessel_kn_yn():
     # x <= 0 returns NaN
     assert math.isnan(_bessel_kn_yn(dummy_fn, 0.0, 1))
     assert math.isnan(_bessel_kn_yn(dummy_fn, -2.5, 1))
-    # Errors return NaN
-    assert math.isnan(_bessel_kn_yn(dummy_fn, "invalid", 1))
+    with pytest.raises(ValueError):
+        _bessel_kn_yn(dummy_fn, "invalid", 1)
 
 
 def test_criteria_numbers():
@@ -354,8 +356,10 @@ def test_dollar_fraction_terms():
     # Non-positive or invalid fraction returns None
     assert _dollar_fraction_terms(1.02, 0) is None
     assert _dollar_fraction_terms(1.02, -4) is None
-    assert _dollar_fraction_terms("invalid", 4) is None
-    assert _dollar_fraction_terms(1.02, "invalid") is None
+    with pytest.raises(ValueError):
+        _dollar_fraction_terms("invalid", 4)
+    with pytest.raises(ValueError):
+        _dollar_fraction_terms(1.02, "invalid")
 
     # inf used to crash in math.floor / int(float(inf)) via OverflowError.
     assert _dollar_fraction_terms(1.02, float("inf")) is None

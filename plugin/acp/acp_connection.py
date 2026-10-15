@@ -49,6 +49,8 @@ _BAD_ID = object()
 def _canonical_id(value: Any) -> Any:
     """Pending-map key for a JSON-RPC id, or ``_BAD_ID``.
 
+    This is applied only to responses (no ``method``).
+
     ``bool`` subclasses ``int``, and ``True`` hashes equal to ``1``, so a JSON
     ``true`` id would complete the in-flight integer request. A whole-number
     float has the same hash: JSON ``1.0`` must become ``1`` or it collides
@@ -137,7 +139,14 @@ def _accept_message(line: str) -> dict[str, Any] | None:
     if not isinstance(msg, dict):
         log.debug("Non-object JSON output: %s", payload[:200])
         return None
-    if "id" in msg:
+    # What was wrong: every object id was rewritten. A request id 1.0 was answered
+    # as 1. A request id 1.5 or true made _canonical_id return _BAD_ID,
+    # _accept_message returned None, and the agent blocked with no response.
+    # How: the pending map only matches responses to integer ids this client sent.
+    # The same dict is what send_response echoes for agent requests.
+    # Why: canonicalize only when there is an id and no method. A request keeps
+    # the parsed id.
+    if "id" in msg and "method" not in msg:
         canonical = _canonical_id(msg["id"])
         if canonical is _BAD_ID:
             log.debug("Non-JSON-RPC id output: %s", payload[:200])

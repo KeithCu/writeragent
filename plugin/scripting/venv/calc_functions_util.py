@@ -268,29 +268,27 @@ def _calc_sort_key(val: Any) -> tuple[int, Any]:
 
 def _clean_paired_arrays(data1: Any, data2: Any) -> tuple[np.ndarray, np.ndarray] | None:
     """Extract 1D float arrays of matching length, keeping only pairs where both cells are finite numbers."""
-    try:
-        d1 = np.asarray(data1, dtype=object).ravel()
-        d2 = np.asarray(data2, dtype=object).ravel()
-        if len(d1) != len(d2) or len(d1) == 0:
-            return None
-        c1: list[float] = []
-        c2: list[float] = []
-        for x, y in zip(d1, d2):
-            if isinstance(x, (bool, np.bool_)) or isinstance(y, (bool, np.bool_)):
-                continue
-            try:
-                xf = float(x)
-                yf = float(y)
-                if math.isfinite(xf) and math.isfinite(yf):
-                    c1.append(xf)
-                    c2.append(yf)
-            except (ValueError, TypeError, OverflowError):
-                continue
-        if not c1:
-            return None
-        return np.asarray(c1, dtype=float), np.asarray(c2, dtype=float)
-    except Exception:
+    # conversion failures are left to the worker exception path, which returns #VALUE!
+    d1 = np.asarray(data1, dtype=object).ravel()
+    d2 = np.asarray(data2, dtype=object).ravel()
+    if len(d1) != len(d2) or len(d1) == 0:
         return None
+    c1: list[float] = []
+    c2: list[float] = []
+    for x, y in zip(d1, d2):
+        if isinstance(x, (bool, np.bool_)) or isinstance(y, (bool, np.bool_)):
+            continue
+        try:
+            xf = float(x)
+            yf = float(y)
+            if math.isfinite(xf) and math.isfinite(yf):
+                c1.append(xf)
+                c2.append(yf)
+        except (ValueError, TypeError, OverflowError):
+            continue
+    if not c1:
+        return None
+    return np.asarray(c1, dtype=float), np.asarray(c2, dtype=float)
 
 
 def _scipy_stats() -> Any | None:
@@ -379,11 +377,9 @@ def _wildcard_to_regex(pattern: str) -> str:
 
 def _wildcard_fullmatch(pattern: str, text: str) -> bool:
     """Excel-style *, ? and ~ wildcard match against the whole text (case-insensitive)."""
-    try:
-        regex_pat = _wildcard_to_regex(pattern)
-        return re.fullmatch(regex_pat, text, flags=re.IGNORECASE) is not None
-    except re.error:
-        return False
+    # pattern is re.escape'd; re.error cannot occur
+    regex_pat = _wildcard_to_regex(pattern)
+    return re.fullmatch(regex_pat, text, flags=re.IGNORECASE) is not None
 
 
 def match_criteria(val: Any, crit: Any) -> bool:
@@ -514,14 +510,12 @@ def _find_match_index(
 ) -> int | None:
     """Find 0-based index matching Excel lookup semantics (exact, smaller, larger, wildcard)."""
     # dtype=object keeps numbers as numbers. Text matches case-insensitively.
-    try:
-        l_flat = np.asarray(lookup_arr, dtype=object).ravel()
-        indices = list(range(len(l_flat)))
-        if int(float(search_mode)) == -1:
-            indices.reverse()
-        mm = int(float(match_mode))
-    except (TypeError, ValueError, OverflowError):
-        return None
+    # bad match_mode or search_mode is left to the worker exception path, which returns #VALUE!
+    l_flat = np.asarray(lookup_arr, dtype=object).ravel()
+    indices = list(range(len(l_flat)))
+    if int(float(search_mode)) == -1:
+        indices.reverse()
+    mm = int(float(match_mode))
 
     def _is_exact(cell: Any, target: Any) -> bool:
         if isinstance(cell, str) and isinstance(target, str):
@@ -661,62 +655,63 @@ _MAX_BIT_VALUE: int = (1 << 48) - 1
 def _int_bitwise(op: Any, n1: Any, n2: Any) -> float:
     """Apply a binary integer bitwise operator to n1 and n2 within [0, 2^48 - 1]."""
     # Non-negative integers below 2^48. Excel and Calc return #NUM! otherwise.
+    # type errors are left to the worker exception path, which returns #VALUE!
     try:
         v1 = int(float(n1))
         v2 = int(float(n2))
-        if v1 < 0 or v1 > _MAX_BIT_VALUE or v2 < 0 or v2 > _MAX_BIT_VALUE:
-            return float("nan")
-        return float(op(v1, v2))
-    except (ValueError, TypeError, OverflowError):
+    except OverflowError:
         return float("nan")
+    if v1 < 0 or v1 > _MAX_BIT_VALUE or v2 < 0 or v2 > _MAX_BIT_VALUE:
+        return float("nan")
+    return float(op(v1, v2))
 
 
 def _int_shift(number: Any, shift: Any, *, left: bool) -> float:
     """Integer bit shift within [0, 2^48 - 1] and shift magnitude <= 53."""
     # Shift at most 53 bits (Excel) and the number stays in [0, 2^48 - 1].
     # A shift of 1e9 builds an integer large enough to hang or raise MemoryError.
+    # type errors are left to the worker exception path, which returns #VALUE!
     try:
         n = int(float(number))
         s = int(float(shift))
-        if n < 0 or n > _MAX_BIT_VALUE or abs(s) > 53:
-            return float("nan")
+    except OverflowError:
+        return float("nan")
+    if n < 0 or n > _MAX_BIT_VALUE or abs(s) > 53:
+        return float("nan")
+    try:
         if s < 0:
             return float(n >> abs(s)) if left else float(n << abs(s))
         return float(n << s) if left else float(n >> s)
-    except (ValueError, TypeError, OverflowError, MemoryError):
+    except MemoryError:
         return float("nan")
 
 
 def _bessel_iv_jv(scipy_fn: Any, x: Any, n: Any) -> float:
     """Evaluate modified/regular Bessel function of the first kind (iv or jv)."""
-    try:
-        v1 = float(x)
-        v2 = int(float(n))
-        if v2 < 0:
-            return float("nan")
-        return float(scipy_fn(v2, v1))
-    except Exception:
+    # type and scipy errors propagate to _bessel_call, which returns NaN
+    v1 = float(x)
+    v2 = int(float(n))
+    if v2 < 0:
         return float("nan")
+    return float(scipy_fn(v2, v1))
 
 
 def _bessel_kn_yn(scipy_fn: Any, x: Any, n: Any) -> float:
     """Evaluate modified/regular Bessel function of the second kind (kn or yn)."""
-    try:
-        xv = float(x)
-        nv = int(float(n))
-        # What was wrong: BESSELK(1, -1) returned kn(1, 1) and BESSELY(1, -1)
-        # returned a finite value. Both are illegal orders.
-        # How it happened: _bessel_iv_jv rejects nv < 0, but this helper only
-        # rejected xv <= 0. scipy.special.kn(-n, x) equals kn(n, x), so the
-        # missing check looked like a successful order-1 call.
-        # Why this change fixes it: AnalysisAddIn::getBesselk and getBessely
-        # throw IllegalArgumentException when nOrder < 0 or fNum <= 0. NaN is
-        # that error in this runtime.
-        if nv < 0 or xv <= 0:
-            return float("nan")
-        return float(scipy_fn(nv, xv))
-    except Exception:
+    # type and scipy errors propagate to _bessel_call, which returns NaN
+    xv = float(x)
+    nv = int(float(n))
+    # What was wrong: BESSELK(1, -1) returned kn(1, 1) and BESSELY(1, -1)
+    # returned a finite value. Both are illegal orders.
+    # How it happened: _bessel_iv_jv rejects nv < 0, but this helper only
+    # rejected xv <= 0. scipy.special.kn(-n, x) equals kn(n, x), so the
+    # missing check looked like a successful order-1 call.
+    # Why this change fixes it: AnalysisAddIn::getBesselk and getBessely
+    # throw IllegalArgumentException when nOrder < 0 or fNum <= 0. NaN is
+    # that error in this runtime.
+    if nv < 0 or xv <= 0:
         return float("nan")
+    return float(scipy_fn(nv, xv))
 
 
 def _criteria_numbers(r: Any, crit: Any, val_range: Any | None = None) -> list[float]:
@@ -756,11 +751,14 @@ def _dollar_fraction_terms(
     try:
         amt = float(amount)
         frac = float(fraction)
+        if not math.isfinite(amt) or not math.isfinite(frac):
+            return None
         f = int(frac)
     # int(inf) and float(10**400) raise OverflowError, not ValueError.
-    # math.floor(inf) does too, and that call sat outside this try, so
-    # dollarde(1.02, inf) and dollarfr(inf, 4) crashed the formula.
-    except (ValueError, TypeError, OverflowError):
+    # math.floor(inf) used to sit outside this try, so dollarde(1.02, inf)
+    # crashed. Overflow stays None so the caller returns NaN (#NUM!).
+    # type errors are left to the worker exception path, which returns #VALUE!
+    except OverflowError:
         return None
     if f <= 0 or not math.isfinite(amt) or not math.isfinite(frac):
         return None
@@ -833,10 +831,8 @@ def _parse_complex(val: Any) -> tuple[builtins.complex, str]:
     if text and text[-1] in "ijIJ":
         suffix = "j" if text[-1] in "jJ" else "i"
     py_text = text.replace("i", "j").replace("I", "j").replace("J", "j")
-    try:
-        return builtins.complex(py_text), suffix
-    except ValueError:
-        raise TypeError("Invalid complex string")
+    # invalid text raises ValueError; callers map that to "#VALUE!"
+    return builtins.complex(py_text), suffix
 
 
 def _to_complex(val: Any) -> builtins.complex:

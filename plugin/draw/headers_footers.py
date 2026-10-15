@@ -160,7 +160,7 @@ def _shape_get_string(shape: Any) -> str:
         from plugin.framework.errors import is_disposed_exception
         if is_disposed_exception(e):
             raise
-        pass
+        # no-op after the dispose re-raise; non-dispose falls through
     return ""
 
 
@@ -218,7 +218,7 @@ def _shape_get_datetime_fixed(shape: Any) -> bool:
         from plugin.framework.errors import is_disposed_exception
         if is_disposed_exception(e):
             raise
-        pass
+        # no-op after the dispose re-raise; non-dispose falls through
     try:
         return bool(getattr(shape, "IsFixed", False))
     except Exception as e:
@@ -294,10 +294,8 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> Dict[str, Any]:
-        page_val = kwargs.get("page")
-        if page_val is None:
-            return self._tool_error("page is required.")
-        page_index = int(page_val)
+        # type/required checks are done by the tool schema in ToolRegistry
+        page_index = int(kwargs["page"])
         is_master_page = _coerce_bool_arg(kwargs, "is_master_page", False) or _coerce_bool_arg(kwargs, "master_page", False)
 
         page = _get_page(ctx, page_index, is_master_page)
@@ -345,10 +343,8 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> Dict[str, Any]:
-        page_val = kwargs.get("page")
-        if page_val is None:
-            return self._tool_error("page is required.")
-        page_index = int(page_val)
+        # type/required checks are done by the tool schema in ToolRegistry
+        page_index = int(kwargs["page"])
         is_master_page = _coerce_bool_arg(kwargs, "is_master_page", False) or _coerce_bool_arg(kwargs, "master_page", False)
 
         page = _get_page(ctx, page_index, is_master_page)

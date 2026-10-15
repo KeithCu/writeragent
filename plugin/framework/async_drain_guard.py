@@ -150,8 +150,13 @@ def get_drain_depth() -> int:
         return _drain_depth
 
 
-def is_vcl_pump_allowed() -> bool:
-    """Return True if native VCL pumping is safe (depth <= 1)."""
+def owner_may_pump_vcl() -> bool:
+    """Return True at depth 0 and depth 1; False above 1 (same owner re-entered).
+
+    Only pump_ui_idle may call it. Every other caller keeps using
+    process_events_to_idle, which skips VCL whenever get_drain_owner() is not
+    None, including at depth 1. Depth 1 is not permission for a second pump.
+    """
     with _drain_lock:
         return _drain_depth <= 1
 

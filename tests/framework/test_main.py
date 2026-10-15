@@ -574,10 +574,10 @@ def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
             lambda fn, *args, **kwargs: bg_calls.append(fn),
         )
 
-        posted: list[tuple[Any, tuple[Any, ...]]] = []
+        posted: list[tuple[Any, tuple[Any, ...], dict[str, Any]]] = []
 
         def mock_post(fn: Any, *args: Any, **kwargs: Any) -> None:
-            posted.append((fn, args))
+            posted.append((fn, args, kwargs))
 
         monkeypatch.setattr("plugin.framework.queue_executor.post_to_main_thread", mock_post)
 
@@ -599,6 +599,7 @@ def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
         assert len(posted) == 1
         assert posted[0][0] is main._prune_failed_status_listeners
         assert posted[0][1] == ([(l1, u1), (l2, u1)],)
+        assert posted[0][2].get("bound_scope") is None
         assert main._update_menu_icons in bg_calls
 
         # On the test thread, call that posted function with the posted args.
@@ -609,6 +610,64 @@ def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
         assert all(t == test_thread for t in uno_same_threads)
     finally:
         main._status_listeners.clear()
+
+
+def test_notify_menu_update_text_failure_does_not_prune_or_stop(monkeypatch):
+    """Failure in get_menu_text skips that listener without pruning or stopping icon updates."""
+    l1 = MagicMock()
+    l2 = MagicMock()
+    u1 = MagicMock()
+    u1.Complete = "org.extension.writeragent:cmd.fail"
+    u1.Path = "cmd.fail"
+    u1.Query = ""
+    u2 = MagicMock()
+    u2.Complete = "org.extension.writeragent:cmd.ok"
+    u2.Path = "cmd.ok"
+    u2.Query = ""
+
+    main._status_listeners.clear()
+    try:
+        main._status_listeners.append((l1, u1))
+        main._status_listeners.append((l2, u2))
+        assert len(main._status_listeners) == 2
+
+        def fake_get_menu_text(cmd: str) -> str:
+            if cmd == "cmd.fail":
+                raise RuntimeError("menu text boom")
+            return "OK Label"
+
+        monkeypatch.setattr(main, "get_menu_text", fake_get_menu_text)
+        monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+        monkeypatch.delenv("WRITERAGENT_EVAL_HARNESS", raising=False)
+
+        bg_calls: list[Any] = []
+        monkeypatch.setattr(
+            "plugin.framework.worker_pool.run_in_background",
+            lambda fn, *args, **kwargs: bg_calls.append(fn),
+        )
+
+        main.notify_menu_update()
+
+        l1.statusChanged.assert_not_called()
+        l2.statusChanged.assert_called_once()
+        assert len(main._status_listeners) == 2
+        assert main._update_menu_icons in bg_calls
+    finally:
+        main._status_listeners.clear()
+
+
+def test_update_menu_icons_posts_unscoped(monkeypatch):
+    posted = []
+
+    def mock_post(fn: Any, *args: Any, **kwargs: Any) -> None:
+        posted.append((fn, args, kwargs))
+
+    monkeypatch.setattr("plugin.framework.queue_executor.post_to_main_thread", mock_post)
+    main._update_menu_icons()
+
+    assert len(posted) == 1
+    assert posted[0][0] is main._update_menu_icons_impl
+    assert posted[0][2].get("bound_scope") is None
 
 
 
@@ -846,4 +905,61 @@ def test_main_calls_execute_not_hello(monkeypatch):
         main.main()
         mock_exec.assert_called_once_with(())
         mock_trig.assert_not_called()
+
+
+def test_command_from_dispatch_url_and_dispatch(monkeypatch):
+    class _Url:
+        def __init__(self, path="", query="", complete="", protocol=""):
+            self.Path = path
+            self.Query = query
+            self.Complete = complete
+            self.Protocol = protocol
+
+    # Path="main.settings", Query="" -> main.settings; dispatch passes to _dispatch_command
+    dispatched = []
+    monkeypatch.setattr(main, "_dispatch_command", lambda cmd: dispatched.append(cmd))
+    monkeypatch.setattr(main, "init_logging", lambda _ctx: None)
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda _fn: None)
+
+    handler = main.DispatchHandler(MagicMock())
+    u1 = _Url(path="main.settings", query="")
+    assert main._command_from_dispatch_url(u1) == "main.settings"
+    handler.dispatch(u1, ())
+    assert dispatched == ["main.settings"]
+
+    # Path="", Protocol="", Complete="org.extension.writeragent:main.settings" -> main.settings. queryDispatch returns the handler.
+    u2 = _Url(complete="org.extension.writeragent:main.settings")
+    assert main._command_from_dispatch_url(u2) == "main.settings"
+    assert handler.queryDispatch(u2, "", 0) is handler
+
+    # Path="chatbot.debug_sidebar", Query="RECORD_CLICKED" -> chatbot.debug_sidebar.RECORD_CLICKED
+    u3 = _Url(path="chatbot.debug_sidebar", query="RECORD_CLICKED")
+    assert main._command_from_dispatch_url(u3) == "chatbot.debug_sidebar.RECORD_CLICKED"
+
+    # Path="chatbot.debug_sidebar?OPEN_CALC", Query="" -> that path unchanged
+    u4 = _Url(path="chatbot.debug_sidebar?OPEN_CALC", query="")
+    assert main._command_from_dispatch_url(u4) == "chatbot.debug_sidebar?OPEN_CALC"
+
+    # Path="", Complete="org.extension.writeragent:chatbot.debug_sidebar?OPEN_CALC", Query="OPEN_CALC" -> chatbot.debug_sidebar?OPEN_CALC (no second append)
+    u5 = _Url(complete="org.extension.writeragent:chatbot.debug_sidebar?OPEN_CALC", query="OPEN_CALC")
+    assert main._command_from_dispatch_url(u5) == "chatbot.debug_sidebar?OPEN_CALC"
+
+    # Path="", Query="RECORD_CLICKED", Complete="" -> .RECORD_CLICKED
+    u6 = _Url(query="RECORD_CLICKED")
+    assert main._command_from_dispatch_url(u6) == ".RECORD_CLICKED"
+
+    # queryDispatch with Protocol="org.extension.librepy:" returns the null dispatch
+    u7 = _Url(protocol="org.extension.librepy:")
+    assert handler.queryDispatch(u7, "", 0) is None
+
+
+def test_split_command():
+    assert main._split_command("main.settings") == ("main", "settings")
+    assert main._split_command("chatbot.debug_sidebar.RECORD_CLICKED") == (
+        "chatbot",
+        "debug_sidebar.RECORD_CLICKED",
+    )
+    assert main._split_command("noperiod") is None
+    assert main._split_command(".leading") is None
+    assert main._split_command("") is None
 

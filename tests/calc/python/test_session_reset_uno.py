@@ -6,10 +6,22 @@
 
 from __future__ import annotations
 
+import math
+import struct
 from unittest.mock import patch
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
+
+
+def _assert_undefined_name_error(val: object) -> None:
+    # Undefined =PY() names raise InterpreterError in the sandbox, then
+    # _addin_result_for_worker_status maps that to #VALUE! (519). The cell
+    # value is a quiet-NaN double; the "not defined" sentence is the log line.
+    assert isinstance(val, float)
+    assert not math.isfinite(val)
+    raw = struct.unpack("Q", struct.pack("d", val))[0]
+    assert raw == (0x7FF8000000000000 | 519)
 
 
 @native_test
@@ -59,12 +71,12 @@ def test_shared_kernel_reset_session_uno(ctx, doc):
 
         # 5. C2.2.1: Verify shared variable x was dropped
         res3 = func.py(doc, "x")
-        assert "not defined" in str(res3) or "Error:" in str(res3)
+        _assert_undefined_name_error(res3)
 
         # 6. C2.2.2: Verify leftover result was cleared
         res_r3 = func.py(doc, "result")
         assert res_r3 != 20.0
-        assert "not defined" in str(res_r3) or "Error:" in str(res_r3)
+        _assert_undefined_name_error(res_r3)
 
         # 7. C2.2.3: Verify init helper function double(x) is re-applied and functional after Reset (both default and explicit ctor)
         res_init2 = func.py(doc, "result = double(4)")
@@ -123,7 +135,7 @@ def test_shared_kernel_live_cells_reset_uno(ctx, doc):
 
         func = PythonFunction(ctx)
         res_x_post = func.py(doc, "x")
-        assert "not defined" in str(res_x_post) or "Error:" in str(res_x_post)
+        _assert_undefined_name_error(res_x_post)
 
         res_double_post = func.py(doc, "result = double(7)")
         assert res_double_post == 14.0

@@ -324,7 +324,6 @@ class ACPBackend(AgentBackend):
     """
 
     default_extra_args: Tuple[str, ...] = ()
-    _ctx: Any | None
     _stop_requested: bool
     _state_lock: threading.Lock
     _pending_permissions: dict[Any, list[Any]]
@@ -337,8 +336,7 @@ class ACPBackend(AgentBackend):
     _prompt_inflight: bool
     _prompt_done: threading.Event
 
-    def __init__(self, ctx: Any | None = None) -> None:
-        self._ctx = ctx
+    def __init__(self) -> None:
         self._conn: ACPConnection | None = None
         self._session_id: str | None = None
         self._session_url = None
@@ -695,24 +693,30 @@ class ACPBackend(AgentBackend):
         if method == "session/request_permission":
             self._queue_permission_request(params, msg_id, queue)
             return
-        handled = False
-        if not self._stop_requested:
-            if method in ("notifications/session", "session/update"):
+        # What was wrong: when _stop_requested was true, handled stayed false, so
+        # an id-bearing session/update (and the other three update methods) took
+        # _reject_unknown_request (-32601). The comment below that branch said a
+        # request-shaped session/update must be acked or the agent blocks.
+        # How: Stop skipped _handle_acp_update and then fell through to the
+        # unknown-method reject.
+        # Why: those four methods are still acked with {} when they have an id.
+        # _handle_acp_update runs only when Stop is not latched, so the queue
+        # does not gain chunks after Stop. Any other method with an id is still
+        # -32601.
+        if method in ("notifications/session", "session/update"):
+            if not self._stop_requested:
                 self._handle_acp_update(params.get("update", {}), queue)
-                handled = True
-            elif method in ("notifications/agent", "agent/update"):
+            if msg_id is not None:
+                self._ack_request(msg_id)
+            return
+        if method in ("notifications/agent", "agent/update"):
+            if not self._stop_requested:
                 self._handle_acp_update(params.get("update", params), queue)
-                handled = True
-        # A request we do not implement (fs/read_text_file, terminal/*, …)
-        # still has an id. Leaving it unanswered blocks the agent. Notifications
-        # have no id and are not replies.
-        if msg_id is not None and not handled:
+            if msg_id is not None:
+                self._ack_request(msg_id)
+            return
+        if msg_id is not None:
             self._reject_unknown_request(msg_id, method)
-        elif msg_id is not None:
-            # session/update is a notification and usually has no id. One
-            # sent as a request was marked handled and never answered, so
-            # the agent blocked. An empty result unblocks it.
-            self._ack_request(msg_id)
 
     def _reply(self, msg_id: Any, *, result: Any = None, error: Any = None, what: str) -> None:
         """Send one JSON-RPC response. A missing connection is a no-op."""
@@ -745,6 +749,18 @@ class ACPBackend(AgentBackend):
         # put on a cancelled result.
         if msg_id is None:
             log.warning("ACP permission request missing id; cannot answer it")
+            return
+        # What was wrong: a list or dict id cannot be a _pending_permissions key.
+        # TypeError is caught by the reader as a callback error, and the agent
+        # is not answered.
+        # How: request ids are no longer dropped in _accept_message, so an array
+        # or object id can reach this function.
+        # Why: do not store it. Send cancelled with the original id.
+        try:
+            hash(msg_id)
+        except TypeError:
+            log.warning("ACP permission request id is unhashable; cancelling without storing it")
+            self._reply(msg_id, result=_cancelled_permission(), what=f"cancel ACP permission {msg_id}")
             return
         # Keep the options so Approve/Reject can echo optionId. The HITL
         # dialog only returns a bool; the id has to live with the request.
@@ -1074,10 +1090,18 @@ class ACPBackend(AgentBackend):
             self._stop_requested = True
             inflight = self._prompt_inflight
             turn = self._turn
-        conn = self._conn
-        if inflight and conn is not None and conn.is_alive and self._session_id:
+            # What was wrong: _conn and _session_id were read after the lock.
+            # A connection replaced in that window could be sent session/cancel
+            # for the other connection's session id.
+            # How: stop() released _state_lock after copying inflight and turn,
+            # then loaded the two fields separately.
+            # Why: copy both in that same block and pass the locals to
+            # send_notification.
+            conn = self._conn
+            session_id = self._session_id
+        if inflight and conn is not None and conn.is_alive and session_id:
             try:
-                conn.send_notification("session/cancel", {"sessionId": self._session_id})
+                conn.send_notification("session/cancel", {"sessionId": session_id})
             except Exception:
                 log.exception("ACP session/cancel failed")
         # Reply while stdin is still open. A later shutdown closes it.

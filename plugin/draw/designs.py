@@ -44,7 +44,7 @@ from typing import Any
 from plugin.doc.document_research import _path_settings_from_ctx, _resolve_lo_directory_path, _should_skip_filename
 from plugin.draw.design_look import derive_otp_look
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import is_disposed_exception, is_real_disposal
 from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger("writeragent.draw.designs")
@@ -255,7 +255,13 @@ def _master_entries(doc: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     try:
         masters = doc.getMasterPages()
-    except Exception:
+    except Exception as exc:
+        # Bugfix: a closed document raises DisposedException from getMasterPages(),
+        # and this except turned that into a missing page / not-found result.
+        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+        # Any other failure stays on the existing missing-page path.
+        if is_real_disposal(exc):
+            raise
         return out
     for i in range(masters.getCount()):
         m = masters.getByIndex(i)
@@ -670,7 +676,9 @@ def find_imported_master(doc: Any, design: dict[str, str], before_names: set[str
     """Pick the cloned (or already-present) design master."""
     try:
         masters = doc.getMasterPages()
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         return None, "", 0
     design_name = str(design.get("name") or "").strip().lower()
     design_id = str(design.get("id") or "").strip().lower()

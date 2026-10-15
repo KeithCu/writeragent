@@ -543,3 +543,26 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     assert "10500" in ring
     assert "HMM" in ring
     assert "top-left" in ring
+
+
+def test_shapes_canvas_hint_reraises_disposed():
+    import pytest
+    from plugin.doc.python_domain_specialized import _shapes_canvas_hint
+
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock()
+    with patch(
+        "plugin.doc.specialized_shapes_context.format_shapes_canvas_context",
+        side_effect=DisposedException("closed"),
+    ):
+        with pytest.raises(DisposedException):
+            _shapes_canvas_hint(doc)
+
+    with patch(
+        "plugin.doc.specialized_shapes_context.format_shapes_canvas_context",
+        side_effect=RuntimeError("canvas error"),
+    ):
+        assert _shapes_canvas_hint(doc) == ""
+

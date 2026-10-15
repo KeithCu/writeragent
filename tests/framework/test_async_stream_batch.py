@@ -526,7 +526,7 @@ def test_pump_ui_idle_unblocks_execute_on_main_thread_when_poke_noop():
 
 
 def test_drain_owner_scope_rejects_nesting():
-    from plugin.framework.queue_executor import NestedDrainOwnerError, drain_owner_scope, get_drain_owner
+    from plugin.framework.async_drain_guard import NestedDrainOwnerError, drain_owner_scope, get_drain_owner
 
     with drain_owner_scope("stream"):
         assert get_drain_owner() == "stream"
@@ -539,9 +539,10 @@ def test_drain_owner_scope_rejects_nesting():
 def test_pump_ui_idle_still_pumps_vcl_under_drain_owner():
     """Owner path must keep pumping so Send stays responsive / Stop works."""
     from plugin.framework import queue_executor as qe
+    from plugin.framework.async_drain_guard import drain_owner_scope
 
     toolkit = DummyToolkit()
-    with qe.drain_owner_scope("stream"):
+    with drain_owner_scope("stream"):
         qe.pump_ui_idle(toolkit)
     assert toolkit.idle_calls >= 1
 
@@ -549,27 +550,32 @@ def test_pump_ui_idle_still_pumps_vcl_under_drain_owner():
 def test_pump_ui_idle_skips_vcl_when_drain_depth_gt_1_but_drains_queue():
     """Same-owner re-entry must not pump VCL again, and must still run queued work."""
     from plugin.framework import queue_executor as qe
-    from plugin.framework.async_drain_guard import get_drain_depth, reset_sentry_state
+    from plugin.framework.async_drain_guard import (
+        drain_owner_scope,
+        get_drain_depth,
+        get_suppressed_vcl_pump_count,
+        reset_sentry_state,
+    )
 
     reset_sentry_state()
     toolkit = DummyToolkit()
     ran: list[str] = []
     ex = qe.QueueExecutor()
     ex._enqueue_work(lambda: ran.append("q"), (), {}, blocking=False)
-    with qe.drain_owner_scope("stream"):
+    with drain_owner_scope("stream"):
         assert get_drain_depth() == 1
-        with qe.drain_owner_scope("stream"):
+        with drain_owner_scope("stream"):
             assert get_drain_depth() == 2
             qe.pump_ui_idle(toolkit, executor=ex)
     assert toolkit.idle_calls == 0
     assert ran == ["q"]
-    assert qe.get_suppressed_vcl_pump_count() >= 1
+    assert get_suppressed_vcl_pump_count() >= 1
     reset_sentry_state()
 
 
 def test_nested_stream_drain_rejected():
     """A second run_stream_drain_loop under an active owner must not hang forever."""
-    from plugin.framework.queue_executor import drain_owner_scope
+    from plugin.framework.async_drain_guard import drain_owner_scope
 
     errors: list = []
     job_done = [False]
@@ -594,7 +600,7 @@ def test_nested_stream_drain_rejected():
 def test_nested_async_worker_does_not_start_before_drain_check(owner: str):
     """A second drain must not spawn a worker; both outer and same-name stream owners are refused."""
     from plugin.framework.async_stream import run_async_worker_with_drain
-    from plugin.framework.queue_executor import drain_owner_scope
+    from plugin.framework.async_drain_guard import drain_owner_scope
 
     started: list[int] = []
     errors: list[object] = []

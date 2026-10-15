@@ -183,6 +183,25 @@ def test_describe_data_with_profiling():
     assert sales_col.get("mean") is not None
 
 
+def test_describe_data_pins_profile_pool_size():
+    if not _has_working_data_profiling():
+        pytest.skip("fg-data-profiling not usable on this platform")
+    import data_profiling
+
+    seen: dict = {}
+    real = data_profiling.ProfileReport
+
+    def recording(*args, **kwargs):
+        seen["kwargs"] = kwargs
+        return real(*args, **kwargs)
+
+    with patch("data_profiling.ProfileReport", recording):
+        result = analysis.describe_data(SALES_GRID)
+
+    assert result["status"] == "ok"
+    assert seen["kwargs"]["pool_size"] == 1
+
+
 def test_kpi_summary():
     result = analysis.kpi_summary(SALES_GRID, ["Sales", "Units"])
     assert result["status"] == "ok"

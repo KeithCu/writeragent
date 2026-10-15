@@ -8,7 +8,7 @@ Use the helpers in `plugin/framework/errors.py`: `is_disposed_exception`, `suppr
 |--------|-------------------------------|-------------------------------|----------------------------------|
 | UI lifecycle (sidebar, rich text, panel) | `with suppress_disposed(...)` | Keep fallbacks; unexpected `Exception`s are logged (`suppress_all=True`). `KeyboardInterrupt`, `SystemExit`, and `GeneratorExit` propagate | Replace with `suppress_disposed` |
 | Document tools (`visual_helpers`, edit review, charts, shapes, notebook) | Re-raise or wrap `DocumentDisposedError` | Leaf types only: `UnknownPropertyException`, `NoSuchElementException`, `IndexOutOfBoundsException`, `IllegalArgumentException`, `AttributeError`, `ValueError` | `log.exception` / `log.debug(..., exc_info=True)` or drop the catch |
-| Draw/Impress slide tools (`notes`, `transitions`, `placeholders`, `masters`) | Re-raise via `DrawBridge.get_slide_for_tool` (`is_disposed_exception`) | `IndexError` → `ToolExecutionError` (page out of range); other errors wrapped | n/a |
+| Draw/Impress slide tools (`notes`, `transitions`, `placeholders`, `masters`) | Re-raise via `DrawBridge.get_slide_for_tool` (`is_disposed_exception`) | `IndexError` → `ToolExecutionError` (page out of range); other errors propagate to `execute_safe` (`TOOL_EXECUTION_ERROR`) | n/a |
 
 Do **not** wrap UNO dispose as `ToolExecutionError(str(e))`. That strips dispose identity, so `execute_safe` returns `TOOL_EXECUTION_ERROR` instead of `DOCUMENT_DISPOSED`, and the native test runner treats a dead URP as a normal tool failure instead of aborting the remaining suite.
 

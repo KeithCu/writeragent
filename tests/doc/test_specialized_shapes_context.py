@@ -175,3 +175,19 @@ def test_format_shapes_canvas_context_calc_active_sheet():
 
 def test_format_shapes_canvas_context_none_doc():
     assert format_shapes_canvas_context(None) == ""
+
+
+def test_format_shapes_canvas_context_reraises_disposed():
+    import pytest
+
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda svc: svc == "com.sun.star.drawing.DrawingDocument"
+    doc.getDrawPages.side_effect = DisposedException("closed")
+
+    with pytest.raises(DisposedException):
+        format_shapes_canvas_context(doc)
+    assert format_shapes_canvas_context(None) == ""
+

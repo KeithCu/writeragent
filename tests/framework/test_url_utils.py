@@ -1,9 +1,10 @@
+from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 from plugin.framework.url_utils import (
     _is_zai_host,
     dispatch_command_from_url,
     get_api_version_suffix,
     get_url_query_dict,
-    matches_librepy_dispatch_url,
+    matches_extension_dispatch_url,
     normalize_endpoint_url,
     path_to_file_url,
 )
@@ -130,9 +131,39 @@ class TestLibrePyDispatchUrl:
         assert dispatch_command_from_url(url) == "scripting.run_python_dialog"
 
     def test_matches_protocol_and_complete(self):
-        assert matches_librepy_dispatch_url(self._Url(protocol="org.extension.librepy:", path="main.settings"))
-        assert matches_librepy_dispatch_url(self._Url(complete="org.extension.librepy:main.settings"))
-        assert not matches_librepy_dispatch_url(self._Url(protocol="org.extension.writeragent:", path="main.settings"))
+        assert matches_extension_dispatch_url(
+            self._Url(protocol="org.extension.librepy:", path="main.settings"),
+            EXTENSION_ID_LIBREPY,
+        )
+        assert matches_extension_dispatch_url(
+            self._Url(complete="org.extension.librepy:main.settings"),
+            EXTENSION_ID_LIBREPY,
+        )
+        assert not matches_extension_dispatch_url(
+            self._Url(protocol="org.extension.writeragent:", path="main.settings"),
+            EXTENSION_ID_LIBREPY,
+        )
+        assert matches_extension_dispatch_url(
+            self._Url(protocol="org.extension.writeragent:", path="main.settings"),
+            EXTENSION_ID_WRITERAGENT,
+        )
+        assert matches_extension_dispatch_url(
+            self._Url(complete="org.extension.writeragent:main.settings"),
+            EXTENSION_ID_WRITERAGENT,
+        )
+        assert not matches_extension_dispatch_url(
+            self._Url(protocol="org.extension.librepy:", path="main.settings"),
+            EXTENSION_ID_WRITERAGENT,
+        )
+
+    def test_command_from_complete_writeragent_prefix(self):
+        url = self._Url(complete="org.extension.writeragent:main.settings", path="")
+        assert (
+            dispatch_command_from_url(
+                url, protocol_prefix="org.extension.writeragent:"
+            )
+            == "main.settings"
+        )
 
 
 class TestPathToFileUrl:

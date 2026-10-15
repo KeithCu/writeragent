@@ -245,7 +245,7 @@ Four URL worlds in this repo. They must not share one helper.
 | Document identity | `file:` / empty / RuntimeUID | `uno_context`, `text_helpers`, `document_research` | Share **document** helpers; not HTTP. |
 | HTTP / LLM endpoints | `https:` | `url_utils` | Stay separate. |
 | Extension / XDL / icons | `vnd.sun.star.extension:` or `file:` package location | `uno_context.get_extension_url` | Stay on package-info helpers. |
-| Dispatch / factory | `org.extension.*:`, `private:factory/`, `private:resource/` | `url_utils` (LibrePy), `main.py` (WriterAgent), local loaders | Stay separate per scheme. |
+| Dispatch / factory | `org.extension.*:`, `private:factory/`, `private:resource/` | `url_utils` (`matches_extension_dispatch_url`, `dispatch_command_from_url`), `main._command_from_dispatch_url`, local loaders | Both products use `matches_extension_dispatch_url` and `dispatch_command_from_url`. WriterAgent appends `URL.Query` only in `main._command_from_dispatch_url`. `private:factory` and `private:resource` stay local. |
 
 ### 2.1 Path ↔ `file:` URL conversion
 
@@ -338,7 +338,7 @@ Three **different** PathSettings properties; do not collapse the meanings.
 | `normalize_endpoint_url` / `get_api_version_suffix` | Strip/restore `/v1`, Open WebUI `/api`, Z.ai `/api/paas/v4`, Gemini `/v1beta/openai`. |
 | `get_url_hostname` / `get_url_domain` / `get_url_path` / `get_url_query_dict` / `get_url_path_and_query` | Safe `urllib.parse` for HTTP endpoints. |
 | `is_pdf_url` | HTTP path ends with `.pdf`. |
-| `matches_librepy_dispatch_url` / `dispatch_command_from_url` | LibreOffice **dispatch** URLs (`org.extension.librepy:…`), not `file:`. |
+| `matches_extension_dispatch_url` / `dispatch_command_from_url` | LibreOffice **dispatch** URLs (`org.extension.librepy:` and `org.extension.writeragent:`), not `file:`. |
 | `path_to_file_url` | Filesystem path → document `file:` URL (`Path.as_uri()`). No `@deal`. |
 
 Do not fold document identity or PathSettings into the HTTP helpers. Tests: `tests/framework/test_url_utils.py`.
@@ -355,11 +355,11 @@ Do not fold document identity or PathSettings into the HTTP helpers. Tests: `tes
 
 | Product | Protocol | Parser |
 |---------|----------|--------|
-| LibrePy | `org.extension.librepy:` | `url_utils.matches_librepy_dispatch_url` / `dispatch_command_from_url` (`main_core.py`) |
-| WriterAgent | `org.extension.writeragent:` | `main.py` ProtocolHandler (`url.Protocol == _DISPATCH_PROTOCOL`) |
+| LibrePy | `org.extension.librepy:` | `url_utils.matches_extension_dispatch_url` / `dispatch_command_from_url` (`main_core.py`) |
+| WriterAgent | `org.extension.writeragent:` | `url_utils.matches_extension_dispatch_url` / `dispatch_command_from_url` via `main._command_from_dispatch_url` (`main.py`) |
 | Review context menu | `org.extension.writeragent:writer.accept_change` etc. | `change_context_menu.py` |
 
-LibrePy’s extra `dispatch_command_from_url` exists because some LO paths populate `Complete` but not `Path`. WriterAgent’s handler compares `Protocol` only. **Stay separate per product** unless a third protocol appears.
+LibrePy and WriterAgent both use those helpers (`main_core.py` and `main.py`). WriterAgent `Query` joining stays in `main.py` because of `chatbot.debug_sidebar`.
 
 **Forbidden:** `vnd.sun.star.script:…?location=application` for sidebar/XDL (deadlock). Documented in `dialogs.py` and [uno-dialogs.md](uno-dialogs.md).
 

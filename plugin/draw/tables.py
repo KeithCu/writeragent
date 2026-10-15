@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any
 
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import is_real_disposal
 
 log = logging.getLogger("writeragent.draw")
 
@@ -26,7 +26,13 @@ def _table_model(shape: Any) -> Any | None:
         return shape.Table
     try:
         return shape.getModel()
-    except Exception:
+    except Exception as exc:
+        # Bugfix: a closed document raises DisposedException from getModel(),
+        # and this except turned that into a missing page / not-found result.
+        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+        # Any other failure stays on the existing missing-page path.
+        if is_real_disposal(exc):
+            raise
         return None
 
 
@@ -39,14 +45,14 @@ def _cell_string(cell: Any) -> str:
         if val is not None:
             return str(val)
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_real_disposal(exc):
             raise
     try:
         return str(cell.getText().getString() or "")
     except Exception as exc:
         # Both reads failed. "" is an empty cell (table_get_cells), so a
         # UNO failure must not look like a blank. Disposal propagates.
-        if is_disposed_exception(exc):
+        if is_real_disposal(exc):
             raise
         raise ValueError("Could not read Draw table cell: %s" % exc) from exc
 
@@ -178,7 +184,7 @@ def get_draw_cells(entry: dict[str, Any]) -> list[list[str]]:
                 # getCellByPosition / _cell_string failures used to append "".
                 # That is the empty-cell value, so a bad read became a blank
                 # in an ok matrix. Disposal propagates; anything else is an error.
-                if is_disposed_exception(exc):
+                if is_real_disposal(exc):
                     raise
                 raise ValueError("Could not read Draw table cell at row %s col %s: %s" % (r, c, exc)) from exc
         matrix.append(row)
@@ -239,7 +245,7 @@ def manage_draw_structure(entry: dict[str, Any], action: str, axis_arg: str, idx
 
 def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     """Create a TableShape on a Draw/Impress page. Returns a tool-result dict."""
-    global is_disposed_exception
+    global is_real_disposal
     from com.sun.star.awt import Point, Size
     from plugin.draw.bridge import DrawBridge
     from plugin.draw.layout import coerce_int
@@ -272,9 +278,9 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
         # mapping every Exception to a bad index hides disposal.
         # Re-raise disposal; a real bad index still returns the
         # page-index error.
-        from plugin.framework.errors import is_disposed_exception
+        from plugin.framework.errors import is_real_disposal
 
-        if is_disposed_exception(exc):
+        if is_real_disposal(exc):
             raise
         return {"status": "error", "message": "Invalid page index: %s" % actual_idx, "code": "TOOL_EXECUTION_ERROR"}
     if page is None:
@@ -286,7 +292,7 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
         try:
             page_obj.remove(shape_obj)
         except Exception as remove_exc:
-            if is_disposed_exception(remove_exc):
+            if is_real_disposal(remove_exc):
                 raise
             log.debug("Failed to remove half-built table shape: %s", remove_exc)
 
@@ -308,7 +314,7 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
         shape.setSize(Size(width, height))
         shape.setPosition(Point(x, y))
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_real_disposal(exc):
             raise
         if added:
             # page.add already inserted the shape. Returning the size/fill
@@ -328,7 +334,7 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
         try:
             _ensure_table_dims(table, rows, columns)
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_real_disposal(exc):
                 raise
             if added:
                 # page.add already inserted the shape. Returning the size/fill
@@ -341,7 +347,7 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
             try:
                 written = fill_table_cells(table, data)
             except Exception as exc:
-                if is_disposed_exception(exc):
+                if is_real_disposal(exc):
                     raise
                 if added:
                     # page.add already inserted the shape. Returning the size/fill

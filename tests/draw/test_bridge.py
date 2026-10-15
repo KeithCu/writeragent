@@ -307,11 +307,11 @@ def test_get_active_page_index_matches_via_uno_same():
 
 
 def test_get_slide_for_tool_wraps_other_errors():
+    """Non-IndexError failures propagate; execute_safe applies TOOL_EXECUTION_ERROR."""
     from plugin.draw.bridge import DrawBridge
-    from plugin.framework.errors import ToolExecutionError
 
     with patch.object(DrawBridge, "resolve_slide", side_effect=RuntimeError("No draw page available.")):
-        with pytest.raises(ToolExecutionError, match="No draw page available"):
+        with pytest.raises(RuntimeError, match="No draw page available"):
             DrawBridge.get_slide_for_tool("doc")
 
 
@@ -686,6 +686,16 @@ def test_create_slide_keeps_pages_when_exchange_rollback_fails():
     assert len(pages.pages) == 3
 
 
+def test_insert_slide_from_master_bad_after_index_raises():
+    from plugin.draw.bridge import DrawBridge
+
+    pages = _named_deck("A", "B")
+    bridge = DrawBridge(_ViewDoc(pages, None))
+    with pytest.raises(ValueError):
+        bridge.insert_slide_from_master(after_index="nope")
+    assert [p.Name for p in pages.pages] == ["A", "B"]
+
+
 def test_insert_slide_from_master_lands_after_requested_slide():
     """Middle inserts used to land one past the reported index."""
     from plugin.draw.bridge import DrawBridge
@@ -966,3 +976,83 @@ def test_insert_slide_from_master_reraises_dispose_without_removing():
     with pytest.raises(DisposedException):
         bridge.insert_slide_from_master(master_name="SpecialMaster")
     assert len(pages.pages) == 3
+
+
+def test_draw_bridge_writer_disposed_get_draw_page_is_not_missing_page():
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock(spec=["getDrawPage"])
+    doc.getDrawPage.side_effect = DisposedException("closed")
+
+    from plugin.draw.bridge import DrawBridge
+
+    with pytest.raises(DisposedException):
+        DrawBridge(doc)
+
+
+def test_draw_bridge_calc_disposed_sheet_is_not_missing_page():
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock(spec=["getSheets", "getCurrentController"])
+    doc.getCurrentController.side_effect = DisposedException("closed")
+
+    from plugin.draw.bridge import DrawBridge
+
+    with pytest.raises(DisposedException):
+        DrawBridge(doc)
+
+
+def test_draw_bridge_get_draw_page_runtime_exception_is_still_no_page():
+    class RuntimeException(Exception):
+        pass
+
+    doc = MagicMock(spec=["getDrawPage"])
+    doc.getDrawPage.side_effect = RuntimeException("uno")
+
+    from plugin.draw.bridge import DrawBridge
+
+    with pytest.raises(RuntimeError, match="has no draw page"):
+        DrawBridge(doc)
+
+
+def test_get_active_page_calc_branch_reraises_disposed():
+    class DisposedException(Exception):
+        pass
+
+    page = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    doc = MagicMock()
+    doc.getDrawPages.return_value = pages
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    doc.getCurrentController.side_effect = DisposedException("closed")
+
+    from plugin.draw.bridge import DrawBridge
+
+    bridge = DrawBridge(doc)
+    with pytest.raises(DisposedException):
+        bridge.get_active_page()
+    with pytest.raises(DisposedException):
+        bridge.get_active_page_index()
+
+
+def test_get_active_page_calc_branch_other_errors_still_fall_through():
+    page = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    doc = MagicMock()
+    doc.getDrawPages.return_value = pages
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    doc.getCurrentController.side_effect = [RuntimeError("no controller"), None]
+
+    from plugin.draw.bridge import DrawBridge
+
+    bridge = DrawBridge(doc)
+    assert bridge.get_active_page() is page
+

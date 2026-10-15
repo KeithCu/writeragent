@@ -14,7 +14,7 @@ import logging
 import re
 from typing import Any
 
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import is_real_disposal
 
 log = logging.getLogger(__name__)
 
@@ -505,16 +505,26 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
     inside = doc_type or get_visual_doc_type(doc)
     try:
         controller = doc.CurrentController
-    except Exception:
+    except Exception as exc:
+        # Bugfix: a closed document raises DisposedException while resolving the draw page,
+        # and this except turned that into a missing page / not-found result.
+        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+        # Any other failure stays on the existing missing-page path.
+        if is_real_disposal(exc):
+            raise
         try:
             controller = doc.getCurrentController()
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             controller = None
 
     def _writer_draw_page() -> Any | None:
         try:
             return doc.getDrawPage()
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             return None
 
     if controller is None:
@@ -527,38 +537,52 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
         sheet = None
         try:
             sheet = controller.ActiveSheet
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             pass
         if sheet is None:
             try:
                 sheet = controller.getActiveSheet()
-            except Exception:
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
                 sheet = None
         if sheet is None:
             return None
         try:
             return sheet.getDrawPage()
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             try:
                 return sheet.DrawPage
-            except Exception:
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
                 return None
 
     try:
         page = controller.CurrentPage
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         page = None
     if page is not None:
         return page
     try:
         return controller.getCurrentPage()
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         pass
     try:
         pages = doc.getDrawPages()
         if pages.getCount() > 0:
             return pages.getByIndex(0)
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         pass
     return _writer_draw_page()
 
@@ -578,6 +602,8 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
                 if is_graphic_object(shape):
                     graphics.append((shape.getName(), shape))
         except Exception as ex:
+            if is_real_disposal(ex):
+                raise
             log.debug("list_graphic_objects calc failed: %s", ex)
         return graphics
 
@@ -585,13 +611,17 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
         pages = None
         try:
             pages = doc.getDrawPages()
-        except Exception:
+        except Exception as exc:
+            if is_real_disposal(exc):
+                raise
             pages = None
         page_list = []
         if pages is not None:
             try:
                 page_list = [pages.getByIndex(i) for i in range(pages.getCount())]
             except Exception as ex:
+                if is_real_disposal(ex):
+                    raise
                 log.debug("list_graphic_objects draw/impress pages failed: %s", ex)
         if not page_list:
             draw_page = get_active_draw_page(doc, inside)
@@ -604,6 +634,8 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
                     if is_graphic_object(shape):
                         graphics.append((shape.getName(), shape))
         except Exception as ex:
+            if is_real_disposal(ex):
+                raise
             log.debug("list_graphic_objects draw/impress failed: %s", ex)
         return graphics
 
@@ -615,6 +647,8 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
         for name in graphic_objects.getElementNames():
             graphics.append((name, graphic_objects.getByName(name)))
     except Exception as ex:
+        if is_real_disposal(ex):
+            raise
         log.debug("list_graphic_objects writer failed: %s", ex)
     return graphics
 
@@ -629,14 +663,14 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
             raw_name = graphic.getName()
             target_name = str(raw_name) if raw_name else ""
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_real_disposal(exc):
             raise
         target_name = ""
 
     try:
         pages = doc.getDrawPages()
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_real_disposal(exc):
             raise
         page = get_active_draw_page(doc)
         if page is None:
@@ -645,7 +679,7 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
             page.remove(graphic)
             return True
         except Exception as p_exc:
-            if is_disposed_exception(p_exc):
+            if is_real_disposal(p_exc):
                 raise
             return False
 
@@ -668,12 +702,12 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
                         if sh_name and str(sh_name) == target_name:
                             name_hits.append((page, shape))
                     except Exception as s_exc:
-                        if is_disposed_exception(s_exc):
+                        if is_real_disposal(s_exc):
                             raise
     except Exception as ex:
         # Disposal used to become False, and image_delete reported
         # IMAGE_NOT_FOUND for a closed document.
-        if is_disposed_exception(ex):
+        if is_real_disposal(ex):
             raise
         log.debug("remove_graphic_from_draw_pages failed: %s", ex)
         return False

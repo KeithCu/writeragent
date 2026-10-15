@@ -150,6 +150,16 @@ def _drain_default_work_queue() -> None:
             default_executor._work_queue.get_nowait()
         except queue.Empty:
             break
+    # What was wrong: a background post with no AsyncCallback stays in
+    # _pending_posts, and this drain only emptied _work_queue.
+    # How it happened: post() appends there and returns. The next test on
+    # this xdist worker that marks marshal ready and calls post() flushes
+    # that row first (test_stop_does_not_drop_violation_popup then saw
+    # pending_work_count() == 2, queue_depth=1 at post_enqueue).
+    # Why this change: clear the pending list in the same before/after drain.
+    with default_executor._pending_lock:
+        default_executor._pending_posts.clear()
+        default_executor._pending_lock.notify_all()
 
 
 @pytest.fixture(autouse=True)
@@ -568,17 +578,28 @@ def test_post_to_main_thread_no_service():
 
 
 def test_post_to_main_thread_drops_when_no_async_from_background():
-    with patch.object(default_executor, "_get_async_callback", return_value=None), patch(
+    """A tagged worker must not run the callable when AsyncCallback is missing.
+
+    The post is stored on that executor's pending list. It must not be stored
+    on the process-wide default_executor. post() flushes those rows once
+    marshal is ready, and another test on the same xdist worker counted them.
+    """
+    executor = mt.QueueExecutor()
+    before = len(default_executor._pending_posts)
+    called = False
+
+    def fn():
+        nonlocal called
+        called = True
+
+    with patch.object(executor, "_get_async_callback", return_value=None), patch(
         "plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"
     ):
-        called = False
-
-        def fn():
-            nonlocal called
-            called = True
-
-        post_to_main_thread(fn)
-        assert not called
+        executor.post(fn)
+    assert not called
+    assert len(executor._pending_posts) == 1
+    assert executor._pending_posts[0][0] is fn
+    assert len(default_executor._pending_posts) == before
 
 
 def test_post_tagged_worker_under_testing_enqueues_not_inline(monkeypatch):
@@ -1263,7 +1284,7 @@ def test_flush_pending_posts_keeps_original_scope():
 
 
 def test_flush_pending_posts_keeps_unenqueued_tail():
-    """A mid-flush enqueue failure puts the failed item and the tail back, in order."""
+    """Flush logs and returns; it does not raise."""
     from plugin.framework.queue_executor import QueueExecutor
 
     qe = QueueExecutor()
@@ -1298,13 +1319,123 @@ def test_flush_pending_posts_keeps_unenqueued_tail():
         return real_enqueue(fn, args, kwargs, blocking=blocking, bound_scope=bound_scope, poke=poke)
 
     qe._enqueue_work = flaky  # type: ignore[method-assign]
-    with pytest.raises(RuntimeError, match="enqueue failed"):
-        qe._flush_pending_posts()
+    qe._flush_pending_posts()
     assert calls["n"] == 2
     assert qe._work_queue.qsize() == 1
     queued = qe._work_queue.get_nowait()
     assert queued.fn is first
     assert [row[0] for row in qe._pending_posts] == [second, third, newcomer]
+
+
+def test_execute_post_and_set_context_proceed_when_pending_flush_fails():
+    from plugin.framework.queue_executor import QueueExecutor
+
+    def old() -> str:
+        return "old"
+
+    def execute_target() -> str:
+        return "execute_target"
+
+    def post_target() -> str:
+        return "post_target"
+
+    # execute: patch _may_run_marshal_inline to False, _get_async_callback to truthy, _wait_for_result to return "mine"
+    qe_exec = QueueExecutor()
+    qe_exec._initialized = True
+    qe_exec._async_callback_service = object()
+    qe_exec._pending_posts.append((old, (), {}, None))
+    real_enqueue_exec = qe_exec._enqueue_work
+    calls_exec = {"n": 0}
+    enqueued_items_exec = []
+
+    def flaky_exec(fn, args, kwargs, blocking=True, *, bound_scope=None, poke=True):  # type: ignore[no-untyped-def]
+        calls_exec["n"] += 1
+        if calls_exec["n"] == 1:
+            raise RuntimeError("enqueue failed")
+        item = real_enqueue_exec(fn, args, kwargs, blocking=blocking, bound_scope=bound_scope, poke=poke)
+        enqueued_items_exec.append(item)
+        return item
+
+    qe_exec._enqueue_work = flaky_exec  # type: ignore[method-assign]
+    with patch.object(qe_exec, "_may_run_marshal_inline", return_value=False), \
+         patch.object(qe_exec, "_get_async_callback", return_value=object()), \
+         patch.object(qe_exec, "_wait_for_result", return_value="mine"):
+        res = qe_exec.execute(execute_target)
+        assert res == "mine"
+    assert [row[0] for row in qe_exec._pending_posts] == [old]
+    assert len(enqueued_items_exec) == 1
+    assert enqueued_items_exec[0].fn is execute_target
+
+    # post: same inline/callback patches, fresh executor and fresh one-shot flaky enqueue
+    qe_post = QueueExecutor()
+    qe_post._initialized = True
+    qe_post._async_callback_service = object()
+    qe_post._pending_posts.append((old, (), {}, None))
+    real_enqueue_post = qe_post._enqueue_work
+    calls_post = {"n": 0}
+    enqueued_items_post = []
+
+    def flaky_post(fn, args, kwargs, blocking=True, *, bound_scope=None, poke=True):  # type: ignore[no-untyped-def]
+        calls_post["n"] += 1
+        if calls_post["n"] == 1:
+            raise RuntimeError("enqueue failed")
+        item = real_enqueue_post(fn, args, kwargs, blocking=blocking, bound_scope=bound_scope, poke=poke)
+        enqueued_items_post.append(item)
+        return item
+
+    qe_post._enqueue_work = flaky_post  # type: ignore[method-assign]
+    with patch.object(qe_post, "_may_run_marshal_inline", return_value=False), \
+         patch.object(qe_post, "_get_async_callback", return_value=object()):
+        res_post = qe_post.post(post_target)
+        assert res_post is None
+    assert [row[0] for row in qe_post._pending_posts] == [old]
+    assert len(enqueued_items_post) == 1
+    assert enqueued_items_post[0].fn is post_target
+
+    # set_context: fresh executor, _ctx set to plain object, initialized with dummy service, one pending old, flaky enqueue
+    qe_ctx = QueueExecutor()
+    ctx_obj = object()
+    qe_ctx._ctx = ctx_obj
+    qe_ctx._initialized = True
+    qe_ctx._async_callback_service = object()
+    qe_ctx._pending_posts.append((old, (), {}, None))
+    calls_ctx = {"n": 0}
+
+    def flaky_ctx(fn, args, kwargs, blocking=True, *, bound_scope=None, poke=True):  # type: ignore[no-untyped-def]
+        calls_ctx["n"] += 1
+        if calls_ctx["n"] == 1:
+            raise RuntimeError("enqueue failed")
+        return qe_ctx._enqueue_work(fn, args, kwargs, blocking=blocking, bound_scope=bound_scope, poke=poke)
+
+    qe_ctx._enqueue_work = flaky_ctx  # type: ignore[method-assign]
+    qe_ctx.set_context(ctx_obj)
+    assert [row[0] for row in qe_ctx._pending_posts] == [old]
+
+
+def test_wait_for_result_timeout_uses_qualname():
+    from plugin.framework.queue_executor import QueueExecutor, _WorkItem
+
+    def outer():
+        def nested_target():
+            pass
+        return nested_target
+
+    fn = outer()
+    assert ".<locals>." in fn.__qualname__
+    assert ".<locals>." not in fn.__name__
+
+    qe = QueueExecutor()
+    item = _WorkItem("item-1", fn, (), {}, blocking=True)
+    item._claimed = False
+
+    with patch.object(item.event, "wait", return_value=False):
+        with pytest.raises(TimeoutError) as exc_info:
+            qe._wait_for_result(item, timeout=0.01)
+
+    msg = str(exc_info.value)
+    assert fn.__qualname__ in msg
+    assert ".<locals>." in msg
+    assert "timed out after 0.01s" in msg
 
 def test_execute_accepts_and_passes_bound_scope() -> None:
     executor = mt.QueueExecutor()
@@ -1690,5 +1821,77 @@ def test_grammar_llm_request_gate_wakeup_does_not_restart_timeout() -> None:
     finally:
         with _GRAMMAR_INFLIGHT_LOCK:
             lc._GRAMMAR_INFLIGHT_COUNT = 0
+
+
+def test_llm_request_lane_acquire_is_capped_by_remaining() -> None:
+    from plugin.framework.queue_executor import llm_request_lane
+
+    recorded: list[float] = []
+
+    def spy_acquire(blocking: bool = True, timeout: float = -1) -> bool:
+        recorded.append(timeout)
+        if timeout > 0:
+            time.sleep(timeout)
+        return False
+
+    mock_lock = MagicMock()
+    mock_lock.acquire = spy_acquire
+
+    with patch("plugin.framework.queue_executor._LLM_REQUEST_LOCK", mock_lock):
+        with pytest.raises(TimeoutError):
+            with llm_request_lane(timeout=0.40):
+                pass
+
+    assert all(t <= 0.25 for t in recorded)
+    assert sum(recorded) <= 0.42
+    assert recorded[-1] < 0.25
+
+
+def test_llm_request_lane_stop_is_polled_during_acquire() -> None:
+    from plugin.framework.blocking_wait import BlockingWaitStopped
+    from plugin.framework.queue_executor import _LLM_REQUEST_LOCK, llm_request_lane
+
+    stop_event = threading.Event()
+
+    class _FakeCancellation:
+        def is_cancelled(self) -> bool:
+            return stop_event.is_set()
+
+    fake_cancel = _FakeCancellation()
+    thread_exc: list[Exception] = []
+
+    def worker() -> None:
+        try:
+            with llm_request_lane(timeout=5.0):
+                pass
+        except Exception as e:
+            thread_exc.append(e)
+
+    if _LLM_REQUEST_LOCK.locked():
+        try:
+            _LLM_REQUEST_LOCK.release()
+        except RuntimeError:
+            pass
+
+    assert _LLM_REQUEST_LOCK.acquire(timeout=2.0)
+    lock_held = True
+    worker_thread = None
+    try:
+        with patch("plugin.framework.queue_executor.get_current_send_cancellation", return_value=fake_cancel):
+            worker_thread = threading.Thread(target=worker, daemon=True)
+            worker_thread.start()
+            time.sleep(0.3)
+            stop_event.set()
+            worker_thread.join(timeout=1.0)
+            assert not worker_thread.is_alive()
+            assert len(thread_exc) == 1
+            assert isinstance(thread_exc[0], BlockingWaitStopped)
+    finally:
+        if lock_held:
+            _LLM_REQUEST_LOCK.release()
+            lock_held = False
+        if worker_thread is not None:
+            worker_thread.join(timeout=2.0)
+
 
 

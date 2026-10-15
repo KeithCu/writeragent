@@ -7,7 +7,7 @@
 Each row is text, blank (None), zero, or out of range, and only when that
 call is not already asserted elsewhere. Helpers report a spreadsheet error
 either as NaN (#NUM! / #DIV/0! / #VALUE!, depending on the function) or as a
-``#...`` token. The table records which one the current code returns. A
+``#...`` token. Rows in ``_BAD_INPUTS`` still return NaN or a ``#...`` token. Rows in ``_RAISES`` used to return NaN and now propagate. A
 finite number or a boolean is the accepted result for that input.
 """
 
@@ -68,20 +68,12 @@ def _same(got: object, expected: object) -> bool:
 # (label, function, args, expected). _NAN is a non-finite float result.
 _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     # Complex magnitude / parts return NaN for text and blank.
-    ("imabs-text", "imabs", ("text",), _NAN),
-    ("imabs-blank", "imabs", (None,), _NAN),
     ("imabs-zero", "imabs", (0,), 0.0),
     ("imabs-inf", "imabs", (_INF,), _NAN),
-    ("imaginary-text", "imaginary", ("text",), _NAN),
-    ("imaginary-blank", "imaginary", (None,), _NAN),
     ("imaginary-zero", "imaginary", (0,), 0.0),
     ("imaginary-inf", "imaginary", (_INF,), 0.0),
-    ("imargument-text", "imargument", ("text",), _NAN),
-    ("imargument-blank", "imargument", (None,), _NAN),
     ("imargument-zero", "imargument", (0,), _NAN),
     ("imargument-inf", "imargument", (_INF,), 0.0),
-    ("imreal-text", "imreal", ("text",), _NAN),
-    ("imreal-blank", "imreal", (None,), _NAN),
     ("imreal-zero", "imreal", (0,), 0.0),
     ("imreal-inf", "imreal", (_INF,), _NAN),
     # Complex string helpers return #VALUE! when the text is not a complex number.
@@ -174,15 +166,9 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("intercept-blank", "intercept", ([None, None], [1.0, 2.0]), _NAN),
     ("intercept-zero", "intercept", ([0.0, 0.0], [0.0, 0.0]), _NAN),
     ("intercept-inf", "intercept", ([_INF, _INF], [1.0, 2.0]), _NAN),
-    ("intrate-text", "intrate", ("text", _DATE[1], 100, 105), _NAN),
-    ("intrate-blank", "intrate", (None, _DATE[1], 100, 105), _NAN),
     ("intrate-zero-investment", "intrate", (_DATE[0], _DATE[1], 0, 105), _NAN),
-    ("intrate-basis-inf", "intrate", (_DATE[0], _DATE[1], 100, 105, _INF), _NAN),
     ("intrate-inf-redemption", "intrate", (_DATE[0], _DATE[1], 100, _INF), _NAN),
-    ("ipmt-text", "ipmt", ("text", 1, 3, 8000), _NAN),
-    ("ipmt-blank", "ipmt", (None, 1, 3, 8000), _NAN),
     ("ipmt-zero-per", "ipmt", (0.1, 0, 3, 8000), _NAN),
-    ("ipmt-per-inf", "ipmt", (0.1, _INF, 3, 8000), _NAN),
     ("ipmt-type-inf", "ipmt", (0.1, 1, 3, 8000, 0, _INF), _NAN),
     ("irr-blank", "irr", ([None, None],), _NAN),
     # All zeros: f and df are 0, so ScIRR never shrinks the step and
@@ -235,8 +221,6 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("isoweeknum-blank", "isoweeknum", (None,), _NAN),
     ("isoweeknum-zero", "isoweeknum", (0,), 52.0),
     ("isoweeknum-inf", "isoweeknum", (_INF,), _NAN),
-    ("ispmt-text", "ispmt", ("text", 1, 12, 1000), _NAN),
-    ("ispmt-blank", "ispmt", (None, 1, 12, 1000), _NAN),
     ("ispmt-zero-rate", "ispmt", (0, 1, 12, 1000), 0.0),
     ("ispmt-rate-inf", "ispmt", (_INF, 1, 12, 1000), -_INF),
     ("isref-text", "isref", ("text",), False),
@@ -256,20 +240,15 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("large-blank", "large", ([None, ""], 1), _NAN),
     ("large-zero-k", "large", ([1, 2, 3], 0), _NAN),
     ("large-oor-k", "large", ([1, 2, 3], 9), _NAN),
-    ("large-inf-k", "large", ([1, 2, 3], _INF), _NAN),
     ("linest-text", "linest", (["text", "b"],), "#VALUE!"),
     ("linest-blank", "linest", ([None, None],), "#VALUE!"),
     ("linest-zero", "linest", ([0, 0],), [0.0, 0.0]),
     ("linest-inf", "linest", ([_INF, 1],), [_NAN, _NAN]),
     ("logest-blank", "logest", ([None, None],), "#VALUE!"),
     ("logest-inf", "logest", ([_INF, 1],), [_NAN, _NAN]),
-    ("loginv-text", "loginv", ("text", 0, 1), _NAN),
-    ("loginv-blank", "loginv", (None, 0, 1), _NAN),
     ("loginv-zero", "loginv", (0, 0, 1), _NAN),
     ("loginv-inf", "loginv", (_INF, 0, 1), _NAN),
     ("loginv-sd-zero", "loginv", (0.5, 0, 0), _NAN),
-    ("lognormdist-text", "lognormdist", ("text", 0, 1), _NAN),
-    ("lognormdist-blank", "lognormdist", (None, 0, 1), _NAN),
     ("lognormdist-zero", "lognormdist", (0, 0, 1), 0.0),
     ("lognormdist-inf", "lognormdist", (_INF, 0, 1), 1.0),
     ("lognormdist-sd-zero", "lognormdist", (1, 0, 0), _NAN),
@@ -285,14 +264,10 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("maxa-blank", "maxa", (None,), 0.0),
     ("maxa-zero", "maxa", (0,), 0.0),
     ("maxa-inf", "maxa", (_INF,), _INF),
-    ("mdeterm-text", "mdeterm", ([["text", "b"], ["c", "d"]],), _NAN),
     ("mdeterm-blank", "mdeterm", ([[None, None], [None, None]],), _NAN),
     ("mdeterm-zero", "mdeterm", ([[0, 0], [0, 0]],), 0.0),
     ("mdeterm-inf", "mdeterm", ([[_INF, 1], [1, 1]],), _INF),
-    ("mduration-text", "mduration", ("text", _DATE[1], 0.08, 0.09, 2), _NAN),
-    ("mduration-blank", "mduration", (None, _DATE[1], 0.08, 0.09, 2), _NAN),
     ("mduration-zero-frequency", "mduration", (_DATE[0], _DATE[1], 0.08, 0.09, 0), _NAN),
-    ("mduration-basis-inf", "mduration", (_DATE[0], _DATE[1], 0.08, 0.09, 2, _INF), _NAN),
     ("mina-text", "mina", ("text",), 0.0),
     ("mina-blank", "mina", (None,), 0.0),
     ("mina-zero", "mina", (0,), 0.0),
@@ -301,8 +276,6 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     ("minverse-blank", "minverse", ([[None, None], [None, None]],), [[_NAN, _NAN], [_NAN, _NAN]]),
     ("minverse-zero", "minverse", ([[0, 0], [0, 0]],), "#VALUE!"),
     ("minverse-rect", "minverse", ([[1, 2, 3]],), "#VALUE!"),
-    ("mirr-text", "mirr", (["text", 10], 0.1, 0.1), _NAN),
-    ("mirr-blank", "mirr", ([None, None], 0.1, 0.1), _NAN),
     ("mirr-zero", "mirr", ([0, 0, 0], 0.1, 0.1), _NAN),
     ("mirr-inf", "mirr", ([_INF, -1], 0.1, 0.1), _NAN),
     ("mirr-rate-neg-one", "mirr", ([-100, 39, 59], -1, 0.1), _NAN),
@@ -318,16 +291,12 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
     # Non-finite MROUND used to raise from math.floor. Zero multiple is already tested.
     ("mround-inf", "mround", (_INF, 1), _NAN),
     ("mround-nan", "mround", (float("nan"), 1), _NAN),
-    ("mround-huge", "mround", (1e308, 1e-308), _NAN),
     ("mtrans-text", "mtrans", ([["text", "b"], ["c", "d"]],), [["text", "c"], ["b", "d"]]),
     ("mtrans-blank", "mtrans", ([[None, None], [None, None]],), [[None, None], [None, None]]),
     ("mtrans-zero", "mtrans", ([[0, 0], [0, 0]],), [[0, 0], [0, 0]]),
     ("mtrans-scalar", "mtrans", (0,), 0),
-    ("multinomial-text", "multinomial", ("text",), _NAN),
-    ("multinomial-blank", "multinomial", (None,), _NAN),
     ("multinomial-zero", "multinomial", (0,), 1.0),
     ("multinomial-neg", "multinomial", (-1,), _NAN),
-    ("multinomial-inf", "multinomial", (_INF,), _NAN),
     ("munit-text", "munit", ("text",), "#VALUE!"),
     ("munit-blank", "munit", (None,), "#VALUE!"),
     ("munit-zero", "munit", (0,), "#VALUE!"),
@@ -344,6 +313,54 @@ _BAD_INPUTS: list[tuple[str, str, tuple[object, ...], object]] = [
 def test_i_m_bad_inputs(label: str, name: str, args: tuple[object, ...], expected: object) -> None:
     got = getattr(calc, name)(*args)
     assert _same(got, expected), f"{label}: {name}{args!r} -> {got!r}"
+
+
+_RAISES: list[tuple[str, str, tuple[object, ...], type[BaseException]]] = [
+    # Native complex() ValueError for text/blank; the worker maps it to #VALUE! centrally (#1577).
+    ("imabs-text", "imabs", ("text",), ValueError),
+    ("imabs-blank", "imabs", (None,), ValueError),
+    ("imaginary-text", "imaginary", ("text",), ValueError),
+    ("imaginary-blank", "imaginary", (None,), ValueError),
+    ("imargument-text", "imargument", ("text",), ValueError),
+    ("imargument-blank", "imargument", (None,), ValueError),
+    ("imreal-text", "imreal", ("text",), ValueError),
+    ("imreal-blank", "imreal", (None,), ValueError),
+    ("intrate-text", "intrate", ("text", _DATE[1], 100, 105), ValueError),
+    ("intrate-blank", "intrate", (None, _DATE[1], 100, 105), TypeError),
+    ("intrate-basis-inf", "intrate", (_DATE[0], _DATE[1], 100, 105, _INF), OverflowError),
+    ("ipmt-text", "ipmt", ("text", 1, 3, 8000), ValueError),
+    ("ipmt-blank", "ipmt", (None, 1, 3, 8000), TypeError),
+    ("ipmt-per-inf", "ipmt", (0.1, _INF, 3, 8000), OverflowError),
+    ("ispmt-text", "ispmt", ("text", 1, 12, 1000), ValueError),
+    ("ispmt-blank", "ispmt", (None, 1, 12, 1000), TypeError),
+    ("large-inf-k", "large", ([1, 2, 3], _INF), OverflowError),
+    ("loginv-text", "loginv", ("text", 0, 1), ValueError),
+    ("loginv-blank", "loginv", (None, 0, 1), TypeError),
+    ("lognormdist-text", "lognormdist", ("text", 0, 1), ValueError),
+    ("lognormdist-blank", "lognormdist", (None, 0, 1), TypeError),
+    ("mdeterm-text", "mdeterm", ([["text", "b"], ["c", "d"]],), ValueError),
+    ("mduration-text", "mduration", ("text", _DATE[1], 0.08, 0.09, 2), ValueError),
+    ("mduration-blank", "mduration", (None, _DATE[1], 0.08, 0.09, 2), TypeError),
+    ("mduration-basis-inf", "mduration", (_DATE[0], _DATE[1], 0.08, 0.09, 2, _INF), OverflowError),
+    ("mirr-text", "mirr", (["text", 10], 0.1, 0.1), ValueError),
+    ("mirr-blank", "mirr", ([None, None], 0.1, 0.1), TypeError),
+    ("mround-huge", "mround", (1e308, 1e-308), OverflowError),
+    ("multinomial-text", "multinomial", ("text",), ValueError),
+    ("multinomial-blank", "multinomial", (None,), TypeError),
+    ("multinomial-inf", "multinomial", (_INF,), OverflowError),
+]
+
+
+@pytest.mark.parametrize(
+    "label,name,args,exc",
+    _RAISES,
+    ids=[row[0] for row in _RAISES],
+)
+def test_i_m_bad_inputs_raise(
+    label: str, name: str, args: tuple[object, ...], exc: type[BaseException]
+) -> None:
+    with pytest.raises(exc):
+        getattr(calc, name)(*args)
 
 
 def test_iferror_ifna_bad_inputs() -> None:
@@ -381,7 +398,8 @@ def test_n_text_returns_zero():
     assert calc.n(False) == 0.0
     assert calc.n(np.int64(42)) == 42.0
     assert calc.n(np.float64(3.5)) == 3.5
-    assert math.isnan(calc.n(10**400))
+    with pytest.raises(OverflowError):
+        calc.n(10**400)
 
 
 def test_error_predicates_i_m():
@@ -461,7 +479,8 @@ def test_mode_mixed_types():
 def test_irr_guess_minus_one_and_overflow():
     # ScIRR starts Newton at 0.1 when the guess is -1. [-1, 1] solves at 0.
     assert calc.irr([-1, 1], -1) == pytest.approx(0.0, abs=1e-6)
-    assert math.isnan(calc.irr([-1, 1], 1e308))
+    with pytest.raises(OverflowError):
+        calc.irr([-1, 1], 1e308)
     assert math.isnan(calc.irr([-100] + [0] * 40 + [110], 1e6))
     # abs(NPV) < 1e-7 never finishes at this scale: the residual sticks
     # just above 1e-7. ScIRR stops on the rate step, so the rate matches
@@ -474,7 +493,8 @@ def test_irr_guess_minus_one_and_overflow():
 def test_loginv_bounds_and_lognormdist_nonpositive():
     assert math.isnan(calc.loginv(0, 0, 1))
     assert math.isnan(calc.loginv(1, 0, 1))
-    assert math.isnan(calc.loginv(0.5, 1e308, 1))
+    with pytest.raises(OverflowError):
+        calc.loginv(0.5, 1e308, 1)
     assert calc.loginv(0.5, 0, 1) == pytest.approx(1.0)
     # Cumulative x <= 0 is 0. The density is NaN. A huge mean does not raise.
     assert calc.lognormdist(0, 0, 1) == 0.0
@@ -575,7 +595,8 @@ def test_lookup_two_dimensional_uses_first_and_last():
 def test_matrix_scalar_and_flat_list():
     assert calc.mdeterm(5) == pytest.approx(5.0)
     assert calc.mdeterm([5]) == pytest.approx(5.0)
-    assert math.isnan(calc.mdeterm([1, 2, 3]))
+    with pytest.raises(np.linalg.LinAlgError):
+        calc.mdeterm([1, 2, 3])
     assert calc.mmult([1, 2], [3, 4]) == "#VALUE!"
     assert calc.mmult([[1, 2]], [[3], [4]]) == [[11.0]]
     assert calc.mtrans([1, 2, 3]) == [[1], [2], [3]]
@@ -605,10 +626,12 @@ def test_multinomial_bounds_float_range():
     assert math.isnan(calc.multinomial(*([100] * 6)))
 
 
-def test_ispmt_and_mirr_huge_int_is_nan():
+def test_ispmt_and_mirr_huge_int_overflows():
     huge = 10**10000
-    assert math.isnan(calc.ispmt(huge, 1, 12, 100))
-    assert math.isnan(calc.mirr([-100, 10], huge, 0.1))
+    with pytest.raises(OverflowError):
+        calc.ispmt(huge, 1, 12, 100)
+    with pytest.raises(OverflowError):
+        calc.mirr([-100, 10], huge, 0.1)
 
 
 def test_iseven_bool_is_numeric_and_mround_half_ulp():

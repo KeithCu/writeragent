@@ -643,6 +643,8 @@ def test_violation_popup_is_unscoped(monkeypatch):
 
 
 def test_stop_does_not_drop_violation_popup(monkeypatch):
+    import queue as queue_mod
+
     from plugin.framework.queue_executor import SendCancellation, _current_send_cancellation, default_executor
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
@@ -650,21 +652,60 @@ def test_stop_does_not_drop_violation_popup(monkeypatch):
         tg._violation_dialog_open = False
     was_init = default_executor._initialized
     was_async = default_executor._async_callback_service
-    default_executor._initialized = True
-    default_executor._async_callback_service = MagicMock()
-    monkeypatch.setattr(default_executor, "_poke_main_thread", lambda: None)
 
-    scope = SendCancellation()
-    token = _current_send_cancellation.set(scope)
-    tg.set_background_task("violation-worker")
+    # What was wrong: pending_work_count() == 1 failed as assert 2 == 1
+    # (PR 1577 ubuntu run 38784025798, gw4). queue_depth was already 1 at
+    # post_enqueue, which is logged after _flush_pending_posts and before
+    # this popup is put.
+    # How it happened: a previous test on this xdist worker left a row in
+    # default_executor._pending_posts. post() flushes that row, then enqueues
+    # _show_popup. --dist=loadgroup schedules unmarked tests as separate work
+    # units, so the row is present only on some reruns.
+    # Why this change: park the work queue and the pending list first, and
+    # seed a decoy row so forgetting the park fails in one process. The popup
+    # is still the unscoped post, so scope.cancel() does not drop it.
+    def decoy() -> None:
+        decoy_ran.append(True)
 
-    msgbox_calls: list[object] = []
+    decoy_ran: list[bool] = []
+    saved_work: list[object] = []
+    saved_pending = []
+    token = None
 
     try:
+        with default_executor._pending_lock:
+            default_executor._pending_posts.append((decoy, (), {}, None))
+
+        while True:
+            try:
+                saved_work.append(default_executor._work_queue.get_nowait())
+            except queue_mod.Empty:
+                break
+        with default_executor._pending_lock:
+            saved_pending = list(default_executor._pending_posts)
+            default_executor._pending_posts = []
+            default_executor._pending_lock.notify_all()
+        saved_pending = [row for row in saved_pending if row[0] is not decoy]
+
+        default_executor._initialized = True
+        default_executor._async_callback_service = MagicMock()
+        monkeypatch.setattr(default_executor, "_poke_main_thread", lambda: None)
+
+        scope = SendCancellation()
+        token = _current_send_cancellation.set(scope)
+        tg.set_background_task("violation-worker")
+
+        msgbox_calls: list[object] = []
+
         with patch("plugin.chatbot.dialogs.msgbox_with_report", side_effect=lambda *args, **kwargs: msgbox_calls.append(args)):
             with patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()):
                 tg._notify_thread_violation("test stop violation")
                 assert default_executor.pending_work_count() == 1
+                with default_executor._work_queue.mutex:
+                    queued = default_executor._work_queue.queue[0]
+                assert queued.fn.__qualname__.endswith("._show_popup")
+                assert queued.scope is None
+                assert decoy_ran == []
                 with tg._violation_ui_lock:
                     assert tg._violation_dialog_open is True
 
@@ -676,11 +717,23 @@ def test_stop_does_not_drop_violation_popup(monkeypatch):
                     assert tg._violation_dialog_open is False
     finally:
         tg.set_background_task(None)
-        _current_send_cancellation.reset(token)
+        if token is not None:
+            _current_send_cancellation.reset(token)
         default_executor._initialized = was_init
         default_executor._async_callback_service = was_async
         with tg._violation_ui_lock:
             tg._violation_dialog_open = False
+        while True:
+            try:
+                default_executor._work_queue.get_nowait()
+            except queue_mod.Empty:
+                break
+        for item in saved_work:
+            default_executor._work_queue.put_nowait(item)
+        with default_executor._pending_lock:
+            current = [row for row in default_executor._pending_posts if row[0] is not decoy]
+            default_executor._pending_posts = saved_pending + current
+            default_executor._pending_lock.notify_all()
 
 
 def test_proxy_setattr_only_target_is_local(monkeypatch):
@@ -725,5 +778,62 @@ def test_proxy_setattr_only_target_is_local(monkeypatch):
         assert isinstance(errors[0], RuntimeError) and "UNO thread violation" in str(errors[0])
     finally:
         tg.GUARD_ON = was
+
+
+def test_pyuno_callable_method_result_is_proxied(monkeypatch):
+    class InnerUno:
+        __module__ = "pyuno"
+        value = 42
+
+        def queryInterface(self, _type):
+            return self
+
+    class PyUNO_callable:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def __call__(self, *args, **kwargs):
+            return self.inner
+
+    class DocumentStandin:
+        def __init__(self, inner):
+            self.getText = PyUNO_callable(inner)
+
+        def queryInterface(self, _type):
+            return self
+
+    inner = InnerUno()
+    doc = DocumentStandin(inner)
+
+    saved_guard = tg.GUARD_ON
+    tg.GUARD_ON = True
+    try:
+        calls = []
+        orig_assert = tg.assert_main_thread
+
+        def _tracking_assert(what: str) -> None:
+            calls.append(what)
+            orig_assert(what)
+
+        monkeypatch.setattr(tg, "assert_main_thread", _tracking_assert)
+        monkeypatch.setattr(tg, "on_main_thread", lambda: True)
+
+        prox = tg.guard_uno(doc)
+        method = prox.getText
+        assert isinstance(method, tg._UnoThreadGuardProxy)
+        assert type(method._target).__name__ == "PyUNO_callable"
+
+        res = method()
+        assert isinstance(res, tg._UnoThreadGuardProxy)
+        assert res._target is inner
+        assert "UNO() call" in calls
+
+        monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+        monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+        with pytest.raises(RuntimeError, match="UNO thread violation"):
+            _ = res.value
+    finally:
+        tg.GUARD_ON = saved_guard
+
 
 

@@ -13,11 +13,16 @@ Solution: use com.sun.star.awt.AsyncCallback.addCallback() to post work
 into the VCL event loop. The HTTP thread blocks on a threading.Event
 until the main thread has executed the work item and stored the result.
 
-If AsyncCallback is unavailable off the main thread, execute() raises
-RuntimeError instead of calling the function on the caller. post() keeps a
-short pending list and flushes it once AsyncCallback exists; it does not
-run the callback on the background thread. A full list waits for a flush,
-then raises TimeoutError. It does not drop the callable.
+`execute()` off the main thread with no AsyncCallback raises `RuntimeError`
+and does not call `fn` on the caller. `post()` does not run the callback on
+the background thread. Before AsyncCallback exists it keeps a pending list.
+A list shorter than the cap stores the callable. A full list waits for a
+flush, then raises `TimeoutError` without storing that callable. When
+initialization has finished and AsyncCallback is `None` (eval harness), a
+full list raises `TimeoutError` immediately and does not store the callable;
+waiting cannot create the callback. A flush that fails partway logs, puts
+the failed item and the tail back on the list, and does not raise; the
+caller's own `execute` / `post` still runs.
 
 Concurrency: ``_claim_lock`` decides whether a timed-out waiter or the
 main thread owns a queued function. An item that has not started is
@@ -69,18 +74,10 @@ _PENDING_POST_CAP = 32
 _PENDING_POST_WAIT_SEC = 30.0
 # Slice for the untimed wait on a claimed marshal (log + shutdown check only).
 _UNTIMED_WAIT_SLICE_SEC = 5.0
+# Stop is checked between acquires. Cap each acquire by the time left so a
+# short timeout cannot block for a full poll slice.
+_LLM_LANE_POLL_SEC = 0.25
 
-# Drain ownership: re-export from async_drain_guard (single-owner VCL pump sentry).
-from plugin.framework.async_drain_guard import (
-    NestedDrainOwnerError as NestedDrainOwnerError,
-    drain_owner_scope as drain_owner_scope,
-    get_drain_depth as get_drain_depth,
-    get_drain_owner as get_drain_owner,
-    get_suppressed_vcl_pump_count as get_suppressed_vcl_pump_count,
-    is_vcl_pump_allowed as is_vcl_pump_allowed,
-    note_suppressed_vcl_pump as note_suppressed_vcl_pump,
-    reset_suppressed_vcl_pump_count as reset_suppressed_vcl_pump_count,
-)
 
 
 def set_force_marshal_mode(enabled: bool) -> None:
@@ -158,6 +155,11 @@ class SendCancellation:
         if not callable(stop):
             return
         with self._lock:
+            # The same bound stop is one hook; a second register_client must not
+            # run it again, and a duplicate after cancel() does not call it again
+            # because the first registration or cancel() already did.
+            if stop in self._hooks:
+                return
             self._hooks.append(cast("Callable[[], None]", stop))
             already = self._cancelled.is_set()
         if already:
@@ -168,6 +170,10 @@ class SendCancellation:
 
     def register_on_cancel(self, hook: Callable[[], None]) -> None:
         with self._lock:
+            # Equality, not identity, because each adapter.stop access is a new
+            # bound method that compares equal.
+            if hook in self._hooks:
+                return
             self._hooks.append(hook)
             already = self._cancelled.is_set()
         # Stop can win the race: a hook registered after cancel() must still run.
@@ -397,16 +403,17 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
     acquired = False
     notified_status = False
 
-    while time.monotonic() < deadline:
+    while True:
         cancellation = get_current_send_cancellation()
         if cancellation and cancellation.is_cancelled():
             from plugin.framework.blocking_wait import BlockingWaitStopped
             raise BlockingWaitStopped("stopped")
-
-        if _LLM_REQUEST_LOCK.acquire(timeout=0.25):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        if _LLM_REQUEST_LOCK.acquire(timeout=min(_LLM_LANE_POLL_SEC, remaining)):
             acquired = True
             break
-
         if not notified_status and status_callback is not None:
             status_callback(_("Waiting for another document's reply..."))
             notified_status = True
@@ -612,12 +619,13 @@ class QueueExecutor:
         The failed item and the tail go back in front of anything appended
         after the notify, which keeps FIFO order. Swapping the list to
         ``[]`` before the loop drops posts if ``_enqueue_work`` raises
-        partway: they are neither queued nor pending. The exception still
-        propagates so the caller does not treat the flush as done. Items
-        that did enqueue are poked after the lock drops.
+        partway: they are neither queued nor pending. The failed item and the
+        tail are put back in front of anything appended after notify_all; the
+        error is logged; the function returns; callers still enqueue their
+        own work; a later flush retries the tail. Items that did enqueue are
+        poked after the lock drops.
         """
         enqueued = 0
-        flush_error: Exception | None = None
         with self._order_lock:
             if not self._initialized or self._async_callback_service is None:
                 return
@@ -630,15 +638,20 @@ class QueueExecutor:
                 for fn, args, kwargs, scope in pending:
                     self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=scope, poke=False)
                     enqueued += 1
-            except Exception as exc:
+            except Exception:
+                # Bugfix: a flush error used to propagate out of execute, post, and set_context.
+                # What was wrong: enqueue of an older pending post raised, and this caller's
+                # own marshal never ran. Bootstrap set_context could abort on that raise.
+                # How it happened: the tail was restored, then flush_error was re-raised, and
+                # every caller treated that as its own failure.
+                # Why this change: the tail is already pending and the error is logged. This
+                # caller's callable is not in that list, so execute/post/set_context continue.
+                # A later flush retries the tail.
                 with self._pending_lock:
                     self._pending_posts = list(pending[enqueued:]) + self._pending_posts
                 log.exception("QueueExecutor: flush failed after %d pending post(s); %d put back", enqueued, len(pending) - enqueued)
-                flush_error = exc
         if enqueued:
             self._poke_main_thread()
-        if flush_error is not None:
-            raise flush_error
 
     # Unwrap Layer A proxies before any UNO getattr. Creating AsyncCallback
     # from a worker is the marshal bootstrap: if the guard fires here it calls
@@ -782,7 +795,7 @@ class QueueExecutor:
                     skipped = True
 
         if skipped:
-            log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, getattr(item.fn, "__name__", "<fn>"))
+            log.debug("QueueExecutor: skipping cancelled item %s (%s)", item.id, _fn_label(item.fn))
             # A timed-out head used to return here and leave the next item
             # queued until some later poke. Wake the main thread now.
             if not self._work_queue.empty():
@@ -940,7 +953,7 @@ class QueueExecutor:
                             waited,
                         )
             elif not finished:
-                raise TimeoutError("Main-thread execution of %s timed out after %ss" % (getattr(item.fn, "__name__", str(item.fn)), timeout))
+                raise TimeoutError("Main-thread execution of %s timed out after %ss" % (_fn_label(item.fn), timeout))
 
         # The redundant `if item.cancelled and item.exception` branch has been
         # removed: the unconditional check below covers it entirely.
@@ -1041,7 +1054,9 @@ class QueueExecutor:
 
         Unlike execute, this does not return a result. Used for UI updates
         from background threads. Before AsyncCallback exists, a full pending
-        list waits for a flush and then raises TimeoutError.
+        list waits for a flush and then raises TimeoutError. When
+        AsyncCallback is already known missing, a full list raises that
+        TimeoutError immediately and does not store the callable.
         """
         from plugin.framework.thread_guard import get_background_task_name
 
@@ -1164,18 +1179,23 @@ def _pump_vcl_events(toolkit: Any) -> bool:
 def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecutor | None = None) -> None:
     """Idle tick for main-thread wait loops: drain QueueExecutor, then maybe pump VCL.
 
-    Depth 0 or 1 still calls ``processEventsToIdle`` so chat Send stays responsive.
-    Same-owner re-entry (depth > 1) skips VCL — the outer owner is already pumping —
-    but still drains the marshal queue. Secondary UI progress must use
-    :func:`plugin.framework.uno_context.process_events_to_idle`, which no-ops while
-    a :func:`drain_owner_scope` is active.
+    Depth 0 or 1 still calls ``processEventsToIdle``; depth > 1 skips VCL and
+    still drains the marshal queue. ``owner_may_pump_vcl`` is only for this
+    function; secondary progress uses ``process_events_to_idle``, which no-ops
+    while any owner is set. See :func:`plugin.framework.async_drain_guard.drain_owner_scope`.
     """
+    from plugin.framework.async_drain_guard import (
+        get_drain_owner,
+        note_suppressed_vcl_pump,
+        owner_may_pump_vcl,
+    )
+
     pump_main_thread_work_queue(max_items=max_queue_items, executor=executor)
-    # is_vcl_pump_allowed (depth > 1) notes the suppression and skips VCL.
+    # owner_may_pump_vcl (depth > 1) notes the suppression and skips VCL.
     # The marshal queue above still runs so execute_on_main_thread is not stuck behind it.
     # Pumping VCL on every idle tick, including when a nested stream drain
     # (depth > 1) is already inside the outer pump, re-enters the owner.
-    if not is_vcl_pump_allowed():
+    if not owner_may_pump_vcl():
         note_suppressed_vcl_pump(get_drain_owner())
         return
     _pump_vcl_events(toolkit)

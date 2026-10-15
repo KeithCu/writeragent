@@ -424,3 +424,24 @@ def test_enumerate_impress_designs_limit():
         with patch("plugin.draw.designs._iter_template_directories", return_value=[td]):
             designs = enumerate_impress_designs(MockCtx())
             assert len(designs) == 1000
+
+
+def test_master_entries_and_find_imported_master_reraise_disposed():
+    import pytest
+    from plugin.draw.designs import _master_entries, find_imported_master
+
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock()
+    doc.getMasterPages.side_effect = DisposedException("closed")
+
+    with pytest.raises(DisposedException):
+        _master_entries(doc)
+    with pytest.raises(DisposedException):
+        find_imported_master(doc, {"name": "Test"}, set())
+
+    doc.getMasterPages.side_effect = RuntimeError("failed")
+    assert _master_entries(doc) == []
+    assert find_imported_master(doc, {"name": "Test"}, set()) == (None, "", 0)
+

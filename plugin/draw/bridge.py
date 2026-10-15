@@ -22,7 +22,7 @@ import logging
 from typing import Any
 
 from plugin.doc import text_helpers as _text_helpers
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, check_disposed, is_disposed_exception, safe_call
+from plugin.framework.errors import ToolExecutionError, UnoObjectError, check_disposed, is_disposed_exception, is_real_disposal, safe_call
 from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger(__name__)
@@ -56,7 +56,13 @@ def _draw_page_container(doc: Any) -> Any | None:
     if hasattr(doc, "getDrawPage"):
         try:
             page = doc.getDrawPage()
-        except Exception:
+        except Exception as exc:
+            # Bugfix: a closed document raises DisposedException from getDrawPage(),
+            # and this except turned that into a missing page / not-found result.
+            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+            # Any other failure stays on the existing missing-page path.
+            if is_real_disposal(exc):
+                raise
             page = None
         if page is not None:
             return _SingleDrawPageContainer(page)
@@ -66,7 +72,13 @@ def _draw_page_container(doc: Any) -> Any | None:
 
             sheet = CalcBridge(doc).get_active_sheet()
             page = sheet.getDrawPage() if sheet is not None and hasattr(sheet, "getDrawPage") else None
-        except Exception:
+        except Exception as exc:
+            # Bugfix: a closed document raises DisposedException from the active sheet draw page,
+            # and this except turned that into a missing page / not-found result.
+            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+            # Any other failure stays on the existing missing-page path.
+            if is_real_disposal(exc):
+                raise
             page = None
         if page is not None:
             return _SingleDrawPageContainer(page)
@@ -101,8 +113,13 @@ class DrawBridge:
                         return sheet.getDrawPage()
                     if hasattr(sheet, "DrawPage"):
                         return sheet.DrawPage
-            except Exception:
-                pass
+            except Exception as exc:
+                # Bugfix: a closed spreadsheet raises DisposedException from the active sheet draw page,
+                # and this except turned that into a missing page / not-found result.
+                # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+                # Any other failure stays on the existing missing-page path.
+                if is_real_disposal(exc):
+                    raise
         controller = self.doc.getCurrentController()
         if controller is not None and hasattr(controller, "getCurrentPage"):
             page = controller.getCurrentPage()
@@ -138,19 +155,17 @@ class DrawBridge:
         test runner then treated a dead URP as a normal tool failure instead of
         aborting the remaining suite.
 
-        ``IndexError`` stays a ``ToolExecutionError`` (page out of range). Other
-        failures are wrapped the same way so callers still get a tool error, not
-        a raw UNO exception.
+        ``IndexError`` stays a ``ToolExecutionError`` (page out of range). Any
+        other failure propagates. ``execute_safe`` maps it to
+        ``TOOL_EXECUTION_ERROR`` (``Tool execution failed: ...``), the same code
+        as the old wrap, and includes the exception type.
         """
         try:
             return cls.resolve_slide(doc, page_index)
         except IndexError:
             # resolve_slide only raises IndexError when page_index is an int.
             raise ToolExecutionError("Page index %s out of range." % page_index)
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            raise ToolExecutionError(str(e)) from e
+        # Other failures propagate. execute_safe maps them to TOOL_EXECUTION_ERROR.
 
     def create_shape(self, shape_type: str, x: int, y: int, width: int, height: int, page: Any | None = None) -> Any:
         """
@@ -239,10 +254,8 @@ class DrawBridge:
         count = int(pages.getCount())
         if after_index is None:
             after_index = self.get_active_page_index()
-        try:
-            requested = int(after_index) + 1
-        except (TypeError, ValueError):
-            requested = count
+        # A bad after_index used to append (requested = count). Let int() raise.
+        requested = int(after_index) + 1
         master = self._resolve_master(master_index=master_index, master_name=master_name)
         if master is None and (master_index is not None or master_name is not None):
             raise ValueError(f"Master page not found: index={master_index} name={master_name}")
@@ -926,7 +939,13 @@ class DrawBridge:
                 for i in range(count):
                     if uno_same(pages.getByIndex(i), page):
                         return i
-        except Exception:
+        except Exception as exc:
+            # Bugfix: a closed document raises DisposedException from get_active_page(),
+            # and this except turned that into a missing page / not-found result.
+            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+            # Any other failure stays on the existing missing-page path.
+            if is_real_disposal(exc):
+                raise
             log.debug("get_active_page_index failed", exc_info=True)
         # Callers outside this package require an int. A total miss still
         # reports 0; an empty page and a missing getNumber() no longer do.
@@ -1043,9 +1062,7 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         if len(ctx_str) > limit:
             ctx_str = ctx_str[:limit] + "\n\n[... document truncated ...]"
         return ctx_str
-    except UnoObjectError:
-        log.exception("get_draw_context_for_chat error")
-        return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"
     except Exception:
-        log.exception("get_draw_context_for_chat exception")
+        # UnoObjectError is an Exception; both handlers returned the same fallback.
+        log.exception("get_draw_context_for_chat error")
         return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"

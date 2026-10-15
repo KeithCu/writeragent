@@ -88,7 +88,7 @@ def focus_preserved(ctx: Any, restore: Any = None, *, restore_focus: Callable[[]
 def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bool:
     """Drain the UI event queue *rounds* times via the approved VCL pump chokepoint.
 
-    When a chat/MCP :func:`~plugin.framework.queue_executor.drain_owner_scope` is
+    When a chat/MCP :func:`~plugin.framework.async_drain_guard.drain_owner_scope` is
     active, skips VCL pumping so secondary progress helpers (grep, Harper status,
     notebook import) cannot nest ``processEventsToIdle`` inside the drain loop.
     Pass force=True (e.g. for RichTextControl caret reveal) to pump VCL even when
@@ -96,7 +96,8 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
     Returns True if at least one VCL pump ran. Blocking secondary waits should
     use :func:`wait_while_pumping` rather than a local PE2I loop.
     """
-    from plugin.framework.queue_executor import note_suppressed_vcl_pump, _pump_vcl_events, get_drain_owner
+    from plugin.framework.async_drain_guard import get_drain_owner, note_suppressed_vcl_pump
+    from plugin.framework.queue_executor import _pump_vcl_events
     from plugin.framework.uno_context import get_toolkit
 
     if not on_main_thread():

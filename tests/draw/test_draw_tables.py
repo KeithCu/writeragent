@@ -178,7 +178,7 @@ def test_insert_table_rejects_zero_rows():
 
 
 class DisposedException(Exception):
-    """Type name matches is_disposed_exception."""
+    """Type name matches is_real_disposal."""
 
 
 def test_insert_table_disposed_page_is_not_invalid_index():
@@ -371,3 +371,17 @@ def test_insert_table_set_size_failure_removes_shape():
     assert out["status"] == "error"
     assert out["message"].startswith("Failed to create table")
     page.remove.assert_called_once_with(shape)
+def test_table_model_reraises_disposed():
+    from plugin.draw.tables import _table_model
+
+    class DisposedException(Exception):
+        pass
+
+    shape = MagicMock(spec=["getModel"])
+    shape.getModel.side_effect = DisposedException("closed")
+    with pytest.raises(DisposedException):
+        _table_model(shape)
+
+    shape.getModel.side_effect = RuntimeError("not a model")
+    assert _table_model(shape) is None
+

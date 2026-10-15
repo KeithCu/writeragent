@@ -25,6 +25,8 @@ When active:
 - Returned PyUNO objects are wrapped in a transparent proxy that asserts on
   every subsequent access/call, so arbitrary object-graph walks are covered
   with zero per-site annotations.
+- A PyUNO_callable is wrapped so the guard follows method calls, not only the
+  first attribute read.
 
 When inactive, violations log a warning with full stack (no crash).
 
@@ -242,6 +244,11 @@ def _is_pyuno(obj: Any) -> bool:
     # TypeDetection / loadComponentFromURL which require real structs in tuples.
     if hasattr(obj, "__pyunostruct__"):
         return False
+    # Method objects use that tp_name (pyuno/source/module/pyuno_callable.cxx);
+    # without this branch __getattr__ returns the raw callable, __call__ never
+    # runs, and the return value is unguarded.
+    if tname == "PyUNO_callable":
+        return True
     mod = getattr(t, "__module__", "") or ""
     if "pyuno" in mod:
         return True
@@ -255,7 +262,9 @@ class _UnoThreadGuardProxy:
     """Transparent debug wrapper around a PyUNO object.
 
     Every attribute access and call runs assert_main_thread, then recursively
-    wraps any PyUNO result so the guard follows the object graph.
+    wraps any PyUNO result so the guard follows the object graph. A method
+    lookup returns a proxy around the PyUNO_callable, and calling that proxy
+    wraps the return.
 
     Plain Python values pass through. Only installed when GUARD_ON.
     """

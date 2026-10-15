@@ -247,12 +247,10 @@ def daverage(db: Any, field: Any, criteria: Any) -> float:
 def days(end_date: Any, start_date: Any) -> float:
     # DAYS truncates both serials to integers before subtracting. A fractional
     # serial is still that calendar day.
-    try:
-        ed = int(float(end_date))
-        sd = int(float(start_date))
-        return float(ed - sd)
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    ed = int(float(end_date))
+    sd = int(float(start_date))
+    return float(ed - sd)
 
 
 def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
@@ -262,44 +260,40 @@ def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
         return float("nan")
     # LibreOffice GetBool() coerces via GetDouble() != 0 (interpre.hxx). Python
     # bool("0") was True (European count). Coerce with bool(float(method)) so "0"
-    # selects US and non-numeric strings like "FALSE" raise and return nan.
-    try:
-        european = bool(float(method))
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    # selects US.
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    european = bool(float(method))
     return _days360(sd, ed, european=european)
 
 
 def db(cost: Any, salvage: Any, life: Any, period: Any, month: Any = 12) -> float:
     # 1 <= period <= life + 1, and cost, salvage, life, and month must be valid.
     # Period 0 is #NUM!, not 0.
-    try:
-        c = float(cost)
-        s = float(salvage)
-        life_val = float(life)
-        p = int(float(period))
-        m = int(float(month))
-        if c <= 0 or s < 0 or life_val <= 0 or m < 1 or m > 12:
-            return float("nan")
-        if p < 1 or p > life_val + 1:
-            return float("nan")
-        # LibreOffice ScDB rounds the depreciation rate half away from zero with
-        # approxFloor((fOffRate * 1000.0) + 0.5) / 1000.0 (interpr2.cxx). Python round()
-        # is half-to-even, which rounded ties down.
-        rate = float(_round_half_up(1.0 - math.pow(s / c, 1.0 / life_val), 3))
-        val = c
-        dep = 0.0
-        for i in range(1, p + 1):
-            if i == 1:
-                dep = val * rate * m / 12.0
-            elif i == life_val + 1:
-                dep = val * rate * (12 - m) / 12.0
-            else:
-                dep = val * rate
-            val -= dep
-        return float(dep)
-    except (ValueError, TypeError, OverflowError):
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    c = float(cost)
+    s = float(salvage)
+    life_val = float(life)
+    p = int(float(period))
+    m = int(float(month))
+    if c <= 0 or s < 0 or life_val <= 0 or m < 1 or m > 12:
         return float("nan")
+    if p < 1 or p > life_val + 1:
+        return float("nan")
+    # LibreOffice ScDB rounds the depreciation rate half away from zero with
+    # approxFloor((fOffRate * 1000.0) + 0.5) / 1000.0 (interpr2.cxx). Python round()
+    # is half-to-even, which rounded ties down.
+    rate = float(_round_half_up(1.0 - math.pow(s / c, 1.0 / life_val), 3))
+    val = c
+    dep = 0.0
+    for i in range(1, p + 1):
+        if i == 1:
+            dep = val * rate * m / 12.0
+        elif i == life_val + 1:
+            dep = val * rate * (12 - m) / 12.0
+        else:
+            dep = val * rate
+        val -= dep
+    return float(dep)
 
 
 def dcount(db: Any, field: Any, criteria: Any) -> float:
@@ -314,27 +308,23 @@ def dcounta(db: Any, field: Any, criteria: Any) -> float:
 def ddb(cost: Any, salvage: Any, life: Any, period: Any, factor: Any = 2) -> float:
     # Excel and Calc: 1 <= period <= life, cost >= 0, salvage >= 0, life > 0,
     # factor > 0.
-    try:
-        c = float(cost)
-        s = float(salvage)
-        life_val = float(life)
-        p = int(float(period))
-        f = float(factor)
-        if c < 0 or s < 0 or life_val <= 0 or f <= 0 or p < 1 or p > life_val:
-            return float("nan")
-        rate = f / life_val
-        val = c
-        dep = 0.0
-        for _i in range(1, p + 1):
-            dep = min(val * rate, val - s)
-            if dep < 0:
-                dep = 0.0
-            val -= dep
-        return float(dep)
-    # Broad except Exception masked unexpected errors. Narrow to expected
-    # conversion and overflow errors, returning nan.
-    except (ValueError, TypeError, OverflowError):
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    c = float(cost)
+    s = float(salvage)
+    life_val = float(life)
+    p = int(float(period))
+    f = float(factor)
+    if c < 0 or s < 0 or life_val <= 0 or f <= 0 or p < 1 or p > life_val:
         return float("nan")
+    rate = f / life_val
+    val = c
+    dep = 0.0
+    for _i in range(1, p + 1):
+        dep = min(val * rate, val - s)
+        if dep < 0:
+            dep = 0.0
+        val -= dep
+    return float(dep)
 
 
 def decimal(text: Any, radix: Any) -> float:
@@ -343,29 +333,25 @@ def decimal(text: Any, radix: Any) -> float:
     # ScDecimal (interpr2.cxx) takes GetString(). An integral numeric cell
     # arrives as 111.0, and str(111.0) is "111.0", so the dot failed the
     # digit check. The cell's text has no trailing ".0".
-    try:
-        r = int(float(radix))
-        if r < 2 or r > 36:
-            return float("nan")
-        if isinstance(text, float) and math.isfinite(text) and text.is_integer():
-            s = str(int(text))
-        else:
-            s = str(text).strip()
-        if not s:
-            return float("nan")
-        valid_chars = "0123456789abcdefghijklmnopqrstuvwxyz"[:r]
-        if any(c.lower() not in valid_chars for c in s):
-            return float("nan")
-        return float(int(s, r))
-    except (ValueError, TypeError, OverflowError):
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    r = int(float(radix))
+    if r < 2 or r > 36:
         return float("nan")
+    if isinstance(text, float) and math.isfinite(text) and text.is_integer():
+        s = str(int(text))
+    else:
+        s = str(text).strip()
+    if not s:
+        return float("nan")
+    valid_chars = "0123456789abcdefghijklmnopqrstuvwxyz"[:r]
+    if any(c.lower() not in valid_chars for c in s):
+        return float("nan")
+    return float(int(s, r))
 
 
 def delta(n1: Any, n2: Any = 0) -> float:
-    try:
-        return 1.0 if float(n1) == float(n2) else 0.0
-    except (ValueError, TypeError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    return 1.0 if float(n1) == float(n2) else 0.0
 
 
 def devsq(*args: Any) -> float:
@@ -385,27 +371,25 @@ def dget(db: Any, field: Any, criteria: Any) -> Any:
 
 
 def disc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:
-    try:
-        p = float(pr)
-        red = float(redemption)
-        b = int(float(basis))
-        settle = float(settlement)
-        mature = float(maturity)
-        # getDisc throws when price or redemption is <= 0 or settlement >= maturity.
-        # yearfrac swaps a reversed pair, so disc(45000, 44000, 95, 100) returned
-        # the positive discount of the swapped dates. redemption == 0 was the only
-        # price check, so a negative redemption also returned a number.
-        if p <= 0 or red <= 0 or b < 0 or b > 4 or settle >= mature:
-            return float("nan")
-        yf = yearfrac(settle, mature, b)
-        if math.isnan(yf) or yf <= 0:
-            return float("nan")
-        result = (red - p) / red / yf
-        if not math.isfinite(result):
-            return float("nan")
-        return float(result)
-    except Exception:
+    # type errors are left to the worker exception path, which returns #VALUE!
+    p = float(pr)
+    red = float(redemption)
+    b = int(float(basis))
+    settle = float(settlement)
+    mature = float(maturity)
+    # getDisc throws when price or redemption is <= 0 or settlement >= maturity.
+    # yearfrac swaps a reversed pair, so disc(45000, 44000, 95, 100) returned
+    # the positive discount of the swapped dates. redemption == 0 was the only
+    # price check, so a negative redemption also returned a number.
+    if p <= 0 or red <= 0 or b < 0 or b > 4 or settle >= mature:
         return float("nan")
+    yf = yearfrac(settle, mature, b)
+    if math.isnan(yf) or yf <= 0:
+        return float("nan")
+    result = (red - p) / red / yf
+    if not math.isfinite(result):
+        return float("nan")
+    return float(result)
 
 
 def dmax(db: Any, field: Any, criteria: Any) -> float:
@@ -434,20 +418,18 @@ def _format_rounded(val: float, decimals: int, *, commas: bool) -> str:
 
 def dollar(number: Any, decimals: Any = 2) -> str | float:
     # The minus sits before the dollar sign (-$1,234.57), after half-up rounding.
-    try:
-        val = float(number)
-        dec = int(float(decimals))
-        if not math.isfinite(val):
-            return float("nan")
-        q = _round_half_up(val, dec)
-        places = max(0, dec)
-        if places == 0:
-            s = f"{abs(int(q)):,}"
-        else:
-            s = f"{abs(q):,.{places}f}"
-        return f"-${s}" if q < 0 else f"${s}"
-    except (ValueError, TypeError, OverflowError):
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf decimals) is #NUM! on that path.
+    val = float(number)
+    dec = int(float(decimals))
+    if not math.isfinite(val):
         return float("nan")
+    q = _round_half_up(val, dec)
+    places = max(0, dec)
+    if places == 0:
+        s = f"{abs(int(q)):,}"
+    else:
+        s = f"{abs(q):,.{places}f}"
+    return f"-${s}" if q < 0 else f"${s}"
 
 
 # Group B - Financial 2
@@ -484,43 +466,33 @@ def dsum(db: Any, field: Any, criteria: Any) -> float:
 
 
 def duration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
-    try:
-        s = float(settlement)
-        m = float(maturity)
-        c = float(coupon)
-        y = float(yld)
-        f = float(frequency)
-        b = int(float(basis))
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    s = float(settlement)
+    m = float(maturity)
+    c = float(coupon)
+    y = float(yld)
+    f = float(frequency)
+    b = int(float(basis))
     if c < 0 or y < 0 or f not in (1, 2, 4) or b < 0 or b > 4 or s >= m:
         return float("nan")
 
-    # What was wrong: DURATION with a huge yield (1e308) raised OverflowError
-    # out of the formula.
-    # How it happened: (1 + y/f) ** n runs after the argument-parsing try.
-    # getDuration returns finiteOrThrow.
-    # Why this change fixes it: OverflowError and a non-finite Macaulay result
-    # are NaN. The zero-yield closed form is unchanged.
-    try:
-        periods = yearfrac(s, m, b) * f
-        n = periods
-        if n <= 0:
-            return float("nan")
-
-        yf = y / f
-        cf = c / f
-        if yf == 0:
-            denom = cf * n + 1.0
-            if denom == 0:
-                return float("nan")
-            res = n * (cf * (n + 1.0) + 2.0) / (2.0 * f * denom)
-        elif cf == 0:
-            res = n / f
-        else:
-            res = ((1 + yf) / yf - (1 + yf + n * (cf - yf)) / (cf * ((1 + yf) ** n - 1) + yf)) / f
-    except OverflowError:
+    # OverflowError is left to the worker exception path, which returns #NUM!
+    periods = yearfrac(s, m, b) * f
+    n = periods
+    if n <= 0:
         return float("nan")
+
+    yf = y / f
+    cf = c / f
+    if yf == 0:
+        denom = cf * n + 1.0
+        if denom == 0:
+            return float("nan")
+        res = n * (cf * (n + 1.0) + 2.0) / (2.0 * f * denom)
+    elif cf == 0:
+        res = n / f
+    else:
+        res = ((1 + yf) / yf - (1 + yf + n * (cf - yf)) / (cf * ((1 + yf) ** n - 1) + yf)) / f
     return res if math.isfinite(res) else float("nan")
 
 
@@ -532,12 +504,10 @@ def dvarp(db: Any, field: Any, criteria: Any) -> float:
     return _dagg(db, field, criteria, lambda vals: np.var(vals, ddof=0), min_n=1)
 
 
-def _shift_months(sd: dt.date, months: Any) -> tuple[int, int] | None:
-    """Move ``sd`` by whole months. None when ``months`` is not a number."""
-    try:
-        month_delta = int(float(months))
-    except (ValueError, TypeError, OverflowError):
-        return None
+def _shift_months(sd: dt.date, months: Any) -> tuple[int, int]:
+    """Move ``sd`` by whole months."""
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    month_delta = int(float(months))
     y, m = sd.year, sd.month
     m += month_delta
     y += (m - 1) // 12
@@ -550,10 +520,7 @@ def edate(start_date: Any, months: Any) -> float:
     sd = _serial_to_date(start_date)
     if sd is None:
         return float("nan")
-    shifted = _shift_months(sd, months)
-    if shifted is None:
-        return float("nan")
-    y, m = shifted
+    y, m = _shift_months(sd, months)
     try:
         dim = calendar.monthrange(y, m)[1]
         d = min(sd.day, dim)
@@ -564,38 +531,24 @@ def edate(start_date: Any, months: Any) -> float:
 
 
 def effect(nominal_rate: Any, npery: Any) -> float:
-    try:
-        nr = float(nominal_rate)
-        n_per = int(float(npery))
-    except (ValueError, TypeError, OverflowError):
-        # int(float("inf")) is OverflowError, so EFFECT(rate, inf) raised
-        # instead of the #NUM! nan a non-positive rate already returns.
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    nr = float(nominal_rate)
+    n_per = int(float(npery))
     # Excel EFFECT remarks and LibreOffice AnalysisAddIn::getEffect both
     # reject nominal_rate <= 0 with #NUM!. The algebra at rate 0 is 0, but
     # that is not the spreadsheet result.
     if nr <= 0 or n_per < 1:
         return float("nan")
-    # What was wrong: EFFECT(1e6, 1e6) raised OverflowError and EFFECT(inf, n)
-    # returned inf.
-    # How it happened: the power ran after the conversion try had exited, and
-    # inf <= 0 is false so the domain guard let it through. getEffect returns
-    # finiteOrThrow.
-    # Why this change fixes it: OverflowError and a non-finite result are NaN.
-    try:
-        res = (1 + nr / n_per) ** n_per - 1
-    except OverflowError:
-        return float("nan")
+    # OverflowError is left to the worker exception path, which returns #NUM!
+    res = (1 + nr / n_per) ** n_per - 1
     return res if math.isfinite(res) else float("nan")
 
 
-def encodeurl(text: Any) -> str | float:
-    try:
-        import urllib.parse
+def encodeurl(text: Any) -> str:
+    # type errors are left to the worker exception path, which returns #VALUE!
+    import urllib.parse
 
-        return urllib.parse.quote(str(text), safe="")
-    except (ValueError, TypeError):
-        return float("nan")
+    return urllib.parse.quote(str(text), safe="")
 
 
 def eomonth(start_date: Any, months: Any) -> float:
@@ -603,10 +556,7 @@ def eomonth(start_date: Any, months: Any) -> float:
     sd = _serial_to_date(start_date)
     if sd is None:
         return float("nan")
-    shifted = _shift_months(sd, months)
-    if shifted is None:
-        return float("nan")
-    y, m = shifted
+    y, m = _shift_months(sd, months)
     try:
         dim = calendar.monthrange(y, m)[1]
         res_date = dt.date(y, m, dim)
@@ -616,30 +566,24 @@ def eomonth(start_date: Any, months: Any) -> float:
 
 
 def erf(lower: Any, upper: Any | None = None) -> float:
-    try:
-        lo = float(lower)
-        if upper is None:
-            return float(math.erf(lo))
-        u = float(upper)
-        return float(math.erf(u) - math.erf(lo))
-    except (ValueError, TypeError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    lo = float(lower)
+    if upper is None:
+        return float(math.erf(lo))
+    u = float(upper)
+    return float(math.erf(u) - math.erf(lo))
 
 
 def erfc(x: Any) -> float:
-    try:
-        return float(math.erfc(float(x)))
-    except (ValueError, TypeError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    return float(math.erfc(float(x)))
 
 
 def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision: Any = False, triangulation_precision: Any = None) -> float:
-    try:
-        val = float(value)
-        from_curr = str(from_currency).upper().strip()
-        to_curr = str(to_currency).upper().strip()
-    except (ValueError, TypeError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    val = float(value)
+    from_curr = str(from_currency).upper().strip()
+    to_curr = str(to_currency).upper().strip()
 
     if from_curr not in _EURO_RATES or to_curr not in _EURO_RATES:
         return float("nan")
@@ -652,50 +596,38 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     else:
         eur_val = val / _EURO_RATES[from_curr]
         if triangulation_precision is not None:
-            try:
-                sig = int(float(triangulation_precision))
-                if sig < 3:
-                    return float("nan")
-                eur_val = _round_sig(eur_val, sig)
-            except (ValueError, TypeError, OverflowError):
-                # int(float("inf")) is OverflowError, so an infinite
-                # triangulation precision raised instead of #NUM!.
+            # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+            sig = int(float(triangulation_precision))
+            if sig < 3:
                 return float("nan")
+            eur_val = _round_sig(eur_val, sig)
 
     if to_curr == "EUR":
         res = eur_val
     else:
         res = eur_val * _EURO_RATES[to_curr]
 
-    is_full = False
     if isinstance(full_precision, bool):
         is_full = full_precision
     else:
-        try:
-            is_full = bool(float(full_precision))
-        except (ValueError, TypeError):
-            is_full = False
+        # type errors are left to the worker exception path, which returns #VALUE!
+        is_full = bool(float(full_precision))
 
     if not math.isfinite(res):
         return float("nan")
 
     if not is_full:
         # Half away from zero, same as FIXED and DOLLAR. Python round() is half-to-even.
-        try:
-            res = float(_round_half_up(res, _EURO_DECIMALS[to_curr]))
-        except (OverflowError, ValueError):
-            return float("nan")
+        res = float(_round_half_up(res, _EURO_DECIMALS[to_curr]))
     return res
 
 
 def even(n: Any) -> float:
     # EVEN rounds away from zero to the next even integer. Truncating toward
     # zero first returned the truncated value whenever it was already even,
-    # so EVEN(2.5) was 2 and EVEN(-2.5) was -2. Non-numeric input raised.
-    try:
-        v = float(n)
-    except (ValueError, TypeError):
-        return float("nan")
+    # so EVEN(2.5) was 2 and EVEN(-2.5) was -2.
+    # type errors are left to the worker exception path, which returns #VALUE!
+    v = float(n)
     if not math.isfinite(v):
         return float("nan")
     if v >= 0:
@@ -704,58 +636,53 @@ def even(n: Any) -> float:
 
 
 def expondist(x: Any, lambda_: Any, c: Any = 1) -> float:
-    try:
-        import scipy.stats as st  # type: ignore[import-untyped]
+    # type errors are left to the worker exception path, which returns #VALUE!
+    import scipy.stats as st  # type: ignore[import-untyped]
 
-        x_val = float(x)
-        lam = float(lambda_)
-        cum = bool(float(c))
-        if x_val < 0 or lam <= 0:
-            return float("nan")
-        if cum:
-            return float(st.expon.cdf(x_val, scale=1.0 / lam))
-        return float(st.expon.pdf(x_val, scale=1.0 / lam))
-    except (ValueError, TypeError, ImportError):
+    x_val = float(x)
+    lam = float(lambda_)
+    cum = bool(float(c))
+    # st.expon.pdf of a negative x is 0. scale=1/lam is ZeroDivisionError when lam is 0.
+    # Excel EXPONDIST is #NUM! for both.
+    if x_val < 0 or lam <= 0:
         return float("nan")
+    if cum:
+        return float(st.expon.cdf(x_val, scale=1.0 / lam))
+    return float(st.expon.pdf(x_val, scale=1.0 / lam))
 
 
 def fact(n: Any) -> float:
-    try:
-        v = float(n)
-        if v < 0 or v > 170:  # math.factorial limit
-            return float("nan")
-        return float(math.factorial(int(v)))
-    except (ValueError, TypeError, OverflowError):
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    v = float(n)
+    if v < 0 or v > 170:  # math.factorial limit
         return float("nan")
+    return float(math.factorial(int(v)))
 
 
 def factdouble(n: Any) -> float:
     # n < 0 or n > 300 is #NUM!. LibreOffice ScInterpreter caps FACTDOUBLE at 300;
     # a larger n walks down to 0 by twos.
-    try:
-        v = int(float(n))
-        if v < 0 or v > 300:
-            return float("nan")
-        res = 1
-        for i in range(v, 0, -2):
-            res *= i
-        return float(res)
-    except (ValueError, TypeError, OverflowError):
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    v = int(float(n))
+    if v < 0 or v > 300:
         return float("nan")
+    res = 1
+    for i in range(v, 0, -2):
+        res *= i
+    return float(res)
 
 
 def fdist(x: Any, r1: Any, r2: Any) -> float:
-    try:
-        import scipy.stats as st
+    # type errors are left to the worker exception path, which returns #VALUE!
+    import scipy.stats as st
 
-        x_val = float(x)
-        df1 = float(r1)
-        df2 = float(r2)
-        if x_val < 0 or df1 < 1 or df2 < 1:
-            return float("nan")
-        return float(st.f.sf(x_val, df1, df2))  # Calc returns right-tailed by default for FDIST
-    except (ValueError, TypeError, ImportError):
+    x_val = float(x)
+    df1 = float(r1)
+    df2 = float(r2)
+    # st.f.sf of a negative x is 1, and df below 1 is finite. Excel is #NUM!.
+    if x_val < 0 or df1 < 1 or df2 < 1:
         return float("nan")
+    return float(st.f.sf(x_val, df1, df2))  # Calc returns right-tailed by default for FDIST
 
 
 def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
@@ -804,64 +731,52 @@ def filter(range_arr: Any, criteria: Any, if_empty: Any | None = None) -> Any:
 
 
 def finv(p: Any, r1: Any, r2: Any) -> float:
-    try:
-        import scipy.stats as st
+    # type errors are left to the worker exception path, which returns #VALUE!
+    import scipy.stats as st
 
-        prob = float(p)
-        df1 = float(r1)
-        df2 = float(r2)
-        # LibreOffice ScFInv rejects fP <= 0 and fP > 1 (sc/source/core/tool/interpr3.cxx).
-        # prob == 0 returned inf instead of nan because prob < 0 was checked instead of prob <= 0.
-        if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1:
-            return float("nan")
-        result = float(st.f.isf(prob, df1, df2))
-        if not math.isfinite(result):
-            return float("nan")
-        return result
-    except (ValueError, TypeError, ImportError):
+    prob = float(p)
+    df1 = float(r1)
+    df2 = float(r2)
+    # LibreOffice ScFInv rejects fP <= 0 and fP > 1 (sc/source/core/tool/interpr3.cxx).
+    # prob == 0 returned inf instead of nan because prob < 0 was checked instead of prob <= 0.
+    if prob <= 0 or prob > 1 or df1 < 1 or df2 < 1:
         return float("nan")
+    result = float(st.f.isf(prob, df1, df2))
+    if not math.isfinite(result):
+        return float("nan")
+    return result
 
 
 def fisher(x: Any) -> float:
-    try:
-        x_val = float(x)
-        if x_val <= -1 or x_val >= 1:
-            return float("nan")
-        return float(math.atanh(x_val))
-    except (ValueError, TypeError):
+    # |x|>=1 is #NUM!. math.atanh raises ValueError (#VALUE!) at 1 and beyond.
+    # type errors are left to the worker exception path, which returns #VALUE!
+    x_val = float(x)
+    if x_val <= -1 or x_val >= 1:
         return float("nan")
+    return float(math.atanh(x_val))
 
 
 def fisherinv(y: Any) -> float:
-    try:
-        return float(math.tanh(float(y)))
-    except (ValueError, TypeError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    return float(math.tanh(float(y)))
 
 
 def fixed(number: Any, decimals: Any = 2, no_commas: Any = False) -> str | float:
-    try:
-        val = float(number)
-        dec = int(float(decimals))
-        nc = bool(float(no_commas))
-        if math.isnan(val):
-            return float("nan")
-        return _format_rounded(val, dec, commas=not nc)
-    except (ValueError, TypeError, OverflowError):
-        # int(float("inf")) raises OverflowError, so FIXED(1, inf) left
-        # this handler and traceback'd instead of the #NUM! nan text returns.
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf decimals) is #NUM! on that path.
+    val = float(number)
+    dec = int(float(decimals))
+    nc = bool(float(no_commas))
+    # Non-finite input is #NUM!. _round_half_up(inf) raises ValueError (#VALUE!).
+    if not math.isfinite(val):
         return float("nan")
+    return _format_rounded(val, dec, commas=not nc)
 
 
 def forecast(x: Any, data_y: Any, data_x: Any) -> float:
-    # float() and asarray(dtype=float) raised on text. Sibling numeric
-    # helpers return nan for a value error.
-    try:
-        xv = float(x)
-        y = np.asarray(data_y, dtype=float).ravel()
-        x_arr = np.asarray(data_x, dtype=float).ravel()
-    except (ValueError, TypeError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    xv = float(x)
+    y = np.asarray(data_y, dtype=float).ravel()
+    x_arr = np.asarray(data_x, dtype=float).ravel()
     if y.size != x_arr.size or y.size < 2:
         return float("nan")
     avg_x = np.mean(x_arr)
@@ -895,103 +810,81 @@ def frequency(data: Any, bins: Any) -> Any:
 
 
 def fv(rate: Any, nper: Any, pmt_val: Any, pv_val: Any = 0, type_val: Any = 0) -> float:
-    # Unguarded float() raised ValueError/TypeError on text arguments.
-    try:
-        r = float(rate)
-        n = float(nper)
-        pm = float(pmt_val)
-        p = float(pv_val)
-        # Only type 1 is beginning-of-period. Any other type is end, matching
-        # the old branch (it did not plug the raw type into the annuity).
-        t = 1 if int(float(type_val)) == 1 else 0
-    except (ValueError, TypeError, OverflowError):
-        # int(float("inf")) for type is OverflowError, so FV(..., inf)
-        # raised instead of the #NUM! nan a text rate already returns.
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    r = float(rate)
+    n = float(nper)
+    pm = float(pmt_val)
+    p = float(pv_val)
+    # Only type 1 is beginning-of-period. Any other type is end, matching
+    # the old branch (it did not plug the raw type into the annuity).
+    t = 1 if int(float(type_val)) == 1 else 0
     return _npf_result("fv", r, n, pm, p, t)
 
 
 def fvschedule(principal: Any, schedule: Any) -> float:
-    try:
-        p = float(principal)
-        sched = np.asarray(schedule).ravel()
-    except (ValueError, TypeError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    p = float(principal)
+    sched = np.asarray(schedule).ravel()
     for rate in sched:
-        try:
-            p *= 1 + float(rate)
-        except (ValueError, TypeError):
-            return float("nan")
+        p *= 1 + float(rate)
     return p
 
 
 def gamma(x: Any) -> float:
-    try:
-        x_val = float(x)
-        if x_val == 0 or (x_val < 0 and x_val.is_integer()):
-            return float("nan")
-        return float(math.gamma(x_val))
-    except (ValueError, TypeError, OverflowError):
-        # math.gamma(200) raises OverflowError ("math range error"). That
-        # is #NUM!, same as gamma(0), but the except did not catch it.
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (gamma(200)) is #NUM! on that path.
+    x_val = float(x)
+    if x_val == 0 or (x_val < 0 and x_val.is_integer()):
         return float("nan")
+    return float(math.gamma(x_val))
 
 
 def gammadist(x: Any, alpha: Any, beta: Any, c: Any = 1) -> float:
-    try:
-        import scipy.stats as st
+    # type errors are left to the worker exception path, which returns #VALUE!
+    import scipy.stats as st
 
-        x_val = float(x)
-        a = float(alpha)
-        b = float(beta)
-        cum = bool(float(c))
-        if x_val < 0 or a <= 0 or b <= 0:
-            return float("nan")
-        if cum:
-            return float(st.gamma.cdf(x_val, a, scale=b))
-        return float(st.gamma.pdf(x_val, a, scale=b))
-    except (ValueError, TypeError, ImportError):
+    x_val = float(x)
+    a = float(alpha)
+    b = float(beta)
+    cum = bool(float(c))
+    # st.gamma.pdf of a negative x is 0. Excel is #NUM!.
+    if x_val < 0 or a <= 0 or b <= 0:
         return float("nan")
+    if cum:
+        return float(st.gamma.cdf(x_val, a, scale=b))
+    return float(st.gamma.pdf(x_val, a, scale=b))
 
 
 def gammainv(p: Any, alpha: Any, beta: Any) -> float:
-    try:
-        import scipy.stats as st
+    # type errors are left to the worker exception path, which returns #VALUE!
+    import scipy.stats as st
 
-        prob = float(p)
-        a = float(alpha)
-        b = float(beta)
-        # LibreOffice ScGammaInv rejects fP < 0 or fP >= 1 (fP == 0 is 0; fP == 1 is
-        # illegal). prob == 1 returned inf instead of nan because prob > 1 was checked.
-        if prob < 0 or prob >= 1 or a <= 0 or b <= 0:
-            return float("nan")
-        result = float(st.gamma.ppf(prob, a, scale=b))
-        if not math.isfinite(result):
-            return float("nan")
-        return result
-    except (ValueError, TypeError, ImportError):
+    prob = float(p)
+    a = float(alpha)
+    b = float(beta)
+    # LibreOffice ScGammaInv rejects fP < 0 or fP >= 1 (fP == 0 is 0; fP == 1 is
+    # illegal). prob == 1 returned inf instead of nan because prob > 1 was checked.
+    if prob < 0 or prob >= 1 or a <= 0 or b <= 0:
         return float("nan")
+    result = float(st.gamma.ppf(prob, a, scale=b))
+    if not math.isfinite(result):
+        return float("nan")
+    return result
 
 
 def gammaln(x: Any) -> float:
-    try:
-        x_val = float(x)
-        if x_val <= 0:
-            return float("nan")
-        return float(math.lgamma(x_val))
-    except (ValueError, TypeError, OverflowError):
-        # math.lgamma(1e308) raises OverflowError ("math range error").
-        # That is #NUM!, same as gamma() and gammaln of a non-positive x.
+    # type errors are left to the worker exception path, which returns #VALUE!. OverflowError (lgamma(1e308)) is #NUM! on that path.
+    # x <= 0 is #NUM!. math.lgamma of a negative non-integer is finite.
+    x_val = float(x)
+    if x_val <= 0:
         return float("nan")
+    return float(math.lgamma(x_val))
 
 
 def gauss(x: Any) -> float:
-    try:
-        import scipy.stats as st
+    # type errors are left to the worker exception path, which returns #VALUE!
+    import scipy.stats as st
 
-        return float(st.norm.cdf(float(x)) - 0.5)
-    except (ValueError, TypeError, ImportError):
-        return float("nan")
+    return float(st.norm.cdf(float(x)) - 0.5)
 
 
 def geomean(*args: Any) -> float:
@@ -1003,10 +896,8 @@ def geomean(*args: Any) -> float:
 
 
 def gestep(number: Any, step: Any = 0) -> float:
-    try:
-        return 1.0 if float(number) >= float(step) else 0.0
-    except (ValueError, TypeError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    return 1.0 if float(number) >= float(step) else 0.0
 
 
 def growth(known_y: Any, known_x: Any = None, new_x: Any = None, const: Any = True) -> Any:
@@ -1053,17 +944,14 @@ def harmean(*args: Any) -> float:
 
 
 def hypgeomdist(x: Any, n_sample: Any, successes: Any, n_pop: Any) -> float:
-    try:
-        import scipy.stats as st
+    # type errors are left to the worker exception path, which returns #VALUE!
+    import scipy.stats as st
 
-        k = int(float(x))
-        n = int(float(n_sample))
-        K = int(float(successes))
-        N = int(float(n_pop))
-        if k < 0 or k > n or k > K or k < n - N + K or n < 0 or n > N or K < 0 or K > N or N < 0:
-            return float("nan")
-        return float(st.hypergeom.pmf(k, N, K, n))
-    except (ValueError, TypeError, OverflowError, ImportError):
-        # int(float("inf")) is OverflowError, so HYPGEOMDIST with an
-        # infinite argument raised instead of the #NUM! nan a bad draw returns.
+    k = int(float(x))
+    n = int(float(n_sample))
+    K = int(float(successes))
+    N = int(float(n_pop))
+    # scipy returns 0 for an impossible draw. Excel is #NUM!.
+    if k < 0 or k > n or k > K or k < n - N + K or n < 0 or n > N or K < 0 or K > N or N < 0:
         return float("nan")
+    return float(st.hypergeom.pmf(k, N, K, n))

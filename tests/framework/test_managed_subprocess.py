@@ -235,7 +235,8 @@ def test_managed_subprocess_timeout_escalate_and_reap(monkeypatch):
 
     managed.close()
 
-    assert killed == [mock_proc]
+    assert killed == []
+    mock_proc.kill.assert_called_once()
     assert enqueued == [("close", managed)]
     mock_proc.stdout.close.assert_not_called()
     mock_proc.stderr.close.assert_called_once()
@@ -275,7 +276,8 @@ def test_close_skips_stdout_and_drained_stderr(monkeypatch: pytest.MonkeyPatch) 
     mock_proc.stdout.close.assert_not_called()
     mock_proc.stderr.close.assert_not_called()
     mock_drain.finish_text.assert_called_once_with(timeout=1.0)
-    assert killed == [mock_proc]
+    assert killed == []
+    mock_proc.kill.assert_called_once()
     assert enqueued == [("close", managed)]
     assert managed not in ms._instances
 
@@ -304,6 +306,8 @@ def test_close_closes_stderr_when_no_drain(monkeypatch: pytest.MonkeyPatch) -> N
 
     managed.close()
 
+    assert killed == []
+    mock_proc.kill.assert_not_called()
     mock_proc.stderr.close.assert_called_once()
     mock_proc.stdout.close.assert_not_called()
 
@@ -1775,3 +1779,201 @@ def test_managed_subprocess_run_capture_output(monkeypatch: pytest.MonkeyPatch) 
     with pytest.raises(subprocess.TimeoutExpired) as exc_info:
         ms.ManagedSubprocess.run(["x"], timeout=30)
     assert not isinstance(exc_info.value, RuntimeError)
+
+
+def test_close_tree_kills_real_popen(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    class FakePopen(subprocess.Popen):  # type: ignore[type-arg]
+        def __init__(self) -> None:
+            self.pid = 1234
+            self.stdin = MagicMock()
+            self.stdout = MagicMock()
+            self.stderr = MagicMock()
+
+        def poll(self) -> int | None:
+            return None
+
+        def terminate(self) -> None:
+            pass
+
+        def wait(self, timeout: float | None = None) -> int:
+            raise subprocess.TimeoutExpired(cmd="fake", timeout=timeout or 0)
+
+    proc = FakePopen()
+    killed: list[Any] = []
+    monkeypatch.setattr(ms, "kill_process_tree", lambda p: killed.append(p))
+    enqueued: list[Any] = []
+    monkeypatch.setattr(ms, "_enqueue_reaper", lambda item: enqueued.append(item))
+
+    managed = ms.ManagedSubprocess(["dummy"])
+    managed._proc = proc
+    ms._register_instance(managed)
+
+    managed.close()
+
+    assert killed == [proc]
+    assert enqueued == [("close", managed)]
+
+
+def test_close_does_not_killpg_a_non_popen(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    kill_calls = 0
+
+    class NonPopenDouble:
+        def __init__(self) -> None:
+            self.pid = 9999
+            self.stdin = None
+            self.stdout = None
+            self.stderr = None
+
+        def poll(self) -> int | None:
+            return None
+
+        def terminate(self) -> None:
+            pass
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+        def kill(self) -> None:
+            nonlocal kill_calls
+            kill_calls += 1
+
+    proc = NonPopenDouble()
+    killed: list[Any] = []
+    monkeypatch.setattr(ms, "kill_process_tree", lambda p: killed.append(p))
+    enqueued: list[Any] = []
+    monkeypatch.setattr(ms, "_enqueue_reaper", lambda item: enqueued.append(item))
+
+    managed = ms.ManagedSubprocess.wrap_existing(proc, label="double")
+    ms._register_instance(managed)
+
+    managed.close()
+
+    assert killed == []
+    assert kill_calls == 1
+    assert enqueued == [("close", managed)]
+
+
+def test_close_on_bare_object_does_not_raise() -> None:
+    from plugin.framework.managed_subprocess import ManagedSubprocess
+
+    managed = ManagedSubprocess.wrap_existing(object(), label="bare")
+    assert not managed._closed
+    managed.close()
+    assert managed._closed
+    managed.close()
+
+
+def test_reap_close_timeout_pins_instance(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+    import plugin.framework.managed_subprocess as ms
+
+    class TimeoutDouble:
+        def __init__(self) -> None:
+            self.pid = 77
+
+        def poll(self) -> int | None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            raise subprocess.TimeoutExpired(cmd="test", timeout=timeout or 0)
+
+    double = TimeoutDouble()
+    managed = ms.ManagedSubprocess.wrap_existing(double, label="hanging")
+    ms._register_instance(managed)
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="plugin.framework.managed_subprocess"):
+            ms._reap_close(managed)
+            ms._reap_close(managed)
+
+        assert ms._reaper_given_up.count(managed) == 1
+        assert managed not in ms._instances
+        assert "reaper giving up" in caplog.text
+        assert "pid=77" in caplog.text
+        assert "abandoning" not in caplog.text
+    finally:
+        with ms._registry_lock:
+            ms._instances.discard(managed)
+            while managed in ms._reaper_given_up:
+                ms._reaper_given_up.remove(managed)
+
+
+def test_reaper_start_failure_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    import queue
+    import plugin.framework.managed_subprocess as ms
+
+    monkeypatch.setattr(ms, "_reaper_started", False)
+
+    def fail_run(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("start reaper failed")
+
+    monkeypatch.setattr(ms, "run_in_background", fail_run)
+
+    managed = ms.ManagedSubprocess.wrap_existing(object(), label="retry-reaper")
+    try:
+        with pytest.raises(RuntimeError, match="start reaper failed"):
+            managed.abandon()
+
+        assert ms._reaper_started is False
+        assert ms._reaper_queue.qsize() == 1
+
+        calls: list[dict[str, object]] = []
+
+        def spy_run(*_args: object, **kwargs: object) -> None:
+            calls.append(dict(kwargs))
+
+        monkeypatch.setattr(ms, "run_in_background", spy_run)
+
+        managed.abandon()
+        assert len(calls) == 1
+        assert calls[0] == {"name": "managed-subprocess-reaper", "dedicated": True, "daemon": True}
+        assert ms._reaper_started is True
+    finally:
+        while True:
+            try:
+                ms._reaper_queue.get_nowait()
+            except queue.Empty:
+                break
+
+
+def test_managed_subprocess_run_capture_output_passes_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    recorded_args: list[Any] = []
+    recorded_kwargs: dict[str, Any] = {}
+
+    def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+        recorded_args.append(args)
+        recorded_kwargs.update(kwargs)
+        return subprocess.CompletedProcess(args[0], 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(ms.subprocess, "run", fake_run)
+
+    cmd = ["/venv/bin/python", "-c", "import sys"]
+    res = ms.ManagedSubprocess.run(
+        cmd,
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+    )
+    assert res.returncode == 0
+    assert recorded_kwargs["capture_output"] is True
+    assert recorded_kwargs["stdin"] is subprocess.DEVNULL
+
+
+def test_managed_subprocess_run_capture_output_rejects_stdout_and_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    def fail_run(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("subprocess.run should not be called")
+
+    monkeypatch.setattr(ms.subprocess, "run", fail_run)
+
+    with pytest.raises(ValueError, match=r"^stdout and stderr arguments may not be used with capture_output\.$"):
+        ms.ManagedSubprocess.run(["x"], capture_output=True, stdout=subprocess.PIPE)
+
+    with pytest.raises(ValueError, match=r"^stdout and stderr arguments may not be used with capture_output\.$"):
+        ms.ManagedSubprocess.run(["x"], capture_output=True, stderr=subprocess.PIPE)
