@@ -1373,6 +1373,7 @@ class PythonWorkerManager:
                 raise _StopRequested()
             return self._read_exact_before_deadline(stdout, n, deadline, stop_checker, timeout_label=timeout_label)
 
+        logged_unknown = False
         while True:
             now = time.monotonic()
             if now >= deadline:
@@ -1401,7 +1402,17 @@ class PythonWorkerManager:
                 return data
             # Unknown frames must not extend the deadline. A protocol drift
             # then fails as a timeout instead of looking like a silent stall.
-            log.warning("venv worker ignoring unknown frame type: %r", frame_type)
+            # What was wrong: each ignored frame logged a warning before the
+            # next deadline check, so logging latency counted as wait.
+            # How it happened: run 38800801506 gw2, timeout_sec=0.2 and
+            # grace_sec=2.0, stubbed reads returning an unknown frame.
+            # Captured log has 185 warnings and wall time 1.031606279s, so
+            # `elapsed < 1.0` failed. Grace was not the deadline.
+            # Why this change fixes it: log the first unknown type once.
+            # Further unknown frames only recheck the deadline.
+            if not logged_unknown:
+                log.warning("venv worker ignoring unknown frame type: %r", frame_type)
+                logged_unknown = True
 
     def _read_frame_bytes(self, stdout: IO[bytes], read_exact: Callable[[int], bytes]) -> bytes:
         return (
