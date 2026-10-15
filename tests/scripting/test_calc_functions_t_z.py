@@ -146,8 +146,7 @@ _BAD_INPUTS: list[tuple[str, str, tuple, str]] = [
     ("xirr", "out-of-range-length", ([-100, 110], [0]), "nan"),
     ("xirr", "out-of-range-guess", ([-100, 110], [0, 365], -2), "nan"),
     ("xirr", "text-guess", ([-100, 110], [0, 365], "g"), "nan"),
-    # xlookup: a bad match mode returns if_not_found, not an error. A return
-    # array shorter than the match used to raise.
+    # xlookup: a return array shorter than the match used to raise.
     ("xlookup", "out-of-range-return", ("b", ["a", "b"], [1]), "#VALUE!"),
     ("xlookup", "out-of-range-rows", ("c", ["a", "b", "c"], [["x"], ["y"]]), "#VALUE!"),
     ("xlookup", "out-of-range-column", ("b", [["a"], ["b"]], [[10]]), "#VALUE!"),
@@ -156,8 +155,6 @@ _BAD_INPUTS: list[tuple[str, str, tuple, str]] = [
     ("xmatch", "zero", (0, [1, 2, 3]), "nan"),
     ("xmatch", "blank-empty", ("a", []), "nan"),
     ("xmatch", "out-of-range-mode", (1, [1, 2], 9), "nan"),
-    ("xmatch", "text-mode", (1, [1], "bad"), "nan"),
-    ("xmatch", "out-of-range-inf-mode", (1, [1], _INF), "nan"),
     # xnpv: rate <= -1 is already NaN. Rate 0 is a real present value.
     ("xnpv", "text", ("rate", [-100, 110], [0, 365]), "nan"),
     ("xnpv", "blank", (None, [-100, 110], [0, 365]), "nan"),
@@ -217,6 +214,15 @@ def test_t_z_bad_input(name: str, kind: str, args: tuple, expected: str) -> None
         assert isinstance(result, float) and math.isnan(result), (name, kind, result)
     else:
         assert result == expected, (name, kind, result)
+
+
+def test_xmatch_bad_mode_raises():
+    # Bad match_mode now raises instead of being caught by _find_match_index;
+    # worker maps ValueError -> #VALUE! and OverflowError -> #NUM!.
+    with pytest.raises(ValueError):
+        calc.xmatch(1, [1], "bad")
+    with pytest.raises(OverflowError):
+        calc.xmatch(1, [1], _INF)
 
 
 def test_yearfrac_reversed_dates():
