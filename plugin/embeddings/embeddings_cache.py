@@ -410,6 +410,10 @@ def clear_folder_cache(listing_root: str) -> None:
     """Remove corpus.db and JSON state for a cold rebuild. Also clears zvec store for the folder."""
     base = folder_cache_dir(listing_root, create_parent=False)
     _remove_path(base / CORPUS_DB_FILENAME)
+    # An open WAL connection keeps sidecars after corpus.db is unlinked,
+    # and the next open of a new file at that path raises sqlite3 disk I/O error.
+    _remove_path(base / (CORPUS_DB_FILENAME + "-wal"))
+    _remove_path(base / (CORPUS_DB_FILENAME + "-shm"))
     remove_stale_corpus_stores(listing_root)
     for name in (CORPUS_META_FILENAME, LEGACY_FILE_INDEX_STATE_FILENAME):
         _remove_path(base / name)
@@ -468,8 +472,9 @@ def resolve_index_context(ctx: Any = None, model: Any = None, *, listing_root: A
         return None, None, None, "No nearby files found. Save the document or open sibling files in LibreOffice."
     folder_key = folder_corpus_key(listing_root)
     maybe_upgrade_legacy_index(listing_root)
-    db_path = corpus_db_path(listing_root)
-    meta = corpus_meta_path(listing_root)
+    # This resolve is a read; writers already mkdir in write_corpus_meta and connect_corpus_db.
+    db_path = corpus_db_path(listing_root, create_parent=False)
+    meta = corpus_meta_path(listing_root, create_parent=False)
     return folder_key, db_path, meta, listing_root
 
 

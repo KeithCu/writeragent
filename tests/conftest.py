@@ -87,7 +87,15 @@ def pytest_collection_modifyitems(config, items):
 
 
 # Create a mock for uno to prevent ModuleNotFoundError in headless tests
-sys.modules["uno"] = MagicMock()
+_mock_uno = MagicMock()
+try:
+    import pyuno
+
+    _mock_uno.fileUrlToSystemPath = MagicMock(side_effect=pyuno.fileUrlToSystemPath)
+    _mock_uno.systemPathToFileUrl = MagicMock(side_effect=pyuno.systemPathToFileUrl)
+except Exception:
+    pass
+sys.modules["uno"] = _mock_uno
 
 
 class MockUnohelperBase:

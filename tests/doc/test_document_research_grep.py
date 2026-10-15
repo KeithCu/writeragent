@@ -85,6 +85,18 @@ def test_resolve_grep_candidates_missing_file_url_is_an_error():
     assert f"No file matching {missing_url!r}" in err
 
 
+def test_resolve_grep_candidates_unc_file_url_rejected():
+    unc_url = "file://server/share/Budget.ods"
+    with patch("os.path.isfile", return_value=True):
+        with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
+            candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=unc_url)
+            mock_list.assert_not_called()
+    assert candidates == []
+    assert truncated is False
+    assert err is not None
+    assert f"No file matching {unc_url!r}" in err
+
+
 def test_resolve_grep_candidates_listing_truncated_flag():
     with tempfile.TemporaryDirectory() as tmp:
         files = []
@@ -280,16 +292,16 @@ def test_grep_text_in_draw_match_count_uses_remaining_page_budget():
 
     assert [row["text"] for row in matches] == ["alpha one", "alpha two", "alpha three"]
     assert count == len(matches) == 3
-    assert partial is False
-    # Remaining budget was 1, so the second page stops after its first hit.
-    assert page1.getByIndex.call_count == 1
+    assert partial is True
+    # Remaining budget was 2 (scan_limit = 4, page0 returned 2, remaining = 2), so page1 probes 2 shapes
+    assert page1.getByIndex.call_count == 2
 
 
 def test_grep_text_in_draw_count_matches_sliced_return_when_page_overshoots():
     from plugin.doc.document_research_grep import _grep_text_in_draw
 
     def overshoot(*args: object, **kwargs: object) -> tuple[list[dict[str, str]], int, bool]:
-        assert kwargs["max_results"] == 2
+        assert kwargs["max_results"] == 3
         return (
             [{"page_index": 0, "shape_index": str(i), "text": "x"} for i in range(4)],
             4,
@@ -305,7 +317,25 @@ def test_grep_text_in_draw_count_matches_sliced_return_when_page_overshoots():
         matches, count, partial = _grep_text_in_draw(model, "x", max_results=2)
     assert len(matches) == 2
     assert count == 2
+    assert partial is True
+
+
+def test_grep_text_in_draw_extra_shape_read_no_match_partial_false():
+    from plugin.doc.document_research_grep import _grep_text_in_draw
+
+    page0 = _draw_page([_draw_text_shape("alpha"), _draw_text_shape("nope")])
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.side_effect = lambda index: [page0][index]
+    model = MagicMock()
+    model.getDrawPages.return_value = pages
+
+    matches, count, partial = _grep_text_in_draw(model, "alpha", max_results=1)
+
+    assert [row["text"] for row in matches] == ["alpha"]
+    assert count == len(matches) == 1
     assert partial is False
+    assert page0.getByIndex.call_count == 2
 
 def test_grep_text_in_writer_includes_table_text():
     from plugin.doc.document_research_grep import _grep_text_in_writer

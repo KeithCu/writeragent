@@ -12,8 +12,6 @@ from __future__ import annotations
 import logging
 import os
 from typing import TYPE_CHECKING, Any
-from urllib.parse import unquote, urlparse
-from urllib.request import url2pathname
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -24,11 +22,12 @@ from plugin.doc.document_research import (
     guess_doc_type_from_path,
     list_nearby_files,
     open_document_for_read,
+    _system_path_from_url,
     _USE_DEFAULT,
 )
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import search_paragraph_texts
-from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_file_url
+from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger(__name__)
@@ -43,15 +42,6 @@ DEFAULT_GREP_MAX_FILES = 50
 DEFAULT_GREP_MAX_RESULTS_PER_FILE = 5
 DEFAULT_GREP_MAX_TOTAL_RESULTS = 30
 _DRAW_GREP_SHAPE_CAP = 200
-
-
-def _file_url_to_local_path(url: str) -> str | None:
-    if not url.startswith("file:"):
-        return None
-    norm = normalize_file_url(url)
-    parsed = urlparse(norm)
-    path = url2pathname(unquote(parsed.path))
-    return os.path.normpath(path)
 
 
 def _file_entry_for_path(path: str) -> FileEntry:
@@ -92,7 +82,9 @@ def resolve_grep_candidates(
     raw = str(file_subset).strip() if file_subset else None
 
     if raw and raw.startswith("file:"):
-        local_path = _file_url_to_local_path(raw)
+        # urlparse + url2pathname drops the host of file://server/share/...;
+        # document research already converts with uno.fileUrlToSystemPath.
+        local_path = _system_path_from_url(raw)
         if local_path and os.path.isfile(local_path):
             return [_file_entry_for_path(local_path)], False, None
         return [], False, f"No file matching {raw!r}"
@@ -267,11 +259,12 @@ def _grep_text_in_draw(
     except Exception:
         return matches, 0, partial
 
+    scan_limit = max_results + 1
     for page_idx in range(page_count):
         if stop_checker and stop_checker():
             partial = True
             break
-        if len(matches) >= max_results or shapes_visited >= shape_cap:
+        if len(matches) >= scan_limit or shapes_visited >= shape_cap:
             break
         try:
             page = pages.getByIndex(page_idx)
@@ -282,7 +275,7 @@ def _grep_text_in_draw(
         # another full batch; slicing the list while counting the
         # unsliced length inflates the count. Pass the leftover budget
         # per page (same as group recursion) and count that slice.
-        remaining = max_results - len(matches)
+        remaining = scan_limit - len(matches)
         page_matches, shapes_visited, partial = _grep_shapes_on_page(
             page,
             page_idx,
@@ -299,8 +292,10 @@ def _grep_text_in_draw(
         if shapes_visited >= shape_cap and len(matches) < max_results:
             partial = True
 
+    # The shape walk has no truncated flag, so one extra hit distinguishes
+    # a full cap from a deck that ended on the last returned match.
     returned = matches[:max_results]
-    return returned, len(returned), partial
+    return returned, len(returned), partial or len(matches) > max_results
 
 
 def _grep_shapes_on_page(

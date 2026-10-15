@@ -92,6 +92,24 @@ def test_maybe_upgrade_legacy_index_does_not_wipe_on_corrupt_json(tmp_path):
     assert not meta_path.is_file()
 
 
+def test_clear_folder_cache_removes_wal_sidecars(tmp_path):
+    listing = str(tmp_path / "project")
+    Path(listing).mkdir()
+    base = embeddings_cache.folder_cache_dir(listing)
+    db = base / "corpus.db"
+    wal = base / "corpus.db-wal"
+    shm = base / "corpus.db-shm"
+    db.write_text("sqlite", encoding="utf-8")
+    wal.write_text("wal", encoding="utf-8")
+    shm.write_text("shm", encoding="utf-8")
+
+    embeddings_cache.clear_folder_cache(listing)
+
+    assert not db.exists()
+    assert not wal.exists()
+    assert not shm.exists()
+
+
 def test_index_is_empty_missing_and_populated(tmp_path):
     meta_path = tmp_path / "corpus_meta.json"
     db_path = tmp_path / "corpus.db"
@@ -261,6 +279,7 @@ def test_resolve_index_context_ok(tmp_path):
     assert key == embeddings_cache.folder_corpus_key(listing)
     assert db_path == Path(listing) / "writeragent_embeddings" / "corpus.db"
     assert meta == Path(listing) / "writeragent_embeddings" / "corpus_meta.json"
+    assert not (Path(listing) / "writeragent_embeddings").exists()
 
 
 def test_resolve_index_context_untitled_uses_work_directory(tmp_path):
@@ -275,6 +294,7 @@ def test_resolve_index_context_untitled_uses_work_directory(tmp_path):
     assert key == embeddings_cache.folder_corpus_key(my_docs)
     assert db_path == Path(my_docs) / "writeragent_embeddings" / "corpus.db"
     assert meta == Path(my_docs) / "writeragent_embeddings" / "corpus_meta.json"
+    assert not (Path(my_docs) / "writeragent_embeddings").exists()
 
 
 def test_model_matches_index(tmp_path):
