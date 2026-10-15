@@ -128,18 +128,28 @@ def normalize_cors_origin(value: str | None) -> str | None:
     # scheme://host[:port] with scheme and host lowercased.
     try:
         parsed = urlparse(origin)
+        host = parsed.hostname
+        port = parsed.port
     except ValueError:
+        # What was wrong: only urlparse() was guarded. CPython defers the
+        # port check to ParseResult.port, which raises ValueError for
+        # out-of-range and non-integer ports (http://host:99999, :abc, :-1).
+        # How: do_OPTIONS and _dispatch call reject_forbidden_origin before
+        # their try, and BaseHTTPRequestHandler.handle_one_request does not
+        # catch ValueError, so the worker logged a traceback and wrote no
+        # status. send_cors_headers raised the same way after
+        # _response_started, so the handler's except refused a second write.
+        # Why: ValueError is an invalid origin. None makes is_safe_origin
+        # false and the existing 403 path runs.
         return None
     scheme = parsed.scheme.lower()
     if scheme not in ("http", "https"):
         return None
-    host = parsed.hostname
     if not host:
         return None
     host = host.lower()
     if ":" in host:
         host = f"[{host}]"
-    port = parsed.port
     if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
         port = None
     if port is not None:

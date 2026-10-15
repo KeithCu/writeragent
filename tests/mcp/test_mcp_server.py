@@ -16,6 +16,7 @@ class MockHandler:
         self.sent_responses = []
         self.sent_headers = []
         self.headers_ended = False
+        self.close_connection = False
 
     def send_response(self, code, message=None):
         self.sent_responses.append(code)
@@ -187,6 +188,9 @@ def test_send_cors_headers_rejected():
         "https://127.0.0.1.badguy.com",
         "http://example.com",
         "https://[::1].evil.net",
+        "http://host:99999",
+        "http://host:abc",
+        "http://host:-1",
     ]
 
     for origin in unsafe_origins:
@@ -195,6 +199,24 @@ def test_send_cors_headers_rejected():
 
         headers_dict = dict(handler.sent_headers)
         assert "Access-Control-Allow-Origin" not in headers_dict
+
+
+def test_handle_mcp_post_chunked_is_parse_error_not_jsonrpc():
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+    handler = MockHandler({"Transfer-Encoding": "chunked"}, b'{"jsonrpc":"2.0","method":"ping"}')
+
+    mcp_protocol.handle_mcp_post(handler)
+
+    assert 400 in handler.sent_responses
+    response_data = json.loads(handler.wfile.getvalue().decode("utf-8"))
+    assert response_data.get("status") == "error"
+    assert response_data.get("code") == "PARSE_ERROR"
+    assert "Chunked" in response_data.get("message", "")
+    assert response_data.get("error", {}).get("code") != -32600
+    assert handler.rfile.tell() == 0
+    assert handler.close_connection is True
+
 
 def test_handle_mcp_post_missing_content_length():
     """Test missing Content-Length header returns a structured JSON-RPC error."""
@@ -334,6 +356,41 @@ def test_generic_handler_body_cap_timeout_and_negative_length():
     at_cap.rfile.read = _read_cap
     assert at_cap._read_body() == {}
     assert seen == [MCP_HTTP_MAX_BODY_BYTES]
+
+
+def test_read_json_body_rejects_chunked_and_does_not_read():
+    chunked = _bare_generic_handler({"Transfer-Encoding": "chunked"}, b"5\r\nhello\r\n0\r\n\r\n")
+
+    def _refuse_read(n=-1):
+        del n
+        raise AssertionError("chunked body was read")
+
+    chunked.rfile.read = _refuse_read
+    assert chunked._read_body() is None
+    status, body = _response_json(chunked)
+    assert status == 400
+    assert body.get("code") == "PARSE_ERROR"
+    assert "chunked" in body.get("message", "").lower()
+    assert chunked.close_connection is True
+
+    ping_bytes = b'{"jsonrpc":"2.0","method":"ping"}'
+    with_both = _bare_generic_handler(
+        {"Content-Length": str(len(ping_bytes)), "Transfer-Encoding": "Chunked"},
+        ping_bytes,
+    )
+    with_both.rfile.read = _refuse_read
+    assert with_both._read_body() is None
+    status, body = _response_json(with_both)
+    assert status == 400
+    assert body.get("code") == "PARSE_ERROR"
+    assert "chunked" in body.get("message", "").lower()
+    assert with_both.close_connection is True
+
+    identity = _bare_generic_handler(
+        {"Transfer-Encoding": "identity", "Content-Length": str(len(b"{}"))},
+        b"{}",
+    )
+    assert identity._read_body() == {}
 
 
 def test_get_request_sets_socket_timeout():

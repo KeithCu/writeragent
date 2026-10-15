@@ -103,15 +103,49 @@ def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = N
             pass
 
 
+def _transfer_encoding_is_chunked(handler: Any) -> bool:
+    """True when Transfer-Encoding contains chunked.
+
+    Same predicate as compute_service.server._transfer_encoding_is_chunked.
+    Not imported: plugin must not depend on compute_service. This listener
+    is HTTP/1.0 and reads Content-Length. Chunked is not decoded.
+    """
+    headers = getattr(handler, "headers", None)
+    raw = headers.get("Transfer-Encoding") if headers is not None else None
+    if not isinstance(raw, str):
+        return False
+    return "chunked" in raw.lower()
+
+
 def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]:
     """Parse a JSON object body, or ``(None, (status, error))`` when it is refused.
 
-    The caller writes the error response. Negative Content-Length stays 400.
-    A length above :data:`MCP_HTTP_MAX_BODY_BYTES` is 413 and is not read.
-    A socket timeout while reading a body that is under the cap is 408.
-    An empty body is ``{}`` and does not touch ``rfile``.
+    The caller writes the error response. A Transfer-Encoding containing
+    chunked is HTTP 400 and is not read, including when Content-Length is
+    missing, zero, or set. Negative Content-Length stays 400. A length above
+    :data:`MCP_HTTP_MAX_BODY_BYTES` is 413 and is not read. A socket timeout
+    while reading a body that is under the cap is 408. An empty body with no
+    chunked coding is still ``{}`` and does not touch ``rfile``.
     """
     from plugin.framework.errors import AgentParsingError
+
+    if _transfer_encoding_is_chunked(handler):
+        # What was wrong: a missing or zero Content-Length returned {}
+        # without reading rfile. Transfer-Encoding: chunked was then
+        # handled as an empty object (MCP reported Invalid JSON-RPC) and
+        # the chunk bytes stayed on the socket.
+        # How: the length check ran first and treated 0 as empty. A
+        # Content-Length next to chunked would also have been trusted.
+        # Why: refuse with 400 before any read, matching compute_service
+        # _reject_chunked. close_connection stops keep-alive from parsing
+        # the leftover bytes as the next request. No chunk parser.
+        handler.close_connection = True
+        log.warning("Rejecting chunked Transfer-Encoding")
+        err = AgentParsingError(
+            "Chunked transfer encoding is not supported",
+            details={"transfer_encoding": handler.headers.get("Transfer-Encoding")},
+        )
+        return None, (400, err)
 
     raw_length = handler.headers.get("Content-Length", 0)
     try:

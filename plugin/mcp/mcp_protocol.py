@@ -1338,7 +1338,7 @@ class MCPProtocolHandler:
     def _read_body(self, handler: Any) -> Any:
         """Read and parse JSON body from an HTTP handler.
 
-        Same cap and socket-timeout failure as ``GenericRequestHandler._read_body``.
+        Same cap, chunked rejection, and socket-timeout failure as ``GenericRequestHandler._read_body``.
         The two entry points used to each call ``rfile.read(content_length)``.
         """
         data, rejected = read_json_body(handler)
