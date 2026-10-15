@@ -1995,9 +1995,12 @@ def test_indexed_multi_data_ignores_my_data() -> None:
     """_code_uses_indexed_multi_data('my_data[0]') is false; 'data[0]' and 'ranges[1]' and 'note = \"data[0]\"' are true."""
     assert not python_function._code_uses_indexed_multi_data("my_data[0]")
     assert not python_function._code_uses_indexed_multi_data("_data[0]")
+    assert not python_function._code_uses_indexed_multi_data("obj.data[0]")
+    assert not python_function._code_uses_indexed_multi_data("self.ranges[0]")
     assert python_function._code_uses_indexed_multi_data("data[0]")
     assert python_function._code_uses_indexed_multi_data("ranges[1]")
     assert python_function._code_uses_indexed_multi_data('note = "data[0]"')
+    assert python_function._code_uses_indexed_multi_data("(data[0])")
 
 
 def test_matrix_sessions_expire() -> None:
@@ -2407,5 +2410,135 @@ def test_cell_matches_stored_value_err() -> None:
 
     sheet_no_err = FakeSheet(fake_cell_no_err)
     assert python_function._cell_matches_stored_value(sheet_no_err, 0, 0, rec_519) is False
+
+
+def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    payload = json.dumps({
+        "Sheet1:1,1": [[2, 1]],
+        "Sheet1:x,1": [[0, 0]],
+        "Sheet1:4,4": {"code": "later", "cells": [{"r": 5, "c": 4, "t": "n", "v": 1.0}]},
+    })
+    monkeypatch.setattr(
+        "plugin.doc.udprops.get_document_property",
+        lambda model, name, default=None: payload if name == "WriterAgentSpillRegistry" else default,
+    )
+    doc = CalcDocStub(url="file:///fake_malformed.ods")
+
+    python_function.SPILL_REGISTRY.clear()
+    python_function.LOADED_DOCUMENTS.clear()
+
+    python_function.load_spill_registry_for_doc(doc)
+    doc_key = "file:///fake_malformed.ods"
+    assert (doc_key, "Sheet1", 1, 1) in python_function.SPILL_REGISTRY
+    assert (doc_key, "Sheet1", 4, 4) in python_function.SPILL_REGISTRY
+    assert len([k for k in python_function.SPILL_REGISTRY if k[0] == doc_key]) == 2
+
+
+def test_finalize_python_return_empty_row_does_not_spill(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub(url="file:///empty-row.ods", selection="A1")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PYTHON("empty_row")')
+    ctx = _ctx_with_doc(doc)
+
+    python_function.SPILL_REGISTRY.clear()
+    python_function.LOADED_DOCUMENTS.clear()
+    with python_function._PENDING_SPILL_LOCK:
+        python_function._PENDING_SPILL_TIMERS.clear()
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    val = finalize_python_return(ctx, "empty_row", [[]], doc=doc)
+    assert val == ""
+    assert ("file:///empty-row.ods", "Sheet1", 0, 0) not in python_function.SPILL_REGISTRY
+    with python_function._PENDING_SPILL_LOCK:
+        assert len(python_function._PENDING_SPILL_TIMERS) == 0
+
+    # Repeat off the main thread
+    queue_mock = MagicMock()
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.calc.python.function._queue_off_main_auto_spill", queue_mock)
+    val_off = finalize_python_return(ctx, "empty_row", [[]], doc=doc)
+    assert val_off == ""
+    queue_mock.assert_not_called()
+
+
+def test_scalar_for_list_result_uses_supplied_data_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub()
+    ctx = _ctx_with_doc(doc)
+    python_function.clear_python_addin_cache()
+
+    monkeypatch.setattr(
+        "plugin.calc.python.function.session_key",
+        lambda *args, **kwargs: ("file:///doc.ods", "Sheet1", "sid", "code_token", "0,0"),
+    )
+    token_calls = []
+
+    def mock_token(data):
+        token_calls.append(data)
+        return "computed"
+
+    monkeypatch.setattr("plugin.calc.python.function._worker_data_token", mock_token)
+
+    res = python_function.scalar_for_list_result(ctx, "code_token", [10, 20], worker_data={"x": 1}, doc=doc, data_token="preset")
+    assert res == 10
+    assert len(token_calls) == 0
+    with python_function._MATRIX_SCALAR_SESSIONS_LOCK:
+        matching_keys = [k for k in python_function._MATRIX_SCALAR_SESSIONS if k[1][3] == "code_token"]
+        assert len(matching_keys) == 1
+        assert matching_keys[0][2] == "preset"
+
+
+def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    doc = CalcDocStub()
+    ctx = _ctx_with_doc(doc)
+    python_function.clear_python_addin_cache()
+
+    monkeypatch.setattr(
+        "plugin.calc.python.function.session_key",
+        lambda *args, **kwargs: ("file:///doc.ods", "Sheet1", "sid", "code_once", "1,1"),
+    )
+    monkeypatch.setattr(
+        "plugin.framework.config.get_config_bool",
+        lambda key, default=False: False if key == "scripting.python_auto_spill" else default,
+    )
+    monkeypatch.setattr(
+        "plugin.calc.python.function.run_code_in_user_venv",
+        lambda *args, **kwargs: {"status": "ok", "result": [1, 2, 3]},
+    )
+    call_count = 0
+    real_token = python_function._worker_data_token
+
+    def counting_token(data):
+        nonlocal call_count
+        call_count += 1
+        return real_token(data)
+
+    monkeypatch.setattr("plugin.calc.python.function._worker_data_token", counting_token)
+
+    python_function.execute_python_addin(ctx, "code_once", data=42, doc=doc)
+    assert call_count == 1
+
+
+def test_spill_registry_doc_key_uses_runtime_uid_ladder() -> None:
+    class MethodVsPropStub:
+        def getRuntimeUID(self) -> str:
+            return "from-method"
+
+        def getPropertyValue(self, name: str) -> str:
+            if name == "RuntimeUID":
+                return "from-prop"
+            raise KeyError(name)
+
+    assert python_function._spill_registry_doc_key(MethodVsPropStub()) == "from-method"
+
+    int_stub = CalcDocStub(props={"RuntimeUID": 42})
+    assert python_function._spill_registry_doc_key(int_stub) == "42"
+
+    class NonStrIntObj:
+        pass
+
+    non_str_stub = CalcDocStub(url="file:///x.ods", props={"RuntimeUID": NonStrIntObj()})
+    assert python_function._spill_registry_doc_key(non_str_stub) == "file:///x.ods"
 
 

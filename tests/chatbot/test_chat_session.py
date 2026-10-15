@@ -210,3 +210,26 @@ def test_history_load_failure_still_applies_system_prompt():
 
     assert session.db is None
     assert session.messages == [{"role": "system", "content": "Fallback sys"}]
+
+
+def test_set_system_context_missing_role_inserts_system():
+    session = ChatSession()
+    session.messages = [{"content": "orphan"}]
+    session.set_system_context("Base", "Doc")
+    assert session.messages[0]["role"] == "system"
+    assert "Doc" in session.messages[0]["content"]
+    assert session.messages[1] == {"content": "orphan"}
+
+    session.set_system_context("Base", "Doc2")
+    assert session.messages[0]["role"] == "system"
+    assert "Doc2" in session.messages[0]["content"]
+    assert session.messages[1] == {"content": "orphan"}
+
+
+def test_set_system_context_nondict_first_row_inserts_system():
+    session = ChatSession()
+    session.messages = ["nope"]
+    session.set_system_context("Base", "")
+    assert session.messages[0] == {"role": "system", "content": "Base"}
+    assert session.messages[1] == "nope"
+

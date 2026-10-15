@@ -170,3 +170,25 @@ def test_wire_ingest_accepts_long_image_and_odd_tool_args():
     assert isinstance(parsed, wire_types.ParsedJsonRpcRequest)
     err = wire_types.jsonrpc_failure(1, -32000, "m" * (DEAL_MAX_SOURCE + 1))
     assert len(err["error"]["message"]) == DEAL_MAX_SOURCE + 1
+
+
+def test_parse_and_initialize_ignore_loaded_crosshair_module(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "crosshair", object())
+    parsed = wire_types.parse_jsonrpc_request({"jsonrpc": "2.0", "id": 1, "method": "ping", "params": {}})
+    assert isinstance(parsed, wire_types.ParsedJsonRpcRequest)
+    assert not isinstance(parsed, wire_types.JsonRpcParseError)
+    assert parsed.method == "ping"
+    assert parsed.req_id == 1
+
+    result = wire_types.initialize_result(
+        protocol_version=wire_types.MCP_PROTOCOL_VERSION,
+        server_version="1.2.3",
+        instructions="hi",
+        client_protocol_version="2025-06-18",
+    )
+    assert result["protocolVersion"] == "2025-06-18"
+    assert result["serverInfo"]["version"] == "1.2.3"
+    assert result["instructions"] == "hi"
+

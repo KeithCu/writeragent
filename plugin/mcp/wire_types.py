@@ -84,8 +84,11 @@ def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseErr
     Notifications (missing ``id`` or ``id`` is null) are not requests — callers should
     treat ``req_id is None`` before calling this, or check ``"id" not in msg``.
     """
-    # sys.modules["crosshair"] sniff is engine-hostile (cover-all 33180040863 ~7m).
     # crosshair: off
+    # Cover-all 33180040863 spent ~7m in this parser, so the marker stays.
+    # Do not sniff sys.modules["crosshair"] (deal_shim): if that module is
+    # loaded, the old branch returned JsonRpcParseError("mock") for every
+    # valid request.
     if not isinstance(msg, dict):
         return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
     raw = cast("dict[str, Any]", msg)
@@ -104,10 +107,6 @@ def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseErr
         params = {}
     if not isinstance(params, dict):
         return JsonRpcParseError("Invalid JSON-RPC 2.0 request")
-    import sys
-
-    if "crosshair" in sys.modules:
-        return JsonRpcParseError("mock")
     return ParsedJsonRpcRequest(method=method, params=dict(params), req_id=raw.get("id"), raw=raw)
 
 
@@ -196,10 +195,6 @@ _deal_initialize_client_version_ok = (
 @deal.post(lambda result: isinstance(result, dict) and "protocolVersion" in result and "capabilities" in result)
 def initialize_result(*, protocol_version: str | int, server_version: str, instructions: str, client_protocol_version: str | int | None = None) -> dict[str, Any]:
     negotiated = client_protocol_version if client_protocol_version is not None else protocol_version
-    import sys
-
-    if "crosshair" in sys.modules:
-        return {"protocolVersion": negotiated, "capabilities": {"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}}, "serverInfo": {"name": "WriterAgent MCP", "version": server_version}, "instructions": instructions}
     return InitializeResult(protocol_version=negotiated, capabilities={"tools": {"listChanged": False}, "resources": {"listChanged": False}, "prompts": {"listChanged": False}}, server_info={"name": "WriterAgent MCP", "version": server_version}, instructions=instructions).to_dict()
 
 

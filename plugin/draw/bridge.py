@@ -252,7 +252,20 @@ class DrawBridge:
             try:
                 new_page.MasterPage = master
             except Exception as exc:
+                # Bugfix: a failed assignment was logged at debug and the new page was returned,
+                # while AddSlide removes the page when post-insert work fails. The caller then
+                # treated the insert as applied. Re-raise disposal without remove; otherwise
+                # remove the incomplete page and raise RuntimeError with the failure cause.
+                if is_disposed_exception(exc):
+                    raise
                 log.debug("insert_slide_from_master MasterPage: %s", exc)
+                try:
+                    pages.remove(new_page)
+                except Exception as rm_exc:
+                    if is_disposed_exception(rm_exc):
+                        raise
+                    log.debug("insert_slide_from_master could not remove the new page: %s", rm_exc)
+                raise RuntimeError("Failed to assign master page: %s" % exc) from exc
         # View follows the real slot. ``_insert_page_at(..., switch=False)``
         # only restores a front-insert; the jump happens after MasterPage
         # is assigned so the shown slide already has its master.
@@ -439,7 +452,13 @@ class DrawBridge:
         try:
             self._bubble_page(pages, from_index, to_index)
         except Exception as exc:
-            if is_disposed_exception(exc):
+            # Bugfix: PageExchangeRollbackError means shapes may sit on the
+            # temp page which _exchange_page_contents deliberately did not remove,
+            # and returning False made MoveSlide say the move merely failed.
+            # Re-raising PageExchangeRollbackError and disposal lets callers report
+            # rollback failure or abort on a dead document, while returning False
+            # is kept for clean rollback.
+            if is_disposed_exception(exc) or isinstance(exc, PageExchangeRollbackError):
                 raise
             log.debug("move_slide reorder failed: %s", exc)
             return False
@@ -460,11 +479,19 @@ class DrawBridge:
                 self._exchange_page_contents(pages.getByIndex(index), pages.getByIndex(neighbor))
                 swapped.append(index)
                 index = neighbor
-        except Exception:
+        except Exception as exc:
+            # Bugfix: another exchange after PageExchangeRollbackError moves
+            # shapes again on a deck whose rollback already failed, and a disposal
+            # during undo was logged and dropped while the original error was re-raised.
+            # Re-raise PageExchangeRollbackError and disposal immediately before or during undo.
+            if isinstance(exc, PageExchangeRollbackError) or is_disposed_exception(exc):
+                raise
             for prev in reversed(swapped):
                 try:
                     self._exchange_page_contents(pages.getByIndex(prev), pages.getByIndex(prev + step))
-                except Exception:
+                except Exception as undo_exc:
+                    if isinstance(undo_exc, PageExchangeRollbackError) or is_disposed_exception(undo_exc):
+                        raise
                     log.exception("move_slide undo reorder failed")
             raise
 
@@ -496,8 +523,32 @@ class DrawBridge:
             moved_onto_second = True
             self._swap_page_meta(first, second)
         except Exception as exc:
-            if not self._rollback_exchange(first, second, temp, first_shapes, second_shapes, moved_first, moved_second, moved_onto_second):
+            # Bugfix: rollback used to return False for a disposal, and this except
+            # then raised PageExchangeRollbackError from the original error, so
+            # execute_safe saw a RuntimeError and not DOCUMENT_DISPOSED. Attempt
+            # rollback; if rollback raises disposal or the original error was disposal,
+            # re-raise disposal. Otherwise wrap failed rollback in PageExchangeRollbackError.
+            # rollback_failed stays set when rollback does not return True, including when
+            # rollback raises, so finally does not delete the temp page that still holds shapes.
+            try:
+                rolled_back = self._rollback_exchange(
+                    first, second, temp, first_shapes, second_shapes,
+                    moved_first, moved_second, moved_onto_second,
+                )
+            except Exception as rollback_exc:
                 rollback_failed = True
+                if is_disposed_exception(rollback_exc):
+                    raise
+                if is_disposed_exception(exc):
+                    raise exc from rollback_exc
+                raise PageExchangeRollbackError(
+                    "Slide exchange failed and its rollback failed. Some shapes are on the "
+                    "last slide (temporary page). Original error: %s" % rollback_exc
+                ) from rollback_exc
+            if not rolled_back:
+                rollback_failed = True
+                if is_disposed_exception(exc):
+                    raise
                 raise PageExchangeRollbackError(
                     "Slide exchange failed and its rollback failed. Some shapes are on the "
                     "last slide (temporary page). Original error: %s" % exc
@@ -523,7 +574,13 @@ class DrawBridge:
             elif moved_first:
                 self._move_shapes(first_shapes, temp, first)
             return True
-        except Exception:
+        except Exception as exc:
+            # Bugfix: this except returned False for every failure, including
+            # DisposedException, which caused the caller to wrap a closed document
+            # as PageExchangeRollbackError instead of propagating disposal.
+            # Re-raising disposal allows DOCUMENT_DISPOSED to be recognized.
+            if is_disposed_exception(exc):
+                raise
             log.exception("move_slide restore exchanged pages failed")
             return False
 
@@ -723,10 +780,23 @@ class DrawBridge:
                 return
 
     def _swap_notes(self, first: Any, second: Any) -> None:
+        # Bugfix: None means this page has no notes shape (find_notes_shape / getNotesPage),
+        # which notes.py already treats as a real state. Returning when only one side was
+        # None left that text on the page object after shapes moved to the neighbor. Notes
+        # are not shapes, so shape rollback never moved them. Raising before any write lets
+        # _swap_page_meta undo name and props and lets _exchange_page_contents restore shapes.
+        # Empty text is not content to lose, so empty against None returns safely.
         text_first = self._notes_text(first)
         text_second = self._notes_text(second)
-        if text_first is None or text_second is None or text_first == text_second:
+        if text_first == text_second:
             return
+        if text_first is None or text_second is None:
+            present = text_first if text_second is None else text_second
+            if not present:
+                return
+            raise RuntimeError(
+                "move_slide cannot move speaker notes: the neighboring slide has no notes shape"
+            )
         self._set_notes_text(first, text_second)
         try:
             self._set_notes_text(second, text_first)
@@ -823,6 +893,11 @@ class DrawBridge:
                 controller.setCurrentPage(page)
                 return True
             except Exception as exc:
+                # Bugfix: setCurrentPage disposal was logged and turned into False,
+                # so duplicate_slide and insert continued as if only the view switch had failed.
+                # Re-raising disposal propagates document disposal to callers.
+                if is_disposed_exception(exc):
+                    raise
                 log.debug("set_current_page_index failed: %s", exc)
         return False
 
@@ -892,7 +967,7 @@ def find_notes_shape(notes_page: Any) -> Any | None:
 
 @main_thread_only
 def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | None = None) -> str:
-    """Get context summary for a Draw/Impress document. ctx: unused, kept for signature compat."""
+    """Get a Draw/Impress chat summary. max_context is a prefix cap; when the summary is longer, the prefix is returned with a blank line and "[... document truncated ...]" appended. ctx is unused and kept so document_helpers can pass the chat signature."""
     try:
         check_disposed(model, "Document Model")
         bridge = DrawBridge(model)
@@ -956,6 +1031,17 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
                 except UnoObjectError:
                     pass
 
+        # Bugfix: the parameter was accepted and document_helpers passed
+        # max_chars / max_context, but the body returned the whole active-page
+        # summary, so a shape-heavy slide or long speaker notes exceeded
+        # CHAT_DOCUMENT_CONTEXT_MAX_CHARS on every prompt. The prefix matches
+        # Writer's full-text cap. A negative limit is forced to 0 so the slice
+        # cannot keep the tail.
+        limit = max_context if isinstance(max_context, int) and not isinstance(max_context, bool) else 0
+        if limit < 0:
+            limit = 0
+        if len(ctx_str) > limit:
+            ctx_str = ctx_str[:limit] + "\n\n[... document truncated ...]"
         return ctx_str
     except UnoObjectError:
         log.exception("get_draw_context_for_chat error")

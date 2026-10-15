@@ -59,7 +59,6 @@ class FakeHost:
         self._active_execute_tool_fn = Mock(return_value='{"status": "ok"}')
         self._active_query_text = "question"
         self._active_supports_status = False
-        self._current_tool_call_id = None
         self._terminal_status = "Ready"
         self.appended = []
         self.statuses = []
@@ -273,11 +272,15 @@ def test_spawn_tool_worker_effect_runs_sync_tool_and_enqueues_result():
     item = host._active_q.get(timeout=2)
     host._active_execute_tool_fn.assert_called_once()
     assert host._active_execute_tool_fn.call_args.args == ("apply_document_content", {"content": "hi"}, host._active_model, host.ctx)
-    assert host._active_execute_tool_fn.call_args.kwargs["stop_checker"]() is False
-    assert host._active_execute_tool_fn.call_args.kwargs["captured_call_id"] == "call_1"
-    assert host._active_execute_tool_fn.call_args.kwargs["captured_q"] is host._active_q
+    kwargs = host._active_execute_tool_fn.call_args.kwargs
+    assert kwargs["stop_checker"]() is False
+    assert "captured_q" not in kwargs
+    assert "captured_call_id" not in kwargs
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    assert kwargs["captured_turn"] is current_turn(host)
     assert item == (StreamQueueKind.TOOL_DONE, "call_1", "apply_document_content", '{"content": "hi"}', '{"status": "ok"}')
-    assert host._current_tool_call_id == "call_1"
+    assert not hasattr(host, "_current_tool_call_id")
 
 
 def _install_fake_main_registry():
@@ -767,7 +770,6 @@ def test_stop_keeps_open_row_instead_of_no_response():
     from plugin.chatbot.tool_loop_actions import (
         abort_turn,
         begin_send_turn,
-        stopped_assistant_text,
     )
 
     class Session:
@@ -786,8 +788,6 @@ def test_stop_keeps_open_row_instead_of_no_response():
     fold_transcript_chunk(host.session, "Hello", "assistant")
     abort_turn(host)
     assert host._turn is turn
-    assert stopped_assistant_text(host, None) == "Hello"
-    assert stopped_assistant_text(host, "No response.") == "Hello"
     turn.close_stopped(host, "No response.")
     contents = [message.get("content") for message in host.session.messages]
     assert "Hello" in contents
@@ -934,8 +934,8 @@ def test_async_tool_uses_fn_and_model_captured_at_spawn():
     assert old_fn.call_args.args[2] is old_model
     assert old_fn.call_args.kwargs["stop_checker"] is spawn_checker
     assert old_fn.call_args.kwargs["captured_turn"] is turn
-    assert old_fn.call_args.kwargs["captured_q"] is first_q
-    assert old_fn.call_args.kwargs["captured_call_id"] == "call_old"
+    assert "captured_q" not in old_fn.call_args.kwargs
+    assert "captured_call_id" not in old_fn.call_args.kwargs
     host._active_execute_tool_fn.assert_not_called()
 
 def test_async_tool_aborted_before_run_drops_execution():
@@ -1356,4 +1356,130 @@ def test_put_for_turn_signature_and_behavior():
     assert q.empty()
 
     assert put_for_turn(None, (StreamQueueKind.CHUNK, "none")) is False
+
+
+def test_close_stopped_second_call_writes_nothing_more():
+    from plugin.chatbot.rich_text_paste import fold_transcript_chunk
+    from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn
+
+    class Session:
+        def __init__(self, messages=None) -> None:
+            self.messages: list[dict] = messages if messages is not None else [
+                {"role": "user", "content": "q"}
+            ]
+
+        def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None) -> None:
+            if self.messages and self.messages[-1].get("_open_transcript"):
+                self.messages.pop()
+            msg = {"role": "assistant", "content": content or ""}
+            if tool_calls:
+                msg["tool_calls"] = tool_calls
+            self.messages.append(msg)
+
+        def add_tool_result(self, call_id, content) -> None:
+            self.messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
+
+    class Host:
+        def __init__(self, session=None) -> None:
+            self.session = session if session is not None else Session()
+
+    # Empty turn
+    host = Host()
+    turn = begin_send_turn(host, "chat")
+    abort_turn(host)
+    turn.close_stopped(host, None)
+    count_after_first = len(host.session.messages)
+    turn.close_stopped(host, None)
+    assert len(host.session.messages) == count_after_first
+    assistant_contents = [m["content"] for m in host.session.messages if m.get("role") == "assistant"]
+    assert len(assistant_contents) == 2
+    assert assistant_contents[0] == "No response."
+    assert "[Stopped by user]" in assistant_contents[1]
+
+    # Open row
+    session2 = Session([{"role": "user", "content": "q"}])
+    host2 = Host(session2)
+    turn2 = begin_send_turn(host2, "chat")
+    fold_transcript_chunk(session2, "Hello", "assistant")
+    abort_turn(host2)
+    turn2.close_stopped(host2, "No response.")
+    count_after_first2 = len(host2.session.messages)
+    turn2.close_stopped(host2, "No response.")
+    assert len(host2.session.messages) == count_after_first2
+    assistant_contents2 = [m["content"] for m in host2.session.messages if m.get("role") == "assistant"]
+    assert assistant_contents2.count("Hello") == 1
+    assert sum(1 for c in assistant_contents2 if "[Stopped by user]" in c) == 1
+    assert "No response." not in assistant_contents2
+
+
+def test_image_generate_copies_selector_text_into_args():
+    host = FakeHost()
+    host.image_model_selector = MagicMock()
+    host.image_model_selector.getText.return_value = "flux-test"
+    args = {"prompt": "a flag"}
+    interpreter = ToolLoopEffectInterpreter(host)
+    interpreter.execute(
+        SpawnToolWorkerEffect(
+            call_id="call_img",
+            func_name="image_generate",
+            func_args_str='{"prompt": "a flag"}',
+            func_args=args,
+            is_async=False,
+        )
+    )
+    item = host._active_q.get(timeout=2)
+    assert "image_model" not in args
+    host._active_execute_tool_fn.assert_called_once()
+    called_args = host._active_execute_tool_fn.call_args.args[1]
+    assert called_args is not args
+    assert called_args == {"prompt": "a flag", "image_model": "flux-test"}
+    assert item[0] == StreamQueueKind.TOOL_DONE
+    assert item[1] == "call_img"
+
+
+def test_non_image_tool_does_not_read_image_selector():
+    host = FakeHost()
+    host.image_model_selector = MagicMock()
+    host.image_model_selector.getText.side_effect = RuntimeError("disposed")
+    args = {"content": "hi"}
+    interpreter = ToolLoopEffectInterpreter(host)
+    interpreter.execute(
+        SpawnToolWorkerEffect(
+            call_id="call_doc",
+            func_name="apply_document_content",
+            func_args_str='{"content": "hi"}',
+            func_args=args,
+            is_async=False,
+        )
+    )
+    item = host._active_q.get(timeout=2)
+    assert host.image_model_selector.getText.call_count == 0
+    host._active_execute_tool_fn.assert_called_once()
+    called_args = host._active_execute_tool_fn.call_args.args[1]
+    assert called_args is args
+    assert item[0] == StreamQueueKind.TOOL_DONE
+
+
+def test_image_selector_failure_does_not_abort_image_generate():
+    host = FakeHost()
+    host.image_model_selector = MagicMock()
+    host.image_model_selector.getText.side_effect = RuntimeError("disposed")
+    args = {"prompt": "a flag"}
+    interpreter = ToolLoopEffectInterpreter(host)
+    interpreter.execute(
+        SpawnToolWorkerEffect(
+            call_id="call_img_err",
+            func_name="image_generate",
+            func_args_str='{"prompt": "a flag"}',
+            func_args=args,
+            is_async=False,
+        )
+    )
+    item = host._active_q.get(timeout=2)
+    assert host.image_model_selector.getText.call_count == 1
+    host._active_execute_tool_fn.assert_called_once()
+    called_args = host._active_execute_tool_fn.call_args.args[1]
+    assert "image_model" not in called_args
+    assert called_args == {"prompt": "a flag"}
+    assert item[0] == StreamQueueKind.TOOL_DONE
 

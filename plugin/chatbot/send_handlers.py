@@ -488,11 +488,10 @@ class SendHandlersMixin:
             persist_assistant_on_turn(self, content=append_text.strip())
 
         def worker_wrapper(worker_q: queue.Queue[Any]) -> None:
-            # The worker_fn in this mixin expects to put things directly into q.
-            # We already have q, so we just run worker_fn.
-            # However, run_async_worker_with_drain creates its own q.
-            # We can just ignore the worker_q and use the outer q.
-            # BUT, it's better to refactor the workers to use the passed queue.
+            # worker_q is the q passed to run_async_worker_with_drain. worker_fn
+            # closes over that queue. _watch_queue_terminal patches its put.
+            # Putting on a different object would miss terminal items and the
+            # drain wrapper would queue a second STREAM_DONE.
             worker_fn()
 
         turn = current_turn(self)

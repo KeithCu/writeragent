@@ -102,7 +102,7 @@ Module: [`plugin/doc/document_helpers.py`](../../plugin/doc/document_helpers.py)
 | Symbol | Purpose |
 |--------|---------|
 | `get_full_document_text` | Dispatch: Writer → `text_helpers`; Calc → lazy `plugin.calc.analyzer`; Draw/Impress → `plugin.draw.bridge`. |
-| `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler. Writer sends one slice when the document fits in `max_context`; head and tail, with the middle omitted, only when it is longer (those windows do not overlap). Calc/Draw delegated. Selection markers. |
+| `get_document_context_for_chat` | `[DOCUMENT CONTENT]` assembler. Writer sends one slice when the document fits in `max_context`; head and tail, with the middle omitted, only when it is longer (those windows do not overlap). Calc/Draw delegated. Draw/Impress cuts a longer summary to a prefix of max_context and appends [... document truncated ...]. Selection markers. |
 | `resolve_locator` | `paragraph:`, `heading:` (sibling-ordinal), and `chapter_number:` (paint label) resolve here. Every `bookmark:`, plus `heading_text:`, `section:`, and `page:`, goes to `TreeService.resolve_writer_locator`. A missing bookmark, or a bookmark whose anchor does not land on a paragraph, raises `ToolExecutionError` (it does not become paragraph 0). |
 | `DocumentService` | Chat/MCP facade: active doc, resolve-by-url, type flags, full text, length, chat context, page helpers, paragraph ranges. |
 
@@ -311,7 +311,7 @@ Untitled documents have `getURL() == ""`. Identity then **must** use RuntimeUID.
 
 `plugin/framework/tool.py` documents `document_url` as “URL or RuntimeUID from `list_open_documents`”.
 
-Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, Calc workbook lifecycle, formula locator cache. New code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`. Notebook `_doc_key` is the exception: File Open `XFilter.filter` runs on Dummy-2 (detect reload on Dummy-3), so it calls `_read_runtime_uid` (same ladder, no `@main_thread_only`). Calling the guarded getter there makes `filter()` return false and `loadComponentFromURL` return None.
+Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, and formula locator cache; Calc workbook lifecycle (`workbook_lifecycle._runtime_uid`) and the spill registry (`function._spill_registry_doc_key`) call `_read_runtime_uid` rather than `getPropertyValue("RuntimeUID")` alone and rather than `get_runtime_uid`. New code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`. Notebook `_doc_key` is the exception: File Open `XFilter.filter` runs on Dummy-2 (detect reload on Dummy-3), so it calls `_read_runtime_uid` (same ladder, no `@main_thread_only`). Calling the guarded getter there makes `filter()` return false and `loadComponentFromURL` return None.
 
 ### 2.4 PathSettings / work-directory vs config user-profile paths
 

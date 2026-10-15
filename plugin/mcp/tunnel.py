@@ -23,6 +23,8 @@ token, Bore server / optional secret). Tailscale ignores it (CLI login).
 
 from __future__ import annotations
 
+import dataclasses
+import ipaddress
 import json
 import logging
 import os
@@ -30,6 +32,8 @@ import re
 import subprocess
 import threading
 from typing import TYPE_CHECKING, Any, Callable, Optional
+
+from plugin.mcp.tunnel_state import DEFAULT_MAX_RETRIES, CancelRetryTimerEffect, NotifyUrlAcquiredEffect, ScheduleRetryTimerEffect, StartProcessEffect, TerminateProcessEffect, TunnelEvent, TunnelEventKind, TunnelState, TunnelStatus, next_state
 
 if TYPE_CHECKING:
     from plugin.framework.worker_pool import AsyncProcess
@@ -44,8 +48,9 @@ DEFAULT_BORE_SERVER = "bore.pub"
 # ── Provider helpers (pure build/parse) ───────────────────────────────
 
 _CLOUDFLARE_QUICK_URL_RE = re.compile(r"(https://[\w.-]+\.trycloudflare\.com)")
-# Token / named tunnels may log a custom hostname (not trycloudflare.com).
-_CLOUDFLARE_ANY_URL_RE = re.compile(r"(https://[\w.-]+)")
+# cloudflared's route box is a line like "INF |  https://host". Any other
+# https:// on the line (docs, 1.1.1.1, API hosts) must not become the MCP URL.
+_CLOUDFLARE_BANNER_URL_RE = re.compile(r"\|\s*(https://[\w.-]+)")
 _BORE_URL_RE = re.compile(r"listening at ([\w.\-]+:\d+)")
 # Real `tailscale funnel` (cmd/tailscale/cli/serve_v2.go messageForPort,
 # msgFunnelAvailable) prints the header and the URL on different lines:
@@ -60,10 +65,16 @@ _BORE_URL_RE = re.compile(r"listening at ([\w.\-]+:\d+)")
 # omits the port).
 _TAILSCALE_URL_RE = re.compile(r"(https://[\w.-]+\.ts\.net(?::\d+)?)")
 
-# `tailscale serve --https=443 off` wipes any user-configured serve on port
-# 443. Only turn off the Funnel port this session armed.
-def _tailscale_off_commands(port: int) -> tuple[list[str]]:
-    return (["tailscale", "funnel", str(int(port)), "off"],)
+# `tailscale funnel <local-port> off` is legacy. serve_v2.go isLegacyInvocation
+# matches `funnel <uint16> off`, and validateArgs returns before unsetServe,
+# so the Funnel stays up and subprocess.run does not raise.
+# `tailscale funnel <local-port>` serves HTTPS on 443 and proxies to the local
+# port. msgDisableProxy tells the operator to run `tailscale funnel --https=443 off`.
+# That calls removeWebServe on the shared 443 handler, so a user Serve on 443
+# is removed. Start already replaced that handler. Do not pass the local port.
+# Do not run `funnel reset` or `serve reset` (those clear every port).
+def _tailscale_off_command() -> list[str]:
+    return ["tailscale", "funnel", "--https=443", "off"]
 
 _REDACT_FLAGS = frozenset({"--authtoken", "--token", "--secret"})
 
@@ -72,7 +83,9 @@ def build_cloudflare_command(port: int, provider_token: str = "") -> list[str]:
     """Quick tunnel when config empty; ``run`` when Provider config set.
 
     Token tunnels use ingress configured in the Cloudflare dashboard (point that
-    service at ``http://localhost:<mcp_port>``).
+    service at ``http://localhost:<mcp_port>``). A non-empty token selects
+    ``run`` and ``_build_provider_env`` sets ``TUNNEL_TOKEN``; ``--token`` is
+    not placed on argv.
     """
     token = (provider_token or "").strip()
     if token:
@@ -83,23 +96,30 @@ def build_cloudflare_command(port: int, provider_token: str = "") -> list[str]:
 _CLOUDFLARE_IGNORED_HOSTS = frozenset({"cloudflare.com", "www.cloudflare.com", "developers.cloudflare.com", "blog.cloudflare.com", "pkg.cloudflare.com", "github.com", "api.trycloudflare.com"})
 
 
+def _cloudflare_host_ok(url: str) -> bool:
+    """True when *url* is a tunnel hostname, not an IP, doc host, or Cloudflare site."""
+    host = url.split("://", 1)[-1].split("/")[0].split(":")[0].lower()
+    if not host or host in _CLOUDFLARE_IGNORED_HOSTS or host.endswith(".cloudflare.com"):
+        return False
+    if "." not in host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return False
+
+
 def parse_cloudflare_url(line: str) -> Optional[str]:
-    """Parse quick tunnel URL or custom hostname from cloudflared logs."""
+    """Quick-tunnel host, or a hostname printed in cloudflared's route box."""
     if not line:
         return None
-    m = _CLOUDFLARE_QUICK_URL_RE.search(line)
-    if m:
-        url = m.group(1)
-        host = url.split("://", 1)[-1].split("/")[0].split(":")[0].lower()
-        if host not in _CLOUDFLARE_IGNORED_HOSTS:
-            return url
-    # Token / named tunnels may log a custom hostname; ignore docs/marketing links.
-    for match in _CLOUDFLARE_ANY_URL_RE.finditer(line):
-        url = match.group(1)
-        host = url.split("://", 1)[-1].split("/")[0].split(":")[0].lower()
-        if host in _CLOUDFLARE_IGNORED_HOSTS or host.endswith(".cloudflare.com"):
-            continue
-        return url
+    quick = _CLOUDFLARE_QUICK_URL_RE.search(line)
+    if quick and _cloudflare_host_ok(quick.group(1)):
+        return quick.group(1)
+    banner = _CLOUDFLARE_BANNER_URL_RE.search(line)
+    if banner and _cloudflare_host_ok(banner.group(1)):
+        return banner.group(1)
     return None
 
 
@@ -156,7 +176,8 @@ def parse_bore_url(line: str) -> Optional[str]:
 
 
 def build_ngrok_command(port: int, authtoken: str = "") -> list[str]:
-    # Empty token → rely on ngrok CLI config / env (prior behavior).
+    # The authtoken argument is ignored on purpose; the token is NGROK_AUTHTOKEN
+    # from _build_provider_env, never --authtoken.
     return ["ngrok", "http", "http://localhost:%s" % int(port), "--log", "stdout", "--log-format", "json"]
 
 
@@ -216,12 +237,21 @@ def parse_tailscale_url(line: str) -> Optional[str]:
 
 
 def _tailscale_reset(port: int) -> None:
-    for cmd in _tailscale_off_commands(port):
-        try:
-            subprocess.run(cmd, capture_output=True, text=True, timeout=5, creationflags=_CREATION_FLAGS)
-            log.debug("Tailscale off: %s", " ".join(cmd))
-        except Exception:
-            log.debug("Tailscale off failed: %s", " ".join(cmd), exc_info=True)
+    """Clear the HTTPS/443 Funnel handler. *port* is the local MCP target, for the log only."""
+    cmd = _tailscale_off_command()
+    shown = " ".join(cmd)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5, creationflags=_CREATION_FLAGS)
+    except Exception:
+        log.exception("Tailscale funnel off failed (local MCP port %s): %s", port, shown)
+        return
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "").strip()
+        if len(err) > 500:
+            err = err[:500]
+        log.warning("Tailscale funnel off exited %s (local MCP port %s): %s — %s", result.returncode, port, shown, err)
+        return
+    log.info("Tailscale funnel off (local MCP port %s): %s", port, shown)
 
 
 # Written next to writeragent.json when we spawn `tailscale funnel`. Survives
@@ -238,8 +268,6 @@ def _tailscale_arm_path() -> str | None:
     so a test that initialized config cannot create the marker in the user's
     profile; tests that need the file monkeypatch this function.
     """
-    import os
-
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return None
     try:
@@ -254,8 +282,6 @@ def _tailscale_arm_path() -> str | None:
 
 
 def _tailscale_arm_file_exists() -> bool:
-    import os
-
     path = _tailscale_arm_path()
     # bool(path) does not narrow str | None for mypy, so isfile saw str | None.
     if not path:
@@ -275,8 +301,6 @@ def _write_tailscale_arm() -> None:
 
 
 def _clear_tailscale_arm() -> None:
-    import os
-
     path = _tailscale_arm_path()
     if not path:
         return
@@ -326,7 +350,7 @@ def binary_available(provider: str) -> bool:
         log.info("%s version: %s", provider, ver or "(empty)")
         return True
     except FileNotFoundError:
-        log.exception("%s binary not found on PATH. Install from: %s", version_args[0], install_url)
+        log.warning("%s binary not found on PATH. Install from: %s", version_args[0], install_url)
         return False
     except Exception:
         log.exception("Error checking %s binary", provider)
@@ -370,9 +394,6 @@ def _build_provider_env(provider: str, provider_token: str) -> dict[str, str]:
             env["BORE_SECRET"] = secret
     return env
 
-
-import dataclasses
-from plugin.mcp.tunnel_state import DEFAULT_MAX_RETRIES, CancelRetryTimerEffect, NotifyUrlAcquiredEffect, ScheduleRetryTimerEffect, StartProcessEffect, TerminateProcessEffect, TunnelEvent, TunnelEventKind, TunnelState, TunnelStatus, next_state
 
 
 class TunnelManager:
@@ -420,41 +441,10 @@ class TunnelManager:
         return self._state.public_url
 
     @property
-    def _public_url(self) -> Optional[str]:
-        return self._state.public_url
-
-    @_public_url.setter
-    def _public_url(self, val: Optional[str]) -> None:
-        self._state = dataclasses.replace(self._state, public_url=val)
-
-    @property
     def provider(self) -> Optional[str]:
         return self._state.provider if self._state.desired_running else None
 
-    @property
-    def _provider(self) -> Optional[str]:
-        return self._state.provider if self._state.desired_running else None
 
-    @_provider.setter
-    def _provider(self, val: Optional[str]) -> None:
-        self._state = dataclasses.replace(self._state, provider=val or DEFAULT_PROVIDER)
-
-    @property
-    def _port(self) -> Optional[int]:
-        return self._state.port if self._state.desired_running else None
-
-    @_port.setter
-    def _port(self, val: Optional[int]) -> None:
-        if val is not None:
-            self._state = dataclasses.replace(self._state, port=val)
-
-    @property
-    def _provider_token(self) -> str:
-        return self._state.provider_token
-
-    @_provider_token.setter
-    def _provider_token(self, val: str) -> None:
-        self._state = dataclasses.replace(self._state, provider_token=val or "")
 
     @property
     def is_running(self) -> bool:
@@ -484,14 +474,6 @@ class TunnelManager:
     def last_error(self) -> Optional[str]:
         """Short reason for the last failed start / auth / early exit, if any."""
         return self._state.last_error
-
-    @property
-    def _last_error(self) -> Optional[str]:
-        return self._state.last_error
-
-    @_last_error.setter
-    def _last_error(self, val: Optional[str]) -> None:
-        self._state = dataclasses.replace(self._state, last_error=val)
 
     def mcp_public_url(self) -> Optional[str]:
         """Streamable-HTTP MCP endpoint on the public tunnel, if known."""
@@ -568,10 +550,10 @@ class TunnelManager:
             self._tailscale_reset_issued = True
         generation = self._tunnel_generation
         cfg_lock = self._provider_cfg_lock
-        # START_REQUESTED updates self._state before effects run, so reading
-        # self._state.port here is the new port and `tailscale funnel <newport>
-        # off` hits the wrong one. Prefer the port from TerminateProcessEffect
-        # (the old session's port).
+        # The off argv does not include the local port; target_port is still
+        # the pre-transition port from TerminateProcessEffect because
+        # START_REQUESTED has already overwritten self._state.port, and the log
+        # must name the session being left.
         target_port = port
 
         def _safe_post_stop(expected: int = generation, fn: Callable[[int], None] = post_stop, prov: str = provider, p: int = target_port) -> None:
@@ -753,7 +735,7 @@ class TunnelManager:
 
                 pre_start: Optional[Callable[[int], None]] = info.get("pre_start")
                 if pre_start:
-                    # _tailscale_reset is two CLIs, 5s each. Running it on this thread
+                    # _tailscale_reset is one command with a 5s timeout. Running it on this thread
                     # while _lock is held blocks stop() and the UI sync path
                     # for that whole wait. post_stop was already moved off the
                     # lock for the same reason. The reset must finish before
@@ -801,6 +783,8 @@ class TunnelManager:
                 timer.start()
 
             elif isinstance(effect, NotifyUrlAcquiredEffect):
+                # effect.url is the tunnel base, also stored on state.public_url.
+                # Snippet and toast need the /mcp endpoint from mcp_public_url().
                 try:
                     from plugin.mcp.mcp_ui import notify_tunnel_url_acquired
 
@@ -841,8 +825,6 @@ class TunnelManager:
 
     def start(self, port: int, provider: str = DEFAULT_PROVIDER, provider_token: str = "", max_retries: int = DEFAULT_MAX_RETRIES, start_token: object | None = None) -> bool:
         """Start (or keep) a tunnel to *port*. Returns False if start failed."""
-        import os
-
         if os.environ.get("WRITERAGENT_TESTING"):
             return True
 
@@ -963,12 +945,12 @@ def _redact_cmd_for_log(cmd: list[str]) -> str:
     return " ".join(out)
 
 
-def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, provider_token: str = "", port: int = 18765, timeout: float = 6.0) -> tuple[bool, str, Optional[str]]:
-    """Test tunnel provider availability and optionally probe connectivity to port.
+def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, port: int = 18765) -> tuple[bool, str, Optional[str]]:
+    """Checks that the provider binary runs, whether local MCP /health answers, and whether a tunnel is already running.
 
+    Does not validate provider credentials and does not start a tunnel.
     Returns (ok, user_facing_message, public_url).
     """
-    import os
     import urllib.request
     from plugin.framework.i18n import _
 
@@ -1008,10 +990,10 @@ def test_tunnel_connectivity(provider: str = DEFAULT_PROVIDER, provider_token: s
     from plugin.mcp import _shared_tunnel
 
     if _shared_tunnel and _shared_tunnel.is_running:
-        active_p = getattr(_shared_tunnel, "_provider", None) or DEFAULT_PROVIDER
+        active_p = getattr(_shared_tunnel, "provider", None) or DEFAULT_PROVIDER
         active_url = _shared_tunnel.mcp_public_url()
         if active_url:
-            base_url = normalize_public_base(_shared_tunnel._public_url or "")
+            base_url = normalize_public_base(_shared_tunnel.public_url or "")
             health_url = f"{base_url}/health"
             probe_ok = False
             try:

@@ -103,8 +103,12 @@ class AddSlide(ToolBase):
                 raise
             try:
                 bridge.get_pages().remove(new_page)
-            except Exception:
-                pass
+            except Exception as rm_exc:
+                # Bugfix: the layout/master handler already re-raises disposal from the failed
+                # edit, but pages.remove during cleanup swallowed a disposal and returned a normal
+                # tool error, so execute_safe did not report DOCUMENT_DISPOSED.
+                if is_disposed_exception(rm_exc):
+                    raise
             return self._tool_error(f"Failed to set layout or master on new slide: {exc}")
 
         return result
@@ -334,14 +338,20 @@ class MoveSlide(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
+        from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
 
         from_page = kwargs.get("from_page")
         to_page = kwargs.get("to_page")
         if from_page is None or to_page is None:
             return self._tool_error("from_page and to_page are required.")
         bridge = DrawBridge(ctx.doc)
-        ok = bridge.move_slide(from_page, to_page)
+        try:
+            ok = bridge.move_slide(from_page, to_page)
+        except PageExchangeRollbackError as exc:
+            # Bugfix: move_slide now raises when the temp page still holds shapes;
+            # execute_safe would prefix that with "Tool execution failed", and the old
+            # False path hid it as "Could not move slide". Return the rollback error directly.
+            return self._tool_error(str(exc))
         if not ok:
             return self._tool_error("Could not move slide from %s to %s." % (from_page, to_page))
         return {"status": "ok", "message": "Slide moved", "from_page": from_page, "to_page": to_page, "active_page_index": bridge.get_active_page_index()}

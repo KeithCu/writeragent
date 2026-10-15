@@ -1,5 +1,7 @@
 """Unit tests for DrawBridge chat-context helper (no UNO)."""
 
+from __future__ import annotations
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -46,6 +48,75 @@ def test_get_draw_context_for_chat_summarizes_active_page():
     assert "Draw Document" in out
     assert "Total Pages: 1" in out
     assert "Hello" in out
+
+
+def test_get_draw_context_for_chat_truncates_to_max_context():
+    page = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    pos = MagicMock(X=10, Y=20)
+    size = MagicMock(Width=100, Height=50)
+    shape.getPosition.return_value = pos
+    shape.getSize.return_value = size
+    shape.getString.return_value = "H" * 500
+
+    model = MagicMock()
+    model.supportsService.return_value = False
+    model.getURL.return_value = "file:///tmp/demo.odg"
+
+    bridge = MagicMock()
+    bridge.get_pages.return_value = pages
+    bridge.get_active_page.return_value = page
+    bridge.get_shapes.return_value = [shape]
+
+    with (
+        patch("plugin.draw.bridge.check_disposed"),
+        patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
+        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+    ):
+        out = get_draw_context_for_chat(model, 80)
+
+    assert out.startswith("Draw Document")
+    assert out.endswith("\n\n[... document truncated ...]")
+    assert len(out) == 80 + len("\n\n[... document truncated ...]")
+    assert "H" * 500 not in out
+
+
+def test_get_draw_context_for_chat_negative_max_context_is_empty_prefix():
+    page = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    shape = MagicMock()
+    shape.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    pos = MagicMock(X=10, Y=20)
+    size = MagicMock(Width=100, Height=50)
+    shape.getPosition.return_value = pos
+    shape.getSize.return_value = size
+    shape.getString.return_value = "Hello"
+
+    model = MagicMock()
+    model.supportsService.return_value = False
+    model.getURL.return_value = "file:///tmp/demo.odg"
+
+    bridge = MagicMock()
+    bridge.get_pages.return_value = pages
+    bridge.get_active_page.return_value = page
+    bridge.get_shapes.return_value = [shape]
+
+    with (
+        patch("plugin.draw.bridge.check_disposed"),
+        patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
+        patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
+    ):
+        out = get_draw_context_for_chat(model, -5)
+
+    assert out == "\n\n[... document truncated ...]"
 
 
 class _FalsyPage:
@@ -283,10 +354,43 @@ class _MoveShape:
             self._text = str(value)
 
 
+class _MoveNotesShape:
+    def __init__(self, page: _MovePage) -> None:
+        self._page = page
+
+    def getShapeType(self) -> str:
+        return "com.sun.star.presentation.NotesShape"
+
+    def getString(self) -> str:
+        return self._page.notes_text or ""
+
+    def setString(self, text: str) -> None:
+        self._page.notes_text = text
+
+
+class _MoveNotesPage:
+    def __init__(self, page: _MovePage) -> None:
+        self._shape = _MoveNotesShape(page)
+
+    def getCount(self) -> int:
+        return 1
+
+    def getByIndex(self, index: int) -> _MoveNotesShape:
+        if index != 0:
+            raise IndexError(index)
+        return self._shape
+
+
 class _MovePage:
-    def __init__(self, name: str, shapes: list[_MoveShape]) -> None:
+    def __init__(self, name: str, shapes: list[_MoveShape], notes_text: str | None = None) -> None:
         self.Name = name
         self.shapes = shapes
+        self.notes_text = notes_text
+
+    def getNotesPage(self) -> _MoveNotesPage:
+        if self.notes_text is None:
+            raise AttributeError("No notes page")
+        return _MoveNotesPage(self)
 
     def getCount(self) -> int:
         return len(self.shapes)
@@ -344,7 +448,7 @@ class _MoveDoc:
             clone.payload = getattr(shape, "payload", None)
             clone.from_duplicate = True
             clones.append(clone)
-        copy = _MovePage("", clones)
+        copy = _MovePage("", clones, notes_text=page.notes_text)
         self._pages.pages.insert(idx + 1, copy)
         return copy
 
@@ -671,3 +775,194 @@ def test_calc_bridge_targets_active_sheet():
     del doc.getCurrentController.return_value.getCurrentPage
     bridge = DrawBridge(doc)
     assert bridge.get_active_page() is page
+
+
+def test_move_slide_raises_when_exchange_rollback_fails():
+    from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
+
+    pages = _named_deck("A", "B")
+    bridge = DrawBridge(_MoveDoc(pages))
+    with (
+        patch.object(bridge, "_move_shapes", side_effect=RuntimeError("shape move failed")),
+        patch.object(bridge, "_rollback_exchange", return_value=False),
+        patch.object(bridge, "_exchange_page_contents", wraps=bridge._exchange_page_contents) as exchange_spy,
+    ):
+        with pytest.raises(PageExchangeRollbackError, match="temporary page"):
+            bridge.move_slide(1, 0)
+        assert len(pages.pages) == 3
+        assert exchange_spy.call_count == 1
+
+
+def test_move_slide_reraises_dispose_when_rollback_raises():
+    from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
+
+    class DisposedException(Exception):
+        pass
+
+    pages = _named_deck("A", "B")
+    bridge = DrawBridge(_MoveDoc(pages))
+    with (
+        patch.object(bridge, "_move_shapes", side_effect=RuntimeError("shape move failed")),
+        patch.object(bridge, "_rollback_exchange", side_effect=DisposedException("disposed")),
+    ):
+        with pytest.raises(DisposedException) as exc_info:
+            bridge.move_slide(1, 0)
+        assert not isinstance(exc_info.value, PageExchangeRollbackError)
+        assert len(pages.pages) == 3
+
+
+def test_move_slide_reraises_dispose_from_the_exchange_itself():
+    from plugin.draw.bridge import DrawBridge
+
+    class DisposedException(Exception):
+        pass
+
+    pages = _named_deck("A", "B")
+    bridge = DrawBridge(_MoveDoc(pages))
+    with (
+        patch.object(bridge, "_move_shapes", side_effect=DisposedException("disposed during move")),
+        patch.object(bridge, "_rollback_exchange", return_value=True),
+    ):
+        with pytest.raises(DisposedException):
+            bridge.move_slide(1, 0)
+        assert len(pages.pages) == 2
+
+
+def test_move_slide_rolls_back_when_neighbor_has_no_notes_shape():
+    from plugin.draw.bridge import DrawBridge
+
+    page_a = _MovePage("A", [_MoveShape("a")], notes_text="hello")
+    page_b = _MovePage("B", [_MoveShape("b")], notes_text=None)
+    pages = _MovePages([page_a, page_b])
+    bridge = DrawBridge(_MoveDoc(pages))
+    assert bridge.move_slide(0, 1) is False
+    assert len(pages.pages) == 2
+    assert [p.Name for p in pages.pages] == ["A", "B"]
+    assert [p.shapes[0].getString() for p in pages.pages] == ["a", "b"]
+    assert pages.pages[0].notes_text == "hello"
+    assert pages.pages[1].notes_text is None
+
+
+def test_move_slide_swaps_notes_when_both_pages_have_a_notes_shape():
+    from plugin.draw.bridge import DrawBridge
+
+    page_a = _MovePage("A", [_MoveShape("a")], notes_text="hello")
+    page_b = _MovePage("B", [_MoveShape("b")], notes_text="there")
+    pages = _MovePages([page_a, page_b])
+    bridge = DrawBridge(_MoveDoc(pages))
+    assert bridge.move_slide(0, 1) is True
+    assert pages.pages[1].shapes[0].getString() == "a"
+    assert pages.pages[1].notes_text == "hello"
+    assert pages.pages[0].shapes[0].getString() == "b"
+    assert pages.pages[0].notes_text == "there"
+
+
+def test_move_slide_allows_empty_notes_against_a_missing_notes_shape():
+    from plugin.draw.bridge import DrawBridge
+
+    page_a = _MovePage("A", [_MoveShape("a")], notes_text="")
+    page_b = _MovePage("B", [_MoveShape("b")], notes_text=None)
+    pages = _MovePages([page_a, page_b])
+    bridge = DrawBridge(_MoveDoc(pages))
+    assert bridge.move_slide(0, 1) is True
+    assert pages.pages[1].shapes[0].getString() == "a"
+    assert pages.pages[0].notes_text == ""
+    assert pages.pages[1].notes_text is None
+
+
+def test_set_current_page_index_reraises_dispose():
+    from plugin.draw.bridge import DrawBridge
+
+    class DisposedException(Exception):
+        pass
+
+    pages = _named_deck("A")
+    ctrl_disposed = MagicMock()
+    ctrl_disposed.setCurrentPage.side_effect = DisposedException("controller disposed")
+    doc_disposed = _ViewDoc(pages, ctrl_disposed)
+    bridge_disposed = DrawBridge(doc_disposed)
+    with pytest.raises(DisposedException):
+        bridge_disposed.set_current_page_index(0)
+
+    ctrl_err = MagicMock()
+    ctrl_err.setCurrentPage.side_effect = RuntimeError("no view")
+    doc_err = _ViewDoc(pages, ctrl_err)
+    bridge_err = DrawBridge(doc_err)
+    assert bridge_err.set_current_page_index(0) is False
+
+
+class _RejectMasterPage(_MovePage):
+    @property
+    def MasterPage(self) -> object:
+        return getattr(self, "_master", None)
+
+    @MasterPage.setter
+    def MasterPage(self, val: object) -> None:
+        raise RuntimeError("master rejected")
+
+
+class _MasterList:
+    def __init__(self, masters: list[object]) -> None:
+        self._masters = masters
+
+    def getCount(self) -> int:
+        return len(self._masters)
+
+    def getByIndex(self, index: int) -> object:
+        return self._masters[index]
+
+
+def test_insert_slide_from_master_removes_page_when_master_assignment_fails():
+    from plugin.draw.bridge import DrawBridge
+
+    pages = _named_deck("A", "B")
+
+    def _insert_rejecting(index: int) -> _RejectMasterPage:
+        page = _RejectMasterPage("", [])
+        land = min(len(pages.pages) - 1, index) + 1
+        pages.pages.insert(land, page)
+        return page
+
+    pages.insertNewByIndex = _insert_rejecting  # type: ignore[method-assign]
+    doc = _ViewDoc(pages, None)
+    master_obj = type("Master", (), {"Name": "SpecialMaster"})()
+    doc.getMasterPages = lambda: _MasterList([master_obj])  # type: ignore[attr-defined]
+
+    bridge = DrawBridge(doc)
+    with pytest.raises(RuntimeError, match="Failed to assign master page"):
+        bridge.insert_slide_from_master(master_name="SpecialMaster")
+    assert len(pages.pages) == 2
+
+
+def test_insert_slide_from_master_reraises_dispose_without_removing():
+    from plugin.draw.bridge import DrawBridge
+
+    class DisposedException(Exception):
+        pass
+
+    class _DisposeMasterPage(_MovePage):
+        @property
+        def MasterPage(self) -> object:
+            return getattr(self, "_master", None)
+
+        @MasterPage.setter
+        def MasterPage(self, val: object) -> None:
+            raise DisposedException("disposed during master set")
+
+    pages = _named_deck("A", "B")
+
+    def _insert_disposing(index: int) -> _DisposeMasterPage:
+        page = _DisposeMasterPage("", [])
+        land = min(len(pages.pages) - 1, index) + 1
+        pages.pages.insert(land, page)
+        return page
+
+    pages.insertNewByIndex = _insert_disposing  # type: ignore[method-assign]
+    doc = _ViewDoc(pages, None)
+    master_obj = type("Master", (), {"Name": "SpecialMaster"})()
+    doc.getMasterPages = lambda: _MasterList([master_obj])  # type: ignore[attr-defined]
+
+    bridge = DrawBridge(doc)
+    with pytest.raises(DisposedException):
+        bridge.insert_slide_from_master(master_name="SpecialMaster")
+    assert len(pages.pages) == 3

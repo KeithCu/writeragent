@@ -115,7 +115,6 @@ class ToolLoopHost(Protocol):
     _active_execute_tool_fn: Callable[..., Any]
     _active_query_text: str | None
     _active_supports_status: bool
-    _current_tool_call_id: str | None
     _assistant_stream_start_len: int | None
     _record_assistant_start: bool
     _tool_loop_interpreter: ToolLoopEffectInterpreter | None

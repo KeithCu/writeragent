@@ -154,6 +154,34 @@ def _cancel_pending(key: tuple[str, str]) -> None:
             pass
 
 
+def cancel_pending_sheet_timers(identity: str) -> None:
+    """Cancel and pop all pending sheet debounce timers for a document identity.
+
+    Bugfix: What was wrong: clear_in_memory_spill_state cancels the threading.Timer stored
+    in _PENDING_SPILL_TIMERS, so _fire never runs and never pops _PENDING_TIMERS.
+    How it happened: The cancelled timer's closure kept ctx, doc, and sheet. disposing is
+    not the only unload path.
+    Why this change fixes it: Pop every _PENDING_TIMERS entry matching identity under
+    _PENDING_LOCK and cancel them outside the lock. Cancel is idempotent if the timer
+    was already cancelled.
+    """
+    if not identity:
+        return
+    cancelled: list[threading.Timer] = []
+    with _PENDING_LOCK:
+        for k in list(_PENDING_TIMERS.keys()):
+            if k[0] == identity:
+                timer = _PENDING_TIMERS.pop(k, None)
+                if timer is not None:
+                    cancelled.append(timer)
+    for timer in cancelled:
+        try:
+            timer.cancel()
+        except Exception:
+            pass
+
+
+
 def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
     """Debounce: cancel the sheet's pending timer, start a new 0.1s UI-thread pass.
 

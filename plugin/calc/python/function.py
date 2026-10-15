@@ -41,11 +41,10 @@ log = logging.getLogger(__name__)
 
 # Calc legacy add-in bridge accepts scalar double/string returns only. List results are
 # emitted one scalar per formula evaluation (matrix block or repeated recalc).
-# Keys include repr(worker_data) so the same formula with different data args
-# does not share a session. repr of a large grid is expensive and a weak identity;
-# a later change could use packed-payload digest + cell count. Do not key on id():
-# recals would collide. Two formulas with the same code but different data must
-# stay on separate sessions (see tests/calc/python/test_function.py).
+# Session keys are (threading.get_ident(), session_key(...), sha256 hex from _worker_data_token).
+# One evaluation passes the digest into scalar_for_list_result, and there is no cross-cell
+# token cache. Two formulas with the same code but different data must stay on separate
+# sessions (see tests/calc/python/test_function.py).
 _MATRIX_SCALAR_SESSIONS_LOCK = threading.Lock()
 _MATRIX_SCALAR_SESSIONS: dict[tuple[int, tuple[str, ...], str], WorkerResultSession] = {}
 
@@ -539,7 +538,7 @@ def _expire_matrix_sessions_locked(now: float) -> None:
         _MATRIX_SCALAR_SESSIONS.pop(k, None)
 
 
-def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any = None, doc: Any | None = None) -> float | str | bool:
+def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any = None, doc: Any | None = None, data_token: str | None = None) -> float | str | bool:
     """Return one Calc scalar per invocation when the worker produced a list."""
     flat: list[Any] = [py_addin_cell_value(v) for v in flatten_result_values(result)]
     if not flat:
@@ -549,7 +548,8 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
     if not sk[4]:
         # Ambiguous formula identity: do not share next_index across duplicate =PY() cells.
         return flat[0] if flat else ""
-    key = (tid, sk, _worker_data_token(worker_data))
+    token = data_token if data_token is not None else _worker_data_token(worker_data)
+    key = (tid, sk, token)
     now = time.monotonic()
     with _MATRIX_SCALAR_SESSIONS_LOCK:
         _expire_matrix_sessions_locked(now)
@@ -845,13 +845,18 @@ def _spill_registry_doc_key(doc: Any) -> str:
     """
     if doc is None:
         return ""
+    # Bugfix: What was wrong: Property-only reads missed builds that expose getRuntimeUID()
+    # or the attribute, and str() of a truthy mock was accepted as an id.
+    # How it happened: _spill_registry_doc_key only called getPropertyValue("RuntimeUID") and converted any truthy value via str().
+    # Why this change fixes it: Use the shared _read_runtime_uid ladder, which tries method, attribute,
+    # then property, and accepts only plain str / int, same as get_runtime_uid.
     uid = ""
     try:
-        if hasattr(doc, "getPropertyValue"):
-            val = doc.getPropertyValue("RuntimeUID")
-            if val:
-                uid = str(val)
+        from plugin.framework.uno_context import _read_runtime_uid
+
+        uid = _read_runtime_uid(doc)
     except Exception:
+        log.debug("spill registry: RuntimeUID read failed", exc_info=True)
         uid = ""
 
     url = ""
@@ -901,33 +906,37 @@ def load_spill_registry_for_doc(doc: Any) -> None:
         if not doc_key:
             return
         for key, value in data.items():
-            parts = key.split(":")
-            if len(parts) == 2:
-                sheet_name, coords = parts
-                row_col = coords.split(",")
-                if len(row_col) == 2:
-                    frow, fcol = int(row_col[0]), int(row_col[1])
-                    if isinstance(value, dict):
-                        code = str(value.get("code") or "")
-                        raw_cells = value.get("cells") or []
-                        cells = []
-                        for c in raw_cells:
-                            if isinstance(c, dict):
-                                r_val = c.get("r")
-                                if r_val is None:
-                                    r_val = c.get("row", 0)
-                                r = int(r_val or 0)
-                                c_val = c.get("c")
-                                if c_val is None:
-                                    c_val = c.get("col", 0)
-                                col = int(c_val or 0)
-                                t = str(c.get("t", c.get("kind", "u")))
-                                v = c.get("v", c.get("value"))
-                                cells.append(SpillCell(row=r, col=col, kind=t, value=v))
-                        SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = SpillRecord(code=code, cells=cells)
-                    elif isinstance(value, list):
-                        spill_cells = [SpillCell(int(r), int(c), "u", None) for r, c in value]
-                        SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = SpillRecord(code="", cells=spill_cells)
+            try:
+                parts = key.split(":")
+                if len(parts) == 2:
+                    sheet_name, coords = parts
+                    row_col = coords.split(",")
+                    if len(row_col) == 2:
+                        frow, fcol = int(row_col[0]), int(row_col[1])
+                        if isinstance(value, dict):
+                            code = str(value.get("code") or "")
+                            raw_cells = value.get("cells") or []
+                            cells = []
+                            for c in raw_cells:
+                                if isinstance(c, dict):
+                                    r_val = c.get("r")
+                                    if r_val is None:
+                                        r_val = c.get("row", 0)
+                                    r = int(r_val or 0)
+                                    c_val = c.get("c")
+                                    if c_val is None:
+                                        c_val = c.get("col", 0)
+                                    col = int(c_val or 0)
+                                    t = str(c.get("t", c.get("kind", "u")))
+                                    v = c.get("v", c.get("value"))
+                                    cells.append(SpillCell(row=r, col=col, kind=t, value=v))
+                            SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = SpillRecord(code=code, cells=cells)
+                        elif isinstance(value, list):
+                            spill_cells = [SpillCell(int(r), int(c), "u", None) for r, c in value]
+                            SPILL_REGISTRY[(doc_key, sheet_name, frow, fcol)] = SpillRecord(code="", cells=spill_cells)
+            except Exception:
+                log.warning("spill registry skipped malformed entry %r", key, exc_info=True)
+                continue
     except Exception:
         log.exception("Failed to load spill registry from document property")
 
@@ -1555,7 +1564,7 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     t.start()
 
 
-def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any = None, worker_data: Any = None, doc: Any | None = None) -> float | str | bool | tuple[Any, ...]:
+def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any = None, worker_data: Any = None, doc: Any | None = None, data_token: str | None = None) -> float | str | bool | tuple[Any, ...]:
     """Map worker result to a single value Calc's add-in bridge accepts."""
     # Worker egress (payload_codec.child_pack_result + host_unpack_data) always yields plain
     # lists/scalars on the host — NumPy lives only in the venv subprocess, not in LO's Python.
@@ -1598,24 +1607,30 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
 
         if not is_matrix:
             grid_to_spill = _result_as_spill_grid(result)
-            try:
-                if not on_main_thread():
-                    if doc is not None:
-                        _queue_off_main_auto_spill(ctx, code, grid_to_spill, doc)
-                    # We return the corner as py_addin_cell_value (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
-                    return py_addin_cell_value(grid_to_spill[0][0])
-
-                target_doc = doc
-                if target_doc is not None:
-                    prepared = _prepare_auto_spill(ctx, code, grid_to_spill, target_doc)
-                    if prepared == "#SPILL!":
-                        return "#SPILL!"
-                    if isinstance(prepared, PreparedSpill):
-                        _queue_deferred_spill_write(ctx, code, grid_to_spill, target_doc, prepared)
+            # Bugfix: What was wrong: [[]] became [[]], [0][0] raised IndexError after
+            # _prepare_auto_spill / _queue_off_main_auto_spill had already scheduled a
+            # zero-column spill, and the except Exception then fell through to the scalar path.
+            # How it happened: Auto-spill assumed any non-empty result grid had a corner cell [0][0].
+            # Why this change fixes it: Skipping when the corner cell does not exist writes nothing.
+            if grid_to_spill and grid_to_spill[0]:
+                try:
+                    if not on_main_thread():
+                        if doc is not None:
+                            _queue_off_main_auto_spill(ctx, code, grid_to_spill, doc)
                         # We return the corner as py_addin_cell_value (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
                         return py_addin_cell_value(grid_to_spill[0][0])
-            except Exception:
-                log.exception("Error checking spill collision or locating formula cell")
+
+                    target_doc = doc
+                    if target_doc is not None:
+                        prepared = _prepare_auto_spill(ctx, code, grid_to_spill, target_doc)
+                        if prepared == "#SPILL!":
+                            return "#SPILL!"
+                        if isinstance(prepared, PreparedSpill):
+                            _queue_deferred_spill_write(ctx, code, grid_to_spill, target_doc, prepared)
+                            # We return the corner as py_addin_cell_value (ISO text for dates), not a date serial, because an add-in return cannot carry a number format.
+                            return py_addin_cell_value(grid_to_spill[0][0])
+                except Exception:
+                    log.exception("Error checking spill collision or locating formula cell")
 
     if isinstance(result, (list, tuple)):
         if index_arg is not None:
@@ -1630,7 +1645,7 @@ def finalize_python_return(ctx: Any, code: str, result: Any, *, index_arg: Any =
         # Cached spill model is for the deferred UI write only. Passing it
         # into session_key off-main calls getURL / locate (see session_key).
         scalar_doc = doc if on_main_thread() else None
-        return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=scalar_doc)
+        return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=scalar_doc, data_token=data_token)
 
     return py_addin_cell_value(result)
 
@@ -1661,11 +1676,15 @@ def _format_python_addin_worker_error(message: str) -> str:
     return _("Error: {0}").format(text)
 
 
-_INDEXED_BINDING_RE = re.compile(r"(?<![A-Za-z0-9_])(?:data|ranges)\[")
+# Bugfix: What was wrong: attribute access such as obj.data[0] matched because . was outside [A-Za-z0-9_],
+# so a trailing scalar was not peeled as the index.
+# How it happened: The negative lookbehind (?<![A-Za-z0-9_]) did not exclude the dot attribute operator.
+# Why this change fixes it: Lookbehind becomes (?<![A-Za-z0-9_.]) so preceding . attribute accesses do not match.
+_INDEXED_BINDING_RE = re.compile(r"(?<![A-Za-z0-9_.])(?:data|ranges)\[")
 
 
 def _code_uses_indexed_multi_data(code: str) -> bool:
-    """True when inline code references ``data[n]`` or ``ranges[n]`` (all PY args are data ranges)."""
+    """True when inline code references bare ``data[n]`` or ``ranges[n]`` (a preceding ``.`` does not count; all PY args are data ranges)."""
     return bool(_INDEXED_BINDING_RE.search(code or ""))
 
 
@@ -1861,6 +1880,12 @@ def cancel_pending_spill_timers(lifecycle_key: str) -> None:
 def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -> None:
     """Drop instance-scoped spill maps. UD property is left for a later open of the same file."""
     cancel_pending_spill_timers(lifecycle_key)
+    from plugin.calc.python.sheet_modify import cancel_pending_sheet_timers
+
+    if lifecycle_key:
+        cancel_pending_sheet_timers(lifecycle_key)
+    if doc_url:
+        cancel_pending_sheet_timers(doc_url)
     if lifecycle_key:
         # Sheet listeners are keyed by lifecycle id, not the file URL, so an
         # unload that only matched doc_url left the dispatcher registered.
@@ -1973,8 +1998,10 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
         unique_origin = bool(sk[4])
         now = time.monotonic()
         cached = None
+        data_token: str | None = None
         if unique_origin:
-            cache_key = (tid, sk, _worker_data_token(worker_data))
+            data_token = _worker_data_token(worker_data)
+            cache_key = (tid, sk, data_token)
             with _MATRIX_SCALAR_SESSIONS_LOCK:
                 _expire_matrix_sessions_locked(now)
                 cached = _MATRIX_SCALAR_SESSIONS.get(cache_key)
@@ -2029,7 +2056,8 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
                 if timings:
                     image_ms = int(round((time.perf_counter() - t_img) * 1000))
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")
-            final_ret = finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=target_doc)
+            # Pass data_token: the digest was already computed for the cache key.
+            final_ret = finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=target_doc, data_token=data_token)
             log.debug("PYTHON returning scalar: %r (type: %s)", final_ret, type(final_ret).__name__)
             return final_ret
 

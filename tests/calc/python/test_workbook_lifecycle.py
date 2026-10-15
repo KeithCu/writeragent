@@ -252,3 +252,34 @@ def test_release_calc_state_dedupes_doc_urls():
             reset_sessions=False,
         )
         mock_spill.assert_called_once_with(doc_url="file:///a.ods", lifecycle_key="key-dedupe")
+
+
+def test_lifecycle_key_reads_get_runtime_uid_before_property():
+    class MethodVsPropStub:
+        def getRuntimeUID(self) -> str:
+            return "from-method"
+
+        def getPropertyValue(self, name: str) -> str:
+            if name == "RuntimeUID":
+                return "from-prop"
+            raise KeyError(name)
+
+    assert _lifecycle_key(MethodVsPropStub()) == "from-method"
+
+
+def test_lifecycle_key_rejects_non_string_runtime_uid(monkeypatch: pytest.MonkeyPatch):
+    class NonStrIntObj:
+        pass
+
+    doc = CalcDocStub(props={"RuntimeUID": NonStrIntObj()})
+    monkeypatch.setattr(
+        "plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id",
+        lambda _doc: "calc:fallback",
+    )
+    assert _lifecycle_key(doc) == "calc:fallback"
+
+
+def test_lifecycle_key_accepts_int_runtime_uid():
+    doc = CalcDocStub(props={"RuntimeUID": 42})
+    assert _lifecycle_key(doc) == "42"
+
