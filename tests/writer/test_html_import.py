@@ -186,6 +186,7 @@ def test_insert_inline_at_cursor_keeps_edge_whitespace_of_markup():
     from plugin.writer import html_import
 
     cursor = MagicMock()
+    cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
     text = cursor.getText.return_value
     with patch.object(html_import, "insert_html_fragment_at_cursor") as frag:
         html_import.insert_inline_at_cursor(MagicMock(), MagicMock(), cursor, "<b>muito</b> ")
@@ -487,3 +488,190 @@ def test_full_document_refuses_before_deleting_anything():
     with patch.object(html_import, "_replace_full_document") as replace, pytest.raises(ToolExecutionError):
         html_import.replace_full_document(model, None, _FRAME)
     replace.assert_not_called()
+
+
+def test_html_to_plain_text_raises_instead_of_returning_markup():
+    from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
+    from plugin.writer.html_import import html_to_plain_text
+
+    html = "<b>foo</b>"
+    with patch("plugin.writer.html_import.new_blank_writer", return_value=None):
+        with pytest.raises(ToolExecutionError, match="plain text"):
+            html_to_plain_text(html, MagicMock())
+
+    doc = MagicMock()
+    with patch("plugin.writer.html_import.new_blank_writer", return_value=doc), \
+         patch("plugin.writer.html_import.format_mod._with_temp_buffer", side_effect=RuntimeError("import failed")):
+        with pytest.raises(ToolExecutionError, match="plain text"):
+            html_to_plain_text(html, MagicMock())
+    doc.close.assert_called_once_with(True)
+
+    with patch(
+        "plugin.writer.html_import.new_blank_writer",
+        side_effect=type("DisposedException", (Exception,), {})("gone"),
+    ):
+        with pytest.raises(DocumentDisposedError):
+            html_to_plain_text(html, MagicMock())
+
+
+def test_prefix_char_count_does_not_return_zero_on_failure():
+    from plugin.writer import html_import
+
+    text = MagicMock()
+    text.createTextCursor.return_value.gotoRange.side_effect = RuntimeError("range")
+    with pytest.raises(RuntimeError, match="range"):
+        html_import._prefix_char_count(text, MagicMock())
+
+
+def test_styled_insert_propagates_style_pass_failure():
+    from plugin.writer import html_import
+
+    cursor = MagicMock()
+    cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
+    with patch.object(html_import, "_apply_block_lo_styles", side_effect=RuntimeError("style")), \
+         patch.object(html_import, "insert_html_fragment_at_cursor"), \
+         patch.object(html_import, "_count_preceding_paras", return_value=0):
+        with pytest.raises(RuntimeError, match="style"):
+            html_import._insert_mixed_or_plain_html(
+                MagicMock(), MagicMock(), cursor,
+                '<p data-lo-style="Heading1">x</p>',
+                apply_styles=True,
+            )
+
+
+def test_trailing_paragraph_not_deleted_when_portion_walk_fails():
+    """A failed portion inspection is not 'empty'. Deleting can drop a frame."""
+    from plugin.writer.html_import import replace_xtext_with_html
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    class _Para:
+        def __init__(self, text, boom=None):
+            self._text = text
+            self._boom = boom
+
+        def getString(self):
+            return self._text
+
+        def createEnumeration(self):
+            if self._boom is not None:
+                raise self._boom
+            raise AssertionError("only the empty paragraph is walked")
+
+    deleted = []
+
+    class _Text:
+        def createTextCursor(self):
+            cursor = MagicMock()
+            cursor.getString.return_value = "Old"
+            return cursor
+
+        def createEnumeration(self):
+            return _Enum([_Para("kept"), _Para("", boom=RuntimeError("portion"))])
+
+        def createTextCursorByRange(self, _para):
+            deleted.append("delete")
+            return MagicMock()
+
+    with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"):
+        replace_xtext_with_html(_Text(), "<p>New</p>")
+    assert deleted == []
+
+
+def test_trailing_paragraph_still_deleted_when_walk_is_empty_text():
+    from plugin.writer.html_import import replace_xtext_with_html
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    class _Portion:
+        def getString(self):
+            return ""
+
+        def getPropertyValue(self, name):
+            assert name == "TextPortionType"
+            return "Text"
+
+    class _Para:
+        def __init__(self, text, walk):
+            self._text = text
+            self._walk = walk
+
+        def getString(self):
+            return self._text
+
+        def createEnumeration(self):
+            return _Enum(self._walk)
+
+        def getEnd(self):
+            return object()
+
+    deleted = []
+
+    class _Text:
+        def createTextCursor(self):
+            cursor = MagicMock()
+            cursor.getString.return_value = "Old"
+            return cursor
+
+        def createEnumeration(self):
+            return _Enum([_Para("kept", []), _Para("", [_Portion()])])
+
+        def createTextCursorByRange(self, _para):
+            cursor = MagicMock()
+            deleted.append("delete")
+            return cursor
+
+    with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"):
+        replace_xtext_with_html(_Text(), "<p>New</p>")
+    assert deleted == ["delete"]
+
+
+def test_trailing_paragraph_disposal_is_not_success():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.html_import import replace_xtext_with_html
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    class _Para:
+        def getString(self):
+            return ""
+
+        def createEnumeration(self):
+            raise type("DisposedException", (Exception,), {})("gone")
+
+    class _Text:
+        def createTextCursor(self):
+            cursor = MagicMock()
+            cursor.getString.return_value = "Old"
+            return cursor
+
+        def createEnumeration(self):
+            return _Enum([_Para(), _Para()])
+
+    with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"):
+        with pytest.raises(DocumentDisposedError):
+            replace_xtext_with_html(_Text(), "<p>New</p>")

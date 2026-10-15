@@ -1,6 +1,8 @@
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 from plugin.writer.format import (  # noqa: E402
     HTML_FILTER,
@@ -326,3 +328,73 @@ def test_restore_fields_in_region_without_document_search():
 
     assert restored == 1
     model.findFirst.assert_not_called()
+
+
+def test_rewrite_exported_field_spans_keeps_page_offset():
+    html = '<p><span title="page-number" data-offset="-2" data-subtype="PREV"/></p>'
+    out = rewrite_exported_field_spans(html)
+    assert out.count("[[WA-FIELD:page-number|subtype=PREV|offset=-2]]") == 1
+
+
+def test_insert_restored_field_unknown_title_raises():
+    from plugin.framework.errors import ToolExecutionError
+
+    model, text_range, _field, _text = _mock_field_range()
+    with pytest.raises(ToolExecutionError, match="not-a-field"):
+        _insert_restored_field(model, text_range, "not-a-field")
+    model.createInstance.assert_not_called()
+
+
+def test_insert_restored_field_create_failure_raises():
+    from plugin.framework.errors import ToolExecutionError
+
+    model, text_range, _field, text = _mock_field_range()
+    model.createInstance.side_effect = RuntimeError("no service")
+    with pytest.raises(ToolExecutionError, match="page-number"):
+        _insert_restored_field(model, text_range, "page-number")
+    text.createTextCursorByRange.assert_not_called()
+
+
+def test_insert_restored_field_disposal_is_not_a_tool_error():
+    from plugin.framework.errors import DocumentDisposedError
+
+    model, text_range, _field, text = _mock_field_range()
+    model.createInstance.side_effect = type("DisposedException", (Exception,), {})("gone")
+    with pytest.raises(DocumentDisposedError):
+        _insert_restored_field(model, text_range, "date")
+    text.insertTextContent.assert_not_called()
+
+
+def test_insert_restored_field_date_property_failure_does_not_insert():
+    model, text_range, field, text = _mock_field_range()
+    field.setPropertyValue.side_effect = RuntimeError("no IsDate")
+    with pytest.raises(RuntimeError, match="no IsDate"):
+        _insert_restored_field(model, text_range, "date")
+    text.insertTextContent.assert_not_called()
+
+
+def test_insert_restored_field_puts_placeholder_back_when_insert_fails():
+    from plugin.framework.errors import ToolExecutionError
+
+    model, text_range, _field, text = _mock_field_range()
+    cursor = text.createTextCursorByRange.return_value
+    cursor.getString.return_value = "[[WA-FIELD:date]]"
+    text.insertTextContent.side_effect = RuntimeError("insert failed")
+    with pytest.raises(ToolExecutionError, match="date"):
+        _insert_restored_field(model, text_range, "date")
+    assert cursor.setString.call_args_list[0].args == ("",)
+    assert cursor.setString.call_args_list[-1].args == ("[[WA-FIELD:date]]",)
+
+
+def test_restore_field_placeholders_search_error_propagates():
+    model = MagicMock()
+    model.createSearchDescriptor.side_effect = RuntimeError("no search")
+    with pytest.raises(RuntimeError, match="no search"):
+        _restore_field_placeholders(model)
+
+
+def test_restore_field_placeholders_find_error_propagates():
+    model = MagicMock()
+    model.findFirst.side_effect = RuntimeError("find failed")
+    with pytest.raises(RuntimeError, match="find failed"):
+        _restore_field_placeholders(model)

@@ -228,7 +228,7 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 
 **Review mode (`full_document`):** the deleted text stays in place, and an import at its start takes the first old paragraph's character formatting as direct formatting (an 18pt bold opening heading spread over the whole document). `replace_full_document` therefore opens an empty paragraph before the deleted text, imports there, and drops that paragraph if it is left over empty.
 
-**Hook points:** Named-style application runs on `replace_full_document` and on `insert_content_at_position` for `beginning` / `end` (after absorb prep so neighbor text is not restyled — see UNO-verified notes in `html_import._ensure_empty_absorb_for_styled_insert`). `selection` / `search` (`replace_single_range_with_content`) still insert the content but **skip** style application: those paths split or merge into the cursor's existing paragraph. For styling existing text use `apply_style`. (Styled `selection`/`search` is a later follow-up.)
+**Hook points:** Named-style application runs on `replace_full_document` and on `insert_content_at_position` for `beginning` / `end` (after absorb prep so neighbor text is not restyled — see UNO-verified notes in `html_import._ensure_empty_absorb_for_styled_insert`). A failed paragraph break at `end` raises; the import does not continue into the neighbor paragraph. `selection` / `search` (`replace_single_range_with_content`) still insert the content but **skip** style application: those paths split or merge into the cursor's existing paragraph. For styling existing text use `apply_style`. (Styled `selection`/`search` is a later follow-up.)
 
 ---
 

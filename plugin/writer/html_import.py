@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 from plugin.doc.text_helpers import normalize_linebreaks as _normalize
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.uno_context import new_blank_writer, uno_same
 from . import xhtml_style_postprocess as xhtml_post
 from . import format as format_mod
@@ -150,14 +150,9 @@ def _go_right(cursor: Any, n: int, expand: bool) -> bool:
 def _set_ruby_on_range(cursor: Any, reading: str, is_above: bool = True) -> None:
     """Create live ruby on the selected base run (same as the UNO seed probe)."""
     cursor.setPropertyValue("RubyText", reading)
-    try:
-        cursor.setPropertyValue("RubyIsAbove", bool(is_above))
-    except Exception:
-        pass
-    try:
-        cursor.setPropertyValue("RubyAdjust", 0)
-    except Exception:
-        pass
+    # RubyIsAbove and RubyAdjust are on the same cursor that just took RubyText.
+    cursor.setPropertyValue("RubyIsAbove", bool(is_above))
+    cursor.setPropertyValue("RubyAdjust", 0)
 
 
 def _prefix_char_count(text_obj: Any, cursor: Any) -> int:
@@ -166,13 +161,12 @@ def _prefix_char_count(text_obj: Any, cursor: Any) -> int:
     Captured before import so we can apply ruby only to the inserted suffix.
     A live ``cursor.getStart()`` drifts when ``insertDocumentFromURL`` moves it.
     """
-    try:
-        prefix = text_obj.createTextCursor()
-        prefix.gotoStart(False)
-        prefix.gotoRange(cursor.getStart(), True)
-        return len(prefix.getString() or "")
-    except Exception:
-        return 0
+    # Returning 0 painted ruby at the start of the text and bound the reading
+    # to an earlier copy of the same base. A closed document must raise.
+    prefix = text_obj.createTextCursor()
+    prefix.gotoStart(False)
+    prefix.gotoRange(cursor.getStart(), True)
+    return len(prefix.getString() or "")
 
 
 def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> None:
@@ -530,6 +524,9 @@ def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> st
     """Convert HTML to plain text by loading it into LibreOffice and reading
     the text out. Use this instead of regex stripping so entities, nested
     tags, and whitespace are handled correctly.
+
+    Raises ``ToolExecutionError`` when the scratch document cannot be created
+    or the import fails. Does not return the raw HTML.
     """
     if not html_string or not isinstance(html_string, str):
         return (html_string or "").strip()
@@ -542,7 +539,13 @@ def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> st
         # template's text would be returned as if the caller had sent it.
         temp_doc = new_blank_writer(ctx, target="_default")
         if not temp_doc or not hasattr(temp_doc, "getText"):
-            return html_string.strip()
+            # What was wrong: a missing scratch doc returned the raw HTML.
+            # How: search and dry_run use this string, so "<b>foo</b>" was
+            # looked up literally (not found, or dry_run count 0).
+            # Why: the caller gets the import error instead of a false miss.
+            raise ToolExecutionError(
+                "Could not turn that HTML into plain text for the search."
+            )
         with format_mod._with_temp_buffer(prepared, config_svc) as (_path, file_url):
             filter_name, _unused = format_mod._get_format_props(config_svc)
             filter_props = (format_mod.create_property_value("FilterName", filter_name),)
@@ -553,9 +556,14 @@ def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> st
             cursor.gotoStart(False)
             cursor.gotoEnd(True)
             return cursor.getString().strip()
-    except Exception:
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        if isinstance(exc, ToolExecutionError):
+            raise
         log.exception("html_to_plain_text failed")
-        return html_string.strip()
+        raise ToolExecutionError(
+            "Could not turn that HTML into plain text for the search."
+        ) from exc
     finally:
         if temp_doc is not None:
             try:
@@ -914,10 +922,10 @@ def _insert_mixed_or_plain_html(
         insert_html_fragment_at_cursor(cursor, single, wrap=False, config_svc=config_svc, model=None)
 
     if styled:
-        try:
-            _apply_block_lo_styles(model, text_obj, start_idx, block_styles, end=imported_end)
-        except Exception:
-            log.debug("data-lo-style application failed", exc_info=True)
+        # Per-paragraph failures are already logged inside _apply_block_lo_styles.
+        # This wrapper swallowed compareRegionStarts, so a closed document
+        # still looked like a finished insert.
+        _apply_block_lo_styles(model, text_obj, start_idx, block_styles, end=imported_end)
         _cursor_goto_document_end(model, cursor)
     _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
 
@@ -1013,11 +1021,10 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
         return cursor
     if not _cursor_paragraph_has_visible_text(cursor):
         return cursor
-    try:
-        # 0 == com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
-        text.insertControlCharacter(cursor, 0, False)
-    except Exception:
-        log.debug("styled-insert: PARAGRAPH_BREAK at end failed", exc_info=True)
+    # 0 == com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
+    # A failed break must not continue. The import would merge into the
+    # neighbor paragraph and data-lo-style would restyle that text.
+    text.insertControlCharacter(cursor, 0, False)
     return cursor
 
 
@@ -1138,7 +1145,10 @@ def _insert_content_at_position(model: Any, ctx: Any, content: str, position: st
 
                     raise_if_range_hosts_nested_table(rng)
                     rng.setString("")
-            except Exception as e:
+            except AttributeError as e:
+                # No text cursor (a shape that was not classified earlier).
+                # ToolExecutionError (nested table) and a closed document must
+                # not become an insert at the document end.
                 log.debug(
                     "insert_content_at_position: text selection unusable (%s); using document end",
                     e,
@@ -1206,10 +1216,9 @@ def _is_recording_changes(model: Any) -> bool:
     paragraph-style restore below) corrupt that into a per-character mess or a FORMAT
     redline that keeps the old text on Accept -- so those steps are skipped while recording.
     """
-    try:
-        return bool(model.getPropertyValue("RecordChanges"))
-    except Exception:
-        return False
+    # RecordChanges does not fail on a live document. Returning False hid a
+    # closed document and took the review-off path.
+    return bool(model.getPropertyValue("RecordChanges"))
 
 
 
@@ -1392,12 +1401,10 @@ def rewrite_exported_field_spans(html: str) -> str:
                 if st_name != "CURRENT":
                     props.append(f"subtype={st_name}")
             if offset_m:
-                try:
-                    off_val = int(offset_m.group(1))
-                    if off_val != 0:
-                        props.append(f"offset={off_val}")
-                except Exception as e:
-                    log.debug("rewrite_exported_field_spans offset parse error: %s", e)
+                # The group is (-?\d+), so int() cannot fail.
+                off_val = int(offset_m.group(1))
+                if off_val != 0:
+                    props.append(f"offset={off_val}")
             if num_m:
                 nt_raw = num_m.group(1).strip().upper()
                 if nt_raw in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
@@ -1419,12 +1426,13 @@ def rewrite_exported_field_spans(html: str) -> str:
 def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[str, str] | None = None) -> bool:
     service = _FIELD_TITLE_TO_SERVICE.get(title)
     if not service:
-        return False
+        raise ToolExecutionError("Could not restore the %s field." % title)
     try:
         field = model.createInstance(service)
     except Exception as e:
+        reraise_if_disposed(e)
         log.debug("_insert_restored_field createInstance failed for %s: %s", service, e)
-        return False
+        raise ToolExecutionError("Could not restore the %s field." % title) from e
     props = props or {}
     if title == "page-number":
         try:
@@ -1433,13 +1441,12 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
             if st_name is None:
                 log.warning("Unknown PageNumber SubType: %r, defaulting to CURRENT", props.get("subtype"))
                 st_name = "CURRENT"
-            st_val: Any
-            try:
-                import uno
-                st_val = uno.Enum("com.sun.star.text.PageNumberType", st_name)
-            except Exception:
-                st_val = 1 if st_name == "CURRENT" else (2 if st_name == "NEXT" else 0)
-            field.setPropertyValue("SubType", st_val)
+            import uno
+            # SubType accepts only this enum. An int is refused, and uno is
+            # always importable inside LibreOffice.
+            field.setPropertyValue(
+                "SubType", uno.Enum("com.sun.star.text.PageNumberType", st_name),
+            )
         except Exception as e:
             log.debug("_insert_restored_field failed to set SubType: %s", e)
         try:
@@ -1459,36 +1466,40 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
             field.setPropertyValue("NumberingType", nt_val)
         except Exception as e:
             log.debug("_insert_restored_field failed to set NumberingType: %s", e)
+    # DateTime.IsDate and Author.FullName are on the service just created.
+    # A swallowed failure inserted the other form and still returned True.
     elif title == "date":
-        try:
-            field.setPropertyValue("IsDate", True)
-        except Exception:
-            pass
+        field.setPropertyValue("IsDate", True)
     elif title == "time":
-        try:
-            field.setPropertyValue("IsDate", False)
-        except Exception:
-            pass
+        field.setPropertyValue("IsDate", False)
     elif title == "author-name":
         # Same Author service as initials; FullName selects the display form.
-        try:
-            field.setPropertyValue("FullName", True)
-        except Exception:
-            pass
+        field.setPropertyValue("FullName", True)
     elif title == "author-initials":
-        try:
-            field.setPropertyValue("FullName", False)
-        except Exception:
-            pass
+        field.setPropertyValue("FullName", False)
     try:
         text = text_range.getText()
         cursor = text.createTextCursorByRange(text_range)
+        placeholder = cursor.getString() or ""
         cursor.setString("")
-        text.insertTextContent(cursor, field, False)
+        try:
+            text.insertTextContent(cursor, field, False)
+        except Exception:
+            # insertTextContent failed after the token was cleared. page_set
+            # does not undo the header text, so put the placeholder back.
+            try:
+                cursor.setString(placeholder)
+            except Exception:
+                log.exception(
+                    "_insert_restored_field: insert failed and the %s placeholder could not be restored",
+                    title,
+                )
+            raise
         return True
-    except Exception:
+    except Exception as e:
+        reraise_if_disposed(e)
         log.debug("_insert_restored_field failed title=%s", title, exc_info=True)
-        return False
+        raise ToolExecutionError("Could not restore the %s field." % title) from e
 
 
 def _select_placeholder(text_obj: Any, needle: str) -> Any | None:
@@ -1586,13 +1597,12 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any) -> int:
         if cursor is None:
             return restored
 
-        inserted = (
+        # A False return used to stop here and leave [[WA-FIELD:…]] in the
+        # region while replace_xtext_with_html still returned.
+        if props:
             _insert_restored_field(model, cursor, title, props)
-            if props
-            else _insert_restored_field(model, cursor, title)
-        )
-        if not inserted:
-            return restored
+        else:
+            _insert_restored_field(model, cursor, title)
         restored += 1
     return restored
 
@@ -1613,57 +1623,40 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
         return 0
     restored = 0
 
-    try:
-        sd = model.createSearchDescriptor()
-        sd.SearchRegularExpression = True
-    except Exception as e:
-        log.debug("_restore_field_placeholders createSearchDescriptor failed: %s", e)
-        return 0
+    # createSearchDescriptor, findFirst, getString, and findNext do not fail
+    # on a live model. Swallowing them left [[WA-FIELD:…]] in the header and
+    # the write still returned.
+    sd = model.createSearchDescriptor()
+    sd.SearchRegularExpression = True
 
     for title in _EXPORTED_FIELD_TITLES:
         sd.SearchString = r"\[\[WA-FIELD:" + title + r"(?:\|[^\]]+)?\]\]"
-        try:
-            found = model.findFirst(sd)
-        except Exception as e:
-            log.debug("_restore_field_placeholders findFirst failed for %s: %s", title, e)
-            continue
+        found = model.findFirst(sd)
 
         while found is not None:
             in_region = True
             if text_obj is not None:
-                try:
-                    in_region = uno_same(found.getText(), text_obj)
-                except Exception as e:
-                    log.debug("_restore_field_placeholders uno_same check failed: %s", e)
-                    in_region = True
+                # A failed getText is not "in this region". uno_same stays.
+                in_region = uno_same(found.getText(), text_obj)
 
             props: dict[str, str] = {}
             field_title = title
-            try:
-                token = found.getString()
-                if isinstance(token, str):
-                    match = _FIELD_TOKEN_RE.match(token)
-                    if match:
-                        field_title = match.group(1).lower()
-                        props = _parse_field_token_props(match.group(2))
-            except Exception as e:
-                log.debug("_restore_field_placeholders getString failed: %s", e)
+            token = found.getString()
+            if isinstance(token, str):
+                match = _FIELD_TOKEN_RE.match(token)
+                if match:
+                    field_title = match.group(1).lower()
+                    props = _parse_field_token_props(match.group(2))
 
-            nxt = None
-            try:
-                nxt = model.findNext(found.getEnd(), sd)
-            except Exception as e:
-                log.debug("_restore_field_placeholders findNext failed: %s", e)
-                nxt = None
+            # Capture the next hit before the insert replaces this range.
+            nxt = model.findNext(found.getEnd(), sd)
 
             if in_region:
-                inserted = (
+                if props:
                     _insert_restored_field(model, found, field_title, props)
-                    if props
-                    else _insert_restored_field(model, found, field_title)
-                )
-                if inserted:
-                    restored += 1
+                else:
+                    _insert_restored_field(model, found, field_title)
+                restored += 1
 
             found = nxt
 
@@ -1737,6 +1730,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
             try:
                 paras.append(enum.nextElement())
             except Exception as e:
+                reraise_if_disposed(e)
                 log.debug("Failed to enumerate paragraph: %s", e)
                 break
         if len(paras) > 1:
@@ -1752,7 +1746,14 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
                             has_content = True
                             break
                 except Exception as e:
+                    # What was wrong: a failed portion walk left has_content False
+                    # and the last paragraph was deleted.
+                    # How: that paragraph can hold a frame, field, or image whose
+                    # getString() is empty.
+                    # Why: skip the delete unless the walk actually finishes empty.
+                    reraise_if_disposed(e)
                     log.debug("Failed to inspect trailing paragraph portions: %s", e)
+                    has_content = True
                 if not has_content:
                     try:
                         # To actually remove the trailing break, select from the end of the previous paragraph
@@ -1762,13 +1763,16 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
                         cursor.gotoRange(last_para.getEnd(), True)
                         cursor.setString("")
                     except Exception as e:
+                        reraise_if_disposed(e)
                         log.debug("Failed to remove trailing paragraph break via cursor: %s", e)
                         try:
                             if hasattr(last_para, "dispose"):
                                 last_para.dispose()
                         except Exception as e2:
+                            reraise_if_disposed(e2)
                             log.debug("Failed to dispose trailing paragraph: %s", e2)
     except Exception as e:
+        reraise_if_disposed(e)
         log.debug("Failed to inspect trailing paragraph: %s", e)
 
 
@@ -1879,29 +1883,22 @@ def replace_preserving_format(
 
     overlap = min(old_len, new_len)
 
-    # Optional toolkit for UI responsiveness.
-    toolkit = None
-    if ctx:
-        try:
-            toolkit = ctx.getServiceManager().createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-        except Exception:
-            pass
-
+    # Do not pump processEvents inside this edit. A queued tool or a keystroke
+    # would run on the main thread, inside the caller's undo context.
     # Process overlapping characters one by one.
     # setString on a selected character preserves the range's formatting.
     main_cursor = text.createTextCursorByRange(target_range.getStart())
 
     for i in range(overlap):
-        if i > 0 and i % 500 == 0 and toolkit:
-            try:
-                toolkit.processEvents()
-            except Exception:
-                toolkit = None
-
         # Create a selection for exactly one character to check/replace.
         sel = text.createTextCursorByRange(main_cursor)
         if not sel.goRight(1, True):
-            break
+            # goRight stopped before the counted overlap (a field is one cursor
+            # step but several characters in getString(), or the text ended).
+            # Breaking and then applying the length change mixes old and new.
+            raise ToolExecutionError(
+                "Could not replace that text in place (the selection did not advance)."
+            )
 
         if new_text[i] != old_text[i]:
             sel.setString(new_text[i])

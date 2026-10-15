@@ -54,6 +54,7 @@ class TestWriterMathPreservation:
         ctx = MagicMock()
         model = MagicMock()
         cursor = MagicMock()
+        cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
 
         content = (
             "<p>Requer a condena\u00e7\u00e3o em R$ 12.798,82, como montante "
@@ -78,6 +79,7 @@ class TestWriterMathPreservation:
         ctx = MagicMock()
         model = MagicMock()
         cursor = MagicMock()
+        cursor.getText.return_value.createTextCursor.return_value.getString.return_value = ""
         
         test_content = "Line 1\\nLine 2"
         

@@ -382,6 +382,176 @@ def test_ensure_empty_absorb_noop_for_beginning():
     text.insertControlCharacter.assert_not_called()
 
 
+def test_insert_content_at_position_nested_table_is_not_appended_at_end():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.doc import visual_helpers
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.format import insert_content_at_position
+
+    text_rng = MagicMock()
+    text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+    text_rng.supportsService.return_value = False
+    sel = MagicMock()
+    sel.getCount.return_value = 1
+    sel.getByIndex.return_value = text_rng
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+    body_cursor = MagicMock()
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value.createTextCursor.return_value = body_cursor
+
+    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ) as mock_insert, patch(
+        "plugin.writer.specialized.tables.raise_if_range_hosts_nested_table",
+        side_effect=ToolExecutionError("nested tables"),
+    ):
+        with pytest.raises(ToolExecutionError, match="nested tables"):
+            insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+    mock_insert.assert_not_called()
+    body_cursor.gotoEnd.assert_not_called()
+
+
+def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.doc import visual_helpers
+    from plugin.writer.format import insert_content_at_position
+
+    text_rng = MagicMock()
+    text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+    text_rng.supportsService.return_value = False
+    text_rng.setString.side_effect = RuntimeError("clear failed")
+    sel = MagicMock()
+    sel.getCount.return_value = 1
+    sel.getByIndex.return_value = text_rng
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+    body_cursor = MagicMock()
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value.createTextCursor.return_value = body_cursor
+
+    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ) as mock_insert, patch(
+        "plugin.writer.specialized.tables.raise_if_range_hosts_nested_table",
+    ):
+        with pytest.raises(RuntimeError, match="clear failed"):
+            insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+    mock_insert.assert_not_called()
+    body_cursor.gotoEnd.assert_not_called()
+
+
+def test_insert_content_at_position_attribute_error_still_uses_doc_end():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.doc import visual_helpers
+    from plugin.writer.format import insert_content_at_position
+
+    text_rng = MagicMock()
+    text_rng.getText.side_effect = AttributeError("insertDocumentFromURL")
+    text_rng.supportsService.return_value = False
+    sel = MagicMock()
+    sel.getCount.return_value = 1
+    sel.getByIndex.return_value = text_rng
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+    body_cursor = MagicMock()
+    body_text = MagicMock()
+    body_text.createTextCursor.return_value = body_cursor
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value = body_text
+
+    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ) as mock_insert:
+        insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+    body_cursor.gotoEnd.assert_called_once_with(False)
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.args[2] is body_cursor
+
+
+def test_ensure_empty_absorb_raises_when_break_fails():
+    from unittest.mock import MagicMock
+
+    from plugin.writer import html_import as hi
+
+    cursor = MagicMock()
+    text = MagicMock()
+    para = MagicMock()
+    para.getString.return_value = "Existing"
+    text_obj = MagicMock()
+    text_obj.createTextCursorByRange.return_value = para
+    cursor.getText.return_value = text_obj
+    cursor.getStart.return_value = MagicMock()
+    text.insertControlCharacter.side_effect = RuntimeError("break failed")
+    with pytest.raises(RuntimeError, match="break failed"):
+        hi._ensure_empty_absorb_for_styled_insert(text, cursor, "end")
+
+
+def test_replace_preserving_format_raises_when_go_right_stops():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer import html_import as hi
+
+    class _Cursor:
+        def __init__(self):
+            self.writes = []
+
+        def goRight(self, _n, _expand):
+            return False
+
+        def setString(self, value):
+            self.writes.append(value)
+
+        def getEnd(self):
+            return object()
+
+        def gotoRange(self, _end, _expand):
+            return None
+
+        def getPropertyValue(self, _name):
+            return None
+
+    class _Text:
+        def __init__(self):
+            self.cursor = _Cursor()
+            self.inserts = []
+
+        def createTextCursorByRange(self, _r):
+            return self.cursor
+
+        def insertString(self, *_args):
+            self.inserts.append("insert")
+
+    class _Range:
+        def __init__(self, text):
+            self._text = text
+
+        def getText(self):
+            return self._text
+
+        def getString(self):
+            return "AB"
+
+        def getStart(self):
+            return object()
+
+    text = _Text()
+    ctx = MagicMock()
+    with patch.object(hi, "_is_recording_changes", return_value=False):
+        with pytest.raises(ToolExecutionError, match="did not advance"):
+            hi.replace_preserving_format(MagicMock(), _Range(text), "XY", ctx=ctx)
+    assert text.cursor.writes == []
+    assert text.inserts == []
+    ctx.getServiceManager.assert_not_called()
+
+
 def test_replace_preserving_format_atomic_when_split_author_false_even_in_undo_context():
     # Configurable coloring: split_author=False forces the SINGLE atomic setString (one author -> one
     # color) even INSIDE an open undo context, where split_author=True (the default) would use the
