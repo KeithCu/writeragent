@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import threading
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 _ext_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,11 +39,10 @@ from plugin.framework.uno_context import get_ctx, set_fallback_ctx, set_package_
 from plugin.framework.url_utils import dispatch_command_from_url, matches_extension_dispatch_url
 
 EXTENSION_ID = EXTENSION_ID_LIBREPY
-_DISPATCH_PROTOCOL = EXTENSION_ID + ":"
 
 log = logging.getLogger(__name__)
 _initialized = False
-_init_lock = threading.Lock()
+_bootstrapping = False
 
 from plugin.framework.main_shared import (
     register_action_handler,
@@ -65,16 +63,22 @@ def _register_librepy_handlers() -> None:
 
 
 def bootstrap(ctx: Any | None = None) -> None:
-    global _initialized
+    global _initialized, _bootstrapping
     if _initialized:
         return
     from plugin.framework.thread_guard import on_main_thread
 
     if not on_main_thread():
         return
-    with _init_lock:
-        if _initialized:
-            return
+    # What was wrong: a non-reentrant Lock wrapped this whole body.
+    # How it happened: off-thread callers already return, so the lock excluded
+    # nobody, and a nested bootstrap() on this thread deadlocked.
+    # Why this change: the flag returns on reentry; finally clears it so a
+    # failed attempt can run again.
+    if _bootstrapping:
+        return
+    _bootstrapping = True
+    try:
         if ctx is None:
             ctx = get_ctx()
         set_fallback_ctx(ctx)
@@ -121,6 +125,8 @@ def bootstrap(ctx: Any | None = None) -> None:
         except Exception:
             log.debug("Notebook run button wiring install failed", exc_info=True)
         _initialized = True
+    finally:
+        _bootstrapping = False
 
 
 def _schedule_update_check(ctx: Any) -> None:
