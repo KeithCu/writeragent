@@ -769,7 +769,8 @@ def test_large_text_cells_and_bad_k_return_nan():
     assert math.isnan(calc.large(["a", "b"], 1))
     assert calc.large(["a", 5.0, "b", 1.0], 1) == 5.0
     assert calc.large([1.0, 5.0, 3.0, 4.0, 2.0], 2) == 4.0
-    assert math.isnan(calc.large([1.0, 2.0], "k"))
+    with pytest.raises(ValueError):
+        calc.large([1.0, 2.0], "k")
 
 
 def test_complex_overflow_returns_value_error():
@@ -1227,8 +1228,10 @@ def test_criteria_ranges_must_match_shape():
 
 
 def test_irr_subtotal_workday_iseven_bad_input_does_not_raise():
-    assert math.isnan(calc.irr(["a", "b"]))
-    assert math.isnan(calc.irr([-100.0, 110.0], guess="nope"))
+    with pytest.raises(ValueError):
+        calc.irr(["a", "b"])
+    with pytest.raises(ValueError):
+        calc.irr([-100.0, 110.0], guess="nope")
     assert math.isnan(calc.subtotal("nope", [1.0, 2.0, 3.0]))
     assert calc.subtotal(9, [1.0, 2.0, 3.0]) == 6.0
     assert math.isnan(calc.workday(46181, "nope"))
@@ -1369,9 +1372,12 @@ def test_edate_eomonth_text_months_are_nan():
 def test_ispmt_zero_nper_and_mround_sort_text_are_nan():
     assert math.isnan(calc.ispmt(0.1, 1, 0, 1000))
     assert not math.isnan(calc.ispmt(0.1, 1, 12, 1000))
-    assert math.isnan(calc.mround("x", 1))
-    assert math.isnan(calc.mround(2.5, ""))
-    assert math.isnan(calc.mround(None, 1))
+    with pytest.raises(ValueError):
+        calc.mround("x", 1)
+    with pytest.raises(ValueError):
+        calc.mround(2.5, "")
+    with pytest.raises(TypeError):
+        calc.mround(None, 1)
     assert calc.mround(2.5, 1) == 3.0
     assert math.isnan(calc.sort([[3, 1], [2, 4]], "a", 1))
     assert math.isnan(calc.sort([[3, 1], [2, 4]], 1, ""))

@@ -162,16 +162,15 @@ def _im_binary(fn: Callable[[complex, complex], complex]) -> Callable[[Any, Any]
 
 def _im_float(fn: Callable[[complex], float]) -> Callable[[Any], float]:
     def wrapper(inumber: Any) -> float:
-        try:
-            # getImabs / getImargument return finiteOrThrow(result). A
-            # non-finite magnitude is NaN here. String IM functions raise
-            # from _from_complex and become "#VALUE!" instead.
-            result = float(fn(_to_complex(inumber)))
-            if not math.isfinite(result):
-                return float("nan")
-            return result
-        except (ValueError, TypeError, OverflowError, ZeroDivisionError):
+        # type errors are left to the worker exception path, which returns #VALUE!
+        # getImabs / getImargument return finiteOrThrow(result). A
+        # non-finite magnitude is NaN here. inf would not trip IFERROR:
+        # _is_calc_error(inf) is false. String IM functions still catch
+        # inside _im_unary and return "#VALUE!".
+        result = float(fn(_to_complex(inumber)))
+        if not math.isfinite(result):
             return float("nan")
+        return result
 
     return wrapper
 
@@ -189,9 +188,9 @@ def imaginary(c: complex) -> float:
 @_im_float
 def imargument(c: complex) -> float:
     # Complex::Arg (analysishelper.cxx) throws when both parts are 0.
-    # cmath.phase(0) is 0. The note in that function calls arg(0) undefined.
+    # cmath.phase(0) is 0. A ValueError here would be #VALUE!; arg(0) is #NUM!.
     if c.real == 0.0 and c.imag == 0.0:
-        raise ValueError("arg of zero")
+        return float("nan")
     return cmath.phase(c)
 
 
@@ -357,31 +356,28 @@ def intercept(data_y: Any, data_x: Any) -> float:
         return float("nan")
     y, x = cleaned
     s = slope(y, x)
-    if np.isnan(s):
-        return float("nan")
+    # slope NaN already propagates through the intercept formula
     return float(np.mean(y) - s * np.mean(x))
 
 
 def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, basis: Any = 0) -> float:
     from .calc_functions_t_z import yearfrac
 
-    try:
-        s = float(settlement)
-        m = float(maturity)
-        inv = float(investment)
-        red = float(redemption)
-        b = int(float(basis))
-    except (ValueError, TypeError, OverflowError):
-        # int(float(basis)) raises OverflowError on ±inf. That used to escape
-        # the helper. Excel INTRATE is #NUM!, which this module reports as NaN.
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    s = float(settlement)
+    m = float(maturity)
+    inv = float(investment)
+    red = float(redemption)
+    b = int(float(basis))
     if s >= m or inv <= 0 or red <= 0 or b < 0 or b > 4:
         return float("nan")
     yf = yearfrac(s, m, b)
-    if yf == 0 or math.isnan(yf):
+    # a NaN yearfrac already makes the quotient NaN
+    # yf == 0 would be ZeroDivisionError (#DIV/0!). Excel INTRATE is #NUM!.
+    if yf == 0:
         return float("nan")
     # What was wrong: INTRATE with an infinite redemption returned inf.
-    # How it happened: the quotient is outside the conversion try, and float
+    # How it happened: the quotient is outside the conversion, and float
     # division does not raise. getIntrate returns finiteOrThrow.
     # Why this change fixes it: a non-finite quotient is NaN.
     res = (red - inv) / inv / yf
@@ -389,19 +385,15 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
 
 
 def ipmt(rate: Any, per: Any, nper: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
-    try:
-        r = float(rate)
-        # Excel/Calc truncate the period. A fractional per is a different
-        # numpy-financial payment, not the truncated one.
-        p = int(float(per))
-        n = float(nper)
-        pv_f = float(pv_val)
-        fv_f = float(fv_val)
-        type_f = float(type_val)
-    except (ValueError, TypeError, OverflowError):
-        # int(float(per)) raises OverflowError on ±inf. That used to escape
-        # the helper. Excel IPMT is #NUM!, reported as NaN.
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    r = float(rate)
+    # Excel/Calc truncate the period. A fractional per is a different
+    # numpy-financial payment, not the truncated one.
+    p = int(float(per))
+    n = float(nper)
+    pv_f = float(pv_val)
+    fv_f = float(fv_val)
+    type_f = float(type_val)
     # ScIpmt (interpr2.cxx) uses GetBool(), which is GetDouble() != 0.
     # int(type) == 1 treated 2, -1, and 0.5 as end of period. CUMIPMT is
     # the function that rejects a flag other than 0 or 1. A non-finite
@@ -421,16 +413,14 @@ def irr(values: Any, guess: Any = 0.1) -> float:
     # (smallest magnitude). Excel IRR(values, guess) is Newton's method from
     # that guess: guess 0.1 and 0.5 on [-5, 10.5, 1, -8, 1] are different
     # roots (~0.089 and ~0.71). Keep this solver.
-    # dtype=float and float(guess) raise on a text cell. Sibling helpers return NaN.
-    try:
-        vals = np.asarray(values, dtype=float).ravel()
-        estimated = float(guess)
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    vals = np.asarray(values, dtype=float).ravel()
+    estimated = float(guess)
     # ScIRR (interpr2.cxx) starts at 0.1 when the guess is -1. (1+x)**i
     # is 0 there, so Newton never moves and a cashflow such as [-1, 1]
-    # came back NaN instead of 0. A later step that lands on -1, or a
-    # huge (1+x)**i, is #NUM!. OverflowError used to escape the helper.
+    # came back NaN instead of 0. A later step that lands on -1 returns NaN
+    # below (#NUM!, not #DIV/0!). A huge (1+x)**i raises OverflowError,
+    # which the worker returns as #NUM!.
     x = 0.1 if estimated == -1.0 else estimated
     # The stop used to be abs(NPV) < 1e-7 for 100 steps. ScIRR stops when
     # the rate step drops below SCdEpsilon (1e-7), and it gives up after
@@ -439,25 +429,22 @@ def irr(values: Any, guess: Any = 0.1) -> float:
     # returned NaN for a rate Calc finds. A guess of exactly 0 that lands
     # within 1e-7 of 0 is snapped to 0 before that check.
     eps = 1.0
-    try:
-        for _unused in range(20):
-            if not math.isfinite(x) or x == -1.0:
-                return float("nan")
-            f = 0.0
-            df = 0.0
-            for i, v in enumerate(vals):
-                f += v / ((1 + x) ** i)
-                if i > 0:
-                    df -= i * v / ((1 + x) ** (i + 1))
-            if df == 0.0:
-                break
-            x_new = x - f / df
-            eps = abs(x_new - x)
-            x = x_new
-            if not eps > 1e-7:
-                break
-    except (OverflowError, ZeroDivisionError):
-        return float("nan")
+    for _unused in range(20):
+        if not math.isfinite(x) or x == -1.0:
+            return float("nan")
+        f = 0.0
+        df = 0.0
+        for i, v in enumerate(vals):
+            f += v / ((1 + x) ** i)
+            if i > 0:
+                df -= i * v / ((1 + x) ** (i + 1))
+        if df == 0.0:
+            break
+        x_new = x - f / df
+        eps = abs(x_new - x)
+        x = x_new
+        if not eps > 1e-7:
+            break
     if estimated == 0.0 and math.isfinite(x) and abs(x) < 1e-7:
         x = 0.0
     if eps < 1e-7 and math.isfinite(x):
@@ -487,8 +474,7 @@ def _parity(val: Any) -> int | None:
     """
     try:
         number = float(val)
-        if np.isnan(number):
-            return None
+        # int(nan) raises ValueError, which the handler below already turns into not-even / not-odd
         return int(number)
     except (ValueError, TypeError, OverflowError):
         return None
@@ -548,15 +534,11 @@ def isoweeknum(serial: Any) -> float:
 
 
 def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
-    try:
-        r = float(rate)
-        p = float(per)
-        n = float(nper)
-        pv_f = float(pv_val)
-    except (ValueError, TypeError, OverflowError):
-        # float() of a huge int raises OverflowError. The other payment
-        # helpers already turn that into NaN. This one let it escape.
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    r = float(rate)
+    p = float(per)
+    n = float(nper)
+    pv_f = float(pv_val)
     # nper == 0 used to raise ZeroDivisionError (pv / nper). Excel/Calc are
     # #NUM!; this module returns NaN. Same guard as pmt.
     if n == 0:
@@ -584,7 +566,8 @@ def jis(text: Any) -> str:
     # None is a blank cell. str() of a cell does not raise ValueError.
     if text is None:
         return ""
-    if isinstance(text, float) and math.isfinite(text) and text.is_integer():
+    # nan and inf are not integers; str() is their text
+    if isinstance(text, float) and text.is_integer():
         return str(int(text))
     return str(text)
 
@@ -613,10 +596,8 @@ def kurt(*args: Any) -> float:
 def large(r: Any, k: Any) -> float:
     # Numbers only. Text such as '5', bools, and NaN are ignored, not sorted in.
     arr = _extract_numeric_array(r, propagate_nan=False)
-    try:
-        ki = int(float(k))
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    # non-numeric k is left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    ki = int(float(k))
     if not 0 < ki <= len(arr):
         return float("nan")
     # The kth largest sits at index -ki. The rest of the array stays unsorted.
@@ -715,46 +696,43 @@ def logest(*args: Any, **kwargs: Any) -> Any:
 
 
 def loginv(p: Any, mean: Any, stdev: Any) -> float:
-    try:
-        prob = float(p)
-        m = float(mean)
-        s = float(stdev)
-        # ScLogNormInv (interpr3.cxx): fP <= 0 or fP >= 1 is
-        # IllegalArgument. gaussinv(0) is -inf and gaussinv(1) is +inf.
-        if prob <= 0 or prob >= 1 or s <= 0:
-            return float("nan")
-        # exp(mue + sigma * gaussinv(p)). statistics.NormalDist is that
-        # inverse CDF. scipy.stats used to be imported inside the call, so
-        # a missing scipy made every probability NaN.
-        res = math.exp(m + s * statistics.NormalDist().inv_cdf(prob))
-        return res if math.isfinite(res) else float("nan")
-    except (ValueError, TypeError, OverflowError):
-        # exp(1e308) raises OverflowError ("math range error").
+    # type errors are left to the worker exception path, which returns #VALUE!
+    prob = float(p)
+    m = float(mean)
+    s = float(stdev)
+    # ScLogNormInv (interpr3.cxx): fP <= 0 or fP >= 1 is
+    # IllegalArgument. gaussinv(0) is -inf and gaussinv(1) is +inf.
+    if prob <= 0 or prob >= 1 or s <= 0:
         return float("nan")
+    # exp(mue + sigma * gaussinv(p)). statistics.NormalDist is that
+    # inverse CDF. scipy.stats used to be imported inside the call, so
+    # a missing scipy made every probability NaN.
+    # exp(1e308) raises OverflowError, which the worker returns as #NUM!.
+    # exp(inf) returns inf, and IFERROR does not treat inf as an error.
+    res = math.exp(m + s * statistics.NormalDist().inv_cdf(prob))
+    return res if math.isfinite(res) else float("nan")
 
 
 def lognormdist(x: Any, mean: Any, stdev: Any, c: Any = 1) -> float:
-    try:
-        x_val = float(x)
-        m = float(mean)
-        s = float(stdev)
-        cum = bool(float(c))
-        if s <= 0:
-            return float("nan")
-        # ScLogNormDist (interpr3.cxx): cumulative of x <= 0 is 0. The
-        # density is IllegalArgument. The body is integralPhi((ln x - mue)
-        # / sigma) and phi(z) / sigma / x. It does not exp(mue), so a huge
-        # mean is a tail probability, not an overflow.
-        if x_val <= 0:
-            return 0.0 if cum else float("nan")
-        z = (math.log(x_val) - m) / s
-        if cum:
-            res = 0.5 * math.erfc(-z / math.sqrt(2.0))
-        else:
-            res = math.exp(-0.5 * z * z) / (x_val * s * math.sqrt(2.0 * math.pi))
-        return res if math.isfinite(res) else float("nan")
-    except (ValueError, TypeError, OverflowError):
+    # type errors are left to the worker exception path, which returns #VALUE!
+    x_val = float(x)
+    m = float(mean)
+    s = float(stdev)
+    cum = bool(float(c))
+    if s <= 0:
         return float("nan")
+    # ScLogNormDist (interpr3.cxx): cumulative of x <= 0 is 0. The
+    # density is IllegalArgument. The body is integralPhi((ln x - mue)
+    # / sigma) and phi(z) / sigma / x. It does not exp(mue), so a huge
+    # mean is a tail probability, not an overflow.
+    if x_val <= 0:
+        return 0.0 if cum else float("nan")
+    z = (math.log(x_val) - m) / s
+    if cum:
+        res = 0.5 * math.erfc(-z / math.sqrt(2.0))
+    else:
+        res = math.exp(-0.5 * z * z) / (x_val * s * math.sqrt(2.0 * math.pi))
+    return res if math.isfinite(res) else float("nan")
 
 
 def _lookup_number(val: Any) -> float | None:
@@ -766,8 +744,7 @@ def _lookup_number(val: Any) -> float | None:
             number = float(val)
         except (ValueError, TypeError, OverflowError):
             return None
-        if math.isnan(number):
-            return None
+        # a NaN key compares false and is already a miss (#N/A)
         return number
     return None
 
@@ -859,26 +836,20 @@ def _as_matrix(value: Any, *, numeric: bool) -> np.ndarray:
 
 
 def mdeterm(matrix: Any) -> float:
-    try:
-        return float(np.linalg.det(_as_matrix(matrix, numeric=True)))
-    except Exception:
-        return float("nan")
+    # non-numeric or non-square input is left to the worker exception path, which returns #VALUE!
+    return float(np.linalg.det(_as_matrix(matrix, numeric=True)))
 
 
 def mduration(settlement: Any, maturity: Any, coupon: Any, yld: Any, frequency: Any, basis: Any = 0) -> float:
     from .calc_functions_d_h import duration
 
-    try:
-        s = float(settlement)
-        m = float(maturity)
-        c = float(coupon)
-        y = float(yld)
-        f = float(frequency)
-        b = int(float(basis))
-    except (ValueError, TypeError, OverflowError):
-        # int(float(basis)) raises OverflowError on ±inf. That used to escape
-        # the helper. Excel MDURATION is #NUM!, which this module reports as NaN.
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    s = float(settlement)
+    m = float(maturity)
+    c = float(coupon)
+    y = float(yld)
+    f = float(frequency)
+    b = int(float(basis))
     macd = duration(s, m, c, y, f, b)
     if math.isnan(macd):
         return macd
@@ -903,14 +874,10 @@ def minverse(matrix: Any) -> Any:
 
 
 def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
-    try:
-        vals = [float(x) for x in np.asarray(values).ravel()]
-        fr = float(finance_rate)
-        rr = float(reinvest_rate)
-    except (ValueError, TypeError, OverflowError):
-        # float() of a huge int raises OverflowError. The other rate
-        # helpers already turn that into NaN. This one let it escape.
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    vals = [float(x) for x in np.asarray(values).ravel()]
+    fr = float(finance_rate)
+    rr = float(reinvest_rate)
     # rate == -1 used to divide by zero (later negative flows) or return a
     # finite number (reinvest rate -1). numpy-financial's NPV is undefined
     # there and returns NaN, which is Excel #NUM!.
@@ -961,15 +928,11 @@ def mode(*args: Any) -> Any:
 
 
 def mround(number: Any, multiple: Any) -> float:
-    # float() on text or a blank cell used to raise ValueError.
-    try:
-        n = float(number)
-        m = float(multiple)
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    n = float(number)
+    m = float(multiple)
     # math.floor/ceil raise OverflowError on ±inf and ValueError on NaN.
-    # A huge quotient (1e308 / 1e-308) overflows the same way. Excel MROUND
-    # is #NUM! for a non-finite argument; this module reports that as NaN.
+    # Excel MROUND is #NUM! for a non-finite argument; this module reports that as NaN.
     if not math.isfinite(n) or not math.isfinite(m):
         return float("nan")
     # multiple 0 returns 0. LibreOffice analysis.cxx getMround
@@ -985,8 +948,7 @@ def mround(number: Any, multiple: Any) -> float:
     # was 2. Excel/Calc round halves away from zero (result 3). Same-sign
     # inputs make the quotient non-negative; floor(q + 0.5) is that rounding.
     quot = n / m
-    if not math.isfinite(quot):
-        return float("nan")
+    # a non-finite quotient raises OverflowError from floor/ceil, which the worker returns as #NUM!
     rounded = math.floor(quot + 0.5) if quot >= 0 else math.ceil(quot - 0.5)
     return float(rounded * m)
 
@@ -1006,50 +968,48 @@ def mtrans(matrix: Any) -> Any:
 
 
 def multinomial(*args: Any) -> float:
-    try:
-        vals: list[int] = []
-        for arg in args:
-            for value in np.asarray(arg).ravel():
-                vals.append(int(float(value)))
-        if any(value < 0 for value in vals):
-            return float("nan")
-        # What was wrong: multinomial(1e9, 1e9) did not return. It burned CPU
-        # and memory until the script timeout.
-        # How it happened: math.comb(sum, k) builds a Python int. comb(2e9, 1e9)
-        # is hundreds of millions of bits. The switch off math.factorial(sum)
-        # only made each factor smaller; it did not bound the factor.
-        # getMultinomial (analysis.cxx) multiplies BinomialCoefficient in
-        # double and returns finiteOrThrow. A non-finite result is #NUM!,
-        # which this module reports as NaN.
-        # Why this change fixes it: log-gamma rejects a coefficient that
-        # cannot fit in a float before math.comb runs, and the running
-        # product stops at the same float limit. k < 2 skips log-gamma:
-        # lgamma(1e308) raises OverflowError even when C(n, n) is 1 and
-        # C(n, 1) is n.
-        acc = 1
-        rest = sum(vals)
-        limit = math.log(sys.float_info.max)
-        for value in vals:
-            k = min(value, rest - value)
-            if k >= 2:
-                try:
-                    ln = (
-                        math.lgamma(rest + 1)
-                        - math.lgamma(k + 1)
-                        - math.lgamma(rest - k + 1)
-                    )
-                except OverflowError:
-                    return float("nan")
-                if not math.isfinite(ln) or ln > limit:
-                    return float("nan")
-            acc *= math.comb(rest, value)
-            if acc.bit_length() > 1024:
-                return float("nan")
-            rest -= value
-        result = float(acc)
-        return result if math.isfinite(result) else float("nan")
-    except (ValueError, TypeError, OverflowError):
+    # type errors are left to the worker exception path, which returns #VALUE!
+    vals: list[int] = []
+    for arg in args:
+        for value in np.asarray(arg).ravel():
+            vals.append(int(float(value)))
+    if any(value < 0 for value in vals):
         return float("nan")
+    # What was wrong: multinomial(1e9, 1e9) did not return. It burned CPU
+    # and memory until the script timeout.
+    # How it happened: math.comb(sum, k) builds a Python int. comb(2e9, 1e9)
+    # is hundreds of millions of bits. The switch off math.factorial(sum)
+    # only made each factor smaller; it did not bound the factor.
+    # getMultinomial (analysis.cxx) multiplies BinomialCoefficient in
+    # double and returns finiteOrThrow. A non-finite result is #NUM!,
+    # which this module reports as NaN.
+    # Why this change fixes it: log-gamma rejects a coefficient that
+    # cannot fit in a float before math.comb runs, and the running
+    # product stops at the same float limit. k < 2 skips log-gamma:
+    # lgamma(1e308) raises OverflowError even when C(n, n) is 1 and
+    # C(n, 1) is n.
+    acc = 1
+    rest = sum(vals)
+    limit = math.log(sys.float_info.max)
+    for value in vals:
+        k = min(value, rest - value)
+        if k >= 2:
+            try:
+                ln = (
+                    math.lgamma(rest + 1)
+                    - math.lgamma(k + 1)
+                    - math.lgamma(rest - k + 1)
+                )
+            except OverflowError:
+                return float("nan")
+            if not math.isfinite(ln) or ln > limit:
+                return float("nan")
+        acc *= math.comb(rest, value)
+        if acc.bit_length() > 1024:
+            return float("nan")
+        rest -= value
+    result = float(acc)
+    return result if math.isfinite(result) else float("nan")
 
 
 def munit(dimension: Any) -> Any:
@@ -1063,25 +1023,15 @@ def munit(dimension: Any) -> Any:
         return "#VALUE!"
     if size < 1 or size > 1024:
         return "#VALUE!"
-    try:
-        return np.eye(size).tolist()
-    except Exception:
-        return "#VALUE!"
+    # np.eye of a size in 1..1024 does not raise
+    return np.eye(size).tolist()
 
 
 def n(val: Any) -> float:
     # N() of any text is 0, including a numeric-looking string such as "5".
     if _is_number(val):
-        # What was wrong: n(10**400) raised OverflowError out of the helper.
-        # How it happened: float() of a Python int outside the float range
-        # raises, and this return was not in a try. ispmt and mirr already
-        # catch that and return NaN. A Calc cell is a double and cannot
-        # reach this path.
-        # Why this change fixes it: the overflow is NaN (#NUM!), not a traceback.
-        try:
-            return float(val)
-        except OverflowError:
-            return float("nan")
+        # OverflowError (huge int) is left to the worker exception path, which returns #NUM!
+        return float(val)
     if isinstance(val, (bool, np.bool_)):
         return 1.0 if val else 0.0
     return 0.0
