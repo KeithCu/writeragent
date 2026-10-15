@@ -6,6 +6,11 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
+from __future__ import annotations
+
+import math
+import struct
+
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
@@ -101,9 +106,13 @@ def test_python_addin_execution(ctx, doc):
             assert wire["shape"] == [1, 1]
             assert wire["data"] == [[1000.0]]
 
+            # Generic worker failures (no timeout / venv / USER_STOPPED hint) are #VALUE! (519).
             mock_run.return_value = {"status": "error", "message": "Syntax error"}
             res = func.python(doc, "bad code")
-            assert "Error: Syntax error" in res
+            assert isinstance(res, float)
+            assert not math.isfinite(res)
+            raw = struct.unpack("Q", struct.pack("d", res))[0]
+            assert raw == (0x7FF8000000000000 | 519)
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
