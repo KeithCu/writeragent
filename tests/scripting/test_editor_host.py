@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.managed_subprocess import _instances, _unregister_instance
+from plugin.framework.queue_executor import SendCancelled
 from plugin.scripting import editor_host as launch_mod
 from plugin.scripting.editor_host import PersistentEditor, _ASSETS_DIR
 from plugin.scripting.sandbox import wrap_command_for_sandbox
@@ -31,6 +32,9 @@ def test_editor_save_timeout_clears_the_token_and_reports():
     pe.executor = MagicMock()
     pe.executor.execute.side_effect = TimeoutError()
     state = launch_mod.EditorSessionState(session_id="s1", mode="calc_cell", target={"cell": "A1"})
+    state.pending_load = {"code": "y = 2"}
+    state.pending_on_save = MagicMock()
+    state.pending_on_closed = MagicMock()
     pe.register_session(state)
     sent: list[dict] = []
 
@@ -41,8 +45,12 @@ def test_editor_save_timeout_clears_the_token_and_reports():
     with patch("plugin.scripting.config_limits.configured_python_exec_timeout", return_value=30):
         pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
     assert pe._save_token is None
+    assert state.pending_load is None
+    assert state.pending_on_save is None
+    assert state.pending_on_closed is None
     assert sent and "timed out" in sent[0]["message"]
     assert pe.executor.execute.call_args.kwargs["timeout"] == 35.0
+    assert pe.executor.execute.call_args.kwargs["bound_scope"] is None
 
 
 def test_editor_script_picker_uses_marshal_timeout():
@@ -60,6 +68,7 @@ def test_editor_script_picker_uses_marshal_timeout():
     with patch("plugin.scripting.config_limits.configured_python_exec_timeout", return_value=30):
         pe._dispatch_incoming({"type": "request_scripts"})
     assert pe.executor.execute.call_args.kwargs["timeout"] == 35.0
+    assert pe.executor.execute.call_args.kwargs["bound_scope"] is None
     assert sent and "timed out" in sent[0]["message"]
 
 
@@ -68,7 +77,7 @@ def test_editor_script_picker_exception_sends_error_frame():
     pe = PersistentEditor()
     pe.ctx = MagicMock()
     pe.executor = MagicMock()
-    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    pe.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
     sent: list[dict] = []
 
     def _send(message, *, session=None):
@@ -90,7 +99,7 @@ def test_editor_script_picker_error_send_failure_stays_in_dispatch():
     pe = PersistentEditor()
     pe.ctx = MagicMock()
     pe.executor = MagicMock()
-    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    pe.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
 
     def _send(message, *, session=None):
         raise ValueError("payload exceeds 16MB")
@@ -109,15 +118,20 @@ def test_editor_save_exception_sends_error_frame():
     pe = PersistentEditor()
     pe.ctx = MagicMock()
     pe.executor = MagicMock()
-    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
-    pe.register_session(
-        launch_mod.EditorSessionState(
-            session_id="s1",
-            mode="calc_cell",
-            target={"cell": "A1"},
-            on_save=MagicMock(side_effect=RuntimeError("document disposed")),
-        )
+    pe.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
+    state = launch_mod.EditorSessionState(
+        session_id="s1",
+        mode="calc_cell",
+        target={"cell": "A1"},
+        on_save=MagicMock(side_effect=RuntimeError("document disposed")),
     )
+    pending_load = {"code": "y = 2"}
+    pending_on_save = MagicMock()
+    pending_on_closed = MagicMock()
+    state.pending_load = pending_load
+    state.pending_on_save = pending_on_save
+    state.pending_on_closed = pending_on_closed
+    pe.register_session(state)
     sent: list[dict] = []
 
     def _send(message, *, session=None):
@@ -128,6 +142,9 @@ def test_editor_save_exception_sends_error_frame():
     assert sent and sent[0]["type"] == "error"
     assert "document disposed" in sent[0]["message"]
     assert "RuntimeError" in sent[0]["traceback"]
+    assert state.pending_load is pending_load
+    assert state.pending_on_save is pending_on_save
+    assert state.pending_on_closed is pending_on_closed
 
 
 def test_editor_save_error_send_failure_stays_in_dispatch():
@@ -135,7 +152,7 @@ def test_editor_save_error_send_failure_stays_in_dispatch():
     pe = PersistentEditor()
     pe.ctx = MagicMock()
     pe.executor = MagicMock()
-    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    pe.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
     pe.register_session(
         launch_mod.EditorSessionState(
             session_id="s1",
@@ -203,7 +220,7 @@ def test_editor_save_timeout_prevents_late_save():
     pe.ctx = MagicMock()
     pe.executor = MagicMock()
     queued_task = []
-    pe.executor.execute.side_effect = lambda fn, timeout=None: (queued_task.append(fn), (_ for _ in ()).throw(TimeoutError()))[1]
+    pe.executor.execute.side_effect = lambda fn, *args, **kwargs: (queued_task.append(fn), (_ for _ in ()).throw(TimeoutError()))[1]
     mock_on_save = MagicMock()
     state = launch_mod.EditorSessionState(
         session_id="s1",
@@ -230,7 +247,7 @@ def test_editor_save_clears_session_dirty():
     pe = PersistentEditor()
     pe.ctx = MagicMock()
     pe.executor = MagicMock()
-    pe.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    pe.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
     state = launch_mod.EditorSessionState(
         session_id="s1",
         mode="calc_cell",
@@ -314,7 +331,7 @@ def test_launch_monaco_editor_spawns_when_not_running():
                     )
 
     assert ok is True
-    mock_bg.assert_called_once_with(launch_mod.warm_venv_worker, ctx, name="warm-venv-worker", dedicated=True)
+    mock_bg.assert_called_once_with(launch_mod.warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
     assert pe.run_script_doc is mock_doc
     session.start_reader.assert_called_once()
     sent = session.send.call_args[0][0]
@@ -538,7 +555,7 @@ def test_save_routes_to_matching_session_only():
     editor.register_session(EditorSessionState("sid-a", "calc_cell", {"cell_address": "A1"}, on_save=save_a))
     editor.register_session(EditorSessionState("sid-b", "calc_cell", {"cell_address": "B1"}, on_save=save_b))
     editor.executor = MagicMock()
-    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    editor.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
     sent: list[tuple] = []
 
     def fake_send(msg, session=None):
@@ -562,7 +579,7 @@ def test_unknown_session_save_is_ignored():
         EditorSessionState("sid-a", "calc_cell", {"cell_address": "A1"}, on_save=lambda *_a, **_k: called.append("a") or {"type": "saved", "ok": True})
     )
     editor.executor = MagicMock()
-    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    editor.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
     editor._dispatch_incoming({"type": "save", "session_id": "nope", "code": "x"})
     assert called == []
 
@@ -846,7 +863,7 @@ def test_deferred_run_sends_result_later_and_keeps_pending_load():
     state.pending_load = {"type": "load", "mode": "calc_cell", "code": "next"}
     editor.register_session(state)
     editor.executor = MagicMock()
-    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    editor.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
     sent: list[dict] = []
 
     def _send(message, *, session=None):
@@ -881,7 +898,7 @@ def test_deferred_stale_deliver_does_not_clear_dirty():
     state.dirty = True
     editor.register_session(state)
     editor.executor = MagicMock()
-    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    editor.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
     sent: list[dict] = []
     editor.send = lambda message, session=None: sent.append(dict(message))  # type: ignore[method-assign]
     editor._dispatch_incoming({"type": "save", "session_id": "sid", "code": "print(1)", "action": "run"})
@@ -907,7 +924,7 @@ def test_deferred_start_failure_sends_error_and_keeps_pending_load():
     state.pending_load = {"type": "load", "mode": "calc_cell", "code": "next"}
     editor.register_session(state)
     editor.executor = MagicMock()
-    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    editor.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
     sent: list[dict] = []
     editor.send = lambda message, session=None: sent.append(dict(message))  # type: ignore[method-assign]
     editor._dispatch_incoming({"type": "save", "session_id": "sid", "code": "print(1)", "action": "run"})
@@ -1093,7 +1110,7 @@ def test_mode_switch_from_run_script_to_calc_cell_dispatches_save():
     cell_state = EditorSessionState("sid-cell", "calc_cell", {"cell_address": "A1"}, on_save=on_cell_save)
     editor.register_session(cell_state)
     editor.executor = MagicMock()
-    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    editor.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
 
     sent: list[tuple] = []
     editor.send = lambda msg, session=None: sent.append((msg, session))  # type: ignore[method-assign]
@@ -1376,9 +1393,10 @@ def test_persistent_editor_terminate_kills_only_when_wait_times_out(
     assert editor._proc is None
 
 
-def test_persistent_editor_terminate_skips_signal_when_already_exited(
+def test_persistent_editor_terminate_kills_tree_when_leader_already_exited(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A reaped leader still gets kill_process_tree; wait and proc.kill stay off."""
     editor = PersistentEditor()
     proc = MagicMock()
     proc.poll.return_value = 0
@@ -1392,7 +1410,8 @@ def test_persistent_editor_terminate_skips_signal_when_already_exited(
 
     editor.terminate()
 
-    assert killed_procs == []
+    assert killed_procs == [proc]
+    proc.wait.assert_not_called()
     proc.kill.assert_not_called()
     proc.stdin.close.assert_called_once()
     proc.stdout.close.assert_called_once()
@@ -1507,7 +1526,7 @@ def test_handle_disconnect_clears_run_script_document():
     editor = PersistentEditor()
     editor.ctx = MagicMock()
     editor.executor = MagicMock()
-    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    editor.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
     closed: list[str] = []
     editor.register_session(
         launch_mod.EditorSessionState(
@@ -1536,7 +1555,7 @@ def test_handle_disconnect_keeps_replacement_launch_document():
     editor = PersistentEditor()
     editor.ctx = MagicMock()
     editor.executor = MagicMock()
-    editor.executor.execute.side_effect = lambda fn, timeout=None: fn()
+    editor.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
     replacement_doc = object()
 
     def _closed() -> None:
@@ -1916,5 +1935,118 @@ def test_launch_enriches_once_when_save_is_queued():
         assert state.pending_load["run_script_doc"] is mock_doc
     finally:
         _reset_persistent_editor()
+
+
+def test_editor_save_marshal_error_reports_and_clears_pending():
+    for exc in (RuntimeError("AsyncCallback unavailable"), SendCancelled()):
+        pe = PersistentEditor()
+        pe.ctx = MagicMock()
+        pe.executor = MagicMock()
+        pe.executor.execute.side_effect = exc
+        state = launch_mod.EditorSessionState(session_id="s1", mode="calc_cell", target={"cell": "A1"})
+        state.pending_load = {"code": "y = 2"}
+        state.pending_on_save = MagicMock()
+        state.pending_on_closed = MagicMock()
+        state.dirty = True
+        pe.register_session(state)
+        sent: list[dict] = []
+
+        def _send(message, *, session=None):
+            sent.append(message)
+
+        pe.send = _send  # type: ignore[method-assign]
+        pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
+        assert pe._save_token is None
+        assert state.save_token is None
+        assert state.pending_load is None
+        assert state.pending_on_save is None
+        assert state.pending_on_closed is None
+        assert state.dirty is True
+        assert sent and sent[0]["message"] == "Saving the script failed."
+        assert "timed out" not in sent[0]["message"]
+
+
+def test_editor_script_picker_marshal_error_sends_error_frame():
+    for exc in (RuntimeError("AsyncCallback unavailable"), SendCancelled()):
+        pe = PersistentEditor()
+        pe.ctx = MagicMock()
+        pe.executor = MagicMock()
+        pe.executor.execute.side_effect = exc
+        sent: list[dict] = []
+
+        def _send(message, *, session=None):
+            sent.append(message)
+
+        pe.send = _send  # type: ignore[method-assign]
+        pe._dispatch_incoming({"type": "request_scripts"})
+        assert sent and sent[0]["message"] == "The script list update failed."
+
+
+def test_editor_close_marshal_error_stays_in_dispatch():
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = RuntimeError("AsyncCallback unavailable")
+    on_closed_mock = MagicMock()
+    state = launch_mod.EditorSessionState(
+        session_id="s1",
+        mode="calc_cell",
+        target={"cell": "A1"},
+        on_closed=on_closed_mock,
+    )
+    pe.register_session(state)
+    pe._dispatch_incoming({"type": "closed", "session_id": "s1"})
+    on_closed_mock.assert_not_called()
+    assert "s1" in pe.sessions
+    assert pe.executor.execute.call_args.kwargs["bound_scope"] is None
+
+
+def test_handle_disconnect_marshal_error_stays_in_handler():
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = RuntimeError("AsyncCallback unavailable")
+    state = launch_mod.EditorSessionState(
+        session_id="s1",
+        mode="calc_cell",
+        target={"cell": "A1"},
+    )
+    pe.register_session(state)
+    pe._handle_disconnect()
+    assert "s1" in pe.sessions
+
+
+def test_picker_unknown_session_does_not_run_or_stamp_focused():
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.send = MagicMock()
+    live_state = launch_mod.EditorSessionState(session_id="sid-live", mode="calc_cell", target={"cell": "A1"})
+    pe.register_session(live_state)
+
+    with patch("plugin.scripting.editor_host.handle_editor_script_message") as mock_handler:
+        pe._dispatch_incoming({"type": "request_scripts", "session_id": "sid-dead"})
+        mock_handler.assert_not_called()
+        pe.executor.execute.assert_not_called()
+        pe.send.assert_not_called()
+
+
+def test_picker_known_session_still_dispatches():
+    pe = PersistentEditor()
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.execute.side_effect = lambda fn, *args, **kwargs: fn()
+    pe.send = MagicMock()
+    live_state = launch_mod.EditorSessionState(session_id="sid-live", mode="calc_cell", target={"cell": "A1"})
+    pe.register_session(live_state)
+
+    def fake_handler(kind, msg, *, ctx, session_doc, session_doc_url, send):
+        send({"type": "scripts_list"})
+        return True
+
+    with patch("plugin.scripting.editor_host.handle_editor_script_message", side_effect=fake_handler) as mock_handler:
+        pe._dispatch_incoming({"type": "request_scripts", "session_id": "sid-live"})
+        mock_handler.assert_called_once()
+        pe.send.assert_called_once_with({"type": "scripts_list"}, session=live_state)
 
 

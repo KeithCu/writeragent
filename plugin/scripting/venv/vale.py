@@ -13,9 +13,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from plugin.framework.worker_pool import get_subprocess_creationflags
-from plugin.scripting.sandbox import wrap_command_for_sandbox
-
 log = logging.getLogger("writeragent.grammar")
 
 
@@ -28,6 +25,23 @@ def _get_vale_binary() -> str:
     if not vale_path.exists():
         raise RuntimeError("Vale binary not found. Please run 'uv pip install vale' or equivalent in your virtual environment.")
     return str(vale_path)
+
+
+def _wrap_vale_command(cmd: list[str]) -> list[str]:
+    # Importing plugin.scripting.sandbox loads smolagents into the venv child,
+    # and importing get_subprocess_creationflags from worker_pool loads thread_guard.
+    # Vale only needs the no-env flatpak branch, which is flatpak-spawn --host
+    # inside Flatpak and the argv unchanged otherwise. The full wrapper stays
+    # in sandbox.py for LibreHarper.
+    if os.path.exists("/.flatpak-info") or os.environ.get("FLATPAK_ID"):
+        return ["flatpak-spawn", "--host", *cmd]
+    return cmd
+
+
+def _subprocess_creationflags() -> dict[str, Any]:
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
 
 
 def run_vale_check(text: str, user_config_dir: str, styles: str) -> dict[str, Any]:
@@ -59,10 +73,10 @@ Microsoft.Headings = NO
             ini_path.write_text(ini_content, encoding="utf-8")
             
             subprocess.run(
-                wrap_command_for_sandbox([vale_bin, "--config", str(ini_path), "sync"]),
+                _wrap_vale_command([vale_bin, "--config", str(ini_path), "sync"]),
                 check=True,
                 capture_output=True,
-                **get_subprocess_creationflags(),
+                **_subprocess_creationflags(),
             )
         except Exception as e:
             raise RuntimeError(f"Failed to initialize and sync Vale style guides: {e}")
@@ -84,11 +98,11 @@ Microsoft.Headings = NO
             temp_file_name
         ]
         proc = subprocess.run(
-            wrap_command_for_sandbox(cmd),
+            _wrap_vale_command(cmd),
             capture_output=True,
             text=True,
             encoding="utf-8",
-            **get_subprocess_creationflags(),
+            **_subprocess_creationflags(),
         )
         
         # Vale returns status code 1 if it flags style alerts, which is normal.

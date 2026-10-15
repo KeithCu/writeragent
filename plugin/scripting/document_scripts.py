@@ -31,7 +31,7 @@ from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework import config
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import get_desktop, normalize_doc_url
+from plugin.framework.uno_context import _enumeration_should_continue, get_desktop, normalize_doc_url
 from plugin.scripting.domain_registry import (
     DOC_SCRIPT_DISPLAY_PREFIX,
     SCRIPT_ORIGIN_DOCUMENT,
@@ -41,7 +41,7 @@ from plugin.scripting.domain_registry import (
     parse_picker_display_name,
     picker_display_name,
 )
-from plugin.scripting.session_manager import _enumeration_should_continue, calc_init_session_id
+from plugin.scripting.session_manager import calc_init_session_id
 
 log = logging.getLogger(__name__)
 
@@ -257,7 +257,7 @@ def _enumerate_calc_documents(desktop: Any) -> list[Any]:
         # _enumerate_calc_documents used to continue when nextElement() raised
         # while hasMoreElements() stayed true, so a stuck desktop enum spun
         # on the UI thread. There was no cap, and any truthy hasMoreElements()
-        # counted as more. session_manager._enumeration_should_continue stops
+        # counted as more. uno_context._enumeration_should_continue stops
         # at _ENUM_CAP and accepts only True or 1. Counting every attempt, then
         # continuing, stops the spin and still keeps a later Calc model when one
         # element's getURL throws. _iter_desktop_models breaks on nextElement

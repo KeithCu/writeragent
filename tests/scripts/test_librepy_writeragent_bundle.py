@@ -90,7 +90,7 @@ def test_librepy_bundle_excludes_llm_image_gen_and_llm_client():
 
 
 def test_librepy_bundle_excludes_writeragent_grammar_engines():
-    """Vale and LanguageTool live under writer.locale and are WriterAgent-only."""
+    """Vale and LanguageTool engines live in plugin/scripting/venv and are WriterAgent-only."""
     paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
     assert "plugin/writer/locale/vale.py" not in paths
     assert "plugin/writer/locale/languagetool.py" not in paths

@@ -6,12 +6,20 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import re
+
+import pytest
+
 from plugin.framework.i18n import _
 from plugin.scripting.editor_ui_strings import (
     build_monaco_ui_strings,
     enrich_monaco_load_message,
 )
-import pytest
+
+# Keys read in JS but not expected in the UI catalog. Stays empty because
+# saved_ok_text and status_ok_text are msg fields.
+_JS_UI_KEYS_NOT_IN_CATALOG: frozenset[str] = frozenset()
 
 
 @pytest.mark.parametrize(
@@ -32,7 +40,8 @@ def test_calc_cell_ui_includes_data_binding_and_cancel():
     assert ui["close_label"] == ui["cancel_label"]
     assert ui["data_label"] == _("Data:")
     assert ui["data_binding_title"]
-    assert ui["saved_plain"] == _("Saved without =PY().")
+    assert "saved_plain" not in ui
+    assert ui["saved_default"] == _("Saved.")
     assert ui["jedi_missing"]
 
 
@@ -90,15 +99,43 @@ def test_enrich_leaves_status_ok_text_at_top_level():
     assert "status_ok_text" not in msg["ui"]
 
 
-def test_enrich_maps_saved_ok_text_to_saved_default():
+def test_enrich_does_not_copy_saved_ok_text_into_ui():
     msg = enrich_monaco_load_message(
         {
             "type": "load",
-            "mode": "run_script",
-            "saved_ok_text": _("Script saved."),
+            "mode": "calc_cell",
+            "saved_ok_text": "Custom",
         }
     )
-    assert msg["ui"]["saved_default"] == _("Script saved.")
+    assert msg["saved_ok_text"] == "Custom"
+    assert msg["ui"]["saved_default"] == _("Saved.")
+    assert "saved_ok_text" not in msg["ui"]
+
+
+def test_js_t_and_fmt_keys_are_in_the_ui_catalog():
+    repo_root = Path(__file__).resolve().parents[2]
+    editor_js = (repo_root / "plugin/contrib/scripting/assets/editor/editor.js").read_text(encoding="utf-8")
+    scripts_manager_js = (repo_root / "plugin/contrib/scripting/assets/editor/scripts_manager.js").read_text(encoding="utf-8")
+
+    direct_pattern = re.compile(r"""(?<![.\w])(?:t|fmt)\(\s*["']([A-Za-z0-9_]+)["']""")
+    bare_fmt_pattern = re.compile(r"""(?<!function )(?<![.\w])fmt\(\s*([A-Za-z_][A-Za-z0-9_]*)""")
+
+    editor_bare = set(bare_fmt_pattern.findall(editor_js))
+    scripts_manager_bare = set(bare_fmt_pattern.findall(scripts_manager_js))
+    assert not editor_bare
+    assert scripts_manager_bare == {"msgKey"}
+
+    assert '"attach_overwrite_confirm"' in scripts_manager_js
+    assert '"copy_overwrite_confirm"' in scripts_manager_js
+
+    keys = set(direct_pattern.findall(editor_js)) | set(direct_pattern.findall(scripts_manager_js))
+    keys.update({"attach_overwrite_confirm", "copy_overwrite_confirm"})
+
+    catalog: set[str] = set()
+    for mode in ("calc_cell", "run_script", "latex", "init_script"):
+        catalog.update(build_monaco_ui_strings(mode=mode))
+
+    assert keys <= catalog | _JS_UI_KEYS_NOT_IN_CATALOG
 
 
 def test_all_modes_return_non_empty_required_keys():

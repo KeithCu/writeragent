@@ -13,6 +13,7 @@ import pytest
 from plugin.framework.service import ServiceRegistry
 from plugin.framework.tool import ToolRegistry
 from plugin.vision.vision_availability import (
+    _probe_ready,
     filter_vision_delegate_schemas,
     filter_vision_specialized_tools,
     invalidate_vision_availability_cache,
@@ -164,6 +165,42 @@ def test_vision_venv_configured_true_even_when_probe_would_fail(_cfg, _exe, _pro
     """Send/schema gate must not subprocess-probe; venv path alone is enough."""
     invalidate_vision_availability_cache()
     assert vision_venv_configured(MagicMock()) is True
+
+
+def test_probe_ready_does_not_cache_probe_error():
+    invalidate_vision_availability_cache()
+    calls = []
+
+    def _probe(exe, timeout=30.0):
+        calls.append(exe)
+        if len(calls) == 1:
+            return {}, "Vision probe timed out"
+        return {"docling": "present", "rapidocr": "present", "css_inline": "present"}, None
+
+    with (
+        patch("plugin.vision.vision_availability.os.path.getmtime", return_value=1.0),
+        patch("plugin.vision.vision_availability.probe_vision_packages", side_effect=_probe),
+    ):
+        assert _probe_ready("/venv/bin/python") is False
+        assert _probe_ready("/venv/bin/python") is True
+        assert len(calls) == 2
+
+
+def test_probe_ready_caches_finished_not_ready_stack():
+    invalidate_vision_availability_cache()
+    calls = []
+
+    def _probe(exe, timeout=30.0):
+        calls.append(exe)
+        return {"docling": None, "rapidocr": None, "css_inline": None}, None
+
+    with (
+        patch("plugin.vision.vision_availability.os.path.getmtime", return_value=1.0),
+        patch("plugin.vision.vision_availability.probe_vision_packages", side_effect=_probe),
+    ):
+        assert _probe_ready("/venv/bin/python") is False
+        assert _probe_ready("/venv/bin/python") is False
+        assert len(calls) == 1
 
 
 def test_filter_vision_specialized_tools_removes_tool():

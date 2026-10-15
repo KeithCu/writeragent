@@ -205,6 +205,25 @@ def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
             log.warning("payload_codec: Cython huge-int canary failed")
             return False
 
+        # An int subclass whose __name__ does not start with "int" or "uint"
+        # must pack as column state 2 (kind "int") on Cython PyLong_Check,
+        # which is the subclass the pure path used to tag "float".
+        # The expected state is absolute (not a compare against the Python flattener).
+        class _CanaryIntSub(int):
+            pass
+
+        buf_sub, strings_sub, col_states_sub, none_sub, non_sub = fn1d([_CanaryIntSub(7)])
+        if not (
+            len(buf_sub) == 1
+            and buf_sub[0] == 7.0
+            and strings_sub == {}
+            and col_states_sub == [2]
+            and none_sub == [False]
+            and non_sub is False
+        ):
+            log.warning("payload_codec: Cython int-subclass canary failed")
+            return False
+
         # dtype.kind "c" whose float() succeeds with only the real part.
         # No NumPy import: host load of this canary must stay stdlib-only.
         # A kind-"c" object that only fails float() would pass the old
@@ -838,10 +857,17 @@ def _apply_column_kinds_to_ndarray(arr: Any, *, uniform: str | None) -> Any:
     import numpy as np
 
     if uniform == "int":
-        # Host unpack raises OverflowError on inf in an int column. astype(int64)
-        # emits a garbage int and a RuntimeWarning. Pack never writes inf into
-        # an int column; only a corrupt envelope does. Do not replace this
-        # fast path with a Python int() loop to match the host.
+        # Host unpack keeps NaN as float("nan") and raises OverflowError on inf.
+        # This astype(np.int64) instead stores a garbage int and emits
+        # RuntimeWarning: invalid value encountered in cast for NaN, inf, and
+        # a float outside the int64 range. Pack never writes NaN into an int
+        # column because column_has_none promotes it to "float". Calc ingress
+        # does not produce ints outside the 53-bit mantissa. child_pack of a
+        # uint64 array is unpacked on the host with Python int(), which stays
+        # non-negative and rounded, and this child cast is not that consumer.
+        # Do not scan for NaN, do not retag "float", and do not replace the
+        # fast path with a Python int() loop. Locked policy is
+        # docs/calc/py-data-shapes.md (Int fidelity), no int64 wire lane.
         return arr.astype(np.int64)
     if uniform == "bool":
         # Host unpack treats only 1.0 as True. astype(bool) made every non-zero True.
@@ -1180,8 +1206,11 @@ def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> 
     the loops; the fast/slow split is the perf design):
     ``0`` empty, ``1`` bool, ``2`` int, ``3`` float.
     bool then int promotes to int (``True`` and ``1`` are both ``1.0``).
-    Any float promotes to float and stays there. Object, Decimal, and any
-    other numeric that already survived ``float()`` become float.
+    Any float promotes to float and stays there. An ``int`` subclass
+    (``isinstance(val, int)`` and not ``bool``) is state 2, same as
+    Cython ``PyLong_Check``, even when ``type(val).__name__`` does not
+    start with ``int`` or ``uint``. Object, ``Decimal``, and ``Fraction``
+    stay float.
     """
     # crosshair: off  # Any val sibling of already-off flatten (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a tiny cell domain.
     st = column_states[c]
@@ -1201,7 +1230,20 @@ def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> 
     if tv is float:
         column_states[c] = 3
         return
-    if tv is int:
+    # What was wrong: `type(val) is int` missed every int subclass.
+    # Cython `_update_column_state` uses PyLong_Check, which is true for
+    # any int subclass, so enum.IntEnum and a class Widget(int) packed as
+    # column kind "int" when the accelerator loaded and "float" on the
+    # pure path (the name heuristic only catches names starting with
+    # "int" or "uint"). The wire kinds and the restored cell type then
+    # depended on whether the .so loaded. The canary never passed a
+    # subclass, so it stayed green. Why this works: isinstance(int) and
+    # not isinstance(bool) is that PyLong_Check test. bool is excluded
+    # because it subclasses int and the identity check above already
+    # recorded state 1. dtype and the name heuristic below stay for
+    # values that are not int subclasses (np.int64, a class merely named
+    # int64). Decimal and Fraction still fall through to float.
+    if isinstance(val, int) and not isinstance(val, bool):
         if st < 2:
             column_states[c] = 2
         return
@@ -2105,6 +2147,7 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
                     # Vectorized astype(int) casts valid float objects to Python ints in C.
                     # Same corrupt-inf note as the uniform int astype: host raises
                     # OverflowError, this emits a garbage int. Pack never writes it.
+                    # NaN never reaches this line because valid_mask drops it; do not add another NaN scan here.
                     col_slice[valid_mask] = col_slice[valid_mask].astype(int)
                 elif is_bool:
                     # Host unpack: True only for 1.0. astype(bool) treated 2.0 as True.

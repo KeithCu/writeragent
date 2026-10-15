@@ -22,11 +22,12 @@ def _patch_modeless_native():
 
 
 def test_native_run_script_modeless_enabled_reads_config():
-    ctx = MagicMock()
-    with patch.object(ui, "get_config", return_value=True):
-        assert ui.native_run_script_modeless_enabled(ctx) is True
-    with patch.object(ui, "get_config", return_value=False):
-        assert ui.native_run_script_modeless_enabled(ctx) is False
+    with patch.object(ui, "get_config", return_value=True) as mock_get:
+        assert ui.native_run_script_modeless_enabled() is True
+        mock_get.assert_called_once_with("scripting.native_run_script_modeless")
+    with patch.object(ui, "get_config", return_value=False) as mock_get:
+        assert ui.native_run_script_modeless_enabled() is False
+        mock_get.assert_called_once_with("scripting.native_run_script_modeless")
 
 
 def test_run_python_dialog_uses_monaco_when_available():
@@ -382,6 +383,144 @@ def test_run_python_monaco_on_save_persists_and_executes():
                         mock_execute.assert_not_called()
 
 
+def test_run_python_monaco_reopen_refuses_second_run():
+    from plugin.scripting.editor_host import DeferredEditorResult
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    captured1: dict = {}
+    captured2: dict = {}
+
+    def fake_launch1(_ctx, *, exe, load_message, on_save, on_closed=None):
+        captured1["on_save"] = on_save
+        return True
+
+    def fake_launch2(_ctx, *, exe, load_message, on_save, on_closed=None):
+        captured2["on_save"] = on_save
+        return True
+
+    try:
+        with patch("plugin.framework.uno_context.get_runtime_uid", return_value="doc-1"), patch.object(
+            pr, "get_runtime_uid", return_value="doc-1"
+        ):
+            with patch("plugin.scripting.document_scripts.save_user_script"):
+                with patch.object(pr, "execute_and_insert_result") as mock_execute:
+                    with patch.object(pr, "get_config_str", return_value="Prime Numbers"):
+                        with patch(
+                            "plugin.scripting.document_scripts.get_user_scripts",
+                            return_value={"Prime Numbers": "print(1)"},
+                        ):
+                            with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch1):
+                                ok1 = pr._run_python_monaco(
+                                    ctx,
+                                    doc,
+                                    initial_code="result = 1",
+                                    selected_script_name="Prime Numbers",
+                                    exe="/venv/bin/python",
+                                )
+                            assert ok1 is True
+                            on_save1 = captured1["on_save"]
+
+                            with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch2):
+                                ok2 = pr._run_python_monaco(
+                                    ctx,
+                                    doc,
+                                    initial_code="result = 1",
+                                    selected_script_name="Prime Numbers",
+                                    exe="/venv/bin/python",
+                                )
+                            assert ok2 is True
+                            on_save2 = captured2["on_save"]
+
+                            # First closure, action "run", returns a DeferredEditorResult and must not call execute_and_insert_result
+                            res1 = on_save1("result = 2", False, None, "run")
+                            assert isinstance(res1, DeferredEditorResult)
+                            mock_execute.assert_not_called()
+
+                            # Second closure, action "run", returns error frame and must not call start_native_script_run again
+                            with patch.object(pr, "start_native_script_run") as mock_run:
+                                busy = on_save2("result = 3", False, None, "run")
+                                assert busy["type"] == "error"
+                                assert "already running" in busy["message"]
+                                mock_run.assert_not_called()
+
+                            # Second closure, action "save", still returns the saved frame
+                            save_response = on_save2("result = 4", False, None, "save")
+                            assert save_response == {"type": "saved", "ok": True, "status_ok_text": "Script saved."}
+
+                            # Complete the first deferred result via _complete_monaco_run helper
+                            payload, _ = _complete_monaco_run(res1, {"ok": True, "status_ok_text": "done"})
+                            assert payload == {"type": "saved", "ok": True, "status_ok_text": "done"}
+
+                            # Then the second closure's "run" returns a DeferredEditorResult again
+                            res2 = on_save2("result = 5", False, None, "run")
+                            assert isinstance(res2, DeferredEditorResult)
+    finally:
+        pr._monaco_run_in_flight.clear()
+
+
+def test_run_python_monaco_other_document_can_run():
+    from plugin.scripting.editor_host import DeferredEditorResult
+
+    ctx = MagicMock()
+    doc_a = MagicMock()
+    doc_b = MagicMock()
+    captured_a: dict = {}
+    captured_b: dict = {}
+
+    def _get_uid(d):
+        if d is doc_a:
+            return "doc-a"
+        if d is doc_b:
+            return "doc-b"
+        return ""
+
+    def fake_launch_a(_ctx, *, exe, load_message, on_save, on_closed=None):
+        captured_a["on_save"] = on_save
+        return True
+
+    def fake_launch_b(_ctx, *, exe, load_message, on_save, on_closed=None):
+        captured_b["on_save"] = on_save
+        return True
+
+    try:
+        with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=_get_uid), patch.object(
+            pr, "get_runtime_uid", side_effect=_get_uid
+        ):
+            with patch("plugin.scripting.document_scripts.save_user_script"):
+                with patch.object(pr, "get_config_str", return_value="Prime Numbers"):
+                    with patch(
+                        "plugin.scripting.document_scripts.get_user_scripts",
+                        return_value={"Prime Numbers": "print(1)"},
+                    ):
+                        with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch_a):
+                            pr._run_python_monaco(
+                                ctx,
+                                doc_a,
+                                initial_code="result = 1",
+                                selected_script_name="Prime Numbers",
+                                exe="/venv/bin/python",
+                            )
+                        with patch.object(pr, "launch_monaco_editor", side_effect=fake_launch_b):
+                            pr._run_python_monaco(
+                                ctx,
+                                doc_b,
+                                initial_code="result = 1",
+                                selected_script_name="Prime Numbers",
+                                exe="/venv/bin/python",
+                            )
+
+                        # Start a Run on doc A (do not complete it)
+                        res_a = captured_a["on_save"]("result = 2", False, None, "run")
+                        assert isinstance(res_a, DeferredEditorResult)
+
+                        # Doc B's on_save(..., "run") returns a DeferredEditorResult, not the already-running error
+                        res_b = captured_b["on_save"]("result = 3", False, None, "run")
+                        assert isinstance(res_b, DeferredEditorResult)
+    finally:
+        pr._monaco_run_in_flight.clear()
+
+
 @pytest.mark.parametrize("empty_name", ["", "   "])
 def test_run_python_monaco_empty_name_save_errors_run_still_starts(empty_name):
     ctx = MagicMock()
@@ -601,6 +740,7 @@ def test_show_python_input_dialog_run_button_keeps_dialog_open():
 
                             with patch.object(ui, "run_in_background", side_effect=_capture_background):
                                 def fake_execute_dialog():
+                                    assert code_edit.setFocus.called
                                     for listener in listeners:
                                         if "RunListener" in type(listener).__name__:
                                             listener.actionPerformed(MagicMock())
@@ -902,6 +1042,10 @@ def test_show_python_input_dialog_modeless_uses_set_visible():
     script_select = MagicMock()
     dlg.getControl.side_effect = lambda name: code_edit if name == "CodeEdit" else script_select
 
+    order = []
+    dlg.setVisible.side_effect = lambda visible: order.append(("visible", visible))
+    code_edit.setFocus.side_effect = lambda: order.append("focus")
+
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         with _patch_modeless_native():
             with patch.object(ui, "get_user_scripts", return_value={}):
@@ -912,6 +1056,9 @@ def test_show_python_input_dialog_modeless_uses_set_visible():
     dlg.execute.assert_not_called()
     dlg.setVisible.assert_called_once_with(True)
     dlg.addTopWindowListener.assert_called_once()
+    assert ("visible", True) in order
+    assert "focus" in order
+    assert order.index(("visible", True)) < order.index("focus")
 
 
 def test_picker_select_name_combobox_uses_set_text():
@@ -919,6 +1066,27 @@ def test_picker_select_name_combobox_uses_set_text():
     ctrl.setText = MagicMock()
     ui._picker_select_name(ctrl, "MyScript", ["ScriptA", "MyScript"])
     ctrl.setText.assert_called_once_with("MyScript")
+
+
+def test_picker_select_name_set_text_follows_select_item_pos():
+    ctrl = MagicMock()
+    ui._picker_select_name(ctrl, "B", ["A", "B"])
+    ctrl.selectItemPos.assert_called_once_with(1, True)
+    ctrl.setText.assert_called_once_with("B")
+
+
+def test_picker_select_name_set_text_when_select_item_pos_raises():
+    ctrl = MagicMock()
+    ctrl.selectItemPos.side_effect = RuntimeError("uno")
+    ui._picker_select_name(ctrl, "B", ["A", "B"])
+    ctrl.setText.assert_called_once_with("B")
+
+
+def test_picker_select_name_unknown_name_skips_select_item_pos():
+    ctrl = MagicMock()
+    ui._picker_select_name(ctrl, "Missing", ["A", "B"])
+    ctrl.selectItemPos.assert_not_called()
+    ctrl.setText.assert_called_once_with("Missing")
 
 
 def test_picker_selected_name_combobox_uses_get_text():

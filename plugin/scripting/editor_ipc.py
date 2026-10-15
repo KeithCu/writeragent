@@ -70,8 +70,21 @@ PARENT_TO_CHILD_TYPES = frozenset({
 # Identity keys on every session message (omit empties).
 _TARGET_KEYS = ("cell_address", "script_name", "script_origin", "doc_url", "resource")
 
+# Top-level load names that fill a target key when the nested target omitted
+# it. First non-empty stripped str wins. selected_script_name is before
+# script_name so a disagreeing pair uses the picker field.
+_LOAD_ALIAS_SOURCES: dict[str, tuple[str, ...]] = {
+    "script_name": ("selected_script_name", "script_name"),
+}
+
+
 def read_message(stream: IO[bytes]) -> dict[str, Any] | None:
-    """Read one pickle-framed message from *stream*. Returns None on clean EOF."""
+    """Read one pickle-framed message from *stream*.
+
+    Returns None on clean EOF and on a truncated frame
+    (read_frame_payload uses the same None for both). The child reader
+    treats that None as shutdown.
+    """
     # crosshair: off
     payload = read_frame_payload(
         stream, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES, frame_label="editor message"
@@ -166,25 +179,19 @@ def target_from_load(msg: Mapping[str, Any]) -> dict[str, str]:
     # crosshair: off  # nested IPC dict + alias merges (cover-all 33293627157: ~9m, 148k lines). Doable later with a constructor domain.
     raw = msg.get("target")
     target = normalize_target(raw if isinstance(raw, Mapping) else None)
-    aliases = (
-        ("cell_address", "cell_address"),
-        ("selected_script_name", "script_name"),
-        ("script_name", "script_name"),
-        ("script_origin", "script_origin"),
-        ("doc_url", "doc_url"),
-        ("resource", "resource"),
-    )
-    for src, dest in aliases:
+    for dest in _TARGET_KEYS:
         if dest in target:
             continue
-        value = msg.get(src)
-        # Same string-only rule as normalize_target. Aliases must not
-        # stringify a value the nested target just dropped.
-        if not isinstance(value, str):
-            continue
-        text = value.strip()
-        if text:
-            target[dest] = text
+        for src in _LOAD_ALIAS_SOURCES.get(dest, (dest,)):
+            value = msg.get(src)
+            # Same string-only rule as normalize_target. Aliases must not
+            # stringify a value the nested target just dropped.
+            if not isinstance(value, str):
+                continue
+            text = value.strip()
+            if text:
+                target[dest] = text
+                break
     return target
 
 
@@ -192,20 +199,14 @@ def target_from_load(msg: Mapping[str, Any]) -> dict[str, str]:
     lambda mode, target: ascii_bounded(mode, DEAL_MAX_TOKEN)
     and (target is None or _deal_ipc_dict_ok(target))
 )
-def target_identity_key(mode: str, target: Mapping[str, str] | None) -> tuple[str, str, str, str, str, str]:
+def target_identity_key(mode: str, target: Mapping[str, str] | None) -> tuple[str, ...]:
     """Stable key so reopening the same cell/script reuses ``session_id``."""
-    # crosshair: off  # nested IPC dict domain (cover-all 33293627157: ~9m, 159k lines). Doable later; thin wrapper over normalize_target.
+    # crosshair: off
     t = normalize_target(target)
-    # Include script_origin. Omitting it gave user and document scripts with
-    # the same name one session_id, so a save overwrote the other target.
-    return (
-        str(mode or ""),
-        t.get("cell_address", ""),
-        t.get("script_name", ""),
-        t.get("script_origin", ""),
-        t.get("doc_url", ""),
-        t.get("resource", ""),
-    )
+    # One list. A hand-written tuple omitted script_origin, so a user script and
+    # a document script with the same name shared a session_id and a save wrote
+    # the other target.
+    return (str(mode or ""), *(t.get(key, "") for key in _TARGET_KEYS))
 
 
 def session_id_of(message: Mapping[str, Any]) -> str:

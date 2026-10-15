@@ -1274,6 +1274,42 @@ def test_iter_open_models_stops_on_next_element_error():
     assert models == []
 
 
+def test_iter_open_models_stops_on_magicmock():
+    from plugin.framework.uno_context import iter_open_models
+
+    desktop = MagicMock()
+    comps = MagicMock()
+    desktop.getComponents.return_value = comps
+
+    enum = MagicMock()
+    comps.createEnumeration.return_value = enum
+
+    models = list(iter_open_models(desktop))
+    assert models == []
+    enum.nextElement.assert_not_called()
+
+
+def test_iter_open_models_stops_at_enum_cap(caplog):
+    import logging
+    from plugin.framework.uno_context import iter_open_models
+
+    desktop = MagicMock()
+    comps = MagicMock()
+    desktop.getComponents.return_value = comps
+
+    enum = MagicMock()
+    enum.hasMoreElements.return_value = True
+    comps.createEnumeration.return_value = enum
+
+    with (
+        patch("plugin.framework.uno_context._ENUM_CAP", 2),
+        caplog.at_level(logging.ERROR, logger="writeragent.context"),
+    ):
+        list(iter_open_models(desktop))
+    assert enum.nextElement.call_count == 2
+    assert "hit cap=2" in caplog.text
+
+
 def test_focus_preserved_with_restore_focus():
     from plugin.framework.vcl_pumping import focus_preserved
 
