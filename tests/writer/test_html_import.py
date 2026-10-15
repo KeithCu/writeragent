@@ -514,6 +514,15 @@ def test_html_to_plain_text_raises_instead_of_returning_markup():
             html_to_plain_text(html, MagicMock())
 
 
+def test_html_to_plain_text_plain_string_without_markup_succeeds_without_scratch_doc():
+    from plugin.writer.html_import import html_to_plain_text
+
+    with patch("plugin.writer.html_import.new_blank_writer") as mock_new_writer:
+        res = html_to_plain_text("  plain text search  ", MagicMock())
+        assert res == "plain text search"
+        mock_new_writer.assert_not_called()
+
+
 def test_prefix_char_count_does_not_return_zero_on_failure():
     from plugin.writer import html_import
 

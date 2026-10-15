@@ -532,6 +532,16 @@ def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> st
         return (html_string or "").strip()
     # Base only: StarWriter would concatenate <rt> into the search string.
     stripped, _unused_ruby = extract_and_strip_ruby(html_string)
+    # What was wrong: plain text without tags or entities raised ToolExecutionError
+    # when the scratch document could not be created (e.g. in test harnesses or
+    # when search input had no markup), even though there was no HTML to convert.
+    # How it happened: B1 raised unconditionally on a missing scratch doc without
+    # checking whether the string actually contained HTML tags or entities.
+    # Why this change fixes it: strings without '<' and '&' contain no HTML tags or
+    # character entities; their plain text representation is already in hand, so we
+    # return stripped.strip() directly without needing a scratch Writer doc.
+    if "<" not in stripped and "&" not in stripped:
+        return stripped.strip()
     prepared = _wrap_html_fragment(stripped.strip())
     temp_doc = None
     try:
