@@ -232,3 +232,31 @@ class TestSend:
         assert (StreamQueueKind.ERROR) in (types)
 
 
+class TestHermesEnvVars:
+    """Forward OPENROUTER_API_KEY or OPENAI_API_KEY from general settings when matched."""
+
+    @patch("plugin.acp.hermes_simple.get_api_key_for_endpoint", return_value="sk-or-test")
+    @patch("plugin.acp.hermes_simple.get_current_endpoint", return_value="https://openrouter.ai/api/v1")
+    def test_forwards_openrouter_api_key(self, mock_endpoint, mock_key):
+        env = HermesBackend().get_env_vars()
+        assert env == {"OPENROUTER_API_KEY": "sk-or-test"}
+
+    @patch("plugin.acp.hermes_simple.get_api_key_for_endpoint", return_value="sk-oai-test")
+    @patch("plugin.acp.hermes_simple.get_current_endpoint", return_value="https://api.openai.com/v1")
+    def test_forwards_openai_api_key(self, mock_endpoint, mock_key):
+        env = HermesBackend().get_env_vars()
+        assert env == {"OPENAI_API_KEY": "sk-oai-test"}
+
+    @patch("plugin.acp.hermes_simple.get_api_key_for_endpoint")
+    @patch("plugin.acp.hermes_simple.get_current_endpoint", return_value="https://api.anthropic.com")
+    def test_other_provider_returns_empty(self, mock_endpoint, mock_key):
+        assert HermesBackend().get_env_vars() == {}
+        mock_key.assert_not_called()
+
+    @patch("plugin.acp.hermes_simple.get_current_endpoint", side_effect=RuntimeError("config broken"))
+    def test_runtime_error_logs_and_returns_empty(self, mock_endpoint, caplog):
+        caplog.set_level("ERROR", logger="plugin.acp.hermes_simple")
+        assert HermesBackend().get_env_vars() == {}
+        assert "Failed to read API key for Hermes ACP" in caplog.text
+
+

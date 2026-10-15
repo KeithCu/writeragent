@@ -31,8 +31,8 @@ config:
     type: string
     default: ""
     widget: text
-    label: Path / URL
-    helper: "Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://localhost:8000 for Hermes). Empty = try default."
+    label: Path
+    helper: "Path to the backend CLI. Empty = search PATH."
     internal: true
 
   args:
@@ -41,14 +41,6 @@ config:
     widget: text
     label: Extra arguments
     helper: "Optional arguments for the selected backend (space-separated)."
-    internal: true
-
-  acp_agent_name:
-    type: string
-    default: ""
-    widget: text
-    label: ACP agent name
-    helper: "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first agent."
     internal: true
 
   prompt_for_permission:

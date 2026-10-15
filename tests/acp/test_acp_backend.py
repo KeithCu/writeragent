@@ -536,7 +536,8 @@ class TestPermissionResult:
             "options": _PERMISSION_OPTIONS,
         }
         q = queue.Queue()
-        backend._dispatch_notification("session/request_permission", params, msg_id, q)
+        conn = backend._conn if backend._conn is not None else MagicMock()
+        backend._dispatch_notification(conn, "session/request_permission", params, msg_id, q)
         return _drain(q)
 
     def test_description_comes_from_title_and_option_names(self):
@@ -575,6 +576,7 @@ class TestPermissionResult:
         backend._conn = conn
         q = queue.Queue()
         backend._dispatch_notification(
+            conn,
             "session/request_permission",
             {"toolCall": {"toolCallId": "c", "title": "Run"}, "options": [{"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"}]},
             3,
@@ -593,6 +595,7 @@ class TestPermissionResult:
         q = queue.Queue()
         # Request arrives and is enqueued, opening dialog
         backend._dispatch_notification(
+            conn,
             "session/request_permission",
             {"toolCall": {"title": "Edit main.py", "kind": "edit", "toolCallId": "call_1"}, "options": _PERMISSION_OPTIONS},
             8,
@@ -620,7 +623,7 @@ class TestPermissionResult:
         conn.is_alive = True
         backend._conn = conn
         q = queue.Queue()
-        backend._dispatch_notification("session/request_permission", {"toolCall": {"title": "Edit main.py", "kind": "edit", "toolCallId": "call_1"}, "options": _PERMISSION_OPTIONS}, 8, q)
+        backend._dispatch_notification(conn, "session/request_permission", {"toolCall": {"title": "Edit main.py", "kind": "edit", "toolCallId": "call_1"}, "options": _PERMISSION_OPTIONS}, 8, q)
         assert (_drain(q)) == ([])
         conn.send_response.assert_called_once_with(8, result={"outcome": {"outcome": "cancelled"}})
         assert (backend._pending_permissions) == ({})
@@ -643,6 +646,7 @@ class TestPermissionResult:
         backend._conn = conn
         q = queue.Queue()
         backend._dispatch_notification(
+            conn,
             "session/request_permission",
             {"toolCall": {"title": "Edit main.py", "kind": "edit", "toolCallId": "call_1"}, "options": _PERMISSION_OPTIONS},
             None,
@@ -662,6 +666,7 @@ class TestPermissionResult:
         backend._conn = conn
         q = queue.Queue()
         backend._dispatch_notification(
+            conn,
             "session/request_permission",
             {"toolCall": {"title": "Edit main.py", "kind": "edit", "toolCallId": "call_1"}, "options": _PERMISSION_OPTIONS},
             None,
@@ -679,11 +684,31 @@ class TestPermissionResult:
         conn.is_alive = True
         backend._conn = conn
         q = queue.Queue()
-        backend._dispatch_notification("session/request_permission", {"toolCall": {"title": "Edit"}, "options": []}, [1], q)
+        backend._dispatch_notification(conn, "session/request_permission", {"toolCall": {"title": "Edit"}, "options": []}, [1], q)
         conn.send_response.assert_called_once_with([1], result={"outcome": {"outcome": "cancelled"}})
         assert _drain(q) == []
         assert backend._pending_permissions == {}
         assert "ACP permission request id is unhashable; cancelling without storing it" in caplog.text
+
+    def test_submit_approval_replies_on_the_request_connection(self):
+        backend = _bare_backend()
+        conn_a = MagicMock()
+        conn_a.is_alive = True
+        conn_b = MagicMock()
+        conn_b.is_alive = True
+        backend._conn = conn_a
+        q = queue.Queue()
+        backend._dispatch_notification(
+            conn_a,
+            "session/request_permission",
+            {"toolCall": {"toolCallId": "c", "title": "Run"}, "options": [{"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"}]},
+            5,
+            q,
+        )
+        backend._conn = conn_b
+        backend.submit_approval(5, True)
+        conn_a.send_response.assert_called_once_with(5, result={"outcome": {"outcome": "selected", "optionId": "allow-once"}})
+        conn_b.send_response.assert_not_called()
 
 
 class TestStopAndShutdown:
@@ -697,6 +722,7 @@ class TestStopAndShutdown:
         backend._conn = conn
         q = queue.Queue()
         backend._dispatch_notification(
+            conn,
             "session/request_permission",
             {"toolCall": {"title": "Edit main.py", "kind": "edit", "toolCallId": "call_1"}, "options": _PERMISSION_OPTIONS},
             7,
@@ -714,6 +740,26 @@ class TestStopAndShutdown:
         # The dialog lost the race: Stop already answered.
         backend.submit_approval(7, True)
         assert (conn.send_response.call_count) == (1)
+
+    def test_stop_cancels_permission_on_the_request_connection(self):
+        backend = _bare_backend()
+        conn_a = MagicMock()
+        conn_a.is_alive = True
+        conn_b = MagicMock()
+        conn_b.is_alive = True
+        backend._conn = conn_a
+        q = queue.Queue()
+        backend._dispatch_notification(
+            conn_a,
+            "session/request_permission",
+            {"toolCall": {"toolCallId": "c", "title": "Run"}, "options": [{"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"}]},
+            5,
+            q,
+        )
+        backend._conn = conn_b
+        backend.stop()
+        conn_a.send_response.assert_called_once_with(5, result={"outcome": {"outcome": "cancelled"}})
+        conn_b.send_response.assert_not_called()
 
     def test_stop_while_inflight_cancels_the_session_and_keeps_the_process(self):
         backend = _bare_backend()
@@ -817,7 +863,7 @@ class TestStopAndShutdown:
         backend._conn = conn
         backend._ensure_connection = lambda stop_checker=None: None
         backend._ensure_session = lambda **kwargs: None
-        backend._pending_permissions[4] = [{"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"}]
+        backend._pending_permissions[4] = (conn, [{"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"}])
         q = queue.Queue()
         worker = threading.Thread(target=lambda: backend.send(queue=q, user_message="hi", document_context=None, document_url=None))
         worker.start()
@@ -939,7 +985,7 @@ class TestStopAndShutdown:
         conn = MagicMock()
         conn.is_alive = True
         backend._conn = conn
-        backend._pending_permissions[9] = []
+        backend._pending_permissions[9] = (conn, [])
         backend._kill_turn_if_still_inflight(3)
         conn.send_response.assert_called_once_with(9, result={"outcome": {"outcome": "cancelled"}})
         conn.stop.assert_called_once()
@@ -1263,7 +1309,7 @@ class TestUnknownAcpRequest:
         conn = MagicMock()
         backend._conn = conn
         q = queue.Queue()
-        backend._dispatch_notification("fs/read_text_file", {"path": "a"}, 7, q)
+        backend._dispatch_notification(conn, "fs/read_text_file", {"path": "a"}, 7, q)
         conn.send_response.assert_called_once_with(7, error={"code": -32601, "message": "Method not found: fs/read_text_file"})
         assert (_drain(q)) == ([])
 
@@ -1273,6 +1319,7 @@ class TestUnknownAcpRequest:
         backend._conn = conn
         q = queue.Queue()
         backend._dispatch_notification(
+            conn,
             "session/update",
             {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hi"}}},
             None,
@@ -1288,6 +1335,7 @@ class TestUnknownAcpRequest:
         backend._conn = conn
         q = queue.Queue()
         backend._dispatch_notification(
+            conn,
             "session/update",
             {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hi"}}},
             9,
@@ -1302,7 +1350,7 @@ class TestUnknownAcpRequest:
         conn = MagicMock()
         backend._conn = conn
         q = queue.Queue()
-        backend._dispatch_notification("fs/read_text_file", {}, 3, q)
+        backend._dispatch_notification(conn, "fs/read_text_file", {}, 3, q)
         conn.send_response.assert_called_once_with(3, error={"code": -32601, "message": "Method not found: fs/read_text_file"})
         assert (_drain(q)) == ([])
 
@@ -1317,7 +1365,7 @@ class TestUnknownAcpRequest:
         backend._conn = conn
         q = queue.Queue()
         params = {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hi"}}}
-        backend._dispatch_notification(method, params, 9, q)
+        backend._dispatch_notification(conn, method, params, 9, q)
         conn.send_response.assert_called_once_with(9, result={})
         assert _drain(q) == []
 
@@ -1328,9 +1376,25 @@ class TestUnknownAcpRequest:
         backend._conn = conn
         q = queue.Queue()
         params = {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hi"}}}
-        backend._dispatch_notification("session/update", params, None, q)
+        backend._dispatch_notification(conn, "session/update", params, None, q)
         conn.send_response.assert_not_called()
         assert _drain(q) == []
+
+    def test_ack_replies_on_the_dispatch_connection(self):
+        backend = _bare_backend()
+        conn_a = MagicMock()
+        conn_b = MagicMock()
+        backend._conn = conn_b
+        q = queue.Queue()
+        backend._dispatch_notification(
+            conn_a,
+            "session/update",
+            {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hi"}}},
+            9,
+            q,
+        )
+        conn_a.send_response.assert_called_once_with(9, result={})
+        conn_b.send_response.assert_not_called()
 
 
 class TestSessionId:

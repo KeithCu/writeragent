@@ -58,9 +58,8 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
 | `backend_id` | `string` | `"builtin"` |  | Backend Options: builtin (Built-in), hermes (Hermes), claude (Claude Code), vibe (Mistral Vibe), grok (Grok Build), opencode (OpenCode) |
-| `path` | `string` | `""` |  | Internal. Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://localhost:8000 for Hermes). Empty = try default. |
+| `path` | `string` | `""` |  | Internal. Path to the backend CLI. Empty = search PATH. |
 | `args` | `string` | `""` |  | Internal. Optional arguments for the selected backend (space-separated). |
-| `acp_agent_name` | `string` | `""` |  | Internal. Agent name on the ACP server (e.g. hermes). Empty = auto-discover first agent. |
 | `prompt_for_permission` | `boolean` | `true` |  | Ask for confirmation before allowing the agent to use tools (read files, execute commands, etc.) |
 
 ## Speech (`audio`)

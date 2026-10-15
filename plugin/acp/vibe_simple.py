@@ -20,6 +20,7 @@ import logging
 from typing import ClassVar, Dict
 
 from plugin.acp.acp_backend import ACPBackend
+from plugin.framework.client.provider_detection import get_provider_from_endpoint
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 
 log = logging.getLogger(__name__)
@@ -41,14 +42,15 @@ class VibeBackend(ACPBackend):
 
     def get_env_vars(self) -> Dict[str, str]:
         """Return environment variables to pass to subprocess."""
-        env = {}
+        env: Dict[str, str] = {}
         try:
-            # Forward API key to Vibe if available
             endpoint = str(get_current_endpoint() or "")
+            if get_provider_from_endpoint(endpoint) != "mistral":
+                return env
             key = get_api_key_for_endpoint(endpoint)
             if key:
                 env["MISTRAL_API_KEY"] = key
                 log.info("Using MISTRAL_API_KEY from general settings")
         except Exception:
-            pass
+            log.exception("Failed to read API key for Vibe ACP")
         return env

@@ -3,7 +3,15 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""MCP UI components: client configuration snippet generators and tunnel test listeners."""
+"""MCP UI components: client configuration snippet generators and tunnel test listeners.
+
+Concurrency:
+Tunnel line, exit, and retry threads and the UI thread share
+``_tested_provider_tunnel_urls`` and ``_retired_provider_tunnel_urls``.
+``_active_settings_dialog_lock`` covers those two URL caches plus the dialog
+pointer. ``_refresh_active_snippet`` runs only after that lock is released
+because inline dispatch on the main thread re-acquires the lock.
+"""
 
 from __future__ import annotations
 
@@ -22,8 +30,9 @@ from plugin.framework.uno_listeners import BaseActionListener, BaseListener
 from plugin.chatbot.dialogs import copy_to_clipboard, get_checkbox_state, get_control_text, get_optional, set_checkbox_state, set_control_text
 
 _active_settings_dialog_ref: Any = None
-# Tunnel workers and the UI thread both touch the dialog ref. The lock
-# covers the pointer only; the posted refresh re-reads it on the UI thread.
+# The lock covers the dialog pointer and both URL caches. The posted refresh
+# runs after the lock is released because post can invoke it inline and that
+# path takes the lock again.
 _active_settings_dialog_lock = threading.Lock()
 _tested_provider_tunnel_urls: dict[str, str] = {}
 # Providers whose cached public URL must not be shown. Set when the tunnel
@@ -120,8 +129,9 @@ def remember_tested_tunnel_url(provider: str, url: str) -> None:
     p = provider.strip().lower()
     if not p or not url:
         return
-    _retired_provider_tunnel_urls.discard(p)
-    _tested_provider_tunnel_urls[p] = url
+    with _active_settings_dialog_lock:
+        _retired_provider_tunnel_urls.discard(p)
+        _tested_provider_tunnel_urls[p] = url
 
 
 def clear_tested_provider_tunnel_url(provider: str | None = None) -> None:
@@ -134,16 +144,18 @@ def clear_tested_provider_tunnel_url(provider: str | None = None) -> None:
     URL or the provider template. ``remember_tested_tunnel_url`` (Test or a
     new connect) is what puts a URL back.
     """
-    if provider is None:
-        for name in list(_tested_provider_tunnel_urls):
-            _retired_provider_tunnel_urls.add(name)
-        _tested_provider_tunnel_urls.clear()
-    else:
-        p = provider.strip().lower()
-        if not p:
-            return
-        _tested_provider_tunnel_urls.pop(p, None)
-        _retired_provider_tunnel_urls.add(p)
+    with _active_settings_dialog_lock:
+        if provider is None:
+            for name in list(_tested_provider_tunnel_urls):
+                _retired_provider_tunnel_urls.add(name)
+            _tested_provider_tunnel_urls.clear()
+        else:
+            p = provider.strip().lower()
+            if not p:
+                return
+            _tested_provider_tunnel_urls.pop(p, None)
+            _retired_provider_tunnel_urls.add(p)
+    # The refresh takes this lock, and post_to_main_thread may run it before post returns.
     _refresh_active_snippet()
 
 
@@ -242,13 +254,13 @@ def sync_mcp_config_snippet(
         remember_tested_tunnel_url(selected_provider, custom_tunnel_url)
 
     # A retired entry is a URL from a tunnel that has since stopped, failed,
-    # or dropped its public address. Do not copy it into the snippet.
-    if selected_provider in _retired_provider_tunnel_urls:
-        _tested_provider_tunnel_urls.pop(selected_provider, None)
-
-    # Check if we have a tested URL for this specific selected provider.
-    # A tunnel that is up but has no public URL yet used to sleep here.
-    active_url = _tested_provider_tunnel_urls.get(selected_provider)
+    # or dropped its public address. Do not copy it into the snippet. The
+    # membership test and the pop share the lock so a connect cannot store a
+    # URL in the gap the pop would then delete.
+    with _active_settings_dialog_lock:
+        if selected_provider in _retired_provider_tunnel_urls:
+            _tested_provider_tunnel_urls.pop(selected_provider, None)
+        active_url = _tested_provider_tunnel_urls.get(selected_provider)
     if not active_url:
         from plugin.mcp import _shared_tunnel
 

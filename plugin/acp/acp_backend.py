@@ -326,7 +326,7 @@ class ACPBackend(AgentBackend):
     default_extra_args: Tuple[str, ...] = ()
     _stop_requested: bool
     _state_lock: threading.Lock
-    _pending_permissions: dict[Any, list[Any]]
+    _pending_permissions: dict[Any, tuple[ACPConnection, list[Any]]]
     _turn: int
     _turn_pending: bool
     _stop_turn: int
@@ -684,14 +684,14 @@ class ACPBackend(AgentBackend):
             elif item_type == "tool_result":
                 queue.put((StreamQueueKind.TOOL_RESULT, item))
 
-    def _dispatch_notification(self, method: str, params: Any, msg_id: Any, queue: Any) -> None:
+    def _dispatch_notification(self, conn: ACPConnection, method: str, params: Any, msg_id: Any, queue: Any) -> None:
         if not isinstance(params, dict):
             params = {}
         # Permission is answered even after Stop. Dropping it would leave the
         # agent blocked in session/request_permission; the queue helper sends
         # cancelled and does not open the dialog.
         if method == "session/request_permission":
-            self._queue_permission_request(params, msg_id, queue)
+            self._queue_permission_request(conn, params, msg_id, queue)
             return
         # What was wrong: when _stop_requested was true, handled stayed false, so
         # an id-bearing session/update (and the other three update methods) took
@@ -707,22 +707,23 @@ class ACPBackend(AgentBackend):
             if not self._stop_requested:
                 self._handle_acp_update(params.get("update", {}), queue)
             if msg_id is not None:
-                self._ack_request(msg_id)
+                self._ack_request(conn, msg_id)
             return
         if method in ("notifications/agent", "agent/update"):
             if not self._stop_requested:
                 self._handle_acp_update(params.get("update", params), queue)
             if msg_id is not None:
-                self._ack_request(msg_id)
+                self._ack_request(conn, msg_id)
             return
         if msg_id is not None:
-            self._reject_unknown_request(msg_id, method)
+            self._reject_unknown_request(conn, msg_id, method)
 
-    def _reply(self, msg_id: Any, *, result: Any = None, error: Any = None, what: str) -> None:
-        """Send one JSON-RPC response. A missing connection is a no-op."""
-        conn = self._conn
-        if conn is None:
-            return
+    def _reply(self, conn: ACPConnection, msg_id: Any, *, result: Any = None, error: Any = None, what: str) -> None:
+        """Send one JSON-RPC response on the passed connection."""
+        # What was wrong: _reply loaded self._conn again, and a slot swap between
+        # the request and the reply wrote connection A's result onto B.
+        # Why: send on the passed connection instead of re-reading self._conn.
+        # ACPConnection.send_response already returns when the process is gone.
         try:
             if error is not None:
                 conn.send_response(msg_id, error=error)
@@ -731,13 +732,13 @@ class ACPBackend(AgentBackend):
         except Exception:
             log.exception("Failed to %s", what)
 
-    def _reject_unknown_request(self, msg_id: Any, method: str) -> None:
-        self._reply(msg_id, error={"code": -32601, "message": f"Method not found: {method}"}, what=f"reject ACP method {method}")
+    def _reject_unknown_request(self, conn: ACPConnection, msg_id: Any, method: str) -> None:
+        self._reply(conn, msg_id, error={"code": -32601, "message": f"Method not found: {method}"}, what=f"reject ACP method {method}")
 
-    def _ack_request(self, msg_id: Any) -> None:
-        self._reply(msg_id, result={}, what=f"acknowledge ACP request {msg_id}")
+    def _ack_request(self, conn: ACPConnection, msg_id: Any) -> None:
+        self._reply(conn, msg_id, result={}, what=f"acknowledge ACP request {msg_id}")
 
-    def _queue_permission_request(self, params: dict[str, Any], msg_id: Any, queue: Any) -> None:
+    def _queue_permission_request(self, conn: ACPConnection, params: dict[str, Any], msg_id: Any, queue: Any) -> None:
         tool_call = params.get("toolCall")
         if not isinstance(tool_call, dict):
             tool_call = {}
@@ -760,7 +761,7 @@ class ACPBackend(AgentBackend):
             hash(msg_id)
         except TypeError:
             log.warning("ACP permission request id is unhashable; cancelling without storing it")
-            self._reply(msg_id, result=_cancelled_permission(), what=f"cancel ACP permission {msg_id}")
+            self._reply(conn, msg_id, result=_cancelled_permission(), what=f"cancel ACP permission {msg_id}")
             return
         # Keep the options so Approve/Reject can echo optionId. The HITL
         # dialog only returns a bool; the id has to live with the request.
@@ -770,19 +771,19 @@ class ACPBackend(AgentBackend):
         with self._state_lock:
             reply_cancelled = self._stop_requested
             if not reply_cancelled:
-                self._pending_permissions[msg_id] = stored
+                self._pending_permissions[msg_id] = (conn, stored)
         if reply_cancelled:
-            self._reply(msg_id, result=_cancelled_permission(), what=f"cancel ACP permission {msg_id}")
+            self._reply(conn, msg_id, result=_cancelled_permission(), what=f"cancel ACP permission {msg_id}")
             return
         description = _permission_description(params)
         tool_name = _permission_tool_name(tool_call)
         queue.put((StreamQueueKind.APPROVAL_REQUIRED, description, tool_name, tool_call, msg_id))
 
-    def _pop_pending_permission_ids(self) -> list[Any]:
+    def _pop_pending_permission_ids(self) -> list[tuple[Any, ACPConnection]]:
         """Drop the pending map. Caller holds ``_state_lock``."""
-        pending_ids = list(self._pending_permissions)
+        pending = [(req_id, conn) for req_id, (conn, _options) in self._pending_permissions.items()]
         self._pending_permissions.clear()
-        return pending_ids
+        return pending
 
     def _clear_slot_locked(self, conn: ACPConnection | None) -> None:
         """Forget ``conn`` and its session. Caller holds ``_state_lock``.
@@ -807,9 +808,9 @@ class ACPBackend(AgentBackend):
         Pop under the lock so a concurrent Approve cannot answer twice.
         """
         with self._state_lock:
-            pending_ids = self._pop_pending_permission_ids()
-        for request_id in pending_ids:
-            self._reply(request_id, result=_cancelled_permission(), what=f"cancel ACP permission {request_id}")
+            pending_permissions = self._pop_pending_permission_ids()
+        for request_id, conn in pending_permissions:
+            self._reply(conn, request_id, result=_cancelled_permission(), what=f"cancel ACP permission {request_id}")
 
     def _finish_stopped(self, queue: Any) -> None:
         queue.put((StreamQueueKind.STOPPED, None))
@@ -912,16 +913,11 @@ class ACPBackend(AgentBackend):
             if self._turn != turn or not self._prompt_inflight:
                 return
             conn = self._conn
-            pending_ids = self._pop_pending_permission_ids()
+            pending_permissions = self._pop_pending_permission_ids()
             self._clear_slot_locked(conn)
         log.info("ACP cancel was not answered within %ss; killing the CLI", _CANCEL_GRACE_SEC)
-        for request_id in pending_ids:
-            if conn is None:
-                break
-            try:
-                conn.send_response(request_id, result=_cancelled_permission())
-            except Exception:
-                log.exception("Failed to cancel ACP permission %s", request_id)
+        for request_id, req_conn in pending_permissions:
+            self._reply(req_conn, request_id, result=_cancelled_permission(), what=f"cancel ACP permission {request_id}")
         if conn is None:
             return
         try:
@@ -958,15 +954,20 @@ class ACPBackend(AgentBackend):
                 self._finish_stopped(queue)
                 return
 
-            def on_notification(method: str, params: Any, msg_id: Any = None) -> None:
-                self._dispatch_notification(method, params, msg_id, queue)
-
             # Agents emit session/update and session/request_permission while
             # session/new is in flight. Installing this callback afterwards
             # leaves _notify_callback None, and the reader drops them.
             # Register as soon as the process is up, before session/new.
             conn = self._conn
             if conn is not None:
+                # What was wrong: on_notification closed over conn. send() reassigns
+                # conn later (before prompt and in finally), so a closure would
+                # see that later value or a slot swap.
+                # Why: bind the connection as a default argument so callbacks run
+                # against the exact connection set_notification_callback was called on.
+                def on_notification(method: str, params: Any, msg_id: Any = None, bound_conn: ACPConnection = conn) -> None:
+                    self._dispatch_notification(bound_conn, method, params, msg_id, queue)
+
                 conn.set_notification_callback(on_notification)
 
             try:
@@ -1117,19 +1118,26 @@ class ACPBackend(AgentBackend):
         ``outcome.cancelled``. The options were stored when the request
         arrived so this can echo one of those ids.
         """
-        conn = self._conn
-        if conn is None or not conn.is_alive:
-            log.warning("Cannot submit approval, ACP connection is dead")
-            return
-
+        # What was wrong: submit_approval checked self._conn before popping
+        # under _state_lock, then _reply re-read self._conn. If the connection was
+        # dead or replaced, the reply went to the wrong connection or failed,
+        # while leaving the request pending if the check failed before pop.
+        # Why: pop under _state_lock first. If the stored connection is dead,
+        # log and return because a dead ACPConnection is not restarted, so the id
+        # is not left pending. Send reply on the stored connection without reading self._conn.
         with self._state_lock:
-            options = self._pending_permissions.pop(request_id, None)
-        if options is None:
+            pending = self._pending_permissions.pop(request_id, None)
+        if pending is None:
             # Stop already answered with cancelled, or the id is unknown.
             log.warning("No pending ACP permission for id=%s", request_id)
             return
 
-        self._reply(request_id, result=_permission_result(options, approved), what="submit ACP approval")
+        conn, options = pending
+        if not conn.is_alive:
+            log.warning("Cannot submit approval, ACP connection is dead")
+            return
+
+        self._reply(conn, request_id, result=_permission_result(options, approved), what="submit ACP approval")
 
     def shutdown(self) -> None:
         """Kill the CLI and drop the session.

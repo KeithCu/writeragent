@@ -42,11 +42,6 @@ AGENT_BACKEND_REGISTRY = {
 }
 
 
-def list_backend_ids() -> list[str]:
-    """Return list of registered backend ids."""
-    return list(AGENT_BACKEND_REGISTRY.keys())
-
-
 def normalize_backend_id(backend_id: Any) -> str:
     """Normalize backward-compatible or translated backend IDs to internal IDs."""
     if not backend_id:
@@ -62,10 +57,11 @@ def normalize_backend_id(backend_id: Any) -> str:
     return "builtin"
 
 
-def get_backend(backend_id: Any) -> AgentBackend | None:
-    """Return an adapter instance for the given backend id, or None."""
+def get_backend(backend_id: Any) -> AgentBackend:
+    """Return an adapter instance for the given backend id."""
     backend_id = normalize_backend_id(backend_id)
-    cls = AGENT_BACKEND_REGISTRY.get(backend_id)
-    if cls is None:
-        return None
+    # What was wrong: get_backend checked if cls is None and handled missing backend.
+    # Why: normalize_backend_id only returns registered ids (falling back to "builtin"),
+    # so cls is never None.
+    cls = AGENT_BACKEND_REGISTRY[backend_id]
     return cls()

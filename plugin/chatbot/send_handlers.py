@@ -202,7 +202,6 @@ class SendHandlerHost(Protocol):
     _terminal_status: str
     _stt_inflight: bool
     _stt_kill: Any
-    _current_agent_backend: Any
     _acp_backend: Any
     _acp_backend_id: str | None
     _turn: Any
@@ -250,7 +249,6 @@ class SendHandlersMixin:
     _terminal_status: str = "Ready"
     _stt_inflight: bool = False
     _stt_kill: Any = None
-    _current_agent_backend: Any = None
     _acp_backend: Any = None
     _acp_backend_id: str | None = None
     _librarian_suggested_user_name: str | None = None
@@ -684,8 +682,6 @@ class SendHandlersMixin:
             self._acp_backend = None
             self._acp_backend_id = None
         adapter = get_backend(backend_id)
-        if adapter is None:
-            return None
         self._acp_backend = adapter
         self._acp_backend_id = backend_id
         return adapter
@@ -731,12 +727,10 @@ class SendHandlersMixin:
 
 
         backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
+        # What was wrong: checked `if not adapter` and raised not-found error.
+        # Why: an unknown id is already normalized to builtin by normalize_backend_id,
+        # so get_backend / _retained_agent_backend always returns an adapter.
         adapter = self._retained_agent_backend(backend_id)
-        if not adapter:
-
-
-            _handle_early_error(ValueError(_("[Agent backend '{0}' not found.]").format(backend_id)))
-            return
         if not adapter.is_available(self.ctx):
 
 
@@ -747,7 +741,6 @@ class SendHandlersMixin:
         self._append_response(query_text, role="user")
 
         drain_q, q = _send_worker_queues(self)
-        self._current_agent_backend = adapter
         # Spawn-time scope. run_agent must not call resolve_stop_checker:
         # Stop clears the field and the next send replaces it.
         # prepare_turn publishes this turn's id before Stop can be registered,
@@ -766,18 +759,17 @@ class SendHandlersMixin:
             try:
 
 
-                # Lean system prompt for external agents: instructions + MCP connection info
-                mcp_url = self._get_mcp_url()
-
-                # Check if MCP is enabled and running; if so, tell the agent about it.
-                # Gate advertisement on the MCP server actually running.
-                # After "Stop MCP Server", config (mcp.mcp_enabled) still
-                # says enabled and would tell the agent the dead endpoint
-                # is live.
-                mcp_instructions = ""
                 from plugin.mcp import is_mcp_server_running
 
-                if mcp_url and is_mcp_server_running():
+                # What was wrong: session/new was given the URL whenever the flag was
+                # set, and the session keeps that mcpServers list for the document URL.
+                # Why: check is_mcp_server_running() once; if the server is down,
+                # pass mcp_url=None and omit MCP instructions from the prompt.
+                mcp_running = is_mcp_server_running()
+                mcp_url = self._get_mcp_url() if mcp_running else None
+
+                mcp_instructions = ""
+                if mcp_url:
                     mcp_instructions = (
                         f"\n\n[MCP SERVER AVAILABLE]\nA Model Context Protocol (MCP) server is running at: {mcp_url}\nYou can discover and use all LibreOffice tools (Writer, Calc, Draw) via this server.\nTarget the current document by passing the 'X-Document-URL' header: {document_url}\n"
                     )
@@ -805,13 +797,6 @@ class SendHandlersMixin:
                 else:
                     log.exception("Agent backend ERROR in _do_send_via_agent_backend [backend: %s, doc: %s]", backend_id, doc_type_str)
                     q.put((StreamQueueKind.ERROR, format_error_payload(e)))
-            finally:
-                # Clear _current_agent_backend only if it is still the
-                # backend this worker set. A newer send can install its own
-                # backend before this worker finishes; an unconditional
-                # clear in finally clobbers that one.
-                if getattr(self, "_current_agent_backend", None) is adapter:
-                    self._current_agent_backend = None
 
         def on_approval_required(item: Any) -> None:
             # item = ("approval_required", description, tool_name, args, request_id)
@@ -852,8 +837,6 @@ class SendHandlersMixin:
         def _agent_ready() -> None:
             if self._terminal_status not in ("Error", "Stopped"):
                 self._terminal_status = "Ready"
-            if self._current_agent_backend is adapter:
-                self._current_agent_backend = None
 
         defer_until_drain_done(_agent_ready)
 

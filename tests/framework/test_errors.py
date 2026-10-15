@@ -9,7 +9,6 @@ from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import run_stream_drain_loop
 from unittest.mock import MagicMock
 from plugin.framework.errors import WriterError
-from plugin.calc import CalcError
 from plugin.draw.shapes import DrawShapes, DrawError
 from plugin.framework.errors import safe_python_literal_eval
 import inspect

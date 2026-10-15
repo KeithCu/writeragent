@@ -57,6 +57,7 @@ import plugin.main as main
 from plugin.framework.errors import WriterAgentException
 from plugin.framework.main_shared import (
     _ACTION_HANDLERS,
+    get_action_handler,
     register_action_handler,
     report_action_failure,
 )
@@ -962,4 +963,62 @@ def test_split_command():
     assert main._split_command("noperiod") is None
     assert main._split_command(".leading") is None
     assert main._split_command("") is None
+
+
+def test_register_core_handlers_continues_after_optional_import_failure(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    orig_handlers = dict(_ACTION_HANDLERS)
+    had_module = "plugin.calc.excel_py_convert.auto_open" in sys.modules
+    prev_module = sys.modules.get("plugin.calc.excel_py_convert.auto_open")
+
+    recorded: list[str] = []
+    try:
+        sys.modules["plugin.calc.excel_py_convert.auto_open"] = types.ModuleType(
+            "plugin.calc.excel_py_convert.auto_open"
+        )
+        monkeypatch.setattr(
+            "plugin.calc.python.editor_context_menu.install_calc_cell_context_menu",
+            lambda _ctx: None,
+        )
+        monkeypatch.setattr(
+            "plugin.notebook.notebook_controls.install_notebook_run_button_wiring",
+            lambda _ctx: None,
+        )
+        monkeypatch.setattr(
+            "plugin.calc.python.geometric_recalc.install_geometric_recalc",
+            lambda: recorded.append("geo"),
+        )
+        monkeypatch.setattr(
+            "plugin.writer.change_context_menu.install_writer_change_context_menu",
+            lambda _ctx: recorded.append("writer_menu"),
+        )
+        monkeypatch.setattr(
+            "plugin.writer.review_toolbar.install_review_toolbar",
+            lambda _ctx: recorded.append("toolbar"),
+        )
+        monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+
+        caplog.set_level(logging.DEBUG, logger="plugin.main")
+        main._register_core_handlers()
+
+        assert "Excel PY auto-convert on open install failed" in caplog.text
+        assert recorded == ["geo", "writer_menu", "toolbar"]
+        assert get_action_handler("embeddings.search_dialog") is not None
+        assert get_action_handler("writer.accept_change") is not None
+        assert get_action_handler("writer.reject_change") is not None
+        assert get_action_handler("writer.review_accept_all") is not None
+        assert get_action_handler("writer.review_reject_all") is not None
+        assert get_action_handler("writer.review_next") is not None
+        assert get_action_handler("writer.review_prev") is not None
+    finally:
+        _ACTION_HANDLERS.clear()
+        _ACTION_HANDLERS.update(orig_handlers)
+        if had_module:
+            sys.modules["plugin.calc.excel_py_convert.auto_open"] = prev_module
+        else:
+            sys.modules.pop("plugin.calc.excel_py_convert.auto_open", None)
+
 

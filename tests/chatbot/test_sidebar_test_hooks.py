@@ -1486,6 +1486,66 @@ def test_fake_tts_hold_stop_reaps_within_one_second(monkeypatch: Any) -> None:
             os.remove(fake_tts_state_path())
 
 
+def test_fake_tts_hold_stop_on_complete_when_cleanup_thread_is_slow(monkeypatch: Any) -> None:
+    store, recorded = _setup_mock_config(monkeypatch)
+    import threading
+    import time
+    import plugin.audio.tts_service as tts_service
+    from plugin.chatbot.sidebar_test_hooks import (
+        _apply_fake_tts,
+        fake_tts_state_path,
+        read_fake_tts_state,
+    )
+
+    real_bg = tts_service.run_in_background
+
+    def _slow_cleanup(fn: Any, *args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("name") == "tts-cleanup":
+            time.sleep(0.05)
+        return real_bg(fn, *args, **kwargs)
+
+    monkeypatch.setattr(tts_service, "run_in_background", _slow_cleanup)
+
+    completed = threading.Event()
+    try:
+        _apply_fake_tts("hold")
+        tts_service.speak_text_async("hello", on_complete=completed.set)
+        t_deadline = time.monotonic() + 5.0
+        st: dict[str, Any] = {}
+        while time.monotonic() < t_deadline:
+            st = read_fake_tts_state()
+            if st.get("pids"):
+                break
+            time.sleep(0.02)
+        assert st.get("pids"), f"No pid spawned within 5s: {st}"
+        pid = st["pids"][-1]
+        assert st.get("argv0s") == [sys.executable]
+        base = os.path.basename(st["argv0s"][0])
+        assert base not in _FORBIDDEN_BASENAMES
+
+        t0 = time.monotonic()
+        tts_service.stop_speech()
+        reaped = False
+        while time.monotonic() - t0 < 1.0:
+            st = read_fake_tts_state()
+            if str(pid) in st.get("returncodes", {}) and pid not in st.get("alive", []):
+                reaped = True
+                break
+            time.sleep(0.02)
+        assert reaped, f"pid {pid} not reaped within 1.0s: {st}"
+        assert completed.wait(timeout=2.0), "on_complete did not fire within 2.0s"
+        assert not st.get("speaking", False)
+        assert st.get("spawn_count") == 1
+        assert st.get("overlap_spawns") == 0
+    finally:
+        _apply_fake_tts("off")
+        assert recorded.get("audio.tts_enabled") is False
+        assert recorded.get("audio.tts_provider") == "kokoro"
+        assert recorded.get("audio.tts_sentence_mode") is True
+        if os.path.isfile(fake_tts_state_path()):
+            os.remove(fake_tts_state_path())
+
+
 def test_fake_tts_second_spawn_counts_overlap_when_stop_is_skipped(monkeypatch: Any) -> None:
     store, recorded = _setup_mock_config(monkeypatch)
     import subprocess

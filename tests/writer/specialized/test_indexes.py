@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock, patch
+import pytest
 
 
 from plugin.writer.specialized.indexes import (
@@ -190,18 +191,15 @@ def test_indexes_create():
 
 def test_indexes_create_invalid_kind():
     tool = IndexesCreate()
-    ctx = MagicMock()
-    res = tool.execute(ctx, kind="unknown")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
+    ok, message = tool.validate(kind="unknown")
+    assert ok is False
+    assert message is not None and "kind" in message
 
 def test_indexes_add_mark_invalid_kind():
     tool = IndexesAddMark()
-    ctx = MagicMock()
-    ctx.doc.getText().createTextCursor.return_value = MagicMock()
-    res = tool.execute(ctx, text="term", kind="unknown")
-    assert res["status"] == "error"
-    assert res["code"] == "INVALID_PARAM"
+    ok, message = tool.validate(text="term", kind="unknown")
+    assert ok is False
+    assert message is not None and "kind" in message
 
 def test_indexes_add_mark():
     tool = IndexesAddMark()
@@ -219,7 +217,8 @@ def test_indexes_add_mark():
 
     doc.createInstance.assert_called_with("com.sun.star.text.DocumentIndexMark")
     mark_mock.setPropertyValue.assert_any_call("AlternativeText", "Important Term")
-    assert mark_mock.PrimaryKey == "Terms"
+    mark_mock.setPropertyValue.assert_any_call("PrimaryKey", "Terms")
+    mark_mock.setPropertyValue.assert_any_call("SecondaryKey", "")
 
     text_mock = cursor_mock.getText()
     text_mock.insertTextContent.assert_called_with(cursor_mock, mark_mock, False)
@@ -704,7 +703,7 @@ def test_list_toc_entries_rejects_a_missing_or_non_toc_index():
     assert "not a table of contents" in not_toc["message"]
     alphabetical.update.assert_not_called()
 
-    unreadable = tool.execute(ctx, index=1)
+    unreadable = tool.execute_safe(ctx, index=1)
     assert unreadable["status"] == "error"
     assert unreadable["code"] == "TOOL_EXECUTION_ERROR"
     toc.update.assert_not_called()
@@ -747,3 +746,164 @@ def test_insert_toc_entry_collapses_newlines():
         assert res["status"] == "ok"
         assert res.get("text_after") == "new line\t1 2"
         assert res.get("hyperlink_url") == "#target|outline"
+
+
+def test_insert_toc_entry_position_is_schema_enum():
+    tool = IndexesInsertTocEntry()
+    ok, message = tool.validate(content="Gamma", position="sideways")
+    assert ok is False
+    assert message is not None and "position" in message
+
+
+def test_is_bibliography_text_field_does_not_swallow():
+    field = MagicMock()
+    field.supportsService.side_effect = RuntimeError("dead")
+    with pytest.raises(RuntimeError):
+        is_bibliography_text_field(field)
+
+
+def test_index_kind_from_uno_disposal_propagates_other_errors_fall_through():
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    idx = MagicMock()
+    idx.getServiceName.side_effect = RuntimeError("no service")
+    idx.getImplementationName.return_value = "SwXContentIndex"
+    assert index_kind_from_uno(idx) == "toc"
+
+    dead = MagicMock()
+    dead.getServiceName.side_effect = DisposedException("gone")
+    with pytest.raises((DisposedException, DocumentDisposedError)):
+        index_kind_from_uno(dead)
+
+
+def test_delete_toc_rollback_failure_keeps_the_cause():
+    tool = IndexesDeleteTocEntry()
+    ctx, _doc, idx, mgr = _one_toc_context()
+
+    def set_prop(name, value):
+        if name == "IsProtected" and value is True:
+            raise RuntimeError("restore failed")
+
+    idx.setPropertyValue.side_effect = set_prop
+    mgr.undo.side_effect = RuntimeError("undo broke")
+    para = _TocPara("Contents 1", "Alpha title\t1")
+    anchor = MagicMock()
+    anchor.getText.return_value = MagicMock()
+    idx.getAnchor.return_value = anchor
+    with patch("plugin.writer.specialized.indexes.toc_match", return_value=(para, None)), \
+         patch("plugin.writer.specialized.indexes._paragraph_element", return_value=para), \
+         patch("plugin.writer.specialized.indexes._remove_paragraph"):
+        res = tool.execute(ctx, old_content="Alpha title")
+    assert res["status"] == "error"
+    assert res["code"] == "ROLLBACK_FAILED"
+    assert "undo broke" in res["message"]
+    assert "protection" in res["message"]
+
+
+def test_delete_toc_disposal_is_document_disposed():
+    class DisposedException(Exception):
+        pass
+
+    tool = IndexesDeleteTocEntry()
+    ctx, _doc, idx, mgr = _one_toc_context()
+    para = _TocPara("Contents 1", "Alpha title\t1")
+    anchor = MagicMock()
+    anchor.getText.return_value = MagicMock()
+    idx.getAnchor.return_value = anchor
+    with patch("plugin.writer.specialized.indexes.toc_match", return_value=(para, None)), \
+         patch("plugin.writer.specialized.indexes._paragraph_element", return_value=para), \
+         patch("plugin.writer.specialized.indexes._remove_paragraph", side_effect=DisposedException("gone")):
+        res = tool.execute_safe(ctx, old_content="Alpha title")
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+    mgr.undo.assert_called_once()
+
+
+def test_list_toc_entries_enumeration_failure_is_not_empty():
+    class DisposedException(Exception):
+        pass
+
+    tool = IndexesListTocEntries()
+    ctx, _doc, idx, _mgr = _one_toc_context()
+    anchor = MagicMock()
+    anchor.getText.return_value.createEnumeration.side_effect = DisposedException("gone")
+    idx.getAnchor.return_value = anchor
+    res = tool.execute_safe(ctx)
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_indexes_add_mark_text_failure_does_not_insert():
+    tool = IndexesAddMark()
+    ctx = MagicMock()
+    cursor = MagicMock()
+    ctx.doc.getText.return_value.createTextCursor.return_value = cursor
+    mark = MagicMock()
+    mark.setPropertyValue.side_effect = RuntimeError("no AlternativeText")
+    ctx.doc.createInstance.return_value = mark
+    res = tool.execute_safe(ctx, text="Term", kind="alphabetical", target="beginning")
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    cursor.getText.return_value.insertTextContent.assert_not_called()
+
+
+def _search_create_undo(locked=False, insert_error=None, undo_error=None):
+    tool = IndexesCreate()
+    ctx = MagicMock()
+    doc = ctx.doc
+    cursor = MagicMock()
+    index = MagicMock()
+    doc.createInstance.return_value = index
+    mgr = MagicMock()
+    mgr.isLocked.return_value = locked
+    entered = {}
+
+    def enter(title):
+        entered["title"] = title
+
+    mgr.enterUndoContext.side_effect = enter
+    mgr.getAllUndoActionTitles.side_effect = lambda: (entered.get("title"),)
+    if undo_error is not None:
+        mgr.undo.side_effect = undo_error
+    doc.getUndoManager.return_value = mgr
+    if insert_error is not None:
+        cursor.getText.return_value.insertTextContent.side_effect = insert_error
+    return tool, ctx, cursor, mgr
+
+
+def test_indexes_create_search_rolls_back_failed_insert():
+    tool, ctx, cursor, mgr = _search_create_undo(insert_error=RuntimeError("insert failed"))
+    with patch("plugin.writer.specialized.indexes.resolve_target_cursor", return_value=cursor):
+        res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
+    assert res["status"] == "error"
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    assert "rolled back" in res["message"]
+    assert "insert failed" in res["message"]
+    cursor.setString.assert_called_once_with("")
+    mgr.undo.assert_called_once()
+
+
+def test_indexes_create_search_locked_undo_does_not_delete():
+    tool, ctx, cursor, mgr = _search_create_undo(locked=True)
+    with patch("plugin.writer.specialized.indexes.resolve_target_cursor", return_value=cursor):
+        res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
+    assert res["status"] == "error"
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    cursor.setString.assert_not_called()
+    mgr.enterUndoContext.assert_not_called()
+
+
+def test_indexes_create_search_rollback_failure_keeps_the_cause():
+    tool, ctx, cursor, _mgr = _search_create_undo(
+        insert_error=RuntimeError("insert failed"),
+        undo_error=RuntimeError("undo broke"),
+    )
+    with patch("plugin.writer.specialized.indexes.resolve_target_cursor", return_value=cursor):
+        res = tool.execute(ctx, kind="toc", target="search", old_content="placeholder")
+    assert res["status"] == "error"
+    assert res["code"] == "ROLLBACK_FAILED"
+    assert "undo broke" in res["message"]
+    assert "insert failed" in res["message"]

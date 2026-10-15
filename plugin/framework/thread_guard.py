@@ -38,6 +38,7 @@ one process-wide violation dialog can be open at a time; further
 violations are logged until the dialog returns. This module
 **detects** wrong-thread UNO access; it does not move work to the UI
 thread — use ``QueueExecutor`` / ``execute_on_main_thread`` for that.
+Untagged ``_DummyThread`` is LO dispatch; a background-task tag overrides it.
 """
 
 from __future__ import annotations
@@ -101,11 +102,41 @@ def get_designated_main_thread() -> threading.Thread | None:
     return _designated_main_thread
 
 
-def on_main_thread() -> bool:
+def on_python_main_thread() -> bool:
+    """True only for the Python main thread or the designated test pump.
+
+    A PyUNO ``_DummyThread`` is not this. Bootstrap must use this, not
+    ``on_main_thread()``: a status-listener upcall must not enter bootstrap.
+    """
     current = threading.current_thread()
     if _designated_main_thread is not None:
         return current is _designated_main_thread
     return current is threading.main_thread()
+
+
+def on_main_thread() -> bool:
+    """True on the VCL thread, or on an untagged LibreOffice upcall.
+
+    What was wrong: only ``threading.main_thread()`` passed, so every PyUNO
+    upcall (a new ``threading._DummyThread`` per call, named ``Dummy-N``)
+    was a violation. LibreOffice invokes listeners while holding the
+    SolarMutex, so that access is legitimate. With ``GUARD_ON``, the raise
+    aborted ``review_toolbar`` modify-listener registration.
+    How it happened: ``assert_main_thread`` / ``@main_thread_only``
+    (``get_runtime_uid``, ``uno_same``) and proxy ``__getattr__``
+    (``UNO.getServiceManager``) all go through this predicate.
+    Why this change: an untagged ``_DummyThread`` is LO dispatch. A Dummy
+    thread tagged with ``set_background_task`` is our work and stays a
+    violation. ``threading.Thread`` workers stay a violation. The
+    designated-main hook still wins over both.
+    """
+    if on_python_main_thread():
+        return True
+    if _designated_main_thread is not None:
+        return False
+    if get_background_task_name():
+        return False
+    return isinstance(threading.current_thread(), threading._DummyThread)
 
 
 # In-flight violation dialog flag. Only one process-wide violation dialog may be
@@ -125,6 +156,29 @@ def set_background_task(name: str | None) -> None:
 
 def get_background_task_name() -> str | None:
     return getattr(_bg, "task_name", None)
+
+
+@contextmanager
+def background_if_dummy_thread(name: str) -> Generator[None, None, None]:
+    """Tag a PyUNO Dummy carrier so ``on_main_thread()`` stays false.
+
+    A ``threading.Thread``, the Python main thread, and the designated
+    pump thread are unchanged. Call this at LO entry points whose body
+    must keep marshaling (proofreading PE2I, ``=PY()`` / ``=PROMPT()``).
+    """
+    current = threading.current_thread()
+    if _designated_main_thread is not None and current is _designated_main_thread:
+        yield
+        return
+    if not isinstance(current, threading._DummyThread):
+        yield
+        return
+    prev = get_background_task_name()
+    set_background_task(name)
+    try:
+        yield
+    finally:
+        set_background_task(prev)
 
 
 def _notify_thread_violation(msg: str) -> None:
@@ -509,4 +563,21 @@ def _unwrap_uno(obj: Any) -> Any:
     return obj
 
 
-__all__ = ["guard_uno", "assert_main_thread", "main_thread_only", "background", "sync_host_dispatch", "in_sync_host_dispatch", "set_background_task", "get_background_task_name", "set_designated_main_thread", "get_designated_main_thread", "on_main_thread", "_wrap_uno", "_unwrap_uno", "GUARD_ON"]
+__all__ = [
+    "guard_uno",
+    "assert_main_thread",
+    "main_thread_only",
+    "background",
+    "background_if_dummy_thread",
+    "sync_host_dispatch",
+    "in_sync_host_dispatch",
+    "set_background_task",
+    "get_background_task_name",
+    "set_designated_main_thread",
+    "get_designated_main_thread",
+    "on_main_thread",
+    "on_python_main_thread",
+    "_wrap_uno",
+    "_unwrap_uno",
+    "GUARD_ON",
+]

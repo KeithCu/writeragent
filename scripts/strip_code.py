@@ -394,6 +394,10 @@ def main_thread_only(fn: Any) -> Any:
 def background(fn: Any) -> Any:
     return fn
 
+@contextmanager
+def background_if_dummy_thread(name: str) -> Generator[None, None, None]:
+    yield
+
 def set_background_task(name: str | None) -> None:
     try:
         _bg.task_name = name
@@ -415,6 +419,9 @@ def get_designated_main_thread() -> Any:
 # posting PE2I events to the main thread. Checking threading.current_thread()
 # is threading.main_thread() correctly identifies background worker threads in release bundles.
 def on_main_thread() -> bool:
+    return threading.current_thread() is threading.main_thread()
+
+def on_python_main_thread() -> bool:
     return threading.current_thread() is threading.main_thread()
 
 
@@ -464,6 +471,7 @@ __all__ = [
     "assert_main_thread",
     "main_thread_only",
     "background",
+    "background_if_dummy_thread",
     "sync_host_dispatch",
     "in_sync_host_dispatch",
     "set_background_task",
@@ -471,6 +479,7 @@ __all__ = [
     "set_designated_main_thread",
     "get_designated_main_thread",
     "on_main_thread",
+    "on_python_main_thread",
     "_wrap_uno",
     "_unwrap_uno",
     "GUARD_ON",

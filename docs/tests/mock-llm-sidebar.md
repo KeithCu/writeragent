@@ -168,6 +168,8 @@ Debug test hooks live in [`plugin/chatbot/sidebar_test_hooks.py`](../../plugin/c
 | `approval_active()` | Checks if `_approval_event is not None` | HITL state verification |
 | `install_fake_tts(mode)` / `clear_fake_tts()` | Fake TTS backend lifecycle via state file (`writeragent_fake_tts.json`) and debug ops `FAKE_TTS_HOLD`, `FAKE_TTS_CRASH`, `FAKE_TTS_MISSING`, `FAKE_TTS_OFF`. Test-hook only; production `tts_service` does not read this file | Packet T |
 
+Fake hold/stop still rewinds `_speech_generation` so the in-flight worker's `on_complete` runs. The rewind is published under `_FAKE_TTS_LOCK` before that lock is released, and the hooked `_end_utterance` takes the same lock. Otherwise `stop_speech` bumps the generation and kills the child first, the worker treats the utterance as superseded, and `on_complete` never runs. Production `stop_speech` does not rewind; playback-only Stop disables the button itself.
+
 ### 2.5. Universal Invariants & Pass/Fail Criteria
 
 Every test must satisfy:

@@ -37,6 +37,36 @@ SHAPE_TOOL_UNO_SERVICES = [
     IMPRESS_DOCUMENT_SERVICE,
 ]
 
+# IDL order of com.sun.star.text.TextContentAnchorType. image_set_properties
+# and frame_set_properties write these same integers.
+_ANCHOR_TYPE_INDEX = {
+    "AT_PARAGRAPH": 0,
+    "AS_CHARACTER": 1,
+    "AT_PAGE": 2,
+    "AT_FRAME": 3,
+    "AT_CHARACTER": 4,
+}
+
+
+def anchor_type_index(raw: Any) -> int | None:
+    """Map TextContentAnchorType to the 0-4 index the set-properties tools write.
+
+    What was wrong: image_get_info and frame_get_info always returned anchor_type None.
+    How it happened: getPropertyValue("AnchorType") is a pyuno enum. .value is the
+    name ("AT_PARAGRAPH"), so int(name) raises ValueError, and int(enum) raises
+    TypeError. Both were swallowed. html_import.py already reads that .value name.
+    Why this change: the name is the stable token. The integers are the IDL order
+    those tools pass to setPropertyValue.
+    """
+    if type(raw) is int and raw in _ANCHOR_TYPE_INDEX.values():
+        return raw
+    name = getattr(raw, "value", None)
+    if not isinstance(name, str):
+        name = raw
+    if isinstance(name, str):
+        return _ANCHOR_TYPE_INDEX.get(name)
+    return None
+
 
 def get_visual_doc_type(doc: Any) -> str:
     """Return the visual-tool document label used by image and shape helpers.

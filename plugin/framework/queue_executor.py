@@ -86,10 +86,6 @@ def set_force_marshal_mode(enabled: bool) -> None:
     _force_marshal_mode = enabled
 
 
-def get_force_marshal_mode() -> bool:
-    return _force_marshal_mode
-
-
 def set_test_poke_handler(handler: Callable[["QueueExecutor"], None] | None) -> None:
     """Test hook: replace AsyncCallback poke with a synthetic main-thread pump."""
     global _test_poke_handler

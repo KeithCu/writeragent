@@ -10,6 +10,7 @@ def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
     import plugin.main_core as main_core
 
     main_core._initialized = False
+    main_core._bootstrapping = False
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
     monkeypatch.setattr(
@@ -30,6 +31,48 @@ def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
         assert get_action_handler("scripting.run_python_dialog") is not None
     finally:
         main_core._initialized = False
+        main_core._bootstrapping = False
+
+
+def test_bootstrap_reentry_returns_without_lock(monkeypatch) -> None:
+    import plugin.main_core as main_core
+
+    main_core._initialized = False
+    main_core._bootstrapping = False
+
+    calls = 0
+
+    def fake_init_config(ctx):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            main_core.bootstrap(ctx)
+        return ""
+
+    monkeypatch.setattr("plugin.framework.config.init_config", fake_init_config)
+    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
+    monkeypatch.setattr(
+        "plugin.scripting.native_binaries.ensure_native_binaries_on_path",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "plugin.calc.python.editor_context_menu.install_calc_cell_context_menu",
+        lambda _ctx: None,
+    )
+    monkeypatch.setattr(
+        "plugin.calc.excel_py_convert.auto_open.install_excel_py_auto_convert",
+        lambda _ctx: None,
+    )
+    try:
+        main_core.bootstrap(MagicMock())
+        assert calls == 1
+        assert main_core._initialized is True
+        assert main_core._bootstrapping is False
+        assert not hasattr(main_core, "_init_lock")
+        assert not hasattr(main_core, "_DISPATCH_PROTOCOL")
+    finally:
+        main_core._initialized = False
+        main_core._bootstrapping = False
 
 
 def test_execute_inits_logging_before_bootstrap(monkeypatch) -> None:

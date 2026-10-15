@@ -224,9 +224,10 @@ def bootstrap(ctx: Any | None = None) -> None:
     if _initialized:
         return
 
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.thread_guard import on_python_main_thread
 
-    if not on_main_thread():
+    # A status-listener Dummy upcall is allowed to touch UNO, and it must not enter bootstrap.
+    if not on_python_main_thread():
         from plugin.framework.errors import WriterAgentException
 
         raise WriterAgentException(
@@ -427,13 +428,24 @@ def _register_core_handlers() -> None:
 
     _install_optional(_install_calc_menus, message="Calc cell context menu install failed", level=logging.DEBUG)
 
-    from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
+    # What was wrong: the from-import sat outside _install_optional.
+    # How it happened: only the call was wrapped, so ImportError left this
+    # function. _initialized is already True, so bootstrap does not retry and
+    # handlers after the import (search, review) never register.
+    # Why this change: import inside the callable, same as _install_calc_menus.
+    def _install_excel_py_auto_convert() -> None:
+        from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
 
-    _install_optional(install_excel_py_auto_convert, get_ctx(), message="Excel PY auto-convert on open install failed", level=logging.DEBUG)
+        install_excel_py_auto_convert(get_ctx())
 
-    from plugin.calc.python.geometric_recalc import install_geometric_recalc
+    _install_optional(_install_excel_py_auto_convert, message="Excel PY auto-convert on open install failed", level=logging.DEBUG)
 
-    _install_optional(install_geometric_recalc, message="Geometric recalc install failed", level=logging.DEBUG)
+    def _install_geometric_recalc() -> None:
+        from plugin.calc.python.geometric_recalc import install_geometric_recalc
+
+        install_geometric_recalc()
+
+    _install_optional(_install_geometric_recalc, message="Geometric recalc install failed", level=logging.DEBUG)
 
     def _open_search_dialog() -> None:
         from plugin.embeddings.search_ui import show_search_dialog
@@ -498,13 +510,19 @@ def _register_core_handlers() -> None:
     register_action_handler("writer", "review_next", lambda: _goto_adjacent_change(True))
     register_action_handler("writer", "review_prev", lambda: _goto_adjacent_change(False))
 
-    from plugin.writer.change_context_menu import install_writer_change_context_menu
+    def _install_writer_change_context_menu() -> None:
+        from plugin.writer.change_context_menu import install_writer_change_context_menu
 
-    _install_optional(install_writer_change_context_menu, get_ctx(), message="Writer change context menu install failed", level=logging.WARNING)
+        install_writer_change_context_menu(get_ctx())
 
-    from plugin.writer.review_toolbar import install_review_toolbar
+    _install_optional(_install_writer_change_context_menu, message="Writer change context menu install failed", level=logging.WARNING)
 
-    _install_optional(install_review_toolbar, get_ctx(), message="Review toolbar visibility install failed", level=logging.WARNING)
+    def _install_review_toolbar() -> None:
+        from plugin.writer.review_toolbar import install_review_toolbar
+
+        install_review_toolbar(get_ctx())
+
+    _install_optional(_install_review_toolbar, message="Review toolbar visibility install failed", level=logging.WARNING)
 
 
 

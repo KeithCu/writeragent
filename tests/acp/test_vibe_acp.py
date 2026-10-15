@@ -59,6 +59,18 @@ class TestVibeEnvVars:
     def test_empty_when_no_key(self, mock_endpoint, mock_key):
         assert (VibeBackend().get_env_vars()) == ({})
 
+    @patch("plugin.acp.vibe_simple.get_api_key_for_endpoint")
+    @patch("plugin.acp.vibe_simple.get_current_endpoint", return_value="https://api.openai.com/v1")
+    def test_non_mistral_provider_returns_empty(self, mock_endpoint, mock_key):
+        assert VibeBackend().get_env_vars() == {}
+        mock_key.assert_not_called()
+
+    @patch("plugin.acp.vibe_simple.get_current_endpoint", side_effect=RuntimeError("config broken"))
+    def test_runtime_error_logs_and_returns_empty(self, mock_endpoint, caplog):
+        caplog.set_level("ERROR", logger="plugin.acp.vibe_simple")
+        assert VibeBackend().get_env_vars() == {}
+        assert "Failed to read API key for Vibe ACP" in caplog.text
+
 
 class TestVibeUsesBaseSend:
     """contentBlocks drain lives on ACPBackend.send(); Vibe has no override."""

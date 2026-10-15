@@ -29,7 +29,7 @@ from plugin.calc.python.formula_locator_cache import is_matching_py_formula, loc
 from plugin.calc.python.image_egress import insert_image_result_on_sheet
 from plugin.framework.errors import format_error_message
 from plugin.framework.i18n import _
-from plugin.framework.thread_guard import sync_host_dispatch
+from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch
 
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import is_dataframe_payload, is_split_grid, find_image_payloads
@@ -1985,11 +1985,12 @@ def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -
 
 def execute_python_addin(ctx: Any, code: str, data: Any = None, true_strings: set[str] | None = None, false_strings: set[str] | None = None, *, doc: Any | None = None) -> Any:
     """Run *code* in the user venv and return a Calc-compatible scalar (or error string)."""
-    with sync_host_dispatch():
-        from plugin.calc.python.formula_locator_cache import bind_formula_locate_memo
+    with background_if_dummy_thread("python_addin"):
+        with sync_host_dispatch():
+            from plugin.calc.python.formula_locator_cache import bind_formula_locate_memo
 
-        with bind_formula_locate_memo():
-            return _execute_python_addin_impl(ctx, code, data, true_strings, false_strings, doc=doc)
+            with bind_formula_locate_memo():
+                return _execute_python_addin_impl(ctx, code, data, true_strings, false_strings, doc=doc)
 
 
 def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strings: set[str] | None = None, false_strings: set[str] | None = None, *, doc: Any | None = None) -> Any:
