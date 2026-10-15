@@ -75,7 +75,10 @@ def _split_cli_args(args_str: str, *, posix: bool) -> list[str]:
 
 
 def _directory_from_document_url(document_url: str | None) -> str | None:
-    """Parent directory of a ``file://`` document, or None when it is not a local file."""
+    """Parent directory of a local ``file://`` document, or None when it is not a local file.
+
+    A Windows UNC host becomes ``\\\\host\\...``; any other non-localhost host returns None.
+    """
     from urllib.parse import unquote, urlparse
 
     text = str(document_url or "").strip()
@@ -87,7 +90,15 @@ def _directory_from_document_url(document_url: str | None) -> str | None:
     if parsed.scheme != "file":
         return None
     path = unquote(parsed.path)
-    if os.name == "nt" and len(path) >= 3 and path[0] == "/" and path[2] == ":":
+    # What was wrong: file://server/share/doc.odt left netloc unused, so the
+    # path was /share/doc.odt. urlparse puts the host in netloc. Why this
+    # change: a non-localhost host is UNC only on Windows and is not a local
+    # directory elsewhere, while localhost stays on the drive-letter branch.
+    if parsed.netloc and parsed.netloc.lower() != "localhost":
+        if os.name != "nt":
+            return None
+        path = "\\\\" + parsed.netloc + path.replace("/", "\\")
+    elif os.name == "nt" and len(path) >= 3 and path[0] == "/" and path[2] == ":":
         path = path[1:].replace("/", "\\")
     if not path:
         return None
@@ -297,9 +308,11 @@ class ACPBackend(AgentBackend):
 
     Subclasses must implement:
     - get_binary_name(): return binary name (e.g., "hermes")
-    - get_display_name(): return UI display name
-    - get_agent_name(): return ACP agent name
     - get_env_vars(): return dict of environment variables to pass
+
+    Subclasses declare the class attribute ``display_name: ClassVar[str]``
+    with the English UI label; the registry and the sidebar read that
+    class attribute.
 
     Optional class attr for CLIs that need a default subcommand when
     ``agent_backend.args`` is empty (Hermes/OpenCode ``acp``, Grok
@@ -416,14 +429,6 @@ class ACPBackend(AgentBackend):
         """Return the binary name to search for (e.g., 'hermes')."""
         raise NotImplementedError
 
-    def get_display_name(self) -> str:
-        """Return display name for UI."""
-        raise NotImplementedError
-
-    def get_agent_name(self) -> str:
-        """Return ACP agent name."""
-        raise NotImplementedError
-
     def get_env_vars(self) -> Dict[str, str]:
         """Return environment variables to pass to subprocess."""
         return {}
@@ -434,9 +439,9 @@ class ACPBackend(AgentBackend):
         # home install dirs. A second which() only ran when isfile() disagreed.
         self._load_config()
         if self._binary_path:
-            log.info("%s binary found: %s", self.get_display_name(), self._binary_path)
+            log.info("%s binary found: %s", self.display_name, self._binary_path)
             return True
-        log.info("%s binary not found", self.get_display_name())
+        log.info("%s binary not found", self.display_name)
         return False
 
     def _startup_stopped(self, stop_checker: Any) -> bool:
@@ -471,7 +476,7 @@ class ACPBackend(AgentBackend):
             if self._stop_requested:
                 return
             if not self._binary_path:
-                raise RuntimeError(f"{self.get_display_name()} binary not found. Install {self.get_binary_name()} and ensure it's in PATH.")
+                raise RuntimeError(f"{self.display_name} binary not found. Install {self.get_binary_name()} and ensure it's in PATH.")
 
             cmd_line = [self._binary_path]
             cmd_line.extend(self._extra_args)
@@ -495,7 +500,7 @@ class ACPBackend(AgentBackend):
                 return
             if not conn.is_alive:
                 detail = conn.stderr_text().strip()
-                message = f"{self.get_display_name()} ACP process failed to start."
+                message = f"{self.display_name} ACP process failed to start."
                 if detail:
                     message = f"{message} {detail[:500]}"
                 raise RuntimeError(message)
@@ -526,7 +531,7 @@ class ACPBackend(AgentBackend):
             detail = conn.stderr_text().strip() if not conn.is_alive else ""
             self._release_connection(conn)
             if detail:
-                raise RuntimeError(f"{self.get_display_name()} ACP process failed to start. {detail[:500]}") from exc
+                raise RuntimeError(f"{self.display_name} ACP process failed to start. {detail[:500]}") from exc
             raise
 
     def _ensure_session(self, mcp_url: str | None = None, document_url: str | None = None) -> None:
@@ -545,7 +550,7 @@ class ACPBackend(AgentBackend):
         # there is no process.
         conn = self._conn
         if conn is None:
-            raise RuntimeError(f"{self.get_display_name()} ACP process is not running.")
+            raise RuntimeError(f"{self.display_name} ACP process is not running.")
 
         # mcp_servers is required by the ACP schema
         # Attach mcp_servers only when MCP is enabled. A disabled server must
@@ -564,7 +569,7 @@ class ACPBackend(AgentBackend):
             session_id = result.get("sessionId") if isinstance(result, dict) else None
             # An empty id used to be stored and sent on session/prompt.
             if not isinstance(session_id, str) or not session_id.strip():
-                raise RuntimeError(f"{self.get_display_name()} ACP session/new returned no sessionId.")
+                raise RuntimeError(f"{self.display_name} ACP session/new returned no sessionId.")
             self._session_id = session_id
             self._session_url = url_key
             self._session_prompted = False
@@ -734,20 +739,22 @@ class ACPBackend(AgentBackend):
             tool_call = {}
         options = params.get("options")
         stored = [opt for opt in options if isinstance(opt, dict)] if isinstance(options, list) else []
+        # What was wrong: a missing id was still queued, on_approval_required
+        # drops a None id, and the Stop path also fell through because
+        # reply_cancelled was false when msg_id was None; there is no id to
+        # put on a cancelled result.
+        if msg_id is None:
+            log.warning("ACP permission request missing id; cannot answer it")
+            return
         # Keep the options so Approve/Reject can echo optionId. The HITL
         # dialog only returns a bool; the id has to live with the request.
         # The stop flag is read under the same lock stop() clears, so a
         # request that arrives as Stop runs is cancelled instead of stored
         # after the pending map was already swept.
         with self._state_lock:
-            if self._stop_requested:
-                reply_cancelled = msg_id is not None
-            else:
-                reply_cancelled = False
-                if msg_id is not None:
-                    self._pending_permissions[msg_id] = stored
-                else:
-                    log.warning("ACP permission request missing id; cannot answer it")
+            reply_cancelled = self._stop_requested
+            if not reply_cancelled:
+                self._pending_permissions[msg_id] = stored
         if reply_cancelled:
             self._reply(msg_id, result=_cancelled_permission(), what=f"cancel ACP permission {msg_id}")
             return
@@ -922,13 +929,13 @@ class ACPBackend(AgentBackend):
             self._finish_stopped(queue)
             return
 
-        queue.put((StreamQueueKind.STATUS, f"Starting {self.get_display_name()}..."))
+        queue.put((StreamQueueKind.STATUS, f"Starting {self.display_name}..."))
 
         try:
             try:
                 self._ensure_connection(stop_checker)
             except Exception as e:
-                self._report_failure(queue, format_error_payload(RuntimeError(f"Cannot start {self.get_display_name()} ACP. Is {self.get_binary_name()} installed? Error: {e}")))
+                self._report_failure(queue, format_error_payload(RuntimeError(f"Cannot start {self.display_name} ACP. Is {self.get_binary_name()} installed? Error: {e}")))
                 return
 
             if self._stop_requested:
@@ -956,7 +963,7 @@ class ACPBackend(AgentBackend):
                 self._finish_stopped(queue)
                 return
 
-            queue.put((StreamQueueKind.STATUS, f"Sending to {self.get_display_name()}..."))
+            queue.put((StreamQueueKind.STATUS, f"Sending to {self.display_name}..."))
 
             prompt_blocks = self._build_prompt_blocks(user_message=user_message, document_context=document_context, system_prompt=system_prompt, selection_text=selection_text, document_url=document_url, include_system=not self._session_prompted)
 
@@ -972,7 +979,7 @@ class ACPBackend(AgentBackend):
                     self._finish_stopped(queue)
                     return
                 if conn is None:
-                    self._report_failure(queue, format_error_payload(RuntimeError(f"{self.get_display_name()} ACP process is not running.")))
+                    self._report_failure(queue, format_error_payload(RuntimeError(f"{self.display_name} ACP process is not running.")))
                     return
 
                 result = self._request(conn, "session/prompt", {"sessionId": self._session_id, "prompt": prompt_blocks}, _PROMPT_IDLE_SEC)
@@ -988,7 +995,7 @@ class ACPBackend(AgentBackend):
                 self._finish_stopped(queue)
             except TimeoutError:
                 # No accepted stdout for the idle window. The CLI is wedged.
-                self._report_failure(queue, format_error_payload(RuntimeError(f"{self.get_display_name()} prompt timed out")))
+                self._report_failure(queue, format_error_payload(RuntimeError(f"{self.display_name} prompt timed out")))
                 if not self._stop_requested:
                     self.shutdown()
             except Exception as e:
@@ -1025,7 +1032,7 @@ class ACPBackend(AgentBackend):
         """
         if not isinstance(result, dict):
             if result:
-                queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(f"{self.get_display_name()} returned an unexpected prompt result."))))
+                queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(f"{self.display_name} returned an unexpected prompt result."))))
             else:
                 queue.put((StreamQueueKind.STREAM_DONE, None))
             return
@@ -1040,7 +1047,7 @@ class ACPBackend(AgentBackend):
             self._finish_stopped(queue)
             return
         if stop_reason == "refusal":
-            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(f"{self.get_display_name()} refused the prompt."))))
+            queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError(f"{self.display_name} refused the prompt."))))
             return
         limit = _LIMIT_STOP_STATUS.get(stop_reason)
         if limit:

@@ -26,19 +26,12 @@ class GrokBackend(ACPBackend):
     """ACP-based xAI Grok Build backend. Official CLI: ``grok --no-auto-update agent stdio``."""
 
     backend_id: ClassVar[str] = "grok"
+    display_name: ClassVar[str] = "Grok Build"
     default_extra_args: Tuple[str, ...] = ("--no-auto-update", "agent", "stdio")
     _extra_args: list[str]
 
     def get_binary_name(self) -> str:
         """Primary executable for PATH lookup (``grok agent stdio`` is the supported install)."""
-        return "grok"
-
-    def get_display_name(self) -> str:
-        """Return display name for UI."""
-        return "Grok Build"
-
-    def get_agent_name(self) -> str:
-        """Return ACP agent name."""
         return "grok"
 
     def _binary_matches(self, path: str) -> bool:

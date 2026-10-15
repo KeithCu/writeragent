@@ -21,11 +21,10 @@ class TestVibeIdentity:
     def test_binary_name_is_vibe_acp(self):
         assert (VibeBackend().get_binary_name()) == ("vibe-acp")
 
-    def test_display_and_agent_name(self):
+    def test_display_name(self):
         backend = VibeBackend()
         assert (backend.backend_id) == ("vibe")
-        assert (backend.get_display_name()) == ("Mistral Vibe")
-        assert (backend.get_agent_name()) == ("vibe")
+        assert (backend.display_name) == ("Mistral Vibe")
 
 
 class TestVibeIsAvailable:

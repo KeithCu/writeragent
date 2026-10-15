@@ -22,11 +22,7 @@ class TestOpenCodeBinaryDiscovery:
 
     def test_display_name(self):
         backend = OpenCodeBackend()
-        assert (backend.get_display_name()) == ("OpenCode")
-
-    def test_agent_name(self):
-        backend = OpenCodeBackend()
-        assert (backend.get_agent_name()) == ("opencode")
+        assert (backend.display_name) == ("OpenCode")
 
 
 class TestOpenCodeBackendInit:
@@ -35,7 +31,7 @@ class TestOpenCodeBackendInit:
     def test_backend_id(self):
         backend = OpenCodeBackend()
         assert (backend.backend_id) == ("opencode")
-        assert (backend.get_display_name()) == ("OpenCode")
+        assert (backend.display_name) == ("OpenCode")
 
 
 class TestIsAvailable:
@@ -76,9 +72,10 @@ class TestOpenCodeEnvVars:
 
 
 class TestAgentBackendDisplayLabel:
-    """Error messages must use get_display_name(), not inherited display_name."""
+    """The label is the class display_name, not AgentBackend's "Built-in"."""
 
     def test_label_opencode(self):
+        assert "display_name" in OpenCodeBackend.__dict__
         assert (_agent_backend_label(OpenCodeBackend(), "opencode")) == ("OpenCode")
 
 

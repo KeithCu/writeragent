@@ -531,7 +531,10 @@ class ACPConnection:
         if error is not None:
             msg["error"] = error
         else:
-            msg["result"] = result or {}
+            # What was wrong: result or {} turned False, 0, [], and "" into
+            # {}; only None means the caller omitted the result, which is the
+            # rule _reply already uses.
+            msg["result"] = result if result is not None else {}
 
         line = json.dumps(msg) + "\n"
         self._enqueue(_QueuedWrite(proc, line.encode("utf-8")))

@@ -775,8 +775,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             ctrl = get_optional_control(root, "backend_indicator")
             if ctrl:
                 if is_external:
-                    entry = AGENT_BACKEND_REGISTRY.get(backend_id)
-                    display_en = entry[0] if entry else backend_id.capitalize()
+                    cls = AGENT_BACKEND_REGISTRY.get(backend_id)
+                    display_en = cls.display_name if cls is not None else backend_id.capitalize()
                     set_control_text(ctrl, _(display_en))
                     if hasattr(ctrl, "setVisible"):
                         ctrl.setVisible(True)

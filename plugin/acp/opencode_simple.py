@@ -25,16 +25,9 @@ class OpenCodeBackend(ACPBackend):
     """ACP-based OpenCode backend (``opencode acp``)."""
 
     backend_id: ClassVar[str] = "opencode"
+    display_name: ClassVar[str] = "OpenCode"
     default_extra_args: Tuple[str, ...] = ("acp",)
 
     def get_binary_name(self) -> str:
         """Primary executable for PATH lookup (``opencode acp`` is the supported install)."""
-        return "opencode"
-
-    def get_display_name(self) -> str:
-        """Return display name for UI."""
-        return "OpenCode"
-
-    def get_agent_name(self) -> str:
-        """Return ACP agent name."""
         return "opencode"

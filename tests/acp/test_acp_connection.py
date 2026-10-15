@@ -630,6 +630,32 @@ class TestStdinWriteCapturesProc:
         assert stdin.written
         assert b'"id": 4' in stdin.written[0]
 
+    @pytest.mark.parametrize(
+        "result, expected",
+        [
+            pytest.param(None, {}, id="test_none_defaults_to_dict"),
+            pytest.param(False, False, id="test_false_preserved"),
+            pytest.param(0, 0, id="test_zero_preserved"),
+            pytest.param([], [], id="test_empty_list_preserved"),
+            pytest.param("", "", id="test_empty_string_preserved"),
+        ],
+    )
+    def test_send_response_preserves_falsy_results(self, result, expected):
+        conn = ACPConnection(cmd_line=["agent"])
+        stdin = _Stdin()
+        conn._proc = _proc_nulled_on_bool(conn, stdin)
+        conn._running = True
+        conn.send_response(4, result=result)
+        import time
+        for _ in range(50):
+            if stdin.written:
+                break
+            time.sleep(0.01)
+        assert stdin.written
+        payload = json.loads(stdin.written[0].decode("utf-8"))
+        assert (payload["result"]) == (expected)
+        assert (payload["id"]) == (4)
+
 
 def test_is_alive_does_not_reread_proc():
     """stop() may null _proc between the None check and poll().
