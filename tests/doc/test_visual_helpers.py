@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from plugin.doc import visual_helpers
 
 
@@ -456,3 +458,70 @@ def test_apply_character_properties_invalid_color() -> None:
     results = visual_helpers.apply_character_properties(target, color="nope")
     assert results == {"CharColor": False}
     assert target._properties["CharColor"] == 0
+
+
+class _RemovablePage:
+    def __init__(self, shapes: list[object]):
+        self._shapes = list(shapes)
+        self.removed: list[object] = []
+
+    def getCount(self) -> int:
+        return len(self._shapes)
+
+    def getByIndex(self, index: int):
+        return self._shapes[index]
+
+    def remove(self, shape: object) -> None:
+        self.removed.append(shape)
+        if shape in self._shapes:
+            self._shapes.remove(shape)
+
+
+class _NamedShape:
+    def __init__(self, name: str):
+        self._name = name
+
+    def getName(self) -> str:
+        return self._name
+
+
+class _DocWithPages:
+    def __init__(self, pages: list[object]):
+        self._pages = pages
+
+    def getDrawPages(self):
+        return FakeDrawPage(self._pages)
+
+
+def test_remove_graphic_identity_ignores_same_name():
+    s1 = _NamedShape("Pic")
+    s2 = _NamedShape("Pic")
+    page = _RemovablePage([s1, s2])
+    doc = _DocWithPages([page])
+
+    res = visual_helpers.remove_graphic_from_draw_pages(doc, s2)
+    assert res is True
+    assert page.removed == [s2]
+
+
+def test_remove_graphic_unique_name_fallback_deletes_that_shape():
+    target = _NamedShape("Pic")
+    on_page = _NamedShape("Pic")
+    page = _RemovablePage([on_page])
+    doc = _DocWithPages([page])
+
+    res = visual_helpers.remove_graphic_from_draw_pages(doc, target)
+    assert res is True
+    assert page.removed == [on_page]
+
+
+def test_remove_graphic_ambiguous_name_deletes_nothing():
+    target = _NamedShape("Pic")
+    s1 = _NamedShape("Pic")
+    s2 = _NamedShape("Pic")
+    page = _RemovablePage([s1, s2])
+    doc = _DocWithPages([page])
+
+    with pytest.raises(ValueError, match="Several shapes named 'Pic'"):
+        visual_helpers.remove_graphic_from_draw_pages(doc, target)
+    assert page.removed == []

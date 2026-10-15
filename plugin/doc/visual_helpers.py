@@ -14,6 +14,8 @@ import logging
 import re
 from typing import Any
 
+from plugin.framework.errors import is_disposed_exception
+
 log = logging.getLogger(__name__)
 
 # Same Writer/Calc/Draw/Impress strings as plugin.doc.doc_type._DOCUMENT_SERVICE_MAP.
@@ -621,17 +623,33 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
     """Remove a GraphicObjectShape from Calc/Draw/Impress pages. Returns True if removed."""
     if graphic is None or doc is None:
         return False
+    target_name = ""
+    try:
+        if hasattr(graphic, "getName"):
+            raw_name = graphic.getName()
+            target_name = str(raw_name) if raw_name else ""
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
+        target_name = ""
+
     try:
         pages = doc.getDrawPages()
-    except Exception:
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
         page = get_active_draw_page(doc)
         if page is None:
             return False
         try:
             page.remove(graphic)
             return True
-        except Exception:
+        except Exception as p_exc:
+            if is_disposed_exception(p_exc):
+                raise
             return False
+
+    name_hits: list[tuple[Any, Any]] = []
     try:
         for i in range(pages.getCount()):
             page = pages.getByIndex(i)
@@ -640,14 +658,34 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
                 if shape is graphic or shape == graphic:
                     page.remove(graphic)
                     return True
-                try:
-                    if shape.getName() and graphic.getName() and shape.getName() == graphic.getName():
-                        page.remove(shape)
-                        return True
-                except Exception:
-                    pass
+                # Identity is the shape the caller resolved. A same name on
+                # a different shape used to delete the first hit, so two
+                # shapes named alike could drop the wrong one. Remember name
+                # hits and delete only when the name is unique.
+                if target_name:
+                    try:
+                        sh_name = shape.getName() if hasattr(shape, "getName") else None
+                        if sh_name and str(sh_name) == target_name:
+                            name_hits.append((page, shape))
+                    except Exception as s_exc:
+                        if is_disposed_exception(s_exc):
+                            raise
     except Exception as ex:
+        # Disposal used to become False, and image_delete reported
+        # IMAGE_NOT_FOUND for a closed document.
+        if is_disposed_exception(ex):
+            raise
         log.debug("remove_graphic_from_draw_pages failed: %s", ex)
+        return False
+
+    if len(name_hits) > 1:
+        # More than one shape shares this name and none of them was the object
+        # itself. Do not guess. image_delete reports AMBIGUOUS_NAME.
+        raise ValueError("Several shapes named '%s'; not deleted." % target_name)
+    if len(name_hits) == 1:
+        hit_page, hit_shape = name_hits[0]
+        hit_page.remove(hit_shape)
+        return True
     return False
 
 

@@ -1062,8 +1062,11 @@ class ImageDelete(ToolWriterImageBase):
 
         doc_type = visual_helpers.get_visual_doc_type(ctx.doc)
         if doc_type in ("calc", "draw", "impress"):
-            if not visual_helpers.remove_graphic_from_draw_pages(ctx.doc, graphic):
-                return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
+            try:
+                if not visual_helpers.remove_graphic_from_draw_pages(ctx.doc, graphic):
+                    return self._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
+            except ValueError as exc:
+                return self._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name)
         else:
             anchor = graphic.getAnchor()
             text = anchor.getText()

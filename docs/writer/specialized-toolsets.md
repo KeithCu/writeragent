@@ -329,7 +329,7 @@ table/cell; top-level tables return null parent fields) and `nested_in_cells` (t
 host cells that contain nested tables). `table_list` also reports `cell_count`
 (`len(getCellNames())`); if that is not `rows * cols`, the table is not a rectangle — read
 `table_get_cells` `cells`. Writer `table_get_cells` returns `cells` and `cell_names` (no
-`matrix`); empty string is an empty cell and a missing name is not a cell. Optional `cell=`
+`matrix`); empty string is an empty cell and a missing name is not a cell. A failed Draw/Impress cell read is a tool error, not "". Optional `cell=`
 reads one address (Draw: `matrix` is that one cell). Host slots are the host cell's own paragraphs, not concatenated
 inner-table text. `table_set_cell` on a host cell rewrites those paragraph siblings and
 keeps the nested table (`setString` would destroy it). `manage_table_structure` delete

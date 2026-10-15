@@ -782,6 +782,7 @@ class TableGetCells(ToolWriterTableBase):
     description: str = (
         "Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position). "
         "Empty string is an empty cell; a missing name is not a cell. "
+        "A failed Draw/Impress cell read is an error, not an empty string. "
         "Writer: rows and cols can be smaller than the real grid when cells are merged — follow cells. "
         "Draw/Impress: read matrix; when cell is set, matrix is that one cell only. "
         "Optional cell reads one address (Writer via getCellNames, Draw via A1). "

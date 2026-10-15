@@ -12,6 +12,10 @@ import logging
 from typing import Any
 from unittest.mock import MagicMock, call, patch
 
+import pytest
+
+from plugin.framework.errors import DocumentDisposedError
+
 from plugin.calc.charts import (
     CHART_CLSID,
     CHART_CLSID_DRAW_OLE,
@@ -362,3 +366,129 @@ def test_process_events_past_deadline_does_not_pump(monkeypatch):
     )
     assert _process_events(object(), deadline=40.0) is False
     assert called == []
+
+
+def test_list_charts_closed_document_is_disposal():
+    doc = MagicMock()
+    doc.getImplementationName.side_effect = _DisposedException("doc disposed")
+    doc.supportsService.side_effect = _DisposedException("doc disposed")
+    ctx = MagicMock()
+    ctx.doc = doc
+    with pytest.raises(DocumentDisposedError):
+        ListCharts().execute(ctx)
+    doc.supportsService.assert_not_called()
+
+
+def test_list_charts_calc_per_sheet_error_is_explicit():
+    doc = MagicMock()
+    sheet0 = MagicMock()
+    sheet0.getName.return_value = "Sheet1"
+    charts0 = MagicMock()
+    charts0.getElementNames.return_value = ("Chart_A",)
+    chart_obj0 = MagicMock()
+    charts0.getByName.return_value = chart_obj0
+    sheet0.getCharts.return_value = charts0
+
+    sheet1 = MagicMock()
+    sheet1.getName.return_value = "Sheet2"
+    sheet1.getCharts.side_effect = ValueError("bad charts")
+
+    sheets = MagicMock()
+    sheets.getCount.return_value = 2
+    sheets.getByIndex.side_effect = [sheet0, sheet1]
+    doc.getSheets.return_value = sheets
+
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    with (
+        patch("plugin.calc.charts.supportsService", side_effect=lambda obj, name: name == "com.sun.star.sheet.SpreadsheetDocument"),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=None),
+    ):
+        result = ListCharts().execute(ctx)
+
+    assert result["status"] == "ok"
+    assert len(result["charts"]) == 1
+    assert result["charts"][0]["name"] == "Chart_A"
+    assert result["charts"][0]["sheet_name"] == "Sheet1"
+    charts0.getByName.assert_called_once_with("Chart_A")
+    assert len(result["errors"]) == 1
+    assert "bad charts" in result["errors"][0]["message"]
+    assert result["errors"][0]["sheet"] == "Sheet2"
+
+
+def test_list_charts_draw_per_shape_error_keeps_later_chart():
+    bad = MagicMock()
+    bad.getShapeType.side_effect = ValueError("bad shape")
+    live = _OleShape("Chart_2")
+    page = _page(bad, live)
+    doc = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+    doc.getDrawPages.return_value = pages
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")):
+        result = ListCharts().execute(ctx)
+
+    assert result["status"] == "ok"
+    assert [entry["name"] for entry in result["charts"]] == ["Chart_2"]
+    assert len(result.get("errors", [])) == 1
+    assert result["errors"][0]["index"] == 0
+    assert result["errors"][0]["page"] == 0
+    assert "bad shape" in result["errors"][0]["message"]
+
+
+def test_list_charts_draw_closed_mid_scan_raises():
+    doc = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    disposed = False
+
+    def get_page(idx: int):
+        nonlocal disposed
+        disposed = True
+        raise _DisposedException("page disposed mid-scan")
+
+    pages.getByIndex.side_effect = get_page
+    doc.getDrawPages.return_value = pages
+
+    def get_impl():
+        if disposed:
+            raise _DisposedException("doc disposed mid-scan")
+        return "DrawingDocument"
+
+    doc.getImplementationName.side_effect = get_impl
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("draw")):
+        with pytest.raises(_DisposedException):
+            ListCharts().execute(ctx)
+
+
+def test_list_charts_writer_draw_page_error_keeps_embedded_chart():
+    doc = MagicMock()
+    embed = MagicMock()
+    embed.getElementNames.return_value = ("Chart_E",)
+    chart_obj = MagicMock()
+    embed.getByName.return_value = chart_obj
+    doc.getEmbeddedObjects.return_value = embed
+    doc.getDrawPage.side_effect = ValueError("no page")
+    ctx = MagicMock()
+    ctx.doc = doc
+
+    with (
+        patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")),
+        patch("plugin.calc.charts._writer_embed_is_chart", return_value=True),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=None),
+    ):
+        result = ListCharts().execute(ctx)
+
+    assert result["status"] == "ok"
+    assert [entry["name"] for entry in result["charts"]] == ["Chart_E"]
+    assert len(result.get("errors", [])) == 1
+    assert result["errors"][0]["source"] == "draw_page"
+    assert "no page" in result["errors"][0]["message"]
