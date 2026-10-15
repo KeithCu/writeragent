@@ -353,10 +353,13 @@ class ManagedSubprocess:
 
         Worker path is unchanged (pipes, drain, registry). In raw_spawn mode,
         Popen runs with requested stdio and environment; OSError propagates.
-        A second start raises RuntimeError.
+        A second start() raises RuntimeError after a child was published
+        (_proc is not None) or after close(); a start() that fails before _proc
+        is set leaves the instance reusable (worker and raw).
         """
         with self._lock:
-            # Single-use policy: a ManagedSubprocess cannot be respawned or restarted after exit/close.
+            # Single-use once a child is published or close() has run; a failure
+            # before _proc is set does not set _closed, so start() may be retried.
             if self._closed or self._proc is not None:
                 raise RuntimeError("ManagedSubprocess is single-use")
 
@@ -558,17 +561,24 @@ class ManagedSubprocess:
         # without passing creationflags.
         # Why this change fixes it: pass **get_subprocess_creationflags() to both subprocess.run branches.
         if capture_output:
+            if stdout is not None or stderr is not None:
+                raise ValueError("stdout and stderr arguments may not be used with capture_output.")
+            run_kwargs: dict[str, Any] = {
+                "capture_output": True,
+                "env": env,
+                "cwd": cwd,
+                "text": text,
+                "encoding": encoding,
+                "errors": errors,
+                "timeout": timeout,
+                "check": check,
+                **get_subprocess_creationflags(),
+            }
+            if stdin is not None:
+                run_kwargs["stdin"] = stdin
             return subprocess.run(
                 args,
-                capture_output=True,
-                env=env,
-                cwd=cwd,
-                text=text,
-                encoding=encoding,
-                errors=errors,
-                timeout=timeout,
-                check=check,
-                **get_subprocess_creationflags(),
+                **run_kwargs,
             )
         return subprocess.run(
             args,
@@ -604,24 +614,30 @@ class ManagedSubprocess:
             return
 
         # 1. Close stdin in its own try block so child observes EOF.
-        if proc.stdin:
+        stdin = getattr(proc, "stdin", None)
+        if stdin:
             try:
-                proc.stdin.close()
+                stdin.close()
             except OSError:
-                log.debug("Error closing stdin for pid=%s", proc.pid, exc_info=True)
+                log.debug("Error closing stdin for pid=%s", getattr(proc, "pid", None), exc_info=True)
 
         # 2. Terminate gracefully if still running.
-        if proc.poll() is None:
-            try:
-                proc.terminate()
-            except OSError:
-                log.debug("Error terminating pid=%s", proc.pid, exc_info=True)
-            try:
-                proc.wait(timeout=_GRACE_KILL_TIMEOUT_SEC)
-            except subprocess.TimeoutExpired:
-                pass
-            except OSError:
-                log.debug("Error waiting for pid=%s after terminate", proc.pid, exc_info=True)
+        poll_fn = getattr(proc, "poll", None)
+        if callable(poll_fn) and poll_fn() is None:
+            terminate = getattr(proc, "terminate", None)
+            if callable(terminate):
+                try:
+                    terminate()
+                except OSError:
+                    log.debug("Error terminating pid=%s", getattr(proc, "pid", None), exc_info=True)
+            wait = getattr(proc, "wait", None)
+            if callable(wait):
+                try:
+                    wait(timeout=_GRACE_KILL_TIMEOUT_SEC)
+                except subprocess.TimeoutExpired:
+                    pass
+                except OSError:
+                    log.debug("Error waiting for pid=%s after terminate", getattr(proc, "pid", None), exc_info=True)
 
         # 3. Always kill process tree.
         # What was wrong: previously close() only killed the process tree if wait() timed out.
@@ -630,10 +646,16 @@ class ManagedSubprocess:
         # How it happened: early return on poll() or wait() success bypassed the process group kill.
         # Why this change fixes it: always invoking kill_process_tree ensures the entire process
         # group is signaled, cleaning up all descendant processes even when the leader is dead.
-        kill_process_tree(proc)
+        #
+        # What was wrong: close() called kill_process_tree directly, so a non-Popen with an int pid
+        # was a process group and a double with no pid raised AttributeError out of close().
+        # How it happened: close() called kill_process_tree instead of kill_tree().
+        # Why this change fixes it: kill_tree already refused non-Popen doubles; calling it applies
+        # that guard and still runs the stderr cleanup below.
+        self.kill_tree()
 
         # 4. If the process is still alive after the tree kill, enqueue to reaper so caller isn't blocked.
-        if proc.poll() is None:
+        if callable(poll_fn) and poll_fn() is None:
             _enqueue_reaper(("close", self))
 
         # What was wrong: closing stderr before finish_text drops unread tail bytes and, on a
@@ -653,18 +675,28 @@ class ManagedSubprocess:
         # the child's death closes the write end.
 
         # 6. If drain is None and proc.stderr is set, close stderr.
-        if drain is None and proc.stderr:
+        stderr = getattr(proc, "stderr", None)
+        if drain is None and stderr:
             try:
-                proc.stderr.close()
+                stderr.close()
             except OSError:
-                log.debug("Error closing stderr for pid=%s", proc.pid, exc_info=True)
+                log.debug("Error closing stderr for pid=%s", getattr(proc, "pid", None), exc_info=True)
 
         # 7. If drain is not None, finish drain.
         if drain is not None:
             try:
                 drain.finish_text(timeout=1.0)
             except Exception:
-                log.debug("Error finishing stderr drain for pid=%s", proc.pid, exc_info=True)
+                log.debug("Error finishing stderr drain for pid=%s", getattr(proc, "pid", None), exc_info=True)
+
+
+def _kill_direct(proc: Any) -> None:
+    """SIGKILL this process when poll() is None. poll() errors propagate."""
+    if proc.poll() is None:
+        try:
+            proc.kill()
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
 
 def kill_process_tree(proc: subprocess.Popen[Any]) -> None:
@@ -685,11 +717,7 @@ def kill_process_tree(proc: subprocess.Popen[Any]) -> None:
     # kill(-1, SIGKILL): every process this user can signal, which ends
     # the desktop session. Only a real pid above 1 is safe to look up.
     if type(pid) is not int or pid <= 1:
-        if proc.poll() is None:
-            try:
-                proc.kill()
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
+        _kill_direct(proc)
         return
 
     # What was wrong: in containerized environments (such as CI containers or restricted
@@ -705,65 +733,42 @@ def kill_process_tree(proc: subprocess.Popen[Any]) -> None:
         pgid = os.getpgid(pid)
         fallback = False
     except ProcessLookupError:
+        # Leader is already gone. pgid = pid so a later killpg can reach
+        # grandchildren still in that session. A pid recycled between this
+        # getpgid failure and that killpg can be a new group leader; the
+        # pgid != pid and pgid == getpgrp() checks do not cover that window.
         pgid = pid
         fallback = True
     except (PermissionError, OSError):
-        if proc.poll() is None:
-            try:
-                proc.kill()
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
+        _kill_direct(proc)
         return
 
     try:
         if fallback and proc.poll() is None:
-            try:
-                proc.kill()
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
+            _kill_direct(proc)
         elif type(pgid) is not int or pgid <= 1 or pgid == os.getpgrp():
             # killpg on the host's own group (a reused pid, or a child without
             # its own session) would kill LibreOffice. killpg(0) signals that
             # same group. killpg(1) is kill(-1, SIGKILL). Kill only proc.
-            if proc.poll() is None:
-                try:
-                    proc.kill()
-                except (ProcessLookupError, PermissionError, OSError):
-                    pass
+            _kill_direct(proc)
         elif pgid != pid:
             # Avoid killpg on groups we don't own. Workers are spawned with
             # start_new_session=True, so their process group ID equals pid.
             # If pgid != pid, the process joined another group or the pid was
             # recycled into a foreign group. Kill only proc.
-            if proc.poll() is None:
-                try:
-                    proc.kill()
-                except (ProcessLookupError, PermissionError, OSError):
-                    pass
+            _kill_direct(proc)
         else:
             try:
                 os.killpg(pgid, signal.SIGKILL)
             except ProcessLookupError:
-                if proc.poll() is None:
-                    try:
-                        proc.kill()
-                    except (ProcessLookupError, PermissionError, OSError):
-                        pass
+                _kill_direct(proc)
             except (PermissionError, OSError):
                 # PermissionError [Errno 1] Operation not permitted in restricted
                 # container environments or when group ownership prevents killpg.
                 # Fall back to killing the direct child.
-                if proc.poll() is None:
-                    try:
-                        proc.kill()
-                    except (ProcessLookupError, PermissionError, OSError):
-                        pass
+                _kill_direct(proc)
     except (ProcessLookupError, PermissionError, OSError):
-        if proc.poll() is None:
-            try:
-                proc.kill()
-            except (ProcessLookupError, PermissionError, OSError):
-                pass
+        _kill_direct(proc)
 
 
 def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
@@ -790,11 +795,7 @@ def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
         except (ProcessLookupError, PermissionError, OSError):
             pass
         return
-    if proc.poll() is None:
-        try:
-            proc.kill()
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+    _kill_direct(proc)
 
 
 _instances: set[ManagedSubprocess] = set()
@@ -845,14 +846,20 @@ def _enqueue_reaper(item: tuple[str, ManagedSubprocess]) -> None:
     global _reaper_started
     with _reaper_lock:
         _reaper_queue.put(item)
-        if not _reaper_started:
-            _reaper_started = True
-            run_in_background(
-                _reaper_loop,
-                daemon=True,
-                name="managed-subprocess-reaper",
-                dedicated=True,
-            )
+        if _reaper_started:
+            return
+        # What was wrong: the flag was set before run_in_background; a raised start
+        # left it true and later enqueues wrote to a queue nobody drained.
+        # How it happened: _reaper_started was set before run_in_background returned.
+        # Why this change fixes it: the flag is set only after the call returns so the
+        # next enqueue retries, and the item put before the call stays on the queue.
+        run_in_background(
+            _reaper_loop,
+            daemon=True,
+            name="managed-subprocess-reaper",
+            dedicated=True,
+        )
+        _reaper_started = True
 
 
 def _reaper_loop() -> None:
@@ -883,9 +890,18 @@ def _reap_close(inst: ManagedSubprocess) -> None:
         if proc.poll() is None:
             proc.wait(timeout=_REAP_CLOSE_WAIT_SEC)
     except subprocess.TimeoutExpired:
+        # What was wrong: the warning said "abandoning" and returned without pinning,
+        # so the reaper could drop the last reference and Popen.__del__ would wait()
+        # with no timeout on that thread.
+        # How it happened: _reap_close logged without pinning unkillable instances.
+        # Why this change fixes it: unregister plus _reaper_given_up is the same hold
+        # reaper_pass uses after max passes; do not enqueue another job.
         log.warning(
-            "Managed subprocess pid=%s still alive after SIGKILL; abandoning",
+            "Managed subprocess pid=%s still alive after SIGKILL; reaper giving up",
             getattr(proc, "pid", None),
         )
+        inst.unregister()
+        if inst not in _reaper_given_up:
+            _reaper_given_up.append(inst)
     except Exception:
         log.exception("Error reaping managed subprocess pid=%s", getattr(proc, "pid", None))
