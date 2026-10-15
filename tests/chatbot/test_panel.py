@@ -1780,3 +1780,77 @@ class TestPanelR3Fixes:
         stop_ctrl.removeMouseListener.assert_called_once_with(stop_mouse)
         send_ctrl.removeMouseListener.assert_called_once_with(rec_mouse)
 
+
+class TestAudioRecorderErrorCallback:
+    def test_recorder_error_while_recording_ends_the_take(self) -> None:
+        listener = _make_send_listener()
+        send_model = MagicMock()
+        send_model.Label = "Stop Rec"
+        listener.send_control.getModel.return_value = send_model
+        listener.stop_control.getModel.return_value = MagicMock()
+        recorder = MagicMock()
+        recorder.state = AudioRecorderState(status="recording")
+        recorder.apply_stdout_error = MagicMock()
+        listener.audio_recorder = recorder
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(False, True, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="recording"),
+        )
+        listener._append_response = MagicMock()
+        listener._record_gesture = RecordGesture(sticky=True)
+
+        listener._on_audio_recorder_error("boom")
+
+        recorder.apply_stdout_error.assert_called_once_with("boom")
+        assert listener.sidebar_state.send.is_recording is False
+        assert listener.sidebar_state.send.is_busy is False
+        assert listener._record_gesture.sticky is False
+        assert send_model.Label != "Stop Rec"
+
+    def test_recorder_error_during_send_does_not_clear_busy(self) -> None:
+        listener = _make_send_listener()
+        recorder = MagicMock()
+        recorder.state = AudioRecorderState(status="idle")
+        recorder.apply_stdout_error = MagicMock()
+        listener.audio_recorder = recorder
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(True, False, True, True, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        listener._record_gesture = RecordGesture(sticky=True)
+        listener._terminal_status = "Ready"
+        listener._start_local_error_turn = MagicMock()
+
+        listener._on_audio_recorder_error("late")
+
+        recorder.apply_stdout_error.assert_called_once_with("late")
+        listener._start_local_error_turn.assert_not_called()
+        assert listener.sidebar_state.send.is_busy is True
+        assert listener.sidebar_state.send.has_audio is True
+        assert listener.sidebar_state.send.has_text is True
+        assert listener._record_gesture.sticky is True
+        assert listener._terminal_status == "Ready"
+
+    def test_recorder_error_while_idle_does_not_paint_error(self) -> None:
+        listener = _make_send_listener()
+        recorder = MagicMock()
+        recorder.state = AudioRecorderState(status="idle")
+        recorder.apply_stdout_error = MagicMock()
+        listener.audio_recorder = recorder
+        initial_state = SendButtonState(False, False, True, False, True)
+        listener.sidebar_state = SidebarCompositeState(
+            send=initial_state,
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        listener._start_local_error_turn = MagicMock()
+
+        listener._on_audio_recorder_error("late")
+
+        recorder.apply_stdout_error.assert_called_once_with("late")
+        listener._start_local_error_turn.assert_not_called()
+        assert listener.sidebar_state.send == initial_state
+
+

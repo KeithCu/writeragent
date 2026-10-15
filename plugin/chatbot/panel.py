@@ -228,9 +228,9 @@ from plugin.chatbot.send_state import (
     SendButtonState,
     SendEvent,
     SendEventKind,
-    StartRecordingEffect,
+    StartCaptureEffect,
     StartSendEffect,
-    StopRecordingEffect,
+    StopCaptureEffect,
     StopSendEffect,
     UpdateUIEffect,
 )
@@ -1316,7 +1316,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         # Nested dispatch during an effect (e.g. Record start failure) must run
         # after remaining effects. RECORD_CLICKED emits UpdateUIEffect after
-        # StartRecordingEffect; a nested ERROR_OCCURRED used to restore Stop Rec
+        # StartCaptureEffect; a nested ERROR_OCCURRED used to restore Stop Rec
         # on a listener that was no longer recording.
         reenter: list[Any] = []
         self._dispatch_reenter = reenter
@@ -1507,9 +1507,20 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         recorder = self.audio_recorder
         if recorder is not None:
             recorder.apply_stdout_error(msg)
+        self.sync_audio_slice()
+
+        # Bugfix: Any child error dispatched ERROR_OCCURRED. Because the monitor
+        # posts onto the UI queue, STOP_REC_CLICKED had already set is_busy=True
+        # and is_recording=False before that post ran (including during a text
+        # send), clearing is_busy while the send drain was still running. Only
+        # an open take may take the send-button error transition; a failed send
+        # still dispatches ERROR_OCCURRED from the drain while is_busy.
+        if not self.sidebar_state.send.is_recording:
+            log.warning("audio recorder error while not recording: %s", msg)
+            return
+
         self._start_local_error_turn("\n[Audio error: %s]\n" % msg)
         self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-        self.sync_audio_slice()
 
     def _on_audio_silence_progress(self, silence_ms: int) -> None:
         from plugin.framework.i18n import _
@@ -1548,7 +1559,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     else:
                         self._set_status(_(effect.status_text))
 
-            case StartRecordingEffect():
+            case StartCaptureEffect():
                 _stop_tts()
                 if not self.audio_recorder:
                     return
@@ -1563,7 +1574,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 self.sync_audio_slice()
 
-            case StopRecordingEffect():
+            case StopCaptureEffect():
                 if not self.audio_recorder:
                     return
                 try:
