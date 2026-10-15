@@ -115,6 +115,9 @@ def test_generate_module_domain_with_slash_is_a_valid_identifier():
     assert "class _PythonSqlProxy:" in code
     assert "python_sql = _PythonSqlProxy()" in code
     assert "'python/sql': ['query_folder_sql']" in code  # the registry key itself is unchanged
+    ns: dict[str, Any] = {}
+    exec(code, ns)
+    assert ns["TOOL_METHODS"]["query_folder_sql"] == ("python_sql", "query_folder_sql")
 
 
 def test_generator_script_runs_without_libreoffice(tmp_path):
@@ -146,6 +149,10 @@ def test_generate_module_escapes_python_keyword_method_names():
     assert "def import_(self, file_path: str) -> dict[str, Any]:" in code
     assert 'return _rpc_call("style_import", file_path=file_path)' in code
     assert "def import(self" not in code
+    ns: dict[str, Any] = {}
+    exec(code, ns)
+    assert ns["TOOL_METHODS"]["style_import"] == ("styles", "import_")
+
 
 def test_method_names_strip_prefix_plural():
     tools = [
@@ -155,7 +162,25 @@ def test_method_names_strip_prefix_plural():
     groups = group_tools(tools)
     # Both should become "insert" if prefix matches
     method_names = [name for name, _ in groups["footnote"]]
-    assert "insert" in method_names
+    assert method_names == ["insert", "insert"]
+    with pytest.raises(
+        ValueError,
+        match=r"proxy method footnote\.insert is produced by both 'footnotes_insert' and 'footnote_insert'",
+    ):
+        generate_module(tools)
+
+
+def test_generate_module_same_tool_name_twice_does_not_raise():
+    tool = _as_tool(
+        MockTool(
+            "footnotes_insert",
+            "Insert footnote.",
+            {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+            specialized_domain="footnotes",
+        )
+    )
+    code = generate_module([tool, tool])
+    compile(code, "<generated>", "exec")
 
 def test_method_docstring_includes_full_description_and_schema_args():
     """shape_upsert-style schema text must survive into the proxy docstring."""

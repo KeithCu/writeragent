@@ -114,6 +114,27 @@ def _unreadable_document_scripts() -> DocumentScriptError:
     )
 
 
+def _unsupported_document_scripts(version: object) -> DocumentScriptError:
+    return DocumentScriptError(
+        _("Stored document scripts are in an unsupported format (version {0}), so they were left unchanged.").format(
+            version
+        ),
+        DocumentScriptErrorCode.UNREADABLE,
+    )
+
+
+def _readonly_document_error() -> DocumentScriptError:
+    """Document is read-only or properties cannot be written.
+
+    This sentence does not claim a My Scripts save; only the read-only
+    fallback does, and only after this error returns.
+    """
+    return DocumentScriptError(
+        _("Document is read-only or properties cannot be written."),
+        DocumentScriptErrorCode.READONLY,
+    )
+
+
 def _load_document_script_map(doc: Any) -> tuple[dict[str, str], DocumentScriptError | None]:
     if doc is None:
         return {}, None
@@ -131,8 +152,11 @@ def _load_document_script_map(doc: Any) -> tuple[dict[str, str], DocumentScriptE
     if not isinstance(parsed, dict):
         log.warning("document_scripts: expected object, got %s", type(parsed).__name__)
         return {}, _unreadable_document_scripts()
-    if parsed.get("version") != _ENVELOPE_VERSION:
+    if "version" in parsed and parsed.get("version") != _ENVELOPE_VERSION:
         log.warning("document_scripts: unsupported version %r", parsed.get("version"))
+        return {}, _unsupported_document_scripts(parsed.get("version"))
+    if parsed.get("version") != _ENVELOPE_VERSION:
+        log.warning("document_scripts: missing version")
         return {}, _unreadable_document_scripts()
     scripts_raw = parsed.get("scripts")
     if not isinstance(scripts_raw, dict):
@@ -180,10 +204,7 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
         # The previous sentence claimed a My Scripts write that only two
         # callers perform. Save As, New, and Monaco attach show this string
         # and do not write My Scripts.
-        return DocumentScriptError(
-            _("Document is read-only or properties cannot be written."),
-            DocumentScriptErrorCode.READONLY,
-        )
+        return _readonly_document_error()
     try:
         set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, payload)
     except DocumentDisposedError:
@@ -197,10 +218,7 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
             raise
         log.exception("document_scripts: failed to persist on document")
         # Same false My Scripts claim as the read-only return above.
-        return DocumentScriptError(
-            _("Document is read-only or properties cannot be written."),
-            DocumentScriptErrorCode.READONLY,
-        )
+        return _readonly_document_error()
     # set_document_property returns None after a real write and also when the
     # document has no UserDefinedProperties bag (that path does not raise).
     # The missing bag used to look like success while the next read was empty.
@@ -309,11 +327,15 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
         log.debug("document_scripts: could not resolve active Calc document", exc_info=True)
         return None
     if doc is not None and (is_writer(doc) or is_draw(doc)):
-        # With Writer focused and a Calc file open, enumerating the desktop
-        # bound that Calc. The Python deck already refuses this.
+        # What was wrong: comments said Impress still enumerates.
+        # How: is_draw is Draw or Impress (plugin/doc/doc_type.py). 725df4915
+        # returned None for Writer or is_draw so a focused non-Calc document
+        # would not bind a background workbook. e9e5f4b35 described that check
+        # as Writer and Draw only.
+        # Why this stays: a focused Impress document must not bind a Calc init
+        # script. Base and Math are not is_draw, so they still fall through
+        # to _enumerate_calc_documents.
         return None
-    # Impress, Base, and Math still enumerate. This helper is the init-script lookup.
-    # The Python deck refusal that returned None for Writer and Draw does not apply to them.
     if doc is None or not is_calc(doc):
         return _select_enumerated_calc_document(_enumerate_calc_documents(desktop))
     from plugin.framework.thread_guard import guard_uno
@@ -364,14 +386,15 @@ def attach_document_script(
     name = (name or "").strip()
     message = new_script_name_error(name, attach=True)
     if message is not None:
-        # Empty is its own code. Prefix and INIT/Init stay RESERVED_NAME,
-        # which is what attach_document_script returned before this helper.
-        code = (
+        # What was wrong: this branch assigned the script-body parameter code to an error-code enum.
+        # How: 26eec1a72 folded the empty, prefix, and INIT checks into new_script_name_error and reused the name code.
+        # Why this fixes it: the return is immediate, so nothing was stored, but a later edit that fell through would persist empty_name or reserved_name as the script. code stays the body.
+        error_code = (
             DocumentScriptErrorCode.EMPTY_NAME
             if not name
             else DocumentScriptErrorCode.RESERVED_NAME
         )
-        return DocumentScriptError(message, code)
+        return DocumentScriptError(message, error_code)
     loaded, err = _load_document_script_map(doc)
     if err:
         return err
@@ -493,13 +516,11 @@ def _domain_template_entries(doc: Any | None) -> list[tuple[Any, dict[str, str]]
     return results
 
 
-def build_xdl_script_picker_state(
-    doc: Any | None,
-    saved_scripts: dict[str, str],
+def _picker_state_from_parts(
+    user_scripts: dict[str, str],
+    doc_scripts: dict[str, str],
+    domain_entries: list[tuple[Any, dict[str, str]]],
 ) -> tuple[list[str], dict[str, str], dict[str, str]]:
-    """Return (dropdown_items, merged_scripts_by_display_key, origin_map)."""
-    user_scripts = dict(saved_scripts) if isinstance(saved_scripts, dict) else {}
-    doc_scripts = get_document_scripts(doc) if doc is not None else {}
     origin_map: dict[str, str] = {}
     merged: dict[str, str] = {}
 
@@ -513,7 +534,7 @@ def build_xdl_script_picker_state(
         merged[display] = doc_scripts[name]
 
     domain_items: list[str] = []
-    for domain, display_scripts in _domain_template_entries(doc):
+    for domain, display_scripts in domain_entries:
         for display_name, code in display_scripts.items():
             origin_map[display_name] = domain.origin
             merged[display_name] = code
@@ -525,6 +546,17 @@ def build_xdl_script_picker_state(
         + domain_items
     )
     return items, merged, origin_map
+
+
+def build_xdl_script_picker_state(
+    doc: Any | None,
+    saved_scripts: dict[str, str],
+) -> tuple[list[str], dict[str, str], dict[str, str]]:
+    """Return (dropdown_items, merged_scripts_by_display_key, origin_map)."""
+    user_scripts = dict(saved_scripts) if isinstance(saved_scripts, dict) else {}
+    doc_scripts = get_document_scripts(doc) if doc is not None else {}
+    domain_entries = _domain_template_entries(doc)
+    return _picker_state_from_parts(user_scripts, doc_scripts, domain_entries)
 
 
 def resolve_run_script_selection(
@@ -582,6 +614,8 @@ def build_scripts_list_message(
         document_stale = True
         document_readonly = True
 
+    loaded: dict[str, str] = {}
+    load_err: DocumentScriptError | None = None
     doc_scripts: dict[str, str] = {}
     if doc is not None and not document_stale:
         # Same keys as build_xdl_script_picker_state. Raw names collided with
@@ -617,8 +651,29 @@ def build_scripts_list_message(
     # selection config entry against the stale doc. Pass None so selection
     # only considers user scripts and templates.
     selection_doc = None if document_stale or doc is None else doc
+
+    # What was wrong: sections came from one property read and one
+    # _domain_template_entries(doc) call, then resolve_run_script_selection
+    # called build_xdl_script_picker_state, which read the property again and
+    # expanded templates again.
+    # How: picker_state existed to skip that rebuild, and this caller did not
+    # pass it.
+    # Why this fixes it: the non-stale path reuses loaded and domain_entries.
+    # The stale path still selects with {} and _domain_template_entries(None),
+    # not the section templates, so a template supported only by the stale
+    # document is not stored as the selection.
+    if selection_doc is None:
+        picker_state = _picker_state_from_parts(
+            user_scripts, {}, _domain_template_entries(None)
+        )
+    else:
+        doc_map = loaded if load_err is None else {}
+        picker_state = _picker_state_from_parts(
+            user_scripts, doc_map, domain_entries
+        )
+
     selected_name, _selected_code, _merged_scripts = resolve_run_script_selection(
-        ctx, selection_doc, user_scripts
+        ctx, selection_doc, user_scripts, picker_state=picker_state
     )
 
     msg: dict[str, Any] = {
@@ -634,16 +689,6 @@ def build_scripts_list_message(
     if status_error_text:
         msg["status_error_text"] = status_error_text
     return msg
-
-
-SCRIPT_PICKER_MESSAGE_TYPES = frozenset(
-    {
-        "request_scripts",
-        "select_script",
-        "save_script",
-        "delete_script",
-    }
-)
 
 
 def _script_code_from_message(msg: dict[str, Any]) -> str:
@@ -665,6 +710,18 @@ def get_user_scripts() -> dict[str, str]:
 
 def read_only_helper_message() -> str:
     return _("Built-in helpers are read-only. Use Save As to copy one into My Scripts.")
+
+
+def readonly_fallback_saved_message(name: str, document_error: object) -> str:
+    return _("Could not save '{0}' to this document ({1}). Saved it to My Scripts instead.").format(
+        name, document_error
+    )
+
+
+def readonly_fallback_name_taken_message(name: str, document_error: object) -> str:
+    return _("Could not save '{0}' to this document ({1}). A script named '{0}' already exists in My Scripts.").format(
+        name, document_error
+    )
 
 
 def save_user_script(name: str, code: str) -> DocumentScriptError | None:
@@ -838,9 +895,7 @@ def _on_save_script(
             if getattr(save_err, "code", None) == DocumentScriptErrorCode.READONLY:
                 if storage_name in get_user_scripts():
                     send_list(
-                        status_error_text=_(
-                            "A script named '{0}' already exists in My Scripts. {1}"
-                        ).format(storage_name, save_err)
+                        status_error_text=readonly_fallback_name_taken_message(storage_name, save_err)
                     )
                     return True
                 user_err = save_user_script(storage_name, script_code)
@@ -849,7 +904,7 @@ def _on_save_script(
                     return True
                 _remember_selection(session_doc, storage_name)
                 send_list(
-                    status_ok_text=_("Saved script '{0}' to My Scripts. {1}").format(storage_name, save_err),
+                    status_ok_text=readonly_fallback_saved_message(storage_name, save_err),
                 )
                 return True
             send_list(status_error_text=str(save_err))
@@ -911,6 +966,10 @@ _PICKER_HANDLERS: dict[str, Callable[..., bool]] = {
     "save_script": _on_save_script,
     "delete_script": _on_delete_script,
 }
+
+# editor_host._dispatch_incoming routes on this set. It is the handler
+# map's keys so a new picker message cannot be handled here and dropped there.
+SCRIPT_PICKER_MESSAGE_TYPES = frozenset(_PICKER_HANDLERS)
 
 
 def _apply_script_picker_message(

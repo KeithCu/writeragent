@@ -231,7 +231,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 | Panel Frame Resolver | `plugin/chatbot/panel.py`, `panel_factory.py` | `_get_document_model()` resolves frame controller model with `guard_uno`. |
 | Hidden Document Loader | `plugin/doc/document_research.py` | `open_document_for_read()` guards hidden component model. |
 | Desktop Enumeration | `plugin/doc/document_research.py` | `_office_model_from_desktop_element()` guards enumerated desktop models. |
-| Scripting Calc Resolver | `plugin/scripting/document_scripts.py` | `get_calc_document_from_ctx()` (UI commands only, never `=PY()`) wraps the active sheet. Enumeration fallback returns the only open Calc model, or `None` when several are open. |
+| Scripting Calc Resolver | `plugin/scripting/document_scripts.py` | `get_calc_document_from_ctx()` (UI commands only, never `=PY()`) wraps the active Calc model. A focused Writer, Draw, or Impress document returns `None` without enumerating (`is_draw` is Draw or Impress). Base, Math, and no current component still enumerate. The fallback returns the only open Calc model, or `None` when zero or several are open. |
 | Script session document | `plugin/scripting/session_manager.py` | `document_for_script_session()` returns `guard_uno(model)`. A `doc:` pin from chat `run_venv_python_script` returns `guard_uno` of that object and does not enumerate the desktop. |
 | Calc Add-in Doc Lookup | `plugin/calc/python/function.py` | `_get_calc_doc()` returns `None` off-main (#402), guards on-main. |
 | Calc Cell Editor Selection | `plugin/calc/python/editor.py` | `_get_active_calc_cell()` guards active cell interface. |
