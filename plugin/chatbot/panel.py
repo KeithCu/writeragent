@@ -2187,7 +2187,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return False
         self._extracted_peer_query = query_text
         self._extracted_peer_already_appended = already_appended
-        self.dispatch(SendEvent(SendEventKind.EXTRACTED_SEND))
+        try:
+            self.dispatch(SendEvent(SendEventKind.EXTRACTED_SEND))
+        except Exception:
+            if self.sidebar_state.send.is_busy and getattr(self, "_send_cancellation", None) is None:
+                try:
+                    self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                except Exception:
+                    log.exception("SendButtonListener.start_extracted_peer_send: rollback dispatch failed")
+            raise
         if not self.sidebar_state.send.is_busy:
             return False
         self._run_extracted_peer_drain()

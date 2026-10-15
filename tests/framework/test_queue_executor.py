@@ -1315,7 +1315,7 @@ def test_execute_accepts_and_passes_bound_scope() -> None:
     # We'll just patch _wait_for_result and _enqueue_work, or mock _enqueue_work
     # to return a dummy item and check what was passed.
 
-    with patch.object(executor, '_should_run_inline', return_value=False), \
+    with patch.object(executor, 'should_run_inline', return_value=False), \
          patch.object(executor, '_is_logical_main_thread', return_value=False), \
          patch.object(executor, '_get_async_callback', return_value=MagicMock()), \
          patch('plugin.framework.queue_executor._force_marshal_mode', True), \

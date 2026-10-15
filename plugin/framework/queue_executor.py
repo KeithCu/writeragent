@@ -974,7 +974,7 @@ class QueueExecutor:
             return current is designated
         return current is threading.main_thread()
 
-    def _should_run_inline(self) -> bool:
+    def should_run_inline(self) -> bool:
         """Whether to skip the queue and call *fn* on the caller's thread."""
         if _force_marshal_mode:
             return False
@@ -1016,7 +1016,7 @@ class QueueExecutor:
         # caller is not the marshal thread. Why they differ: execute blocks, and
         # a Dummy-N UNO test waiting on VCL deadlocks (testing_runner sets the
         # flag so that hop stays inline). post is fire-and-forget, so it can enqueue.
-        if self._should_run_inline() and not bg_task:
+        if self.should_run_inline() and not bg_task:
             _log_marshal(logging.DEBUG, "marshal route=inline_testing fn=%s %s", fn_label, executor=self)
             return fn(*args, **kwargs)
 
@@ -1049,7 +1049,7 @@ class QueueExecutor:
         fn_label = _fn_label(fn)
         bg_task = get_background_task_name()
 
-        # Inline only when _should_run_inline() and the caller is not a
+        # Inline only when should_run_inline() and the caller is not a
         # background task. execute() already required ``not bg_task`` for
         # that path; post() inlining whenever WRITERAGENT_TESTING=1 lets a
         # tagged worker touch UNO on itself during native tests. A tagged
@@ -1058,9 +1058,9 @@ class QueueExecutor:
         # An untagged worker (e.g. a spill timer) also queues when
         # AsyncCallback exists; inlining there touches UNO off the main
         # thread. With no AsyncCallback it still inlines.
-        # _should_run_inline() is already False under force-marshal, so
+        # should_run_inline() is already False under force-marshal, so
         # that mode needs no extra check here.
-        if self._should_run_inline() and not bg_task and (self._may_run_marshal_inline() or self._get_async_callback() is None):
+        if self.should_run_inline() and not bg_task and (self._may_run_marshal_inline() or self._get_async_callback() is None):
             _log_marshal(logging.DEBUG, "marshal route=post_inline_testing fn=%s %s", fn_label, executor=self)
             fn(*args, **kwargs)
             return

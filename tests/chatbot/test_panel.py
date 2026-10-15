@@ -1570,6 +1570,17 @@ class TestClearButtonAndPeerDrain:
                             mock_drop_turn.assert_called_once_with(listener)
                             mock_kick.assert_called_once()
 
+    def test_start_extracted_peer_send_clears_busy_when_effect_raises(self) -> None:
+        listener = _make_send_listener()
+
+        def _raise_effect(*unused_args: Any, **unused_kwargs: Any) -> None:
+            raise RuntimeError("effect failed")
+
+        listener._interpret_effect = _raise_effect  # type: ignore[assignment]
+        with pytest.raises(RuntimeError, match="effect failed"):
+            listener.start_extracted_peer_send("hello", already_appended=False)
+        assert listener.sidebar_state.send.is_busy is False
+
 
 def test_do_send_restores_query_text_on_error() -> None:
     from plugin.chatbot.panel import SendButtonListener

@@ -81,12 +81,14 @@ PEER_ACCEPTED_FINISH_HINT = (
 )
 
 
-@dataclass
+@dataclass(eq=False)
 class PeerPendingTurn:
     """One queued extracted send on a listener.
 
-    We compare turns by value, not identity (eq=False), because identical
-    queued turns are interchangeable for q.remove.
+    Turns compare by identity (eq=False). The same object is stored on both
+    the listener deque and _global_fifo; q.remove must drop that exact object.
+    Value equality would remove a different equal turn during the busy
+    re-queue path, mutating already_appended after enqueue.
     """
 
     wrapped_text: str
@@ -150,9 +152,10 @@ def identity_from_doc(doc: Any) -> dict[str, str]:
 
     uid = ""
     url = ""
-    name = "Untitled"
+    name = ""
+    resolved_name = False
     if doc is None:
-        return {"name": name, "uid": uid, "url": url}
+        return {"name": "Untitled", "uid": uid, "url": url}
     try:
         uid = get_runtime_uid(doc) or ""
     except Exception:
@@ -164,21 +167,26 @@ def identity_from_doc(doc: Any) -> dict[str, str]:
         url = ""
     if url:
         try:
-            from plugin.doc.document_research import _system_path_from_url
+            from plugin.doc.text_helpers import get_document_path
 
-            path = _system_path_from_url(url) or ""
+            path = get_document_path(doc) or ""
             base = os.path.basename(path) if path else ""
             if base:
                 name = base
+                resolved_name = True
+        except RuntimeError:
+            raise
         except Exception:
             pass
-    if name == "Untitled":
+    if not resolved_name:
         try:
             title = doc.getTitle() if hasattr(doc, "getTitle") else None
             if title:
                 name = str(title)
         except Exception:
             pass
+    if not name:
+        name = "Untitled"
     return {"name": name, "uid": uid, "url": url}
 
 
@@ -238,7 +246,7 @@ def list_v1_peers(uno_ctx: Any, self_doc: Any) -> list[dict[str, str]]:
     """
     from plugin.doc.document_research import get_open_documents
     from plugin.framework.thread_guard import assert_main_thread
-    from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url
+    from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url, uno_same
 
     assert_main_thread("peer_message.list_v1_peers")
     self_uid = ""
@@ -272,6 +280,8 @@ def list_v1_peers(uno_ctx: Any, self_doc: Any) -> list[dict[str, str]]:
         label = v1_peer_type_label(model)
         if label is None:
             continue
+        if not self_uid and self_doc is not None and uno_same(self_doc, model):
+            continue
         seen.add(uid)
         peers.append(
             {
@@ -293,7 +303,7 @@ def resolve_peer_target(
 
     Returns ``(model, error_code, error_message)``. Success: ``(model, None, "")``.
     """
-    from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url
+    from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url, uno_same
 
     target = (document_url or "").strip()
     if not target:
@@ -337,6 +347,8 @@ def resolve_peer_target(
         peer_uid = ""
     if self_uid and peer_uid and self_uid == peer_uid:
         return None, "PEER_SELF", "Cannot send a peer message to the same document."
+    if self_doc is not None and (not self_uid or not peer_uid) and uno_same(self_doc, model):
+        return None, "PEER_SELF", "Cannot send a peer message to the same document."
 
     if not is_v1_peer_model(model):
         return None, "PEER_UNSUPPORTED", "Target is not a Writer, Calc, Draw, or Impress document."
@@ -366,6 +378,9 @@ def listener_queue_len(listener: Any) -> int:
 
 def enqueue_peer_turn(listener: Any, turn: PeerPendingTurn) -> str | None:
     """Queue *turn*. Returns ``PEER_QUEUE_FULL`` or None."""
+    from plugin.framework.thread_guard import assert_main_thread
+
+    assert_main_thread("peer_message.enqueue_peer_turn")
     q = _listener_queues.get(listener)
     if q is None:
         q = deque()
@@ -379,24 +394,44 @@ def enqueue_peer_turn(listener: Any, turn: PeerPendingTurn) -> str | None:
 
 def drop_listener_queue(listener: Any) -> None:
     """Stop / dispose: drop that listener's pending injects only."""
-    global _global_fifo
     if listener is None:
         return
+    from plugin.framework.thread_guard import assert_main_thread
+
+    assert_main_thread("peer_message.drop_listener_queue")
     q = _listener_queues.pop(listener, None)
     if q is not None:
         q.clear()
-    _global_fifo = deque(item for item in _global_fifo if item[0]() is not listener)
+    kept = [item for item in _global_fifo if item[0]() is not listener]
+    _global_fifo.clear()
+    _global_fifo.extend(kept)
 
 
 def reset_peer_queues() -> None:
     """Test hook: clear all pending turns."""
-    global _global_fifo
     _listener_queues.clear()
     _global_fifo.clear()
 
 
+def _discard_queued_turn(listener: Any, turn: PeerPendingTurn) -> None:
+    q = _listener_queues.get(listener)
+    if q is not None:
+        try:
+            q.remove(turn)
+        except ValueError:
+            pass
+        if not q:
+            _listener_queues.pop(listener, None)
+    kept = [item for item in _global_fifo if item[1] is not turn]
+    _global_fifo.clear()
+    _global_fifo.extend(kept)
+
+
 def kick_pending_peer_starts() -> None:
     """Start at most one queued extracted send when the process drain is idle."""
+    from plugin.framework.thread_guard import assert_main_thread
+
+    assert_main_thread("peer_message.kick_pending_peer_starts")
     if get_drain_owner() is not None:
         return
     skipped: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
@@ -409,13 +444,12 @@ def kick_pending_peer_starts() -> None:
         q = _listener_queues.get(listener)
         if q is None:
             continue
+        if listener_is_busy(listener) or get_drain_owner() is not None:
+            skipped.append((ref, turn))
+            continue
         try:
             q.remove(turn)
         except ValueError:
-            continue
-        if listener_is_busy(listener) or get_drain_owner() is not None:
-            q.appendleft(turn)
-            skipped.append((ref, turn))
             continue
         start_fn = getattr(listener, "start_extracted_peer_send", None)
         if not callable(start_fn):
@@ -426,7 +460,20 @@ def kick_pending_peer_starts() -> None:
         # already-appended user message sits unanswered. start_fn has
         # no side effects when it returns False, so put the turn back
         # like the busy case above.
-        if start_fn(turn.wrapped_text, already_appended=turn.already_appended) is False:
+        try:
+            res = start_fn(turn.wrapped_text, already_appended=turn.already_appended)
+        except Exception:
+            log.exception("kick_pending_peer_starts: start_extracted_peer_send raised")
+            # If the send took the turn (listener busy or live drain owner),
+            # the in-flight send owns the envelope: do not re-queue, as a second
+            # start after the drain would deliver it twice.
+            if listener_is_busy(listener) or get_drain_owner() is not None:
+                started = True
+                continue
+            q.appendleft(turn)
+            skipped.append((ref, turn))
+            continue
+        if res is False:
             q.appendleft(turn)
             skipped.append((ref, turn))
             continue
@@ -452,7 +499,7 @@ def _on_drain_idle() -> None:
     try:
         from plugin.framework.queue_executor import default_executor
 
-        if not default_executor._should_run_inline():
+        if not default_executor.should_run_inline():
             default_executor.post(kick_pending_peer_starts)
     except Exception:
         log.debug("peer drain-idle schedule failed", exc_info=True)
@@ -462,11 +509,21 @@ add_drain_idle_callback(_on_drain_idle)
 
 
 def schedule_peer_turn(listener: Any, turn: PeerPendingTurn) -> str | None:
-    """Enqueue and start now only when the process drain owner is unset."""
+    """Enqueue, inject on idle listener, and kick if drain owner is unset.
+
+    enqueue_peer_turn enforces the queue cap before any transcript write.
+    already_appended tracks whether the session write completed.
+    kick is last so an immediate start sees already_appended.
+    """
     err = enqueue_peer_turn(listener, turn)
     if err:
         return err
-    # Never start from caller execute() while a drain owns the pump (accidental A2).
+    if not listener_is_busy(listener):
+        try:
+            turn.already_appended = _inject_on_listener(listener, turn.wrapped_text)
+        except Exception:
+            _discard_queued_turn(listener, turn)
+            raise
     if get_drain_owner() is None and not listener_is_busy(listener):
         kick_pending_peer_starts()
     return None
@@ -611,16 +668,27 @@ def _peer_not_chat_mode(listener: Any) -> bool:
         return False
 
 
-def _inject_on_listener(listener: Any, wrapped: str) -> None:
+def _inject_on_listener(listener: Any, wrapped: str) -> bool:
+    """Inject user message into listener session. Returns True if written to session.
+
+    render_session_messages paints the updated session list when both exist.
+    _append_response is also called because hosts without a message list (such
+    as unit _Listener) concatenate there; on a live panel with a message list,
+    _append_response returns early at the has_list gate and does not duplicate
+    the message. The returned bool reflects only whether add_user_message succeeded.
+    """
+    written = False
     session = getattr(listener, "session", None)
     if session is not None and hasattr(session, "add_user_message"):
         session.add_user_message(wrapped)
+        written = True
     render = getattr(listener, "render_session_messages", None)
     if callable(render) and session is not None:
         render(session)
     append = getattr(listener, "_append_response", None)
     if callable(append):
         append(wrapped, role="user")
+    return written
 
 
 _PEER_PARAMETERS = {
@@ -721,28 +789,10 @@ class _SendPeerBase(ToolBase):
             kind=envelope_kind,
         )
 
-        # The envelope is not written into the peer session, and not
-        # painted, before schedule_peer_turn. On PEER_QUEUE_FULL the
-        # tool would otherwise return an error for a turn that was never
-        # queued, so nothing runs it, and a retry appends a second
-        # phantom user turn. The cap is the same check enqueue uses.
-        # Refuse a full queue before any transcript write. Success
-        # still injects before schedule so an immediate kick sees
-        # already_appended.
-        if listener_queue_len(listener) >= PEER_QUEUE_CAP:
-            return self._tool_error(
-                f"Peer sidebar queue is full (max {PEER_QUEUE_CAP} pending turns).",
-                code="PEER_QUEUE_FULL",
-            )
-
-        busy = listener_is_busy(listener)
-        already_appended = not busy
-        if already_appended:
-            _inject_on_listener(listener, wrapped)
-
+        # The slot is reserved inside schedule_peer_turn before the transcript write.
         turn = PeerPendingTurn(
             wrapped_text=wrapped,
-            already_appended=already_appended,
+            already_appended=False,
         )
         overflow = schedule_peer_turn(listener, turn)
         if overflow:
