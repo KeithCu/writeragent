@@ -150,6 +150,16 @@ def _drain_default_work_queue() -> None:
             default_executor._work_queue.get_nowait()
         except queue.Empty:
             break
+    # What was wrong: a background post with no AsyncCallback stays in
+    # _pending_posts, and this drain only emptied _work_queue.
+    # How it happened: post() appends there and returns. The next test on
+    # this xdist worker that marks marshal ready and calls post() flushes
+    # that row first (test_stop_does_not_drop_violation_popup then saw
+    # pending_work_count() == 2, queue_depth=1 at post_enqueue).
+    # Why this change: clear the pending list in the same before/after drain.
+    with default_executor._pending_lock:
+        default_executor._pending_posts.clear()
+        default_executor._pending_lock.notify_all()
 
 
 @pytest.fixture(autouse=True)
@@ -568,17 +578,28 @@ def test_post_to_main_thread_no_service():
 
 
 def test_post_to_main_thread_drops_when_no_async_from_background():
-    with patch.object(default_executor, "_get_async_callback", return_value=None), patch(
+    """A tagged worker must not run the callable when AsyncCallback is missing.
+
+    The post is stored on that executor's pending list. It must not be stored
+    on the process-wide default_executor. post() flushes those rows once
+    marshal is ready, and another test on the same xdist worker counted them.
+    """
+    executor = mt.QueueExecutor()
+    before = len(default_executor._pending_posts)
+    called = False
+
+    def fn():
+        nonlocal called
+        called = True
+
+    with patch.object(executor, "_get_async_callback", return_value=None), patch(
         "plugin.framework.thread_guard.get_background_task_name", return_value="worker-test"
     ):
-        called = False
-
-        def fn():
-            nonlocal called
-            called = True
-
-        post_to_main_thread(fn)
-        assert not called
+        executor.post(fn)
+    assert not called
+    assert len(executor._pending_posts) == 1
+    assert executor._pending_posts[0][0] is fn
+    assert len(default_executor._pending_posts) == before
 
 
 def test_post_tagged_worker_under_testing_enqueues_not_inline(monkeypatch):
