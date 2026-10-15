@@ -714,22 +714,52 @@ class AsyncProcess:
         self.process = proc
         stdout_thread: BackgroundHandle | None = None
         stderr_thread: BackgroundHandle | None = None
-        if proc.stdout and self.stdout_cb:
-            stdout_thread = run_in_background(self._read_stream, proc.stdout, self.stdout_cb, name=f"asyncproc-out-{proc.pid}", dedicated=True)
-        elif proc.stdout:
-            # Drain it silently to avoid deadlocks
-            stdout_thread = run_in_background(self._drain_stream, proc.stdout, name=f"asyncproc-outdrain-{proc.pid}", dedicated=True)
+        wait_thread: BackgroundHandle | None = None
+        try:
+            if proc.stdout and self.stdout_cb:
+                stdout_thread = run_in_background(self._read_stream, proc.stdout, self.stdout_cb, name=f"asyncproc-out-{proc.pid}", dedicated=True)
+            elif proc.stdout:
+                # Drain it silently to avoid deadlocks
+                stdout_thread = run_in_background(self._drain_stream, proc.stdout, name=f"asyncproc-outdrain-{proc.pid}", dedicated=True)
 
-        if proc.stderr and self.stderr_cb:
-            stderr_thread = run_in_background(self._read_stream, proc.stderr, self.stderr_cb, name=f"asyncproc-err-{proc.pid}", dedicated=True)
-        elif proc.stderr:
-            stderr_thread = run_in_background(self._drain_stream, proc.stderr, name=f"asyncproc-errdrain-{proc.pid}", dedicated=True)
+            if proc.stderr and self.stderr_cb:
+                stderr_thread = run_in_background(self._read_stream, proc.stderr, self.stderr_cb, name=f"asyncproc-err-{proc.pid}", dedicated=True)
+            elif proc.stderr:
+                stderr_thread = run_in_background(self._drain_stream, proc.stderr, name=f"asyncproc-errdrain-{proc.pid}", dedicated=True)
+
+            # Pass this child and these readers. _wait_for_exit must not read
+            # self.process later: a second start() replaces them.
+            wait_thread = run_in_background(self._wait_for_exit, proc, stdout_thread, stderr_thread, generation, name=f"asyncproc-wait-{proc.pid}", dedicated=True)
+        except BaseException:
+            # Bugfix: What was wrong: If a reader or wait thread failed to start
+            # after Popen succeeded, the child process was leaked alive with no
+            # wait thread to reap it or call on_exit_cb.
+            # How: self.process was assigned and the child was already running,
+            # but run_in_background could raise (e.g. Thread.start -> RuntimeError).
+            # Callers such as tunnel.py catch the exception and drop the object
+            # without calling terminate().
+            # Why: Wrap the thread spawns; on failure, clear self.process and the
+            # handle fields, kill the child and wait with a 1.0s timeout directly on
+            # this stack (since terminate()'s reaper would need another thread),
+            # close unattached pipes via _close_child_pipes, and re-raise.
+            self.process = None
+            self._stdout_thread = None
+            self._stderr_thread = None
+            self._wait_thread = None
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=1.0)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+            self._close_child_pipes(proc, stdout_thread=stdout_thread, stderr_thread=stderr_thread)
+            raise
 
         self._stdout_thread = stdout_thread
         self._stderr_thread = stderr_thread
-        # Pass this child and these readers. _wait_for_exit must not read
-        # self.process later: a second start() replaces them.
-        self._wait_thread = run_in_background(self._wait_for_exit, proc, stdout_thread, stderr_thread, generation, name=f"asyncproc-wait-{proc.pid}", dedicated=True)
+        self._wait_thread = wait_thread
 
     def _read_stream(self, stream: Any, callback: Any) -> None:
         # Bugfix: The old pending += chunk buffer had no cap and rescanned the

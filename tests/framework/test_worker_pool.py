@@ -158,6 +158,95 @@ def test_async_process_start_error():
         ap.start()
     assert "Failed to start process" in str(exc.value)
 
+def test_async_process_start_reader_spawn_failure_kills_child(monkeypatch: pytest.MonkeyPatch):
+    captured: list[subprocess.Popen[Any]] = []
+    orig_popen = subprocess.Popen
+
+    def capturing_popen(*args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
+        proc = orig_popen(*args, **kwargs)
+        captured.append(proc)
+        return proc
+
+    monkeypatch.setattr(subprocess, "Popen", capturing_popen)
+
+    on_exit_called = False
+
+    def on_exit(rc: int) -> None:
+        nonlocal on_exit_called
+        on_exit_called = True
+
+    def fail_run_in_background(*args: Any, **kwargs: Any) -> BackgroundHandle:
+        raise RuntimeError("failed to spawn reader thread")
+
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", fail_run_in_background)
+
+    ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"], on_exit_cb=on_exit)
+    try:
+        with pytest.raises(RuntimeError, match="failed to spawn reader thread"):
+            ap.start()
+        assert ap.process is None
+        assert ap._stdout_thread is None
+        assert ap._stderr_thread is None
+        assert ap._wait_thread is None
+        assert not on_exit_called
+        assert len(captured) == 1
+        assert captured[0].poll() is not None
+    finally:
+        for proc in captured:
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                except (subprocess.TimeoutExpired, OSError):
+                    pass
+
+def test_async_process_start_wait_spawn_failure_kills_child_and_clears_handles(monkeypatch: pytest.MonkeyPatch):
+    captured: list[subprocess.Popen[Any]] = []
+    orig_popen = subprocess.Popen
+
+    def capturing_popen(*args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
+        proc = orig_popen(*args, **kwargs)
+        captured.append(proc)
+        return proc
+
+    monkeypatch.setattr(subprocess, "Popen", capturing_popen)
+
+    on_exit_called = False
+
+    def on_exit(rc: int) -> None:
+        nonlocal on_exit_called
+        on_exit_called = True
+
+    real_rib = run_in_background
+
+    def fail_wait_rib(*args: Any, **kwargs: Any) -> BackgroundHandle:
+        name = kwargs.get("name", "")
+        if name.startswith("asyncproc-wait-"):
+            raise RuntimeError("failed to spawn wait thread")
+        return real_rib(*args, **kwargs)
+
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", fail_wait_rib)
+
+    ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(30)"], on_exit_cb=on_exit)
+    try:
+        with pytest.raises(RuntimeError, match="failed to spawn wait thread"):
+            ap.start()
+        assert ap.process is None
+        assert ap._stdout_thread is None
+        assert ap._stderr_thread is None
+        assert ap._wait_thread is None
+        assert not on_exit_called
+        assert len(captured) == 1
+        assert captured[0].poll() is not None
+    finally:
+        for proc in captured:
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                except (subprocess.TimeoutExpired, OSError):
+                    pass
+
 def test_async_process_wait_for_exit_callback_error():
     def on_exit_error(code):
         raise ValueError("exit callback error")
