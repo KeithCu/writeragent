@@ -168,11 +168,8 @@ def nominal(effect_rate: Any, npery: Any) -> float:
     # How it happened: er < 0 is false for +inf, and the power is outside the
     # conversion try. getNominal returns finiteOrThrow. Rate 0 stays 0 (Excel);
     # LibreOffice rejects rate <= 0, and this helper does not.
-    # Why this change fixes it: OverflowError and a non-finite result are NaN.
-    try:
-        res = np_y * ((er + 1) ** (1.0 / np_y) - 1)
-    except OverflowError:
-        return float("nan")
+    # base ≥ 1, exponent ≤ 1: the power cannot overflow; isfinite below covers the product.
+    res = np_y * ((er + 1) ** (1.0 / np_y) - 1)
     return res if math.isfinite(res) else float("nan")
 
 
@@ -315,8 +312,7 @@ def odd(n: Any) -> float:
     # integer. int(trunc(1.5)) is already odd, so odd(1.5) used to return 1.
     try:
         v = float(n)
-        if not math.isfinite(v):
-            return float("nan")
+        # ceil() raises on non-finite input; the except below returns NaN.
         # -0.0 == 0. copysign(1, -0.0) is -1, and ScOdd takes the >= 0 branch.
         if v == 0.0:
             return 1.0
@@ -467,18 +463,16 @@ def oddlprice(settlement: Any, maturity: Any, last_interest: Any, rate: Any, yld
 
 
 def pearson(data1: Any, data2: Any) -> float:
-    try:
-        cleaned = _clean_paired_arrays(data1, data2)
-        if cleaned is None:
-            return float("nan")
-        d1_clean, d2_clean = cleaned
-        if len(d1_clean) <= 1:
-            return float("nan")
-        # ScPearson is the correlation. np.corrcoef is the same value rsq squares.
-        corr = float(np.corrcoef(d1_clean, d2_clean)[0, 1])
-        return corr if math.isfinite(corr) else float("nan")
-    except (ValueError, TypeError, OverflowError):
+    # inputs are pre-cleaned finite floats; corrcoef does not raise.
+    cleaned = _clean_paired_arrays(data1, data2)
+    if cleaned is None:
         return float("nan")
+    d1_clean, d2_clean = cleaned
+    if len(d1_clean) <= 1:
+        return float("nan")
+    # ScPearson is the correlation. np.corrcoef is the same value rsq squares.
+    corr = float(np.corrcoef(d1_clean, d2_clean)[0, 1])
+    return corr if math.isfinite(corr) else float("nan")
 
 
 def percentrank(data: Any, x: Any, significance: Any = 3) -> float:
@@ -627,8 +621,7 @@ def rank(val: Any, r: Any, order: int | float = 0) -> float:
     # Numbers only. Text, bools, and NaN are ignored; one text cell must not abort the call.
     try:
         target = float(val)
-        if math.isnan(target):
-            return float("nan")
+        # NaN is never found; the not-found except returns NaN.
         descending = int(float(order)) == 0
     except (ValueError, TypeError, OverflowError):
         return float("nan")
@@ -1017,15 +1010,13 @@ def standardize(x: Any, mean: Any, stdev: Any) -> float:
 
 def stdeva(*args: Any) -> float:
     vals = _collect_a_values(*args)
-    if vals.size < 2:
-        return float("nan")
+    # numpy gives NaN for too few samples.
     return float(np.std(vals, ddof=1))
 
 
 def stdevpa(*args: Any) -> float:
     vals = _collect_a_values(*args)
-    if not vals.size:
-        return float("nan")
+    # numpy gives NaN for too few samples.
     return float(np.std(vals, ddof=0))
 
 

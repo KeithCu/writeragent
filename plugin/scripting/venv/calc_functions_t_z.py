@@ -262,10 +262,8 @@ def _textjoin_piece(val: Any) -> str:
         except (ValueError, TypeError, OverflowError):
             return str(val)
     if isinstance(val, (float, np.floating)):
-        try:
-            number = float(val)
-        except (ValueError, TypeError, OverflowError):
-            return str(val)
+        # float() of a float/np.floating does not raise.
+        number = float(val)
         if math.isfinite(number) and number.is_integer():
             return str(int(number))
         return str(number)
@@ -648,15 +646,13 @@ def unique(arr: Any, by_col: bool = False, unique_only: bool = False) -> list[An
 
 def vara(*args: Any) -> float:
     vals = _collect_a_values(*args)
-    if vals.size < 2:
-        return float("nan")
+    # numpy gives NaN for too few samples.
     return float(np.var(vals, ddof=1))
 
 
 def varpa(*args: Any) -> float:
     vals = _collect_a_values(*args)
-    if not vals.size:
-        return float("nan")
+    # numpy gives NaN for too few samples.
     return float(np.var(vals, ddof=0))
 
 
