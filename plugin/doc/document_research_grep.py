@@ -106,11 +106,13 @@ def _grep_text_in_writer(
     case_sensitive: bool = False,
     max_results: int,
     stop_checker: Callable[[], bool] | None = None,
-) -> tuple[list[dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int, bool]:
     doc_svc = services.document
     para_ranges = doc_svc.get_paragraph_ranges(model)
     para_texts: list[str] = []
     for para in para_ranges:
+        if stop_checker and stop_checker():
+            break
         try:
             if para.supportsService("com.sun.star.text.Paragraph"):
                 para_texts.append(para.getString())
@@ -132,17 +134,28 @@ def _grep_text_in_writer(
         except Exception:
             para_texts.append("")
 
-    try:
-        return search_paragraph_texts(
-            pattern,
-            para_texts,
-            regex=regex,
-            case_sensitive=case_sensitive,
-            max_results=max_results,
-            context_paragraphs=2,  # Always include 2 paragraphs of context for Writer matches
-        )
-    except ValueError as e:
-        raise ValueError(str(e)) from e
+    # Bugfix: Stop was ignored for the whole Writer extract and for the
+    # paragraph scan. stop_checker was on the signature but never called,
+    # and search_paragraph_texts never received it, so a large document
+    # finished getString and the match walk before grep_nearby_files could
+    # return USER_STOPPED. The outer file loop still decides USER_STOPPED.
+    matches, total = search_paragraph_texts(
+        pattern,
+        para_texts,
+        regex=regex,
+        case_sensitive=case_sensitive,
+        max_results=max_results,
+        context_paragraphs=2,  # Always include 2 paragraphs of context for Writer matches
+        stop_checker=stop_checker,
+    )
+    # Bugfix: match_count was the uncapped total from search_paragraph_texts
+    # while matches was sliced to max_results, and partial was forced false.
+    # Calc and Draw already set match_count to the returned length. Writer
+    # now does too. partial is true when that total is larger than the slice,
+    # or when Stop cut extraction or the scan. search_paragraph_texts still
+    # returns the uncapped total so this does not guess from len == max_results.
+    partial = total > len(matches) or bool(stop_checker and stop_checker())
+    return matches, len(matches), partial
 
 
 def _grep_text_in_calc(
@@ -338,7 +351,7 @@ def _search_opened_document(
     partial = False
     try:
         if doc_type == "writer":
-            matches, count = _grep_text_in_writer(
+            matches, count, partial = _grep_text_in_writer(
                 model,
                 services,
                 pattern,
@@ -347,7 +360,7 @@ def _search_opened_document(
                 max_results=max_results_per_file,
                 stop_checker=stop_checker,
             )
-            return matches, count, False, None
+            return matches, count, partial, None
         if doc_type == "calc":
             matches, count = _grep_text_in_calc(
                 model,
@@ -402,6 +415,19 @@ def grep_nearby_files(
     pattern = str(pattern).strip()
     if not pattern:
         return {"status": "error", "message": "pattern is required"}
+
+    if regex:
+        import re as re_mod
+
+        flags = 0 if case_sensitive else re_mod.IGNORECASE
+        try:
+            re_mod.compile(pattern, flags)
+        except re_mod.error as e:
+            # Bugfix: an invalid regex was raised inside each opened file, so
+            # grep_nearby_files opened every candidate, searched nothing, and
+            # appended the same error once per file. The pattern does not
+            # depend on the document. Fail once, before listing or opening.
+            return {"status": "error", "message": f"Invalid regex: {e}"}
 
     subset_norm = str(file_subset).strip() if file_subset else None
 

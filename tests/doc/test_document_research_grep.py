@@ -306,14 +306,94 @@ def test_grep_text_in_writer_includes_table_text():
 
     services.document.get_paragraph_ranges.return_value = [para1, table]
 
-    matches, count = _grep_text_in_writer(
+    matches, count, partial = _grep_text_in_writer(
         model,
         services,
         pattern="keyword",
-        max_results=5
+        max_results=5,
     )
 
     assert count == 1
+    assert partial is False
+
+
+def test_grep_text_in_writer_caps_match_count_and_sets_partial():
+    from plugin.doc.document_research_grep import _grep_text_in_writer
+
+    model = MagicMock()
+    services = MagicMock()
+
+    para1 = MagicMock()
+    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para1.getString.return_value = "first keyword paragraph"
+
+    para2 = MagicMock()
+    para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para2.getString.return_value = "second keyword paragraph"
+
+    services.document.get_paragraph_ranges.return_value = [para1, para2]
+
+    matches, count, partial = _grep_text_in_writer(
+        model,
+        services,
+        pattern="keyword",
+        max_results=1,
+    )
+
+    assert len(matches) == 1
+    assert count == 1
+    assert partial is True
+
+
+def test_grep_text_in_writer_stop_checker_skips_later_paragraphs():
+    from plugin.doc.document_research_grep import _grep_text_in_writer
+
+    model = MagicMock()
+    services = MagicMock()
+
+    para1 = MagicMock()
+    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para1.getString.return_value = "first"
+
+    para2 = MagicMock()
+    para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para2.getString.return_value = "second"
+
+    para3 = MagicMock()
+    para3.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para3.getString.return_value = "third"
+
+    services.document.get_paragraph_ranges.return_value = [para1, para2, para3]
+
+    stop_checker = MagicMock(return_value=True)
+
+    matches, count, partial = _grep_text_in_writer(
+        model,
+        services,
+        pattern="first",
+        max_results=5,
+        stop_checker=stop_checker,
+    )
+
+    para2.getString.assert_not_called()
+    para3.getString.assert_not_called()
+    assert partial is True
+
+
+@patch("plugin.doc.document_research_grep.open_document_for_read")
+@patch("plugin.doc.document_research_grep.resolve_grep_candidates")
+def test_grep_nearby_files_invalid_regex_does_not_open_files(mock_resolve, mock_open):
+    result = grep_nearby_files(
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        pattern="(",
+        regex=True,
+    )
+    assert result["status"] == "error"
+    assert "Invalid regex:" in result["message"]
+    mock_resolve.assert_not_called()
+    mock_open.assert_not_called()
 
 
 @patch("plugin.doc.document_research_grep._process_events_if_available")
