@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Any, cast, Type, ClassVar
 
+from plugin.framework.errors import is_real_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.constants import USE_SUB_AGENT
 from plugin.framework.prompts import (
@@ -365,6 +366,12 @@ class DelegateToSpecializedBase(ToolBase):
                 try:
                     canvas = queue_executor.execute_on_main_thread(lambda: format_shapes_canvas_context(getattr(ctx, "doc", None)))
                 except Exception as e:
+                    # Bugfix: a closed document raises DisposedException while reading the shapes canvas,
+                    # and this except turned that into a missing page / not-found result.
+                    # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+                    # Any other failure stays on the existing missing-page path.
+                    if is_real_disposal(e):
+                        raise
                     log.warning("Failed to get shapes canvas for sub-agent: %s", e)
                     canvas = ""
                 if canvas:

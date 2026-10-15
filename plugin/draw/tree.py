@@ -35,7 +35,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import is_disposed_exception, is_real_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 
 # Placeholder-only text: underscores, leaders, box drawings, whitespace.
@@ -153,7 +153,13 @@ def _safe_attr(obj: Any, name: str, default: str = "") -> str:
     try:
         val = getattr(obj, name, default)
         return default if val is None else str(val)
-    except Exception:
+    except Exception as exc:
+        # Bugfix: a closed document raises DisposedException from a shape attribute,
+        # and this except turned that into a missing page / not-found result.
+        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+        # Any other failure stays on the existing missing-page path.
+        if is_real_disposal(exc):
+            raise
         return default
 
 

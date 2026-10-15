@@ -206,3 +206,25 @@ def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
 
         assert res["status"] == "error"
         assert "FormGenerate LLM call must not run on the UI thread" in res["message"]
+
+
+def test_resolve_form_page_reraises_disposed(monkeypatch):
+    import pytest
+    from plugin.writer.specialized.forms import _resolve_form_page
+
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock()
+    monkeypatch.setattr("plugin.writer.specialized.forms._is_draw_doc", lambda d: True)
+
+    bridge_mock = MagicMock()
+    bridge_mock.get_pages.return_value.getByIndex.side_effect = DisposedException("closed")
+    monkeypatch.setattr("plugin.draw.bridge.DrawBridge", lambda d: bridge_mock)
+
+    with pytest.raises(DisposedException):
+        _resolve_form_page(doc, page=0)
+
+    bridge_mock.get_pages.return_value.getByIndex.side_effect = IndexError("bad index")
+    assert _resolve_form_page(doc, page=0) is None
+

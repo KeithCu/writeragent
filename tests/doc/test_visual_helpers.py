@@ -456,3 +456,48 @@ def test_apply_character_properties_invalid_color() -> None:
     results = visual_helpers.apply_character_properties(target, color="nope")
     assert results == {"CharColor": False}
     assert target._properties["CharColor"] == 0
+
+
+def test_get_active_draw_page_reraises_disposed() -> None:
+    import pytest
+
+    class DisposedException(Exception):
+        pass
+
+    class DisposedDoc:
+        @property
+        def CurrentController(self):
+            raise DisposedException("closed")
+
+        def getCurrentController(self):
+            raise DisposedException("closed")
+
+    doc = DisposedDoc()
+    with pytest.raises(DisposedException):
+        visual_helpers.get_active_draw_page(doc, "calc")
+    with pytest.raises(DisposedException):
+        visual_helpers.get_active_draw_page(doc, "draw")
+
+    class DisposedWriterDoc(FakeWriterDoc):
+        def getDrawPage(self):
+            raise DisposedException("closed")
+
+    with pytest.raises(DisposedException):
+        visual_helpers.get_active_draw_page(DisposedWriterDoc({}), "writer")
+
+    assert visual_helpers.get_active_draw_page(FakeWriterDoc({}), "writer") is None
+
+
+def test_list_graphic_objects_reraises_disposed() -> None:
+    import pytest
+
+    class DisposedException(Exception):
+        pass
+
+    class DisposedDrawDoc:
+        def getDrawPages(self):
+            raise DisposedException("closed")
+
+    with pytest.raises(DisposedException):
+        visual_helpers.list_graphic_objects(DisposedDrawDoc(), "draw")
+

@@ -33,7 +33,7 @@ from plugin.doc.doc_type import is_calc, is_draw
 from plugin.doc.text_helpers import clone_text_range
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import coerce_control_state
-from plugin.framework.errors import format_error_payload, ToolExecutionError
+from plugin.framework.errors import format_error_payload, ToolExecutionError, is_real_disposal
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.thread_guard import on_main_thread
 
@@ -85,7 +85,13 @@ def _resolve_form_page(doc: Any, page: Any = None) -> Any:
             from plugin.draw.bridge import DrawBridge
 
             return DrawBridge(doc).get_pages().getByIndex(int(page))
-        except Exception:
+        except Exception as exc:
+            # Bugfix: a closed document raises DisposedException from DrawBridge page lookup,
+            # and this except turned that into a missing page / not-found result.
+            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+            # Any other failure stays on the existing missing-page path.
+            if is_real_disposal(exc):
+                raise
             return None
     return _get_form_draw_page(doc)
 

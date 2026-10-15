@@ -34,6 +34,7 @@ from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolAgentExecutor, SmolToolAdapter, build_toolcalling_agent
 from plugin.chatbot.smol_examples import get_examples_block
+from plugin.framework.errors import is_real_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
@@ -288,7 +289,13 @@ def _shapes_canvas_hint(doc: Any) -> str:
 
     try:
         return format_shapes_canvas_context(doc) or ""
-    except Exception:
+    except Exception as exc:
+        # Bugfix: a closed document raises DisposedException while reading the shapes canvas,
+        # and this except turned that into a missing page / not-found result.
+        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+        # Any other failure stays on the existing missing-page path.
+        if is_real_disposal(exc):
+            raise
         log.warning("Failed to get shapes canvas for domain tool agent", exc_info=True)
         return ""
 

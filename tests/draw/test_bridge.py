@@ -966,3 +966,83 @@ def test_insert_slide_from_master_reraises_dispose_without_removing():
     with pytest.raises(DisposedException):
         bridge.insert_slide_from_master(master_name="SpecialMaster")
     assert len(pages.pages) == 3
+
+
+def test_draw_bridge_writer_disposed_get_draw_page_is_not_missing_page():
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock(spec=["getDrawPage"])
+    doc.getDrawPage.side_effect = DisposedException("closed")
+
+    from plugin.draw.bridge import DrawBridge
+
+    with pytest.raises(DisposedException):
+        DrawBridge(doc)
+
+
+def test_draw_bridge_calc_disposed_sheet_is_not_missing_page():
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock(spec=["getSheets", "getCurrentController"])
+    doc.getCurrentController.side_effect = DisposedException("closed")
+
+    from plugin.draw.bridge import DrawBridge
+
+    with pytest.raises(DisposedException):
+        DrawBridge(doc)
+
+
+def test_draw_bridge_get_draw_page_runtime_exception_is_still_no_page():
+    class RuntimeException(Exception):
+        pass
+
+    doc = MagicMock(spec=["getDrawPage"])
+    doc.getDrawPage.side_effect = RuntimeException("uno")
+
+    from plugin.draw.bridge import DrawBridge
+
+    with pytest.raises(RuntimeError, match="has no draw page"):
+        DrawBridge(doc)
+
+
+def test_get_active_page_calc_branch_reraises_disposed():
+    class DisposedException(Exception):
+        pass
+
+    page = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    doc = MagicMock()
+    doc.getDrawPages.return_value = pages
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    doc.getCurrentController.side_effect = DisposedException("closed")
+
+    from plugin.draw.bridge import DrawBridge
+
+    bridge = DrawBridge(doc)
+    with pytest.raises(DisposedException):
+        bridge.get_active_page()
+    with pytest.raises(DisposedException):
+        bridge.get_active_page_index()
+
+
+def test_get_active_page_calc_branch_other_errors_still_fall_through():
+    page = MagicMock()
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+
+    doc = MagicMock()
+    doc.getDrawPages.return_value = pages
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    doc.getCurrentController.side_effect = [RuntimeError("no controller"), None]
+
+    from plugin.draw.bridge import DrawBridge
+
+    bridge = DrawBridge(doc)
+    assert bridge.get_active_page() is page
+

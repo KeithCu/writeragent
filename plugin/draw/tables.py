@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from plugin.framework.errors import is_real_disposal
+
 _A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
@@ -21,7 +23,13 @@ def _table_model(shape: Any) -> Any | None:
         return shape.Table
     try:
         return shape.getModel()
-    except Exception:
+    except Exception as exc:
+        # Bugfix: a closed document raises DisposedException from getModel(),
+        # and this except turned that into a missing page / not-found result.
+        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+        # Any other failure stays on the existing missing-page path.
+        if is_real_disposal(exc):
+            raise
         return None
 
 

@@ -12,6 +12,8 @@
 import logging
 from typing import Any
 
+from plugin.framework.errors import is_real_disposal
+
 from plugin.framework.thread_guard import assert_main_thread
 
 log = logging.getLogger("writeragent.specialized_shapes_context")
@@ -42,7 +44,9 @@ def _writer_page_style_name_at_cursor(doc: Any) -> str | None:
             s = str(v).strip()
             if s:
                 return s
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         log.debug("writer_page_style_at_cursor: failed", exc_info=True)
     return None
 
@@ -65,7 +69,9 @@ def _read_writer_page_style_mm(doc: Any, style_name: str) -> dict[str, Any] | No
         bm = float(style.getPropertyValue("BottomMargin")) / 100.0
         landscape = bool(style.getPropertyValue("IsLandscape"))
         return {"style_name": style_name, "width_mm": w, "height_mm": h, "left_margin_mm": lm, "right_margin_mm": rm, "top_margin_mm": tm, "bottom_margin_mm": bm, "is_landscape": landscape}
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         log.debug("read_writer_page_style_mm: failed for %r", style_name, exc_info=True)
         return None
 
@@ -115,7 +121,9 @@ def _format_draw_canvas(doc: Any, *, product_label: str) -> str:
         if w_mm <= 0 or h_mm <= 0:
             return ""
         return f" Document canvas ({product_label}): active slide/page index {idx} (0-based), size {w_mm:.1f} x {h_mm:.1f} mm; {n_pages} page(s) total. Shape x/y/width/height use 1/100 mm."
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         log.debug("format_draw_canvas: failed", exc_info=True)
         return ""
 
@@ -161,7 +169,9 @@ def _format_calc_canvas(doc: Any) -> str:
         name_part = f", name '{sheet_name}'" if sheet_name else ""
 
         return f" Document canvas (Calc): active sheet index {sheet_idx} (0-based){name_part}, draw-page size {w_mm:.1f} x {h_mm:.1f} mm; {n_sheets} sheet(s). Shape x/y/width/height use 1/100 mm."
-    except Exception:
+    except Exception as exc:
+        if is_real_disposal(exc):
+            raise
         log.debug("format_calc_canvas: failed", exc_info=True)
         return ""
 
@@ -180,6 +190,12 @@ def format_shapes_canvas_context(doc: Any) -> str:
             return _format_draw_canvas(doc, product_label="Impress")
         if doc.supportsService("com.sun.star.drawing.DrawingDocument"):
             return _format_draw_canvas(doc, product_label="Draw")
-    except Exception:
+    except Exception as exc:
+        # Bugfix: a closed document raises DisposedException while reading the shapes canvas,
+        # and this except turned that into a missing page / not-found result.
+        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
+        # Any other failure stays on the existing missing-page path.
+        if is_real_disposal(exc):
+            raise
         log.debug("format_shapes_canvas_context: failed", exc_info=True)
     return ""

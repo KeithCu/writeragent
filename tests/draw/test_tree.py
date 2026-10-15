@@ -79,3 +79,27 @@ def test_control_snapshot_reads_state_and_text():
     assert snap["name"] == "Agree"
     assert snap["state"] == 1
     assert snap["label"] == "I agree"
+
+
+def test_safe_attr_reraises_disposed():
+    import pytest
+    from plugin.draw.tree import _safe_attr
+
+    class DisposedException(Exception):
+        pass
+
+    class DisposedObj:
+        @property
+        def Name(self):
+            raise DisposedException("closed")
+
+    with pytest.raises(DisposedException):
+        _safe_attr(DisposedObj(), "Name")
+
+    class ErrorObj:
+        @property
+        def Name(self):
+            raise RuntimeError("attribute failed")
+
+    assert _safe_attr(ErrorObj(), "Name") == ""
+

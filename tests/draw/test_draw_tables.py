@@ -240,3 +240,19 @@ def test_table_delete_tool_dispatches_draw():
             out = TableDelete().execute(ctx, name="Fees")
     assert out["status"] == "ok"
     dele.assert_called_once()
+
+
+def test_table_model_reraises_disposed():
+    from plugin.draw.tables import _table_model
+
+    class DisposedException(Exception):
+        pass
+
+    shape = MagicMock(spec=["getModel"])
+    shape.getModel.side_effect = DisposedException("closed")
+    with pytest.raises(DisposedException):
+        _table_model(shape)
+
+    shape.getModel.side_effect = RuntimeError("not a model")
+    assert _table_model(shape) is None
+
