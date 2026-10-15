@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import threading
 from unittest.mock import MagicMock, patch
 
 
@@ -36,7 +35,10 @@ class TestRichAppendResponse:
     def test_chunk_updates_the_message_list_then_paints(self):
         send = _make_send_listener()
         send._record_assistant_start = True
-        with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
+        ):
             send._append_response("<p>Report</p>", role="assistant")
 
         assert send._assistant_stream_start_len == 500
@@ -48,7 +50,10 @@ class TestRichAppendResponse:
     def test_second_chunk_grows_the_open_row(self):
         send = _make_send_listener()
         send.session.messages.append({"role": "assistant", "content": "Hello", "_open_transcript": True})
-        with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
+        ):
             send._append_response(" world", role="assistant")
 
         assert send.session.messages == [
@@ -60,7 +65,10 @@ class TestRichAppendResponse:
         """A 250 ms batch of just " AI" is model text, not the legacy label."""
         send = _make_send_listener()
         send.session.messages.append({"role": "assistant", "content": "Ask the", "_open_transcript": True})
-        with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
+        ):
             send._append_response(" AI", role="assistant")
 
         assert send.session.messages[-1]["content"] == "Ask the AI"
@@ -68,7 +76,10 @@ class TestRichAppendResponse:
 
     def test_main_thread_calls_widget_directly(self):
         send = _make_send_listener()
-        with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
+        ):
             send._append_response("search step", role="assistant")
 
         send.queue_executor.post.assert_not_called()
@@ -76,8 +87,19 @@ class TestRichAppendResponse:
 
     def test_worker_thread_posts_to_queue_executor(self):
         send = _make_send_listener()
-        worker = threading.Thread(target=lambda: None)
-        with patch("plugin.chatbot.panel.threading.current_thread", return_value=worker):
+        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+            send._append_response("search step", role="assistant")
+
+        send.queue_executor.post.assert_called_once()
+        send.rich_text_widget.paint_session.assert_not_called()
+        assert send.session.messages == []
+
+    def test_background_task_name_posts_even_on_main_thread(self):
+        send = _make_send_listener()
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value="record-hold"),
+        ):
             send._append_response("search step", role="assistant")
 
         send.queue_executor.post.assert_called_once()
@@ -91,7 +113,10 @@ class TestRichAppendResponse:
         send.rich_text_widget.get_text_length.return_value = 500  # after search steps
         send._record_assistant_start = True
 
-        with patch("plugin.chatbot.panel.threading.current_thread", return_value=threading.main_thread()):
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
+        ):
             send._append_response("<p>Report</p>", role="assistant")
 
         assert send._assistant_stream_start_len == 500

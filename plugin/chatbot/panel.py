@@ -50,7 +50,7 @@ from plugin.chatbot.record_gesture import (
     gesture_release,
     hands_free_silence_text,
     hands_free_status_text,
-    stop_during_take,
+    stop_during_take as plan_take_stop,
     sticky_restart,
 )
 
@@ -142,10 +142,15 @@ class ChatSession:
         if doc_text:
             content += f"\n\n[DOCUMENT CONTENT]\n{doc_text}\n[END DOCUMENT]"
             
-        if not self.messages or self.messages[0]["role"] != "system":
+        # Bugfix: a loaded dict with no "role" raised KeyError on every send.
+        # SQLite3History.get_messages keeps every JSON object, and refresh_document_context
+        # calls set_system_context on every send. Anything that is not a system dict gets
+        # a system row inserted in front, leaving the existing first row in place.
+        first = self.messages[0] if self.messages else None
+        if not isinstance(first, dict) or first.get("role") != "system":
             self.messages.insert(0, {"role": "system", "content": content})
         else:
-            self.messages[0]["content"] = content
+            first["content"] = content
 
     def refresh_document_context(self, model: Any, ctx: Any) -> None:
         """Reload the Chat system prompt and ``[DOCUMENT CONTENT]`` from the live document.
@@ -283,9 +288,16 @@ class QueryTextListener(BaseTextListener):
         # ``is True`` so a MagicMock host (tests) is not treated as dead.
         if getattr(self.send_listener, "_panel_teardown", False) is True:
             return
-        model = getattr(rEvent.Source, "Model", None)
-        if not model:
-            model = rEvent.Source.getModel()
+        # Bugfix: a text event with no source, or whose getModel() returned None,
+        # raised AttributeError on model.Text inside the per-keystroke callback;
+        # returning skips TEXT_UPDATED only for that event.
+        source = getattr(rEvent, "Source", None)
+        model: Any = getattr(source, "Model", None) if source is not None else None
+        if not model and source is not None:
+            getter: Any = getattr(source, "getModel", None)
+            model = getter() if callable(getter) else None
+        if model is None:
+            return
         raw = model.Text or ""
         text = raw.strip()
 
@@ -514,6 +526,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _mcp_event_bus: Any
     _turn: Any
     _last_mcp_turn: dict[str, Any]
+    _mcp_turn_lock: threading.Lock
     _last_mcp_req_id: int | str | None
     _send_start_msg_count: int | None
     _stop_mouse_listener: Any
@@ -600,6 +613,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # The queue, stripper, and document model live on ``_turn``.
         self._turn = None
         self._last_mcp_turn = {}
+        self._mcp_turn_lock = threading.Lock()
         self._last_mcp_req_id = None
         self._active_client: Any = None
         self._active_max_tokens: Any = None
@@ -1013,7 +1027,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     def _run_rich_ui(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         """Run rich-control UI work inline on the main thread; post from workers."""
-        if threading.current_thread() is threading.main_thread():
+        # Designated UNO thread and Python main thread differ when set_designated_main_thread
+        # is set; a background task name must post, matching _on_grammar_status and
+        # _on_mcp_result. Force-marshal is not consulted because this paint has to run
+        # on the drain's UI turn.
+        from plugin.framework.thread_guard import get_background_task_name, on_main_thread
+
+        if on_main_thread() and not get_background_task_name():
             return fn(*args, **kwargs)
         self.queue_executor.post(fn, *args, **kwargs)
 
@@ -1193,9 +1213,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             from plugin.chatbot.tool_loop_actions import current_turn
 
+            # Bugfix: parallel tools/call requests rebuilt _last_mcp_turn while other
+            # threads called pop or disposing cleared on the UI thread, causing race conditions.
+            # EventBus runs mcp:request / mcp:result on HTTP workers, while disposing clears
+            # on the UI thread. Mutating under _mcp_turn_lock with a second teardown check
+            # prevents data races and stops late requests from storing turns after teardown.
             rid = str(kwargs.get("req_id", ""))
-            self._last_mcp_turn = {k: v for k, v in self._last_mcp_turn.items() if getattr(v, "alive", False)}
-            self._last_mcp_turn[rid] = current_turn(self)
+            turn = current_turn(self)
+            with self._mcp_turn_lock:
+                if getattr(self, "_panel_teardown", False) or self.ctx is None:
+                    return
+                kept = {k: v for k, v in self._last_mcp_turn.items() if getattr(v, "alive", False)}
+                kept[rid] = turn
+                self._last_mcp_turn = kept
             from plugin.framework.logging import format_tool_call_for_display
 
             fmt_str = format_tool_call_for_display(tool, args, method)
@@ -1220,7 +1250,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
             rid = str(kwargs.get("req_id", ""))
-            last_turn = self._last_mcp_turn.pop(rid, None)
+            with self._mcp_turn_lock:
+                last_turn = self._last_mcp_turn.pop(rid, None)
             if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
                 return
         except Exception:
@@ -1257,7 +1288,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception:
             log.exception("_on_mcp_result post error")
 
-    def _get_document_model(self) -> Any | None:
+    def _get_document_model(self, *, log_failure: bool = False) -> Any | None:
         """Get the document model strictly from the frame.
 
         Always prefers the document bound to this sidebar's frame (same window as the user)
@@ -1274,15 +1305,18 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if model and cached_doc_type in _COMPATIBLE_DOC_TYPES:
             return model
 
-        # Only log when chat send will fail (same moment as the sidebar error message).
-        detail_parts = [
-            "has_frame=%s" % bool(self.frame),
-            "cached_doc_type=%s" % cached_doc_type,
-            "model_probe=%s" % _uno_model_probe_for_log(model, cached_doc_type=cached_doc_type),
-        ]
-        if model is not None:
-            detail_parts.append("reject_reason=unsupported_or_uncached_doc_type probe=%s" % _uno_model_probe_for_log(model, cached_doc_type=cached_doc_type))
-        log.error("SendButtonListener: no compatible document model for chat (%s)", "; ".join(detail_parts))
+        # Bugfix: previously logged ERROR on every miss, including harmless probes
+        # (e.g. Clear greeting or calc cell-link probes). Only _do_send and
+        # _do_send_extracted_peer pass log_failure=True, matching the sidebar error display.
+        if log_failure:
+            detail_parts = [
+                "has_frame=%s" % bool(self.frame),
+                "cached_doc_type=%s" % cached_doc_type,
+                "model_probe=%s" % _uno_model_probe_for_log(model, cached_doc_type=cached_doc_type),
+            ]
+            if model is not None:
+                detail_parts.append("reject_reason=unsupported_or_uncached_doc_type probe=%s" % _uno_model_probe_for_log(model, cached_doc_type=cached_doc_type))
+            log.error("SendButtonListener: no compatible document model for chat (%s)", "; ".join(detail_parts))
         return None
 
     def _mnemonic_cache(self) -> dict[str, str]:
@@ -1358,7 +1392,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         if not self.sidebar_state.send.is_recording:
             return False
-        if stop_during_take(sticky=self._record_gesture.sticky) == TakeStop.EXIT_LOCK:
+        # The method and record_gesture.stop_during_take had the same name; this calls the pure planner.
+        if plan_take_stop(sticky=self._record_gesture.sticky) == TakeStop.EXIT_LOCK:
             self.exit_hands_free_record()
             self._set_status(_("Hands-free off"))
         else:
@@ -1944,7 +1979,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # 1. Get document model
         self._set_status(_("Getting document..."))
         log.debug("_do_send: getting document model...")
-        model = self._get_document_model()
+        model = self._get_document_model(log_failure=True)
         if not model:
             self._append_response("\n" + _("[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]") + "\n")
             self._terminal_status = "Error"
@@ -2294,7 +2329,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         update_activity_state("do_send", status_control=getattr(self, "status_control", None))
         if self.ensure_path_fn:
             self.ensure_path_fn(self.ctx)
-        model = self._get_document_model()
+        model = self._get_document_model(log_failure=True)
         if not model:
             self._append_response("\n" + _("[No compatible LibreOffice document (Writer, Calc, or Draw) found in the active window.]") + "\n")
             self._terminal_status = "Error"
@@ -2375,7 +2410,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # the drain stop checker fires instead of streaming into a dead panel.
         # Match StopSendEffect: cancel the scope and latch the fallback.
         self._panel_teardown = True
-        self._last_mcp_turn.clear()
+        with self._mcp_turn_lock:
+            self._last_mcp_turn.clear()
         # Drop silence auto-stop lambdas before cleanup. They stay on the
         # recorder and post UI work after this listener is gone, and stop
         # then re-enters the panel.

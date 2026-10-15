@@ -1780,3 +1780,152 @@ class TestPanelR3Fixes:
         stop_ctrl.removeMouseListener.assert_called_once_with(stop_mouse)
         send_ctrl.removeMouseListener.assert_called_once_with(rec_mouse)
 
+
+def test_query_text_without_model_does_not_dispatch() -> None:
+    send_listener = MagicMock()
+    listener = QueryTextListener(send_listener)
+
+    event1 = MagicMock()
+    event1.Source = MagicMock()
+    event1.Source.Model = None
+    event1.Source.getModel.return_value = None
+    listener.on_text_changed(event1)
+    send_listener.dispatch.assert_not_called()
+
+    event2 = MagicMock()
+    event2.Source = None
+    listener.on_text_changed(event2)
+    send_listener.dispatch.assert_not_called()
+
+
+def test_mcp_turn_mutations_hold_the_lock() -> None:
+    from plugin.chatbot.tool_loop_actions import TurnController
+    from plugin.framework.event_bus import EventBus
+
+    listener = _make_send_listener()
+
+    class _Guarded(dict):
+        def items(self):
+            assert listener._mcp_turn_lock.locked()
+            return super().items()
+
+        def pop(self, *args, **kwargs):
+            assert listener._mcp_turn_lock.locked()
+            return super().pop(*args, **kwargs)
+
+        def clear(self):
+            assert listener._mcp_turn_lock.locked()
+            return super().clear()
+
+    turn = TurnController(session=MagicMock(), mode="chat")
+    turn._alive = True
+    listener._last_mcp_turn = _Guarded({"orig": turn})
+
+    with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=turn):
+        listener._on_mcp_request(tool="echo", args={}, req_id="n")
+
+    listener._last_mcp_turn = _Guarded({"a": turn})
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.thread_guard.get_background_task_name", return_value="mcp"),
+        patch("plugin.framework.queue_executor.post_to_main_thread", lambda fn: None),
+    ):
+        listener._on_mcp_result(tool="echo", result_snippet="x", req_id="a")
+    assert "a" not in listener._last_mcp_turn
+
+    listener._last_mcp_turn = _Guarded({"z": turn})
+    local_bus = EventBus()
+    other_bus = EventBus()
+    services = MagicMock()
+    services.events = local_bus
+    tools = MagicMock()
+    tools._services = services
+    with (
+        patch("plugin.main.get_tools", return_value=tools),
+        patch("plugin.framework.event_bus.global_event_bus", other_bus),
+    ):
+        listener.disposing(None)
+    assert not listener._last_mcp_turn
+
+
+def test_mcp_request_after_teardown_does_not_store() -> None:
+    listener = _make_send_listener()
+    listener._panel_teardown = True
+    listener._on_mcp_request(tool="echo", args={}, req_id="late")
+    assert listener._last_mcp_turn == {}
+
+
+def test_mcp_request_waits_then_sees_teardown() -> None:
+    import threading
+    from plugin.chatbot.tool_loop_actions import TurnController
+
+    listener = _make_send_listener()
+    listener._panel_teardown = False
+    listener._mcp_turn_lock.acquire()
+
+    finished = threading.Event()
+    turn = TurnController(session=MagicMock(), mode="chat")
+    turn._alive = True
+
+    def target() -> None:
+        with patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=turn):
+            listener._on_mcp_request(tool="echo", args={}, req_id="late")
+        finished.set()
+
+    thread = threading.Thread(target=target)
+    thread.start()
+
+    assert finished.wait(0.5) is False
+    listener._panel_teardown = True
+    listener._mcp_turn_lock.release()
+    thread.join()
+
+    assert "late" not in listener._last_mcp_turn
+
+
+def test_get_document_model_without_frame_does_not_log(caplog: pytest.LogCaptureFixture) -> None:
+    listener = _make_send_listener()
+    listener.frame = None
+    with caplog.at_level(logging.ERROR):
+        assert listener._get_document_model() is None
+    assert not any("no compatible document model" in r.message for r in caplog.records)
+
+
+def test_do_send_logs_missing_document(caplog: pytest.LogCaptureFixture) -> None:
+    listener = _make_send_listener()
+    listener.frame = None
+    with caplog.at_level(logging.ERROR):
+        listener._do_send()
+    err_records = [r for r in caplog.records if "no compatible document model" in r.message and "has_frame=False" in r.message]
+    assert len(err_records) == 1
+    assert listener._terminal_status == "Error"
+
+
+def test_extracted_peer_send_logs_missing_document(caplog: pytest.LogCaptureFixture) -> None:
+    listener = _make_send_listener()
+    listener.frame = None
+    with caplog.at_level(logging.ERROR):
+        listener._do_send_extracted_peer("hello", already_appended=True)
+    err_records = [r for r in caplog.records if "no compatible document model" in r.message and "has_frame=False" in r.message]
+    assert len(err_records) == 1
+    assert listener._terminal_status == "Error"
+
+
+def test_clear_greeting_lookup_does_not_log_missing_document(caplog: pytest.LogCaptureFixture) -> None:
+    listener = _make_send_listener()
+    listener.frame = None
+    clear_listener = ClearButtonListener(
+        listener.session,
+        listener.response_control,
+        listener.status_control,
+        greeting="",
+        send_listener=listener,
+    )
+    with (
+        patch("plugin.framework.prompts.get_greeting_for_document", return_value="Hi"),
+        caplog.at_level(logging.ERROR),
+    ):
+        clear_listener.on_action_performed(None)
+    assert not any("no compatible document model" in r.message for r in caplog.records)
+
+

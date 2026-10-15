@@ -366,6 +366,8 @@ Tools with `long_running = True` (e.g. `delegate_to_specialized_*`, `image_gener
 
 **UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden). Both paths wait for that gate on the HTTP worker. A backpressure tool then runs its body on the main thread, so a long-running mutator cannot freeze the LibreOffice UI for the gate timeout. A `tools/call` argument cannot disable the thread guard.
 
+Sidebar `mcp:request` and `mcp:result` run on the HTTP worker that emitted them. `SendButtonListener._last_mcp_turn` is rebuilt, popped, and cleared only under `_mcp_turn_lock`, and `disposing` takes that same lock after it sets `_panel_teardown`. A request that acquires the lock after teardown has started does not store a turn.
+
 **Targeting:** Pass **`document_url`** in each `tools/call` `arguments` (preferred — a `url` or `uid` from `list_open_documents`). The legacy **`X-Document-URL`** HTTP header still works for clients that set headers once per connection. Resolved URLs and RuntimeUIDs map to the same per-document gate key (normalized trailing slashes stripped).
 
 **Per-result document echo:** Successful tool results include `document: {name, uid}` when the tool did not already set a `document` field. The echo reflects the **resolved** target for that call (from `document_url`, header, or active window) — not necessarily the user's current focus. Check it when multiple documents are open or when you did not pass an explicit target.
