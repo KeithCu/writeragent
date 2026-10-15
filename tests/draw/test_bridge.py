@@ -537,6 +537,43 @@ def test_move_slide_to_front_restores_order_when_reorder_fails():
     assert len(pages.pages) == 3
 
 
+def test_move_slide_raises_when_bubble_undo_fails():
+    import pytest
+
+    from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
+
+    rich = _MoveShape("c")
+    rich.payload = ("group", 2)
+    pages = _MovePages(
+        [
+            _MovePage("A", [_MoveShape("a")]),
+            _MovePage("B", [_MoveShape("b")]),
+            _MovePage("C", [rich]),
+        ]
+    )
+    bridge = DrawBridge(_MoveDoc(pages))
+    calls = {"n": 0}
+    real_exchange = bridge._exchange_page_contents
+
+    def _flaky(first: object, second: object) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            real_exchange(first, second)
+        elif calls["n"] == 2:
+            raise RuntimeError("forward failed")
+        elif calls["n"] == 3:
+            raise RuntimeError("undo failed")
+
+    bridge._exchange_page_contents = _flaky  # type: ignore[method-assign]
+    with pytest.raises(PageExchangeRollbackError) as exc_info:
+        bridge.move_slide(2, 0)
+    msg = str(exc_info.value)
+    assert "partially reordered" in msg
+    assert "forward failed" in msg
+    assert "undo failed" in msg
+    assert calls["n"] == 3
+
+
 def test_move_slide_restores_shapes_when_exchange_fails_midway():
     from plugin.draw.bridge import DrawBridge
 

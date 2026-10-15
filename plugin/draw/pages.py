@@ -70,14 +70,16 @@ class AddSlide(ToolBase):
             if layout_id(layout_name) is None:
                 return self._tool_error("Unknown layout: %s" % layout_name, available=available_layout_names())
 
-        # Do not trust get_active_page_index after insert — Impress
-        # DrawPage.getNumber() is missing/None, so the bridge helper falls
-        # back to 0 even when the controller switched. create_slide returns
-        # the slot the new page actually occupies.
-        new_page, landed = bridge.create_slide(page_idx, switch=switch_view)
-        active_idx = landed if switch_view else bridge.get_active_page_index()
+        # Bugfix: create_slide(switch=True) moved the view onto the new page
+        # before master inheritance and layout. A failure then removed that page
+        # and left the controller on it. insert_slide_from_master already inserts
+        # with switch=False and switches only after MasterPage is assigned.
+        # Do not trust get_active_page_index after a requested switch — Impress
+        # DrawPage.getNumber() is missing/None, so the helper falls back to 0.
+        # The landed index is the slot the new page occupies.
+        new_page, landed = bridge.create_slide(page_idx, switch=False)
 
-        result = {"status": "ok", "message": "Slide added", "active_page_index": active_idx}
+        result: dict[str, Any] = {"status": "ok", "message": "Slide added"}
 
         try:
             # insertNewByIndex can attach factory Default even when the deck already
@@ -111,6 +113,11 @@ class AddSlide(ToolBase):
                     raise
             return self._tool_error(f"Failed to set layout or master on new slide: {exc}")
 
+        # False means the view did not move. The page is already inserted.
+        # Disposal must propagate; do not delete the page for a view failure.
+        if switch_view:
+            bridge.set_current_page_index(landed)
+        result["active_page_index"] = landed if switch_view else bridge.get_active_page_index()
         return result
 
 
@@ -146,7 +153,7 @@ class DeleteSlide(ToolBase):
 
 class ListPages(ToolBase):
     name: str | None = "list_pages"
-    description: str = "Lists all pages (slides) in the document."
+    description: str = "Lists all pages (slides). Each entry is that page's Name, or \"Page N\" when Name is missing or blank. The list position is the 0-based page index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     doc_types: list[str] | None = ["draw", "impress"]
@@ -160,7 +167,25 @@ class ListPages(ToolBase):
         active_idx = ctx.active_page_index
         if active_idx is None:
             active_idx = bridge.get_active_page_index()
-        return {"status": "ok", "pages": [f"Page {i}" for i in range(pages.getCount())], "count": pages.getCount(), "active_page_index": active_idx}
+        from plugin.framework.errors import is_real_disposal
+
+        labels: list[str] = []
+        count = pages.getCount()
+        for i in range(count):
+            label = f"Page {i}"
+            try:
+                name = pages.getByIndex(i).Name
+            except Exception as exc:
+                # Bugfix: rename_slide writes Name, and this list ignored it, so a
+                # rename was invisible. A closed document must still be
+                # DOCUMENT_DISPOSED; a missing Name stays "Page N".
+                if is_real_disposal(exc):
+                    raise
+            else:
+                if name is not None and str(name).strip():
+                    label = str(name).strip()
+            labels.append(label)
+        return {"status": "ok", "pages": labels, "count": count, "active_page_index": active_idx}
 
 
 class ReadSlideText(ToolBase):
@@ -272,7 +297,10 @@ class SetActivePage(ToolBase):
     description: str = "Changes the currently active slide (page) in Draw/Impress."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
     uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-    is_mutation: bool | None = True
+    # View change only. None would still detect a mutation: the name
+    # set_active_page is not a read prefix. read_only_target and the MCP
+    # document lock both follow detects_mutation.
+    is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
@@ -285,15 +313,13 @@ class SetActivePage(ToolBase):
         if idx < 0 or idx >= pages.getCount():
             return self._tool_error("Page index %d out of range." % idx)
 
-        page = pages.getByIndex(idx)
-        controller = ctx.doc.getCurrentController()
-        if controller is not None and hasattr(controller, "setCurrentPage"):
-            try:
-                controller.setCurrentPage(page)
-                return {"status": "ok", "message": "Active page changed to %d" % idx, "active_page_index": idx}
-            except Exception as e:
-                return self._tool_error("Failed to set active page: %s" % e)
-        return self._tool_error("Document controller does not support switching pages.")
+        # Bugfix: this reimplemented setCurrentPage and caught every exception,
+        # so a disposed controller became a normal tool error instead of
+        # DOCUMENT_DISPOSED. set_current_page_index already re-raises disposal
+        # and returns False for a missing controller or a non-disposal failure.
+        if not bridge.set_current_page_index(idx):
+            return self._tool_error("Failed to set active page.")
+        return {"status": "ok", "message": "Active page changed to %d" % idx, "active_page_index": idx}
 
 
 _DRAW_UNO = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
