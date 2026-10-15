@@ -100,7 +100,7 @@ Each imported cell is styled to mimic Jupyter notebook structure without raw lay
 | **Markdown** | Rendered CommonMark: ATX `#` → Heading 1, `##+` → Heading 2; lists as Writer bullet styles; blockquotes; inline bold/italics/code; hyperlinks; embedded images. |
 | **Code (Gutter)** | **`WriterAgent Notebook In`** style — `In [n]:` prompt with the small ▶ button (`nb_run_{hex}`) on that same paragraph. |
 | **Code (Body)** | In-flow `TextField` (`nb_cell_{index}_code`, Liberation Mono, light gray fill, hairline border) followed by invisible bookmark `nb_out_{hex}`. |
-| **Outputs** | Stream outputs and tracebacks rendered in Preformatted Text directly below the field. If that style is missing, import and re-run create **WriterAgent Notebook Output** (monospace, parented on Text Body) so the paragraph is not Text Body — Text Body is a cell boundary, and a re-run would otherwise leave the old stdout in place. Re-running replaces existing stdout without duplicating paragraphs. |
+| **Outputs** | Stream outputs and tracebacks rendered in Preformatted Text directly below the field. If that style is missing, import and re-run create **WriterAgent Notebook Output** (monospace, parented on Text Body) so the paragraph is not Text Body — Text Body is a cell boundary, and a re-run would otherwise leave the old stdout in place. Re-running replaces existing stdout without duplicating paragraphs. A plot that fails to decode or insert is a Text Body paragraph `[image output omitted]`, not a blank line. One cell that throws does not abort the import: a Text Body paragraph `[Notebook cell N could not be imported]` is written and later cells still import. A closed document still aborts the import. |
 
 ---
 

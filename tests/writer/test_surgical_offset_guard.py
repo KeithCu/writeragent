@@ -29,7 +29,7 @@ from plugin.writer.edit_review import (
     record_html_atomically,
     record_preserve_replace,
 )
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.writer.word_diff_split import split_change
 
 _THRESHOLD = 0.6
@@ -648,4 +648,19 @@ def test_html_not_recording_rolls_back_partial_on_failure():
     with pytest.raises(RuntimeError):
         record_html_atomically(session, FakeDoc(um), failing_mutate, proposed_preview="x")
     assert um.undos == 1                          # the stranded deletion was rolled back
+    assert session.changes == []
+
+
+def test_html_atomic_closed_document_is_not_a_missing_undo_context():
+    class ClosedDoc:
+        def getUndoManager(self):
+            raise type("DisposedException", (Exception,), {})("disposed")
+
+    session = FakeSession()
+    calls = {"n": 0}
+    with pytest.raises(DocumentDisposedError):
+        record_html_atomically(
+            session, ClosedDoc(), lambda: calls.__setitem__("n", calls["n"] + 1),
+            proposed_preview="x")
+    assert calls["n"] == 0
     assert session.changes == []
