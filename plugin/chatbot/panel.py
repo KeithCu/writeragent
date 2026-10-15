@@ -493,7 +493,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _current_agent_backend: Any
     _acp_backend: Any
     _acp_backend_id: str | None
-    _current_tool_call_id: str | None
     _approval_event: Any
     _extracted_peer_query: str
     _extracted_peer_already_appended: bool
@@ -607,7 +606,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._active_execute_tool_fn: Any = None
         self._active_query_text: Any = None
         self._active_supports_status: Any = None
-        self._current_tool_call_id = None
         self._record_assistant_start = False
         self._assistant_stream_start_len: int | None = None
         self._approval_event = None
