@@ -6,6 +6,8 @@ import ast
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.doc.peer_message import (
     PEER_QUEUE_CAP,
     PEER_RESULT_TOOL_NAME,
@@ -1130,4 +1132,226 @@ def test_queue_ops_assert_main_thread():
         kick_pending_peer_starts()
         drop_listener_queue(listener)
     assert mock_assert.call_count == 3
+
+
+def test_filter_schemas_skips_catalog_off_document_research():
+    schemas = [
+        {"type": "function", "function": {"name": PEER_WORK_TOOL_NAME, "description": "w"}},
+        {"type": "function", "function": {"name": PEER_RESULT_TOOL_NAME, "description": "r"}},
+        {"type": "function", "function": {"name": "undo", "description": "u"}},
+    ]
+    with patch("plugin.doc.peer_message.list_v1_peers") as mock_list:
+        res1 = filter_peer_message_schemas(schemas, ctx=object(), doc=object(), active_domain=None)
+        res2 = filter_peer_message_schemas(schemas, ctx=object(), doc=object(), active_domain="ranges")
+    assert mock_list.call_count == 0
+    names1 = [s["function"]["name"] for s in res1]
+    names2 = [s["function"]["name"] for s in res2]
+    assert names1 == ["undo"]
+    assert names2 == ["undo"]
+    assert PEER_WORK_TOOL_NAME not in names1 and PEER_RESULT_TOOL_NAME not in names1
+    assert PEER_WORK_TOOL_NAME not in names2 and PEER_RESULT_TOOL_NAME not in names2
+
+
+def test_filter_schemas_research_suffix_still_lists_peers():
+    schemas = [
+        {"type": "function", "function": {"name": PEER_WORK_TOOL_NAME, "description": "w"}},
+        {"type": "function", "function": {"name": PEER_RESULT_TOOL_NAME, "description": "r"}},
+    ]
+    peers = [{"name": "Other.odt", "uid": "u2", "url": "", "type": "writer"}]
+    with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers) as mock_list:
+        out = filter_peer_message_schemas(
+            schemas, ctx=object(), doc=object(), active_domain="document_research:extra"
+        )
+    assert mock_list.call_count == 1
+    assert len(out) == 2
+    names = {s["function"]["name"] for s in out}
+    assert names == PEER_TOOL_NAMES
+    for s in out:
+        assert "uid=u2" in s["function"]["description"]
+
+
+def test_filter_schemas_research_without_ctx_does_not_list():
+    schemas = [
+        {"type": "function", "function": {"name": PEER_WORK_TOOL_NAME, "description": "w"}},
+        {"type": "function", "function": {"name": PEER_RESULT_TOOL_NAME, "description": "r"}},
+    ]
+    with patch("plugin.doc.peer_message.list_v1_peers") as mock_list:
+        out = filter_peer_message_schemas(
+            schemas, ctx=None, doc=object(), active_domain="document_research"
+        )
+    mock_list.assert_not_called()
+    names = [s["function"]["name"] for s in out]
+    assert not (PEER_TOOL_NAMES & set(names))
+
+
+def test_filter_schemas_reraises_thread_guard():
+    schemas = [
+        {"type": "function", "function": {"name": PEER_WORK_TOOL_NAME, "description": "w"}},
+    ]
+    with patch("plugin.doc.peer_message.list_v1_peers", side_effect=RuntimeError("UNO thread violation")):
+        with pytest.raises(RuntimeError, match="UNO thread violation"):
+            filter_peer_message_schemas(
+                schemas, ctx=object(), doc=object(), active_domain="document_research"
+            )
+
+
+def test_filter_tools_reraises_thread_guard():
+    with patch("plugin.doc.peer_message.list_v1_peers", side_effect=RuntimeError("UNO thread violation")):
+        with pytest.raises(RuntimeError, match="UNO thread violation"):
+            filter_peer_tools_for_specialized([SendPeerWork()], uno_ctx=object(), doc=object())
+
+
+def test_filter_schemas_catalog_error_hides_tools():
+    schemas = [
+        {"type": "function", "function": {"name": PEER_WORK_TOOL_NAME, "description": "w"}},
+        {"type": "function", "function": {"name": PEER_RESULT_TOOL_NAME, "description": "r"}},
+    ]
+    with patch("plugin.doc.peer_message.list_v1_peers", side_effect=ValueError("desktop")):
+        out = filter_peer_message_schemas(
+            schemas, ctx=object(), doc=object(), active_domain="document_research"
+        )
+    names = [s["function"]["name"] for s in out]
+    assert not (PEER_TOOL_NAMES & set(names))
+
+
+def test_kick_missing_start_drops_turn_and_starts_next(caplog):
+    import logging
+    from plugin.doc.peer_message import _global_fifo
+
+    class _NoStartListener:
+        def __init__(self):
+            self.sidebar_state = MagicMock()
+            self.sidebar_state.send.is_busy = False
+
+    no_start = _NoStartListener()
+    real = _Listener()
+    turn_lost = PeerPendingTurn("lost", False)
+    turn_kept = PeerPendingTurn("kept", False)
+
+    enqueue_peer_turn(no_start, turn_lost)
+    enqueue_peer_turn(real, turn_kept)
+
+    with caplog.at_level(logging.ERROR, logger="writeragent.doc.peer_message"):
+        kick_pending_peer_starts()
+
+    assert listener_queue_len(no_start) == 0
+    assert len(_global_fifo) == 0
+    assert real.started == [("kept", False)]
+    assert any(
+        "no start_extracted_peer_send" in record.message and "_NoStartListener" in record.message
+        for record in caplog.records
+    )
+
+
+def test_drop_listener_queue_purges_dead_fifo_refs():
+    import gc
+    import weakref
+    from plugin.doc.peer_message import _global_fifo
+
+    dead = _Listener()
+    live = _Listener()
+    other = _Listener()
+
+    turn_dead = PeerPendingTurn("dead", False)
+    turn_live = PeerPendingTurn("live", False)
+    turn_other = PeerPendingTurn("other", False)
+
+    enqueue_peer_turn(dead, turn_dead)
+    enqueue_peer_turn(live, turn_live)
+    enqueue_peer_turn(other, turn_other)
+
+    dead_ref = weakref.ref(dead)
+    del dead
+    gc.collect()
+    assert dead_ref() is None
+
+    drop_listener_queue(live)
+
+    assert len(_global_fifo) == 1
+    assert _global_fifo[0][1] is turn_other
+    assert _global_fifo[0][0]() is not None
+
+
+def test_format_peer_envelope_none_message_is_empty_body():
+    res = format_peer_envelope(name="A", uid="u", url="", message=None, kind="result")
+    assert res == "[Peer result from: A | uid=u | url=]\n\n"
+    assert "None" not in res
+
+    work = format_peer_envelope(name="A", uid="u", url="", message=None, kind="work")
+    assert PEER_WORK_DELIVERY_FOOTER in work
+    assert "\n\nNone\n\n" not in work
+
+
+def test_resolve_self_display_name_is_peer_self():
+    self_doc = MagicMock()
+    self_doc.getURL.return_value = "file:///tmp/Mine.odt"
+    self_doc.getTitle.return_value = "Mine.odt"
+    self_doc.getRuntimeUID.return_value = "self-uid"
+    self_doc.RuntimeUID = "self-uid"
+
+    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(None, None)):
+        with patch("plugin.doc.peer_message.list_v1_peers", return_value=[]):
+            with patch("plugin.doc.text_helpers.get_document_path", return_value="/tmp/Mine.odt"):
+                res1 = resolve_peer_target(object(), self_doc, "Mine.odt")
+                res2 = resolve_peer_target(object(), self_doc, "Other.odt")
+
+    assert res1 == (None, "PEER_SELF", "Cannot send a peer message to the same document.")
+    assert res2[0] is None
+    assert res2[1] == "PEER_NOT_FOUND"
+
+
+def test_resolve_ambiguous_name_not_overridden_by_self_title():
+    peers = [
+        {"name": "Budget.ods", "uid": "u1", "url": "file:///tmp/Budget1.ods", "type": "calc"},
+        {"name": "Budget.ods", "uid": "u2", "url": "file:///tmp/Budget2.ods", "type": "calc"},
+    ]
+    self_doc = MagicMock()
+    self_doc.getURL.return_value = "file:///tmp/Budget.ods"
+    self_doc.getTitle.return_value = "Budget.ods"
+    self_doc.getRuntimeUID.return_value = "self-uid"
+    self_doc.RuntimeUID = "self-uid"
+
+    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(None, None)):
+        with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
+            with patch("plugin.doc.text_helpers.get_document_path", return_value="/tmp/Budget.ods"):
+                model, code, _msg = resolve_peer_target(object(), self_doc, "Budget.ods")
+
+    assert model is None
+    assert code == "PEER_AMBIGUOUS"
+
+
+def test_resolve_unique_peer_name_wins_over_caller_title():
+    peer_model = MagicMock()
+    peer_model.getRuntimeUID.return_value = "peer-uid"
+    peer_model.RuntimeUID = "peer-uid"
+    peer_model.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+
+    self_doc = MagicMock()
+    self_doc.getURL.return_value = "file:///tmp/Budget.ods"
+    self_doc.getTitle.return_value = "Budget.ods"
+    self_doc.getRuntimeUID.return_value = "self-uid"
+    self_doc.RuntimeUID = "self-uid"
+
+    peer = {"name": "Budget.ods", "uid": "peer-uid", "url": "file:///tmp/PeerBudget.ods", "type": "calc"}
+
+    def _resolve(_ctx, target):
+        if target == "peer-uid":
+            return peer_model, "calc"
+        return None, None
+
+    with patch("plugin.framework.uno_context.resolve_document_by_url", side_effect=_resolve):
+        with patch("plugin.doc.peer_message.list_v1_peers", return_value=[peer]):
+            with patch("plugin.doc.text_helpers.get_document_path", return_value="/tmp/Budget.ods"):
+                model, code, _msg = resolve_peer_target(object(), self_doc, "Budget.ods")
+
+    assert model is peer_model
+    assert code is None
+
+
+def test_identity_from_doc_reraises_main_thread_runtimeerror():
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///tmp/Mine.odt"
+    with patch("plugin.doc.text_helpers.get_document_path", side_effect=RuntimeError("UNO thread violation")):
+        with pytest.raises(RuntimeError, match="UNO thread violation"):
+            identity_from_doc(doc)
 

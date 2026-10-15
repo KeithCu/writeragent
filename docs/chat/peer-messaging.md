@@ -238,7 +238,7 @@ Layout: `[Peer work from: Name | uid=… | url=…]` for `send_peer_work` (gatew
 
 ### 4.2 Tool visibility
 
-**Experiment visibility:** advertise both peer send tools on `get_schemas` **only** when `active_domain` is `document_research` **and** `get_open_documents` has at least one **resolvable other v1 peer**. Outer/main (`active_domain` empty) never lists the tool. Specialized `get_tools` uses the same peer-exists gate (`filter_peer_tools_for_specialized`).
+**Experiment visibility:** advertise both peer send tools on `get_schemas` **only** when `active_domain` is `document_research` **and** `get_open_documents` has at least one **resolvable other v1 peer**. Outer/main (`active_domain` empty) never lists the tool. Specialized `get_tools` uses the same peer-exists gate (`filter_peer_tools_for_specialized`). `filter_peer_message_schemas` does not call `list_v1_peers` unless the `active_domain` base (text before `:`) is `document_research`. Outer chat and MCP (`active_domain=None`) strip both tools with no desktop enumeration. On that research path a dev-build main-thread `RuntimeError` from `list_v1_peers` propagates; any other catalog failure still hides the tools.
 
 Peer-exists rules (unchanged from #672):
 
@@ -286,7 +286,7 @@ Harness pre-open is in scope; mid-session create/spawn is not.
 1. `get_open_documents(ctx.ctx, ctx.doc)` — reject self (matching RuntimeUID, or `uno_same` when either uid is empty).
 2. v1 peer services only: `TextDocument`, `SpreadsheetDocument`, `DrawingDocument`, `PresentationDocument` on the resolved model. Research catalog `doc_type == "draw"` still includes Impress — peer type comes from `v1_peer_type_label` (`impress` vs `draw`).
 3. `resolve_document_by_url` — open model only. Do not `loadComponentFromURL` / `open_document_for_read`.
-4. Ambiguous set (two `.ods`, two Draw forms): require a file URL / uid, or a display `name` passed as `document_url` that matches **exactly one**. Never silently pick the first Calc or first Draw. Two peers with the same name → `PEER_AMBIGUOUS`.
+4. Ambiguous set (two `.ods`, two Draw forms): require a file URL / uid, or a display `name` passed as `document_url` that matches **exactly one**. Never silently pick the first Calc or first Draw. Two peers with the same name → `PEER_AMBIGUOUS`. If URL/uid resolve misses and no other open peer has that display name, `document_url` equal to `identity_from_doc(self_doc)["name"]` is `PEER_SELF` (`Cannot send a peer message to the same document.`). `list_v1_peers` omits self, so that name is not in the peer list. A unique other peer with the same display name is that peer, not self.
 5. No matching open peer → clear error. Do not create, load, or spawn.
 
 Suggested error codes: `PEER_NOT_FOUND`, `PEER_SIDEBAR_NOT_OPEN`, `PEER_UNSUPPORTED` (non-v1 app: Base, Math, Start Center, … — not Impress), `PEER_QUEUE_FULL`, `VALIDATION_ERROR` (missing `document_url`), `PEER_CHAT_ONLY` (non-chat caller).
