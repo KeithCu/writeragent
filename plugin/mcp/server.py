@@ -319,6 +319,25 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
     # attribute (a bare annotation is treated as an instance variable).
     timeout: ClassVar[float | None] = MCP_HTTP_SOCKET_TIMEOUT_SEC
 
+    def handle_one_request(self) -> None:
+        """A client that goes away while the response is written is a closed request.
+
+        What was wrong: the 404 ``_send_json`` in ``_dispatch`` is outside the
+        ``try`` that swallows ``OSError`` on the 500 write. ``do_GET`` returns
+        into ``BaseHTTPRequestHandler.handle_one_request``, which only catches
+        ``TimeoutError`` and then flushes ``wfile`` again. ``BrokenPipeError``
+        and ``ConnectionResetError`` from the 404 write, from the 403 writes in
+        ``reject_forbidden_host`` / ``reject_forbidden_origin``, or from that
+        second flush reach ``handle_error`` and print a traceback.
+        How: this override is the one frame above ``do_*`` and that flush.
+        Why: those disconnects are ``ConnectionError``. Any other exception
+        still propagates.
+        """
+        try:
+            super().handle_one_request()
+        except ConnectionError:
+            self.close_connection: bool = True
+
     def do_GET(self) -> None:
         self._dispatch("GET")
 

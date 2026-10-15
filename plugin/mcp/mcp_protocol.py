@@ -27,7 +27,6 @@ import json
 import logging
 import os
 import select
-import socket
 import threading
 import time
 import uuid
@@ -550,13 +549,22 @@ class MCPProtocolHandler:
                 if not readable:
                     continue
                 try:
-                    # Peek at the data to see if it's EOF (empty byte).
-                    peek = sock.recv(1, socket.MSG_PEEK)
-                    if not peek:
+                    # What was wrong: EOF was sock.recv(1, MSG_PEEK). After the TLS
+                    # handshake, ssl.SSLSocket.recv raises ValueError for any non-zero
+                    # flags. use_ssl wraps the accepted socket with
+                    # do_handshake_on_connect=False, but the request headers are read
+                    # before this loop, so the handshake is already done. ValueError is
+                    # not ConnectionResetError or OSError, so the outer except logged
+                    # "SSE keepalive loop exception" and closed the stream instead of
+                    # treating b"" as EOF. A readable TLS socket that still had bytes
+                    # was closed the same way; the plain-socket path drained them.
+                    # How: select already reported the socket readable. One recv is
+                    # both the EOF check and the drain. Nothing after this loop reads
+                    # those bytes.
+                    # Why: recv with no flags works on a plain socket and on SSLSocket.
+                    data = sock.recv(4096)
+                    if not data:
                         break
-                    # Unexpected request bytes on an SSE GET. Consume them
-                    # so select does not spin.
-                    sock.recv(4096)
                 except (ConnectionResetError, OSError):
                     break
         except Exception as e:

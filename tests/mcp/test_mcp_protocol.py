@@ -576,6 +576,45 @@ def test_http_server_stop_ends_sse_keepalive():
         if srv is not None:
             srv.stop()
 
+
+def test_sse_keepalive_readable_socket_uses_plain_recv():
+    services = MagicMock()
+    protocol = MCPProtocolHandler(services)
+
+    sock = MagicMock()
+    recv_calls = []
+    recv_returns = [b"x", b""]
+
+    def _recv(*args):
+        recv_calls.append(args)
+        if len(args) > 1 and args[1] != 0:
+            raise ValueError("non-zero flags not allowed")
+        if recv_returns:
+            return recv_returns.pop(0)
+        return b""
+
+    sock.recv.side_effect = _recv
+
+    http = MagicMock()
+    http.connection = sock
+    http.server = object()
+
+    stop_event = threading.Event()
+
+    with (
+        patch("plugin.mcp.mcp_protocol.note_sse_keepalive", return_value=stop_event),
+        patch("plugin.mcp.mcp_protocol.forget_sse_keepalive") as mock_forget,
+        patch("plugin.mcp.mcp_protocol.select.select", return_value=([sock], [], [])),
+        patch("plugin.mcp.mcp_protocol.log.debug") as mock_log_debug,
+    ):
+        protocol._run_sse_keepalive_loop(http, interval=30)
+
+    mock_forget.assert_called_once()
+    mock_log_debug.assert_not_called()
+    assert sock.recv.call_count == 2
+    assert recv_calls == [(4096,), (4096,)]
+
+
 def test_mcp_execute_with_backpressure_captures_send_cancellation() -> None:
     from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
     from plugin.framework.queue_executor import SendCancellation, QueueExecutor

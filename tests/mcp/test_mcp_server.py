@@ -487,6 +487,41 @@ def test_dispatch_does_not_write_second_response_after_start():
     send.assert_not_called()
 
 
+def test_handle_one_request_disconnect_during_404_is_not_raised():
+    class DisconnectingWfile(BytesIO):
+        def write(self, b: bytes) -> int:
+            super().write(b)
+            if b" 404 " in b:
+                raise BrokenPipeError("client disconnected during 404")
+            return len(b)
+
+        def flush(self) -> None:
+            raise ConnectionResetError("flush after disconnect")
+
+    req = b"GET /no-such-path HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n"
+    handler = _bare_generic_handler({}, req)
+    handler.wfile = DisconnectingWfile()
+    handler.server = MagicMock()
+    handler.server.route_registry = None
+
+    handler.handle_one_request()
+
+    assert handler.close_connection is True
+    assert b" 404 " in handler.wfile.getvalue()
+
+
+def test_handle_one_request_non_disconnect_still_propagates():
+    req = b"GET /no-such-path HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n"
+    handler = _bare_generic_handler({}, req)
+    handler.wfile = BytesIO()
+    handler.wfile.write = MagicMock(side_effect=RuntimeError("bug"))
+    handler.server = MagicMock()
+    handler.server.route_registry = None
+
+    with pytest.raises(RuntimeError, match="bug"):
+        handler.handle_one_request()
+
+
 def test_handle_mcp_post_truncated_json():
     """Test when Content-Length is larger than body (truncated JSON).
     Should hit invalid-json path and not call _handle_mcp."""
