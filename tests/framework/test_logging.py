@@ -8,6 +8,7 @@ from logging.handlers import MemoryHandler
 from unittest.mock import MagicMock, patch
 
 import pytest
+from typing import Any
 
 from plugin.framework.logging import (
     FLUSH_INTERVAL_SEC,
@@ -1175,3 +1176,220 @@ def test_close_swallows_overridden_flush_error(tmp_path) -> None:
 
     handler.flush = broken_flush  # type: ignore[assignment]
     handler.close()
+
+
+def test_shared_concurrent_first_init_returns_one_box() -> None:
+    import sys
+    import threading
+    import plugin.framework.logging as logging_mod
+
+    saved = getattr(sys, "_writeragent_logging_shared", None)
+    if hasattr(sys, "_writeragent_logging_shared"):
+        delattr(sys, "_writeragent_logging_shared")
+    try:
+        barrier = threading.Barrier(8)
+        results: list[dict[str, Any] | None] = [None] * 8
+
+        def worker(idx: int) -> None:
+            barrier.wait(timeout=5.0)
+            results[idx] = logging_mod._shared()
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5.0)
+
+        first_box = results[0]
+        assert first_box is not None
+        for box in results:
+            assert box is first_box
+        assert isinstance(first_box["init_lock"], type(threading.Lock()))
+        assert isinstance(first_box["activity_lock"], type(threading.Lock()))
+        assert logging_mod._shared() is first_box
+    finally:
+        setattr(sys, "_writeragent_logging_shared", saved)
+
+
+def test_flush_swallows_stream_error(tmp_path) -> None:
+    log_path = str(tmp_path / "test_flush.log")
+    handler = OptionalFlushFileHandler(log_path, encoding="utf-8")
+    try:
+        with patch("logging.FileHandler.flush", side_effect=OSError("disk full")):
+            handler.flush(force=True)
+            handler.flush(force=False)
+    finally:
+        handler.close()
+
+
+def test_flush_reraises_recursion_error(tmp_path) -> None:
+    log_path = str(tmp_path / "test_flush_rec.log")
+    handler = OptionalFlushFileHandler(log_path, encoding="utf-8")
+    try:
+        with patch("logging.FileHandler.flush", side_effect=RecursionError):
+            with pytest.raises(RecursionError):
+                handler.flush(force=True)
+    finally:
+        handler.close()
+
+
+def test_rotate_reopen_oserror_does_not_propagate(tmp_path) -> None:
+    import plugin.framework.logging as logging_mod
+
+    log_path = str(tmp_path / "test_rotate_reopen.log")
+    handler = OptionalFlushFileHandler(log_path, encoding="utf-8")
+    try:
+        oversized = "A" * (logging_mod._MAX_DEBUG_LOG_BYTES + 1024)
+        assert handler.stream is not None
+        handler.stream.write(oversized)
+        logging.FileHandler.flush(handler)
+
+        with patch.object(OptionalFlushFileHandler, "_open", side_effect=OSError("reopen failed")):
+            handler._rotate_if_large()
+
+        assert handler.stream is None
+        backup = log_path + ".1"
+        assert os.path.isfile(backup)
+    finally:
+        if handler.stream is not None:
+            handler.close()
+
+
+def test_watchdog_check_continues_when_flush_raises(tmp_path) -> None:
+    import sys
+    import plugin.framework.logging as logging_mod
+
+    shared = logging_mod._shared()
+    with shared["activity_lock"]:
+        saved_activity = dict(shared["activity"])
+        saved_hung = shared["hung_shown"]
+        saved_stacks = shared["stacks_dumped"]
+    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+
+    log_path = str(tmp_path / "test_watchdog_check.log")
+    handler = OptionalFlushFileHandler(log_path, encoding="utf-8")
+    setattr(sys, "_writeragent_debug_file_handler", handler)
+
+    try:
+        with patch("logging.FileHandler.flush", side_effect=OSError("flush failed")):
+            logging_mod.update_activity_state("chat", round_num=1)
+            with shared["activity_lock"]:
+                shared["activity"]["last_activity"] = 0.0
+                shared["stacks_dumped"] = False
+
+            logging_mod._watchdog_check(None)
+            assert shared["stacks_dumped"] is True
+    finally:
+        logging_mod.update_activity_state("")
+        with shared["activity_lock"]:
+            shared["activity"].clear()
+            shared["activity"].update(saved_activity)
+            shared["hung_shown"] = saved_hung
+            shared["stacks_dumped"] = saved_stacks
+        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
+        handler.close()
+
+
+def test_watchdog_loop_continues_after_tick_error() -> None:
+    import threading
+    import plugin.framework.logging as logging_mod
+
+    stop_event = threading.Event()
+    check_count = 0
+
+    def mock_check(status_control: Any) -> None:
+        nonlocal check_count
+        check_count += 1
+        if check_count == 1:
+            raise OSError("disk full")
+        stop_event.set()
+        raise SystemExit
+
+    with (
+        patch("plugin.framework.logging.time.sleep", return_value=None),
+        patch("plugin.framework.logging._watchdog_check", side_effect=mock_check),
+        patch.object(logging_mod.log, "exception"),
+    ):
+        t = threading.Thread(target=logging_mod._watchdog_loop, args=(None,), daemon=True)
+        t.start()
+        assert stop_event.wait(timeout=2.0)
+        t.join(timeout=2.0)
+        assert not t.is_alive()
+        assert check_count >= 2
+
+
+def test_watchdog_loop_continues_when_tick_log_fails() -> None:
+    import threading
+    import plugin.framework.logging as logging_mod
+
+    stop_event = threading.Event()
+    check_count = 0
+
+    def mock_check(status_control: Any) -> None:
+        nonlocal check_count
+        check_count += 1
+        if check_count == 1:
+            raise OSError("disk full")
+        stop_event.set()
+        raise SystemExit
+
+    with (
+        patch("plugin.framework.logging.time.sleep", return_value=None),
+        patch("plugin.framework.logging._watchdog_check", side_effect=mock_check),
+        patch.object(logging_mod.log, "exception", side_effect=RuntimeError("log failed")),
+    ):
+        t = threading.Thread(target=logging_mod._watchdog_loop, args=(None,), daemon=True)
+        t.start()
+        assert stop_event.wait(timeout=2.0)
+        t.join(timeout=2.0)
+        assert not t.is_alive()
+        assert check_count >= 2
+
+
+def test_start_watchdog_resets_flag_when_background_start_fails() -> None:
+    import sys
+    import plugin.framework.logging as logging_mod
+
+    saved = getattr(sys, "_writeragent_watchdog_started", False)
+    try:
+        setattr(sys, "_writeragent_watchdog_started", False)
+        with patch("plugin.framework.worker_pool.run_in_background", side_effect=RuntimeError("pool down")):
+            with pytest.raises(RuntimeError, match="pool down"):
+                logging_mod.start_watchdog_thread(None)
+        assert getattr(sys, "_writeragent_watchdog_started") is False
+
+        with patch("plugin.framework.worker_pool.run_in_background") as mock_run:
+            logging_mod.start_watchdog_thread(None)
+            assert mock_run.call_count == 1
+            assert mock_run.call_args.kwargs.get("dedicated") is True
+            assert getattr(sys, "_writeragent_watchdog_started") is True
+    finally:
+        setattr(sys, "_writeragent_watchdog_started", saved)
+
+
+def test_log_record_factory_pyuno_str_failure_uses_placeholder() -> None:
+    class pyuno:
+        def __str__(self) -> str:
+            raise RuntimeError("disposed")
+
+    failing = pyuno()
+    factory = logging.getLogRecordFactory()
+    record1 = factory("test", logging.INFO, "file.py", 10, "value=%s", (failing,), None, None, None)
+    assert record1.args == ("<pyuno>",)
+
+    class pyuno:  # type: ignore[no-redef]
+        def __str__(self) -> str:
+            return "proxy-ok"
+
+    ok = pyuno()
+    record2 = factory("test", logging.INFO, "file.py", 10, "value=%s", (ok,), None, None, None)
+    assert record2.args == ("proxy-ok",)
+
+    plain_args = ("text",)
+    record3 = factory("test", logging.INFO, "file.py", 10, "value=%s", plain_args, None, None, None)
+    assert record3.args == ("text",)
+    assert record3.args is plain_args
+
+    record4 = factory("test", logging.INFO, "file.py", 10, "value=%s", args=(failing,), exc_info=None, func=None, sinfo=None)
+    assert record4.args == ("<pyuno>",)
+

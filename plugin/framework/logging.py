@@ -26,7 +26,8 @@ the activity lock, and the watchdog hung_shown / stacks_dumped flags live in
 the exception-hook flag, and the watchdog-started flag (``_writeragent_debug_file_handler``,
 ``_writeragent_exception_hooks_installed``, ``_writeragent_watchdog_started``):
 LibreOffice can import this module twice, and a module global is a different
-object in each copy. ``_debug_log_flush_lock`` rate-limits ``flush()`` so every log
+object in each copy. ``_shared`` installs that dict with ``sys.__dict__.setdefault``
+on the first miss so two threads cannot replace each other's box. ``_debug_log_flush_lock`` rate-limits ``flush()`` so every log
 line does not fsync. Actual line writes go through Python’s ``logging`` handler lock;
 you do not need another mutex around ``log.info``.
 """
@@ -61,7 +62,7 @@ class _LoggingShared(TypedDict):
 def _shared() -> _LoggingShared:
     box = getattr(sys, "_writeragent_logging_shared", None)
     if not isinstance(box, dict):
-        box = {
+        fresh: dict[str, Any] = {
             "debug_log_path": None,
             "enable_agent_log": False,
             "init_lock": threading.Lock(),
@@ -75,8 +76,19 @@ def _shared() -> _LoggingShared:
             "hung_shown": False,
             "stacks_dumped": False,
         }
-        setattr(sys, "_writeragent_logging_shared", box)
-    return cast("_LoggingShared", cast("object", box))
+        # What was wrong: the later setattr replaced the box init_logging was filling,
+        # so debug_log_path stayed None and the locks diverged.
+        # How it happened: check-then-set while workers already log.
+        # Why this change fixes it: setdefault is one dict operation; the common path
+        # returns the existing dict and does not build locks.
+        stored = sys.__dict__.setdefault("_writeragent_logging_shared", fresh)
+        if isinstance(stored, dict):
+            box = stored
+        else:
+            setattr(sys, "_writeragent_logging_shared", fresh)
+            box = fresh
+    raw: Any = box
+    return cast("_LoggingShared", raw)
 
 
 log = logging.getLogger("writeragent")
@@ -223,8 +235,19 @@ class OptionalFlushFileHandler(logging.FileHandler):
             if not force and now - _debug_log_last_flush < FLUSH_INTERVAL_SEC:
                 return
             _debug_log_last_flush = now
-        super().flush()
-        self._rotate_if_large()
+        try:
+            super().flush()
+            self._rotate_if_large()
+        except RecursionError:
+            raise
+        except Exception:
+            # What was wrong: stream.flush and a failed rotate escaped flush.
+            # How it happened: emit force-flushes WARNING+ outside StreamHandler.emit's
+            # try, and _flush_debug_log calls flush directly, so Handler.handle on
+            # Python 3.14 does not catch it.
+            # Why this change fixes it: swallow every Exception except RecursionError,
+            # which logging re-raises to avoid a logging-error loop.
+            return
 
     def _rotate_if_large(self) -> None:
         """Cap writeragent_debug.log size by rotating to a single .1 backup.
@@ -259,7 +282,15 @@ class OptionalFlushFileHandler(logging.FileHandler):
             self.stream = self._open()
         except OSError:
             if self.stream is None:
-                self.stream = self._open()
+                try:
+                    self.stream = self._open()
+                except OSError:
+                    # What was wrong: a second OSError from _open() replaced the
+                    # caught rotation error and left flush.
+                    # How it happened: disk full or a bad path during reopen.
+                    # Why this change fixes it: leave stream None and return;
+                    # the next FileHandler.emit opens or handleErrors.
+                    pass
         finally:
             self.release()
 
@@ -758,7 +789,20 @@ def _watchdog_loop(status_control: Any) -> None:
     """Dedicated pool job: if no activity for threshold, log and set status to Hung: ..."""
     while True:
         time.sleep(_watchdog_interval_sec)
-        _watchdog_check(status_control)
+        try:
+            _watchdog_check(status_control)
+        except RecursionError:
+            raise
+        except Exception:
+            # What was wrong: one OSError from _watchdog_check ended the dedicated thread.
+            # How it happened: run_in_background's _worker logs the exception and
+            # returns; dedicated=True does not respawn.
+            # Why this change fixes it: the next sleep still runs the check; the tick
+            # log is itself guarded so a broken handler cannot end the thread.
+            try:
+                log.exception("watchdog tick failed")
+            except Exception:
+                pass
 
 
 def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
@@ -774,14 +818,25 @@ def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
         if getattr(sys, "_writeragent_watchdog_started", False):
             return
         setattr(sys, "_writeragent_watchdog_started", True)
-    from plugin.framework.thread_guard import background
-    from plugin.framework.worker_pool import run_in_background
+    try:
+        from plugin.framework.thread_guard import background
+        from plugin.framework.worker_pool import run_in_background
 
-    @background
-    def _watchdog_job(status: Any) -> None:
-        _watchdog_loop(status)
+        @background
+        def _watchdog_job(status: Any) -> None:
+            _watchdog_loop(status)
 
-    run_in_background(_watchdog_job, status_control, name="watchdog", daemon=True, dedicated=True)
+        run_in_background(_watchdog_job, status_control, name="watchdog", daemon=True, dedicated=True)
+    except Exception:
+        # What was wrong: the flag was set before run_in_background, so an import
+        # or start failure left _writeragent_watchdog_started true.
+        # How it happened: panel_factory calls this on each sidebar wire and
+        # would otherwise no-op for the rest of the process.
+        # Why this change fixes it: clear and re-raise so the next wire can start
+        # it; the flag is still set before start so two callers cannot both launch.
+        with _shared()["activity_lock"]:
+            setattr(sys, "_writeragent_watchdog_started", False)
+        raise
 
 
 def _install_safe_log_record_factory() -> None:
@@ -801,6 +856,17 @@ def _install_safe_log_record_factory() -> None:
     _original_factory = current
 
     def safe_logRecordFactory(*args: Any, **kwargs: Any) -> Any:
+        def _coerce_logged_arg(x: Any) -> Any:
+            if type(x).__name__ == "pyuno":
+                try:
+                    return str(x)
+                except Exception:
+                    # What was wrong: str(x) on a disposed proxy raised out of record creation.
+                    # How it happened: the factory runs inside the logging call.
+                    # Why this change fixes it: fall back to "<pyuno>" so the log call still returns.
+                    return "<pyuno>"
+            return x
+
         # args contains (name, level, fn, lno, msg, args, exc_info, func, sinfo)
         # args is at index 5.
         if len(args) > 5:
@@ -808,13 +874,13 @@ def _install_safe_log_record_factory() -> None:
             if isinstance(log_args, tuple):
                 if any(type(x).__name__ == "pyuno" for x in log_args):
                     new_args = list(args)
-                    new_args[5] = tuple(str(x) if type(x).__name__ == "pyuno" else x for x in log_args)
+                    new_args[5] = tuple(_coerce_logged_arg(x) for x in log_args)
                     args = tuple(new_args)
         if "args" in kwargs:
             log_args = kwargs["args"]
             if isinstance(log_args, tuple):
                 if any(type(x).__name__ == "pyuno" for x in log_args):
-                    kwargs["args"] = tuple(str(x) if type(x).__name__ == "pyuno" else x for x in log_args)
+                    kwargs["args"] = tuple(_coerce_logged_arg(x) for x in log_args)
         return _original_factory(*args, **kwargs)
 
     setattr(safe_logRecordFactory, "_writeragent_safe_factory", True)
