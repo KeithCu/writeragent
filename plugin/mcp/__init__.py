@@ -62,7 +62,7 @@ class McpModule(ModuleBase):
     ``http_routes`` service during their initialize() phase.
     This module also handles the MCP (Model Context Protocol)
     JSON-RPC routes if enabled.
-    This module starts the server in start_background() (phase 2b).
+    This module starts the server in start_background().
     """
 
     # Declared here so mypy can type the second-bootstrap reuse path

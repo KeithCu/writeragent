@@ -30,8 +30,11 @@ releasing that lock, so a job can call ``run_in_background`` during
 reset. ``submit`` and the shutdown drain share a lock so a test reset cannot
 enqueue work behind the worker sentinels. ``StderrTail``’s lock is only
 the bounded stderr buffer from a child process. Never ``join()`` a pooled
-job from another pooled job (the pool can deadlock). Map:
-docs/framework/threading.md.
+job from another pooled job (the pool can deadlock). Each pool worker sets
+a thread-local in ``_DaemonWorkPool._run`` for the life of that thread.
+``BackgroundHandle.join`` reads that flag. ``Thread.name`` is not the check.
+Shutdown still renames workers to ``wa-bg-retired-N`` so a count of live
+``wa-bg-N`` threads ignores them. Map: docs/framework/threading.md.
 """
 
 from __future__ import annotations
@@ -62,6 +65,13 @@ _MAX_STREAM_LINE_CHARS = 1024 * 1024
 from plugin.framework import thread_guard
 
 _pool_lock = threading.Lock()
+_pool_worker_local = threading.local()
+
+
+def _in_pool_worker() -> bool:
+    return getattr(_pool_worker_local, "active", False)
+
+
 _pool: "_DaemonWorkPool | None" = None
 _pool_size_override: int | None = None
 # shutdown() joins in slices so a KeyboardInterrupt can land between them.
@@ -120,12 +130,15 @@ class BackgroundHandle:
             return
         if fut.done():
             return
-        # join() from a wa-bg-* pool thread waits on a Future that only
-        # another pool worker can finish. With two workers both blocked in
-        # join, the pool deadlocks and the timeout hides it. A finished
-        # future needs no pool worker; checking fut.done() first avoids a
+        # Bugfix: What was wrong: a dedicated Thread.name is the caller's name
+        # argument, so name="wa-bg-..." or "wa-bg-retired-..." took the deadlock path.
+        # How: join used startswith("wa-bg-"), and shutdown keeps the wa-bg- prefix
+        # on retired threads so the old check would still see them.
+        # Why: the flag is set only in _run and is not a contextvar, so caller_ctx.run
+        # cannot clear it and a dedicated thread never sets it.
+        # A finished future needs no pool worker; checking fut.done() first avoids a
         # false deadlock.
-        if threading.current_thread().name.startswith("wa-bg-"):
+        if _in_pool_worker():
             raise RuntimeError("join() of a pooled job from a pool thread would deadlock the background pool")
         try:
             fut.result(timeout=timeout)
@@ -155,12 +168,20 @@ class BackgroundHandle:
 
         One supported check. Callers that read ``_thread`` to skip a
         self-join miss a pooled handle: it has no thread, so that check is
-        false and ``join`` runs. From a ``wa-bg-*`` worker that raises,
+        false and ``join`` runs. From a pool worker that raises,
         which is the deadlock guard and must stay. Pool workers that join
         a different pooled future still hit it.
         """
         thread = self._thread
         return thread is not None and thread is threading.current_thread()
+
+
+class _PoolShutdown(Exception):
+    """The pool's submit lock has observed shutdown.
+
+    Internal handshake between ``_DaemonWorkPool.submit`` and
+    ``run_in_background``. Task failures stay ``WorkerPoolError``.
+    """
 
 
 class _DaemonWorkPool:
@@ -191,12 +212,17 @@ class _DaemonWorkPool:
     def submit(self, fn: Callable[[], None]) -> Future[Any]:
         with self._submit_lock:
             if self._shutdown:
-                raise RuntimeError("background pool is shut down")
+                raise _PoolShutdown("background pool is shut down")
             fut: Future[Any] = Future()
             self._queue.put((fn, fut))
             return fut
 
     def _run(self) -> None:
+        # Bugfix: What was wrong: deadlock detection relied on Thread.name.
+        # How: a dedicated thread named wa-bg-* or retired workers false-positive deadlocked.
+        # Why: the flag has to be set before caller_ctx.run, and it has to be a
+        # thread-local so the copied context does not drop it while the job is inside join.
+        _pool_worker_local.active = True
         while True:
             item = self._queue.get()
             if item is None:
@@ -224,7 +250,9 @@ class _DaemonWorkPool:
             # Drop the live pool prefix so tests (and diagnostics) do not count
             # retiring workers as the new pool. Happened when a prior 8-worker
             # pool's join timed out and a leftover ``wa-bg-3`` sat next to a
-            # 2-worker reset pool's ``wa-bg-0`` / ``wa-bg-1``.
+            # 2-worker reset pool's ``wa-bg-0`` / ``wa-bg-1``. The deadlock guard
+            # does not read this name. Retired workers still have the pool-worker
+            # thread-local set. The prefix change is what live ``wa-bg-N`` counts skip.
             for i, t in enumerate(self._threads):
                 t.name = f"wa-bg-retired-{i}"
             if cancel_futures:
@@ -281,6 +309,12 @@ def reset_background_pool_for_tests(max_workers: int | None = None) -> None:
     ``_pool_lock`` deadlocks: a pooled job that calls ``run_in_background``
     takes that lock in ``_get_pool``, so reset waits on the job and the
     job waits on reset.
+
+    ``submit`` that already queued a future can still lose it. This function’s
+    ``shutdown(cancel_futures=True)`` cancels queued futures,
+    ``BackgroundHandle.join`` returns because the future is done, and the job
+    does not run. ``run_in_background`` retries only when ``submit`` raises
+    ``_PoolShutdown`` and the global pool is no longer that instance.
     """
     global _pool, _pool_size_override
     with _pool_lock:
@@ -306,7 +340,9 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
     blocked still propagates.
 
     *name* is the Layer A task tag for every job; a dedicated thread also uses
-    it as ``threading.Thread.name``, while a pooled job keeps ``wa-bg-N``.
+    it as ``threading.Thread.name``, while a pooled job keeps ``wa-bg-N``. The
+    pool-deadlock ``RuntimeError`` is ``_in_pool_worker()``. A dedicated
+    thread keeps that flag false when its name starts with ``wa-bg-``.
 
     :return: A :class:`BackgroundHandle` with ``join`` / ``is_alive``.
     """
@@ -359,14 +395,17 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
         try:
             fut = pool.submit(_run_in_caller_context)
             break
-        except RuntimeError as exc:
-            # Bugfix: A caller that received an old pool handle from _get_pool()
-            # can lose a race to reset_background_pool_for_tests(), which sets
-            # _pool = None and shuts down the old pool outside _pool_lock.
-            # When submit() fails because that pool was shut down during reset,
-            # retry against the new replacement pool published under _pool_lock.
-            if "background pool is shut down" not in str(exc):
-                raise
+        except _PoolShutdown:
+            # Bugfix: What was wrong: the retry matched the substring
+            # "background pool is shut down" inside any RuntimeError, so a reworded
+            # message skipped the retry and a different RuntimeError with that text
+            # retried.
+            # How: submit and the except each spelled the sentence.
+            # Why: _PoolShutdown is the only signal, and the _pool is pool check
+            # still re-raises when reset did not publish a replacement.
+            # A future submit already queued can still be cancelled by
+            # reset_background_pool_for_tests (cancel_futures=True); join returns
+            # and the job does not run.
             with _pool_lock:
                 if _pool is pool:
                     raise
@@ -594,9 +633,15 @@ def start_stderr_drain(stream: IO[Any] | None, *, max_tail_chars: int = _DEFAULT
 
 
 class AsyncProcess:
-    """
-    Manages a subprocess.Popen instance, asynchronously reading its stdout/stderr
-    streams and providing a callback mechanism for output and exit.
+    """Run a child process and deliver stdout, stderr, and exit on dedicated threads.
+
+    The caller serializes ``start`` and ``terminate``. The MCP tunnel holds
+    ``_lock`` across both. This class does not take its own lock: a line
+    callback already runs under the caller's lock and calls ``terminate``,
+    and ``terminate`` returns before the reaper joins those readers.
+    ``terminate`` closes pipes on the ``Popen`` it captured before
+    ``Popen.terminate`` (that syscall releases the GIL). ``_wait_for_exit``
+    and ``_reap`` already receive that same captured child.
     """
 
     args: str | list[str]
@@ -753,13 +798,20 @@ class AsyncProcess:
             if handle is None:
                 continue
             # Future-backed handles are not this thread. join() still
-            # raises from a wa-bg-* worker so the pool cannot deadlock.
+            # raises from a pool worker so the pool cannot deadlock.
             if handle.is_current_thread():
                 continue
             handle.join(timeout=timeout)
 
-    def _close_child_pipes(self, stdout_thread: BackgroundHandle | None = None, stderr_thread: BackgroundHandle | None = None) -> None:
-        proc = self.process
+    def _close_child_pipes(self, proc: subprocess.Popen[Any] | None, *, stdout_thread: BackgroundHandle | None = None, stderr_thread: BackgroundHandle | None = None) -> None:
+        # Bugfix: What was wrong: terminate captured proc for the signal and for
+        # _reap, then _close_child_pipes read self.process again and could close
+        # the replacement child's stdin (and its stdout/stderr when that child had
+        # no reader handle yet).
+        # How: Popen.terminate releases the GIL, and start assigns self.process
+        # before it stores the new reader handles.
+        # Why: the helper now closes the Popen the caller passed, the same capture
+        # _wait_for_exit and _reap already use.
         if proc is None:
             return
         if proc.stdin is not None:
@@ -863,5 +915,5 @@ class AsyncProcess:
         # stdin, but close stdout/stderr only if there is no reader thread
         # attached; reader threads close their pipe in their own finally block
         # upon reaching EOF.
-        self._close_child_pipes(stdout_thread=stdout_thread, stderr_thread=stderr_thread)
+        self._close_child_pipes(proc, stdout_thread=stdout_thread, stderr_thread=stderr_thread)
         run_in_background(self._reap, proc, stdout_thread, stderr_thread, wait_thread, timeout, name="asyncproc-reap", dedicated=True)

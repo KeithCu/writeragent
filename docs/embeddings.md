@@ -333,6 +333,8 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | **`corpus.db`** | `chunks`, FTS5 `passages`, `vec_chunks_<model_slug>`, `indexed_files`, `indexed_paragraphs`, `model_metadata` |
 | **`corpus_meta.json`** | `schema_version`, `embedding_model`, `dim`, `chunk_count`, `storage_backend`, `updated_at` |
 
+`write_corpus_meta` merges fields and publishes them with `tempfile.mkstemp` in the same `writeragent_embeddings/` directory plus `os.replace`. There is no cross-process lock; overlapping merges can still drop fields. For sqlite, a missing `corpus_meta.json` beside a live `corpus.db` is an empty index (cold rebuild may delete that db). Corrupt or non-object JSON beside that db is not empty and must not be wiped. For zvec and lancedb, a populated collection with missing or corrupt meta stays not empty.
+
 Experimental backends use side-by-side stores: `writeragent_embeddings/zvec/` or `lancedb/` — `corpus.db` remains untouched when flipping modes.
 
 ### Multi-model isolation

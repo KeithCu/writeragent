@@ -101,8 +101,8 @@ def spawn_recording_process(exe: str, output_path: str, *, silence_config: Silen
     # child already used. Worker start() is binary bufsize=0.
     # base_env is already scrubbed, with the display and Pulse keys put back.
     # A second scrub, or env= merged onto os.environ, would undo that.
-    # register=False: shutdown_all() -> close() skips the stop JSON and uses
-    # a different kill timeline. This child was never in that registry.
+    # register=False: shutdown_all kill_trees the registry and would skip the
+    # stop JSON. This child was never in that registry.
     # log_start_failure=False: a missing interpreter must stay an OSError so
     # the sidebar can prefix "Venv audio recording failed to start".
     # stderr_name_with_pid: the drain thread stays audio-rec-stderr-<pid>.

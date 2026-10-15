@@ -44,6 +44,23 @@ def test_execute_inits_logging_before_bootstrap(monkeypatch) -> None:
     assert order == ["log", "boot", "upd"]
 
 
+def test_execute_bootstraps_when_init_logging_fails(monkeypatch) -> None:
+    import plugin.main_core as main_core
+
+    order: list[str] = []
+
+    def fail_logging(_ctx):
+        order.append("log")
+        raise RuntimeError("logging boom")
+
+    monkeypatch.setattr(main_core, "init_logging", fail_logging)
+    monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: order.append("boot"))
+    monkeypatch.setattr(main_core, "_schedule_update_check", lambda _ctx: order.append("upd"))
+    job = main_core.MainBootstrapJob(MagicMock())
+    assert job.execute(()) == ()
+    assert order == ["log", "boot", "upd"]
+
+
 def test_trigger_wraps_bootstrap_errors(monkeypatch) -> None:
     import plugin.main_core as main_core
 

@@ -432,6 +432,9 @@ class _UnoThreadGuardProxy:
 
     Never constructed: ``_wrap_uno`` and ``guard_uno`` return the raw object,
     so missing protocol dunders on this class do not change release behavior.
+    __eq__ without __hash__ and the missing comparisons are fine because
+    _wrap_uno never constructs this class; do not add them unless _wrap_uno
+    starts returning it.
     """
     def __init__(self, target: Any) -> None:
         object.__setattr__(self, "_target", target)
@@ -440,7 +443,7 @@ class _UnoThreadGuardProxy:
         return getattr(self._target, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if name.startswith("_"):
+        if name == "_target":
             object.__setattr__(self, name, value)
         else:
             setattr(self._target, name, value)
@@ -452,6 +455,9 @@ class _UnoThreadGuardProxy:
         return self._target == _unwrap_uno(other)
 
 def _unwrap_uno(obj: Any) -> Any:
+    # Do not walk list/tuple/dict: _wrap_uno never wraps, and copying
+    # containers would change identity (_unwrap_uno(doc) is doc). If _wrap_uno
+    # ever wraps, copy the dev recursion in the same change.
     if isinstance(obj, _UnoThreadGuardProxy):
         return obj._target
     return obj

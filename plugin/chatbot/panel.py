@@ -233,9 +233,9 @@ from plugin.chatbot.send_state import (
     SendButtonState,
     SendEvent,
     SendEventKind,
-    StartRecordingEffect,
+    StartCaptureEffect,
     StartSendEffect,
-    StopRecordingEffect,
+    StopCaptureEffect,
     StopSendEffect,
     UpdateUIEffect,
 )
@@ -481,7 +481,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     chat_mode_selector: Any
     aspect_ratio_selector: Any
     base_size_input: Any
-    sidebar_include_brainstorming: bool
     sidebar_mode_flags: Any
     ensure_path_fn: Any
     client: LlmClient | None
@@ -560,7 +559,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         chat_mode_selector: Any = None,
         aspect_ratio_selector: Any = None,
         base_size_input: Any = None,
-        sidebar_include_brainstorming: bool = True,
         ensure_path_fn: Any = None,
         clear_control: Any = None,
     ) -> None:
@@ -579,10 +577,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.chat_mode_selector = chat_mode_selector
         self.aspect_ratio_selector = aspect_ratio_selector
         self.base_size_input = base_size_input
-        self.sidebar_include_brainstorming = sidebar_include_brainstorming
         from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
-        self.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=sidebar_include_brainstorming)
+        self.sidebar_mode_flags = SidebarModeFlags()
         self.ensure_path_fn = ensure_path_fn
         self.initial_doc_type = None  # Set by _wireControls
         self.cached_doc_type = None
@@ -1350,7 +1347,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         # Nested dispatch during an effect (e.g. Record start failure) must run
         # after remaining effects. RECORD_CLICKED emits UpdateUIEffect after
-        # StartRecordingEffect; a nested ERROR_OCCURRED used to restore Stop Rec
+        # StartCaptureEffect; a nested ERROR_OCCURRED used to restore Stop Rec
         # on a listener that was no longer recording.
         reenter: list[Any] = []
         self._dispatch_reenter = reenter
@@ -1542,9 +1539,20 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         recorder = self.audio_recorder
         if recorder is not None:
             recorder.apply_stdout_error(msg)
+        self.sync_audio_slice()
+
+        # Bugfix: Any child error dispatched ERROR_OCCURRED. Because the monitor
+        # posts onto the UI queue, STOP_REC_CLICKED had already set is_busy=True
+        # and is_recording=False before that post ran (including during a text
+        # send), clearing is_busy while the send drain was still running. Only
+        # an open take may take the send-button error transition; a failed send
+        # still dispatches ERROR_OCCURRED from the drain while is_busy.
+        if not self.sidebar_state.send.is_recording:
+            log.warning("audio recorder error while not recording: %s", msg)
+            return
+
         self._start_local_error_turn("\n[Audio error: %s]\n" % msg)
         self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-        self.sync_audio_slice()
 
     def _on_audio_silence_progress(self, silence_ms: int) -> None:
         from plugin.framework.i18n import _
@@ -1583,7 +1591,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     else:
                         self._set_status(_(effect.status_text))
 
-            case StartRecordingEffect():
+            case StartCaptureEffect():
                 _stop_tts()
                 if not self.audio_recorder:
                     return
@@ -1598,7 +1606,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 self.sync_audio_slice()
 
-            case StopRecordingEffect():
+            case StopCaptureEffect():
                 if not self.audio_recorder:
                     return
                 try:
@@ -2222,7 +2230,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return False
         self._extracted_peer_query = query_text
         self._extracted_peer_already_appended = already_appended
-        self.dispatch(SendEvent(SendEventKind.EXTRACTED_SEND))
+        try:
+            self.dispatch(SendEvent(SendEventKind.EXTRACTED_SEND))
+        except Exception:
+            if self.sidebar_state.send.is_busy and getattr(self, "_send_cancellation", None) is None:
+                try:
+                    self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                except Exception:
+                    log.exception("SendButtonListener.start_extracted_peer_send: rollback dispatch failed")
+            raise
         if not self.sidebar_state.send.is_busy:
             return False
         self._run_extracted_peer_drain()

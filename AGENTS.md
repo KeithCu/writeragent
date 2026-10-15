@@ -116,7 +116,7 @@ when you open that tree; other agents should open them explicitly.
 
 **Config:** Call `init_config(ctx)` once at bootstrap. Later config I/O does not take `ctx` — see the `config` module doc.
 
-**Logging / MCP:** Logs go to `writeragent_debug.log` next to `writeragent.json`. `enable_agent_log` is separate (structured agent traces only). In unexpected `except` blocks, use **`log.exception("Context")`**. MCP work drains on the main thread ([docs/mcp-protocol.md](docs/mcp-protocol.md)). Do not read API keys from the environment in production; do not use **`tempfile.mktemp()`**. For scratch debug files under `/tmp`, prefer `flush=True`.
+**Logging / MCP:** Logs go to `writeragent_debug.log` next to `writeragent.json`. `enable_agent_log` is separate (structured `[Agent]` traces are written even when `log_level` is above DEBUG). In unexpected `except` blocks, use **`log.exception("Context")`**. MCP work drains on the main thread ([docs/mcp-protocol.md](docs/mcp-protocol.md)). Do not read API keys from the environment in production; do not use **`tempfile.mktemp()`**. For scratch debug files under `/tmp`, prefer `flush=True`.
 
 **Tests / packaging:** UNO tests go through `testing_runner`; debug-menu suites run on the UI thread ([docs/archive/test_architecture_analysis.md](docs/archive/test_architecture_analysis.md)). New extension components must be registered in `extension/META-INF/manifest.xml`. **`locales/*.pot` is generated at build** (`make extract-strings` / `refresh-pot`); do not hand-edit it and do not spend review time on POT diffs.
 

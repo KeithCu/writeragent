@@ -89,7 +89,7 @@ from plugin.framework.uno_context import (
     set_package_extension_id,
     uno_same,
 )
-from plugin.framework.thread_guard import background
+from plugin.framework.thread_guard import background, on_main_thread
 
 EXTENSION_ID = EXTENSION_ID_WRITERAGENT
 _DISPATCH_PROTOCOL = EXTENSION_ID + ":"
@@ -111,7 +111,6 @@ from plugin.framework.main_shared import (
 
 _tools: ToolRegistry | None = None
 _modules: list[ModuleBase] = []
-_init_lock = threading.Lock()
 # What was wrong: _initialized remained True even if module loading or
 # background start failed, permanently wedging startup so subsequent calls
 # returned immediately and menus only logged "No handler or module found".
@@ -151,10 +150,11 @@ def _install_terminate_listener(ctx: Any) -> None:
                 except Exception:
                     log.exception("Error shutting down Kokoro pool on desktop termination")
 
-                # Venv workers are register=False, so this shutdown_all does not close()
-                # them. Do not call PythonWorkerManager.shutdown_all here either: it
-                # joins the reap on this thread. Idle children exit on stdin EOF. Linux
-                # native stalls use PR_SET_PDEATHSIG in the harness.
+                # shutdown_all kill_trees registered children and does not signal
+                # register=False venv workers. Do not call
+                # PythonWorkerManager.shutdown_all here either: it joins the reap on
+                # this thread. Idle children exit on stdin EOF. Linux native stalls
+                # use PR_SET_PDEATHSIG in the harness.
                 try:
                     from plugin.framework.managed_subprocess import shutdown_all
 
@@ -231,12 +231,16 @@ def bootstrap(ctx: Any | None = None) -> None:
     if _bootstrapping:
         return
 
+    # What was wrong: _init_lock wrapped only the _initialized recheck, then
+    # released before any init work.
+    # How it happened: _bootstrapping was added around the old with-block and
+    # the body was dedented out of the lock (bd07cb792).
+    # Why this change: bootstrap() already raises BOOTSTRAP_OFF_THREAD on any
+    # other thread, and a nested call on this thread returns at _bootstrapping.
+    # The lock excluded nobody. It is also not reentrant, so putting the body
+    # back under it would deadlock if a nested call ever reached it.
     _bootstrapping = True
     try:
-        with _init_lock:
-            if _initialized:
-                return
-
         # 1. Basic UNO context
         if ctx is None:
             from plugin.framework.uno_context import get_ctx
@@ -686,6 +690,17 @@ def get_menu_text(command: str) -> str | None:
     return None
 
 
+def _prune_failed_status_listeners(failed: list[tuple[Any, Any]]) -> None:
+    with _status_lock:
+        # What was wrong: prune used 'is' on PyUNO listener proxies, failing to match.
+        # How it happened: PyUNO creates different proxy instances for the same UNO object.
+        # Why this change: compare with uno_same and Complete URL matching.
+        _status_listeners[:] = [
+            (lstnr, u) for (lstnr, u) in _status_listeners
+            if not any(uno_same(lstnr, fl) and u.Complete == fu.Complete for (fl, fu) in failed)
+        ]
+
+
 @background
 def notify_menu_update() -> None:
     """Push current menu text and icons to all registered status listeners.
@@ -710,14 +725,25 @@ def notify_menu_update() -> None:
             failed.append((listener, url))
             log.warning("notify_menu_update: failed to fire status event for %s: %s", command, e)
     if failed:
-        with _status_lock:
-            # What was wrong: prune used 'is' on PyUNO listener proxies, failing to match.
-            # How it happened: PyUNO creates different proxy instances for the same UNO object.
-            # Why this change: compare with uno_same and Complete URL matching.
-            _status_listeners[:] = [
-                (lstnr, u) for (lstnr, u) in _status_listeners
-                if not any(uno_same(lstnr, fl) and u.Complete == fu.Complete for (fl, fu) in failed)
-            ]
+        # What was wrong: this prune called uno_same on the pool worker.
+        # uno_same is @main_thread_only, so a dev build raised before the
+        # list was filtered and the icon refresh below never ran.
+        # How it happened: notify_menu_update is @background and is only
+        # started with run_in_background. The unit test calls it on the
+        # main thread, where the guard does not fire.
+        # Why this change: post the comparison to the main thread. A direct
+        # call that is already on the main thread still prunes before return.
+        # post, not execute: a blocking marshal during startup deadlocks
+        # AsyncCallback lazy-init, same as _update_menu_icons.
+        if on_main_thread():
+            _prune_failed_status_listeners(failed)
+        else:
+            try:
+                from plugin.framework.queue_executor import post_to_main_thread
+
+                post_to_main_thread(_prune_failed_status_listeners, list(failed))
+            except Exception:
+                log.exception("notify_menu_update: failed to post listener prune")
     if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
         # Update icons in a background thread (avoids blocking UI)
         from plugin.framework.worker_pool import run_in_background

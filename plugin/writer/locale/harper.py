@@ -172,7 +172,7 @@ class HarperLSClient:
             # - inherit_env: Popen env=None and the sandbox wrapper sees env=None, so Flatpak does not pass --clear-env (host session, as wrap_command_for_sandbox documents for harper).
             # - new_session=False: child is not a session leader; close signals that process with terminate / kill.
             # - stderr=DEVNULL: no drain thread.
-            # - register=False: shutdown_all must not run ManagedSubprocess.close on this child.
+            # - register=False: shutdown_all must not kill_tree this child.
             # - log_start_failure=False: the handler below must see the original exception.
             managed = ManagedSubprocess(
                 [self.binary_path, "--stdio"],

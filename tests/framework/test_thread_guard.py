@@ -394,11 +394,13 @@ def test_notify_skipped_under_writeragent_testing(monkeypatch):
     def fake_post(fn, *args, **kwargs):
         posts.append(fn)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", fake_post):
-        tg._notify_thread_violation("test violation")
+    with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
+        with patch.object(tg.log, "error") as mock_log_err:
+            tg._notify_thread_violation("test violation")
+            mock_log_err.assert_called_once_with("test violation", stack_info=True)
     assert posts == []
     with tg._violation_ui_lock:
-        tg._violation_dialog_open = False
+        assert tg._violation_dialog_open is False
 
 
 def test_notify_skips_when_async_callback_not_ready(monkeypatch):
@@ -606,4 +608,122 @@ def test_proxy_dir_raises_off_thread(monkeypatch):
         assert isinstance(errors[0], RuntimeError) and "UNO thread violation" in str(errors[0])
     finally:
         tg.GUARD_ON = was
+
+
+def test_violation_popup_is_unscoped(monkeypatch):
+    from plugin.framework.queue_executor import SendCancellation, _current_send_cancellation, default_executor
+
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    with tg._violation_ui_lock:
+        tg._violation_dialog_open = False
+    was_init = default_executor._initialized
+    was_async = default_executor._async_callback_service
+    default_executor._initialized = True
+    default_executor._async_callback_service = MagicMock()
+    token = None
+    captured_kwargs: list[dict] = []
+
+    def fake_post(fn, *args, **kwargs):
+        captured_kwargs.append(kwargs)
+
+    try:
+        token = _current_send_cancellation.set(SendCancellation())
+        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=fake_post):
+            tg._notify_thread_violation("test violation")
+        assert len(captured_kwargs) == 1
+        assert "bound_scope" in captured_kwargs[0]
+        assert captured_kwargs[0]["bound_scope"] is None
+    finally:
+        if token is not None:
+            _current_send_cancellation.reset(token)
+        default_executor._initialized = was_init
+        default_executor._async_callback_service = was_async
+        with tg._violation_ui_lock:
+            tg._violation_dialog_open = False
+
+
+def test_stop_does_not_drop_violation_popup(monkeypatch):
+    from plugin.framework.queue_executor import SendCancellation, _current_send_cancellation, default_executor
+
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    with tg._violation_ui_lock:
+        tg._violation_dialog_open = False
+    was_init = default_executor._initialized
+    was_async = default_executor._async_callback_service
+    default_executor._initialized = True
+    default_executor._async_callback_service = MagicMock()
+    monkeypatch.setattr(default_executor, "_poke_main_thread", lambda: None)
+
+    scope = SendCancellation()
+    token = _current_send_cancellation.set(scope)
+    tg.set_background_task("violation-worker")
+
+    msgbox_calls: list[object] = []
+
+    try:
+        with patch("plugin.chatbot.dialogs.msgbox_with_report", side_effect=lambda *args, **kwargs: msgbox_calls.append(args)):
+            with patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()):
+                tg._notify_thread_violation("test stop violation")
+                assert default_executor.pending_work_count() == 1
+                with tg._violation_ui_lock:
+                    assert tg._violation_dialog_open is True
+
+                scope.cancel()
+                default_executor.process_queue()
+
+                assert len(msgbox_calls) == 1
+                with tg._violation_ui_lock:
+                    assert tg._violation_dialog_open is False
+    finally:
+        tg.set_background_task(None)
+        _current_send_cancellation.reset(token)
+        default_executor._initialized = was_init
+        default_executor._async_callback_service = was_async
+        with tg._violation_ui_lock:
+            tg._violation_dialog_open = False
+
+
+def test_proxy_setattr_only_target_is_local(monkeypatch):
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    class Target:
+        pass
+
+    target = Target()
+    proxy = tg._UnoThreadGuardProxy(target)
+
+    with patch.object(tg, "assert_main_thread") as mock_assert:
+        proxy._custom = 1
+        mock_assert.assert_called_once_with("UNO set ._custom")
+        assert target._custom == 1
+        assert "_custom" not in proxy.__dict__
+
+    other = Target()
+    with patch.object(tg, "assert_main_thread") as mock_assert:
+        proxy._target = other
+        mock_assert.assert_not_called()
+        assert proxy._target is other
+
+    skip_if_release_build("release stub proxy does not assert on setattr")
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+    errors: list[BaseException] = []
+
+    def _call() -> None:
+        try:
+            proxy._custom = 2
+        except BaseException as exc:
+            errors.append(exc)
+
+    try:
+        worker = threading.Thread(target=_call, name="bg-worker")
+        worker.start()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert len(errors) == 1
+        assert isinstance(errors[0], RuntimeError) and "UNO thread violation" in str(errors[0])
+    finally:
+        tg.GUARD_ON = was
+
 

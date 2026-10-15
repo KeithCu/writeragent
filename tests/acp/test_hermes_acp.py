@@ -31,11 +31,7 @@ class TestHermesBinaryDiscovery:
 
     def test_display_name(self):
         backend = HermesBackend()
-        assert (backend.get_display_name()) == ("Hermes")
-
-    def test_agent_name(self):
-        backend = HermesBackend()
-        assert (backend.get_agent_name()) == ("hermes")
+        assert (backend.display_name) == ("Hermes")
 
 
 class TestHermesBackendInit:
@@ -44,7 +40,7 @@ class TestHermesBackendInit:
     def test_backend_id(self):
         backend = HermesBackend()
         assert (backend.backend_id) == ("hermes")
-        assert (backend.get_display_name()) == ("Hermes")
+        assert (backend.display_name) == ("Hermes")
 
 
 class TestIsAvailable:
@@ -77,12 +73,13 @@ class TestIsAvailable:
 
 
 class TestAgentBackendDisplayLabel:
-    """Error messages must use get_display_name(), not inherited display_name."""
+    """The label is the class display_name, not AgentBackend's "Built-in"."""
 
     def test_label_builtin(self):
         assert (_agent_backend_label(BuiltinBackend(), "builtin")) == ("Built-in")
 
     def test_label_hermes(self):
+        assert "display_name" in HermesBackend.__dict__
         assert (_agent_backend_label(HermesBackend(), "hermes")) == ("Hermes")
 
 

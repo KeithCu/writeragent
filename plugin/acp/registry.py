@@ -30,7 +30,16 @@ from plugin.acp.vibe_simple import VibeBackend
 from plugin.acp.grok_simple import GrokBackend
 from plugin.acp.opencode_simple import OpenCodeBackend
 
-AGENT_BACKEND_REGISTRY = {"builtin": ("Built-in", BuiltinBackend), "hermes": ("Hermes", HermesBackend), "claude": ("Claude Code", ClaudeBackend), "vibe": ("Mistral Vibe", VibeBackend), "grok": ("Grok Build", GrokBackend), "opencode": ("OpenCode", OpenCodeBackend)}
+# The class display_name is the English label; the old tuple repeated it,
+# and ACP subclasses otherwise inherited AgentBackend.display_name ("Built-in").
+AGENT_BACKEND_REGISTRY = {
+    "builtin": BuiltinBackend,
+    "hermes": HermesBackend,
+    "claude": ClaudeBackend,
+    "vibe": VibeBackend,
+    "grok": GrokBackend,
+    "opencode": OpenCodeBackend,
+}
 
 
 def list_backend_ids() -> list[str]:
@@ -56,8 +65,7 @@ def normalize_backend_id(backend_id: Any) -> str:
 def get_backend(backend_id: Any, ctx: Any | None = None) -> AgentBackend | None:
     """Return an adapter instance for the given backend id, or None."""
     backend_id = normalize_backend_id(backend_id)
-    entry = AGENT_BACKEND_REGISTRY.get(backend_id)
-    if not entry:
+    cls = AGENT_BACKEND_REGISTRY.get(backend_id)
+    if cls is None:
         return None
-    _name, cls = entry
     return cls(ctx=ctx)

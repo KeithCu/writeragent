@@ -30,18 +30,11 @@ class ClaudeBackend(ACPBackend):
     """ACP-based Claude backend."""
 
     backend_id: ClassVar[str] = "claude"
+    display_name: ClassVar[str] = "Claude Code"
 
     def get_binary_name(self) -> str:
         """Return the binary name to search for."""
         return "claude-code-acp-rs"
-
-    def get_display_name(self) -> str:
-        """Return display name for UI."""
-        return "Claude Code"
-
-    def get_agent_name(self) -> str:
-        """Return ACP agent name."""
-        return "claude"
 
     def get_env_vars(self) -> Dict[str, str]:
         """Return environment variables to pass to subprocess."""

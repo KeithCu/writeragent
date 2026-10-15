@@ -194,7 +194,7 @@ from plugin.framework.client.model_fetcher import get_text_model, get_image_mode
 from plugin.framework.i18n import _
 from plugin.framework.errors import UnoObjectError, suppress_disposed
 from plugin.framework.prompts import get_chat_system_prompt_for_document, get_greeting_for_document
-from plugin.doc.doc_type import get_document_type, DocumentType
+from plugin.doc.doc_type import get_document_type
 from plugin.doc.udprops import get_document_property, set_document_property
 
 # Explicit name: LibreOffice loads this file as a UNO component, so __name__
@@ -380,7 +380,8 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
 
     def getMinimalWidth(self) -> int:
         # XDL dlg:width=180 is AppFont, ~300px on this machine (Clear right=304).
-        return 320
+        # Same constant as the pre-negotiation cap so the two cannot drift.
+        return _PRE_NEGOTIATION_PANEL_WIDTH
 
 
 def _is_sha256_hex(value: Any) -> bool:
@@ -683,34 +684,42 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             prompt_selector = get_optional("prompt_selector")
             image_model_selector = get_optional("image_model_selector")
 
-            current_model = get_text_model()
-            extra_instructions = get_config("additional_instructions")
+            # Bugfix: Reading text/image models and config instructions, and
+            # populating the model/prompt comboboxes, had no except handler.
+            # An exception here skipped sidebar mode restore, chk_voice sync,
+            # and the backend indicator, leaving the config:changed handler prematurely.
+            try:
+                current_model = get_text_model()
+                extra_instructions = get_config("additional_instructions")
 
-            current_endpoint = get_current_endpoint()
+                current_endpoint = get_current_endpoint()
 
-            # LRU plus provider defaults only, no catalog HTTP on this
-            # thread. populate_combobox_with_lru fetches /v1/models unless
-            # skip_remote_fetch is set. A dead endpoint then hangs the
-            # editor on every settings apply, and failures are not memoized.
-            # Match Settings/eval.
-            if model_selector:
-                set_val = populate_combobox_with_lru(
-                    self.ctx, model_selector, current_model, "model_lru", current_endpoint,
-                    skip_remote_fetch=True,
-                )
-                if set_val != current_model:
-                    set_text_model(set_val, update_lru=False)
-            if prompt_selector:
-                populate_combobox_with_lru(self.ctx, prompt_selector, extra_instructions, "prompt_lru", "")
+                # LRU plus provider defaults only, no catalog HTTP on this
+                # thread. populate_combobox_with_lru fetches /v1/models unless
+                # skip_remote_fetch is set. A dead endpoint then hangs the
+                # editor on every settings apply, and failures are not memoized.
+                # Match Settings/eval.
+                if model_selector:
+                    set_val = populate_combobox_with_lru(
+                        self.ctx, model_selector, current_model, "model_lru", current_endpoint,
+                        skip_remote_fetch=True,
+                    )
+                    if set_val != current_model:
+                        set_text_model(set_val, update_lru=False)
+                if prompt_selector:
+                    populate_combobox_with_lru(self.ctx, prompt_selector, extra_instructions, "prompt_lru", "")
 
-            # Refresh visual (image) model via shared helper; persist correction if strict replaced value
-            if image_model_selector:
-                current_image = get_image_model()
-                set_image_val = populate_image_model_selector(
-                    self.ctx, image_model_selector, skip_remote_fetch=True,
-                )
-                if set_image_val != current_image:
-                    set_image_model(set_image_val, update_lru=False)
+                # Refresh visual (image) model via shared helper; persist correction if strict replaced value
+                if image_model_selector:
+                    current_image = get_image_model()
+                    set_image_val = populate_image_model_selector(
+                        self.ctx, image_model_selector, skip_remote_fetch=True,
+                    )
+                    if set_image_val != current_image:
+                        set_image_model(set_image_val, update_lru=False)
+            except Exception:
+                log.exception("_refresh_controls_from_config model/prompt refresh failed")
+
             chat_mode_selector = get_optional("chat_mode_selector")
             if chat_mode_selector:
                 with suppress_disposed("refresh chat_mode_selector from config", logger=log):
@@ -775,8 +784,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             ctrl = get_optional_control(root, "backend_indicator")
             if ctrl:
                 if is_external:
-                    entry = AGENT_BACKEND_REGISTRY.get(backend_id)
-                    display_en = entry[0] if entry else backend_id.capitalize()
+                    cls = AGENT_BACKEND_REGISTRY.get(backend_id)
+                    display_en = cls.display_name if cls is not None else backend_id.capitalize()
                     set_control_text(ctrl, _(display_en))
                     if hasattr(ctrl, "setVisible"):
                         ctrl.setVisible(True)
@@ -903,11 +912,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 image_model_selector.addItemListener(ImageModelSyncListener(self, self.ctx))
             if hasattr(image_model_selector, "addTextListener"):
                 image_model_selector.addTextListener(ImageModelTextSyncListener(self, self.ctx))
-
-    def _sidebar_include_brainstorming(self, model: Any, *, cached_doc_type: str | None = None) -> bool:
-        if cached_doc_type is not None:
-            return cached_doc_type == "writer"
-        return get_document_type(model) == DocumentType.WRITER
 
     def _sidebar_mode_flags(self, model: Any, *, cached_doc_type: str | None = None) -> SidebarModeFlags:
         from plugin.chatbot.chat_sidebar_mode import sidebar_mode_flags_for_doc_type
@@ -1229,10 +1233,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if mode_flags is None:
             from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
-            # Default flags keep Send/Stop and the mode listener wired.
-            # include_brainstorming raising AttributeError inside the
-            # Send/Stop try hits the broad except, skips addActionListener,
-            # and leaves mode_flags as None.
+            # The default object is what the mode listener and
+            # send_listener.sidebar_mode_flags get when the caller passed None.
             log.warning("mode_flags missing; wiring Send/Stop with default sidebar mode flags")
             mode_flags = SidebarModeFlags()
         from plugin.chatbot.panel import (
@@ -1316,7 +1318,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 chat_mode_selector=controls["chat_mode_selector"],
                 aspect_ratio_selector=controls["aspect_ratio_selector"],
                 base_size_input=controls["base_size_input"],
-                sidebar_include_brainstorming=mode_flags.include_brainstorming,
                 ensure_path_fn=_initialize_extension_paths,
                 clear_control=controls.get("clear"),
             )
@@ -1359,7 +1360,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 send_listener.cached_doc_type = doc_type_label_for_enum(doc_type)
                 send_listener.initial_doc_type = doc_type_title_for_label(send_listener.cached_doc_type)
                 send_listener.cached_uno_services = get_document_uno_services(model)
-                send_listener.sidebar_include_brainstorming = send_listener.cached_doc_type == "writer"
             except Exception as e:
                 # Isolate the document-service query so Send and Stop
                 # listeners are still attached. An exception here used to
@@ -1367,9 +1367,15 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 log.exception("Failed to query document type / UNO services for Send listener: %s", e)
                 send_listener.cached_uno_services = frozenset()
                 if not getattr(send_listener, "cached_doc_type", None):
-                    send_listener.cached_doc_type = "writer"
-                    send_listener.initial_doc_type = "Writer"
-                    send_listener.sidebar_include_brainstorming = True
+                    # Bugfix: a failed probe used to store "writer" / "Writer".
+                    # When cached_uno_services is empty, tool_supports_document
+                    # refills services based on the doc_type label, which caused
+                    # Calc/Draw documents to be misfiltered as Writer.
+                    # Using "unknown" matches the label get_document_type returns
+                    # for DocumentType.UNKNOWN on the non-raising path, and
+                    # _get_document_model rejects it cleanly.
+                    send_listener.cached_doc_type = "unknown"
+                    send_listener.initial_doc_type = "Unknown"
 
             send_listener.sidebar_mode_flags = mode_flags
 

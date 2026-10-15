@@ -378,7 +378,7 @@ class TestPromptResultContentBlocks:
         backend._session_id = "sess-1"
         backend._ensure_connection = MagicMock()
         backend._ensure_session = MagicMock()
-        backend.get_display_name = MagicMock(return_value="Test")
+        backend.display_name = "Test"
         tool_call = {"type": "tool_call", "name": "read"}
         tool_result = {"type": "tool_result", "content": "ok"}
         mock_conn = MagicMock()
@@ -422,7 +422,7 @@ def _bare_backend():
     backend._prompt_done.set()
     backend._state_lock = threading.Lock()
     backend._pending_permissions = {}
-    backend.get_display_name = lambda: "Test"
+    backend.display_name = "Test"
     backend.get_binary_name = lambda: "test-agent"
     return backend
 
@@ -634,6 +634,43 @@ class TestPermissionResult:
         backend.submit_approval(5, True)
         backend.submit_approval(5, False)
         assert (conn.send_response.call_count) == (1)
+
+    def test_permission_without_id_is_not_queued(self, caplog):
+        caplog.set_level("WARNING", logger="plugin.acp.acp_backend")
+        backend = _bare_backend()
+        conn = MagicMock()
+        conn.is_alive = True
+        backend._conn = conn
+        q = queue.Queue()
+        backend._dispatch_notification(
+            "session/request_permission",
+            {"toolCall": {"title": "Edit main.py", "kind": "edit", "toolCallId": "call_1"}, "options": _PERMISSION_OPTIONS},
+            None,
+            q,
+        )
+        assert (_drain(q)) == ([])
+        conn.send_response.assert_not_called()
+        assert (backend._pending_permissions) == ({})
+        assert ("ACP permission request missing id") in (caplog.text)
+
+    def test_permission_without_id_after_stop_is_not_queued(self, caplog):
+        caplog.set_level("WARNING", logger="plugin.acp.acp_backend")
+        backend = _bare_backend()
+        backend._stop_requested = True
+        conn = MagicMock()
+        conn.is_alive = True
+        backend._conn = conn
+        q = queue.Queue()
+        backend._dispatch_notification(
+            "session/request_permission",
+            {"toolCall": {"title": "Edit main.py", "kind": "edit", "toolCallId": "call_1"}, "options": _PERMISSION_OPTIONS},
+            None,
+            q,
+        )
+        assert (_drain(q)) == ([])
+        conn.send_response.assert_not_called()
+        assert (backend._pending_permissions) == ({})
+        assert ("ACP permission request missing id") in (caplog.text)
 
 
 class TestStopAndShutdown:
@@ -1483,4 +1520,59 @@ class TestSessionCwd:
         backend._ensure_session(document_url="private:factory/swriter")
         params = conn.send_request.call_args[0][1]
         assert params["cwd"] == "/home/sentinel"
+
+    def test_localhost_file_url_uses_the_document_directory(self, tmp_path):
+        from plugin.acp.acp_backend import _directory_from_document_url
+
+        doc = tmp_path / "note.odt"
+        doc.write_text("x", encoding="utf-8")
+        url = "file://localhost" + doc.as_uri()[len("file://") :]
+        assert (_directory_from_document_url(url)) == (str(tmp_path))
+
+    def test_remote_file_host_is_not_a_local_directory(self, monkeypatch):
+        from plugin.acp.acp_backend import _directory_from_document_url
+
+        monkeypatch.setattr("plugin.acp.acp_backend.os.name", "posix")
+        monkeypatch.setattr("plugin.acp.acp_backend.os.path.isdir", lambda path: True)
+        assert (_directory_from_document_url("file://server/share/doc.odt")) is None
+
+    def test_unc_file_url_on_windows(self, monkeypatch):
+        import ntpath
+        from plugin.acp.acp_backend import _directory_from_document_url
+
+        monkeypatch.setattr("plugin.acp.acp_backend.os.name", "nt")
+        monkeypatch.setattr("plugin.acp.acp_backend.os.path.dirname", ntpath.dirname)
+        unc_dir = ntpath.dirname(r"\\server\share\doc.odt")
+        monkeypatch.setattr("plugin.acp.acp_backend.os.path.isdir", lambda path: path == unc_dir)
+        assert (_directory_from_document_url("file://server/share/doc.odt")) == (unc_dir)
+
+    def test_unc_missing_directory_is_none(self, monkeypatch):
+        import ntpath
+        from plugin.acp.acp_backend import _directory_from_document_url
+
+        monkeypatch.setattr("plugin.acp.acp_backend.os.name", "nt")
+        monkeypatch.setattr("plugin.acp.acp_backend.os.path.dirname", ntpath.dirname)
+        monkeypatch.setattr("plugin.acp.acp_backend.os.path.isdir", lambda path: False)
+        assert (_directory_from_document_url("file://server/share/doc.odt")) is None
+
+
+def test_registry_classes_own_their_display_names():
+    from plugin.acp.registry import AGENT_BACKEND_REGISTRY
+
+    expected = {
+        "builtin": "Built-in",
+        "hermes": "Hermes",
+        "claude": "Claude Code",
+        "vibe": "Mistral Vibe",
+        "grok": "Grok Build",
+        "opencode": "OpenCode",
+    }
+    assert (list(AGENT_BACKEND_REGISTRY)) == (["builtin", "hermes", "claude", "vibe", "grok", "opencode"])
+    for b_id, expected_display in expected.items():
+        cls = AGENT_BACKEND_REGISTRY[b_id]
+        assert not isinstance(cls, tuple)
+        assert isinstance(cls, type)
+        assert (cls.backend_id) == (b_id)
+        assert (cls.display_name) == (expected_display)
+        assert ("display_name") in (cls.__dict__)
 

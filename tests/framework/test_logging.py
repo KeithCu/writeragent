@@ -16,7 +16,6 @@ from plugin.framework.logging import (
     LOG_REDACT_SIGNATURE_MIN_LEN,
     LOG_REDACT_SIGNATURE_PLACEHOLDER,
     OptionalFlushFileHandler,
-    SafeLogger,
     agent_log,
     format_tool_call_for_display,
     format_tool_result_for_display,
@@ -24,9 +23,7 @@ from plugin.framework.logging import (
     init_logging,
     redact_sensitive_payload_for_log,
     resolve_log_level,
-    safe_log_exception,
     update_activity_state,
-    _activity_state,
     log,
 )
 
@@ -39,7 +36,7 @@ class TestInitLogging:
         import plugin.framework.logging as logging_mod
 
         self._saved_config_path = config_mod._resolved_config_path
-        self._saved_debug_path = logging_mod._debug_log_path
+        self._saved_debug_path = logging_mod._shared()["debug_log_path"]
         self._saved_hooks = getattr(sys, "_writeragent_exception_hooks_installed", False)
         self._saved_excepthook = sys.excepthook
         import threading
@@ -54,7 +51,7 @@ class TestInitLogging:
         self._saved_plugin_handlers = list(plugin_logger.handlers)
         config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = None
-        logging_mod._debug_log_path = None
+        logging_mod._shared()["debug_log_path"] = None
         # What was wrong: these lived on the logging module. A second import
         # did not see them. Tests must reset the sys copies or they leak.
         setattr(sys, "_writeragent_debug_file_handler", None)
@@ -74,7 +71,7 @@ class TestInitLogging:
                     handler.close()
                 except Exception:
                     pass
-        logging_mod._debug_log_path = None
+        logging_mod._shared()["debug_log_path"] = None
         setattr(sys, "_writeragent_debug_file_handler", None)
 
     def teardown_method(self):
@@ -84,7 +81,7 @@ class TestInitLogging:
         import plugin.framework.logging as logging_mod
 
         config_mod._resolved_config_path = self._saved_config_path
-        logging_mod._debug_log_path = self._saved_debug_path
+        logging_mod._shared()["debug_log_path"] = self._saved_debug_path
         setattr(sys, "_writeragent_debug_file_handler", None)
         setattr(sys, "_writeragent_exception_hooks_installed", self._saved_hooks)
         sys.excepthook = self._saved_excepthook
@@ -266,6 +263,55 @@ class TestInitLogging:
             assert "B" * 64 in live
             self._release_debug_handlers()
 
+    def test_reinit_keeps_path_when_config_dir_disappears(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            config_path = os.path.join(tmp, "writeragent.json")
+            with open(config_path, "w", encoding="utf-8") as fh:
+                json.dump({"enable_agent_log": True, "log_level": "WARN"}, fh)
+
+            mock_ctx = MagicMock()
+            with (
+                patch("plugin.framework.config._resolve_config_path_from_ctx", return_value=config_path),
+                patch("plugin.framework.config.user_config_dir", return_value=tmp),
+            ):
+                init_logging(mock_ctx)
+
+            expected_log = os.path.join(tmp, "writeragent_debug.log")
+            assert get_debug_log_path() == expected_log
+            import plugin.framework.logging as logging_mod
+
+            shared = logging_mod._shared()
+            assert shared["enable_agent_log"] is True
+            first_handler = logging_mod._debug_file_handler_from_sys()
+            assert first_handler is not None
+            assert first_handler in log.handlers
+            assert log.propagate is False
+
+            # Second init_logging with user_config_dir patched to a missing directory
+            with patch("plugin.framework.config.user_config_dir", return_value=os.path.join(tmp, "missing")):
+                init_logging(mock_ctx)
+
+            assert get_debug_log_path() == expected_log
+            assert shared["enable_agent_log"] is True
+            assert logging_mod._debug_file_handler_from_sys() is first_handler
+            assert first_handler in log.handlers
+            assert log.propagate is False
+
+            # Third call with user_config_dir raising ConfigError
+            from plugin.framework.errors import ConfigError
+
+            with patch("plugin.framework.config.user_config_dir", side_effect=ConfigError("config disappeared")):
+                init_logging(mock_ctx)
+
+            assert get_debug_log_path() == expected_log
+            assert shared["enable_agent_log"] is True
+            assert logging_mod._debug_file_handler_from_sys() is first_handler
+            assert first_handler in log.handlers
+            assert log.propagate is False
+
+            self._release_debug_handlers()
+
+
 
 class TestLogRedaction:
 
@@ -360,17 +406,21 @@ def _no_stale_watchdog_status_control():
     # control in _activity_state; the watchdog would then label that one.
     import plugin.framework.logging as logging_mod
 
-    with logging_mod._activity_lock:
-        logging_mod._activity_state["status_control"] = None
+    shared = logging_mod._shared()
+    with shared["activity_lock"]:
+        shared["activity"]["status_control"] = None
     yield
 
 
 def test_update_activity_state():
+    import plugin.framework.logging as logging_mod
+
     update_activity_state('phase1', round_num=1, tool_name='tool1')
-    assert (_activity_state['phase'] == 'phase1')
-    assert (_activity_state['round_num'] == 1)
-    assert (_activity_state['tool_name'] == 'tool1')
-    assert (_activity_state['last_activity'] > 0)
+    act = logging_mod._shared()['activity']
+    assert (act['phase'] == 'phase1')
+    assert (act['round_num'] == 1)
+    assert (act['tool_name'] == 'tool1')
+    assert (act['last_activity'] > 0)
 
 
 def test_watchdog_clears_hung_status_when_activity_resumes():
@@ -391,12 +441,13 @@ def test_watchdog_clears_hung_status_when_activity_resumes():
     def immediate(fn, *args, **kwargs):
         fn(*args, **kwargs)
 
-    saved = logging_mod._watchdog_hung_shown
+    shared = logging_mod._shared()
+    saved = shared["hung_shown"]
     try:
-        logging_mod._watchdog_hung_shown = False
+        shared["hung_shown"] = False
         update_activity_state("chat", round_num=2, tool_name="edit")
-        with logging_mod._activity_lock:
-            logging_mod._activity_state["last_activity"] = 0.0
+        with shared["activity_lock"]:
+            shared["activity"]["last_activity"] = 0.0
         with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=immediate):
             logging_mod._watchdog_check(ctrl)
             assert ctrl.text.startswith("Hung:")
@@ -404,11 +455,11 @@ def test_watchdog_clears_hung_status_when_activity_resumes():
             logging_mod._watchdog_check(ctrl)
             assert ctrl.text == ""
             ctrl.text = "Ready"
-            logging_mod._watchdog_hung_shown = True
+            shared["hung_shown"] = True
             logging_mod._watchdog_check(ctrl)
             assert ctrl.text == "Ready"
     finally:
-        logging_mod._watchdog_hung_shown = saved
+        shared["hung_shown"] = saved
         update_activity_state("")
 
 
@@ -416,19 +467,19 @@ class TestAgentLog:
 
     def setup_method(self):
         import plugin.framework.logging as logging_mod
-        self._saved_enable = logging_mod._enable_agent_log
+        self._saved_enable = logging_mod._shared()["enable_agent_log"]
         for h in list(log.handlers):
             log.removeHandler(h)
 
     def teardown_method(self):
         import plugin.framework.logging as logging_mod
-        logging_mod._enable_agent_log = self._saved_enable
+        logging_mod._shared()["enable_agent_log"] = self._saved_enable
         for h in list(log.handlers):
             log.removeHandler(h)
 
     def test_agent_log_writes_when_enabled(self):
         import plugin.framework.logging as logging_mod
-        logging_mod._enable_agent_log = True
+        logging_mod._shared()["enable_agent_log"] = True
         handler = MemoryHandler(capacity=10)
         handler.setLevel(logging.DEBUG)
         log.addHandler(handler)
@@ -446,7 +497,7 @@ class TestAgentLog:
 
     def test_agent_log_redacts_secret_keys(self):
         import plugin.framework.logging as logging_mod
-        logging_mod._enable_agent_log = True
+        logging_mod._shared()["enable_agent_log"] = True
         handler = MemoryHandler(capacity=10)
         handler.setLevel(logging.DEBUG)
         log.addHandler(handler)
@@ -472,7 +523,7 @@ class TestAgentLog:
 
     def test_agent_log_noop_when_disabled(self):
         import plugin.framework.logging as logging_mod
-        logging_mod._enable_agent_log = False
+        logging_mod._shared()["enable_agent_log"] = False
         handler = MemoryHandler(capacity=10)
         handler.setLevel(logging.DEBUG)
         log.addHandler(handler)
@@ -485,7 +536,7 @@ class TestAgentLog:
         import threading
 
         import plugin.framework.logging as logging_mod
-        logging_mod._enable_agent_log = True
+        logging_mod._shared()["enable_agent_log"] = True
         handler = MemoryHandler(capacity=10)
         handler.setLevel(logging.DEBUG)
         log.addHandler(handler)
@@ -493,6 +544,25 @@ class TestAgentLog:
         agent_log("test.py:3", "lock", data={"lock": threading.Lock()})
         handler.flush()
         assert len(handler.buffer) == 0
+
+    def test_agent_log_emits_when_parent_level_is_warning(self):
+        import plugin.framework.logging as logging_mod
+        logging_mod._shared()["enable_agent_log"] = True
+        handler = MemoryHandler(capacity=10)
+        handler.setLevel(logging.DEBUG)
+        log.addHandler(handler)
+        log.setLevel(logging.WARNING)
+        log.debug("ordinary-debug")
+        handler.flush()
+        assert len(handler.buffer) == 0
+
+        agent_log("test.py:1", "hello")
+        handler.flush()
+        assert len(handler.buffer) == 1
+        record = handler.buffer[0]
+        assert "[Agent]" in record.getMessage()
+        assert "hello" in record.getMessage()
+        assert record.name == "writeragent.agent"
 
 
 class TestOptionalFlushFileHandler:
@@ -579,79 +649,11 @@ class TestOptionalFlushFileHandler:
             setattr(sys, "_writeragent_debug_file_handler", mock_handler)
             # Idle: no phase. A stalled phase left by an earlier test would
             # also run the once-per-stall stack dump, which flushes again.
-            with patch.dict(logging_mod._activity_state, {"phase": ""}):
+            with patch.dict(logging_mod._shared()["activity"], {"phase": ""}):
                 _watchdog_check(None)
             mock_handler.flush.assert_called_once_with(force=True)
         finally:
             setattr(sys, "_writeragent_debug_file_handler", old_h)
-
-
-
-class TestLoggingErrorHandling():
-
-    def test_safe_logger_success(self):
-        mock_underlying = MagicMock()
-        logger = SafeLogger(mock_underlying)
-        logger.error('Test error', exc_info=True)
-        logger.warning('Test warning')
-        mock_underlying.error.assert_called_once_with('Test error', exc_info=True)
-        mock_underlying.warning.assert_called_once_with('Test warning')
-
-    def test_safe_logger_fallback(self, capsys):
-        mock_underlying = MagicMock()
-        mock_underlying.error.side_effect = Exception('Logger crashed')
-        mock_underlying.warning.side_effect = Exception('Logger crashed')
-        logger = SafeLogger(mock_underlying)
-        logger.error('Should fallback')
-        logger.warning('Should fallback warning')
-        captured = capsys.readouterr()
-        assert ('LOG ERROR FAILED: Should fallback' in captured.out)
-        assert ('LOG WARNING FAILED: Should fallback warning' in captured.out)
-
-    def test_safe_logger_disable_fallback(self, capsys):
-        mock_underlying = MagicMock()
-        mock_underlying.error.side_effect = Exception('Logger crashed')
-        logger = SafeLogger(mock_underlying)
-        logger.disable_fallback()
-        logger.error('Should be silent')
-        captured = capsys.readouterr()
-        assert ('LOG ERROR FAILED' not in captured.out)
-
-    def test_safe_log_exception_success(self):
-        mock_logger = MagicMock()
-        try:
-            (1 / 0)
-        except Exception as e:
-            safe_log_exception(e, context='test_ctx', logger=mock_logger)
-        mock_logger.error.assert_called_once()
-        (args, kwargs) = mock_logger.error.call_args
-        assert ('division by zero' in args[0])
-        assert (kwargs['extra']['error_details']['context'] == 'test_ctx')
-
-    def test_safe_log_exception_fallback(self, capsys):
-        mock_logger = MagicMock()
-        mock_logger.error.side_effect = Exception('Logger crashed')
-        try:
-            (1 / 0)
-        except Exception as e:
-            safe_log_exception(e, context='test_ctx', logger=mock_logger)
-        captured = capsys.readouterr()
-        assert ('CRITICAL: Logging failed for exception' in captured.out)
-
-    def test_safe_log_exception_final_fallback(self, capsys):
-
-        class BrokenLogger():
-
-            @property
-            def error(self):
-                raise Exception('Fatal logger error')
-        broken_logger = BrokenLogger()
-        try:
-            (1 / 0)
-        except Exception as e:
-            safe_log_exception(e, logger=broken_logger)
-        captured = capsys.readouterr()
-        assert ('CRITICAL: Logging failed for exception' in captured.out)
 
 
 def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
@@ -664,6 +666,13 @@ def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
         "Secret": "xyz",
         "max_tokens": 128,
         "secret_sauce": "keep",
+        "client_secret": "cs-secret",
+        "private_key": "pk-secret",
+        "session_token": "st-secret",
+        "apikey": "ak-secret",
+        "ApiKey": "ak-secret2",
+        "auth": "visible",
+        "token_int": {"token": 99},
     }
     out = redact_sensitive_payload_for_log(raw)
     assert out["api_keys_by_endpoint"]["https://api.example"] == LOG_REDACT_SECRET_PLACEHOLDER
@@ -673,6 +682,13 @@ def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
     assert out["Secret"] == LOG_REDACT_SECRET_PLACEHOLDER
     assert out["max_tokens"] == 128
     assert out["secret_sauce"] == "keep"
+    assert out["client_secret"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["private_key"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["session_token"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["apikey"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["ApiKey"] == LOG_REDACT_SECRET_PLACEHOLDER
+    assert out["auth"] == "visible"
+    assert out["token_int"]["token"] == 99
     assert raw["api_keys_by_endpoint"]["https://api.example"] == "sk-live"
     assert raw["token"] == "abc"
 
@@ -723,13 +739,13 @@ def test_debug_handler_closes_previous_when_path_changes(tmp_path) -> None:
 
     path_a = str(tmp_path / "a.log")
     path_b = str(tmp_path / "b.log")
-    saved_path = logging_mod._debug_log_path
+    saved_path = logging_mod._shared()["debug_log_path"]
     saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
     first = None
     second = None
     try:
         setattr(sys, "_writeragent_debug_file_handler", None)
-        logging_mod._debug_log_path = path_a
+        logging_mod._shared()["debug_log_path"] = path_a
         first = logging_mod._shared_debug_file_handler()
         closed: list[int] = []
         original_close = first.close
@@ -739,7 +755,7 @@ def test_debug_handler_closes_previous_when_path_changes(tmp_path) -> None:
             original_close()
 
         with patch.object(first, "close", tracking_close):
-            logging_mod._debug_log_path = path_b
+            logging_mod._shared()["debug_log_path"] = path_b
             second = logging_mod._shared_debug_file_handler()
             assert closed == [1]
             assert second is not first
@@ -747,7 +763,7 @@ def test_debug_handler_closes_previous_when_path_changes(tmp_path) -> None:
             assert logging_mod._shared_debug_file_handler() is second
             assert closed == [1]
     finally:
-        logging_mod._debug_log_path = saved_path
+        logging_mod._shared()["debug_log_path"] = saved_path
         for handler in (second, first):
             if handler is None:
                 continue
@@ -764,17 +780,17 @@ def test_debug_handler_is_stored_on_sys(tmp_path) -> None:
     import plugin.framework.logging as logging_mod
 
     path = str(tmp_path / "writeragent_debug.log")
-    saved_path = logging_mod._debug_log_path
+    saved_path = logging_mod._shared()["debug_log_path"]
     saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
     handler = None
     try:
-        logging_mod._debug_log_path = path
+        logging_mod._shared()["debug_log_path"] = path
         setattr(sys, "_writeragent_debug_file_handler", None)
         handler = logging_mod._shared_debug_file_handler()
         assert getattr(sys, "_writeragent_debug_file_handler") is handler
         assert logging_mod._shared_debug_file_handler() is handler
     finally:
-        logging_mod._debug_log_path = saved_path
+        logging_mod._shared()["debug_log_path"] = saved_path
         if handler is not None:
             handler.close()
         setattr(sys, "_writeragent_debug_file_handler", saved_handler)
@@ -829,16 +845,17 @@ def test_watchdog_dumps_thread_stacks_on_stall() -> None:
     worker_thread.start()
     assert worker_started.wait(timeout=2.0)
 
-    saved_hung = logging_mod._watchdog_hung_shown
+    shared = logging_mod._shared()
+    saved_hung = shared["hung_shown"]
     # The dump is DEBUG. Run alone, the logger is still at its default level.
     saved_level = logging_mod.log.level
     logging_mod.log.setLevel(logging.DEBUG)
     try:
-        logging_mod._watchdog_hung_shown = False
-        logging_mod._watchdog_stacks_dumped = False
+        shared["hung_shown"] = False
+        shared["stacks_dumped"] = False
         update_activity_state("chat", round_num=1)
-        with logging_mod._activity_lock:
-            logging_mod._activity_state["last_activity"] = 0.0
+        with shared["activity_lock"]:
+            shared["activity"]["last_activity"] = 0.0
 
         # Call _watchdog_check several times during the first stall episode
         for idx in range(3):
@@ -864,8 +881,8 @@ def test_watchdog_dumps_thread_stacks_on_stall() -> None:
         assert len(dumps_after_resume) == 1
 
         # Simulate a second stall episode
-        with logging_mod._activity_lock:
-            logging_mod._activity_state["last_activity"] = 0.0
+        with shared["activity_lock"]:
+            shared["activity"]["last_activity"] = 0.0
 
         for idx in range(3):
             logging_mod._watchdog_check(None)
@@ -881,7 +898,7 @@ def test_watchdog_dumps_thread_stacks_on_stall() -> None:
         logging_mod.log.setLevel(saved_level)
         worker_stop.set()
         worker_thread.join(timeout=2.0)
-        logging_mod._watchdog_hung_shown = saved_hung
+        shared["hung_shown"] = saved_hung
         update_activity_state("")
         logging_mod.log.removeHandler(handler)
 
@@ -890,18 +907,19 @@ def test_watchdog_dump_thread_stacks_never_raises() -> None:
     """If inspecting frames fails, watchdog check catches the error and does not raise."""
     import plugin.framework.logging as logging_mod
 
-    saved_hung = logging_mod._watchdog_hung_shown
+    shared = logging_mod._shared()
+    saved_hung = shared["hung_shown"]
     try:
-        logging_mod._watchdog_hung_shown = False
+        shared["hung_shown"] = False
         update_activity_state("chat", round_num=1)
-        with logging_mod._activity_lock:
-            logging_mod._activity_state["last_activity"] = 0.0
+        with shared["activity_lock"]:
+            shared["activity"]["last_activity"] = 0.0
 
         with patch("sys._current_frames", side_effect=RuntimeError("simulated frame inspection error")):
             # Must not raise
             logging_mod._watchdog_check(None)
     finally:
-        logging_mod._watchdog_hung_shown = saved_hung
+        shared["hung_shown"] = saved_hung
         update_activity_state("")
 
 
@@ -909,16 +927,18 @@ def test_watchdog_note_activity_resets_elapsed():
     import plugin.framework.logging as logging_mod
     import time
 
+    shared = logging_mod._shared()
     logging_mod.update_activity_state("chat", round_num=1)
 
-    with logging_mod._activity_lock:
-        logging_mod._activity_state["last_activity"] = time.monotonic() - 40.0
+    with shared["activity_lock"]:
+        shared["activity"]["last_activity"] = time.monotonic() - 40.0
 
     logging_mod.note_activity()
 
-    with logging_mod._activity_lock:
-        elapsed = time.monotonic() - logging_mod._activity_state["last_activity"]
+    with shared["activity_lock"]:
+        elapsed = time.monotonic() - shared["activity"]["last_activity"]
         assert elapsed < 10.0
+
 
 def test_watchdog_hung_goes_to_sender_control():
     import plugin.framework.logging as logging_mod
@@ -933,13 +953,14 @@ def test_watchdog_hung_goes_to_sender_control():
     sender_ctrl = MockCtrl()
     default_ctrl = MockCtrl()
 
-    saved_hung = logging_mod._watchdog_hung_shown
+    shared = logging_mod._shared()
+    saved_hung = shared["hung_shown"]
     try:
-        logging_mod._watchdog_hung_shown = False
+        shared["hung_shown"] = False
         logging_mod.update_activity_state("do_send", status_control=sender_ctrl)
 
-        with logging_mod._activity_lock:
-            logging_mod._activity_state["last_activity"] = time.monotonic() - 40.0
+        with shared["activity_lock"]:
+            shared["activity"]["last_activity"] = time.monotonic() - 40.0
 
         logging_mod._watchdog_check(default_ctrl)
 
@@ -950,8 +971,9 @@ def test_watchdog_hung_goes_to_sender_control():
         assert "Hung" in sender_ctrl.text
         assert default_ctrl.text == ""
     finally:
-        logging_mod._watchdog_hung_shown = saved_hung
+        shared["hung_shown"] = saved_hung
         logging_mod.update_activity_state("")
+
 
 def test_watchdog_ending_turn_clears_hung():
     import plugin.framework.logging as logging_mod
@@ -975,3 +997,181 @@ def test_watchdog_ending_turn_clears_hung():
         default_executor.process_queue()
 
     assert sender_ctrl.text == ""
+
+
+def test_update_activity_state_clears_omitted_tool_name():
+    import plugin.framework.logging as logging_mod
+
+    class Ctrl:
+        def __init__(self) -> None:
+            self.text = ""
+
+        def getText(self) -> str:
+            return self.text
+
+        def setText(self, value: str) -> None:
+            self.text = value
+
+    ctrl = Ctrl()
+
+    def immediate(fn, *args, **kwargs):
+        fn(*args, **kwargs)
+
+    shared = logging_mod._shared()
+    saved_hung = shared["hung_shown"]
+    try:
+        shared["hung_shown"] = False
+        update_activity_state("tool_execute", round_num=1, tool_name="edit")
+        update_activity_state("tool_loop", round_num=2)
+        act = shared["activity"]
+        assert act["tool_name"] is None
+        assert act["round_num"] == 2
+
+        update_activity_state("exhausted_rounds")
+        assert act["round_num"] == 2
+        assert act["tool_name"] is None
+
+        update_activity_state("tool_loop", round_num=2)
+        with shared["activity_lock"]:
+            act["last_activity"] = 0.0
+
+        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=immediate):
+            logging_mod._watchdog_check(ctrl)
+
+        assert ctrl.text == "Hung: tool_loop round 2"
+        assert "edit" not in ctrl.text
+    finally:
+        shared["hung_shown"] = saved_hung
+        update_activity_state("")
+
+
+def test_redact_anthropic_and_google_image_blocks() -> None:
+    anthropic_b64 = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"}}
+    anthropic_url = {"type": "image", "source": {"type": "url", "url": "https://example.test/a.png"}}
+    google_inline = {"inlineData": {"mimeType": "image/png", "data": "BBBB"}}
+    plain_data = {"data": "not-an-image"}
+
+    payload = [anthropic_b64, anthropic_url, google_inline, plain_data]
+    out = redact_sensitive_payload_for_log(payload)
+
+    assert out is not payload
+    assert out[0]["source"]["data"] == LOG_REDACT_IMAGE_PLACEHOLDER % 4
+    assert anthropic_b64["source"]["data"] == "AAAA"
+
+    assert out[1] == {"type": "image", "source": {"type": "url", "url": "https://example.test/a.png"}}
+    assert anthropic_url["source"]["url"] == "https://example.test/a.png"
+
+    assert out[2]["inlineData"]["data"] == LOG_REDACT_IMAGE_PLACEHOLDER % 4
+    assert google_inline["inlineData"]["data"] == "BBBB"
+
+    assert out[3] == {"data": "not-an-image"}
+
+
+def test_second_import_shares_state_and_handler(tmp_path) -> None:
+    import importlib.util
+    import sys
+    import plugin.framework.logging as logging_mod
+
+    path = str(tmp_path / "writeragent_debug.log")
+    saved_path = logging_mod._shared()["debug_log_path"]
+    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    logging_mod._shared()["debug_log_path"] = path
+    setattr(sys, "_writeragent_debug_file_handler", None)
+    first_handler = logging_mod._shared_debug_file_handler()
+    try:
+        spec = importlib.util.spec_from_file_location("writeragent_logging_second_copy", logging_mod.__file__)
+        assert spec is not None and spec.loader is not None
+        second = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(second)
+
+        assert second._shared() is logging_mod._shared()
+        second.update_activity_state("from-second", round_num=4, tool_name="edit")
+        act = logging_mod._shared()["activity"]
+        assert act["phase"] == "from-second"
+        assert act["round_num"] == 4
+        assert act["tool_name"] == "edit"
+
+        assert second._shared_debug_file_handler() is getattr(sys, "_writeragent_debug_file_handler")
+        assert second._shared_debug_file_handler() is first_handler
+    finally:
+        update_activity_state("")
+        logging_mod._shared()["debug_log_path"] = saved_path
+        if first_handler is not None:
+            first_handler.close()
+        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
+
+
+def test_rotate_if_large_second_thread_keeps_oversized_backup(tmp_path) -> None:
+    import threading
+    import plugin.framework.logging as logging_mod
+
+    log_path = str(tmp_path / "test_rotate.log")
+    handler = OptionalFlushFileHandler(log_path, encoding="utf-8")
+    try:
+        # Write more than _MAX_DEBUG_LOG_BYTES and flush so bytes are on disk
+        oversized_data = "X" * (logging_mod._MAX_DEBUG_LOG_BYTES + 4096)
+        handler.stream.write(oversized_data)
+        handler.stream.flush()
+        pre_size = os.path.getsize(log_path)
+        assert pre_size > logging_mod._MAX_DEBUG_LOG_BYTES
+
+        real_getsize = os.path.getsize
+        entered = 0
+        entered_lock = threading.Lock()
+        both_entered = threading.Event()
+
+        def sync_getsize(path: str) -> int:
+            nonlocal entered
+            size = real_getsize(path)
+            with entered_lock:
+                entered += 1
+                count = entered
+            if count <= 2:
+                if count == 2:
+                    both_entered.set()
+                both_entered.wait(timeout=5.0)
+            return size
+
+        replace_count = 0
+        real_replace = os.replace
+
+        def counting_replace(src: str, dst: str) -> None:
+            nonlocal replace_count
+            replace_count += 1
+            real_replace(src, dst)
+
+        with (
+            patch("plugin.framework.logging.os.path.getsize", side_effect=sync_getsize),
+            patch("plugin.framework.logging.os.replace", side_effect=counting_replace),
+        ):
+            t1 = threading.Thread(target=handler._rotate_if_large)
+            t2 = threading.Thread(target=handler._rotate_if_large)
+            t1.start()
+            t2.start()
+            t1.join(timeout=5.0)
+            t2.join(timeout=5.0)
+
+        backup = log_path + ".1"
+        assert replace_count == 1
+        assert os.path.isfile(backup)
+        backup_size = os.path.getsize(backup)
+        assert backup_size > logging_mod._MAX_DEBUG_LOG_BYTES
+        assert backup_size == pre_size
+        assert os.path.isfile(log_path)
+
+        # One more _rotate_if_large on the small live file does not change .1's size
+        handler._rotate_if_large()
+        assert os.path.getsize(backup) == backup_size
+    finally:
+        handler.close()
+
+
+def test_close_swallows_overridden_flush_error(tmp_path) -> None:
+    log_path = str(tmp_path / "test_close.log")
+    handler = OptionalFlushFileHandler(log_path, encoding="utf-8")
+
+    def broken_flush(force: bool = False) -> None:
+        raise OSError("disk failure")
+
+    handler.flush = broken_flush  # type: ignore[assignment]
+    handler.close()

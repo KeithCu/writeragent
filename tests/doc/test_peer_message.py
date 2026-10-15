@@ -98,7 +98,7 @@ def test_envelope_from_ctx_doc():
     doc.getTitle.return_value = "Budget 2026.ods"
     doc.getRuntimeUID.return_value = "uid-budget"
     doc.RuntimeUID = "uid-budget"
-    with patch("plugin.doc.document_research._system_path_from_url", return_value="/tmp/Budget 2026.ods"):
+    with patch("plugin.doc.text_helpers.get_document_path", return_value="/tmp/Budget 2026.ods"):
         ident = identity_from_doc(doc)
     assert ident["name"] == "Budget 2026.ods"
     assert ident["uid"] == "uid-budget"
@@ -114,6 +114,19 @@ def test_envelope_from_ctx_doc():
     assert "Compute Q4." in wrapped
     assert wrapped.endswith(PEER_WORK_DELIVERY_FOOTER)
     assert "send_peer_result" in PEER_WORK_DELIVERY_FOOTER
+
+
+def test_identity_basename_untitled_kept():
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///tmp/Untitled"
+    doc.getTitle.return_value = "Real Title"
+    doc.getRuntimeUID.return_value = "uid-untitled"
+    doc.RuntimeUID = "uid-untitled"
+    with patch("plugin.doc.text_helpers.get_document_path", return_value="/tmp/Untitled"):
+        ident = identity_from_doc(doc)
+    assert ident["name"] == "Untitled"
+    assert ident["uid"] == "uid-untitled"
+    assert ident["url"] == "file:///tmp/Untitled"
 
 
 def test_envelope_untitled_url_empty():
@@ -967,3 +980,154 @@ def test_format_peer_envelope_work_vs_result():
     assert "envelope header" in PEER_WORK_DELIVERY_FOOTER
     assert "never reaches the asking peer" in PEER_WORK_DELIVERY_FOOTER
     assert "nested specialize done is not peer delivery" in PEER_WORK_DELIVERY_FOOTER
+
+
+def test_execute_idle_without_add_user_message_does_not_mark_appended():
+    tool = SendPeerWork()
+    ctx = _ctx()
+    peer = MagicMock()
+    listener = _Listener()
+    listener.session = None
+    panel = MagicMock()
+    panel.send_listener = listener
+    with patch("plugin.doc.peer_message.resolve_peer_target", return_value=(peer, None, "")):
+        with patch("plugin.framework.uno_context.get_runtime_uid", return_value="peer-uid"):
+            with patch("plugin.doc.live_panels.get_live_panel", return_value=panel):
+                result = tool.execute(ctx, document_url="peer-uid", message="Do the thing")
+    assert result["status"] == "ok"
+    assert result["accepted"] is True
+    assert len(listener.started) == 1
+    assert listener.started[0][1] is False
+
+
+def test_resolve_self_when_caller_uid_empty():
+    self_doc = MagicMock()
+    self_doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(self_doc, "writer")):
+        with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=["", "uid-self"]):
+            model, code, msg = resolve_peer_target(object(), self_doc, "uid-self")
+    assert code == "PEER_SELF"
+    assert model is None
+    assert "Cannot send a peer message to the same document." in msg
+
+
+def test_resolve_not_self_when_other_doc_uid_missing_on_caller():
+    self_doc = MagicMock()
+    other_doc = MagicMock()
+    other_doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(other_doc, "writer")):
+        with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=["", "peer-uid"]):
+            with patch("plugin.framework.uno_context.uno_same", return_value=False):
+                model, code, _msg = resolve_peer_target(object(), self_doc, "peer-uid")
+    assert code is None
+    assert model is other_doc
+
+
+def test_list_v1_peers_omits_self_when_self_uid_empty():
+    from plugin.doc.peer_message import list_v1_peers
+
+    self_doc = MagicMock()
+    self_doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    catalog = [{"name": "Doc.odt", "uid": "doc-uid", "url": "file:///tmp/Doc.odt", "doc_type": "writer"}]
+    with patch("plugin.framework.thread_guard.assert_main_thread"):
+        with patch("plugin.framework.uno_context.get_runtime_uid", return_value=""):
+            with patch("plugin.doc.document_research.get_open_documents", return_value=catalog):
+                with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(self_doc, "writer")):
+                    peers = list_v1_peers(object(), self_doc)
+    assert peers == []
+
+
+def test_drop_listener_queue_mutates_imported_fifo():
+    from plugin.doc.peer_message import _global_fifo as fifo
+    import plugin.doc.peer_message as pm
+
+    listener_a = _Listener()
+    listener_b = _Listener()
+    turn_a = PeerPendingTurn("turn-a", False)
+    turn_b = PeerPendingTurn("turn-b", False)
+    enqueue_peer_turn(listener_a, turn_a)
+    enqueue_peer_turn(listener_b, turn_b)
+
+    drop_listener_queue(listener_a)
+
+    assert fifo is pm._global_fifo
+    assert len(fifo) == 1
+    assert fifo[0][1] is turn_b
+
+
+def test_kick_keeps_distinct_equal_turns_while_busy():
+    from plugin.doc.peer_message import _listener_queues, _global_fifo
+
+    listener = _Listener()
+    listener.sidebar_state.send.is_busy = True
+    turn1 = PeerPendingTurn("same", False)
+    turn2 = PeerPendingTurn("same", False)
+    assert turn1 is not turn2
+    enqueue_peer_turn(listener, turn1)
+    enqueue_peer_turn(listener, turn2)
+
+    kick_pending_peer_starts()
+    q = _listener_queues[listener]
+    assert len(q) == 2
+    assert q[0] is turn1
+    assert q[1] is turn2
+
+    listener.sidebar_state.send.is_busy = False
+    kick_pending_peer_starts()
+    assert len(listener.started) == 1
+    assert listener.started[0][0] == "same"
+    assert len(q) == 1
+    assert q[0] is turn2
+
+    kick_pending_peer_starts()
+    assert len(listener.started) == 2
+    assert len(q) == 0
+    assert len(_global_fifo) == 0
+
+
+def test_kick_requeues_when_start_raises():
+    from plugin.doc.peer_message import _global_fifo
+
+    listener = _Listener()
+    listener.sidebar_state.send.is_busy = False
+
+    def _raise_start(*unused_args, **unused_kwargs):
+        raise RuntimeError("start failed")
+
+    listener.start_extracted_peer_send = _raise_start
+    turn = PeerPendingTurn("msg", False)
+    enqueue_peer_turn(listener, turn)
+
+    kick_pending_peer_starts()
+    assert listener_queue_len(listener) == 1
+    assert len(_global_fifo) == 1
+
+
+def test_kick_drops_turn_when_start_raises_after_busy():
+    from plugin.doc.peer_message import _global_fifo
+
+    listener = _Listener()
+    listener.sidebar_state.send.is_busy = False
+
+    def _raise_after_busy(*unused_args, **unused_kwargs):
+        listener.sidebar_state.send.is_busy = True
+        raise RuntimeError("start failed after busy")
+
+    listener.start_extracted_peer_send = _raise_after_busy
+    turn = PeerPendingTurn("msg", False)
+    enqueue_peer_turn(listener, turn)
+
+    kick_pending_peer_starts()
+    assert listener_queue_len(listener) == 0
+    assert len(_global_fifo) == 0
+
+
+def test_queue_ops_assert_main_thread():
+    listener = _Listener()
+    turn = PeerPendingTurn("msg", False)
+    with patch("plugin.framework.thread_guard.assert_main_thread") as mock_assert:
+        enqueue_peer_turn(listener, turn)
+        kick_pending_peer_starts()
+        drop_listener_queue(listener)
+    assert mock_assert.call_count == 3
+

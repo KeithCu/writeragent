@@ -29,18 +29,11 @@ class HermesBackend(ACPBackend):
     """ACP-based Hermes backend. Official CLI: ``hermes acp``."""
 
     backend_id: ClassVar[str] = "hermes"
+    display_name: ClassVar[str] = "Hermes"
     default_extra_args: Tuple[str, ...] = ("acp",)
 
     def get_binary_name(self) -> str:
         """Primary executable for PATH lookup (``hermes acp`` is the supported install)."""
-        return "hermes"
-
-    def get_display_name(self) -> str:
-        """Return display name for UI."""
-        return "Hermes"
-
-    def get_agent_name(self) -> str:
-        """Return ACP agent name."""
         return "hermes"
 
     def get_env_vars(self) -> Dict[str, str]:

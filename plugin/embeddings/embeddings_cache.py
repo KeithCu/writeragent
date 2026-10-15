@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -114,13 +115,20 @@ def _remove_path(path: Path) -> bool:
         return False
     try:
         if path.is_dir():
-            shutil.rmtree(path, ignore_errors=True)
+            # Bugfix: rmtree(ignore_errors=True) hid a failed directory delete
+            # and returned True. remove_stale_corpus_stores then logged
+            # "Removed stale embeddings stores" while the directory remained.
+            # Success means the path is gone.
+            shutil.rmtree(path)
         else:
             path.unlink()
-        return True
     except OSError:
         log.debug("Could not remove %s", path, exc_info=True)
         return False
+    if path.exists():
+        log.debug("Could not remove %s", path)
+        return False
+    return True
 
 
 def _load_meta_object(meta_path: Path) -> dict[str, Any] | None:
@@ -166,9 +174,22 @@ def write_corpus_meta(meta_path: Path, **fields: str) -> None:
     current = read_corpus_meta(meta_path)
     current.update({str(k): str(v) for k, v in fields.items()})
 
-    tmp_path = meta_path.with_suffix(".tmp")
-    tmp_path.write_text(json.dumps(current, indent=2, sort_keys=True), encoding="utf-8")
-    os.replace(tmp_path, meta_path)
+    # Bugfix: every writer used meta_path.with_suffix(".tmp"), so two
+    # corpus_meta updates (venv maintain and host write_fts_meta, or two
+    # backends) could truncate one temp and os.replace a partial file.
+    # A unique temp in the same directory keeps replace atomic. The
+    # read-modify-write above is still last-writer-wins across processes;
+    # this does not add a lock.
+    payload = json.dumps(current, indent=2, sort_keys=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=meta_path.name + ".", suffix=".tmp", dir=str(meta_path.parent))
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+        os.replace(tmp_path, meta_path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def _open_index_db(db_path: Path) -> Any:
@@ -341,6 +362,12 @@ def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode:
         return _vector_backend_is_empty(mode, listing_root, meta_path)
     if db_path is not None and not db_path.is_file():
         return True
+    # Missing meta beside a live corpus.db is empty: needs_cold_rebuild and
+    # cold maintain may wipe that db. Corrupt or non-object JSON is the
+    # opposite (the branch below returns False): a file was written, and
+    # treating it as empty would delete a live corpus (#1153). zvec and
+    # lancedb do not use this branch; a populated collection with missing
+    # or corrupt meta is not empty.
     if not meta_path.is_file():
         return True
     # Corrupt or non-object meta with a live DB is not "empty". Treating it as
@@ -395,7 +422,13 @@ def clear_folder_cache(listing_root: str) -> None:
 
 
 def maybe_upgrade_legacy_index(listing_root: str) -> None:
-    """On first access after upgrade, drop stale v1/v2 stores."""
+    """Drop stale v1/v2 stores. Called from resolve_index_context on every resolve.
+
+    Missing, corrupt, or non-object meta: return without deleting.
+    schema_version == SCHEMA_VERSION: remove legacy index.db, fts5.db, and
+    fts_meta.json only.
+    Any other object schema_version: clear_folder_cache (corpus.db, meta, zvec, lancedb).
+    """
     meta = corpus_meta_path(listing_root, create_parent=False)
     data = _load_meta_object(meta)
     if data is None:
@@ -412,7 +445,19 @@ _USE_DEFAULT = object()
 
 
 def resolve_index_context(ctx: Any = None, model: Any = None, *, listing_root: Any = _USE_DEFAULT) -> tuple[str, Path, Path, str] | tuple[None, None, None, str]:
-    """Return (folder_key, corpus_db_path, corpus_meta_path, listing_root) or error tuple."""
+    """Return (folder_key, corpus_db_path, corpus_meta_path, listing_root) or (None, None, None, error_message).
+
+    On success the fourth value is the listing directory. On failure the first
+    three are None and the fourth is the error string. Callers must branch on
+    folder_key is None before using the fourth value as a path.
+
+    Calls maybe_upgrade_legacy_index before returning paths. That deletes the
+    folder cache when corpus_meta.json is an object whose schema_version is
+    not SCHEMA_VERSION. When the version already matches, it only removes
+    legacy index.db, fts5.db, and fts_meta.json if those files exist. Missing,
+    corrupt, or non-object meta does not delete. This stays here so the search
+    dialog, enqueue, FTS, and both research tools share one upgrade point.
+    """
     if listing_root is _USE_DEFAULT:
         listing_root = resolve_folder_for_active_doc(ctx, model)
     if not listing_root:

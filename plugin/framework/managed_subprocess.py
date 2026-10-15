@@ -6,7 +6,8 @@
 Provides explicit start, environment merging, thread-guard refusal, bounded stderr,
 tree kill, reaping, and registered shutdown. Stderr can be subprocess.DEVNULL (no drain),
 and registry membership and start-error wrapping are optional. `raw_spawn=True` is a pass-through
-Popen for short-lived children, and ManagedSubprocess.run is a pass-through subprocess.run.
+Popen for short-lived children, and ManagedSubprocess.run is subprocess.run plus Windows
+CREATE_NO_WINDOW from get_subprocess_creationflags().
 Worker start, stderr drain, tree kill, and shutdown_all stay the default.
 When `stderr_name_with_pid` is true and `stderr_name` is set, the drain thread name is `{stderr_name}-{pid}`.
 """
@@ -200,8 +201,9 @@ class ManagedSubprocess:
         """Immediate SIGKILL of the process group. No pipe close, no wait, no unregister.
 
         A double is not a Popen because kill_process_tree treats an int pid above 1 as a process group.
-        close() is a different method because it waits out SIGTERM and closes stdout, which the compute
-        io-owner forbids on the non-owner thread.
+        close() is a different method because it waits out SIGTERM, closes stdin, leaves stdout alone,
+        and leaves a drained stderr to the drain thread; the compute io-owner forbids close() on the
+        non-owner thread, which calls kill_tree only.
         """
         proc = self._proc
         if proc is None:
@@ -310,6 +312,18 @@ class ManagedSubprocess:
         self._reaper_passes += 1
         if self._reaper_passes >= _REAPER_MAX_PASSES:
             log.warning("%s pid=%s still alive; reaper giving up", self._label, self.pid)
+            # What was wrong: unkillable processes held in the shutdown registry caused
+            # shutdown_all to attempt closing them; Child._finish unregisters only after
+            # a successful reap.
+            # How it happened: reaper give-up returned without unregistering the instance,
+            # leaving it registered forever, while dropping the queue reference could trigger
+            # Popen.__del__ calling wait() with no timeout on the reaper thread.
+            # Why this change fixes it: call unregister() to remove the instance from
+            # shutdown_all, and keep the instance alive in _reaper_given_up off the reaper
+            # stack so Popen.__del__ does not execute wait() on the reaper thread.
+            self.unregister()
+            if self not in _reaper_given_up:
+                _reaper_given_up.append(self)
             return
         time.sleep(_REAPER_RETRY_PAUSE_SEC)
         _enqueue_reaper(("abandon", self))
@@ -488,11 +502,15 @@ class ManagedSubprocess:
             raise ValueError("raw_spawn does not optimize pipes")
         if self._base_env is not None:
             raise ValueError("raw_spawn does not merge base_env")
+        # What was wrong: raw_spawn rejected drain_stderr=False even though raw mode never drains,
+        # while the constructor default drain_stderr=True was accepted and ignored.
+        # How it happened: the validation check included "or not self._drain_stderr".
+        # Why this change fixes it: only reject explicit stderr-tail options; raw mode never
+        # starts a stderr drain regardless of drain_stderr.
         if (
             self._stderr_tail_chars is not None
             or self._stderr_name is not None
             or self._stderr_name_with_pid
-            or not self._drain_stderr
         ):
             raise ValueError("raw_spawn does not drain stderr")
 
@@ -528,10 +546,17 @@ class ManagedSubprocess:
         encoding: str | None = None,
         errors: str | None = None,
     ) -> subprocess.CompletedProcess[Any]:
-        """One-shot subprocess.run with no env merge, session, creation flags, drain, or registry.
+        """One-shot subprocess.run with no env merge, no session, no drain, no registry.
 
+        Windows CREATE_NO_WINDOW comes from get_subprocess_creationflags().
         Timeouts and OSError propagate.
         """
+        # What was wrong: probe_webview_import passed **get_subprocess_creationflags() until
+        # the editor migration (6e831e293) routed it through ManagedSubprocess.run, which omitted
+        # the flags; the Monaco doc still described CREATE_NO_WINDOW.
+        # How it happened: ManagedSubprocess.run was implemented as a bare subprocess.run wrapper
+        # without passing creationflags.
+        # Why this change fixes it: pass **get_subprocess_creationflags() to both subprocess.run branches.
         if capture_output:
             return subprocess.run(
                 args,
@@ -543,6 +568,7 @@ class ManagedSubprocess:
                 errors=errors,
                 timeout=timeout,
                 check=check,
+                **get_subprocess_creationflags(),
             )
         return subprocess.run(
             args,
@@ -556,6 +582,7 @@ class ManagedSubprocess:
             errors=errors,
             timeout=timeout,
             check=check,
+            **get_subprocess_creationflags(),
         )
 
     def unregister(self) -> None:
@@ -564,12 +591,13 @@ class ManagedSubprocess:
             _unregister_instance(self)
 
     def close(self) -> None:
-        """Idempotent shutdown: kill process tree, close pipes, unregister, and reap."""
+        """Idempotent; closes stdin; SIGTERM grace; tree kill; unregisters; joins a drain when one exists; does not close stdout; does not close stderr when a drain exists; may block for the grace wait plus 1s. shutdown_all and Kokoro do not call it."""
         with self._lock:
             if self._closed:
                 return
             self._closed = True
             proc = self._proc
+            drain = self._stderr_drain
             _unregister_instance(self)
 
         if proc is None:
@@ -608,22 +636,30 @@ class ManagedSubprocess:
         if proc.poll() is None:
             _enqueue_reaper(("close", self))
 
-        # 5. Close stdout and stderr pipes in separate try blocks after the tree kill.
-        # Stdout must stay open until after the tree kill so readers blocked on readline
-        # see EOF rather than hanging on pipe locks.
-        if proc.stdout:
-            try:
-                proc.stdout.close()
-            except OSError:
-                log.debug("Error closing stdout for pid=%s", proc.pid, exc_info=True)
+        # What was wrong: closing stderr before finish_text drops unread tail bytes and, on a
+        # text pipe, can block in BufferedReader.close() against the drain's read1; closing
+        # stdout from this thread is the race Child._finish and ACPConnection._writer_drain_loop
+        # already refuse.
+        # How it happened: close() previously closed proc.stdout and proc.stderr directly on
+        # this thread, even when a background drain thread was reading stderr or a caller owned stdout.
+        # Why this change fixes it: stdout stays open because the caller owns it; ACPConnection
+        # can be inside readline, and BufferedReader.close() waits on that lock; the child's
+        # death closes the write end. The drain's finally in start_stderr_drain
+        # (plugin/framework/worker_pool.py) closes stderr. When no drain exists, close() closes
+        # stderr directly. close_stdio() remains the owner-thread stdin/stdout close.
 
-        if proc.stderr:
+        # 5. Do not close proc.stdout: stdout stays open because the caller owns it;
+        # ACPConnection can be inside readline, and BufferedReader.close() waits on that lock;
+        # the child's death closes the write end.
+
+        # 6. If drain is None and proc.stderr is set, close stderr.
+        if drain is None and proc.stderr:
             try:
                 proc.stderr.close()
             except OSError:
                 log.debug("Error closing stderr for pid=%s", proc.pid, exc_info=True)
 
-        drain = self._stderr_drain
+        # 7. If drain is not None, finish drain.
         if drain is not None:
             try:
                 drain.finish_text(timeout=1.0)
@@ -762,6 +798,7 @@ def _kill_process_tree_win32(proc: subprocess.Popen[Any]) -> None:
 
 
 _instances: set[ManagedSubprocess] = set()
+_reaper_given_up: list[ManagedSubprocess] = []
 _registry_lock = threading.Lock()
 
 
@@ -776,14 +813,26 @@ def _unregister_instance(inst: ManagedSubprocess) -> None:
 
 
 def shutdown_all() -> None:
-    """Kill all live managed processes on extension shutdown."""
+    """SIGKILL every registered child and hand it to the abandon reaper.
+
+    Does not call ``close()``, does not close pipes, and does not wait.
+    """
+    # What was wrong: close() on this thread waited out SIGTERM (3s per child) and closed
+    # stdout/stderr under ACP's readline and the compute io-owner.
+    # How it happened: shutdown_all walked the registry calling inst.close().
+    # Why this change fixes it: kill_tree signals the group and does not touch pipes.
+    # abandon reaps on managed-subprocess-reaper without waiting on the caller.
     with _registry_lock:
         targets = list(_instances)
     for inst in targets:
         try:
-            inst.close()
+            inst.kill_tree()
         except Exception:
-            log.exception("Error closing managed subprocess instance during shutdown_all")
+            log.exception("Error signaling managed subprocess during shutdown_all")
+        try:
+            inst.abandon()
+        except Exception:
+            log.exception("Error abandoning managed subprocess during shutdown_all")
 
 
 _reaper_queue: queue.Queue[tuple[str, ManagedSubprocess]] = queue.Queue()

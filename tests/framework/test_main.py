@@ -535,6 +535,82 @@ def test_notify_menu_update_prune_uses_uno_same(monkeypatch):
     assert len(main._status_listeners) == 0
 
 
+def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
+    """Off the main thread, dead listeners are posted to the main thread for uno_same pruning."""
+    import threading
+
+    class ListenerProxy:
+        def __init__(self, val: int):
+            self.val = val
+
+        def __eq__(self, other: object) -> bool:
+            return isinstance(other, ListenerProxy) and self.val == other.val
+
+        def statusChanged(self, ev: object) -> None:
+            raise RuntimeError("dead listener")
+
+    l1 = ListenerProxy(10)
+    l2 = ListenerProxy(10)
+    assert l1 is not l2
+    assert l1 == l2
+
+    u1 = MagicMock()
+    u1.Complete = ".uno:WriterAgentAction"
+    u1.Path = "test.action"
+
+    main._status_listeners.clear()
+    try:
+        main._status_listeners.append((l1, u1))
+        main._status_listeners.append((l2, u1))
+        assert len(main._status_listeners) == 2
+
+        monkeypatch.setattr(main, "get_menu_text", lambda cmd: "Test Label")
+        monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+        monkeypatch.delenv("WRITERAGENT_EVAL_HARNESS", raising=False)
+
+        bg_calls: list[Any] = []
+        monkeypatch.setattr(
+            "plugin.framework.worker_pool.run_in_background",
+            lambda fn, *args, **kwargs: bg_calls.append(fn),
+        )
+
+        posted: list[tuple[Any, tuple[Any, ...]]] = []
+
+        def mock_post(fn: Any, *args: Any, **kwargs: Any) -> None:
+            posted.append((fn, args))
+
+        monkeypatch.setattr("plugin.framework.queue_executor.post_to_main_thread", mock_post)
+
+        uno_same_threads: list[threading.Thread] = []
+        real_uno_same = main.uno_same
+
+        def wrapped_uno_same(a: Any, b: Any) -> bool:
+            uno_same_threads.append(threading.current_thread())
+            return real_uno_same(a, b)
+
+        monkeypatch.setattr(main, "uno_same", wrapped_uno_same)
+
+        worker = threading.Thread(target=main.notify_menu_update)
+        worker.start()
+        worker.join()
+
+        assert len(main._status_listeners) == 2
+        assert len(uno_same_threads) == 0
+        assert len(posted) == 1
+        assert posted[0][0] is main._prune_failed_status_listeners
+        assert posted[0][1] == ([(l1, u1), (l2, u1)],)
+        assert main._update_menu_icons in bg_calls
+
+        # On the test thread, call that posted function with the posted args.
+        posted[0][0](*posted[0][1])
+        assert len(main._status_listeners) == 0
+        assert len(uno_same_threads) > 0
+        test_thread = threading.current_thread()
+        assert all(t == test_thread for t in uno_same_threads)
+    finally:
+        main._status_listeners.clear()
+
+
 
 # --- Bug 7 tests: menu icon apply stamp and graphic caching ---
 

@@ -55,6 +55,18 @@ def test_write_corpus_meta_atomic_behavior(tmp_path):
     assert meta["baz"] == "qux"
 
 
+def test_write_corpus_meta_does_not_clobber_fixed_tmp_name(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    fixed_tmp = meta_path.with_suffix(".tmp")
+    fixed_tmp.write_text("PARTIAL", encoding="utf-8")
+
+    embeddings_cache.write_corpus_meta(meta_path, foo="bar")
+
+    assert embeddings_cache.read_corpus_meta(meta_path)["foo"] == "bar"
+    assert fixed_tmp.read_text(encoding="utf-8") == "PARTIAL"
+    assert set(tmp_path.iterdir()) == {meta_path, fixed_tmp}
+
+
 def test_maybe_upgrade_legacy_index_does_not_wipe_on_corrupt_json(tmp_path):
     listing = str(tmp_path / "project")
     Path(listing).mkdir()
@@ -125,6 +137,14 @@ def test_index_is_empty_lancedb_needs_collection_and_chunks(tmp_path):
 
     meta_path.write_text("{ corrupt", encoding="utf-8")
     assert embeddings_cache.index_is_empty(meta_path, db_path, search_mode="lancedb", listing_root=listing) is False
+
+
+def test_index_is_empty_missing_meta_with_live_db_is_empty(tmp_path):
+    meta_path = tmp_path / "corpus_meta.json"
+    db_path = tmp_path / "corpus.db"
+    db_path.write_text("sqlite", encoding="utf-8")
+
+    assert embeddings_cache.index_is_empty(meta_path, db_path) is True
 
 
 def test_index_is_empty_with_corrupt_meta_and_db(tmp_path):
@@ -250,6 +270,23 @@ def test_remove_stale_corpus_stores_db(tmp_path):
     legacy.write_text("sqlite", encoding="utf-8")
     assert embeddings_cache.remove_stale_corpus_stores(listing) is True
     assert not legacy.is_file()
+
+
+def test_remove_path_directory_failure_returns_false(tmp_path):
+    target_dir = tmp_path / "subdir"
+    target_dir.mkdir()
+
+    with patch("plugin.embeddings.embeddings_cache.shutil.rmtree", side_effect=OSError("rmtree error")):
+        assert embeddings_cache._remove_path(target_dir) is False
+    assert target_dir.exists()
+
+
+def test_remove_path_directory_success_returns_true(tmp_path):
+    target_dir = tmp_path / "subdir"
+    target_dir.mkdir()
+
+    assert embeddings_cache._remove_path(target_dir) is True
+    assert not target_dir.exists()
 
 
 def test_file_index_state_and_diff(tmp_path):

@@ -155,6 +155,9 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
     def execute(self, Arguments: Any) -> tuple[()]:
         try:
             init_logging(self.ctx)
+        except Exception:
+            log.exception("LibrePy bootstrap: init_logging failed")
+        try:
             bootstrap(self.ctx)
             _schedule_update_check(self.ctx)
         except Exception as e:

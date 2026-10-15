@@ -1,6 +1,6 @@
 name: core
 title: Core services (config, events, logging)
-provides_services: [document, config, events, format]
+provides_services: [document, config, events]
 requires: []
 
 config:

@@ -140,7 +140,7 @@ That path **rebinds** a fresh `ToolContext` and **blocks** the caller tool until
 
 Colors from [uno-thread-safety.md](../framework/uno-thread-safety.md): **RED** = main/UNO, **BLUE** = workers, **YELLOW** = sync host dispatch.
 
-Keep both peer send tools **`is_async=False`** so `execute()` runs on the caller’s drain thread (RED). Resolve / inject stay on RED without marshal. `long_running` is MCP-only and unused here.
+Keep both peer send tools **`is_async=False`** so `execute()` runs on the caller’s drain thread (RED). Resolve / inject stay on RED without marshal. `long_running` is MCP-only and unused here. Queue functions (`enqueue_peer_turn`, `kick_pending_peer_starts`, `drop_listener_queue`) assert the main thread (`assert_main_thread`).
 
 **Two sidebars cannot drain in parallel** on today’s pump. [`run_stream_drain_loop`](../../plugin/framework/async_stream.py) takes [`drain_owner_scope("stream")`](../../plugin/framework/async_drain_guard.py). Same owner name **nests** (depth++); a different name **raises**. `pump_ui_idle` always pumps VCL. If caller `execute()` starts (or posts into the live pump) the peer’s `_run_send_drain` → `_do_send_chat_with_tools` → `_start_tool_calling_async`, the inner drain runs to completion **before** `execute()` returns. That is accidental A2.
 
@@ -223,8 +223,8 @@ Layout: `[Peer work from: Name | uid=… | url=…]` for `send_peer_work` (gatew
 2. Resolve **target** from required `document_url`. Fail if missing / none / ambiguous / unsupported ([§4.2](#42-tool-visibility), [§4.4](#44-addressing)). Do not default to a last sender.
 3. Look up the live panel by uid. Missing → error: open the peer sidebar once. No A2.
 4. Stamp envelope kind from which tool was called (`work` vs `result`). No correlation id — concurrent peers use explicit `document_url`.
-5. Derive sender from `ctx.doc`. Prepend the envelope to `message`. Append **once** on the peer session + UI line (do not also call `_do_send_chat_with_tools`’s append).
-6. Enqueue / schedule that host’s extracted send ([§4.3](#43-live-panel--busy--queue--deck)). Do **not** wait for it to finish. Do **not** start a drain on this stack.
+5. Derive sender from `ctx.doc`. Prepend the envelope to `message`. Enqueue the turn first (`schedule_peer_turn`). Append only when the listener is idle and `add_user_message` returned (`already_appended` tracks that write so `_do_send_chat_with_tools` is not given a second append).
+6. Kick pending peer starts if the process drain is free and the listener is idle. If a start raises before the listener is busy, the turn stays queued and the tool is still accepted. Do **not** wait for it to finish. Do **not** start a drain on this stack.
 7. Return `{"status": "ok", "accepted": true, "envelope_kind": "work"|"result"}` to the **caller** tool (same turn). This is not a compact task result.
 
 **No last-sender default.** Do not store `last_peer_from` or accept `reply=true` to omit `document_url`. With three (or more) open docs, fan-in means “whoever messaged last” is often the wrong peer. The inbound envelope already has name / uid / url. The model copies uid/url into `send_peer_result`. Missing `document_url` → tool error (do not guess).
@@ -272,7 +272,7 @@ Queue policy:
 - FIFO; one extracted send at a time when that listener is idle **and** `get_drain_owner()` is `None`.
 - Stop / dispose: drop **that** listener’s queue.
 - User clicked Send with a non-empty Ask: **user send first**, then queued injects. Do not clear or steal the Ask box.
-- Cap **8**; overflow → tool error (`PEER_QUEUE_FULL`). The cap is checked before the peer session/UI inject, so a full queue does not leave an unqueued user turn. No silent drop.
+- Cap **8**; overflow → tool error (`PEER_QUEUE_FULL`). The cap is enforced by `enqueue_peer_turn` before inject, so a full queue does not leave an unqueued user turn. No silent drop.
 - Kick pending starts from drain-scope exit (depth == 0), not from `pump_ui_idle` while owned.
 
 **Focus:** do not `toFront` / steal `Desktop` current component unless the user asked to watch. Research’s “active window unchanged” rule applies. Extracted send must not `query.setFocus`.
@@ -283,7 +283,7 @@ Queue policy:
 
 Harness pre-open is in scope; mid-session create/spawn is not.
 
-1. `get_open_documents(ctx.ctx, ctx.doc)` — reject self (same uid).
+1. `get_open_documents(ctx.ctx, ctx.doc)` — reject self (matching RuntimeUID, or `uno_same` when either uid is empty).
 2. v1 peer services only: `TextDocument`, `SpreadsheetDocument`, `DrawingDocument`, `PresentationDocument` on the resolved model. Research catalog `doc_type == "draw"` still includes Impress — peer type comes from `v1_peer_type_label` (`impress` vs `draw`).
 3. `resolve_document_by_url` — open model only. Do not `loadComponentFromURL` / `open_document_for_read`.
 4. Ambiguous set (two `.ods`, two Draw forms): require a file URL / uid, or a display `name` passed as `document_url` that matches **exactly one**. Never silently pick the first Calc or first Draw. Two peers with the same name → `PEER_AMBIGUOUS`.

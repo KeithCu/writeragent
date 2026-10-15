@@ -214,10 +214,22 @@ def test_module_base_lifecycle_methods():
     mod = MyModule()
     services = MagicMock()
     mod.initialize(services)
-    mod.start(services)
     mod.start_background(services)
     mod.shutdown()
     mod.on_action('some_action')
+    assert "start" not in ModuleBase.__dict__
+
+
+def test_core_and_writer_manifests_omit_format_service():
+    import yaml
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    core_yaml = yaml.safe_load((repo_root / "plugin" / "framework" / "module.yaml").read_text(encoding="utf-8"))
+    writer_yaml = yaml.safe_load((repo_root / "plugin" / "writer" / "module.yaml").read_text(encoding="utf-8"))
+
+    assert core_yaml.get("provides_services") == ["document", "config", "events"]
+    assert writer_yaml.get("requires") == ["document", "config", "events"]
 
 def test_get_menu_methods():
     mod = MyModule()

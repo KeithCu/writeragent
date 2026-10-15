@@ -163,10 +163,8 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
     extra_instructions = ""
     model = self._get_document_model()
     initial_mode = "chat"
-    # A real flags object lets Send/Stop attach even when the mode
-    # dropdown fails to wire. Leaving mode_flags as None makes
-    # include_brainstorming raise inside the Send/Stop try, and that
-    # except skips addActionListener.
+    # This seed is what remains when _wire_chat_mode_ui fails;
+    # _wire_buttons must receive a SidebarModeFlags, not None.
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
 
     mode_flags: SidebarModeFlags = SidebarModeFlags()

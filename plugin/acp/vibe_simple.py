@@ -33,18 +33,11 @@ class VibeBackend(ACPBackend):
     """
 
     backend_id: ClassVar[str] = "vibe"
+    display_name: ClassVar[str] = "Mistral Vibe"
 
     def get_binary_name(self) -> str:
         """Return the binary name to search for."""
         return "vibe-acp"
-
-    def get_display_name(self) -> str:
-        """Return display name for UI."""
-        return "Mistral Vibe"
-
-    def get_agent_name(self) -> str:
-        """Return ACP agent name."""
-        return "vibe"
 
     def get_env_vars(self) -> Dict[str, str]:
         """Return environment variables to pass to subprocess."""

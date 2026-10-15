@@ -11,6 +11,8 @@ from plugin.framework.thread_guard import get_background_task_name
 from plugin.framework.worker_pool import (
     BackgroundHandle,
     _DaemonWorkPool,
+    _PoolShutdown,
+    _in_pool_worker,
     background_pool_max_workers,
     reset_background_pool_for_tests,
     run_in_background,
@@ -783,7 +785,10 @@ def test_concurrent_submit_during_shutdown_does_not_hang():
         while not stop.is_set():
             try:
                 fut = pool.submit(lambda: None)
-            except RuntimeError:
+            except _PoolShutdown:
+                return
+            except Exception as exc:
+                errors.append(type(exc).__name__)
                 return
             handle = BackgroundHandle(future=fut)
             handle.join(timeout=2)
@@ -976,21 +981,23 @@ def test_join_handles_future_from_pool_thread_still_raises() -> None:
     errors: list[BaseException | None] = []
 
     def run() -> None:
-        threading.current_thread().name = "wa-bg-9"
         try:
             ap._join_handles((handle,), timeout=0.2)
         except RuntimeError as exc:
             errors.append(exc)
+        except Exception as exc:
+            errors.append(exc)
         else:
             errors.append(None)
 
-    worker = threading.Thread(target=run)
-    worker.start()
-    worker.join(1)
-    fut.cancel()
-    assert not worker.is_alive()
-    assert errors and isinstance(errors[0], RuntimeError)
-    assert "deadlock" in str(errors[0])
+    try:
+        worker = run_in_background(run)
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert errors and isinstance(errors[0], RuntimeError)
+        assert "deadlock" in str(errors[0])
+    finally:
+        fut.cancel()
 
 
 def test_join_done_future_from_pool_thread_does_not_raise() -> None:
@@ -1003,7 +1010,6 @@ def test_join_done_future_from_pool_thread_does_not_raise() -> None:
     errors: list[BaseException | None] = []
 
     def run() -> None:
-        threading.current_thread().name = "wa-bg-9"
         try:
             handle.join(timeout=0.2)
         except Exception as exc:
@@ -1011,9 +1017,8 @@ def test_join_done_future_from_pool_thread_does_not_raise() -> None:
         else:
             errors.append(None)
 
-    worker = threading.Thread(target=run)
-    worker.start()
-    worker.join(1)
+    worker = run_in_background(run)
+    worker.join(timeout=2)
     assert not worker.is_alive()
     assert errors == [None]
 
@@ -1157,4 +1162,221 @@ def test_daemon_work_pool_logs_base_exception_and_keeps_worker_alive(caplog):
         assert second_ran == [True]
     finally:
         pool.shutdown(wait=True)
+
+
+def test_in_pool_worker_is_false_on_a_dedicated_thread_named_wa_bg() -> None:
+    pooled_info: dict[str, Any] = {}
+
+    def pooled() -> None:
+        pooled_info["in_pool"] = _in_pool_worker()
+        pooled_info["name"] = threading.current_thread().name
+
+    h_pooled = run_in_background(pooled, name="wa-bg-spoof")
+    h_pooled.join(timeout=2)
+    assert pooled_info["in_pool"] is True
+    assert pooled_info["name"].startswith("wa-bg-")
+    assert pooled_info["name"] != "wa-bg-spoof"
+
+    dedicated_info: dict[str, Any] = {}
+
+    def dedicated() -> None:
+        dedicated_info["in_pool"] = _in_pool_worker()
+        dedicated_info["name"] = threading.current_thread().name
+
+    h_dedicated = run_in_background(dedicated, name="wa-bg-0", dedicated=True)
+    h_dedicated.join(timeout=2)
+    assert dedicated_info["in_pool"] is False
+    assert dedicated_info["name"] == "wa-bg-0"
+
+
+def test_dedicated_thread_named_wa_bg_retired_can_join_pooled_future() -> None:
+    from concurrent.futures import Future
+
+    fut: Future[None] = Future()
+    handle = BackgroundHandle(future=fut)
+    errors: list[Exception] = []
+    seen_name: list[str] = []
+
+    def joiner() -> None:
+        seen_name.append(threading.current_thread().name)
+        try:
+            handle.join(timeout=0.2)
+        except Exception as exc:
+            errors.append(exc)
+
+    try:
+        outer = run_in_background(joiner, name="wa-bg-retired-0", dedicated=True)
+        outer.join(timeout=2)
+        assert seen_name == ["wa-bg-retired-0"]
+        assert errors == []
+    finally:
+        fut.cancel()
+
+
+def test_submit_on_shut_down_pool_raises_pool_shutdown() -> None:
+    pool = _DaemonWorkPool(1)
+    pool.shutdown(wait=True, cancel_futures=True)
+    with pytest.raises(_PoolShutdown) as excinfo:
+        pool.submit(lambda: None)
+    assert not isinstance(excinfo.value, RuntimeError)
+
+
+def test_run_in_background_reraises_when_installed_pool_is_already_shut_down() -> None:
+    pool = _get_pool()
+    pool.shutdown(wait=True, cancel_futures=True)
+    try:
+        with pytest.raises(_PoolShutdown):
+            run_in_background(lambda: None)
+    finally:
+        reset_background_pool_for_tests()
+
+
+def test_run_in_background_does_not_retry_runtime_error_with_shutdown_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    counter = 0
+
+    class DummyPool:
+        def submit(self, fn: Any) -> Any:
+            nonlocal counter
+            counter += 1
+            if counter > 1:
+                raise AssertionError("retried a RuntimeError")
+            raise RuntimeError("background pool is shut down")
+
+    monkeypatch.setattr("plugin.framework.worker_pool._get_pool", lambda: DummyPool())
+    with pytest.raises(RuntimeError, match="background pool is shut down"):
+        run_in_background(lambda: None)
+    assert counter == 1
+
+
+def test_run_in_background_retries_on_pool_shutdown_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    reset_background_pool_for_tests(max_workers=1)
+    try:
+        real = _get_pool()
+        dead_submit_count = 0
+
+        class DeadPool:
+            def submit(self, fn: Any) -> Any:
+                nonlocal dead_submit_count
+                dead_submit_count += 1
+                raise _PoolShutdown("background pool is shut down")
+
+        calls = 0
+
+        def fake_get_pool() -> Any:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return DeadPool()
+            return real
+
+        monkeypatch.setattr("plugin.framework.worker_pool._get_pool", fake_get_pool)
+        results: list[bool] = []
+        handle = run_in_background(lambda: results.append(True))
+        handle.join(timeout=2)
+        assert results == [True]
+        assert dead_submit_count == 1
+    finally:
+        reset_background_pool_for_tests()
+
+
+def test_terminate_closes_captured_child_pipes_not_the_replacement() -> None:
+    class _Pipe:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class _Proc:
+        def __init__(self) -> None:
+            self.stdin: _Pipe = _Pipe()
+            self.stdout: _Pipe = _Pipe()
+            self.stderr: _Pipe = _Pipe()
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+        def kill(self) -> None:
+            pass
+
+        def terminate(self) -> None:
+            pass
+
+    def make_finished_handle() -> BackgroundHandle:
+        t = threading.Thread(target=lambda: None)
+        t.start()
+        t.join()
+        return BackgroundHandle(thread=t)
+
+    # Scenario 1: Readers present
+    ap1 = AsyncProcess(["dummy"])
+    old1: Any = _Proc()
+    replacement1: Any = _Proc()
+
+    def swap_proc_1() -> None:
+        ap1.process = replacement1
+
+    old1.terminate = swap_proc_1
+    ap1.process = old1
+    ap1._stdout_thread = make_finished_handle()
+    ap1._stderr_thread = make_finished_handle()
+    ap1._wait_thread = make_finished_handle()
+
+    event1 = threading.Event()
+    real_reap1 = ap1._reap
+
+    def reap_wrapper_1(*args: Any, **kwargs: Any) -> None:
+        try:
+            real_reap1(*args, **kwargs)
+        finally:
+            event1.set()
+
+    ap1._reap = reap_wrapper_1  # type: ignore[method-assign]
+
+    ap1.terminate()
+    assert event1.wait(2)
+    assert old1.stdin.closed is True
+    assert old1.stdout.closed is False
+    assert old1.stderr.closed is False
+    assert replacement1.stdin.closed is False
+    assert replacement1.stdout.closed is False
+    assert replacement1.stderr.closed is False
+
+    # Scenario 2: No readers
+    ap2 = AsyncProcess(["dummy"])
+    old2: Any = _Proc()
+    replacement2: Any = _Proc()
+
+    def swap_proc_2() -> None:
+        ap2.process = replacement2
+
+    old2.terminate = swap_proc_2
+    ap2.process = old2
+    ap2._stdout_thread = None
+    ap2._stderr_thread = None
+    ap2._wait_thread = None
+
+    event2 = threading.Event()
+    real_reap2 = ap2._reap
+
+    def reap_wrapper_2(*args: Any, **kwargs: Any) -> None:
+        try:
+            real_reap2(*args, **kwargs)
+        finally:
+            event2.set()
+
+    ap2._reap = reap_wrapper_2  # type: ignore[method-assign]
+
+    ap2.terminate()
+    assert event2.wait(2)
+    assert old2.stdin.closed is True
+    assert old2.stdout.closed is True
+    assert old2.stderr.closed is True
+    assert replacement2.stdin.closed is False
+    assert replacement2.stdout.closed is False
+    assert replacement2.stderr.closed is False
+
 

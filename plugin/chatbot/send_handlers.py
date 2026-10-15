@@ -164,14 +164,11 @@ if TYPE_CHECKING:
 
 
 def _agent_backend_label(adapter: Any, backend_id: str) -> str:
-    """Human-readable backend name for errors (ACP backends implement get_display_name())."""
-    getter = getattr(adapter, "get_display_name", None)
-    if callable(getter):
-        try:
-            return str(getter())
-        except NotImplementedError:
-            pass
-    return getattr(adapter, "display_name", backend_id)
+    """English backend label from ``display_name``, else the backend id."""
+    name = getattr(adapter, "display_name", None)
+    if isinstance(name, str) and name:
+        return name
+    return backend_id
 
 
 class SendHandlerHost(Protocol):
