@@ -829,7 +829,7 @@ def test_piper_rejects_nonzero_exit_even_when_wav_is_nonempty(tmp_path):
     mock_proc.returncode = 2
 
     with patch("plugin.audio.tts_service._venv_python", return_value="/venv/bin/python"), \
-         patch("plugin.audio.tts_models._resolve_piper_model_file", return_value="/models/v.onnx"), \
+         patch("plugin.audio.tts_service._resolve_piper_model_file", return_value="/models/v.onnx"), \
          patch("os.path.isfile", return_value=True), \
          patch("plugin.audio.tts_service._new_speech_temp", return_value=str(wav)), \
          patch("plugin.audio.tts_service._popen_for_speech", return_value=mock_proc), \
