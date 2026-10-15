@@ -1583,3 +1583,112 @@ def test_is_marshal_ready():
     qe._initialized = True
     assert qe.is_marshal_ready() is True
 
+
+def test_llm_request_lane_resume_callback_raise_releases_lock() -> None:
+    from plugin.framework.queue_executor import llm_request_lane, _LLM_REQUEST_LOCK
+    from plugin.framework.i18n import _
+
+    if _LLM_REQUEST_LOCK.locked():
+        _LLM_REQUEST_LOCK.release()
+
+    lock_held = False
+    releaser = None
+    try:
+        assert _LLM_REQUEST_LOCK.acquire(timeout=1.0)
+        lock_held = True
+
+        def releaser_target() -> None:
+            time.sleep(0.4)
+            _LLM_REQUEST_LOCK.release()
+
+        releaser = threading.Thread(target=releaser_target, daemon=True)
+        releaser.start()
+        lock_held = False
+
+        status_calls: list[str] = []
+
+        def cb(msg: str) -> None:
+            status_calls.append(msg)
+            if len(status_calls) == 2:
+                raise RuntimeError("status failed")
+
+        inside_body = False
+        with pytest.raises(RuntimeError, match="status failed"):
+            with llm_request_lane(timeout=2.0, status_callback=cb, resume_status="Thinking..."):
+                inside_body = True
+
+        assert not inside_body
+        releaser.join(timeout=2.0)
+        assert not releaser.is_alive()
+
+        acquired = _LLM_REQUEST_LOCK.acquire(timeout=1.0)
+        assert acquired
+        lock_held = True
+        _LLM_REQUEST_LOCK.release()
+        lock_held = False
+
+        assert len(status_calls) == 2
+        assert status_calls[0] == _("Waiting for another document's reply...")
+        assert status_calls[1] == "Thinking..."
+    finally:
+        if lock_held:
+            try:
+                _LLM_REQUEST_LOCK.release()
+            except RuntimeError:
+                pass
+        if releaser is not None and releaser.is_alive():
+            releaser.join(timeout=1.0)
+
+
+def test_grammar_llm_request_gate_timeout_when_full() -> None:
+    from plugin.framework.queue_executor import grammar_llm_request_gate, _GRAMMAR_INFLIGHT_LOCK
+    import plugin.framework.queue_executor as lc
+
+    with _GRAMMAR_INFLIGHT_LOCK:
+        assert lc._GRAMMAR_INFLIGHT_COUNT == 0
+        lc._GRAMMAR_INFLIGHT_COUNT = 2
+    try:
+        t0 = time.monotonic()
+        with pytest.raises(TimeoutError, match=r"after 0\.2s"):
+            with grammar_llm_request_gate(2, timeout=0.2):
+                pass
+        elapsed = time.monotonic() - t0
+        assert 0.15 <= elapsed < 0.8
+        with _GRAMMAR_INFLIGHT_LOCK:
+            assert lc._GRAMMAR_INFLIGHT_COUNT == 2
+    finally:
+        with _GRAMMAR_INFLIGHT_LOCK:
+            lc._GRAMMAR_INFLIGHT_COUNT = 0
+
+
+def test_grammar_llm_request_gate_wakeup_does_not_restart_timeout() -> None:
+    from plugin.framework.queue_executor import grammar_llm_request_gate, _GRAMMAR_INFLIGHT_LOCK, _GRAMMAR_INFLIGHT_CV
+    import plugin.framework.queue_executor as lc
+
+    with _GRAMMAR_INFLIGHT_LOCK:
+        assert lc._GRAMMAR_INFLIGHT_COUNT == 0
+        lc._GRAMMAR_INFLIGHT_COUNT = 2
+    recorded_timeouts: list[float] = []
+    orig_wait = _GRAMMAR_INFLIGHT_CV.wait
+
+    def fake_wait(timeout: float | None = None) -> bool:
+        assert timeout is not None
+        recorded_timeouts.append(timeout)
+        if len(recorded_timeouts) == 1:
+            time.sleep(0.25)
+            return True
+        return orig_wait(timeout)
+
+    try:
+        with patch.object(_GRAMMAR_INFLIGHT_CV, "wait", side_effect=fake_wait):
+            with pytest.raises(TimeoutError, match=r"after 0\.5s"):
+                with grammar_llm_request_gate(2, timeout=0.5):
+                    pass
+        assert len(recorded_timeouts) == 2
+        assert recorded_timeouts[0] > 0.45
+        assert recorded_timeouts[1] < 0.40
+    finally:
+        with _GRAMMAR_INFLIGHT_LOCK:
+            lc._GRAMMAR_INFLIGHT_COUNT = 0
+
+

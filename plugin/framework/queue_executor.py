@@ -416,10 +416,15 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
         log.warning("llm_request_lane timed out after %ss waiting for LLM lock", timeout)
         raise TimeoutError("Timed out waiting for LLM request lane lock after %ss" % timeout)
 
-    if notified_status and status_callback is not None:
-        status_callback(resume_status or "")
-
     try:
+        # Bugfix: the resume status_callback ran after acquire and before this
+        # try. A raise skipped _LLM_REQUEST_LOCK.release(), and every later
+        # llm_request_lane wait (chat, grammar limit 1, compaction) timed out
+        # for the rest of the process. The callback stays inside the hold so
+        # another request cannot pass it; finally still releases on that raise,
+        # and the with-body does not run.
+        if notified_status and status_callback is not None:
+            status_callback(resume_status or "")
         yield
     finally:
         _LLM_REQUEST_LOCK.release()
@@ -441,9 +446,16 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
             yield
         return
     global _GRAMMAR_INFLIGHT_COUNT
+    deadline = time.monotonic() + timeout
     with _GRAMMAR_INFLIGHT_CV:
+        # Bugfix: wait(timeout=timeout) restarted the full timeout whenever
+        # a wakeup still saw a full gate (spurious wake, or a new caller
+        # that took the slot before this waiter reacquired). The advertised
+        # bound is one deadline from entry. A wakeup that finds a free slot
+        # still takes it.
         while _GRAMMAR_INFLIGHT_COUNT >= limit:
-            if not _GRAMMAR_INFLIGHT_CV.wait(timeout=timeout):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not _GRAMMAR_INFLIGHT_CV.wait(timeout=remaining):
                 log.warning("grammar_llm_request_gate timed out after %ss waiting for slot", timeout)
                 raise TimeoutError("Timed out waiting for grammar request gate slot after %ss" % timeout)
         _GRAMMAR_INFLIGHT_COUNT += 1
@@ -848,10 +860,7 @@ class QueueExecutor:
                     if scope is not None and item.scope is not scope:
                         keep.append(item)
                         continue
-                    item.cancelled = True
-                    if item.blocking and item.event and not item.event.is_set():
-                        item.exception = SendCancelled()
-                        item.event.set()
+                    self._abandon_unstarted(item)
                 for item in keep:
                     self._work_queue.put(item)
                 kept_any = bool(keep)
