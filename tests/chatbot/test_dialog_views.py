@@ -642,8 +642,8 @@ def test_sync_mcp_config_snippet_does_not_sleep_on_the_caller() -> None:
 
     tunnel = MagicMock()
     tunnel.is_running = True
-    tunnel._provider = "cloudflare"
-    tunnel._public_url = ""
+    tunnel.provider = "cloudflare"
+    tunnel.public_url = ""
     tunnel.mcp_public_url.return_value = ""
     started: list[tuple[str, bool]] = []
 

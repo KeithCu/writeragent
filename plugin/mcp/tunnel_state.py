@@ -63,7 +63,6 @@ class TunnelState(BaseState):
 
 class TunnelEventKind(Enum):
     START_REQUESTED = auto()
-    PROCESS_STARTED = auto()
     URL_ACQUIRED = auto()
     PROCESS_EXITED = auto()
     RETRY_TIMER_EXPIRED = auto()
@@ -193,10 +192,6 @@ def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelSt
 
         effects.append(StartProcessEffect(port=port, provider=provider, provider_token=provider_token))
         new_state = dataclasses.replace(state, status=TunnelStatus.STARTING, port=port, provider=provider, provider_token=provider_token, public_url=None, retry_count=0, max_retries=max_retries, last_error=None, desired_running=True)
-        return FsmTransition(new_state, effects)
-
-    elif event.kind == TunnelEventKind.PROCESS_STARTED:
-        new_state = dataclasses.replace(state, status=TunnelStatus.STARTING)
         return FsmTransition(new_state, effects)
 
     elif event.kind == TunnelEventKind.URL_ACQUIRED:

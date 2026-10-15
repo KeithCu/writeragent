@@ -1,11 +1,12 @@
-"""Unit tests for the lightweight multi-provider MCP tunnel helper."""
-
+import dataclasses
 from unittest.mock import MagicMock, patch
 
 from plugin.mcp.tunnel import (
     TunnelManager,
     _redact_cmd_for_log,
-    _tailscale_off_commands,
+    _tailscale_off_command,
+    _tailscale_reset,
+    binary_available,
     build_bore_command,
     build_cloudflare_command,
     build_ngrok_command,
@@ -103,11 +104,13 @@ def test_build_ngrok_and_tailscale():
     assert build_tailscale_command(18765) == ["tailscale", "funnel", "18765"]
 
 
-def test_tailscale_off_commands_only_stops_funnel_port():
-    cmds = _tailscale_off_commands(18765)
-    assert cmds == (["tailscale", "funnel", "18765", "off"],)
-    # Must not run serve --https=443 off to avoid wiping user serve config
-    assert not any("serve" in cmd for cmd in cmds)
+def test_tailscale_off_command_targets_https_443():
+    cmd = _tailscale_off_command()
+    assert cmd == ["tailscale", "funnel", "--https=443", "off"]
+    assert "18765" not in cmd
+    assert "serve" not in cmd
+    assert "reset" not in cmd
+    assert build_tailscale_command(18765) == ["tailscale", "funnel", "18765"]
 
 
 def test_parse_cloudflare_url():
@@ -119,6 +122,10 @@ def test_parse_cloudflare_url():
     assert parse_cloudflare_url("INF Docs at https://developers.cloudflare.com/pages") is None
     # Token tunnels may log a custom hostname.
     assert parse_cloudflare_url("INF | https://mcp.example.com") == "https://mcp.example.com"
+    assert parse_cloudflare_url("INF connected https://1.1.1.1") is None
+    assert parse_cloudflare_url("INF | https://1.1.1.1") is None
+    assert parse_cloudflare_url("see https://mcp.example.com for docs") is None
+    assert parse_cloudflare_url("INF | https://api.cloudflare.com") is None
 
 
 
@@ -203,11 +210,11 @@ def test_normalize_public_base_and_mcp_url():
     assert normalize_public_base("bore.pub:1") == "http://bore.pub:1"
     assert normalize_public_base("https://x.trycloudflare.com/") == "https://x.trycloudflare.com"
     mgr = TunnelManager()
-    mgr._public_url = "bore.pub:45123"
+    mgr._state = dataclasses.replace(mgr._state, public_url="bore.pub:45123")
     assert mgr.mcp_public_url() == "http://bore.pub:45123/mcp"
-    mgr._public_url = "https://abc-123.trycloudflare.com/"
+    mgr._state = dataclasses.replace(mgr._state, public_url="https://abc-123.trycloudflare.com/")
     assert mgr.mcp_public_url() == "https://abc-123.trycloudflare.com/mcp"
-    mgr._public_url = None
+    mgr._state = dataclasses.replace(mgr._state, public_url=None)
     assert mgr.mcp_public_url() is None
 
 
@@ -747,7 +754,7 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
     ):
         assert mgr.start(18765, "tailscale") is True
         # pre_start resets before the funnel process is spawned.
-        assert reset_cmds == _tailscale_reset_cmds(18765)
+        assert reset_cmds == _tailscale_reset_cmds()
         assert mgr.provider == "tailscale"
 
         assert mgr.start(18765, "cloudflare") is True
@@ -757,9 +764,9 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
         # post_stop for the provider being left, not cloudflare (which has none).
         import time
         t0 = time.monotonic()
-        while len(reset_cmds) < len(_tailscale_reset_cmds(18765)) * 2 and time.monotonic() - t0 < 2:
+        while len(reset_cmds) < len(_tailscale_reset_cmds()) * 2 and time.monotonic() - t0 < 2:
             time.sleep(0.01)
-        assert reset_cmds == _tailscale_reset_cmds(18765) * 2
+        assert reset_cmds == _tailscale_reset_cmds() * 2
         # Stale tailscale exit must not drop the cloudflared process.
         exits[0](0)
         assert mgr._process is procs[1]
@@ -769,7 +776,7 @@ def test_leaving_tailscale_resets_funnel_for_old_provider(monkeypatch):
 
 
 def test_leaving_tailscale_resets_funnel_for_old_port_on_port_change(monkeypatch):
-    """When port changes on provider switch, post_stop must reset old port, not new port."""
+    """The local port is not the off target; both the pre_start and the post_stop on provider switch use the 443 command, including when the new MCP port is 19000."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     mgr = TunnelManager()
     reset_cmds: list[list[str]] = []
@@ -797,7 +804,7 @@ def test_leaving_tailscale_resets_funnel_for_old_port_on_port_change(monkeypatch
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
         assert mgr.start(18765, "tailscale") is True
-        assert reset_cmds == _tailscale_reset_cmds(18765)
+        assert reset_cmds == _tailscale_reset_cmds()
 
         # Switch to cloudflare on port 19000
         assert mgr.start(19000, "cloudflare") is True
@@ -805,11 +812,12 @@ def test_leaving_tailscale_resets_funnel_for_old_port_on_port_change(monkeypatch
         t0 = time.monotonic()
         while len(reset_cmds) < 2 and time.monotonic() - t0 < 2:
             time.sleep(0.01)
-        # Old port (18765) must be turned off, NOT the new port (19000)
         assert reset_cmds == [
-            ["tailscale", "funnel", "18765", "off"],
-            ["tailscale", "funnel", "18765", "off"],
+            ["tailscale", "funnel", "--https=443", "off"],
+            ["tailscale", "funnel", "--https=443", "off"],
         ]
+        assert "19000" not in reset_cmds[0]
+        assert "19000" not in reset_cmds[1]
         mgr.stop()
         _join_recorded_background(background)
 
@@ -838,7 +846,7 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
         exits.append(on_exit_cb)
         return proc
 
-    tailscale_reset = _tailscale_reset_cmds(18765)
+    tailscale_reset = _tailscale_reset_cmds()
 
     with (
         patch("plugin.mcp.tunnel.binary_available", return_value=True),
@@ -912,9 +920,9 @@ def test_reconnecting_tailscale_reset_without_live_process(monkeypatch):
         _join_recorded_background(background)
 
 
-def _tailscale_reset_cmds(port: int = 18765) -> list[list[str]]:
+def _tailscale_reset_cmds() -> list[list[str]]:
     return [
-        ["tailscale", "funnel", str(int(port)), "off"],
+        ["tailscale", "funnel", "--https=443", "off"],
     ]
 
 
@@ -951,7 +959,7 @@ def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch):
     reset_cmds: list[list[str]] = []
     scheduled: list = []
     spawned: list = []
-    tailscale_reset = _tailscale_reset_cmds(18765)
+    tailscale_reset = _tailscale_reset_cmds()
 
     def _run(cmd, **kwargs):
         del kwargs
@@ -967,7 +975,7 @@ def test_stale_tailscale_post_stop_does_not_clear_a_newer_funnel(monkeypatch):
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_capture_background(scheduled)),
     ):
         assert mgr.start(18765, "tailscale") is True
-        assert reset_cmds == _tailscale_reset_cmds(18765)
+        assert reset_cmds == _tailscale_reset_cmds()
         mgr.stop()
         assert len(scheduled) == 1
         assert reset_cmds == tailscale_reset
@@ -985,7 +993,7 @@ def test_tailscale_post_stop_runs_when_no_newer_session_started(monkeypatch):
     reset_cmds: list[list[str]] = []
     scheduled: list = []
     spawned: list = []
-    tailscale_reset = _tailscale_reset_cmds(18765)
+    tailscale_reset = _tailscale_reset_cmds()
 
     def _run(cmd, **kwargs):
         del kwargs
@@ -1015,7 +1023,7 @@ def test_tailscale_post_stop_still_runs_after_cloudflare_start(monkeypatch):
     reset_cmds: list[list[str]] = []
     scheduled: list = []
     spawned: list = []
-    tailscale_reset = _tailscale_reset_cmds(18765)
+    tailscale_reset = _tailscale_reset_cmds()
 
     def _run(cmd, **kwargs):
         del kwargs
@@ -1064,7 +1072,7 @@ def test_stopped_stop_resets_tailscale_when_crash_marker_exists(monkeypatch, tmp
         mgr.stop()
         assert len(scheduled) == 1
         scheduled[0]()
-        assert reset_cmds == _tailscale_reset_cmds(18765)
+        assert reset_cmds == _tailscale_reset_cmds()
         assert not marker.exists()
         mgr.stop()
         assert len(scheduled) == 1
@@ -1225,8 +1233,8 @@ def test_test_tunnel_connectivity_live_probe_success():
 
     mock_tunnel = MagicMock()
     mock_tunnel.is_running = True
-    mock_tunnel._provider = "cloudflare"
-    mock_tunnel._public_url = "https://test-live.trycloudflare.com"
+    mock_tunnel.provider = "cloudflare"
+    mock_tunnel.public_url = "https://test-live.trycloudflare.com"
     mock_tunnel.mcp_public_url.return_value = "https://test-live.trycloudflare.com/mcp"
 
     with (
@@ -1494,3 +1502,47 @@ def test_start_absent_token_in_env_and_args(monkeypatch):
         assert mgr.start(18765, "cloudflare", provider_token="") is True
         assert "TUNNEL_TOKEN" not in started_envs[-1]
         assert "--token" not in started_cmds[-1]
+
+
+def test_tailscale_reset_warns_on_nonzero_exit(caplog):
+    import logging
+
+    completed = MagicMock()
+    completed.returncode = 1
+    completed.stderr = "Error: the CLI for serve and funnel has changed."
+    completed.stdout = ""
+    with patch("subprocess.run", return_value=completed):
+        with caplog.at_level(logging.WARNING, logger="writeragent.mcp.tunnel"):
+            _tailscale_reset(18765)
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "exited 1" in warnings[0].message
+    assert "https=443" in warnings[0].message
+    assert not any(r.exc_info for r in caplog.records)
+
+
+def test_tailscale_reset_info_on_success(caplog):
+    import logging
+
+    completed = MagicMock()
+    completed.returncode = 0
+    completed.stderr = ""
+    completed.stdout = ""
+    with patch("subprocess.run", return_value=completed):
+        with caplog.at_level(logging.INFO, logger="writeragent.mcp.tunnel"):
+            _tailscale_reset(18765)
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert not warnings
+
+
+def test_binary_available_missing_is_warning(caplog):
+    import logging
+
+    with patch("subprocess.run", side_effect=FileNotFoundError):
+        with caplog.at_level(logging.WARNING, logger="writeragent.mcp.tunnel"):
+            assert binary_available("cloudflare") is False
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "not found" in warnings[0].message
+    assert not any(r.exc_info for r in caplog.records)
+
