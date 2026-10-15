@@ -120,6 +120,8 @@ A tracked change disappears on **both** accept and reject, so the outcome is der
 the anchored region against the pre-computed accept-form and reject-form, not by reading the
 redline afterward.
 
+If a portion read fails while building that accept-form or reject-form, the whole range's raw string is used. A failed `RecordChanges` read is not treated as off, and a failed restore is logged.
+
 ## Tool response shape
 
 When blocking wait is active, `apply_document_content` (chat sidebar and MCP on a worker thread)

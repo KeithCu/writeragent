@@ -24,12 +24,12 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 if TYPE_CHECKING:
     import uno
-    from com.sun.star.beans import PropertyValue, NamedValue
+    from com.sun.star.beans import PropertyValue
     from plugin.framework.tool import ToolContext
 else:
     try:
         import uno
-        from com.sun.star.beans import PropertyValue, NamedValue
+        from com.sun.star.beans import PropertyValue
     except ImportError:
         # Mocks for testing outside LO
         class _UnoMock:
@@ -43,13 +43,8 @@ else:
                 self.Name = Name
                 self.Value = Value
 
-        class NamedValue:
-            def __init__(self, Name: Any = None, Value: Any = None, **kwargs: Any) -> None:
-                self.Name = Name
-                self.Value = Value
-
 from plugin.doc.visual_helpers import parse_color_to_uno_int
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import is_disposed_exception, reraise_if_disposed
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
 from .format import CLEARABLE_PARA_PROPERTIES, apply_paragraph_style_preserving_direct_char
@@ -266,7 +261,9 @@ def _font_slant_to_int(raw: Any) -> Any:
 def _get_style_prop(style: Any, prop_name: str) -> Any:
     try:
         return style.getPropertyValue(prop_name)
-    except Exception:
+    except Exception as exc:
+        # A property this style does not have is None. A closed document is not.
+        reraise_if_disposed(exc)
         return None
 
 
@@ -579,19 +576,6 @@ _CLONE_TEXT_SERVICES = {
 }
 
 
-def _readonly_attribute() -> int:
-    """com.sun.star.beans.PropertyAttribute.READONLY. IDL value is 16."""
-    try:
-        import uno
-
-        flag = cast("Any", uno).getConstantByName("com.sun.star.beans.PropertyAttribute.READONLY")
-        if isinstance(flag, int) and not isinstance(flag, bool):
-            return flag
-    except Exception:
-        pass
-    return 16
-
-
 def _is_direct_property_state(state: Any) -> bool:
     """True for PropertyState.DIRECT_VALUE.
 
@@ -607,7 +591,6 @@ def _copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], li
     Returns (copied names, names that were direct but could not be set).
     page.copy_page_style imports this at call time: this module already imports page.
     """
-    readonly = _readonly_attribute()
     try:
         props = source.getPropertySetInfo().getProperties()
     except Exception as e:
@@ -622,7 +605,8 @@ def _copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], li
             attrs = int(getattr(prop, "Attributes", 0) or 0)
         except (TypeError, ValueError):
             attrs = 0
-        if attrs & readonly:
+        # PropertyAttribute.READONLY is the IDL constant 16.
+        if attrs & 16:
             continue
         try:
             state = source.getPropertyState(name)
@@ -703,8 +687,19 @@ def _normalize_property_updates(property_updates: Any) -> tuple[dict[str, Any], 
     return updates, None
 
 
+_installed_font_names_cache: set[str] | None = None
+
+
 def _installed_font_names(ctx: ToolContext) -> set[str] | None:
-    """Casefolded names LibreOffice can use, or None if the list is unavailable."""
+    """Casefolded names LibreOffice can use, or None if the list is unavailable.
+
+    A successful list is reused. style_update / style_create used to build a
+    VCL device and walk every font on each CharFontName write. None is not
+    cached: a headless toolkit can appear later.
+    """
+    global _installed_font_names_cache
+    if _installed_font_names_cache is not None:
+        return _installed_font_names_cache
     try:
         from plugin.framework.uno_context import get_toolkit
 
@@ -714,7 +709,9 @@ def _installed_font_names(ctx: ToolContext) -> set[str] | None:
         device = toolkit.createScreenCompatibleDevice(1, 1)
         if device is None:
             return None
-        return {str(f.Name).casefold() for f in device.getFontDescriptors() if getattr(f, "Name", None)}
+        names = {str(f.Name).casefold() for f in device.getFontDescriptors() if getattr(f, "Name", None)}
+        _installed_font_names_cache = names
+        return names
     except Exception:
         log.debug("font list unavailable", exc_info=True)
         return None
@@ -884,15 +881,10 @@ class StyleGetInfo(ToolWriterStyleBase):
 
         for prop_name in _FAMILY_PROPS.get(family, []):
             if prop_name == "ParentStyle":
-                try:
-                    info["ParentStyle"] = style.getParentStyle()
-                except Exception:
-                    pass
+                # getParentStyle does not throw on a live style.
+                info["ParentStyle"] = style.getParentStyle()
             else:
-                try:
-                    info[prop_name] = _schema_prop_value(prop_name, style.getPropertyValue(prop_name))
-                except Exception:
-                    pass
+                info[prop_name] = _schema_prop_value(prop_name, _get_style_prop(style, prop_name))
 
         extra_structs = []
         if family == "ParagraphStyles":
@@ -900,10 +892,7 @@ class StyleGetInfo(ToolWriterStyleBase):
         elif family == "CharacterStyles":
             extra_structs = [k for k in _STRUCT_PROPERTIES if k.startswith("Char")]
         for prop_name in extra_structs:
-            try:
-                info[prop_name] = _schema_prop_value(prop_name, style.getPropertyValue(prop_name))
-            except Exception:
-                pass
+            info[prop_name] = _schema_prop_value(prop_name, _get_style_prop(style, prop_name))
 
         return {"status": "ok", **info}
 
@@ -1004,9 +993,8 @@ class ApplyStyle(FrameworkToolBase):
             return self._tool_error("style is required.")
 
         family = kwargs.get("family", "ParagraphStyles")
-        uno_prop = self._PROPERTY_MAP.get(family)
-        if not uno_prop:
-            return self._tool_error("Unknown family: %s. Use ParagraphStyles or CharacterStyles." % family)
+        # Schema enum: ParagraphStyles or CharacterStyles.
+        uno_prop = self._PROPERTY_MAP[family]
 
         # UNO quirk: the default character style is applied by setting
         # CharStyleName to an empty string.
@@ -1062,10 +1050,8 @@ class ApplyStyle(FrameworkToolBase):
             if not ranges:
                 return {"status": "error", "message": "old_content not found in document.", "target": "search", "applied": False, "matched": False}
             if occ_raw is not None:
-                try:
-                    occ = int(occ_raw)
-                except (TypeError, ValueError):
-                    return self._tool_error("occurrence must be an integer.")
+                # Schema type integer (bool fails). validate has no min/max.
+                occ = occ_raw
                 if occ < 0 or occ >= len(ranges):
                     return self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
                 ranges = [ranges[occ]]
@@ -1105,11 +1091,20 @@ class ApplyStyle(FrameworkToolBase):
                         break
                 left = False
                 undone = False
+                leave_error: Exception | None = None
                 try:
                     mgr.leaveUndoContext()
                     left = True
-                except Exception:
+                except Exception as leave_exc:
                     log.exception("apply_style: leaveUndoContext failed")
+                    leave_error = leave_exc
+                # What was wrong: a failed leave with no apply error returned ok
+                # and left the undo context open, so the next edit folded into it.
+                # How it happened: leaveUndoContext's exception was only logged.
+                # Why this fixes it: disposal propagates; any other failed leave
+                # is an error after the matches were styled.
+                if leave_error is not None:
+                    reraise_if_disposed(leave_error)
                 if error is not None:
                     if left:
                         try:
@@ -1126,6 +1121,12 @@ class ApplyStyle(FrameworkToolBase):
                     return self._tool_error(
                         "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
                         % (applied, len(ranges), error)
+                    )
+                if leave_error is not None:
+                    return self._tool_error(
+                        "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
+                        "The changes are in the document and the undo context is still open."
+                        % (style_name, applied, leave_error)
                     )
             else:
                 for found in ranges:
@@ -1160,10 +1161,9 @@ class ApplyStyle(FrameworkToolBase):
         if not cursor:
             return self._tool_error("Failed to resolve target location.")
 
-        try:
-            report = self._apply_one(ctx, family, uno_prop, uno_value, cursor, clear_direct)
-        except Exception as e:
-            return self._tool_error("Could not apply style: %s" % e)
+        # execute_safe reports a failed apply. This catch hid a closed document
+        # as "Could not apply style".
+        report = self._apply_one(ctx, family, uno_prop, uno_value, cursor, clear_direct)
         result = {"status": "ok", "message": "Applied style '%s' (%s) to %s." % (style_name, family, target),
                   "style_name": style_name, "family": family, "target": target, "applied": True}
         result.update(self._merge_reports([report]))
@@ -1221,8 +1221,7 @@ class StyleUpdate(ToolWriterStyleBase):
         if token_err:
             return token_err
 
-        if "property_updates" in kwargs and not isinstance(kwargs["property_updates"], dict):
-            return self._tool_error("property_updates must be an object.")
+        # One object check. The copy above this line was the same test.
         property_updates = kwargs.get("property_updates", {})
         if not isinstance(property_updates, dict):
             return self._tool_error("property_updates must be an object.")
@@ -1357,8 +1356,7 @@ class StyleCreate(ToolWriterStyleBase):
 
         family = kwargs.get("family", "ParagraphStyles")
         parent_style = kwargs.get("parent_style")
-        if "property_updates" in kwargs and not isinstance(kwargs["property_updates"], dict):
-            return self._tool_error("property_updates must be an object.")
+        # One object check. The copy above this line was the same test.
         property_updates = kwargs.get("property_updates", {})
         if not isinstance(property_updates, dict):
             return self._tool_error("property_updates must be an object.")
@@ -1434,10 +1432,8 @@ class StyleCreate(ToolWriterStyleBase):
                 try:
                     conditions = []
                     for rule in cast("list[dict[str, str]]", conditional_rules):
-                        try:
-                            nv = cast("Any", uno.createUnoStruct("com.sun.star.beans.NamedValue"))
-                        except Exception:
-                            nv = cast("Any", NamedValue())
+                        # createUnoStruct("com.sun.star.beans.NamedValue") is the UNO struct.
+                        nv = cast("Any", uno.createUnoStruct("com.sun.star.beans.NamedValue"))
                         nv.Name = rule["context"]
                         nv.Value = rule["target_style"]
                         conditions.append(nv)
@@ -1510,20 +1506,16 @@ class StyleClone(ToolWriterStyleBase):
             return self._tool_error("new_style must be a different name from style.")
 
         family = kwargs.get("family") or "ParagraphStyles"
-        if family not in _CLONE_FAMILIES:
-            return self._tool_error("family must be one of %s." % ", ".join(_CLONE_FAMILIES))
+        # Schema enum: ParagraphStyles, PageStyles, CharacterStyles.
 
         token_err = _no_character_style_token_error(self, family, style_name)
         if token_err:
             return token_err
 
         doc = ctx.doc
-        try:
-            style_families = doc.getStyleFamilies()
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error("Could not read style families: %s" % e)
+        # getStyleFamilies does not fail on a live document. execute_safe
+        # reports a closed document.
+        style_families = doc.getStyleFamilies()
         if not style_families.hasByName(family):
             return self._tool_error("Document does not support style family: %s" % family)
         style_family = style_families.getByName(family)

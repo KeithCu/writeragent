@@ -46,6 +46,7 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 from plugin.contrib.nbformat import read_ipynb
 from plugin.notebook.cell_registry import NotebookDocState, _cell_heading, _coerce_notebook_text, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
 from plugin.notebook.notebook_controls import _CODE_FONT_NAME, _insert_code_input_in_flow, _insert_run_button_in_flow, _log_shape_add, _resolve_para_style, _style_control_paragraph, _text_area_width_units
+from plugin.framework.errors import reraise_if_disposed
 from plugin.writer.images.image_tools import _apply_graphic_properties, _create_embedded_graphic, _file_url_for_path, _mm_to_units, insert_image_at_locator
 
 log = logging.getLogger("writeragent.notebook")
@@ -1407,7 +1408,6 @@ def _file_url_to_local_path(src: str) -> str:
 
 def _fetch_remote_image(url: str, *, timeout: float) -> str | None:
     """Download a reachable http(s) image to a temp file; None when not reachable or budget exceeded."""
-    import socket
     from urllib.request import Request, urlopen
 
     t0 = time.monotonic()
@@ -1444,10 +1444,9 @@ def _fetch_remote_image(url: str, *, timeout: float) -> str | None:
         finally:
             tmp.close()
         return tmp.name
-    except (TimeoutError, socket.timeout):
-        log.debug("notebook markdown image timeout: %s", url)
-        return None
     except Exception:
+        # TimeoutError and socket.timeout are already Exception. The previous
+        # handler logged a different string and also returned None.
         log.debug("notebook markdown image URL not reachable: %s", url, exc_info=True)
         return None
 
@@ -1735,68 +1734,83 @@ def _import_cells(
         lead = not first_cell
         first_cell = False
 
-        if cell_type == "markdown":
-            stats["markdown"] += 1
-            _append_markdown_cell(doc, source, lead_break=lead, notebook_dir=notebook_dir, ctx=ctx, budget=budget)
-        elif cell_type == "code":
-            # Previous markdown (Heading 2 keep-with-next, HTML lists) must not
-            # glue onto this cell's unsplittable field.
-            _unglue_last_paragraph(doc)
-            title = _cell_heading(idx, cell_type, ec)
-            _append_body_paragraph(doc, title, notebook_in, lead_break=lead)
-            # Style-level KeepWithNext is missing on some LO builds; pin the
-            # gutter paragraph so In+field is not one unsplittable brick.
-            try:
-                gutter = doc.getText().createTextCursor()
-                gutter.gotoEnd(False)
-                gutter.setPropertyValue("ParaKeepTogether", False)
-                gutter.setPropertyValue("ParaKeepWithNext", False)
-            except Exception:
-                log.debug("notebook import In gutter keep flags not applied", exc_info=True)
-            field_name = f"nb_cell_{idx}_code"
-            if registry_state is not None:
-                entry = new_code_cell_entry(idx, ec, field_name)
-                registry_state.code_cells.append(entry)
-                # ▶ on the In [n]: row so it is not AS_CHARACTER-stacked under the
-                # tall field. update_in_prompt rewrites leading Text only (stops at Frame).
-                _insert_run_button_in_flow(doc, cell_id=entry.cell_id, controls_before=stats["shapes"], ctx=ctx)
+        try:
+            if cell_type == "markdown":
+                stats["markdown"] += 1
+                _append_markdown_cell(doc, source, lead_break=lead, notebook_dir=notebook_dir, ctx=ctx, budget=budget)
+            elif cell_type == "code":
+                # Previous markdown (Heading 2 keep-with-next, HTML lists) must not
+                # glue onto this cell's unsplittable field.
+                _unglue_last_paragraph(doc)
+                title = _cell_heading(idx, cell_type, ec)
+                _append_body_paragraph(doc, title, notebook_in, lead_break=lead)
+                # Style-level KeepWithNext is missing on some LO builds; pin the
+                # gutter paragraph so In+field is not one unsplittable brick.
+                try:
+                    gutter = doc.getText().createTextCursor()
+                    gutter.gotoEnd(False)
+                    gutter.setPropertyValue("ParaKeepTogether", False)
+                    gutter.setPropertyValue("ParaKeepWithNext", False)
+                except Exception:
+                    log.debug("notebook import In gutter keep flags not applied", exc_info=True)
+                field_name = f"nb_cell_{idx}_code"
+                if registry_state is not None:
+                    entry = new_code_cell_entry(idx, ec, field_name)
+                    registry_state.code_cells.append(entry)
+                    # ▶ on the In [n]: row so it is not AS_CHARACTER-stacked under the
+                    # tall field. update_in_prompt rewrites leading Text only (stops at Frame).
+                    _insert_run_button_in_flow(doc, cell_id=entry.cell_id, controls_before=stats["shapes"], ctx=ctx)
+                    stats["shapes"] += 1
+                _append_paragraph_break_at_end(doc)
+                _style_control_paragraph(doc)
+                stats["code"] += 1
+                _insert_code_input_in_flow(doc, name=field_name, source=source, controls_before=stats["shapes"])
                 stats["shapes"] += 1
-            _append_paragraph_break_at_end(doc)
-            _style_control_paragraph(doc)
-            stats["code"] += 1
-            _insert_code_input_in_flow(doc, name=field_name, source=source, controls_before=stats["shapes"])
-            stats["shapes"] += 1
-            # Invisible output bookmark at the end of the field paragraph — not a
-            # visible "Output" heading. A bookmark inside "Output" leaked as "/" .
-            if registry_state is not None and registry_state.code_cells:
-                cell_entry = registry_state.code_cells[-1]
-                bm_name = cell_entry.output_start_bookmark
-                if not insert_output_start_bookmark(doc, bm_name):
-                    # A saved name with no bookmark made later runs look for an
-                    # anchor that was never created and append output in the
-                    # wrong place. Drop the claim; the runner then uses the
-                    # code-field paragraph instead.
-                    log.warning("notebook import: output bookmark %r was not inserted for cell %d", bm_name, idx)
-                    cell_entry.output_start_bookmark = ""
-            # Interleave in notebook order. Used to dump all text, then all
-            # images, so [display image, print(...)] rendered print-then-image.
-            segments, n_text = _format_outputs_for_body(outputs, idx, execution_count=ec)
-            stats["outputs"] += n_text
-            for kind, payload in segments:
-                if kind == "text":
-                    if str(payload).strip():
-                        _append_body_text_block(doc, str(payload), output_style, lead_break=True)
-                else:
-                    _append_paragraph_break_at_end(doc)
-                    mime, b64 = payload
-                    raw = _decode_notebook_image(b64)
-                    if raw and _insert_image_in_flow(doc, raw=raw, mime=mime, images_before=stats["images"], ctx=ctx):
-                        stats["images"] += 1
+                # Invisible output bookmark at the end of the field paragraph — not a
+                # visible "Output" heading. A bookmark inside "Output" leaked as "/" .
+                if registry_state is not None and registry_state.code_cells:
+                    cell_entry = registry_state.code_cells[-1]
+                    bm_name = cell_entry.output_start_bookmark
+                    if not insert_output_start_bookmark(doc, bm_name):
+                        # A saved name with no bookmark made later runs look for an
+                        # anchor that was never created and append output in the
+                        # wrong place. Drop the claim; the runner then uses the
+                        # code-field paragraph instead.
+                        log.warning("notebook import: output bookmark %r was not inserted for cell %d", bm_name, idx)
+                        cell_entry.output_start_bookmark = ""
+                # Interleave in notebook order. Used to dump all text, then all
+                # images, so [display image, print(...)] rendered print-then-image.
+                segments, n_text = _format_outputs_for_body(outputs, idx, execution_count=ec)
+                stats["outputs"] += n_text
+                for kind, payload in segments:
+                    if kind == "text":
+                        if str(payload).strip():
+                            _append_body_text_block(doc, str(payload), output_style, lead_break=True)
                     else:
-                        log.debug("notebook import cell=%d skip image mime=%s", idx, mime)
-        else:
-            stats["raw"] += 1
-            _append_body_text_block(doc, source, _STYLE_BODY, lead_break=lead)
+                        _append_paragraph_break_at_end(doc)
+                        mime, b64 = payload
+                        raw = _decode_notebook_image(b64)
+                        if raw and _insert_image_in_flow(doc, raw=raw, mime=mime, images_before=stats["images"], ctx=ctx):
+                            stats["images"] += 1
+                        else:
+                            # Decode or insert failed. The break above is an empty
+                            # paragraph. Markdown images already fall back to alt text.
+                            log.warning("notebook import cell=%d image not inserted mime=%s", idx, mime)
+                            _append_body_paragraph(doc, "[image output omitted]", _STYLE_BODY, lead_break=False)
+            else:
+                stats["raw"] += 1
+                _append_body_text_block(doc, source, _STYLE_BODY, lead_break=lead)
+        except Exception as exc:
+            # One cell used to abort the import and skip the registry save.
+            # A closed document still aborts: filter() returns False.
+            reraise_if_disposed(exc)
+            log.exception("notebook import cell %d failed; importing the remaining cells", idx)
+            _append_body_paragraph(
+                doc,
+                "[Notebook cell %d could not be imported]" % idx,
+                _STYLE_BODY,
+                lead_break=True,
+            )
 
         log.debug("notebook import cell done index=%d cell_ms=%d controls=%d", idx, _mono_ms(cell_t0), stats["shapes"])
         if (idx + 1) % _PROGRESS_EVERY_N_CELLS == 0 or idx + 1 == cell_count:

@@ -720,3 +720,141 @@ def test_discard_changes_since_inactive_session_only_trims_list():
 
     assert session.changes == []
     doc.getBookmarks.assert_not_called()
+
+
+def test_portion_type_does_not_fall_back_to_attribute():
+    from plugin.writer.edit_review import _portion_type
+
+    class _AttrOnly:
+        TextPortionType = "Redline"
+
+        def getPropertyValue(self, name):
+            raise RuntimeError(name)
+
+    assert _portion_type(_AttrOnly()) is None
+
+
+def test_portion_type_closed_document_raises():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.edit_review import _portion_type
+
+    class _Closed:
+        def getPropertyValue(self, name):
+            raise type("DisposedException", (Exception,), {})("closed")
+
+    with pytest.raises(DocumentDisposedError):
+        _portion_type(_Closed())
+
+
+def test_portion_type_missing_property_is_not_a_redline():
+    from plugin.writer.edit_review import _portion_type
+
+    class _Paragraph:
+        def getPropertyValue(self, name):
+            raise RuntimeError("paragraph has no %s" % name)
+
+    assert _portion_type(_Paragraph()) is None
+
+
+class _SkipPortion:
+    def __init__(self, portion_type, redline_type=None, text="x", boom=None):
+        self._portion_type = portion_type
+        self._redline_type = redline_type
+        self._text = text
+        self._boom = boom
+
+    def getPropertyValue(self, name):
+        if self._boom == name:
+            raise RuntimeError(name)
+        if name == "TextPortionType":
+            return self._portion_type
+        if name == "RedlineType":
+            return self._redline_type
+        raise RuntimeError(name)
+
+    def getString(self):
+        if self._boom == "getString":
+            raise RuntimeError("getString")
+        return self._text
+
+
+class _SkipEnum:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def hasMoreElements(self):
+        return bool(self._items)
+
+    def nextElement(self):
+        return self._items.pop(0)
+
+
+class _SkipPara:
+    def __init__(self, portions):
+        self._portions = list(portions)
+
+    def createEnumeration(self):
+        return _SkipEnum(self._portions)
+
+    def getString(self):
+        return "RAW"
+
+
+class _SkipRange:
+    def __init__(self, paragraphs):
+        self._paragraphs = list(paragraphs)
+
+    def createEnumeration(self):
+        return _SkipEnum(self._paragraphs)
+
+    def getString(self):
+        return "WHOLE"
+
+
+def test_string_skipping_redline_unreadable_type_uses_whole_string():
+    # What was wrong: a failed RedlineType read was `pass`, so the skip toggle
+    # stayed off and the deleted text was kept in the "accepted" string.
+    from plugin.writer.edit_review import _string_skipping_redline
+
+    span = _SkipRange([_SkipPara([
+        _SkipPortion("Text", text="keep"),
+        _SkipPortion("Redline", boom="RedlineType"),
+        _SkipPortion("Text", text="gone"),
+        _SkipPortion("Redline", "Delete"),
+    ])])
+    assert _string_skipping_redline(span, "Delete") == "WHOLE"
+
+
+def test_string_skipping_redline_unreadable_portion_type_uses_whole_string():
+    from plugin.writer.edit_review import _string_skipping_redline
+
+    span = _SkipRange([_SkipPara([
+        _SkipPortion("Text", text="keep", boom="TextPortionType"),
+    ])])
+    assert _string_skipping_redline(span, "Delete") == "WHOLE"
+
+
+def test_string_skipping_redline_closed_portion_raises():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.edit_review import _string_skipping_redline
+
+    class _ClosedPortion(_SkipPortion):
+        def getPropertyValue(self, name):
+            raise type("DisposedException", (Exception,), {})("closed")
+
+    span = _SkipRange([_SkipPara([_ClosedPortion("Text", text="x")])])
+    with pytest.raises(DocumentDisposedError):
+        _string_skipping_redline(span, "Delete")
+
+
+def test_edit_review_enter_does_not_treat_recordchanges_read_failure_as_off():
+    from plugin.writer.edit_review import EditReviewSession
+
+    doc = MagicMock()
+    doc.getPropertyValue.side_effect = RuntimeError("recordchanges")
+    session = EditReviewSession(doc, MagicMock(), enabled=True)
+    with pytest.raises(RuntimeError, match="recordchanges"):
+        with session:
+            pass
+    doc.setPropertyValue.assert_not_called()
+    assert session._active is False
