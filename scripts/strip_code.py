@@ -363,13 +363,7 @@ def strip_deal_decorators(bundle_path: str, dry_run: bool = False) -> None:
     )
 
 
-def replace_thread_guard_implementation(bundle_path: str, dry_run: bool = False) -> None:
-    """Replace plugin/framework/thread_guard.py with a minimal, no-op stub implementation."""
-    target_file = os.path.join(bundle_path, "plugin", "framework", "thread_guard.py")
-    if not os.path.exists(target_file):
-        return
-
-    stubs = '''# Minimal stubs for production/release bundles to remove runtime check overhead.
+THREAD_GUARD_RELEASE_STUB: str = '''# Minimal stubs for production/release bundles to remove runtime check overhead.
 import threading
 from contextlib import contextmanager
 from typing import Any, Generator
@@ -482,6 +476,15 @@ __all__ = [
     "GUARD_ON",
 ]
 '''
+
+
+def replace_thread_guard_implementation(bundle_path: str, dry_run: bool = False) -> None:
+    """Replace plugin/framework/thread_guard.py with a minimal, no-op stub implementation."""
+    target_file = os.path.join(bundle_path, "plugin", "framework", "thread_guard.py")
+    if not os.path.exists(target_file):
+        return
+
+    stubs = THREAD_GUARD_RELEASE_STUB
     action = "Dry run: would replace" if dry_run else "Replacing"
     print(f"  {action} {target_file} with minimal stubs...")
     if not dry_run:

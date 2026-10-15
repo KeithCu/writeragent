@@ -70,17 +70,6 @@ _PENDING_POST_WAIT_SEC = 30.0
 # Slice for the untimed wait on a claimed marshal (log + shutdown check only).
 _UNTIMED_WAIT_SLICE_SEC = 5.0
 
-# Drain ownership: re-export from async_drain_guard (single-owner VCL pump sentry).
-from plugin.framework.async_drain_guard import (
-    NestedDrainOwnerError as NestedDrainOwnerError,
-    drain_owner_scope as drain_owner_scope,
-    get_drain_depth as get_drain_depth,
-    get_drain_owner as get_drain_owner,
-    get_suppressed_vcl_pump_count as get_suppressed_vcl_pump_count,
-    is_vcl_pump_allowed as is_vcl_pump_allowed,
-    note_suppressed_vcl_pump as note_suppressed_vcl_pump,
-    reset_suppressed_vcl_pump_count as reset_suppressed_vcl_pump_count,
-)
 
 
 def set_force_marshal_mode(enabled: bool) -> None:
@@ -1164,18 +1153,23 @@ def _pump_vcl_events(toolkit: Any) -> bool:
 def pump_ui_idle(toolkit: Any, *, max_queue_items: int = 1, executor: QueueExecutor | None = None) -> None:
     """Idle tick for main-thread wait loops: drain QueueExecutor, then maybe pump VCL.
 
-    Depth 0 or 1 still calls ``processEventsToIdle`` so chat Send stays responsive.
-    Same-owner re-entry (depth > 1) skips VCL — the outer owner is already pumping —
-    but still drains the marshal queue. Secondary UI progress must use
-    :func:`plugin.framework.uno_context.process_events_to_idle`, which no-ops while
-    a :func:`drain_owner_scope` is active.
+    Depth 0 or 1 still calls ``processEventsToIdle``; depth > 1 skips VCL and
+    still drains the marshal queue. ``owner_may_pump_vcl`` is only for this
+    function; secondary progress uses ``process_events_to_idle``, which no-ops
+    while any owner is set. See :func:`plugin.framework.async_drain_guard.drain_owner_scope`.
     """
+    from plugin.framework.async_drain_guard import (
+        get_drain_owner,
+        note_suppressed_vcl_pump,
+        owner_may_pump_vcl,
+    )
+
     pump_main_thread_work_queue(max_items=max_queue_items, executor=executor)
-    # is_vcl_pump_allowed (depth > 1) notes the suppression and skips VCL.
+    # owner_may_pump_vcl (depth > 1) notes the suppression and skips VCL.
     # The marshal queue above still runs so execute_on_main_thread is not stuck behind it.
     # Pumping VCL on every idle tick, including when a nested stream drain
     # (depth > 1) is already inside the outer pump, re-enters the owner.
-    if not is_vcl_pump_allowed():
+    if not owner_may_pump_vcl():
         note_suppressed_vcl_pump(get_drain_owner())
         return
     _pump_vcl_events(toolkit)

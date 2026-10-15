@@ -780,3 +780,60 @@ def test_proxy_setattr_only_target_is_local(monkeypatch):
         tg.GUARD_ON = was
 
 
+def test_pyuno_callable_method_result_is_proxied(monkeypatch):
+    class InnerUno:
+        __module__ = "pyuno"
+        value = 42
+
+        def queryInterface(self, _type):
+            return self
+
+    class PyUNO_callable:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def __call__(self, *args, **kwargs):
+            return self.inner
+
+    class DocumentStandin:
+        def __init__(self, inner):
+            self.getText = PyUNO_callable(inner)
+
+        def queryInterface(self, _type):
+            return self
+
+    inner = InnerUno()
+    doc = DocumentStandin(inner)
+
+    saved_guard = tg.GUARD_ON
+    tg.GUARD_ON = True
+    try:
+        calls = []
+        orig_assert = tg.assert_main_thread
+
+        def _tracking_assert(what: str) -> None:
+            calls.append(what)
+            orig_assert(what)
+
+        monkeypatch.setattr(tg, "assert_main_thread", _tracking_assert)
+        monkeypatch.setattr(tg, "on_main_thread", lambda: True)
+
+        prox = tg.guard_uno(doc)
+        method = prox.getText
+        assert isinstance(method, tg._UnoThreadGuardProxy)
+        assert type(method._target).__name__ == "PyUNO_callable"
+
+        res = method()
+        assert isinstance(res, tg._UnoThreadGuardProxy)
+        assert res._target is inner
+        assert "UNO() call" in calls
+
+        monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+        monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+        with pytest.raises(RuntimeError, match="UNO thread violation"):
+            _ = res.value
+    finally:
+        tg.GUARD_ON = saved_guard
+
+
+

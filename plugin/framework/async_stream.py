@@ -52,8 +52,19 @@ from plugin.framework.worker_pool import run_in_background
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
-from plugin.framework.async_drain_guard import acquire_drain_owner, release_drain_owner
-from plugin.framework.queue_executor import NestedDrainOwnerError, _marshal_thread_tag, async_callback_for_drain_rearm, default_executor, drain_owner_scope, get_drain_owner, pump_ui_idle
+from plugin.framework.async_drain_guard import (
+    NestedDrainOwnerError,
+    acquire_drain_owner,
+    drain_owner_scope,
+    get_drain_owner,
+    release_drain_owner,
+)
+from plugin.framework.queue_executor import (
+    _marshal_thread_tag,
+    async_callback_for_drain_rearm,
+    default_executor,
+    pump_ui_idle,
+)
 
 log = logging.getLogger(__name__)
 
@@ -752,7 +763,21 @@ class _AsyncCallbackRearm:
             if self._closed:
                 return
             self._pending.append(fn)
-        self._poke()
+        try:
+            self._poke()
+        except Exception:
+            # Bugfix: what was wrong: the slice stayed in _pending when addCallback raised.
+            # How: the idle timer's retry calls the same fire, which is lambda: self._enqueue(fn),
+            # so each failure appended another copy of that closure.
+            # Why this fixes it: that append is removed on exception, and the retry enqueues one copy.
+            # We take _lock and del the last entry that is the callable this call appended
+            # (not pop() the tail, because another writer can append during _poke).
+            with self._lock:
+                for idx in range(len(self._pending) - 1, -1, -1):
+                    if self._pending[idx] is fn:
+                        del self._pending[idx]
+                        break
+            raise
 
     def _notify(self) -> None:
         # crosshair: off

@@ -130,7 +130,7 @@ def test_focus_preserved_prefers_explicit_query_over_toolkit():
 
 def test_process_events_to_idle_calls_toolkit():
     from plugin.framework.uno_context import process_events_to_idle
-    from plugin.framework.queue_executor import reset_suppressed_vcl_pump_count
+    from plugin.framework.async_drain_guard import reset_suppressed_vcl_pump_count
 
     reset_suppressed_vcl_pump_count()
     toolkit = MagicMock()
@@ -141,7 +141,7 @@ def test_process_events_to_idle_calls_toolkit():
 
 
 def test_process_events_to_idle_suppressed_under_drain_owner():
-    from plugin.framework.queue_executor import (
+    from plugin.framework.async_drain_guard import (
         drain_owner_scope,
         get_suppressed_vcl_pump_count,
         reset_suppressed_vcl_pump_count,
@@ -159,7 +159,7 @@ def test_process_events_to_idle_suppressed_under_drain_owner():
 
 
 def test_process_events_to_idle_force_under_drain_owner():
-    from plugin.framework.queue_executor import drain_owner_scope, reset_suppressed_vcl_pump_count
+    from plugin.framework.async_drain_guard import drain_owner_scope, reset_suppressed_vcl_pump_count
     from plugin.framework.uno_context import process_events_to_idle
 
     reset_suppressed_vcl_pump_count()
@@ -217,7 +217,7 @@ def test_wait_while_pumping_swallows_pe2i_errors():
 
 
 def test_wait_while_pumping_under_drain_owner_still_waits():
-    from plugin.framework.queue_executor import drain_owner_scope, reset_suppressed_vcl_pump_count
+    from plugin.framework.async_drain_guard import drain_owner_scope, reset_suppressed_vcl_pump_count
     from plugin.framework.uno_context import wait_while_pumping
 
     reset_suppressed_vcl_pump_count()

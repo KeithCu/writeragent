@@ -6,6 +6,7 @@
 
 import gc
 import queue
+import threading
 import time
 import weakref
 from unittest.mock import MagicMock
@@ -24,7 +25,7 @@ from tests.framework.stream_test_helpers import (
 
 def test_nested_drain_closes_rearm_scheduler():
     """A refused start closes a re-arm that _finish will never see."""
-    from plugin.framework.queue_executor import drain_owner_scope
+    from plugin.framework.async_drain_guard import drain_owner_scope
 
     class _ClosableRearm:
         def __init__(self) -> None:
@@ -622,7 +623,7 @@ def test_overlapping_event_drains_keep_the_pump_owner_until_both_finish() -> Non
     The owner went back to None while the second drain still held the pump,
     so a different owner (MCP) could start under it.
     """
-    from plugin.framework.queue_executor import NestedDrainOwnerError, get_drain_depth, get_drain_owner, drain_owner_scope
+    from plugin.framework.async_drain_guard import NestedDrainOwnerError, get_drain_depth, get_drain_owner, drain_owner_scope
 
     # xdist can leave drain depth from an earlier test on this worker; without
     # a clean slate both releases leave owner="stream" and the final assert flakes.
@@ -844,4 +845,61 @@ def test_finish_runs_epilogues_when_idle_callback_raises_recursion_error() -> No
         remove_drain_idle_callback(failing_cb)
         _clear_event_drain()
         reset_sentry_state()
+
+
+def test_enqueue_rolls_back_slice_when_poke_raises():
+    from plugin.framework.async_stream import _AsyncCallbackRearm
+
+    def other() -> None:
+        pass
+
+    def fn() -> None:
+        pass
+
+    class RaisingService:
+        def addCallback(self, cb, data):
+            rearm._pending.append(other)
+            raise RuntimeError("poke failed")
+
+    rearm = _AsyncCallbackRearm(RaisingService())
+    with pytest.raises(RuntimeError, match="poke failed"):
+        rearm._enqueue(fn)
+
+    assert rearm._pending == [other]
+
+
+def test_idle_rearm_poke_failure_does_not_duplicate_slice(monkeypatch: pytest.MonkeyPatch):
+    from plugin.framework import async_stream
+    from plugin.framework.async_stream import _AsyncCallbackRearm
+
+    monkeypatch.setattr(async_stream, "_DRAIN_IDLE_REARM_SEC", 0.01)
+    monkeypatch.setattr(async_stream, "_IDLE_REARM_RETRY_MAX_SEC", 0.01)
+
+    pokes = 0
+    poke_lock = threading.Lock()
+    poke_event = threading.Event()
+
+    class CountingService:
+        def addCallback(self, cb, data):
+            nonlocal pokes
+            with poke_lock:
+                pokes += 1
+                current = pokes
+            if current == 1:
+                raise RuntimeError("first poke fails")
+            poke_event.set()
+
+    rearm = _AsyncCallbackRearm(CountingService())
+
+    def fn() -> None:
+        pass
+    try:
+        rearm.post_after(0.01, fn)
+        assert poke_event.wait(timeout=2.0)
+        with rearm._lock:
+            assert len(rearm._pending) == 1
+            assert rearm._pending[0] is fn
+    finally:
+        rearm.close()
+
 

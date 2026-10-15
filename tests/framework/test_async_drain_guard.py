@@ -11,8 +11,8 @@ from plugin.framework.async_drain_guard import (
     get_drain_depth,
     get_drain_owner,
     get_suppressed_vcl_pump_count,
-    is_vcl_pump_allowed,
     note_suppressed_vcl_pump,
+    owner_may_pump_vcl,
     release_drain_owner,
     reset_sentry_state,
     reset_suppressed_vcl_pump_count,
@@ -31,12 +31,12 @@ def _clean_sentry_state():
 def test_async_drain_guard_single_owner():
     assert get_drain_owner() is None
     assert get_drain_depth() == 0
-    assert is_vcl_pump_allowed() is True
+    assert owner_may_pump_vcl() is True
 
     with drain_owner_scope("chat_stream"):
         assert get_drain_owner() == "chat_stream"
         assert get_drain_depth() == 1
-        assert is_vcl_pump_allowed() is True
+        assert owner_may_pump_vcl() is True
 
     assert get_drain_owner() is None
     assert get_drain_depth() == 0
@@ -52,13 +52,13 @@ def test_async_drain_guard_prevents_nested_different_owners():
 def test_async_drain_guard_reentrant_same_owner_updates_depth():
     with drain_owner_scope("chat_stream"):
         assert get_drain_depth() == 1
-        assert is_vcl_pump_allowed() is True
+        assert owner_may_pump_vcl() is True
         with drain_owner_scope("chat_stream"):
             assert get_drain_depth() == 2
-            assert is_vcl_pump_allowed() is False
+            assert owner_may_pump_vcl() is False
 
         assert get_drain_depth() == 1
-        assert is_vcl_pump_allowed() is True
+        assert owner_may_pump_vcl() is True
 
 
 def test_acquire_release_drain_owner_overlap_and_depth():
@@ -159,13 +159,19 @@ def test_callback_added_during_notify_runs_on_next_idle(_isolated_idle_callbacks
     assert ran == ["first", "first", "second"]
 
 
-def test_queue_executor_reexports_async_drain_guard():
-    assert qe.NestedDrainOwnerError is NestedDrainOwnerError
-    assert qe.drain_owner_scope is drain_owner_scope
-    assert qe.get_drain_owner is get_drain_owner
-    assert qe.get_suppressed_vcl_pump_count is get_suppressed_vcl_pump_count
-    assert qe.reset_suppressed_vcl_pump_count is reset_suppressed_vcl_pump_count
-    assert qe.note_suppressed_vcl_pump is note_suppressed_vcl_pump
+def test_queue_executor_does_not_reexport_drain_guard():
+    for name in (
+        "NestedDrainOwnerError",
+        "drain_owner_scope",
+        "get_drain_depth",
+        "get_drain_owner",
+        "get_suppressed_vcl_pump_count",
+        "is_vcl_pump_allowed",
+        "owner_may_pump_vcl",
+        "note_suppressed_vcl_pump",
+        "reset_suppressed_vcl_pump_count",
+    ):
+        assert not hasattr(qe, name)
 
 
 def test_release_underflow_logs_and_skips_idle_callbacks(_isolated_idle_callbacks, caplog):
