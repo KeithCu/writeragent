@@ -39,17 +39,20 @@ _deal_url_ok = _deal_url_ok_crosshair if UNDER_CROSSHAIR else _deal_url_ok_pytes
 LIBREPY_DISPATCH_PROTOCOL = EXTENSION_ID_LIBREPY + ":"
 
 
-def matches_librepy_dispatch_url(url: Any) -> bool:
-    """Return True when *url* is a LibrePy menu/protocol dispatch URL."""
+def matches_extension_dispatch_url(url: Any, extension_id: str) -> bool:
+    """Return True when *url* is an extension menu/protocol dispatch URL."""
     proto = str(getattr(url, "Protocol", None) or "")
-    if proto.startswith(EXTENSION_ID_LIBREPY):
+    if proto.startswith(extension_id):
         return True
     complete = str(getattr(url, "Complete", None) or "")
-    return complete.startswith(LIBREPY_DISPATCH_PROTOCOL)
+    return complete.startswith(extension_id + ":")
 
 
 def dispatch_command_from_url(url: Any, *, protocol_prefix: str = LIBREPY_DISPATCH_PROTOCOL) -> str:
     """Extract handler command from a LibreOffice dispatch URL.
+
+    Shared extractor for LibrePy and WriterAgent dispatch URLs. WriterAgent
+    passes ``protocol_prefix``. Do not append ``Query`` here.
 
     LO usually sets ``Path`` (e.g. ``main.settings``). Some dispatch paths only
     populate ``Complete`` (``org.extension.librepy:main.settings``); derive Path

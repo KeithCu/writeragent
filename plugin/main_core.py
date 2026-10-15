@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 from plugin.framework.logging import init_logging, log as wa_log, log_exception
 from plugin.framework.constants import EXTENSION_ID_LIBREPY
 from plugin.framework.uno_context import get_ctx, set_fallback_ctx, set_package_extension_id
-from plugin.framework.url_utils import dispatch_command_from_url, matches_librepy_dispatch_url
+from plugin.framework.url_utils import dispatch_command_from_url, matches_extension_dispatch_url
 
 EXTENSION_ID = EXTENSION_ID_LIBREPY
 _DISPATCH_PROTOCOL = EXTENSION_ID + ":"
@@ -198,7 +198,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
         return self.SERVICE_NAMES
 
     def queryDispatch(self, URL: UnoURL, TargetFrameName: str, SearchFlags: int) -> XDispatch:  # pyright: ignore[reportIncompatibleMethodOverride]
-        if matches_librepy_dispatch_url(URL):
+        if matches_extension_dispatch_url(URL, EXTENSION_ID):
             return cast("XDispatch", self)
         # UNO allows null dispatch; stub types reject None → cast via object.
         return cast("XDispatch", cast("object", None))

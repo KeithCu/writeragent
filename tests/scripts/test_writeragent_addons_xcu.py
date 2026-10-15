@@ -249,3 +249,23 @@ def test_writeragent_mcp_images_section_points_at_assets():
     assert _PROTOCOL + "scripting.import_ipynb" not in by_url
     settings = _PROTOCOL + "main.settings"
     assert by_url[settings] == "%origin%/assets/gear_32.png"
+
+
+def test_static_menu_titles_cover_addons_commands():
+    from plugin.main import _STATIC_MENU_TITLES
+
+    root = ET.parse(_ADDONS_XCU).getroot()
+    urls: set[str] = set()
+    for root_node in root.iter("node"):
+        node_name = root_node.get(_OOR_NAME)
+        if node_name in ("org.extension.writeragent.menubar", "org.extension.writeragent.toolbar"):
+            for item in root_node.iter("node"):
+                url = _prop_text(item, "URL")
+                if url and url != "private:separator":
+                    urls.add(url)
+
+    prefix = "org.extension.writeragent:"
+    for url in urls:
+        if url.startswith(prefix):
+            cmd = url[len(prefix) :]
+            assert cmd in _STATIC_MENU_TITLES, f"Missing static menu title for {cmd}"

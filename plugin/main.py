@@ -90,6 +90,7 @@ from plugin.framework.uno_context import (
     uno_same,
 )
 from plugin.framework.thread_guard import background, on_main_thread
+from plugin.framework.url_utils import dispatch_command_from_url, matches_extension_dispatch_url
 
 EXTENSION_ID = EXTENSION_ID_WRITERAGENT
 _DISPATCH_PROTOCOL = EXTENSION_ID + ":"
@@ -127,6 +128,9 @@ _terminate_listener: Any | None = None
 def _install_terminate_listener(ctx: Any) -> None:
     """Register a desktop XTerminateListener to clean up child processes on app exit."""
     global _terminate_listener
+    # The first successful addTerminateListener is process-lifetime and is not
+    # removed or replaced; a failed install leaves the global None so the next
+    # bootstrap retries.
     if _terminate_listener is not None:
         return
     try:
@@ -215,6 +219,8 @@ def bootstrap(ctx: Any | None = None) -> None:
     """
     global _services, _tools, _modules, _initialized, _bootstrap_error, _bootstrapping
 
+    # Off-thread get_menu_text and _get_menu_icon depend on returning early
+    # when initialized, before the on_main_thread check raises BOOTSTRAP_OFF_THREAD.
     if _initialized:
         return
 
@@ -316,7 +322,7 @@ def bootstrap(ctx: Any | None = None) -> None:
         # 5. Load manifest and initialize modules
         from plugin.framework.module_base import ModuleLoader
 
-        background_failed = False
+        module_phase_failed = False
         try:
             _modules.extend(ModuleLoader.load_modules(_services))
 
@@ -324,7 +330,7 @@ def bootstrap(ctx: Any | None = None) -> None:
             for mod in _modules:
                 mod.start_background(_services)
         except Exception as exc:
-            background_failed = True
+            module_phase_failed = True
             log.exception("bootstrap failed after the init flag was set")
             _bootstrap_error = exc
             if not _modules:
@@ -365,7 +371,7 @@ def bootstrap(ctx: Any | None = None) -> None:
                 _bootstrap_error = exc
             return
 
-        if not background_failed:
+        if not module_phase_failed:
             _bootstrap_error = None
     finally:
         _bootstrapping = False
@@ -376,7 +382,6 @@ def _register_core_handlers() -> None:
     from plugin.chatbot.dialog_views import settings_box
     from plugin.chatbot.eval_dashboard_ui import show_eval_dashboard
     from plugin.doc.doc_type import is_writer, is_calc, is_draw
-    import importlib
 
     def _install_optional(fn: Callable[..., Any], *args: Any, message: str, level: int = logging.DEBUG) -> None:
         try:
@@ -400,9 +405,7 @@ def _register_core_handlers() -> None:
         register_action_handler(
             "main",
             action,
-            lambda m=mod_name, c=checker, t=test_name: _run_test_suite(
-                importlib.import_module(m), c, t
-            ),
+            lambda m=mod_name, c=checker, t=test_name: _run_test_suite(m, c, t),
         )
     register_action_handler("main", "NoOp", lambda: None)
 
@@ -539,7 +542,7 @@ def _show_tests_unavailable(test_name: str) -> None:
         log.exception("test unavailable dialog failed: %s", test_name)
 
 
-def _run_test_suite(test_func: Any, doc_checker: Callable[[Any], bool], test_name: str) -> None:
+def _run_test_suite(module_name: str, doc_checker: Callable[[Any], bool], test_name: str) -> None:
     """Run a bundled in-OXT test suite on the UI thread and show the result.
 
     Must not use ``run_blocking_in_thread``: synchronous UNO tools reject calls from
@@ -551,24 +554,36 @@ def _run_test_suite(test_func: Any, doc_checker: Callable[[Any], bool], test_nam
         _show_tests_unavailable(test_name)
         return
 
+    from plugin.framework.i18n import _
+
     ctx = get_ctx()
     try:
         log.info(f"_run_test_suite start: {test_name}")
+        # What was wrong: test modules were imported during handler registration even when test suites were unbundled or never invoked.
+        # How it happened: handlers passed an eagerly imported module object into _run_test_suite.
+        # Why this change: pass the module name string and import dynamically only after _tests_bundled() succeeds.
+        import importlib
+
+        test_module = importlib.import_module(module_name)
         from plugin.testing_runner import run_module_suite
 
         model = get_active_document(ctx)
         doc_model = model if (model and doc_checker(model)) else None
         log.debug(f"Calling run_module_suite for {test_name}")
-        p, f, suite_log = run_module_suite(ctx, test_func, test_name, doc_model)
+        p, f, suite_log = run_module_suite(ctx, test_module, test_name, doc_model)
         log.info(f"_run_test_suite finished: {test_name}, p={p}, f={f}")
-        from plugin.framework.i18n import _
-
         msgbox(ctx, test_name, _("{0}: {1} passed, {2} failed.").format(test_name, p, f) + "\n\n" + "\n".join(suite_log))
     except Exception as e:
         log.exception("_run_test_suite failed: %s", test_name)
-        from plugin.framework.i18n import _
-
         msgbox(ctx, test_name, _("Tests failed to run: {0}").format(str(e)))
+
+
+def _split_command(command: str) -> tuple[str, str] | None:
+    """Split a command into (module_name, action) at the first dot, or None if dot <= 0."""
+    dot = command.find(".")
+    if dot <= 0:
+        return None
+    return command[:dot], command[dot + 1 :]
 
 
 def _find_module(mod_name: str) -> ModuleBase | None:
@@ -604,10 +619,9 @@ def _dispatch_command(command: str) -> None:
         return
 
     # If no handler, check for module delegation
-    dot = command.find(".")
-    if dot > 0:
-        mod_name = command[:dot]
-        action = command[dot + 1 :]
+    parts = _split_command(command)
+    if parts is not None:
+        mod_name, action = parts
 
         # Module actions
         mod = _find_module(mod_name)
@@ -623,7 +637,7 @@ def _dispatch_command(command: str) -> None:
             code="BOOTSTRAP_FAILED",
         ) from _bootstrap_error
 
-    if dot <= 0:
+    if parts is None:
         log.warning("Unhandled command: %s", command)
         return
 
@@ -659,6 +673,11 @@ _STATIC_MENU_TITLES: dict[str, str] = {
     "notebook.run_from_here": "Run From Here",
     "notebook.stop": "Stop",
     "writer.insert_latex_dialog": "Edit LaTeX Math...",
+    # None would leave the en-US toolbar title; map these so translations apply
+    "writer.review_prev": "◀ Prev",
+    "writer.review_next": "Next ▶",
+    "writer.review_accept_all": "Accept all",
+    "writer.review_reject_all": "Reject all",
     "embeddings.search_dialog": "Search Nearby Files...",
     "textanalytics.open_dialog": "Text Analytics...",
     "calc.convert_spreadsheet_to_python": "Convert Sheet to Python...",
@@ -668,11 +687,10 @@ _STATIC_MENU_TITLES: dict[str, str] = {
 def get_menu_text(command: str) -> str | None:
     """Get dynamic menu text for a command, or None for default."""
     bootstrap()
-    dot = command.find(".")
-    if dot <= 0:
+    parts = _split_command(command)
+    if parts is None:
         return None
-    mod_name = command[:dot]
-    action = command[dot + 1 :]
+    mod_name, action = parts
 
     from plugin.framework.i18n import _
 
@@ -688,6 +706,22 @@ def get_menu_text(command: str) -> str | None:
         return _(msgid)
 
     return None
+
+
+def _command_from_dispatch_url(url: Any) -> str:
+    """Extract command from a WriterAgent dispatch URL.
+
+    Packet G: ``org.extension.writeragent:chatbot.debug_sidebar?RECORD_CLICKED``.
+    LO may put the debug op in ``Query``, or in ``Path`` as ``chatbot.debug_sidebar?OP``.
+    """
+    # What was wrong: dispatch command extraction read url.Path directly, ignoring Complete-only URLs and double-appending queries.
+    # How it happened: Path and Query handling was duplicated across dispatch and status listeners without Complete-only fallback.
+    # Why this change: delegate base extraction to dispatch_command_from_url and append Query only when ? is not already in command.
+    command = dispatch_command_from_url(url, protocol_prefix=_DISPATCH_PROTOCOL)
+    query = getattr(url, "Query", None) or ""
+    if query and "?" not in command:
+        return "%s.%s" % (command, query)
+    return command
 
 
 def _prune_failed_status_listeners(failed: list[tuple[Any, Any]]) -> None:
@@ -717,13 +751,28 @@ def notify_menu_update() -> None:
         snapshot = list(_status_listeners)
     failed = []
     for listener, url in snapshot:
-        command = url.Path
-        text = get_menu_text(command)
+        command = ""
+        try:
+            # What was wrong: menu text retrieval and statusChanged were grouped in a single try block, so text errors treated the listener as dead.
+            # How it happened: get_menu_text exception caused the listener to be appended to failed and pruned from listeners.
+            # Why this change: isolate command/text lookup; log and skip on text failure without marking listener failed or pruning it.
+            command = _command_from_dispatch_url(url)
+            text = get_menu_text(command)
+        except Exception:
+            log.exception(
+                "notify_menu_update: menu text failed for %s",
+                getattr(url, "Complete", ""),
+            )
+            continue
         try:
             _fire_status_event(listener, url, text)
         except Exception as e:
             failed.append((listener, url))
-            log.warning("notify_menu_update: failed to fire status event for %s: %s", command, e)
+            log.warning(
+                "notify_menu_update: failed to fire status event for %s: %s",
+                command,
+                e,
+            )
     if failed:
         # What was wrong: this prune called uno_same on the pool worker.
         # uno_same is @main_thread_only, so a dev build raised before the
@@ -741,7 +790,10 @@ def notify_menu_update() -> None:
             try:
                 from plugin.framework.queue_executor import post_to_main_thread
 
-                post_to_main_thread(_prune_failed_status_listeners, list(failed))
+                # What was wrong: prune post defaulted to the current send scope and was cancelled if user clicked Stop.
+                # How it happened: post_to_main_thread omitted bound_scope, inheriting the worker thread's copied contextvar.
+                # Why this change: pass bound_scope=None because listener cleanup is UI maintenance, not send work.
+                post_to_main_thread(_prune_failed_status_listeners, list(failed), bound_scope=None)
             except Exception:
                 log.exception("notify_menu_update: failed to post listener prune")
     if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
@@ -755,7 +807,7 @@ def _fire_status_event(listener: Any, url: Any, text: str | None) -> None:
     """Send a FeatureStateEvent to one listener."""
     ev = cast("Any", uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent"))
     ev.FeatureURL = url
-    command = url.Path
+    command = _command_from_dispatch_url(url)
     ev.IsEnabled = True
     if command in {"main.RunFormatTests", "main.RunCalcTests", "main.RunCalcIntegrationTests", "main.RunDrawTests"}:
         ev.IsEnabled = _tests_bundled()
@@ -774,11 +826,10 @@ _IMAGE_MANAGER_MODULES = ("com.sun.star.text.TextDocument", "com.sun.star.sheet.
 def _get_menu_icon(command: str) -> str | None:
     """Get dynamic icon prefix for a command, or None."""
     bootstrap()
-    dot = command.find(".")
-    if dot <= 0:
+    parts = _split_command(command)
+    if parts is None:
         return None
-    mod_name = command[:dot]
-    action = command[dot + 1 :]
+    mod_name, action = parts
     mod = _find_module(mod_name)
     if mod is not None:
         return mod.get_menu_icon(action)
@@ -981,7 +1032,10 @@ def _update_menu_icons() -> None:
     """
     from plugin.framework.queue_executor import post_to_main_thread
 
-    post_to_main_thread(_update_menu_icons_impl)
+    # What was wrong: icon updates inherited the worker thread's send scope and were cancelled when Stop was clicked.
+    # How it happened: post_to_main_thread omitted bound_scope, binding to the active send task contextvar.
+    # Why this change: pass bound_scope=None because menu icon application is UI maintenance, not send work.
+    post_to_main_thread(_update_menu_icons_impl, bound_scope=None)
 
 
 _LEGACY_FRAMEWORK_COMMANDS: dict[str, str] = {
@@ -1110,8 +1164,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
     # ── XDispatchProvider ────────────────────────────────────────
 
     def queryDispatch(self, URL: UnoURL, TargetFrameName: str, SearchFlags: int) -> XDispatch:  # pyright: ignore[reportIncompatibleMethodOverride]
-        url = URL
-        if url.Protocol == _DISPATCH_PROTOCOL:
+        if matches_extension_dispatch_url(URL, EXTENSION_ID):
             return cast("XDispatch", self)
         # UNO allows null dispatch; stub types reject None → cast via object.
         return cast("XDispatch", cast("object", None))
@@ -1123,12 +1176,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
 
     def dispatch(self, URL: UnoURL, Arguments: Any) -> None:
         url = URL
-        command = url.Path
-        # Packet G: ``org.extension.writeragent:chatbot.debug_sidebar?RECORD_CLICKED``.
-        # LO drops the suffix after the last path dot; Query carries the op.
-        query = getattr(url, "Query", None) or ""
-        if query:
-            command = "%s.%s" % (command, query)
+        command = _command_from_dispatch_url(url)
         from plugin.framework.logging import init_logging, log_exception
 
         try:
@@ -1179,8 +1227,16 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
             ]
             _status_listeners.append((listener, url))
         # Send current state immediately
-        command = url.Path
-        text = get_menu_text(command)
+        try:
+            command = _command_from_dispatch_url(url)
+            text = get_menu_text(command)
+        except Exception:
+            log.exception(
+                "addStatusListener: menu text failed for %s",
+                getattr(url, "Complete", ""),
+            )
+            return
+
         if text is not None:
             try:
                 _fire_status_event(listener, url, text)
