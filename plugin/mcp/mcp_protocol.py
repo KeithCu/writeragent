@@ -25,6 +25,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import os
 import select
 import socket
 import threading
@@ -33,6 +34,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
+from urllib.parse import unquote
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -59,17 +61,21 @@ _SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({MCP_PROTOCOL_VERSION, "2024-11-05
 
 def _document_echo_payload(doc: Any) -> dict[str, Any] | None:
     """{name, uid} of the resolved target document, or None. Reads UNO properties — call ONLY
-    where UNO access is legal (the main thread); worker-thread callers must precompute this."""
+    where UNO access is legal (the main thread); worker-thread callers must precompute this.
+
+    Best-effort: a disposed document or a thread-guard failure must not fail the tool
+    result. The exception is logged so that failure is visible in writeragent_debug.log.
+    """
     if doc is None:
         return None
     try:
-        import os
-        from urllib.parse import unquote
-
         url = str(getattr(doc, "URL", "") or "")
         name = unquote(os.path.basename(url)) if url else "Untitled"
         return {"name": name, "uid": get_runtime_uid(doc)}
     except Exception:
+        # Echo is diagnostic. Returning None with no log hid a thread-guard or
+        # proxy regression as a missing "document" field on an otherwise successful call.
+        log.exception("MCP document echo failed")
         return None
 
 

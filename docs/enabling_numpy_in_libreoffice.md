@@ -569,7 +569,7 @@ LibreOffice Calc operates strictly on double-precision floats (`double`/`float`)
   - `float('nan')` / `np.nan` -> raw NaN (the Calc add-in bridge renders this as a cascading error, typically `#NUM!` or `#VALUE!`)
   - `±inf` and `decimal.Decimal` -> `float` (inf may also error in formulas; Decimal precision loss is accepted)
   - `datetime` / `Timestamp` / `datetime64` -> naive ISO-8601 (tz offset stripped). Timedelta -> fractional days.
-  - Other `bool`, `float`, and `str` values are preserved as-is.
+  - Other `bool`, `float`, and `str` values are preserved as-is. `py_addin_cell_value` then maps the eight tokens above to formula errors, and `to_calc_compatible` itself still returns those strings.
   - Lists and tuples are recursively converted to tuples of these Calc-supported types.
 
 These coercions are the **complete** Calc type contract. Do not add wire payload kinds for inf, NaT, Decimal, or datetime — see [data shapes](calc/py-data-shapes.md#dates-and-datetimes).

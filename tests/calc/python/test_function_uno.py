@@ -24,10 +24,15 @@ from plugin.calc.python.function import (
     SpillRecord,
     _py_scoped_dir_bindings,
     _spill_registry_doc_key,
+    clear_in_memory_spill_state,
+    clear_python_addin_cache,
+    perform_deferred_spill,
 )
+from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 from plugin.doc.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
+from plugin.tests.testing_utils import with_native_doc
 from plugin.writer.format import create_property_value
 
 _FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures"
@@ -366,5 +371,114 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
         for k in list(SPILL_REGISTRY.keys()):
             if k[0] == doc_key:
                 SPILL_REGISTRY.pop(k, None)
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_addin_worker_exception_formula_error(ctx, doc):
+    """Add-in bridge returns quiet-NaN formula error (519) on worker execution failure."""
+    import unittest.mock
+
+    sheet = doc.getSheets().getByIndex(0)
+    clear_python_addin_cache()
+    try:
+        err_msg = "Code execution failed at line 'bad' due to: ValueError: bad"
+        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+            mock_run.return_value = {"status": "error", "message": err_msg}
+            cell = sheet.getCellByPosition(0, 0)
+            cell.setFormula('=PY("bad")')
+            doc.calculateAll()
+            assert cell.getError() == 519
+            assert "Error: Code execution failed" not in cell.getString()
+    finally:
+        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_addin_div0_token_formula_error(ctx, doc):
+    """Add-in bridge maps #DIV/0! token to 532 formula error."""
+    import unittest.mock
+
+    sheet = doc.getSheets().getByIndex(0)
+    clear_python_addin_cache()
+    try:
+        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+            mock_run.return_value = {"status": "ok", "result": "#DIV/0!"}
+            cell = sheet.getCellByPosition(0, 0)
+            cell.setFormula('=PY("result = \'#DIV/0!\'")')
+            doc.calculateAll()
+            assert cell.getError() == 532
+    finally:
+        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_addin_na_token_formula_error(ctx, doc):
+    """Add-in bridge maps #N/A token to 32767 formula error."""
+    import unittest.mock
+
+    sheet = doc.getSheets().getByIndex(0)
+    clear_python_addin_cache()
+    try:
+        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+            mock_run.return_value = {"status": "ok", "result": "#N/A"}
+            cell = sheet.getCellByPosition(0, 0)
+            cell.setFormula('=PY("result = \'#N/A\'")')
+            doc.calculateAll()
+            assert cell.getError() == 32767
+    finally:
+        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+
+
+@native_test
+@with_native_doc("calc")
+def test_py_spill_neighbors_formula_error(ctx, doc):
+    """Spill neighbors: #N/A is written as void (error 32767), others as =#ERRxxx!."""
+    import unittest.mock
+
+    sheet = doc.getSheets().getByIndex(0)
+    sheet_name = str(sheet.getName() or "Sheet1")
+    clear_python_addin_cache()
+    code = "result = [[1, '#VALUE!'], ['#N/A', '#DIV/0!']]"
+    try:
+        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+            mock_run.return_value = {"status": "ok", "result": [[1, "#VALUE!"], ["#N/A", "#DIV/0!"]]}
+            cell_a1 = sheet.getCellByPosition(0, 0)
+            cell_a1.setFormula(f'=PY("{code}")')
+            grid = [[1, "#VALUE!"], ["#N/A", "#DIV/0!"]]
+            perform_deferred_spill(
+                ctx,
+                doc.getURL(),
+                sheet_name,
+                0,
+                0,
+                grid,
+                doc=doc,
+                sheet=sheet,
+                code=code,
+            )
+            doc.calculateAll()
+
+            # B1 is (col 1, row 0): #VALUE! -> getError() 519, getFormula() =#ERR519! or =#VALUE!
+            cell_b1 = sheet.getCellByPosition(1, 0)
+            assert cell_b1.getError() == 519
+            assert cell_b1.getFormula() in ("=#ERR519!", "=#VALUE!")
+
+            # A2 is (col 0, row 1): #N/A -> getError() 32767
+            cell_a2 = sheet.getCellByPosition(0, 1)
+            assert cell_a2.getError() == 32767
+
+            # B2 is (col 1, row 1): #DIV/0! -> getError() 532, getFormula() =#ERR532! or =#DIV/0!
+            cell_b2 = sheet.getCellByPosition(1, 1)
+            assert cell_b2.getError() == 532
+            assert cell_b2.getFormula() in ("=#ERR532!", "=#DIV/0!")
+
+            # A1 is still the =PY() formula
+            assert "PY" in cell_a1.getFormula()
+    finally:
+        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+
 
 

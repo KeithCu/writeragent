@@ -433,3 +433,26 @@ def test_speak_endpoint_stopped_during_playback_skips_system():
         system.assert_not_called()
     finally:
         tts.stop_speech()
+
+
+def test_endpoint_empty_body_is_failure_not_a_file():
+    statuses: list[str] = []
+    cfg._tts_response_format.clear()
+    try:
+        with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"", "audio/pcm;rate=24000")), \
+             patch("plugin.audio.tts_service._new_speech_temp") as mock_new_temp:
+            result = _download_endpoint_speech(
+                "Hello",
+                "https://api.example",
+                "k",
+                model="m",
+                voice="v",
+                on_status=statuses.append,
+            )
+            assert result is None
+            mock_new_temp.assert_not_called()
+            assert len(statuses) == 1
+            assert "failed" in statuses[0].lower()
+            assert cfg.cached_tts_response_format("m") is None
+    finally:
+        cfg._tts_response_format.clear()

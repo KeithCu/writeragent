@@ -49,7 +49,16 @@ def remember_download_failed(generation: int | None, key: str) -> None:
     """Record a failed download key for the current speech generation."""
     if generation is None:
         return
-    _failed_model_downloads.setdefault(generation, set()).add(key)
+    from plugin.audio.tts_service import _speech_generation, _speech_lock
+
+    with _speech_lock:
+        # stop_speech() pops this generation under _speech_lock. A download thread
+        # that failed after that pop used to setdefault a new set for the cancelled
+        # generation, and _end_utterance will not pop a generation that no longer
+        # matches, so the entry leaked.
+        if generation != _speech_generation:
+            return
+        _failed_model_downloads.setdefault(generation, set()).add(key)
 
 
 def is_download_failed(generation: int | None, key: str) -> bool:
@@ -70,13 +79,37 @@ def _notify_tts_status(
     *,
     progress: bool = False,
 ) -> None:
-    if on_status is None or not text:
+    """Notify TTS status.
+
+    progress=True uses a progress method when the callback has one (Settings →
+    Test voice, modeless box instead of a blocking MessageBox); a plain callable
+    still receives on_status(text). #1366 dropped this branch while moving the
+    helper out of tts_service.py, so Test voice posted "Downloading…" through
+    __call__, which is the blocking box #905 had removed.
+    """
+    if not text:
         return
-    on_status(text)
+    log.info("%s", text)
+    if on_status is None:
+        return
+    try:
+        if progress:
+            prog = getattr(on_status, "progress", None)
+            if callable(prog):
+                prog(text)
+                return
+        on_status(text)
+    except Exception:
+        log.debug("TTS status callback failed", exc_info=True)
 
 
 def _clear_tts_status(on_status: Callable[[str], None] | None) -> None:
-    """Dismiss a transient download/progress status when the callback supports it."""
+    """Dismiss a transient download/progress status when the callback supports it.
+
+    Test voice implements clear() so the Speech box closes when a Piper/Kokoro
+    download finishes, and a sidebar plain callable is a no-op because chat restores
+    the terminal status when speech ends.
+    """
     if on_status is None:
         return
     clear = getattr(on_status, "clear", None)
@@ -85,7 +118,7 @@ def _clear_tts_status(on_status: Callable[[str], None] | None) -> None:
     try:
         clear()
     except Exception:
-        pass
+        log.debug("TTS status clear failed", exc_info=True)
 
 
 def _download_to(
