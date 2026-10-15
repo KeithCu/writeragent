@@ -855,6 +855,35 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
     vision_budget = float(raw_budget)
     vision_deadline = _request_deadline(environ.get("compute.accept_time"), vision_budget)
 
+    # What was wrong: /v1/vision on an ocr_workers=0 app returned HTTP 200.
+    # How: get_vision_pool returns the process-global pool from the first
+    # builder. xdist can leave that pool enabled (ocr_workers>=1, or the
+    # in-flight get() that publishes again after non-permanent shutdown()).
+    # execute then returns a payload _send_execution_result sends as 200 OK.
+    # Why: 501 VISION_SERVICE_DISABLED is this app's settings.ocr_workers.
+    # Skip the singleton. Validation above this point is unchanged.
+    # _run_with_logging_and_deadline still applies vision_deadline.
+    if settings.ocr_workers <= 0:
+        def _disabled(start_t: float) -> list[bytes]:
+            duration_ms = (time.perf_counter() - start_t) * 1000.0
+            log.info("done /v1/vision id=%r status=%r duration=%.2fms", req_id, "error", duration_ms)
+            return _error(
+                start_response,
+                "501 Not Implemented",
+                "Vision / OCR service is not enabled on this instance (ocr_workers=0).",
+                code="VISION_SERVICE_DISABLED",
+                req_id=req_id,
+            )
+
+        return _run_with_logging_and_deadline(
+            start_response,
+            label="/v1/vision",
+            req_id=req_id,
+            deadline=vision_deadline,
+            start_msg=f"vision /v1/vision id={req_id!r} helper={helper!r}",
+            action=_disabled,
+        )
+
     from compute_service.vision import get_vision_pool
 
     vision_pool = get_vision_pool(settings)

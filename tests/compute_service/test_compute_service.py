@@ -1407,7 +1407,7 @@ class TestRequestBodyLimits:
     def test_vision_unhandled_exception_is_json_500(self) -> None:
         fake_pool = MagicMock()
         fake_pool.execute.side_effect = RuntimeError("vision boom")
-        app = create_wsgi_app(ComputeSettings())
+        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         status_holder: list[str] = []
 
         def start_response(status: str, _headers: list) -> None:
@@ -1655,7 +1655,7 @@ class TestSessionResetHttp:
             "code": "VISION_POOL_BUSY",
             "error": "All vision workers are currently busy and request timed out waiting for worker lease.",
         }
-        app = create_wsgi_app(ComputeSettings())
+        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         payload = json.dumps({"id": "v-busy", "image_b64": "YQ=="}).encode("utf-8")
         with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
             status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
@@ -1678,7 +1678,7 @@ class TestSessionResetHttp:
                 "code": code,
                 "error": code,
             }
-            app = create_wsgi_app(ComputeSettings())
+            app = create_wsgi_app(ComputeSettings(ocr_workers=1))
             payload = json.dumps({"id": "v-file", "image_b64": "YQ=="}).encode("utf-8")
             with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
                 status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
@@ -1694,7 +1694,7 @@ class TestSessionResetHttp:
             "code": "VISION_UNAVAILABLE",
             "error": "OCR is not installed in this server",
         }
-        app = create_wsgi_app(ComputeSettings())
+        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
         payload = json.dumps({"id": "v-missing", "image_b64": "YQ=="}).encode("utf-8")
         with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
             status, _headers, body = _wsgi_post(app, payload, path="/v1/vision")
@@ -2002,6 +2002,37 @@ class TestSessionResetHttp:
             assert body.get("code") == "VISION_SERVICE_DISABLED"
         finally:
             shutdown_vision_pool()
+
+    def test_vision_disabled_app_ignores_enabled_singleton(self) -> None:
+        """ocr_workers=0 must stay 501 when the process-global pool is already enabled.
+
+        What was wrong: PR 1597 run 38800801506 (xdist gw2) got '200 OK' for
+        timeout_ms 1e9999. get_vision_pool returns the first pool in the
+        process. An enabled execute payload is HTTP 200, including an
+        unmapped VISION_ERROR.
+        How: another test on the worker built the singleton with workers.
+        Why this fails without the handler check: the overflow body would
+        follow that pool instead of this app's ocr_workers.
+        """
+        from compute_service import vision
+
+        pool = vision.VisionProcessPool(settings=ComputeSettings(ocr_workers=0, idle_worker_ttl_sec=0))
+        pool.num_workers = 1
+        try:
+            with patch.object(pool, "execute", return_value={"status": "ok", "text": "leaked"}) as execute:
+                vision._POOL_SINGLETON._pool = pool
+                app = create_wsgi_app(ComputeSettings())
+                status, _headers, body = _wsgi_post(
+                    app,
+                    b'{"image_b64":"abcd","timeout_ms":1e9999}',
+                    path="/v1/vision",
+                )
+            assert status.startswith("501")
+            assert body.get("code") == "VISION_SERVICE_DISABLED"
+            assert "ocr_workers=0" in body.get("error", "")
+            assert execute.call_count == 0
+        finally:
+            vision.shutdown_vision_pool()
 
     def test_execute_shutdown_is_503(self) -> None:
         def down(**_kwargs):
@@ -3517,7 +3548,7 @@ def test_vision_blank_helper_defaults_to_extract_text() -> None:
             seen.append(str(kwargs.get("helper")))
             return {"status": "ok", "id": kwargs.get("req_id")}
 
-    app = create_wsgi_app(ComputeSettings())
+    app = create_wsgi_app(ComputeSettings(ocr_workers=1))
     with patch("compute_service.vision.get_vision_pool", return_value=_Pool()):
         absent = json.dumps({"id": "def-h", "image_b64": "YQ=="}).encode("utf-8")
         blank = json.dumps({"id": "def-h", "helper": "  ", "image_b64": "YQ=="}).encode("utf-8")
