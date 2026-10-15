@@ -93,7 +93,9 @@ class _RequestThreads:
 
     ``submit`` / ``shutdown(wait, cancel_futures)`` match the old executor
     so ``drain_executor`` can wait for in-flight work. Threads start on the
-    first submit, so a failed bind does not spawn any.
+    first submit, so a failed bind does not spawn any. A submit starts another
+    thread when unfinished calls exceed the number of threads, up to the cap.
+    A thread inside a handler is unfinished work, not an idle worker.
     """
 
     _max_workers: int
@@ -103,7 +105,7 @@ class _RequestThreads:
     _lock: threading.Lock
     _shutdown: bool
     _sentinels: bool
-    _idle: int
+    _pending: int
 
     def __init__(self, max_workers: int | None, thread_name_prefix: str) -> None:
         # Same default as ThreadPoolExecutor: an omitted count stays bounded.
@@ -118,7 +120,7 @@ class _RequestThreads:
         self._lock = threading.Lock()
         self._shutdown = False
         self._sentinels = False
-        self._idle = 0
+        self._pending = 0
 
     def submit(self, fn: Callable[..., Any], /, *args: Any) -> Future[Any]:
         with self._lock:
@@ -126,9 +128,22 @@ class _RequestThreads:
                 raise RuntimeError("request pool is shut down")
             fut: Future[Any] = Future()
             self._work_queue.put(_RequestWork(fut, fn, args))
-            # An idle worker is already in get(). Starting another would
-            # grow the pool on every serial request up to the cap.
-            if self._idle == 0 and len(self._threads) < self._max_workers:
+            # What was wrong: _idle was incremented before get() and
+            # decremented only after get() returned. A worker about to
+            # take an already queued item still looked idle, so this
+            # branch did not start a thread. The worker then blocked
+            # inside one handler. Later accepts, including GET /health,
+            # stayed on the queue while len(_threads) was under the cap,
+            # and nothing submitted again to grow the pool.
+            # How: the health test holds the one worker permit and queues
+            # more executes on the listeners. Health needs a thread that
+            # was never started.
+            # Why: _pending counts every call not yet finished. Start a
+            # thread while that count is above the number of threads,
+            # up to the cap. A thread already blocked in get() is in
+            # _threads, so a finished serial call does not grow the pool.
+            self._pending += 1
+            while len(self._threads) < min(self._max_workers, self._pending):
                 self._start_one_locked()
             return fut
 
@@ -143,14 +158,12 @@ class _RequestThreads:
 
     def _run(self) -> None:
         while True:
-            with self._lock:
-                self._idle += 1
             item = self._work_queue.get()
-            with self._lock:
-                self._idle -= 1
             if item is None:
                 return
             if not item.future.set_running_or_notify_cancel():
+                with self._lock:
+                    self._pending -= 1
                 continue
             try:
                 result = item.fn(*item.args)
@@ -158,6 +171,9 @@ class _RequestThreads:
                 item.future.set_exception(exc)
             else:
                 item.future.set_result(result)
+            finally:
+                with self._lock:
+                    self._pending -= 1
 
     def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> list[Future[Any]]:
         """Stop the pool. Cancelled futures are returned so the caller can close their sockets.
@@ -178,6 +194,7 @@ class _RequestThreads:
                         break
                     if item is not None and item.future.cancel():
                         cancelled.append(item.future)
+                        self._pending -= 1
             if not self._sentinels:
                 for _unused in self._threads:
                     self._work_queue.put(None)

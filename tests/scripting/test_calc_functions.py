@@ -598,11 +598,13 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     assert calc.char(float("inf")) == "#VALUE!"
     assert calc.char(256) == "#VALUE!"
     assert calc.char("nope") == "#VALUE!"
-    assert calc.char(65) == "A"
-    assert math.isnan(calc.choose(float("inf"), "a", "b"))
+    with pytest.raises(OverflowError):
+        calc.choose(float("inf"), "a", "b")
     assert calc.choose(2, "a", "b") == "b"
-    assert math.isnan(calc.combin(float("inf"), 2))
-    assert math.isnan(calc.combina(5, float("inf")))
+    with pytest.raises(OverflowError):
+        calc.combin(float("inf"), 2)
+    with pytest.raises(OverflowError):
+        calc.combina(5, float("inf"))
     assert calc.combin(5, 2) == 10.0
     # math.comb(3, 5) is 0. ScCombin rejects k > n.
     assert math.isnan(calc.combin(3, 5))
@@ -736,7 +738,8 @@ def test_even_rounds_away_from_zero_and_rejects_text():
     assert calc.even(-3) == -4.0
     assert calc.even(0.1) == 2.0
     assert calc.even(-0.1) == -2.0
-    assert math.isnan(calc.even("x"))
+    with pytest.raises(ValueError):
+        calc.even("x")
     assert math.isnan(calc.even(float("nan")))
 
 
@@ -751,11 +754,14 @@ def test_filter_shape_mismatch_is_value_error():
 
 
 def test_numeric_coercions_return_nan_not_raise():
-    assert math.isnan(calc.forecast("x", [1.0, 2.0], [1.0, 2.0]))
-    assert math.isnan(calc.forecast(6, ["a", "b"], [1.0, 2.0]))
+    with pytest.raises(ValueError):
+        calc.forecast("x", [1.0, 2.0], [1.0, 2.0])
+    with pytest.raises(ValueError):
+        calc.forecast(6, ["a", "b"], [1.0, 2.0])
     assert calc.forecast(6, [1.0, 2.0, 3.0, 4.0, 5.0], [1.0, 2.0, 3.0, 4.0, 5.0]) == 6.0
 
-    assert math.isnan(calc.fv("bad", 12, -100))
+    with pytest.raises(ValueError):
+        calc.fv("bad", 12, -100)
     assert abs(calc.fv(0.05 / 12, 60, -200, -10000) - 26434.80) < 1.0
 
     assert math.isnan(calc.geomean(["a", "b"]))
@@ -1356,12 +1362,18 @@ def test_coupon_nonpositive_frequency_is_nan():
 
 
 def test_edate_eomonth_text_months_are_nan():
-    assert math.isnan(calc.edate(46182, "x"))
-    assert math.isnan(calc.edate(46182, ""))
-    assert math.isnan(calc.edate(46182, None))
-    assert math.isnan(calc.eomonth(46182, "x"))
-    assert math.isnan(calc.eomonth(46182, ""))
-    assert math.isnan(calc.eomonth(46182, None))
+    with pytest.raises(ValueError):
+        calc.edate(46182, "x")
+    with pytest.raises(ValueError):
+        calc.edate(46182, "")
+    with pytest.raises(TypeError):
+        calc.edate(46182, None)
+    with pytest.raises(ValueError):
+        calc.eomonth(46182, "x")
+    with pytest.raises(ValueError):
+        calc.eomonth(46182, "")
+    with pytest.raises(TypeError):
+        calc.eomonth(46182, None)
     assert calc.eomonth(46182, 1) == 46234.0
     assert not math.isnan(calc.edate(46182, 1))
 

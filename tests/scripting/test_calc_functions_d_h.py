@@ -28,7 +28,8 @@ def test_effect_non_positive_nominal_is_num_error():
     assert math.isnan(calc.effect(0, 4))
     assert math.isnan(calc.effect(-0.1, 4))
     assert math.isclose(calc.effect(0.0525, 4), 0.05354266737075819, rel_tol=1e-9)
-    assert math.isnan(calc.effect(1e6, 1e6))
+    with pytest.raises(OverflowError):
+        calc.effect(1e6, 1e6)
     assert math.isnan(calc.effect(float("inf"), 2))
 
 
@@ -112,8 +113,10 @@ def test_dollar_and_fixed_negative_decimals_round_left():
     assert calc.fixed(1234.567, 1, True) == "1234.6"
     assert calc.fixed(0.5, 40) == "0." + "5" + "0" * 39
     assert calc.dollar(1.5, 40) == "$1." + "5" + "0" * 39
-    assert math.isnan(calc.fixed(0.5, 10**20))
-    assert math.isnan(calc.dollar(1.5, 10**20))
+    with pytest.raises(ValueError):
+        calc.fixed(0.5, 10**20)
+    with pytest.raises(ValueError):
+        calc.dollar(1.5, 10**20)
 
 
 def test_duration_zero_yield_is_the_closed_form_limit():
@@ -128,7 +131,8 @@ def test_duration_zero_yield_is_the_closed_form_limit():
 
 def test_duration_huge_yield_is_nan():
     start, end = _serial(2018, 1, 1), _serial(2023, 1, 1)
-    assert math.isnan(calc.duration(start, end, 0.08, 1e308, 2, 0))
+    with pytest.raises(OverflowError):
+        calc.duration(start, end, 0.08, 1e308, 2, 0)
 
 
 def test_growth_rejects_non_positive_known_y():
@@ -170,8 +174,10 @@ def test_days360_method_is_numeric():
     assert calc.days360(d1, d2, "0") == 1.0
     assert calc.days360(d1, d2, True) == 3.0
     assert calc.days360(d1, d2, 1) == 3.0
-    assert math.isnan(calc.days360(d1, d2, "FALSE"))
-    assert math.isnan(calc.days360(d1, d2, "TRUE"))
+    with pytest.raises(ValueError):
+        calc.days360(d1, d2, "FALSE")
+    with pytest.raises(ValueError):
+        calc.days360(d1, d2, "TRUE")
 
 
 def test_finv_and_gammainv_open_bounds_are_nan():
@@ -185,12 +191,14 @@ def test_finv_and_gammainv_open_bounds_are_nan():
 
 
 # One row per bad input these tests did not already cover.
-# "nan" is the helper's #NUM! / #VALUE! / #DIV/0! stand-in. A quoted token
-# is the string the helper returns. geomean and harmean already have this
-# table. DCOUNT, DCOUNTA, DPRODUCT, DSUM, ENCODEURL, FMT, and FREQUENCY do
-# not return NaN or a spreadsheet error for these inputs. Non-positive or
-# non-finite known y is "#NUM!", and a bad const or a shape error is "#VALUE!",
-# both asserted in test_growth_rejects_non_positive_known_y.
+# "nan" is a returned NaN (#NUM! in the cell). ValueError, TypeError, and
+# OverflowError mean the call raises; the =PY() worker maps ValueError and
+# TypeError to #VALUE! and OverflowError to #NUM!. A quoted token is the
+# string the helper returns. geomean and harmean already have this table.
+# DCOUNT, DCOUNTA, DPRODUCT, DSUM, ENCODEURL, and FREQUENCY do not return NaN
+# or a spreadsheet error for these inputs. Non-positive or non-finite known y
+# is "#NUM!", and a bad const or a shape error is "#VALUE!", both asserted in
+# test_growth_rejects_non_positive_known_y.
 _DB = [["Tree", "Height"], ["Apple", 18.0], ["Pear", 12.0], ["Apple", 8.0]]
 _CRIT = [["Tree"], ["Apple"]]
 _NAN = "nan"
@@ -206,30 +214,30 @@ _D_H_BAD_INPUTS = [
     ("daverage-blank", "daverage", (None, "Height", _CRIT), _NAN),
     ("daverage-zero", "daverage", (_DB, 0, _CRIT), _NAN),
     ("daverage-oor", "daverage", (_DB, 99, _CRIT), _NAN),
-    ("days-text", "days", ("text", 1), _NAN),
-    ("days-blank", "days", ("", ""), _NAN),
+    ("days-text", "days", ("text", 1), ValueError),
+    ("days-blank", "days", ("", ""), ValueError),
     ("days360-text", "days360", ("text", 44927), _NAN),
     ("days360-blank", "days360", ("", ""), _NAN),
     ("days360-oor", "days360", (1e12, 1e12), _NAN),
-    ("db-text", "db", ("text", 1000, 5, 1), _NAN),
-    ("db-blank", "db", ("", 1000, 5, 1), _NAN),
-    ("ddb-text", "ddb", ("x", 1000, 5, 1), _NAN),
-    ("ddb-blank", "ddb", ("", 1000, 5, 1), _NAN),
+    ("db-text", "db", ("text", 1000, 5, 1), ValueError),
+    ("db-blank", "db", ("", 1000, 5, 1), ValueError),
+    ("ddb-text", "ddb", ("x", 1000, 5, 1), ValueError),
+    ("ddb-blank", "ddb", ("", 1000, 5, 1), ValueError),
     ("ddb-zero", "ddb", (10000, 1000, 0, 1), _NAN),
     ("decimal-text", "decimal", ("zz", 16), _NAN),
     ("decimal-blank", "decimal", ("", 10), _NAN),
     ("decimal-zero", "decimal", ("0", 0), _NAN),
     ("decimal-oor", "decimal", ("10", 1), _NAN),
-    ("delta-text", "delta", ("x", 1), _NAN),
-    ("delta-blank", "delta", ("", 0), _NAN),
+    ("delta-text", "delta", ("x", 1), ValueError),
+    ("delta-blank", "delta", ("", 0), ValueError),
     ("devsq-text", "devsq", (["a", "b"],), _NAN),
     ("devsq-oor", "devsq", ([float("inf"), 1.0],), _NAN),
     ("dget-text", "dget", ("text", "Height", _CRIT), "#VALUE!"),
     ("dget-blank", "dget", (None, "Height", _CRIT), "#VALUE!"),
     ("dget-zero", "dget", (_DB, 0, _CRIT), "#VALUE!"),
     ("dget-oor", "dget", (_DB, "Height", _CRIT), "#NUM!"),
-    ("disc-text", "disc", ("x", 43983, 95, 100), _NAN),
-    ("disc-blank", "disc", ("", 43983, 95, 100), _NAN),
+    ("disc-text", "disc", ("x", 43983, 95, 100), ValueError),
+    ("disc-blank", "disc", ("", 43983, 95, 100), ValueError),
     ("disc-oor", "disc", (43831, 43983, 95, 100, 9), _NAN),
     ("dmax-text", "dmax", ("text", "Height", _CRIT), _NAN),
     ("dmax-blank", "dmax", (None, "Height", _CRIT), _NAN),
@@ -239,9 +247,11 @@ _D_H_BAD_INPUTS = [
     ("dmin-blank", "dmin", (None, "Height", _CRIT), _NAN),
     ("dmin-zero", "dmin", (_DB, 0, _CRIT), _NAN),
     ("dmin-oor", "dmin", (_DB, 99, _CRIT), _NAN),
-    ("dollar-text", "dollar", ("abc",), _NAN),
-    ("dollar-blank", "dollar", ("",), _NAN),
-    ("dollar-oor", "dollar", (1, float("inf")), _NAN),
+    ("dollar-text", "dollar", ("abc",), ValueError),
+    ("dollar-blank", "dollar", ("",), ValueError),
+    ("dollar-oor", "dollar", (1, float("inf")), OverflowError),
+    ("dollarde-text", "dollarde", ("x", 16), _NAN),
+    ("dollarde-blank", "dollarde", ("", 16), _NAN),
     ("dollarde-zero", "dollarde", (1.02, 0), _NAN),
     ("dollarde-oor", "dollarde", (1.02, float("inf")), _NAN),
     ("dollarfr-zero", "dollarfr", (1.5, 0), _NAN),
@@ -254,10 +264,10 @@ _D_H_BAD_INPUTS = [
     ("dstdevp-blank", "dstdevp", (None, "Height", _CRIT), _NAN),
     ("dstdevp-zero", "dstdevp", (_DB, 0, _CRIT), _NAN),
     ("dstdevp-oor", "dstdevp", (_DB, 99, _CRIT), _NAN),
-    ("duration-text", "duration", ("x", 45000, 0.05, 0.06, 2), _NAN),
-    ("duration-blank", "duration", ("", 45000, 0.05, 0.06, 2), _NAN),
+    ("duration-text", "duration", ("x", 45000, 0.05, 0.06, 2), ValueError),
+    ("duration-blank", "duration", ("", 45000, 0.05, 0.06, 2), ValueError),
     ("duration-zero", "duration", (43831, 45000, 0.05, 0.06, 0), _NAN),
-    ("duration-oor", "duration", (43831, 45000, 0.05, 0.06, 2, float("inf")), _NAN),
+    ("duration-oor", "duration", (43831, 45000, 0.05, 0.06, 2, float("inf")), OverflowError),
     ("dvar-text", "dvar", ("text", "Height", _CRIT), _NAN),
     ("dvar-blank", "dvar", (None, "Height", _CRIT), _NAN),
     ("dvar-zero", "dvar", (_DB, 0, _CRIT), _NAN),
@@ -268,82 +278,82 @@ _D_H_BAD_INPUTS = [
     ("dvarp-oor", "dvarp", (_DB, 99, _CRIT), _NAN),
     ("edate-text", "edate", ("text", 1), _NAN),
     ("edate-oor", "edate", (44927, 100000), _NAN),
-    ("effect-text", "effect", ("x", 4), _NAN),
-    ("effect-blank", "effect", ("", 4), _NAN),
-    ("effect-oor", "effect", (0.05, float("inf")), _NAN),
+    ("effect-text", "effect", ("x", 4), ValueError),
+    ("effect-blank", "effect", ("", 4), ValueError),
+    ("effect-oor", "effect", (0.05, float("inf")), OverflowError),
     ("eomonth-text", "eomonth", ("text", 1), _NAN),
     ("eomonth-oor", "eomonth", (44927, 100000), _NAN),
-    ("erf-text", "erf", ("x",), _NAN),
-    ("erf-blank", "erf", ("",), _NAN),
-    ("erfc-text", "erfc", ("x",), _NAN),
-    ("erfc-blank", "erfc", ("",), _NAN),
-    ("euroconvert-text", "euroconvert", ("x", "EUR", "DEM"), _NAN),
-    ("euroconvert-blank", "euroconvert", ("", "EUR", "DEM"), _NAN),
+    ("erf-text", "erf", ("x",), ValueError),
+    ("erf-blank", "erf", ("",), ValueError),
+    ("erfc-text", "erfc", ("x",), ValueError),
+    ("erfc-blank", "erfc", ("",), ValueError),
+    ("euroconvert-text", "euroconvert", ("x", "EUR", "DEM"), ValueError),
+    ("euroconvert-blank", "euroconvert", ("", "EUR", "DEM"), ValueError),
     ("euroconvert-oor", "euroconvert", (1e308, "EUR", "BEF"), _NAN),
-    ("euroconvert-precision", "euroconvert", (100, "DEM", "ATS", False, float("inf")), _NAN),
-    ("even-blank", "even", ("",), _NAN),
-    ("expondist-text", "expondist", ("x", 1), _NAN),
-    ("expondist-blank", "expondist", ("", 1), _NAN),
+    ("euroconvert-precision", "euroconvert", (100, "DEM", "ATS", False, float("inf")), OverflowError),
+    ("even-blank", "even", ("",), ValueError),
+    ("expondist-text", "expondist", ("x", 1), ValueError),
+    ("expondist-blank", "expondist", ("", 1), ValueError),
     ("expondist-zero", "expondist", (1, 0), _NAN),
     ("expondist-oor", "expondist", (-1, 1), _NAN),
-    ("fact-text", "fact", ("x",), _NAN),
-    ("fact-blank", "fact", ("",), _NAN),
+    ("fact-text", "fact", ("x",), ValueError),
+    ("fact-blank", "fact", ("",), ValueError),
     ("fact-oor", "fact", (-1,), _NAN),
     ("fact-huge", "fact", (171,), _NAN),
-    ("factdouble-text", "factdouble", ("x",), _NAN),
-    ("factdouble-blank", "factdouble", ("",), _NAN),
+    ("factdouble-text", "factdouble", ("x",), ValueError),
+    ("factdouble-blank", "factdouble", ("",), ValueError),
     ("factdouble-oor", "factdouble", (-1,), _NAN),
     ("factdouble-huge", "factdouble", (1000,), _NAN),
-    ("fdist-text", "fdist", ("x", 2, 5), _NAN),
-    ("fdist-blank", "fdist", ("", 2, 5), _NAN),
+    ("fdist-text", "fdist", ("x", 2, 5), ValueError),
+    ("fdist-blank", "fdist", ("", 2, 5), ValueError),
     ("fdist-zero", "fdist", (1, 0, 5), _NAN),
     ("fdist-oor", "fdist", (-1, 2, 5), _NAN),
     ("filter-text", "filter", ("text", [True]), "#VALUE!"),
     ("filter-blank", "filter", ([], []), "#VALUE!"),
-    ("finv-text", "finv", ("x", 2, 5), _NAN),
-    ("finv-blank", "finv", ("", 2, 5), _NAN),
+    ("finv-text", "finv", ("x", 2, 5), ValueError),
+    ("finv-blank", "finv", ("", 2, 5), ValueError),
     ("finv-zero", "finv", (0.5, 0, 5), _NAN),
     ("finv-oor", "finv", (1.5, 2, 5), _NAN),
-    ("fisher-text", "fisher", ("x",), _NAN),
-    ("fisher-blank", "fisher", ("",), _NAN),
+    ("fisher-text", "fisher", ("x",), ValueError),
+    ("fisher-blank", "fisher", ("",), ValueError),
     ("fisher-oor", "fisher", (1,), _NAN),
-    ("fisherinv-text", "fisherinv", ("x",), _NAN),
-    ("fisherinv-blank", "fisherinv", ("",), _NAN),
-    ("fixed-text", "fixed", ("abc",), _NAN),
-    ("fixed-blank", "fixed", ("",), _NAN),
-    ("fixed-oor", "fixed", (1, float("inf")), _NAN),
-    ("forecast-blank", "forecast", ("", [1.0, 2.0], [1.0, 2.0]), _NAN),
+    ("fisherinv-text", "fisherinv", ("x",), ValueError),
+    ("fisherinv-blank", "fisherinv", ("",), ValueError),
+    ("fixed-text", "fixed", ("abc",), ValueError),
+    ("fixed-blank", "fixed", ("",), ValueError),
+    ("fixed-oor", "fixed", (1, float("inf")), OverflowError),
+    ("forecast-blank", "forecast", ("", [1.0, 2.0], [1.0, 2.0]), ValueError),
     ("forecast-zero", "forecast", (6, [1.0, 2.0], [0.0, 0.0]), _NAN),
-    ("fv-blank", "fv", ("", 12, -100), _NAN),
-    ("fv-oor", "fv", (0.01, 12, -100, 0, float("inf")), _NAN),
-    ("fvschedule-text", "fvschedule", ("x", [0.1]), _NAN),
-    ("fvschedule-blank", "fvschedule", ("", [0.1]), _NAN),
-    ("fvschedule-oor", "fvschedule", (100, ["a"]), _NAN),
-    ("gamma-text", "gamma", ("x",), _NAN),
-    ("gamma-blank", "gamma", ("",), _NAN),
+    ("fv-blank", "fv", ("", 12, -100), ValueError),
+    ("fv-oor", "fv", (0.01, 12, -100, 0, float("inf")), OverflowError),
+    ("fvschedule-text", "fvschedule", ("x", [0.1]), ValueError),
+    ("fvschedule-blank", "fvschedule", ("", [0.1]), ValueError),
+    ("fvschedule-oor", "fvschedule", (100, ["a"]), ValueError),
+    ("gamma-text", "gamma", ("x",), ValueError),
+    ("gamma-blank", "gamma", ("",), ValueError),
     ("gamma-zero", "gamma", (0,), _NAN),
-    ("gamma-oor", "gamma", (200,), _NAN),
-    ("gammadist-text", "gammadist", ("x", 2, 1), _NAN),
-    ("gammadist-blank", "gammadist", ("", 2, 1), _NAN),
+    ("gamma-oor", "gamma", (200,), OverflowError),
+    ("gammadist-text", "gammadist", ("x", 2, 1), ValueError),
+    ("gammadist-blank", "gammadist", ("", 2, 1), ValueError),
     ("gammadist-zero", "gammadist", (1, 0, 1), _NAN),
     ("gammadist-oor", "gammadist", (-1, 2, 1), _NAN),
-    ("gammainv-text", "gammainv", ("x", 2, 1), _NAN),
-    ("gammainv-blank", "gammainv", ("", 2, 1), _NAN),
+    ("gammainv-text", "gammainv", ("x", 2, 1), ValueError),
+    ("gammainv-blank", "gammainv", ("", 2, 1), ValueError),
     ("gammainv-zero", "gammainv", (0.5, 0, 1), _NAN),
     ("gammainv-oor", "gammainv", (1.5, 2, 1), _NAN),
-    ("gammaln-text", "gammaln", ("x",), _NAN),
-    ("gammaln-blank", "gammaln", ("",), _NAN),
+    ("gammaln-text", "gammaln", ("x",), ValueError),
+    ("gammaln-blank", "gammaln", ("",), ValueError),
     ("gammaln-zero", "gammaln", (0,), _NAN),
     ("gammaln-oor", "gammaln", (-1,), _NAN),
-    ("gauss-text", "gauss", ("x",), _NAN),
-    ("gauss-blank", "gauss", ("",), _NAN),
-    ("gestep-text", "gestep", ("x", 0), _NAN),
-    ("gestep-blank", "gestep", ("", 0), _NAN),
-    ("hypgeomdist-text", "hypgeomdist", ("x", 5, 3, 10), _NAN),
-    ("hypgeomdist-blank", "hypgeomdist", ("", 5, 3, 10), _NAN),
+    ("gauss-text", "gauss", ("x",), ValueError),
+    ("gauss-blank", "gauss", ("",), ValueError),
+    ("gestep-text", "gestep", ("x", 0), ValueError),
+    ("gestep-blank", "gestep", ("", 0), ValueError),
+    ("hypgeomdist-text", "hypgeomdist", ("x", 5, 3, 10), ValueError),
+    ("hypgeomdist-blank", "hypgeomdist", ("", 5, 3, 10), ValueError),
     ("hypgeomdist-zero", "hypgeomdist", (0, 0, 0, 0), _NAN),
     ("hypgeomdist-oor", "hypgeomdist", (5, 3, 2, 10), _NAN),
-    ("hypgeomdist-inf", "hypgeomdist", (float("inf"), 5, 3, 10), _NAN),
+    ("hypgeomdist-inf", "hypgeomdist", (float("inf"), 5, 3, 10), OverflowError),
 ]
 
 
@@ -352,7 +362,11 @@ _D_H_BAD_INPUTS = [
     _D_H_BAD_INPUTS,
     ids=[row[0] for row in _D_H_BAD_INPUTS],
 )
-def test_d_h_bad_inputs(label: str, name: str, args: tuple[Any, ...], expected: str) -> None:
+def test_d_h_bad_inputs(label: str, name: str, args: tuple[Any, ...], expected: Any) -> None:
+    if isinstance(expected, type) and issubclass(expected, BaseException):
+        with pytest.raises(expected):
+            getattr(calc, name)(*args)
+        return
     result = getattr(calc, name)(*args)
     if expected == _NAN:
         assert isinstance(result, float) and math.isnan(result), (label, result)
@@ -492,7 +506,8 @@ def test_datedif_unknown_unit_is_nan_unless_dates_match():
 
 def test_gammaln_huge_input_is_nan():
     # math.lgamma(1e308) raises OverflowError. That is #NUM!, same as gamma.
-    assert math.isnan(calc.gammaln(1e308))
+    with pytest.raises(OverflowError):
+        calc.gammaln(1e308)
     assert calc.gammaln(1) == 0.0
 
 

@@ -228,7 +228,24 @@ def describe_data(
     except ImportError:
         return _missing_package_error("describe_data", "fg-data-profiling")
 
-    profile = ProfileReport(limited, minimal=True, progress_bar=False)
+    # What was wrong: minimal config sets pool_size to 0, and
+    # pandas_get_series_descriptions treats 0 as multiprocessing.cpu_count().
+    # It submits every column to a ThreadPoolExecutor and blocks in
+    # future.result(). Those threads call pandas/NumPy at once, and the
+    # library also wraps the futures in an inner tqdm that stays enabled
+    # when progress_bar=False. On an xdist worker that already initialized
+    # OpenBLAS on the main thread, that pool deadlocks.
+    # How it happened: CI `make pytest` uses --timeout=300 --timeout-method=thread.
+    # The timer thread calls os._exit(1). execnet then closes with EOF and no
+    # remote error, so xdist reports "Not properly terminated" and
+    # "worker 'gw3' crashed" (GHA 38782180627,
+    # test_run_analysis_dispatches_helper). The thread method never raises,
+    # so there is no Failed: Timeout line. The same call returns in about 2s
+    # when the race does not trip.
+    # Why this fixes it: pool_size=1 is the library knob that describes each
+    # column on one worker thread, so NumPy is not entered from several
+    # Python threads.
+    profile = ProfileReport(limited, minimal=True, progress_bar=False, pool_size=1)
     report_json = json.loads(profile.to_json())
     variables = report_json.get("variables", {})
     profile_messages = report_json.get("messages", [])

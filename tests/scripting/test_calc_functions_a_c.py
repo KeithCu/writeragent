@@ -122,6 +122,8 @@ def test_accrint_and_accrintm():
     assert math.isnan(calc.accrintm(40000, 40180, 0.1, -1000))
     assert math.isnan(calc.accrintm(40180, 40000, 0.1, 1000))
     assert math.isnan(calc.accrintm(40000, 40180, 0.1, 1000, 5))
+    with pytest.raises(ValueError):
+        calc.accrint("bad", 40180, 40090, 0.1, 1000, 2)
 
 
 def test_amordegrc_and_amorlinc():
@@ -210,7 +212,8 @@ def test_choose_bounds():
     assert math.isnan(calc.choose(0, "a", "b"))
     assert math.isnan(calc.choose(3, "a", "b"))
     assert math.isnan(calc.choose(-1, "a", "b"))
-    assert math.isnan(calc.choose(float("inf"), "a", "b"))
+    with pytest.raises(OverflowError):
+        calc.choose(float("inf"), "a", "b")
 
 
 def test_complex():
@@ -287,8 +290,8 @@ def test_coupon_functions():
 
 
 def test_csch():
-    # csch(0) is NaN (division by zero)
-    assert math.isnan(calc.csch(0))
+    with pytest.raises(ZeroDivisionError):
+        calc.csch(0)
     # csch of large number overflows sinh, catches OverflowError and returns 0.0
     assert calc.csch(1000) == 0.0
     assert calc.csch(-1000) == 0.0
@@ -335,4 +338,20 @@ def test_code_empty_string_is_zero():
     assert calc.code("") == 0.0
     assert calc.code("A") == 65.0
     assert calc.code(None) == float(ord("N"))
+
+
+def test_trig_errors_propagate():
+    with pytest.raises(ValueError):
+        calc.acot("x")
+    with pytest.raises(ValueError):
+        calc.acoth("x")
+    assert math.isnan(calc.acoth(1))
+    assert math.isnan(calc.acoth(0.5))
+    with pytest.raises(ZeroDivisionError):
+        calc.cot(0)
+    with pytest.raises(ZeroDivisionError):
+        calc.coth(0)
+    with pytest.raises(ZeroDivisionError):
+        calc.csc(0)
+
 
