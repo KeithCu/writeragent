@@ -13,7 +13,7 @@ from .grammar_proofread_locale import normalize_reason
 
 # The venv LanguageTool checker imports this leaf, not this module, because
 # this module imports grammar_proofread_cache, which imports config.
-from plugin.scripting.grammar_rule_ids import (
+from plugin.framework.grammar_rule_ids import (
     HARPER_RULE_PREFIX,
     LANGUAGETOOL_RULE_PREFIX,
     STABLE_RULE_PREFIXES,
