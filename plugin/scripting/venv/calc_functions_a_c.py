@@ -35,7 +35,6 @@ from .calc_functions_util import (
     _round_half_up,
     _serial_to_date,
     match_criteria,
-    nan_on_error,
 )
 from .coerce import is_missing_value
 
@@ -112,15 +111,13 @@ def _accrued(
     getAccrint also requires frequency in (1, 2, 4). Pass frequency only for that
     function. basis in (0..4), rate > 0, par > 0, issue < settlement.
     """
-    try:
-        f_rate = float(rate)
-        f_par = float(par) if par is not None else 1000.0
-        b = int(float(basis))
-        iss = float(issue)
-        settle = float(settlement)
-        freq = int(float(frequency)) if frequency is not None else None
-    except (ValueError, TypeError, OverflowError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    f_rate = float(rate)
+    f_par = float(par) if par is not None else 1000.0
+    b = int(float(basis))
+    iss = float(issue)
+    settle = float(settlement)
+    freq = int(float(frequency)) if frequency is not None else None
 
     if f_rate <= 0.0 or f_par <= 0.0 or b not in (0, 1, 2, 3, 4) or iss >= settle:
         return float("nan")
@@ -128,8 +125,7 @@ def _accrued(
         return float("nan")
 
     yf = yearfrac(iss, settle, b)
-    if math.isnan(yf):
-        return float("nan")
+    # yearfrac NaN already propagates through the product
     return float(f_par * f_rate * yf)
 
 
@@ -153,13 +149,13 @@ def accrintm(issue: Any, settlement: Any, rate: Any, par: Any = 1000.0, basis: A
     return _accrued(issue, settlement, rate, par, basis)
 
 
-@nan_on_error(ValueError, TypeError)
+# type errors are left to the worker exception path, which returns #VALUE!
 def acot(x: Any) -> float:
     xv = float(x)
     return float(math.pi / 2 - math.atan(xv))
 
 
-@nan_on_error(ValueError, TypeError, ZeroDivisionError)
+# |x|<=1 stays NaN (#NUM!). Type errors are left to the worker exception path, which returns #VALUE!.
 def acoth(x: Any) -> float:
     xv = float(x)
     if abs(xv) <= 1:
@@ -208,99 +204,95 @@ def aggregate(function_num: Any, options: Any, *args: Any) -> float:
     # number for the numeric reductions (float(True) would be 1.0). COUNTA
     # still counts a bool. Do not share this switch with subtotal(): that
     # helper counts True as 1, which test_aggregate_stubs_and_bools forbids.
-    try:
-        fn = int(float(function_num))
-        opt = int(float(options))
-        if 14 <= fn <= 19:
-            raise NotImplementedError(f"AGGREGATE function {fn} is unsupported in lightweight runtime")
-        numeric: list[float] = []
-        n_text = 0
-        n_bool = 0
-        for arg in args:
-            for x in np.asarray(arg, dtype=object).ravel():
-                if isinstance(x, (bool, np.bool_)):
-                    # Numeric reductions ignore bools. COUNTA must still see
-                    # them: skipping here made AGGREGATE(3, …, TRUE) return 0.
-                    n_bool += 1
+    # non-numeric function_num/options are left to the worker exception path, which returns #VALUE!
+    fn = int(float(function_num))
+    opt = int(float(options))
+    if 14 <= fn <= 19:
+        raise NotImplementedError(f"AGGREGATE function {fn} is unsupported in lightweight runtime")
+    numeric: list[float] = []
+    n_text = 0
+    n_bool = 0
+    for arg in args:
+        for x in np.asarray(arg, dtype=object).ravel():
+            if isinstance(x, (bool, np.bool_)):
+                # Numeric reductions ignore bools. COUNTA must still see
+                # them: skipping here made AGGREGATE(3, …, TRUE) return 0.
+                n_bool += 1
+                continue
+            if isinstance(x, str):
+                if is_missing_value(x):
+                    # Blank strings are ignored. Error tokens stay NaN unless
+                    # the option below strips them.
+                    if x.strip() != "":
+                        numeric.append(float("nan"))
                     continue
-                if isinstance(x, str):
-                    if is_missing_value(x):
-                        # Blank strings are ignored. Error tokens stay NaN unless
-                        # the option below strips them.
-                        if x.strip() != "":
-                            numeric.append(float("nan"))
-                        continue
-                    n_text += 1
-                    continue
-                try:
-                    numeric.append(float(x))
-                except (ValueError, TypeError, OverflowError):
-                    continue
+                n_text += 1
+                continue
+            try:
+                numeric.append(float(x))
+            except (ValueError, TypeError, OverflowError):
+                continue
 
-        arr = np.asarray(numeric, dtype=float)
-        if opt in (2, 3, 6, 7):
-            arr = arr[~np.isnan(arr)]
-        elif arr.size and bool(np.isnan(arr).any()):
-            # Options 0, 1, 4, 5 keep errors. nanmax, nanmin, and COUNT
-            # skip NaN, so an error token disappeared and the call returned
-            # a number. Calc returns the error instead.
-            return float("nan")
-
-        # Simplified implementations for most common
-        if fn == 1:
-            # Empty after dropping text/errors is #DIV/0! in Calc; avoid the
-            # RuntimeWarning from np.mean([]).
-            return float(np.mean(arr)) if arr.size else float("nan")
-        if fn == 2:
-            return float(np.sum(~np.isnan(arr)))
-        if fn == 3:
-            return float(len(arr) + n_text + n_bool)
-        if fn == 4:
-            # ScMax pushes 0 when nothing numeric remains (text is ignored).
-            # np.nanmax([]) raises, and the handler below turned that into NaN.
-            return float(np.nanmax(arr)) if arr.size else 0.0
-        if fn == 5:
-            # Same empty rule as ScMin / ScMax.
-            return float(np.nanmin(arr)) if arr.size else 0.0
-        if fn == 6:
-            # np.prod([]) is 1. Calc AGGREGATE PRODUCT is 0 when ignore-errors
-            # or text leaves no numbers (AGGREGATE(6,6,NA(),NA()) is 0).
-            return float(np.prod(arr)) if arr.size else 0.0
-        if fn == 7:
-            # One sample makes np.std(ddof=1) warn and return NaN. Calc
-            # STDEV.S of one value is #DIV/0!. Same guard as subtotal.
-            return float(np.std(arr, ddof=1)) if arr.size > 1 else float("nan")
-        if fn == 8:
-            # ScStDevP: nValCount == 0 is #DIV/0!. np.std([]) warns and
-            # returns NaN. One value is 0 (population, ddof=0), not #DIV/0!.
-            return float(np.std(arr, ddof=0)) if arr.size else float("nan")
-        if fn == 9:
-            # np.sum([]) is already 0. That matches Calc AGGREGATE SUM after an
-            # ignore-errors option strips every value.
-            return float(np.sum(arr)) if arr.size else 0.0
-        if fn == 10:
-            # One sample makes np.var(ddof=1) warn and return NaN.
-            return float(np.var(arr, ddof=1)) if arr.size > 1 else float("nan")
-        if fn == 11:
-            # ScVarP divides by the count. An empty count is #DIV/0!.
-            # np.var([]) warns. One value is 0.
-            return float(np.var(arr, ddof=0)) if arr.size else float("nan")
-        if fn == 12:
-            # GetMedian sets NoValue (#N/A) on an empty vector. np.median([])
-            # is NaN plus a RuntimeWarning. Keep the NaN, skip the call.
-            return float(np.median(arr)) if arr.size else float("nan")
-        if fn == 13:
-            # ScModalValue on the numbers already kept above. mode() would
-            # count True as 1 if given the raw args. Tie-break is the lowest
-            # value. No repeat is #N/A (NaN).
-            from .calc_functions_i_m import mode
-
-            return float(mode(arr.tolist()))
+    arr = np.asarray(numeric, dtype=float)
+    if opt in (2, 3, 6, 7):
+        arr = arr[~np.isnan(arr)]
+    elif arr.size and bool(np.isnan(arr).any()):
+        # Options 0, 1, 4, 5 keep errors. nanmax, nanmin, and COUNT
+        # skip NaN, so an error token disappeared and the call returned
+        # a number. Calc returns the error instead.
         return float("nan")
-    except NotImplementedError:
-        raise
-    except Exception:
-        return float("nan")
+
+    # Simplified implementations for most common
+    if fn == 1:
+        # Empty after dropping text/errors is #DIV/0! in Calc; avoid the
+        # RuntimeWarning from np.mean([]).
+        return float(np.mean(arr)) if arr.size else float("nan")
+    if fn == 2:
+        return float(np.sum(~np.isnan(arr)))
+    if fn == 3:
+        return float(len(arr) + n_text + n_bool)
+    if fn == 4:
+        # ScMax pushes 0 when nothing numeric remains (text is ignored).
+        # np.nanmax([]) raises ValueError. Empty is 0 here, not that exception.
+        return float(np.nanmax(arr)) if arr.size else 0.0
+    if fn == 5:
+        # Same empty rule as ScMin / ScMax.
+        return float(np.nanmin(arr)) if arr.size else 0.0
+    if fn == 6:
+        # np.prod([]) is 1. Calc AGGREGATE PRODUCT is 0 when ignore-errors
+        # or text leaves no numbers (AGGREGATE(6,6,NA(),NA()) is 0).
+        return float(np.prod(arr)) if arr.size else 0.0
+    if fn == 7:
+        # One sample makes np.std(ddof=1) warn and return NaN. Calc
+        # STDEV.S of one value is #DIV/0!. Same guard as subtotal.
+        return float(np.std(arr, ddof=1)) if arr.size > 1 else float("nan")
+    if fn == 8:
+        # ScStDevP: nValCount == 0 is #DIV/0!. np.std([]) warns and
+        # returns NaN. One value is 0 (population, ddof=0), not #DIV/0!.
+        return float(np.std(arr, ddof=0)) if arr.size else float("nan")
+    if fn == 9:
+        # np.sum([]) is already 0. That matches Calc AGGREGATE SUM after an
+        # ignore-errors option strips every value.
+        return float(np.sum(arr)) if arr.size else 0.0
+    if fn == 10:
+        # One sample makes np.var(ddof=1) warn and return NaN.
+        return float(np.var(arr, ddof=1)) if arr.size > 1 else float("nan")
+    if fn == 11:
+        # ScVarP divides by the count. An empty count is #DIV/0!.
+        # np.var([]) warns. One value is 0.
+        return float(np.var(arr, ddof=0)) if arr.size else float("nan")
+    if fn == 12:
+        # GetMedian sets NoValue (#N/A) on an empty vector. np.median([])
+        # is NaN plus a RuntimeWarning. Keep the NaN, skip the call.
+        return float(np.median(arr)) if arr.size else float("nan")
+    if fn == 13:
+        # ScModalValue on the numbers already kept above. mode() would
+        # count True as 1 if given the raw args. Tie-break is the lowest
+        # value. No repeat is #N/A (NaN).
+        from .calc_functions_i_m import mode
+
+        return float(mode(arr.tolist()))
+    return float("nan")
 
 
 def _round_amor(value: float) -> float:
@@ -322,16 +314,14 @@ def _parse_amor(
     basis: Any,
 ) -> tuple[float, float, float, float, int, float, int] | None:
     """Shared AMORDEGRC / AMORLINC argument check. None means #NUM!."""
-    try:
-        f_cost = float(cost)
-        d_purch = float(date_purchased)
-        d_first = float(first_period)
-        f_salv = float(salvage)
-        n_per = int(float(period))
-        f_rate = float(rate)
-        b = int(float(basis))
-    except (ValueError, TypeError, OverflowError):
-        return None
+    # type errors are left to the worker exception path, which returns #VALUE!
+    f_cost = float(cost)
+    d_purch = float(date_purchased)
+    d_first = float(first_period)
+    f_salv = float(salvage)
+    n_per = int(float(period))
+    f_rate = float(rate)
+    b = int(float(basis))
 
     if (
         d_purch > d_first
@@ -506,24 +496,22 @@ def areas(r: Any) -> float:
 def asc(text: Any) -> str:
     # Full-width ASCII (U+FF01–U+FF5E) to ASCII, and ideographic space
     # U+3000 to a normal space. Half-width katakana is not converted.
-    try:
-        if text is None:
-            return ""
-        s = str(text)
-        # Shift ASCII (Fullwidth is U+FF01 to U+FF5E) -> (U+0021 to U+007E)
-        # Fullwidth Space U+3000 -> U+0020
-        res = []
-        for ch in s:
-            code = ord(ch)
-            if 0xFF01 <= code <= 0xFF5E:
-                res.append(chr(code - 0xFEE0))
-            elif code == 0x3000:
-                res.append(" ")
-            else:
-                res.append(ch)
-        return "".join(res)
-    except (ValueError, TypeError, OverflowError):
-        return "#VALUE!"
+    # type errors are left to the worker exception path, which returns #VALUE!
+    if text is None:
+        return ""
+    s = str(text)
+    # Shift ASCII (Fullwidth is U+FF01 to U+FF5E) -> (U+0021 to U+007E)
+    # Fullwidth Space U+3000 -> U+0020
+    res = []
+    for ch in s:
+        code = ord(ch)
+        if 0xFF01 <= code <= 0xFF5E:
+            res.append(chr(code - 0xFEE0))
+        elif code == 0x3000:
+            res.append(" ")
+        else:
+            res.append(ch)
+    return "".join(res)
 
 
 def avedev(*args: Any) -> float:
@@ -645,62 +633,56 @@ def betadist(*args: Any) -> float:
     # args[3] is the lower bound A (default 0), not a cumulative flag.
     if len(args) < 3 or len(args) > 5:
         return float("nan")
-    try:
-        from scipy import stats
+    # type errors are left to the worker exception path, which returns #VALUE!
+    from scipy import stats
 
-        x = float(args[0])
-        alpha = float(args[1])
-        beta = float(args[2])
-        A = float(args[3]) if len(args) > 3 else 0.0
-        B = float(args[4]) if len(args) > 4 else 1.0
+    x = float(args[0])
+    alpha = float(args[1])
+    beta = float(args[2])
+    A = float(args[3]) if len(args) > 3 else 0.0
+    B = float(args[4]) if len(args) > 4 else 1.0
 
-        if alpha <= 0.0 or beta <= 0.0 or A >= B or x < A or x > B:
-            return float("nan")
-        x_norm = (x - A) / (B - A)
-        return float(stats.beta.cdf(x_norm, alpha, beta))
-    except Exception:
+    if alpha <= 0.0 or beta <= 0.0 or A >= B or x < A or x > B:
         return float("nan")
+    x_norm = (x - A) / (B - A)
+    return float(stats.beta.cdf(x_norm, alpha, beta))
 
 
 def betainv(*args: Any) -> float:
     # p in [0, 1], alpha > 0, beta > 0, A < B. scipy's ppf does not enforce that.
     if len(args) < 3 or len(args) > 5:
         return float("nan")
-    try:
-        from scipy import stats
+    # type errors are left to the worker exception path, which returns #VALUE!
+    from scipy import stats
 
-        p = float(args[0])
-        alpha = float(args[1])
-        beta = float(args[2])
-        A = float(args[3]) if len(args) > 3 else 0.0
-        B = float(args[4]) if len(args) > 4 else 1.0
+    p = float(args[0])
+    alpha = float(args[1])
+    beta = float(args[2])
+    A = float(args[3]) if len(args) > 3 else 0.0
+    B = float(args[4]) if len(args) > 4 else 1.0
 
-        if p < 0.0 or p > 1.0 or alpha <= 0.0 or beta <= 0.0 or A >= B:
-            return float("nan")
-        return float(stats.beta.ppf(p, alpha, beta) * (B - A) + A)
-    except Exception:
+    if p < 0.0 or p > 1.0 or alpha <= 0.0 or beta <= 0.0 or A >= B:
         return float("nan")
+    return float(stats.beta.ppf(p, alpha, beta) * (B - A) + A)
 
 
 def binomdist(*args: Any) -> float:
     # 0 <= k <= n, n >= 0, 0 <= p <= 1. scipy returns 0 for k > n; Calc wants #NUM!.
     if len(args) < 4:
         return float("nan")
-    try:
-        from scipy import stats
+    # type errors are left to the worker exception path, which returns #VALUE!
+    from scipy import stats
 
-        k = int(float(args[0]))
-        n = int(float(args[1]))
-        p = float(args[2])
-        cum = bool(float(args[3]))
-        if k < 0 or k > n or n < 0 or p < 0 or p > 1:
-            return float("nan")
-        if cum:
-            return float(stats.binom.cdf(k, n, p))
-        else:
-            return float(stats.binom.pmf(k, n, p))
-    except Exception:
+    k = int(float(args[0]))
+    n = int(float(args[1]))
+    p = float(args[2])
+    cum = bool(float(args[3]))
+    if k < 0 or k > n or n < 0 or p < 0 or p > 1:
         return float("nan")
+    if cum:
+        return float(stats.binom.cdf(k, n, p))
+    else:
+        return float(stats.binom.pmf(k, n, p))
 
 
 def bitand(n1: Any, n2: Any) -> float:
@@ -741,70 +723,60 @@ def chidist(x: Any, df: Any) -> float:
     # Excel path, same as binomdist. x == 0 stays 1. df is truncated.
     # df < 1 or df > 1e10 is #NUM! (Excel; LO enforces the cap on
     # ScChiSqDist_MS). int(df) rejected the string "3.5".
-    try:
-        from scipy import stats
+    # type errors are left to the worker exception path, which returns #VALUE!
+    from scipy import stats
 
-        xv = float(x)
-        dof = int(float(df))
-        if xv < 0.0 or dof < 1 or dof > 10**10:
-            return float("nan")
-        return float(stats.chi2.sf(xv, dof))
-    except Exception:
+    xv = float(x)
+    dof = int(float(df))
+    if xv < 0.0 or dof < 1 or dof > 10**10:
         return float("nan")
+    return float(stats.chi2.sf(xv, dof))
 
 
 def chiinv(p: Any, df: Any) -> float:
     # ScChiInv: df < 1, p <= 0, or p > 1 is #NUM!. scipy isf(0, df) is inf.
     # p == 1 stays 0. df uses int(float()) so "3.5" truncates. df > 1e10
     # matches Excel CHIINV and the chidist cap above.
-    try:
-        from scipy import stats
+    # type errors are left to the worker exception path, which returns #VALUE!
+    from scipy import stats
 
-        pv = float(p)
-        dof = int(float(df))
-        if dof < 1 or dof > 10**10 or pv <= 0.0 or pv > 1.0:
-            return float("nan")
-        return float(stats.chi2.isf(pv, dof))
-    except Exception:
+    pv = float(p)
+    dof = int(float(df))
+    if dof < 1 or dof > 10**10 or pv <= 0.0 or pv > 1.0:
         return float("nan")
+    return float(stats.chi2.isf(pv, dof))
 
 
 def choose(index: Any, *args: Any) -> Any:
-    # An out-of-range index is #VALUE! (NaN), not None.
-    try:
-        idx = int(float(index))
-        if 1 <= idx <= len(args):
-            return args[idx - 1]
-    except (ValueError, TypeError, OverflowError):
-        pass
+    # Out-of-range stays NaN (#NUM! in the cell) so a negative index does not wrap.
+    # non-numeric indexes are left to the worker exception path, which returns #VALUE!. OverflowError (inf) is #NUM! on that path.
+    idx = int(float(index))
+    if 1 <= idx <= len(args):
+        return args[idx - 1]
     return float("nan")
 
 
 def clean(text: Any) -> str | float:
-    try:
-        if text is None:
-            return ""
-        if isinstance(text, float) and math.isnan(text):
-            return float("nan")
-        s = str(text)
-        # Excel CLEAN removes C0 controls (ord < 32) and DEL (U+007F). The
-        # ord < 32 filter left chr(127) in the result.
-        return "".join(c for c in s if ord(c) >= 32 and ord(c) != 127)
-    except (ValueError, TypeError):
+    # type errors are left to the worker exception path, which returns #VALUE!
+    if text is None:
+        return ""
+    if isinstance(text, float) and math.isnan(text):
         return float("nan")
+    s = str(text)
+    # Excel CLEAN removes C0 controls (ord < 32) and DEL (U+007F). The
+    # ord < 32 filter left chr(127) in the result.
+    return "".join(c for c in s if ord(c) >= 32 and ord(c) != 127)
 
 
 def code(s: Any) -> float:
     # ScCode pushes 0 for an empty string. Excel CODE("") is #VALUE!.
     # This helper follows Calc. str(None) is "None", so a missing object
     # stays the code point of "N"; do not treat None as blank here.
-    try:
-        ss = str(s)
-        if not ss:
-            return 0.0
-        return float(ord(ss[0]))
-    except (ValueError, TypeError):
-        return float("nan")
+    # type errors are left to the worker exception path, which returns #VALUE!
+    ss = str(s)
+    if not ss:
+        return 0.0
+    return float(ord(ss[0]))
 
 
 def _binom_float(n: int, k: int, *, reject_k_gt_n: bool) -> float:
@@ -832,28 +804,22 @@ def _binom_float(n: int, k: int, *, reject_k_gt_n: bool) -> float:
 
 def combin(n: Any, k: Any) -> float:
     # ScCombin rejects k > n and any negative. math.comb(3, 5) is 0.
-    try:
-        return _binom_float(int(float(n)), int(float(k)), reject_k_gt_n=True)
-    except (ValueError, TypeError, OverflowError):
-        # int(float(inf)) raises OverflowError, which used to escape this helper.
-        return float("nan")
+    # non-numeric arguments are left to the worker exception path. OverflowError (inf) is #NUM!; ValueError is #VALUE!.
+    return _binom_float(int(float(n)), int(float(k)), reject_k_gt_n=True)
 
 
 def combina(n: Any, k: Any) -> float:
     # ScCombinA also rejects k > n. Excel COMBINA(3, 5) is 21, so this
     # helper still evaluates C(n+k-1, k) in that case. n < 0 has to be
     # NaN: combina(-2, 6) is math.comb(3, 6), which is 0.
-    try:
-        ni = int(float(n))
-        ki = int(float(k))
-        if ni < 0 or ki < 0:
-            return float("nan")
-        if ni == 0 and ki == 0:
-            return 1.0
-        return _binom_float(ni + ki - 1, ki, reject_k_gt_n=False)
-    except (ValueError, TypeError, OverflowError):
-        # int(float(inf)) raises OverflowError, which used to escape this helper.
+    # non-numeric arguments are left to the worker exception path. OverflowError (inf) is #NUM!; ValueError is #VALUE!.
+    ni = int(float(n))
+    ki = int(float(k))
+    if ni < 0 or ki < 0:
         return float("nan")
+    if ni == 0 and ki == 0:
+        return 1.0
+    return _binom_float(ni + ki - 1, ki, reject_k_gt_n=False)
 
 
 def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
@@ -872,25 +838,23 @@ def complex(real_num: Any, imag_num: Any = 0.0, suffix: Any = "i") -> str:
 
 def confidence(alpha: Any, stddev: Any, size: Any) -> float:
     # alpha strictly inside (0, 1), stddev > 0, size >= 1. Otherwise #NUM!.
-    try:
-        from scipy import stats
+    # type errors are left to the worker exception path, which returns #VALUE!
+    from scipy import stats
 
-        a = float(alpha)
-        sd = float(stddev)
-        n = int(float(size))
-        if a <= 0.0 or a >= 1.0 or sd <= 0.0 or n < 1:
-            return float("nan")
-        return float(stats.norm.ppf(1 - a / 2.0) * sd / math.sqrt(n))
-    except Exception:
+    a = float(alpha)
+    sd = float(stddev)
+    n = int(float(size))
+    if a <= 0.0 or a >= 1.0 or sd <= 0.0 or n < 1:
         return float("nan")
+    return float(stats.norm.ppf(1 - a / 2.0) * sd / math.sqrt(n))
 
 
-@nan_on_error(ValueError, TypeError, ZeroDivisionError)
+# ZeroDivisionError is left to the worker exception path, which returns #DIV/0!. Type errors return #VALUE!.
 def cot(x: Any) -> float:
     return float(1.0 / math.tan(float(x)))
 
 
-@nan_on_error(ValueError, TypeError, ZeroDivisionError)
+# ZeroDivisionError is left to the worker exception path, which returns #DIV/0!. Type errors return #VALUE!.
 def coth(x: Any) -> float:
     return float(1.0 / math.tanh(float(x)))
 
@@ -924,8 +888,8 @@ def coupdaybs(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) ->
         b = int(float(basis))
         p_ser, _c_ser, _days_in_per, _k = _get_coupon_dates(settlement, maturity, frequency, b)
         s_date = _serial_to_date(settlement)
-        if s_date is None:
-            return float("nan")
+        # _get_coupon_dates already raised when settlement does not convert
+        assert s_date is not None
         s_ser = _date_to_serial(s_date)
         return float(_days_between(p_ser, s_ser, b))
     except Exception:
@@ -946,8 +910,8 @@ def coupdaysnc(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -
         b = int(float(basis))
         _p_ser, c_ser, _days_in_per, _k = _get_coupon_dates(settlement, maturity, frequency, b)
         s_date = _serial_to_date(settlement)
-        if s_date is None:
-            return float("nan")
+        # _get_coupon_dates already raised when settlement does not convert
+        assert s_date is not None
         s_ser = _date_to_serial(s_date)
         return float(_days_between(s_ser, c_ser, b))
     except Exception:
@@ -982,36 +946,33 @@ def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
     # ScCritBinom (interpr3.cxx): n < 0, alpha outside [0, 1], or p outside
     # [0, 1] is #NUM!. alpha == 0 returns 0. scipy's ppf(0, n, p) is -1.
     # alpha == 1 returns n, or 0 when p == 0. int(trials) rejected "10.9".
-    try:
-        from scipy import stats
+    # type errors are left to the worker exception path, which returns #VALUE!
+    from scipy import stats
 
-        n = int(float(trials))
-        p = float(prob)
-        a = float(alpha)
-        if n < 0 or a < 0.0 or a > 1.0 or p < 0.0 or p > 1.0:
-            return float("nan")
-        if a == 0.0:
-            return 0.0
-        if a == 1.0:
-            return 0.0 if p == 0.0 else float(n)
-        return float(stats.binom.ppf(a, n, p))
-    except Exception:
+    n = int(float(trials))
+    p = float(prob)
+    a = float(alpha)
+    if n < 0 or a < 0.0 or a > 1.0 or p < 0.0 or p > 1.0:
         return float("nan")
+    if a == 0.0:
+        return 0.0
+    if a == 1.0:
+        return 0.0 if p == 0.0 else float(n)
+    return float(stats.binom.ppf(a, n, p))
 
 
-@nan_on_error(ValueError, TypeError, ZeroDivisionError)
+# ZeroDivisionError is left to the worker exception path, which returns #DIV/0!. Type errors return #VALUE!.
 def csc(x: Any) -> float:
     return float(1.0 / math.sin(float(x)))
 
 
 def csch(x: Any) -> float:
     # 1/sinh(x) goes to 0 as |x| grows. OverflowError is that limit, not #NUM!.
+    # OverflowError is the finite limit 0. ZeroDivisionError (#DIV/0!) and type errors (#VALUE!) are left to the worker.
     try:
         return float(1.0 / math.sinh(float(x)))
     except OverflowError:
         return 0.0
-    except (ValueError, TypeError, ZeroDivisionError):
-        return float("nan")
 
 
 def _cum_payment(
@@ -1025,19 +986,17 @@ def _cum_payment(
 ) -> float:
     """Shared body of CUMIPMT and CUMPRINC. kind is "ipmt" or "ppmt"."""
     # rate must be > 0. Zero is #NUM!, same as a negative rate.
-    try:
-        r = float(rate)
-        # getCumipmt takes sal_Int32 nNumPeriods (financial.cxx). Leaving nper
-        # as a float made numpy-financial price a different loan: nper 12.2
-        # is not the 12-period schedule. start and end were already truncated.
-        n = int(float(nper))
-        p = float(pv)
-        s = int(float(start_period))
-        e = int(float(end_period))
-        t = int(float(type_val))
-        if t not in (0, 1):
-            return float("nan")
-    except (ValueError, TypeError, OverflowError):
+    # type errors are left to the worker exception path, which returns #VALUE!
+    r = float(rate)
+    # getCumipmt takes sal_Int32 nNumPeriods (financial.cxx). Leaving nper
+    # as a float made numpy-financial price a different loan: nper 12.2
+    # is not the 12-period schedule. start and end were already truncated.
+    n = int(float(nper))
+    p = float(pv)
+    s = int(float(start_period))
+    e = int(float(end_period))
+    t = int(float(type_val))
+    if t not in (0, 1):
         return float("nan")
     if r <= 0 or n <= 0 or p <= 0 or s < 1 or e < s or e > n:
         return float("nan")

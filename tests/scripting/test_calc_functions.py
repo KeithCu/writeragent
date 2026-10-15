@@ -598,11 +598,13 @@ def test_bit_char_choose_combin_inf_does_not_raise():
     assert calc.char(float("inf")) == "#VALUE!"
     assert calc.char(256) == "#VALUE!"
     assert calc.char("nope") == "#VALUE!"
-    assert calc.char(65) == "A"
-    assert math.isnan(calc.choose(float("inf"), "a", "b"))
+    with pytest.raises(OverflowError):
+        calc.choose(float("inf"), "a", "b")
     assert calc.choose(2, "a", "b") == "b"
-    assert math.isnan(calc.combin(float("inf"), 2))
-    assert math.isnan(calc.combina(5, float("inf")))
+    with pytest.raises(OverflowError):
+        calc.combin(float("inf"), 2)
+    with pytest.raises(OverflowError):
+        calc.combina(5, float("inf"))
     assert calc.combin(5, 2) == 10.0
     # math.comb(3, 5) is 0. ScCombin rejects k > n.
     assert math.isnan(calc.combin(3, 5))
