@@ -2182,10 +2182,10 @@ def test_idle_ttl_zero_reaps_abandoned_sessions_only(caplog: pytest.LogCaptureFi
         pool.shutdown()
 
 
-def test_bad_result_json_is_worker_crashed_without_kill(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A result_json that is not JSON is an error dict, and the child stays.
+def test_bad_result_json_is_decode_error_without_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A result_json that is not JSON is a RESULT_DECODE_ERROR dict, and the child stays up.
 
-    What was wrong: decode_worker_result's json.loads escaped execute.
+    The child stays up, and the code is RESULT_DECODE_ERROR, not WORKER_CRASHED.
     The pickle frame was already consumed, so killing the child would drop
     shared sessions for a bad inner blob.
     """
@@ -2206,14 +2206,14 @@ def test_bad_result_json_is_worker_crashed_without_kill(monkeypatch: pytest.Monk
     try:
         clock = Deadline(30.0)
         res = pool._run_execution(worker, {}, clock, False, "bad-json", True)
-        assert res.get("code") == "WORKER_CRASHED"
+        assert res.get("code") == "RESULT_DECODE_ERROR"
         assert res.get("id") == "bad-json"
         assert "session_reset" not in res
         assert "could not be decoded" in str(res.get("error"))
 
         blob["raw"] = b"\xff"
         lost = pool._run_execution(worker, {}, clock, True, "bad-utf8", True)
-        assert lost.get("code") == "WORKER_CRASHED"
+        assert lost.get("code") == "RESULT_DECODE_ERROR"
         assert lost.get("id") == "bad-utf8"
         assert lost.get("session_reset") is True
 
@@ -2231,7 +2231,7 @@ def test_bad_result_json_is_worker_crashed_without_kill(monkeypatch: pytest.Monk
         assert nested is not None
         blob["raw"] = nested
         deep = pool._run_execution(worker, {}, clock, False, "deep-json", True)
-        assert deep.get("code") == "WORKER_CRASHED"
+        assert deep.get("code") == "RESULT_DECODE_ERROR"
         assert deep.get("id") == "deep-json"
 
         def _oom(_res: dict[str, Any]) -> dict[str, Any]:
@@ -2239,7 +2239,7 @@ def test_bad_result_json_is_worker_crashed_without_kill(monkeypatch: pytest.Monk
 
         monkeypatch.setattr("compute_service.formula_pool.decode_worker_result", _oom)
         oom = pool._run_execution(worker, {}, clock, False, "oom-json", True)
-        assert oom.get("code") == "WORKER_CRASHED"
+        assert oom.get("code") == "RESULT_DECODE_ERROR"
         assert oom.get("id") == "oom-json"
         assert killed == []
     finally:

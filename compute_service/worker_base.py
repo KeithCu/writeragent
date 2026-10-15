@@ -537,7 +537,11 @@ class BaseProcessPool:
     def _finish_release(self, worker: BaseProcessWorker) -> None:
         if self._is_shutdown:
             self._drop_lease(worker)
-            worker.kill()
+            # A kill() error must not escape release. The lease is already dropped.
+            try:
+                worker.kill()
+            except Exception:
+                log.exception("Failed to reap %s #%d during shutdown", self.worker_name, worker.worker_id)
             return
 
         recycle = self.should_recycle_worker(worker)
@@ -563,12 +567,25 @@ class BaseProcessPool:
 
         if kill_for_shutdown:
             self._drop_lease(worker)
-            worker.kill()
+            # A kill() error must not escape release. The lease is already dropped.
+            try:
+                worker.kill()
+            except Exception:
+                log.exception("Failed to reap %s #%d during shutdown", self.worker_name, worker.worker_id)
             return
 
         if recycle:
             log.info("Retiring %s #%d after %d tasks", self.worker_name, worker.worker_id, worker.tasks_executed)
-            worker.kill()
+            # What was wrong: kill() sat before _drop_lease with no handler.
+            # How: an exception from kill() skipped _drop_lease, so the slot
+            # stayed in _leased and no later lease could claim it.
+            # Why: the same try/except as init abort logs the reap failure,
+            # then _drop_lease still runs. The lease stays held across kill()
+            # so lease_any cannot cold-claim the process being retired.
+            try:
+                worker.kill()
+            except Exception:
+                log.exception("Failed to reap %s #%d during recycle", self.worker_name, worker.worker_id)
             self._drop_lease(worker)
 
     def _clear_pool_state_unlocked(self) -> None:
@@ -604,5 +621,12 @@ class BaseProcessPool:
         # Reaping worker processes can take seconds (kill + wait).
         # Perform outside the pool lock so waiting threads or release callbacks
         # do not block on child process termination.
+        # What was wrong: one kill() exception aborted the rest of the loop.
+        # How: unlike init abort, shutdown called kill() with no handler.
+        # Why: each reap is logged and the loop continues, so one child
+        # cannot leave the others running.
         for w in workers_to_kill:
-            w.kill()
+            try:
+                w.kill()
+            except Exception:
+                log.exception("Failed to reap %s #%d during shutdown", self.worker_name, w.worker_id)

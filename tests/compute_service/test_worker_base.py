@@ -124,6 +124,70 @@ def test_max_tasks_release_leaves_slot_dead() -> None:
     assert worker not in pool._idle
 
 
+def test_recycle_kill_exception_drops_lease(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    class _FailingRecycleSlot:
+        def __init__(self) -> None:
+            self.tasks_executed = 1
+            self.worker_id = 7
+
+        def is_alive(self) -> bool:
+            return True
+
+        def kill(self) -> None:
+            raise RuntimeError("reap failed")
+
+    pool = BaseProcessPool(script_path="unused.py", num_workers=0, max_tasks=1, idle_worker_ttl_sec=None)
+    worker = _FailingRecycleSlot()
+    pool.workers.append(worker)  # type: ignore[arg-type]
+    pool._leased.add(worker)  # type: ignore[arg-type]
+    with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+        pool.release_worker(worker)  # type: ignore[arg-type]
+
+    assert worker not in pool._leased
+    assert worker not in pool._idle
+    assert "Failed to reap" in caplog.text
+    assert "during recycle" in caplog.text
+
+
+def test_shutdown_kill_exception_continues(caplog: pytest.LogCaptureFixture) -> None:
+    import logging
+
+    second_killed = 0
+
+    class _FirstSlot:
+        worker_id = 1
+
+        def request_shutdown(self) -> None:
+            pass
+
+        def kill(self) -> None:
+            raise RuntimeError("first reap failed")
+
+    class _SecondSlot:
+        worker_id = 2
+
+        def request_shutdown(self) -> None:
+            pass
+
+        def kill(self) -> None:
+            nonlocal second_killed
+            second_killed += 1
+
+    pool = BaseProcessPool(script_path="unused.py", num_workers=0, idle_worker_ttl_sec=None)
+    first = _FirstSlot()
+    second = _SecondSlot()
+    pool.workers.extend([first, second])  # type: ignore[arg-type]
+
+    with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+        pool.shutdown()
+
+    assert second_killed == 1
+    assert "during shutdown" in caplog.text
+    assert pool._is_shutdown is True
+
+
 def test_max_tasks_is_at_least_one() -> None:
     """A non-positive max_tasks is the same floor config already requires.
 
