@@ -292,7 +292,7 @@ class Child:
         return text[-_STDERR_SNIPPET:]
 
     def _signal_proc(self) -> None:
-        # close() would SIGTERM, wait 3s, and close stdout. The non-owner
+        # close() would SIGTERM and wait 3s on this thread. The non-owner
         # thread is only allowed to signal. kill_tree is the group SIGKILL.
         self.managed.kill_tree()
 

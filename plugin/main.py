@@ -151,10 +151,11 @@ def _install_terminate_listener(ctx: Any) -> None:
                 except Exception:
                     log.exception("Error shutting down Kokoro pool on desktop termination")
 
-                # Venv workers are register=False, so this shutdown_all does not close()
-                # them. Do not call PythonWorkerManager.shutdown_all here either: it
-                # joins the reap on this thread. Idle children exit on stdin EOF. Linux
-                # native stalls use PR_SET_PDEATHSIG in the harness.
+                # shutdown_all kill_trees registered children and does not signal
+                # register=False venv workers. Do not call
+                # PythonWorkerManager.shutdown_all here either: it joins the reap on
+                # this thread. Idle children exit on stdin EOF. Linux native stalls
+                # use PR_SET_PDEATHSIG in the harness.
                 try:
                     from plugin.framework.managed_subprocess import shutdown_all
 

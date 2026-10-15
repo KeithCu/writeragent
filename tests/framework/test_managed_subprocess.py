@@ -171,6 +171,8 @@ def test_managed_subprocess_idempotent_close():
 
 
 def test_managed_subprocess_shutdown_registry():
+    import plugin.framework.managed_subprocess as ms
+
     cmd1 = [sys.executable, "-c", "import time; time.sleep(10)"]
     cmd2 = [sys.executable, "-c", "import time; time.sleep(10)"]
 
@@ -186,11 +188,26 @@ def test_managed_subprocess_shutdown_registry():
     assert proc2.is_alive()
 
     shutdown_all()
+    ms._reaper_queue.join()
 
     assert not proc1.is_alive()
     assert not proc2.is_alive()
     assert proc1 not in _instances
     assert proc2 not in _instances
+
+
+def test_shutdown_all_kills_without_close() -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    inst = MagicMock()
+    ms._instances.add(inst)
+    try:
+        ms.shutdown_all()
+        inst.kill_tree.assert_called_once()
+        inst.abandon.assert_called_once()
+        inst.close.assert_not_called()
+    finally:
+        ms._instances.discard(inst)
 
 
 def test_managed_subprocess_timeout_escalate_and_reap(monkeypatch):
@@ -220,10 +237,75 @@ def test_managed_subprocess_timeout_escalate_and_reap(monkeypatch):
 
     assert killed == [mock_proc]
     assert enqueued == [("close", managed)]
+    mock_proc.stdout.close.assert_not_called()
+    mock_proc.stderr.close.assert_called_once()
 
     # Second close should not re-enqueue
     managed.close()
     assert len(enqueued) == 1
+
+
+def test_close_skips_stdout_and_drained_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    mock_proc = MagicMock()
+    mock_proc.pid = 9998
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stderr = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.wait.side_effect = subprocess.TimeoutExpired(cmd="test", timeout=0.01)
+
+    mock_drain = MagicMock()
+
+    killed: list[Any] = []
+    monkeypatch.setattr(ms, "kill_process_tree", lambda p: killed.append(p))
+
+    enqueued: list[Any] = []
+    monkeypatch.setattr(ms, "_enqueue_reaper", lambda item: enqueued.append(item))
+
+    managed = ms.ManagedSubprocess(["dummy"])
+    managed._proc = mock_proc
+    managed._stderr_drain = mock_drain
+    ms._register_instance(managed)
+
+    managed.close()
+
+    mock_proc.stdin.close.assert_called_once()
+    mock_proc.stdout.close.assert_not_called()
+    mock_proc.stderr.close.assert_not_called()
+    mock_drain.finish_text.assert_called_once_with(timeout=1.0)
+    assert killed == [mock_proc]
+    assert enqueued == [("close", managed)]
+    assert managed not in ms._instances
+
+    # Second close() does not call finish_text again
+    managed.close()
+    assert mock_drain.finish_text.call_count == 1
+
+
+def test_close_closes_stderr_when_no_drain(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    mock_proc = MagicMock()
+    mock_proc.pid = 9997
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdout = MagicMock()
+    mock_proc.stderr = MagicMock()
+    mock_proc.poll.return_value = 0
+
+    killed: list[Any] = []
+    monkeypatch.setattr(ms, "kill_process_tree", lambda p: killed.append(p))
+
+    managed = ms.ManagedSubprocess(["dummy"])
+    managed._proc = mock_proc
+    managed._stderr_drain = None
+    ms._register_instance(managed)
+
+    managed.close()
+
+    mock_proc.stderr.close.assert_called_once()
+    mock_proc.stdout.close.assert_not_called()
 
 
 def test_managed_subprocess_start_failure_after_popen(monkeypatch):
@@ -807,16 +889,24 @@ def test_reaper_stops_after_max_passes(
             raise subprocess.TimeoutExpired(cmd="stuck", timeout=1)
 
     managed = ms.ManagedSubprocess.wrap_existing(_Stuck(), label="Worker #1")  # type: ignore[arg-type]
-    with caplog.at_level(logging.WARNING, logger="plugin.framework.managed_subprocess"):
-        for _idx in range(ms._REAPER_MAX_PASSES):
-            managed.reaper_pass()
-    assert sleeps == [0.1] * (ms._REAPER_MAX_PASSES - 1)
-    assert len(enqueued) == ms._REAPER_MAX_PASSES - 1
-    assert enqueued == [("abandon", managed)] * (ms._REAPER_MAX_PASSES - 1)
-    giving_up = [record for record in caplog.records if "reaper giving up" in record.getMessage()]
-    assert len(giving_up) == 1
-    assert "Worker #1" in giving_up[0].getMessage()
-    assert "pid=41" in giving_up[0].getMessage()
+    ms._register_instance(managed)
+    try:
+        with caplog.at_level(logging.WARNING, logger="plugin.framework.managed_subprocess"):
+            for _idx in range(ms._REAPER_MAX_PASSES):
+                managed.reaper_pass()
+        assert managed not in ms._instances
+        assert managed in ms._reaper_given_up
+        assert sleeps == [0.1] * (ms._REAPER_MAX_PASSES - 1)
+        assert len(enqueued) == ms._REAPER_MAX_PASSES - 1
+        assert enqueued == [("abandon", managed)] * (ms._REAPER_MAX_PASSES - 1)
+        giving_up = [record for record in caplog.records if "reaper giving up" in record.getMessage()]
+        assert len(giving_up) == 1
+        assert "Worker #1" in giving_up[0].getMessage()
+        assert "pid=41" in giving_up[0].getMessage()
+    finally:
+        if managed in ms._reaper_given_up:
+            ms._reaper_given_up.remove(managed)
+        ms._instances.discard(managed)
 
 
 def test_abandoned_reaper_thread_is_a_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1212,6 +1302,24 @@ def test_raw_spawn_rejects_worker_options(
         assert str(excinfo.value) == expected_msg
 
 
+def test_raw_spawn_drain_stderr_false_starts(monkeypatch: pytest.MonkeyPatch) -> None:
+    import plugin.framework.managed_subprocess as ms
+
+    fake_proc = MagicMock()
+    fake_proc.pid = 1
+    fake_proc.poll.return_value = None
+
+    monkeypatch.setattr(ms.subprocess, "Popen", lambda *args, **kwargs: fake_proc)
+    monkeypatch.setattr(ms, "start_stderr_drain", MagicMock(side_effect=AssertionError("should not drain")))
+
+    managed = ms.ManagedSubprocess(["echo"], raw_spawn=True, drain_stderr=False)
+    managed.start()
+
+    assert managed.popen is fake_proc
+    assert managed.stderr_tail is None
+    assert managed not in ms._instances
+
+
 def test_worker_start_ignores_raw_stdio_arguments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1263,6 +1371,7 @@ def test_managed_subprocess_run_is_subprocess_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import plugin.framework.managed_subprocess as ms
+    from plugin.framework.worker_pool import get_subprocess_creationflags
 
     captured_args: list[Any] = []
     captured_kwargs: list[dict[str, Any]] = []
@@ -1283,7 +1392,7 @@ def test_managed_subprocess_run_is_subprocess_run(
     )
     assert res.returncode == 0
     assert captured_args[0] == (["spd-say", "-S"],)
-    assert captured_kwargs[0] == {
+    expected = {
         "stdin": None,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
@@ -1295,7 +1404,8 @@ def test_managed_subprocess_run_is_subprocess_run(
         "timeout": 2,
         "check": False,
     }
-    assert "creationflags" not in captured_kwargs[0]
+    expected.update(get_subprocess_creationflags())
+    assert captured_kwargs[0] == expected
     assert "start_new_session" not in captured_kwargs[0]
 
 
@@ -1645,10 +1755,13 @@ def test_managed_subprocess_run_capture_output(monkeypatch: pytest.MonkeyPatch) 
         "stdin",
         "stdout",
         "stderr",
-        "creationflags",
     )
     for key in absent_keys:
         assert key not in recorded_kwargs
+
+    from plugin.framework.worker_pool import get_subprocess_creationflags
+
+    assert recorded_kwargs.get("creationflags") == get_subprocess_creationflags().get("creationflags")
 
     assert ms._instances == instances_snapshot
 

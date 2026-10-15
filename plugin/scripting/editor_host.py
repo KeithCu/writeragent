@@ -192,7 +192,7 @@ def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subproce
     # env= would overlay that onto os.environ and put scrubbed secrets back.
     # scrub_env=True would drop LD_LIBRARY_PATH, which that builder restores.
     # drain_stderr stays false: _stderr_drain_loop is already the stderr reader.
-    # register stays false: shutdown_all must not close() this child.
+    # register stays false: shutdown_all must not kill_tree this child.
     # log_start_failure stays false: launch_monaco_editor catches the original OSError.
     env = build_editor_child_env(assets_dir=assets_dir)
     managed = ManagedSubprocess(

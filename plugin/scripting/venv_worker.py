@@ -1186,7 +1186,7 @@ class PythonWorkerManager:
                 )
             # preexec_fn=os.setsid runs between fork and exec and deadlocks a threaded host.
             # start_new_session is the C spawn path, same new process group, pgid == pid.
-            # register=False because desktop shutdown_all would close() this child.
+            # register=False because desktop shutdown_all would kill_tree this child.
             # notifyTermination does not call PythonWorkerManager.shutdown_all.
             # That reap joins on the UI thread. An idle child exits on stdin EOF.
             # Linux native stalls use PR_SET_PDEATHSIG in the harness. Windows and

@@ -202,7 +202,8 @@ class _KokoroWorker:
         self._shutting_down = True
 
     def kill(self) -> bool:
-        self._managed.close()
+        self._managed.kill_tree()
+        self._managed.abandon()
         return True
 
 
@@ -412,7 +413,7 @@ class KokoroProcessPool:
         self._retire_worker(worker)
 
     def _retire_worker(self, worker: _KokoroWorker) -> None:
-        """request_shutdown plus kill calls ManagedSubprocess.close (close stdin, SIGTERM, wait 3s, kill_process_tree, one 5s reaper wait if it is still alive). This is not the compute handshake and it is not five 1s passes."""
+        """request_shutdown plus kill calls kill_tree then abandon (group SIGKILL, no pipe close, no wait on this thread; the abandon reaper does the five 1s passes). It is not close() and it is not the compute handshake."""
         worker.request_shutdown()
         worker.kill()
 

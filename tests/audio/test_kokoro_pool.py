@@ -451,3 +451,17 @@ def test_kokoro_worker_managed_subprocess_env_and_wrapper(monkeypatch):
     assert "OPENAI_API_KEY" not in popen_env
     assert popen_env.get("PYTHONUTF8") == "1"
     assert "PYTHONPATH" in popen_env
+
+
+def test_worker_kill_signals_and_abandons_without_close() -> None:
+    from unittest.mock import MagicMock
+    from plugin.audio.kokoro_pool import _KokoroWorker
+
+    worker = _KokoroWorker(sys.executable, "unused.py")
+    mock_managed = MagicMock()
+    worker._managed = mock_managed
+
+    assert worker.kill() is True
+    mock_managed.kill_tree.assert_called_once()
+    mock_managed.abandon.assert_called_once()
+    mock_managed.close.assert_not_called()
