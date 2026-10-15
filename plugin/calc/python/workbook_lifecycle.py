@@ -129,14 +129,19 @@ def lifecycle_key_if_known(doc: Any | None) -> str:
 
 def _runtime_uid(doc: Any) -> str:
     """Read RuntimeUID from doc, or empty string on failure."""
+    # Bugfix: What was wrong: Property-only read missed builds that expose getRuntimeUID()
+    # or the attribute, and if uid: return str(uid) accepted non-strings.
+    # How it happened: Direct call to getPropertyValue("RuntimeUID") without the full ladder or type validation.
+    # Why this change fixes it: Use the shared _read_runtime_uid ladder, which tries method, attribute,
+    # then property, and only accepts plain str or int without a thread check.
     try:
-        if hasattr(doc, "getPropertyValue"):
-            uid = doc.getPropertyValue("RuntimeUID")
-            if uid:
-                return str(uid)
+        from plugin.framework.uno_context import _read_runtime_uid
+
+        return _read_runtime_uid(doc)
     except Exception:
         log.debug("python_workbook_lifecycle: RuntimeUID read failed", exc_info=True)
-    return ""
+        return ""
+
 
 
 def _lifecycle_key(doc: Any) -> str:

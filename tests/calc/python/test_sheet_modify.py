@@ -287,3 +287,37 @@ def test_schedule_timer_callback_clears_pending_timer(monkeypatch):
     captured_callbacks[0]()
     assert key not in _PENDING_TIMERS
 
+
+def test_unload_drops_pending_sheet_timer(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.sheet_modify import cancel_pending_sheet_timers, schedule_sheet_modify_pass
+
+    monkeypatch.setattr("threading.Timer", _FakeTimer)
+    monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _FakeTimer)
+
+    doc_unload = CalcDocStub(url="", props={"RuntimeUID": "uid-unload"})
+    sheet_unload = doc_unload.getSheets().getByName("Sheet1")
+    doc_keep = CalcDocStub(url="", props={"RuntimeUID": "uid-keep"})
+    sheet_keep = doc_keep.getSheets().getByName("Sheet1")
+
+    schedule_sheet_modify_pass("ctx", doc_unload, sheet_unload)
+    schedule_sheet_modify_pass("ctx", doc_keep, sheet_keep)
+
+    timer_unload = _PENDING_TIMERS.get(("uid-unload", "Sheet1"))
+    timer_keep = _PENDING_TIMERS.get(("uid-keep", "Sheet1"))
+    assert timer_unload is not None
+    assert timer_keep is not None
+    assert not timer_unload.cancelled
+    assert not timer_keep.cancelled
+
+    clear_in_memory_spill_state(lifecycle_key="uid-unload")
+
+    assert ("uid-unload", "Sheet1") not in _PENDING_TIMERS
+    assert timer_unload.cancelled is True
+    assert ("uid-keep", "Sheet1") in _PENDING_TIMERS
+    assert timer_keep.cancelled is False
+
+    cancel_pending_sheet_timers("")
+    assert ("uid-keep", "Sheet1") in _PENDING_TIMERS
+    assert timer_keep.cancelled is False
+
+
