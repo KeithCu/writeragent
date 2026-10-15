@@ -540,7 +540,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _mcp_event_bus: Any
     _turn: Any
     _last_mcp_turn: dict[str, Any]
-    _last_mcp_req_id: int | str | None
     _stop_mouse_listener: Any
     _stop_mouse_control: Any
     _record_mouse_listener: Any
@@ -637,7 +636,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._turn = None
         self._last_mcp_turn = {}
         self._mcp_turn_lock = threading.Lock()
-        self._last_mcp_req_id = None
         self._active_client: Any = None
         self._active_max_tokens: Any = None
         self._active_tools: Any = None
@@ -1243,10 +1241,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if getattr(self, "_panel_teardown", False) or getattr(self, "ctx", None) is None:
             return
 
-        # Each request is tied to its originating TurnController in
-        # _last_mcp_turn[rid]. Gating on kwargs["req_id"] == self._last_mcp_req_id
-        # drops the earlier of two concurrent MCP requests: _on_mcp_request
-        # overwrites _last_mcp_req_id with the newest id.
+        # Each request is stored on _last_mcp_turn[rid]; one shared last id
+        # would drop the earlier of two concurrent MCP requests.
         try:
             from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
@@ -2690,11 +2686,10 @@ class StopButtonListener(BaseActionListener):
         if self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None:
             from plugin.framework.i18n import _
 
+            # Stop is only relabeled to Change; Reject is the Clear button, so a
+            # Reject check on Stop never ran.
             if self.send_listener.stop_control and self.send_listener.stop_control.getModel() and self.send_listener.stop_control.getModel().Label == _("Change"):
                 self.send_listener._open_web_search_change_dialog()
-                return
-            if self.send_listener.stop_control and self.send_listener.stop_control.getModel() and self.send_listener.stop_control.getModel().Label == _("Reject"):
-                self.send_listener._finish_inline_web_approval(False)
                 return
         # During a take Stop steps down (leave hands-free, then cancel). Only
         # this ActionEvent path does it; mousePressed returns while not busy,

@@ -190,10 +190,10 @@ def test_run_stop_stops_speech_and_hands_free_without_clearing_ask():
     assert stop_model.Enabled is False
 
 
-def test_run_stop_rejects_inline_web_approval_without_clearing_ask():
+def test_run_stop_during_inline_approval_opens_change_dialog_without_clearing_ask():
     from plugin.framework.i18n import _
 
-    stop_model = SimpleNamespace(Label=_("Reject"), Enabled=True)
+    stop_model = SimpleNamespace(Label=_("Change"), Enabled=True)
     host = SimpleNamespace(
         slash_popup=None,
         query_control=SimpleNamespace(text="keep me"),
@@ -208,6 +208,6 @@ def test_run_stop_rejects_inline_web_approval_without_clearing_ask():
             run_slash_command("stop", host)
     set_text.assert_not_called()
     assert host.query_control.text == "keep me"
-    host._finish_inline_web_approval.assert_called_once_with(False)
-    host._open_web_search_change_dialog.assert_not_called()
+    host._open_web_search_change_dialog.assert_called_once_with()
+    host._finish_inline_web_approval.assert_not_called()
     host.dispatch.assert_not_called()
