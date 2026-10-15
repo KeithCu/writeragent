@@ -101,9 +101,12 @@ _PROBE_KEY_TO_PIP: dict[str, str] = {
     "faster_whisper": "faster-whisper",
 }
 
-# Child stdout marker. _parse_probe_stdout accepts only a line that starts
-# with this prefix. The six probe scripts below print it as a literal; keep
-# the characters identical, including the trailing space.
+# Child stdout marker. _parse_probe_stdout searches for this prefix
+# anywhere on a line. A C extension can write a banner with no trailing
+# newline, so the probe print is glued to that banner and the line does
+# not start with the prefix. Parse from the prefix to the end of the
+# line. The six probe scripts below print it as a literal; keep the
+# characters identical, including the trailing space.
 _PROBE_JSON_PREFIX = "WA_PROBE_JSON "
 _AUDIO_PROBE_SCRIPT = """
 import json
@@ -369,15 +372,23 @@ def _parse_probe_stdout(stdout: str) -> dict[str, Any] | None:
     marker does not hide the payload.
     Why: a bare JSON line from the library is not a probe result. No marker
     means failure, including empty stdout. Do not fall back to {}.
+
+    What was wrong: startswith(prefix) dropped the payload when the
+    banner and the probe print were the same line.
+    How: paddle/onnx/docling can write stdout without a newline, then
+    the probe print continues that line.
+    Why: find(prefix) and json.loads of the remainder still ignores
+    unrelated lines, and a non-dict or invalid slice does not win.
     """
     found: dict[str, Any] | None = None
     prefix = _PROBE_JSON_PREFIX
     for line in stdout.splitlines():
-        stripped = line.strip()
-        if not stripped.startswith(prefix):
+        idx = line.find(prefix)
+        if idx < 0:
             continue
+        payload = line[idx + len(prefix):].strip()
         try:
-            parsed = json.loads(stripped[len(prefix):])
+            parsed = json.loads(payload)
         except json.JSONDecodeError:
             continue
         if isinstance(parsed, dict):
@@ -399,11 +410,20 @@ def _run_json_probe(
     # The floor keeps a zero or negative value on TimeoutExpired.
     limit = max(1.0, float(timeout))
     scrubbed_env = scrub_subprocess_env(dict(os.environ))
+    # Child stdout is UTF-8: scrub_subprocess_env sets PYTHONIOENCODING=utf-8
+    # and PYTHONUTF8=1. text=True decodes with locale.getpreferredencoding(False).
+    # A cp1252 LibreOffice parent then raised UnicodeDecodeError on a
+    # non-ASCII banner and aborted the self-check (only TimeoutExpired and
+    # OSError were caught). errors="replace" keeps one bad byte from failing
+    # the probe. env is passed twice on purpose: wrap_command_for_sandbox
+    # turns it into flatpak-spawn --clear-env/--env, and subprocess.run(env=)
+    # is what a non-Flatpak spawn uses. flatpak-spawn does not forward Popen env.
     try:
         proc = subprocess.run(
             wrap_command_for_sandbox([python_exe, "-c", script], env=scrubbed_env),
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=limit,
             env=scrubbed_env,
             **get_subprocess_creationflags(),
@@ -626,11 +646,27 @@ except ImportError:
 """
 
 
-def _ocr_backend_ready(probe: dict[str, Any]) -> bool:
-    """True when Docling or PaddleOCR+Paddle is present (css-inline checked separately)."""
-    if probe.get("docling") == "present":
-        return True
+def _docling_ocr_ready(probe: dict[str, Any]) -> bool:
+    return probe.get("docling") == "present" and probe.get("rapidocr") == "present"
+
+
+def _paddle_ocr_ready(probe: dict[str, Any]) -> bool:
     return probe.get("paddleocr") == "present" and probe.get("paddle") == "present"
+
+
+def _ocr_backend_ready(probe: dict[str, Any]) -> bool:
+    """True when Docling+RapidOCR or PaddleOCR+Paddle imported.
+
+    css-inline is not part of this check; vision_ocr_stack_ready adds it.
+    What was wrong: docling alone returned True, so docling + css-inline
+    without rapidocr was "OCR: ready (Docling)" and rapidocr was omitted
+    from Missing and from Optional.
+    How: the default ocr_backend is rapidocr
+    (plugin/vision/vision_common.py DEFAULT_OCR_BACKEND). _resolve_ocr_options
+    raises OcrBackendError when that backend cannot be built.
+    Why: the Docling pair now requires rapidocr. PaddleOCR+Paddle is unchanged.
+    """
+    return _docling_ocr_ready(probe) or _paddle_ocr_ready(probe)
 
 
 def vision_ocr_stack_ready(probe: dict[str, Any]) -> bool:
@@ -687,14 +723,14 @@ def _format_vision_group_lines(title: str, keys: tuple[str, ...] | list[str], pa
         lines.append(f"\n{title}:")
 
     if vision_ocr_stack_ready(packages):
-        engine = "Docling" if packages.get("docling") == "present" else "Paddle"
+        engine = "Docling" if _docling_ocr_ready(packages) else "Paddle"
         lines.append(f"OCR: ready ({engine})")
         optional_missing: list[str] = []
         for key in _VISION_OPTIONAL_KEYS:
             if packages.get(key) != "present":
                 optional_missing.append(key)
         # Paddle-only readiness: Docling primary packages are optional, not Missing.
-        if packages.get("docling") != "present":
+        if not _docling_ocr_ready(packages):
             for key in ("docling", "rapidocr"):
                 if packages.get(key) != "present" and key not in optional_missing:
                     optional_missing.append(key)
@@ -802,8 +838,9 @@ def _format_install_footer(missing_probe_keys: list[str]) -> list[str]:
     if not pip_names:
         return []
 
-    # Docling's RapidOCR path imports onnxruntime; it is not a separate probe key.
-    if any(key in missing_probe_keys for key in ("docling", "rapidocr")) and "onnxruntime" not in seen_pip:
+    # Docling's RapidOCR path imports onnxruntime; it is not a probe key,
+    # so seen_pip cannot already contain it.
+    if any(key in missing_probe_keys for key in ("docling", "rapidocr")):
         pip_names.append("onnxruntime")
 
     pkg_args = " ".join(pip_names)
@@ -1040,6 +1077,28 @@ def run_venv_self_check_with_progress(
     # and VECTOR_SEARCH_PROBE_TIMEOUT_SEC. There is no caller timeout argument.
     per_pkg_timeout = SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC
 
+    shown: list[str] = []
+
+    def _show(text: str) -> None:
+        shown.clear()
+        shown.append(text)
+        on_display(text)
+
+    def _fail(msg: str) -> tuple[bool, str]:
+        # What was wrong: (False, msg) never reached the LogArea.
+        # How: run_modal_probe binds the message to _msg and only finish()es,
+        # and these returns never called on_display. Path checks in
+        # probe_venv_path_with_progress do call on_display; these do not.
+        # Why: show msg when the log is still empty, and append it under the
+        # last body when a group was already drawn, so a mid-loop OSError
+        # does not wipe that body. The returned message stays msg.
+        if shown:
+            body = shown[-1] + "\n\n" + msg
+        else:
+            body = msg
+        _show(body)
+        return False, msg
+
     def _status(text: str) -> None:
         if on_status is not None:
             on_status(text)
@@ -1054,7 +1113,7 @@ def run_venv_self_check_with_progress(
         include_vision: bool = False,
         include_audio: bool = False,
     ) -> None:
-        on_display(
+        _show(
             _build_probe_display(
                 data,
                 completed_groups=completed_groups,
@@ -1082,23 +1141,23 @@ def run_venv_self_check_with_progress(
             pool=WORKER_POOL_DIAGNOSTICS,
         )
     except OSError as e:
-        return False, f"Could not run Python: {e}"
+        return _fail(f"Could not run Python: {e}")
 
     _status(_("Reading Python version..."))
     try:
         response = manager.execute(_VERSION_PROBE_SCRIPT, timeout_sec=per_pkg_timeout)
     except OSError as e:
-        return False, f"Could not run Python: {e}"
+        return _fail(f"Could not run Python: {e}")
 
     if response.get("status") != "ok":
         msg = str(response.get("message", "Unknown error"))
         if "timed out" in msg.lower() or "timeout" in msg.lower():
-            return False, "Timed out waiting for Python (check venv and try again)."
-        return False, msg
+            return _fail("Timed out waiting for Python (check venv and try again).")
+        return _fail(msg)
 
     version_data = response.get("result")
     if not isinstance(version_data, dict):
-        return False, f"Unexpected output from test run: {version_data!r}"
+        return _fail(f"Unexpected output from test run: {version_data!r}")
 
     data: dict[str, Any] = {
         "v": version_data.get("v", "unknown"),
@@ -1160,7 +1219,7 @@ def run_venv_self_check_with_progress(
             try:
                 pkg_resp = manager.execute(_package_probe_script(pkg), timeout_sec=per_pkg_timeout)
             except OSError as e:
-                return False, f"Could not run Python: {e}"
+                return _fail(f"Could not run Python: {e}")
             if pkg_resp.get("status") != "ok":
                 msg = str(pkg_resp.get("message", "Unknown error"))
                 log.warning("Package probe failed for %s: %s", pkg, msg)
@@ -1244,10 +1303,10 @@ def run_venv_self_check_with_progress(
             include_install_footer=True,
             extra_lines_after_header=extra_lines_after_header,
         )
-        on_display(final_msg)
+        _show(final_msg)
         return True, final_msg
     except Exception as e:
-        return False, f"Failed to parse diagnostic output: {e}\nRaw output: {data!r}"
+        return _fail(f"Failed to parse diagnostic output: {e}\nRaw output: {data!r}")
 
 
 def probe_venv_path_with_progress(
