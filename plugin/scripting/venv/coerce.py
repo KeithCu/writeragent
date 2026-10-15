@@ -178,11 +178,7 @@ def header_label(value: Any) -> str:
     """
     if value is None:
         return ""
-    # bool is an int subclass; ``True`` must stay the label "True", not "1".
-    if isinstance(value, bool):
-        return "True" if value else "False"
-    if isinstance(value, int):
-        return str(value)
+    # bool and int labels are str(value); only a whole-number float needs a different spelling
     if isinstance(value, float) and math.isfinite(value) and value.is_integer():
         return str(int(value))
     return str(value).strip()
@@ -192,12 +188,7 @@ def _coerce_cell_basic(value: Any) -> Any:
     """Normalize blanks/errors; leave numbers and text unchanged."""
     if is_missing_value(value):
         return None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return value
+    # numbers and other objects pass through; only strings are stripped
     if isinstance(value, str):
         return value.strip()
     return value
@@ -207,12 +198,7 @@ def _coerce_cell_parse_strings(value: Any) -> Any:
     """Like basic coerce, but parse currency/percent/plain numeric strings."""
     if is_missing_value(value):
         return None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return value
+    # numbers and other objects pass through; only strings are stripped
     if isinstance(value, str):
         parsed = _parse_numeric_string(value)
         if parsed is not None:
@@ -720,6 +706,19 @@ def numeric_columns(df: Any, columns: list[str] | None = None) -> list[str]:
     return [str(c) for c in df.select_dtypes(include="number").columns]
 
 
+def _apply_index_col(df: Any, index_col: int | None) -> Any:
+    # A negative index would select the last column. Reject it.
+    if index_col is None:
+        return df
+    idx = int(index_col)
+    n_cols = len(df.columns)
+    if n_cols == 0:
+        raise ValueError(f"index_col {idx} is outside the columns (no columns)")
+    if idx < 0 or idx >= n_cols:
+        raise ValueError(f"index_col {idx} is outside the columns (0..{n_cols - 1})")
+    return df.set_index(df.columns[idx])
+
+
 def grid_to_dataframe(
     data: Any,
     *,
@@ -759,14 +758,7 @@ def grid_to_dataframe(
             date_cols=date_cols,
             date_origin=date_origin,
         )
-        if index_col is not None:
-            idx = int(index_col)
-            if len(df.columns) == 0:
-                raise ValueError(f"index_col {idx} is outside the columns (no columns)")
-            if idx < 0 or idx >= len(df.columns):
-                raise ValueError(f"index_col {idx} is outside the columns (0..{len(df.columns) - 1})")
-            col_name = df.columns[idx]
-            df = df.set_index(col_name)
+        df = _apply_index_col(df, index_col)
         return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=0))
 
     grid = _normalize_input_grid(data)
@@ -803,14 +795,7 @@ def grid_to_dataframe(
     df = pd.DataFrame(rows, columns=cast("Any", col_names))
     df = _coerce_column_types(df, parse_strings=parse_strings, date_cols=date_cols, date_origin=date_origin)
 
-    if index_col is not None:
-        idx = int(index_col)
-        if len(df.columns) == 0:
-            raise ValueError(f"index_col {idx} is outside the columns (no columns)")
-        if idx < 0 or idx >= len(df.columns):
-            raise ValueError(f"index_col {idx} is outside the columns (0..{len(df.columns) - 1})")
-        col_name = df.columns[idx]
-        df = df.set_index(col_name)
+    df = _apply_index_col(df, index_col)
 
     return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=dropped_rows))
 

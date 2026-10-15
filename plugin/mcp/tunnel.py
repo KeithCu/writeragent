@@ -236,7 +236,7 @@ def parse_tailscale_url(line: str) -> Optional[str]:
     return m.group(1).rstrip("/")
 
 
-def _tailscale_reset(port: int) -> None:
+def _tailscale_reset(port: int) -> bool:
     """Clear the HTTPS/443 Funnel handler. *port* is the local MCP target, for the log only."""
     cmd = _tailscale_off_command()
     shown = " ".join(cmd)
@@ -244,14 +244,17 @@ def _tailscale_reset(port: int) -> None:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=5, creationflags=_CREATION_FLAGS)
     except Exception:
         log.exception("Tailscale funnel off failed (local MCP port %s): %s", port, shown)
-        return
+        return False
     if result.returncode != 0:
         err = (result.stderr or result.stdout or "").strip()
         if len(err) > 500:
             err = err[:500]
         log.warning("Tailscale funnel off exited %s (local MCP port %s): %s — %s", result.returncode, port, shown, err)
-        return
+        return False
+    # A normal return on failure made _safe_post_stop delete the arm file.
+    # Only exit 0 may delete it.
     log.info("Tailscale funnel off (local MCP port %s): %s", port, shown)
+    return True
 
 
 # Written next to writeragent.json when we spawn `tailscale funnel`. Survives
@@ -336,25 +339,32 @@ def provider_label(name: str) -> str:
     return name.title() if name else DEFAULT_PROVIDER.title()
 
 
-def binary_available(provider: str) -> bool:
-    """True when the provider binary can be executed."""
+def binary_available(provider: str) -> str | None:
+    """None when the version command finished; otherwise the short last_error.
+
+    A non-zero exit is still None.
+    """
     info = PROVIDERS.get(provider)
     if not info:
         log.error("Unknown tunnel provider: %s", provider)
-        return False
+        return "unknown tunnel provider: %s" % provider
     version_args = info["version_args"]
+    binary = version_args[0]
     install_url = info["install_url"]
     try:
         result = subprocess.run(version_args, capture_output=True, text=True, timeout=10, creationflags=_CREATION_FLAGS)
         ver = (result.stdout or result.stderr or "").strip()
         log.info("%s version: %s", provider, ver or "(empty)")
-        return True
+        return None
     except FileNotFoundError:
-        log.warning("%s binary not found on PATH. Install from: %s", version_args[0], install_url)
-        return False
+        log.warning("%s binary not found on PATH. Install from: %s", binary, install_url)
+        return "%s binary not found on PATH" % binary
+    except subprocess.TimeoutExpired:
+        log.warning("%s binary check timed out", binary)
+        return "%s binary check timed out" % binary
     except Exception:
         log.exception("Error checking %s binary", provider)
-        return False
+        return "could not execute %s" % binary
 
 
 def normalize_public_base(url: str) -> str:
@@ -415,10 +425,11 @@ class TunnelManager:
     # Bumped when a provider whose post_stop would wipe its own public
     # config is about to start. A background reset captured the old value.
     _tunnel_generation: int
-    # True after this process has scheduled a Tailscale reset. An idle
-    # stop() in the same process must not reset again. A new process starts
-    # false, so a crash marker is still honored.
-    _tailscale_reset_issued: bool
+    # Count of Tailscale post_stop bodies scheduled and not finished. Idle
+    # stop() must not schedule another crash-marker reset while this is
+    # non-zero. Each body decrements once, including failure and a stale
+    # generation no-op. The arm file is removed only after exit 0.
+    _tailscale_resets_in_flight: int
     # Set by StartProcessEffect when pre_start must run off _lock. Cleared
     # when _dispatch_unlocked returns it to the caller.
     _pending_launch: tuple[StartProcessEffect, int, int, Callable[[], None]] | None
@@ -433,7 +444,7 @@ class TunnelManager:
         self._binary_probe_epoch = None
         self._pending_start = None
         self._tunnel_generation = 0
-        self._tailscale_reset_issued = False
+        self._tailscale_resets_in_flight = 0
         self._pending_launch = None
 
     @property
@@ -543,11 +554,11 @@ class TunnelManager:
         the same lock.
         """
         info = PROVIDERS.get(provider)
-        post_stop: Optional[Callable[[int], None]] = info.get("post_stop") if info else None
+        post_stop: Callable[[int], bool] | None = info.get("post_stop") if info else None
         if not post_stop:
             return
         if provider == "tailscale":
-            self._tailscale_reset_issued = True
+            self._tailscale_resets_in_flight += 1
         generation = self._tunnel_generation
         cfg_lock = self._provider_cfg_lock
         # The off argv does not include the local port; target_port is still
@@ -556,28 +567,44 @@ class TunnelManager:
         # must name the session being left.
         target_port = port
 
-        def _safe_post_stop(expected: int = generation, fn: Callable[[int], None] = post_stop, prov: str = provider, p: int = target_port) -> None:
-            with cfg_lock:
-                # A newer Tailscale session bumped the generation after this
-                # reset was scheduled. Running it now would clear the Funnel
-                # that session's pre_start is about to (or already did) create.
-                if expected != self._tunnel_generation:
-                    log.info("Ignoring stale MCP tunnel post_stop for %s", prov)
-                    return
-                try:
-                    assert fn is not None
-                    fn(p)
-                except Exception:
-                    log.exception("Tunnel post_stop failed for %s", prov)
-                    return
-                # Do not clear the crash marker if a newer session started
-                # while the CLI was running. That session owns the marker.
-                if prov == "tailscale" and expected == self._tunnel_generation:
-                    _clear_tailscale_arm()
+        def _safe_post_stop(expected: int = generation, fn: Callable[[int], bool] = post_stop, prov: str = provider, p: int = target_port) -> None:
+            ok = False
+            try:
+                with cfg_lock:
+                    with self._lock:
+                        stale = expected != self._tunnel_generation
+                    if stale:
+                        log.info("Ignoring stale MCP tunnel post_stop for %s", prov)
+                    else:
+                        try:
+                            ok = fn(p) is True
+                        except Exception:
+                            log.exception("Tunnel post_stop failed for %s", prov)
+                            ok = False
+                    # The old latch was set at schedule time and never cleared,
+                    # and the marker was deleted whenever _tailscale_reset returned
+                    # without raising. Exit 0 is the only delete. The count, not a
+                    # sticky bool, is what blocks a second idle reset while a body
+                    # is still running.
+                    with self._lock:
+                        if ok and prov == "tailscale" and expected == self._tunnel_generation:
+                            _clear_tailscale_arm()
+            finally:
+                if prov == "tailscale":
+                    with self._lock:
+                        if self._tailscale_resets_in_flight <= 0:
+                            log.error("Tailscale reset in-flight count already zero")
+                        else:
+                            self._tailscale_resets_in_flight -= 1
 
         from plugin.framework.worker_pool import run_in_background
 
-        run_in_background(_safe_post_stop, name="tunnel-post-stop", dedicated=True)
+        try:
+            run_in_background(_safe_post_stop, name="tunnel-post-stop", dedicated=True)
+        except Exception:
+            if provider == "tailscale":
+                self._tailscale_resets_in_flight -= 1
+            raise
 
     def _finish_pending_launch(self, pending: tuple[StartProcessEffect, int, int, Callable[[], None]]) -> None:
         """Run pre_start without _lock, then spawn if this start is still current.
@@ -733,7 +760,7 @@ class TunnelManager:
                     self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="unknown tunnel provider: %s" % provider, desired_running=False)
                     continue
 
-                pre_start: Optional[Callable[[int], None]] = info.get("pre_start")
+                pre_start: Callable[[int], bool] | None = info.get("pre_start")
                 if pre_start:
                     # _tailscale_reset is one command with a 5s timeout. Running it on this thread
                     # while _lock is held blocks stop() and the UI sync path
@@ -864,7 +891,7 @@ class TunnelManager:
         # either. Probe with the lock released. _start_epoch drops the result
         # when stop() or a newer start() landed during the probe.
         try:
-            available = binary_available(provider)
+            probe_error = binary_available(provider)
         except BaseException:
             with self._lock:
                 if self._binary_probe_epoch == epoch:
@@ -882,10 +909,13 @@ class TunnelManager:
             if epoch != self._start_epoch:
                 log.info("Ignoring stale MCP tunnel start (%s)", provider)
                 return False
-            if not available:
-                binary = info["version_args"][0]
+            if probe_error:
+                # The probe used to return only a bool, so every failure
+                # (timeout, permission, exec error) was stored as "binary not
+                # found on PATH". start() now stores the probe string so MCP
+                # Server Status matches the failure.
                 self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))
-                self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error="%s binary not found on PATH" % binary, desired_running=False)
+                self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error=probe_error, desired_running=False)
                 self._retire_snippet_provider(provider)
                 return False
 
@@ -921,10 +951,12 @@ class TunnelManager:
             # reset on purpose: settings sync calls stop() on every save and
             # must not wipe a Funnel this process did not arm. Spawn writes a
             # marker next to writeragent.json. The first stop() in a later
-            # process resets Tailscale and clears it. _tailscale_reset_issued
-            # blocks a second stop in this process from resetting again before
-            # the background clear finishes.
-            if idle and not self._tailscale_reset_issued and _tailscale_arm_file_exists():
+            # process resets Tailscale and clears it. The count blocks
+            # another idle reset until the scheduled body finishes. A failed
+            # or stale body leaves the marker, and the next idle stop() after
+            # the count returns to 0 tries again. A settings save on an
+            # already-stopped tunnel with no marker still does not reset.
+            if idle and self._tailscale_resets_in_flight == 0 and _tailscale_arm_file_exists():
                 self._schedule_post_stop_unlocked("tailscale", self._state.port)
 
 

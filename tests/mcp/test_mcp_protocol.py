@@ -15,22 +15,22 @@ from plugin.framework.tool import ToolBase, ToolRegistry
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
 
-def test_attach_document_echo_shape_and_absence():
-    from plugin.mcp.mcp_protocol import _attach_document_echo
+def test_precomputed_echo_shape_and_absence():
+    from plugin.mcp.mcp_protocol import _attach_precomputed_echo, _document_echo_payload
 
     doc = MagicMock()
     doc.URL = "file:///Users/x/Peti%C3%A7%C3%A3o%20Inicial.odt"
     doc.RuntimeUID = "42"
     result = {"status": "ok"}
-    _attach_document_echo(result, doc)
+    _attach_precomputed_echo(result, _document_echo_payload(doc))
     assert result["document"]["name"] == "Petição Inicial.odt"
     assert result["document"]["uid"]
     # No doc -> no field; existing field -> untouched.
     r2 = {"status": "ok"}
-    _attach_document_echo(r2, None)
+    _attach_precomputed_echo(r2, _document_echo_payload(None))
     assert "document" not in r2
     r3 = {"status": "ok", "document": {"name": "keep"}}
-    _attach_document_echo(r3, doc)
+    _attach_precomputed_echo(r3, _document_echo_payload(doc))
     assert r3["document"]["name"] == "keep"
 
 
@@ -51,8 +51,8 @@ def test_document_echo_payload_logs_and_returns_none(caplog):
 
 
 def test_long_running_precomputes_echo_without_post_execute_doc_access():
-    """Echo is captured once inside _prepare_mcp_execution (main-thread marshal); the worker path must not
-    call _attach_document_echo or re-read the proxied doc after the tool body runs."""
+    """Echo is captured once inside _prepare_mcp_execution (main-thread marshal); the worker path attaches
+    the precomputed echo and does not read the document again after the tool body runs."""
     from unittest.mock import patch
 
     from plugin.mcp.mcp_protocol import MCPProtocolHandler
@@ -101,13 +101,12 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
     registry = _Registry()
     handler = MCPProtocolHandler(_FakeServices(registry))
 
-    with patch("plugin.mcp.mcp_protocol._document_echo_payload", return_value={"name": "doc.odt", "uid": "uid-1"}) as mock_echo, patch("plugin.mcp.mcp_protocol._attach_document_echo") as mock_attach:
+    with patch("plugin.mcp.mcp_protocol._document_echo_payload", return_value={"name": "doc.odt", "uid": "uid-1"}) as mock_echo:
         result = handler._execute_long_running("any_tool", {}, document_url="file:///doc.odt")
 
     assert result["status"] == "ok"
     assert result["document"] == {"name": "doc.odt", "uid": "uid-1"}
     assert mock_echo.call_count == 1
-    assert mock_attach.call_count == 0
 
 
 class _DisposedDoc:
@@ -973,3 +972,22 @@ def test_protocol_handler_version_defaults_to_unknown(monkeypatch):
     # initialize result should succeed using 'unknown'
     init_res = handler._mcp_initialize({"protocolVersion": "2024-11-05"})
     assert init_res["serverInfo"]["version"] == "unknown"
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ({"jsonrpc": "2.0", "id": 7, "method": "", "params": {}}, 7),
+        ({"jsonrpc": "2.0", "id": 3, "method": "ping", "params": []}, 3),
+        ({"jsonrpc": "1.0", "id": "abc", "method": "ping"}, "abc"),
+        ({"jsonrpc": "2.0", "id": True, "method": "ping", "params": {}}, None),
+    ],
+)
+def test_process_jsonrpc_echoes_detectable_id(message, expected):
+    from plugin.mcp import wire_types
+
+    status, body = MCPProtocolHandler(MagicMock())._process_jsonrpc(message)
+    assert status == 400
+    assert body["id"] == expected
+    assert body["error"]["code"] == wire_types.INVALID_REQUEST
+

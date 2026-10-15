@@ -217,9 +217,8 @@ class FillDrawFields(ToolDrawShapeBase):
             if is_disposed_exception(e):
                 raise
             return self._tool_error("Invalid page index: %s" % actual_idx)
-        if page is None:
-            return self._tool_error("No draw page available.")
 
+        # getByIndex raises on a bad index; it does not return None.
         tree = build_shape_tree(page)
         results: list[dict[str, Any]] = []
         ok_count = 0

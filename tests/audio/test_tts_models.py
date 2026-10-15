@@ -385,3 +385,35 @@ def test_resolve_piper_model_file_reuses_pipecat_without_download(tmp_path, monk
 
     urlopen.assert_not_called()
     assert resolved == str(onnx)
+
+
+def test_is_download_failed_takes_speech_lock_clear_does_not():
+    import plugin.audio.tts_service as tts
+
+    real_lock = tts._speech_lock
+    lock_count = 0
+
+    class LockWrapper:
+        def __enter__(self):
+            nonlocal lock_count
+            lock_count += 1
+            return real_lock.__enter__()
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return real_lock.__exit__(exc_type, exc_val, exc_tb)
+
+    tts._speech_lock = LockWrapper()
+    generation = tts._begin_utterance()
+    try:
+        remember_download_failed(generation, "kokoro")
+        before = lock_count
+        assert is_download_failed(generation, "kokoro") is True
+        assert lock_count == before + 1
+        before = lock_count
+        clear_generation_downloads(generation)
+        assert lock_count == before
+    finally:
+        tts._speech_lock = real_lock
+        tts.stop_speech()
+        clear_generation_downloads(generation)
+

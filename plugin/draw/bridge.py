@@ -238,6 +238,12 @@ class DrawBridge:
         source = pages.getByIndex(index)
         # DrawingDocument / PresentationDocument implement XDrawPageDuplicator.
         new_page = self.doc.duplicate(source)
+        # Bugfix: duplicate() returning None was handed back as the new page, and
+        # switch=True still called set_current_page_index(index + 1). DuplicateSlide
+        # then reported success. move_slide already treats a None clone as failure.
+        # Raise before any view change.
+        if new_page is None:
+            raise RuntimeError("duplicate_slide: document duplicate() returned no page")
         if switch:
             self.set_current_page_index(index + 1)
         return new_page
@@ -419,7 +425,9 @@ class DrawBridge:
         (not by constructing new ones) plus page name, layout, master,
         notes, and transition. A failed swap puts the shapes back, so
         the clone is still in the original slot and the other slides
-        are unchanged.
+        are unchanged. If a reverse neighbor swap fails with an ordinary
+        error, this raises PageExchangeRollbackError instead of returning
+        False. False still means every reverse swap completed.
         """
         pages = self.get_pages()
         count = pages.getCount()
@@ -503,9 +511,17 @@ class DrawBridge:
                 try:
                     self._exchange_page_contents(pages.getByIndex(prev), pages.getByIndex(prev + step))
                 except Exception as undo_exc:
+                    # Bugfix: an ordinary failure from a reverse exchange was logged and the
+                    # loop continued, then the original error was re-raised. move_slide
+                    # treats that as a clean rollback and returns False, while that swap is
+                    # still applied. Stop. Disposal and PageExchangeRollbackError stay those
+                    # exceptions (the temporary page may still hold shapes).
                     if isinstance(undo_exc, PageExchangeRollbackError) or is_disposed_exception(undo_exc):
                         raise
-                    log.exception("move_slide undo reorder failed")
+                    raise PageExchangeRollbackError(
+                        "Slide move could not undo a reorder step. The deck may be partially reordered. "
+                        "Original error: %s. Undo error: %s" % (exc, undo_exc)
+                    ) from undo_exc
             raise
 
     def _exchange_page_contents(self, first: Any, second: Any) -> None:

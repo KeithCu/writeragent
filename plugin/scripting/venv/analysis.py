@@ -71,8 +71,7 @@ def _markdown_table(columns: list[str], rows: list[list[Any]]) -> str:
 def _coerce_columns(value: Any, name: str, helper: str) -> list[str] | None | dict[str, Any]:
     # A string column list was previously iterated as characters (e.g.
     # metrics="Sales" -> S, a, l, e, s; agg="mean" -> tuple of letters).
-    if value is None:
-        return None
+    # None is already None from coerce_str_list
     try:
         return coerce_str_list(value, name=name)
     except ValueError as exc:
@@ -102,8 +101,8 @@ def _resolve_numeric(df: Any, columns: list[str] | None, *, helper: str) -> list
 
 
 def _format_single_currency(value: Any, symbol: str = "$", decimals: int = 2) -> str:
-    if value is None or value == "":
-        return ""
+    # handle_blanks already returned "" for None, "", NaN, and error tokens.
+    # A raise here becomes "#VALUE!" for this cell; non-numeric text stays text.
     try:
         num = float(value)
     except (TypeError, ValueError):
@@ -123,8 +122,7 @@ def format_currency(values: Any, *, symbol: str = "$", decimals: int = 2) -> Any
 
 
 def _format_single_percent(value: Any, decimals: int = 1) -> str:
-    if value is None or value == "":
-        return ""
+    # Same blank and per-cell rule as _format_single_currency.
     try:
         num = float(value)
     except (TypeError, ValueError):
@@ -281,17 +279,14 @@ def describe_data(
 
 
 def _safe_float(value: Any) -> float | None:
-    if value is None:
-        return None
+    # round(nan) is nan. Profile stats and regression errors store None instead.
     try:
-        if value != value:  # NaN
-            return None
-    except TypeError:
-        pass
-    try:
-        return round(float(value), 6)
+        number = float(value)
     except (TypeError, ValueError):
         return None
+    if number != number:
+        return None
+    return round(number, 6)
 
 
 def kpi_summary(
@@ -310,8 +305,7 @@ def kpi_summary(
     if not coerced_metrics:
         return _error_result("MISSING_PARAM", "kpi_summary requires metrics", helper="kpi_summary")
 
-    if agg is None:
-        return _error_result("INVALID_PARAM", "agg must list at least one aggregation", helper="kpi_summary")
+    # agg=None is empty; the check below returns the same INVALID_PARAM
     coerced_agg = _coerce_columns(agg, "agg", "kpi_summary")
     if isinstance(coerced_agg, dict):
         return coerced_agg
@@ -410,11 +404,11 @@ def detect_outliers(
         # got the row count and the flags blamed each column; IsolationForest
         # scores rows; empty per_column plus one row flag says that.
         per_column = {}
-        if not sample.empty:
-            filled = sample.fillna(sample.median())
-            model = IsolationForest(random_state=42, contamination="auto")
-            preds = model.fit_predict(filled)
-            mask = pd.Series(preds == -1, index=df.index)
+        # df.empty already returned; sample has those same rows
+        filled = sample.fillna(sample.median())
+        model = IsolationForest(random_state=42, contamination="auto")
+        preds = model.fit_predict(filled)
+        mask = pd.Series(preds == -1, index=df.index)
     else:
         q1 = sample.quantile(0.25)
         q3 = sample.quantile(0.75)
@@ -603,13 +597,7 @@ def _normalize_aggfunc(
     key_columns: list[str] | None,
 ) -> tuple[str | list[str] | dict[str, str], None] | tuple[None, dict[str, Any]]:
     allowed_str = ", ".join(sorted(_AGG_FUNCS))
-    if aggfunc is None:
-        return None, _error_result(
-            "INVALID_PARAM",
-            f"aggfunc must be a string, list of strings, or dict of column to string, got {aggfunc!r}",
-            helper=helper,
-        )
-
+    # None is not a str, list, or dict; the final return is the same INVALID_PARAM
     if isinstance(aggfunc, str):
         val = aggfunc.strip().lower()
         if val not in _AGG_FUNCS:
@@ -765,10 +753,8 @@ def pivot_aggregate(
         all_zero_fill = False
     fill_value: int | None = 0 if all_zero_fill else None
 
-    try:
-        pivoted = df.pivot_table(index=index, columns=columns, values=values, aggfunc=norm_agg, fill_value=fill_value)
-    except Exception as exc:
-        return _error_result("PIVOT_FAILED", str(exc), helper="pivot_aggregate")
+    # pandas errors propagate; run_analysis returns ANALYSIS_FAILED, and a direct raise is #VALUE!
+    pivoted = df.pivot_table(index=index, columns=columns, values=values, aggfunc=norm_agg, fill_value=fill_value)
     flat = pivoted.reset_index()
     flat = _flatten_result_columns(flat)
     table = _table_from_df(flat, name="pivot", max_rows=DATA_TABLE_ROWS)
@@ -935,8 +921,7 @@ def correlation_matrix(
     for i, col_a in enumerate(cols):
         for col_b in cols[i + 1 :]:
             value = corr.loc[col_a, col_b]
-            if value != value:
-                continue
+            # a NaN correlation fails the comparison below, so the pair is already excluded
             if abs(float(value)) >= min_abs_val:
                 pairs.append({"column_a": str(col_a), "column_b": str(col_b), "correlation": round(float(value), 6)})
     pairs.sort(key=lambda item: abs(item["correlation"]), reverse=True)
@@ -1026,25 +1011,17 @@ def run_regression(
     # The fit already has uncertainty. A coefficient alone reads as exact.
     ci = model.conf_int()
 
-    def _round_stat(value: Any) -> float | None:
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            return None
-        if number != number:  # NaN when the residual variance is zero
-            return None
-        return round(number, 6)
-
     coef_rows = []
+    # Zero residual variance makes bse and pvalues NaN; _safe_float stores None.
     for name in model.params.index:
         coef_rows.append(
             [
                 str(name),
-                _round_stat(model.params[name]),
-                _round_stat(model.bse[name]),
-                _round_stat(model.pvalues[name]),
-                _round_stat(ci.loc[name].iloc[0]),
-                _round_stat(ci.loc[name].iloc[1]),
+                _safe_float(model.params[name]),
+                _safe_float(model.bse[name]),
+                _safe_float(model.pvalues[name]),
+                _safe_float(ci.loc[name].iloc[0]),
+                _safe_float(ci.loc[name].iloc[1]),
             ]
         )
     metrics = {

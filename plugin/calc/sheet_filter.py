@@ -32,7 +32,7 @@ from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
 from plugin.calc.sheet_filter_criteria import FILTER_OPERATOR2_LABELS, filter_operator2_code_to_name, parse_sheet_filter_criterion
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, is_real_disposal
+from plugin.framework.errors import UnoObjectError, is_real_disposal
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -172,33 +172,22 @@ class ApplySheetFilter(ToolCalcSheetBase):
 
         has_header = bool(kwargs.get("has_header", True))
 
-        try:
-            xf, _cell_range = _get_filterable_for_range(ctx, range_name)
-            fd = xf.createFilterDescriptor(True)
-            ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
-            if ps is not None:
-                ps.setPropertyValue("ContainsHeader", has_header)
+        # execute_safe maps dispose to DOCUMENT_DISPOSED and any other exception to TOOL_EXECUTION_ERROR.
+        xf, _cell_range = _get_filterable_for_range(ctx, range_name)
+        fd = xf.createFilterDescriptor(True)
+        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
+        if ps is not None:
+            ps.setPropertyValue("ContainsHeader", has_header)
 
-            fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
-            if fd2 is None:
-                raise UnoObjectError("XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support).")
-            fields = _build_filter_fields2(uno, criteria)
-            fd2.setFilterFields2(fields)
-            xf.filter(fd)
+        fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
+        if fd2 is None:
+            raise UnoObjectError("XSheetFilterDescriptor2 is not available (need LibreOffice with TableFilterField2 support).")
+        fields = _build_filter_fields2(uno, criteria)
+        fd2.setFilterFields2(fields)
+        xf.filter(fd)
 
-            log.info("Sheet filter applied on %s (%d conditions).", range_name.upper(), len(fields))
-            return {"status": "ok", "range": range_name, "criteria_count": len(fields)}
-        except UnoObjectError:
-            raise
-        except Exception as e:
-            # Bugfix: a closed document raises DisposedException from the sheet filter, and this
-            # except turned that into ToolExecutionError.
-            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-            # Any other failure stays on the existing error path.
-            if is_real_disposal(e):
-                raise
-            log.exception("apply_sheet_filter failed on %s", range_name)
-            raise ToolExecutionError(str(e)) from e
+        log.info("Sheet filter applied on %s (%d conditions).", range_name.upper(), len(fields))
+        return {"status": "ok", "range": range_name, "criteria_count": len(fields)}
 
 
 class ClearSheetFilter(ToolCalcSheetBase):
@@ -221,28 +210,21 @@ class ClearSheetFilter(ToolCalcSheetBase):
         range_name = range_arg[0]
         has_header = bool(kwargs.get("has_header", True))
 
-        try:
-            xf, _cell_range = _get_filterable_for_range(ctx, range_name)
-            fd = xf.createFilterDescriptor(True)
-            ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
-            if ps is not None:
-                ps.setPropertyValue("ContainsHeader", has_header)
+        # execute_safe maps dispose to DOCUMENT_DISPOSED and any other exception to TOOL_EXECUTION_ERROR.
+        xf, _cell_range = _get_filterable_for_range(ctx, range_name)
+        fd = xf.createFilterDescriptor(True)
+        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
+        if ps is not None:
+            ps.setPropertyValue("ContainsHeader", has_header)
 
-            fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
-            if fd2 is None:
-                raise UnoObjectError("XSheetFilterDescriptor2 is not available.")
-            fd2.setFilterFields2(())
-            xf.filter(fd)
+        fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
+        if fd2 is None:
+            raise UnoObjectError("XSheetFilterDescriptor2 is not available.")
+        fd2.setFilterFields2(())
+        xf.filter(fd)
 
-            log.info("Sheet filter cleared on %s.", range_name.upper())
-            return {"status": "ok", "range": range_name, "cleared": True}
-        except UnoObjectError:
-            raise
-        except Exception as e:
-            if is_real_disposal(e):
-                raise
-            log.exception("clear_sheet_filter failed on %s", range_name)
-            raise ToolExecutionError(str(e)) from e
+        log.info("Sheet filter cleared on %s.", range_name.upper())
+        return {"status": "ok", "range": range_name, "cleared": True}
 
 
 class GetSheetFilter(ToolCalcSheetBase):
@@ -259,35 +241,28 @@ class GetSheetFilter(ToolCalcSheetBase):
             raise UnoObjectError("range parameter must be a non-empty list.")
         range_name = range_arg[0]
 
-        try:
-            xf, _cell_range = _get_filterable_for_range(ctx, range_name)
-            fd = xf.createFilterDescriptor(False)
-            fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
-            if fd2 is None:
-                raise UnoObjectError("XSheetFilterDescriptor2 is not available.")
+        # execute_safe maps dispose to DOCUMENT_DISPOSED and any other exception to TOOL_EXECUTION_ERROR.
+        xf, _cell_range = _get_filterable_for_range(ctx, range_name)
+        fd = xf.createFilterDescriptor(False)
+        fd2 = _query_interface(fd, "com.sun.star.sheet.XSheetFilterDescriptor2")
+        if fd2 is None:
+            raise UnoObjectError("XSheetFilterDescriptor2 is not available.")
 
-            fields_seq = fd2.getFilterFields2()
-            crit: list[dict[str, Any]] = []
-            if fields_seq is not None:
-                n = len(fields_seq)
-                for i in range(n):
-                    crit.append(_field_to_dict(fields_seq[i], i, uno))
+        fields_seq = fd2.getFilterFields2()
+        crit: list[dict[str, Any]] = []
+        if fields_seq is not None:
+            n = len(fields_seq)
+            for i in range(n):
+                crit.append(_field_to_dict(fields_seq[i], i, uno))
 
-            ch = None
-            ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
-            if ps is not None:
-                try:
-                    ch = bool(ps.getPropertyValue("ContainsHeader"))
-                except Exception as exc:
-                    if is_real_disposal(exc):
-                        raise
-                    pass
+        ch = None
+        ps = _query_interface(fd, "com.sun.star.beans.XPropertySet")
+        if ps is not None:
+            try:
+                ch = bool(ps.getPropertyValue("ContainsHeader"))
+            except Exception as exc:
+                if is_real_disposal(exc):
+                    raise
+                pass
 
-            return {"status": "ok", "range": range_name, "has_header": ch, "criteria": crit, "count": len(crit)}
-        except UnoObjectError:
-            raise
-        except Exception as e:
-            if is_real_disposal(e):
-                raise
-            log.exception("get_sheet_filter failed on %s", range_name)
-            raise ToolExecutionError(str(e)) from e
+        return {"status": "ok", "range": range_name, "has_header": ch, "criteria": crit, "count": len(crit)}

@@ -4,7 +4,7 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.draw.bridge import DrawBridge
-from plugin.draw.pages import AddSlide, DeleteSlide, DuplicateSlide, MoveSlide, RenameSlide
+from plugin.draw.pages import AddSlide, DeleteSlide, DuplicateSlide, ListPages, MoveSlide, RenameSlide, SetActivePage
 
 
 def _ctx():
@@ -156,6 +156,24 @@ def test_bridge_duplicate_calls_doc_duplicate():
     assert out is copy
 
 
+def test_duplicate_slide_rejects_none_copy():
+    import pytest
+
+    source = object()
+    pages = MagicMock()
+    pages.getCount.return_value = 2
+    pages.getByIndex.return_value = source
+    doc = MagicMock()
+    doc.getDrawPages.return_value = pages
+    doc.duplicate.return_value = None
+    controller = MagicMock()
+    doc.getCurrentController.return_value = controller
+    bridge = DrawBridge(doc)
+    with pytest.raises(RuntimeError, match="returned no page"):
+        bridge.duplicate_slide(0, switch=True)
+    controller.setCurrentPage.assert_not_called()
+
+
 def test_duplicate_slide_ok():
     ctx = _ctx()
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
@@ -258,3 +276,149 @@ def test_add_slide_cleanup_still_returns_layout_error_when_remove_fails():
     assert out["status"] == "error"
     assert "Failed to set layout or master" in out["message"]
     assert "no master" in out["message"]
+
+
+def test_set_active_page_delegates_and_is_not_a_mutation():
+    tool = SetActivePage()
+    assert tool.is_mutation is False
+    assert tool.detects_mutation() is False
+
+    ctx = _ctx()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value.getCount.return_value = 3
+        bridge.set_current_page_index.return_value = True
+        out = tool.execute(ctx, page=1)
+    assert out["status"] == "ok"
+    assert out["active_page_index"] == 1
+    bridge.set_current_page_index.assert_called_once_with(1)
+    ctx.doc.getCurrentController.assert_not_called()
+
+
+def test_set_active_page_reraises_dispose():
+    import pytest
+
+    class DisposedException(Exception):
+        pass
+
+    ctx = _ctx()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value.getCount.return_value = 3
+        bridge.set_current_page_index.side_effect = DisposedException("controller disposed")
+        with pytest.raises(DisposedException):
+            SetActivePage().execute(ctx, page=1)
+
+
+def test_set_active_page_false_is_tool_error():
+    ctx = _ctx()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value.getCount.return_value = 3
+        bridge.set_current_page_index.return_value = False
+        out = SetActivePage().execute(ctx, page=1)
+    assert out["status"] == "error"
+    assert out["message"] == "Failed to set active page."
+    assert "controller does not support" not in out["message"]
+
+
+def test_set_active_page_out_of_range():
+    ctx = _ctx()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value.getCount.return_value = 1
+        out = SetActivePage().execute(ctx, page=5)
+    assert out["status"] == "error"
+    bridge.set_current_page_index.assert_not_called()
+
+
+def test_add_slide_switches_only_after_layout():
+    ctx = _impress_ctx()
+    page = MagicMock()
+    page.Layout = 20
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.create_slide.return_value = (page, 4)
+        bridge.get_pages.return_value.getCount.return_value = 4
+        out = AddSlide().execute(ctx)
+    assert out["status"] == "ok"
+    assert out["active_page_index"] == 4
+    bridge.create_slide.assert_called_once()
+    assert bridge.create_slide.call_args.kwargs.get("switch") is False
+    bridge.set_current_page_index.assert_called_once_with(4)
+    method_names = [call[0] for call in bridge.method_calls]
+    assert method_names.index("create_slide") < method_names.index("set_current_page_index")
+
+
+def test_add_slide_skips_switch_when_post_insert_fails():
+    ctx = _impress_ctx()
+    page = MagicMock()
+    with (
+        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.designs.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
+    ):
+        bridge = _add_slide_bridge(page)
+        bridge_cls.return_value = bridge
+        out = AddSlide().execute(ctx)
+    assert out["status"] == "error"
+    assert "Failed to set layout or master" in out["message"]
+    assert "no master" in out["message"]
+    assert bridge.create_slide.call_args.kwargs.get("switch") is False
+    bridge.set_current_page_index.assert_not_called()
+
+
+def test_add_slide_activate_false_does_not_switch():
+    ctx = _impress_ctx()
+    page = MagicMock()
+    page.Layout = 20
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = _add_slide_bridge(page, active_idx=2)
+        bridge_cls.return_value = bridge
+        out = AddSlide().execute(ctx, activate=False)
+    assert out["status"] == "ok"
+    assert out["active_page_index"] == 2
+    bridge.set_current_page_index.assert_not_called()
+
+
+def test_list_pages_uses_page_name():
+    ctx = _ctx()
+    p0 = MagicMock()
+    p0.Name = "Agenda"
+    p1 = MagicMock()
+    p1.Name = ""
+    p2 = MagicMock()
+    p2.Name = "   "
+    pages_mock = MagicMock()
+    pages_mock.getCount.return_value = 3
+    pages_mock.getByIndex.side_effect = [p0, p1, p2]
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = pages_mock
+        bridge.get_active_page_index.return_value = 0
+        out = ListPages().execute(ctx)
+    assert out["status"] == "ok"
+    assert out["pages"] == ["Agenda", "Page 1", "Page 2"]
+
+
+def test_list_pages_reraises_dispose_from_name():
+    import pytest
+
+    class DisposedException(Exception):
+        pass
+
+    class _DisposedPage:
+        @property
+        def Name(self) -> str:
+            raise DisposedException("page disposed")
+
+    ctx = _ctx()
+    pages_mock = MagicMock()
+    pages_mock.getCount.return_value = 1
+    pages_mock.getByIndex.return_value = _DisposedPage()
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_pages.return_value = pages_mock
+        with pytest.raises(DisposedException):
+            ListPages().execute(ctx)

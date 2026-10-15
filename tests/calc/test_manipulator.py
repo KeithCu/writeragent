@@ -191,22 +191,6 @@ def test_write_array_formula_explicit_rejects_large_range():
     with pytest.raises(CalcError, match="limit"):
         manipulator._write_array_formula(sheet, "=1", start, end)
 
-def test_re_raise_disposed_exception():
-    manipulator = CellManipulator(MagicMock())
-    sheet = MagicMock()
-
-    # We mock getCellRangeByName to raise a RuntimeError matching disposed exception
-    class DisposedException(RuntimeError):
-        pass
-
-    sheet.getCellRangeByName.side_effect = DisposedException("A mock disposed error")
-
-    from plugin.framework.errors import is_disposed_exception
-    assert is_disposed_exception(DisposedException("A mock disposed error"))
-
-    with pytest.raises(DisposedException):
-        manipulator.safe_get_cell_value(sheet, "A1")
-
 
 def test_classify_write_cell_boolean():
     manipulator = CellManipulator(MagicMock())

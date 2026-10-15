@@ -18,7 +18,6 @@ from plugin.calc.sheet_filter import (
     GetSheetFilter,
     _field_to_dict,
 )
-from plugin.framework.errors import ToolExecutionError
 
 
 class DisposedException(Exception):
@@ -41,14 +40,16 @@ def test_apply_sheet_filter_disposal_propagates():
         assert result["code"] == "DOCUMENT_DISPOSED"
 
 
-def test_apply_sheet_filter_runtime_exception_stays_tool_error():
+def test_apply_sheet_filter_runtime_exception_reaches_execute_safe():
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.sheet_filter._get_filterable_for_range", side_effect=RuntimeException("no descriptor")):
         tool = ApplySheetFilter()
-        with pytest.raises(ToolExecutionError) as exc_info:
+        with pytest.raises(RuntimeException):
             tool.execute(ctx, range=["A1:B2"], criteria=[{"field": 0, "operator": "EQUAL", "value": "x"}])
-        assert "no descriptor" in str(exc_info.value)
-        assert not isinstance(exc_info.value, DisposedException)
+        result = tool.execute_safe(ctx, range=["A1:B2"], criteria=[{"field": 0, "operator": "EQUAL", "value": "x"}])
+    assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"
+    assert "no descriptor" in result["message"]
 
 
 def test_clear_sheet_filter_disposal_propagates():

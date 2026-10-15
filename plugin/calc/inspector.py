@@ -28,7 +28,7 @@ from typing import Any
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.datetime_wire import is_elapsed_format_string, iso_duration_from_serial
 from plugin.calc.calc_utils import _formula_cell_result
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception
+from plugin.framework.errors import is_disposed_exception
 
 try:
     from com.sun.star.table.CellContentType import EMPTY, VALUE, TEXT, FORMULA
@@ -284,7 +284,8 @@ class CellInspector:
             if is_disposed_exception(e):
                 raise
             log.exception("Cell reading failed for %s", address)
-            raise ToolExecutionError(str(e)) from e
+            # ToolExecutionError is a WriterAgentException, so =PY re-raises it and skips CALC_READ_ERROR (the message includes the cell address).
+            raise
 
     def get_cell_details(self, address: str) -> dict[str, Any]:
         """Return all detailed cell information.
@@ -343,7 +344,8 @@ class CellInspector:
             if is_disposed_exception(e):
                 raise
             log.exception("Cell detailed reading failed for %s", address)
-            raise ToolExecutionError(str(e)) from e
+            # ToolExecutionError is a WriterAgentException, so =PY re-raises it and skips CALC_READ_ERROR (the message includes the cell address).
+            raise
 
     def read_range(self, range_name: str, *, include_format_info: bool = False) -> list[list[dict[str, Any]]]:
         """Read values and formulas in a cell range.
@@ -433,7 +435,8 @@ class CellInspector:
             if is_disposed_exception(e):
                 raise
             log.exception("Range reading failed for %s", range_name)
-            raise ToolExecutionError(str(e)) from e
+            # ToolExecutionError is a WriterAgentException, so =PY re-raises it and skips CALC_READ_ERROR (the message includes the cell address).
+            raise
 
     def get_all_formulas(self, sheet_name: str | None = None) -> list[dict[str, Any]]:
         """List all formulas in a sheet.
@@ -492,4 +495,5 @@ class CellInspector:
             if is_disposed_exception(e):
                 raise
             log.exception("Formula listing failed")
-            raise ToolExecutionError(str(e)) from e
+            # ToolExecutionError is a WriterAgentException, so =PY re-raises it and skips CALC_READ_ERROR (the message includes the cell address).
+            raise

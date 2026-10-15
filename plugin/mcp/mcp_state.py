@@ -80,7 +80,13 @@ class SendErrorEffect:
 @deal.ensure(lambda state, event, result: event.kind != EventKind.TOOL_COMPLETED or any(isinstance(e, StreamResponseEffect) for e in result.effects))
 @deal.ensure(lambda state, event, result: event.kind != EventKind.REQUEST_ERROR or result.state.is_error)
 def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
-    """Pure transition function for the MCP tool-calling loop."""
+    """Pure transition function for the MCP tool-calling loop.
+
+    _mcp_tools_call only enqueues REQUEST_RECEIVED and TOOL_COMPLETED.
+    CallToolRequestParams.from_params rejects a missing name before that, so
+    the missing-name SendErrorEffect branch does not run in production.
+    TOOL_EXECUTION_STARTED and REQUEST_ERROR stay for the pure tests.
+    """
     # event.data is Dict[str, Any] (nested tool arguments); same class as
     # state_machine.next_state. Hypothesis covers transitions; check-all skips.
     # crosshair: off

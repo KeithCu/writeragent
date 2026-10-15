@@ -286,10 +286,9 @@ def clamp_timeout_sec(timeout: Any, *, is_ms: bool = False, default_timeout_sec:
         # Round up so 1500ms -> 2s, not 1s
         sec = (int(timeout) + 999) // 1000
     else:
-        try:
-            sec = int(timeout)
-        except (TypeError, ValueError, OverflowError):
-            return default_timeout_sec
+        # Non-finite floats already returned above. int() of a remaining
+        # int or float does not raise, so the OverflowError handler was dead.
+        sec = int(timeout)
 
     clamped = max(1, sec)
     if max_timeout_sec is not None:

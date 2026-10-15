@@ -665,9 +665,11 @@ class SpillRecord:
 
 # The spill registry tracks coordinates that were spilled by each formula cell.
 # Key: (doc identity, sheet_name, formula_row, formula_col)
-# Identity is the file URL when the workbook has one. Every unsaved book
-# reports getURL()==""; those use workbook_lifecycle._lifecycle_key
-# (RuntimeUID), never "". LOADED_DOCUMENTS uses the same identity.
+# Identity is _spill_registry_doc_key: RuntimeUID when the document has one,
+# otherwise the file URL, otherwise workbook_lifecycle._lifecycle_key.
+# Do not use "": every unsaved book reports getURL()=="". LOADED_DOCUMENTS
+# uses the same identity. An existing URL key is migrated to the RuntimeUID
+# when the uid is read.
 # Value: SpillRecord tracking code and neighbor cells
 SPILL_REGISTRY: dict[tuple[str, str, int, int], SpillRecord] = {}
 LOADED_DOCUMENTS: set[str] = set()
@@ -1179,12 +1181,12 @@ def perform_deferred_spill(
             return
 
         with _undo_lock(doc):
-            # The scheduled token is the file URL, or the lifecycle id
-            # captured when the URL was empty. current_url != doc_url is
-            # false when both are empty, so two unsaved books shared one
-            # spill write. A blank token is the legacy getURL() of an
-            # untitled book (UNO callers). The registry still uses this
-            # document's lifecycle id, and a saved book rejects the blank.
+            # scheduled is the registry identity captured at prepare
+            # (prepared.doc_key): RuntimeUID, else URL, else lifecycle id.
+            # A blank argument is only the legacy getURL() of an untitled
+            # book. Reject a blank when this document now has a URL or has
+            # no live key, so two unsaved books do not share one write.
+            # A non-blank token must equal the live registry key.
             live_key = _spill_registry_doc_key(doc)
             scheduled = doc_url or ""
             if scheduled:
@@ -1489,7 +1491,7 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
 
     Returns ``"#SPILL!"`` on collision, ``PreparedSpill`` when the
     neighbor write should proceed, or ``None`` when the origin is not unique.
-    The identity is the file URL, or the lifecycle id when ``getURL()`` is empty.
+    The identity is ``_spill_registry_doc_key``: RuntimeUID, else the file URL, else the lifecycle id. An empty identity returns None.
     """
     located = locate_formula_cell_in_doc(ctx, target_doc, code)
     if located is None:
@@ -1532,7 +1534,14 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     except ImportError:
         EMPTY = cast("Any", 0)
 
-    max_cols = 1024
+    # Bugfix: What was wrong: a sheet that did not expose getColumns()
+    # treated column 1024 and beyond as #SPILL!.
+    # How it happened: the fallback was the pre-7.4 Calc width. Current
+    # sheets have 16384 columns; getCount() already overrides this when
+    # the sheet reports its real width.
+    # Why this change fixes it: the unread-count fallback matches that
+    # width. A reported getCount() still wins, including 1024.
+    max_cols = 16384
     max_rows = 1048576
     try:
         if hasattr(sheet, "getColumns"):
@@ -1959,10 +1968,9 @@ def clear_in_memory_spill_state(*, doc_url: str = "", lifecycle_key: str = "") -
         # unload that only matched doc_url left the dispatcher registered.
         for skey in [k for k in SHEET_MODIFY_LISTENERS if k[0] == lifecycle_key]:
             SHEET_MODIFY_LISTENERS.pop(skey, None)
-        # Unsaved spill rows are keyed by lifecycle id because getURL() is
-        # empty. Sweep this lifecycle id only. Skipping the sweep when
-        # doc_url is empty leaves the row behind, and sweeping on an empty
-        # URL would drop every other untitled book.
+        # Rows are keyed by _spill_registry_doc_key. When the document has a
+        # RuntimeUID, that uid is also _lifecycle_key, so this sweep removes
+        # them. Do not sweep an empty URL: every unsaved book has getURL()=="".
         LOADED_DOCUMENTS.discard(lifecycle_key)
         for key in [k for k in SPILL_REGISTRY if k[0] == lifecycle_key]:
             SPILL_REGISTRY.pop(key, None)

@@ -126,3 +126,16 @@ def test_math_mml_export_uno_skips_windows_leftover_hidden_smath() -> None:
     src = Path(__file__).with_name("test_math_mml_export_uno.py").read_text(encoding="utf-8")
     assert "skip_windows_leftover_hidden_load" in src
     assert "math export Hidden _blank smath" in src
+
+
+def test_exception_message_prefers_uno_message() -> None:
+    from plugin.writer.math import math_mml_export as exp
+
+    class _Uno(Exception):
+        def __init__(self) -> None:
+            super().__init__("")
+            self.Message = "filter failed"
+
+    assert exp._exception_message(_Uno()) == "_Uno: filter failed"
+    assert exp._exception_message(ValueError("bad")) == "ValueError: bad"
+    assert exp._exception_message(ValueError()) == "ValueError"

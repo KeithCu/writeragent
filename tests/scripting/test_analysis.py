@@ -366,6 +366,18 @@ def test_pivot_aggregate():
     assert result["tables"][0]["total_rows"] >= 2
 
 
+def test_pivot_aggregate_missing_column_propagates():
+    with pytest.raises(KeyError):
+        analysis.pivot_aggregate(SALES_GRID, index="Missing", values="Sales")
+    res = analysis.run_analysis(
+        {"helper": "pivot_aggregate", "params": {"index": "Missing", "values": "Sales"}},
+        SALES_GRID,
+    )
+    assert res["status"] == "error"
+    assert res["code"] == "ANALYSIS_FAILED"
+    assert "Missing" in res["message"]
+
+
 def test_group_summary():
     result = analysis.group_summary(SALES_GRID, by="Region", metrics=["Sales"], aggfunc="sum")
     assert result["status"] == "ok"

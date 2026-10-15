@@ -12,6 +12,7 @@ from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.doc.document_research_tools import ListNearbyFiles
 from plugin.framework.tool import ToolContext, ToolRegistry
 from plugin.writer.images.images import (
+    ImageDelete,
     ImageDownload,
     ImageGenerate,
     ImageGetInfo,
@@ -629,4 +630,23 @@ def test_image_generate_export_failure_is_selection_read_error():
     assert res["status"] != "ok"
     assert res.get("code") == "SELECTION_READ_ERROR"
     assert res.get("message") == "Could not export the selected image."
+
+
+def test_image_delete_draw_ambiguous_name():
+    ctx = MagicMock()
+    graphic = MagicMock()
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.doc.visual_helpers.get_visual_doc_type", return_value="draw"),
+        patch(
+            "plugin.doc.visual_helpers.remove_graphic_from_draw_pages",
+            side_effect=ValueError("Several shapes named 'Pic'; not deleted."),
+        ),
+    ):
+        res = ImageDelete().execute(ctx, name="Pic")
+
+    assert res["status"] == "error"
+    assert res["code"] == "AMBIGUOUS_NAME"
+    assert "Several shapes named 'Pic'" in res["message"]
+
 

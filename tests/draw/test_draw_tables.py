@@ -9,6 +9,7 @@ from plugin.draw.tables import (
     delete_draw_table,
     fill_table_cells,
     get_draw_cell,
+    get_draw_cells,
     insert_draw_table,
     list_draw_tables,
     parse_a1,
@@ -177,7 +178,7 @@ def test_insert_table_rejects_zero_rows():
 
 
 class DisposedException(Exception):
-    """Type name matches is_disposed_exception."""
+    """Type name matches is_real_disposal."""
 
 
 def test_insert_table_disposed_page_is_not_invalid_index():
@@ -242,6 +243,134 @@ def test_table_delete_tool_dispatches_draw():
     dele.assert_called_once()
 
 
+def test_get_draw_cells_empty_string_is_empty_cell():
+    entry = {"model": _Table(1, 1)}
+    assert get_draw_cells(entry) == [[""]]
+
+
+def test_get_draw_cells_failed_read_is_not_empty_string():
+    table = _Table(1, 1)
+    cell = table.getCellByPosition(0, 0)
+    cell.getString = MagicMock(side_effect=RuntimeError("read failed"))
+    cell.getText = MagicMock(side_effect=RuntimeError("read failed"))
+    entry = {"model": table}
+    with pytest.raises(ValueError, match=r"row 0 col 0"):
+        get_draw_cells(entry)
+
+
+def test_get_draw_cells_disposed_read_propagates():
+    table = _Table(1, 1)
+    cell = table.getCellByPosition(0, 0)
+    cell.getString = MagicMock(side_effect=DisposedException("gone"))
+    entry = {"model": table}
+    with pytest.raises(DisposedException):
+        get_draw_cells(entry)
+
+
+def test_table_get_cells_draw_failed_cell_is_error():
+    table = _Table(1, 1)
+    cell = table.getCellByPosition(0, 0)
+    cell.getString = MagicMock(side_effect=RuntimeError("read failed"))
+    cell.getText = MagicMock(side_effect=RuntimeError("read failed"))
+    entry = {
+        "model": table,
+        "name": "MyTable",
+        "page": 0,
+        "index": 0,
+        "rows": 1,
+        "cols": 1,
+    }
+    ctx = MagicMock()
+    with patch("plugin.writer.specialized.tables._is_draw_doc", return_value=True):
+        with patch("plugin.draw.tables.resolve_draw_table", return_value=entry):
+            out = TableGetCells().execute(ctx, name="MyTable")
+    assert out["status"] == "error"
+    assert "row 0 col 0" in out["message"]
+    assert "matrix" not in out
+
+
+def test_insert_table_size_failure_removes_shape():
+    ctx = MagicMock()
+    shape = MagicMock()
+    page = MagicMock()
+    page.getCount.return_value = 1
+    ctx.doc.createInstance.return_value = shape
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_active_page_index.return_value = 0
+        bridge.get_pages.return_value.getByIndex.return_value = page
+        with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
+            with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
+                "com.sun.star.awt.Size", MagicMock(), create=True
+            ):
+                with patch("plugin.draw.tables._ensure_table_dims", side_effect=RuntimeError("nope")):
+                    out = insert_draw_table(ctx, rows=2, columns=2, data=[["h1", "h2"], ["v1", "v2"]])
+    assert out["status"] == "error"
+    assert out["message"].startswith("Failed to size table")
+    page.remove.assert_called_once_with(shape)
+
+
+def test_insert_table_fill_failure_removes_shape():
+    ctx = MagicMock()
+    shape = MagicMock()
+    page = MagicMock()
+    page.getCount.return_value = 1
+    ctx.doc.createInstance.return_value = shape
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_active_page_index.return_value = 0
+        bridge.get_pages.return_value.getByIndex.return_value = page
+        with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
+            with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
+                "com.sun.star.awt.Size", MagicMock(), create=True
+            ):
+                with patch("plugin.draw.tables._ensure_table_dims", return_value=(2, 2)), patch(
+                    "plugin.draw.tables.fill_table_cells", side_effect=RuntimeError("fill")
+                ):
+                    out = insert_draw_table(ctx, rows=2, columns=2, data=[["h1", "h2"], ["v1", "v2"]])
+    assert out["status"] == "error"
+    assert out["message"].startswith("Failed to fill table cells")
+    page.remove.assert_called_once_with(shape)
+
+
+def test_insert_table_size_disposed_propagates():
+    ctx = MagicMock()
+    shape = MagicMock()
+    page = MagicMock()
+    page.getCount.return_value = 1
+    ctx.doc.createInstance.return_value = shape
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_active_page_index.return_value = 0
+        bridge.get_pages.return_value.getByIndex.return_value = page
+        with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
+            with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
+                "com.sun.star.awt.Size", MagicMock(), create=True
+            ):
+                with patch("plugin.draw.tables._ensure_table_dims", side_effect=DisposedException("gone")):
+                    with pytest.raises(DisposedException):
+                        insert_draw_table(ctx, rows=2, columns=2, data=[["h1", "h2"], ["v1", "v2"]])
+    page.remove.assert_not_called()
+
+
+def test_insert_table_set_size_failure_removes_shape():
+    ctx = MagicMock()
+    shape = MagicMock()
+    shape.setSize.side_effect = RuntimeError("size")
+    page = MagicMock()
+    page.getCount.return_value = 1
+    ctx.doc.createInstance.return_value = shape
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.get_active_page_index.return_value = 0
+        bridge.get_pages.return_value.getByIndex.return_value = page
+        with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
+            "com.sun.star.awt.Size", MagicMock(), create=True
+        ):
+            out = insert_draw_table(ctx, rows=2, columns=2)
+    assert out["status"] == "error"
+    assert out["message"].startswith("Failed to create table")
+    page.remove.assert_called_once_with(shape)
 def test_table_model_reraises_disposed():
     from plugin.draw.tables import _table_model
 

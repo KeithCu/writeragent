@@ -1213,25 +1213,27 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_worker_rejects_pickle_payload_and_false_mode(self) -> None:
-        """Stdio must not run a payload or a mode the HTTP edge rejects.
+    def test_worker_does_not_recheck_mode_or_wire(self) -> None:
+        """Stdio does not reject a mode or wire the pool already checked.
 
-        ``data`` was the pickle/split_grid field. ``mode: false`` was rewritten
-        to isolated on the HTTP path and rejected here.
+        ``data`` is not a payload field. A false mode is not re-validated
+        here; pool execute() still rejects it before stdio.
         """
         from compute_service.formula_worker import _handle_request
         from compute_service.json_forward import decode_worker_result
 
         pickled = decode_worker_result(_handle_request({"id": "pk", "code": "result = data", "wire": "pickle", "data": [1, 2, 3]}))
-        assert pickled.get("code") == "INVALID_REQUEST"
+        assert pickled.get("status") == "ok"
+        assert pickled.get("code") != "INVALID_REQUEST"
         assert pickled.get("result") != [1, 2, 3]
 
         plain = decode_worker_result(_handle_request({"id": "data-field", "code": "result = data", "data": [1, 2, 3]}))
         assert plain.get("result") != [1, 2, 3]
 
         bad_mode = decode_worker_result(_handle_request({"id": "m", "code": "result = 1", "mode": False}))
-        assert bad_mode.get("code") == "INVALID_REQUEST"
-        assert bad_mode.get("result") != 1
+        assert bad_mode.get("status") == "ok"
+        assert bad_mode.get("code") != "INVALID_REQUEST"
+        assert bad_mode.get("result") == 1
 
     def test_worker_error_omits_traceback(self) -> None:
         from compute_service.formula_worker import _handle_request
@@ -1351,21 +1353,17 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_build_execute_payload_rejects_unknown_wire(self) -> None:
-        """Unknown wire is an error. It used to be rewritten to json_forward."""
-        from compute_service.json_forward import ExecuteRequestError
-
-        with pytest.raises(ExecuteRequestError, match="wire"):
-            FormulaProcessPool._build_execute_payload(
-                code="result = 1",
-                data=None,
-                data_json=None,
-                session_id=None,
-                mode="isolated",
-                init_script=None,
-                req_id="test-wire",
-                wire="bogus_wire",
-            )
+    def test_execute_rejects_unknown_wire(self) -> None:
+        """Unknown wire is an error from execute(). The payload builder does not check again."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            res = pool.execute(code="result = 1", wire="bogus_wire", req_id="test-wire")
+            assert res.get("status") == "error"
+            assert res.get("code") == "INVALID_REQUEST"
+            assert res.get("result") != 1
+            assert "wire" in str(res.get("error", ""))
+        finally:
+            pool.shutdown()
 
     def test_deadline_left_is_negative_when_spent(self) -> None:
         from compute_service.worker_base import Deadline

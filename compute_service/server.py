@@ -16,7 +16,7 @@ import sys
 import threading
 import time
 import urllib.parse
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 # Ensure repo root is on sys.path to resolve plugin.* / compute_service imports
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -620,9 +620,9 @@ def _gated(
         # counts against the request; the lease does not start another timeout.
         # Execute and vision pass the clamped timeout_ms from prepare. Reset
         # has no timeout_ms and keeps default_timeout_sec.
-        if admission_timeout_sec is None:
-            raise RuntimeError("admission_timeout_sec is required when prepare is omitted")
-        deadline = _request_deadline(environ.get("compute.accept_time"), admission_timeout_sec)
+        # Every permit caller passes a float: prepare returns the clamped timeout,
+        # and reset passes default_timeout_sec. The None RuntimeError could not run.
+        deadline = _request_deadline(environ.get("compute.accept_time"), cast(float, admission_timeout_sec))
         remaining = deadline - time.monotonic()
         req_id = environ.get("compute.req_id")
         if remaining <= 0:
@@ -849,10 +849,9 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
         params = raw_params
     else:
         return _error(start_response, "400 Bad Request", "params must be an object.", code="INVALID_REQUEST", req_id=req_id)
-    raw_budget = environ.get("compute.admission_timeout_sec")
-    if isinstance(raw_budget, bool) or not isinstance(raw_budget, (int, float)):
-        raise RuntimeError("vision admission timeout was not prepared")
-    vision_budget = float(raw_budget)
+    # _vision_admission_timeout stored this float before _gated called us.
+    # The RuntimeError guard could not run on this path.
+    vision_budget = float(environ["compute.admission_timeout_sec"])
     vision_deadline = _request_deadline(environ.get("compute.accept_time"), vision_budget)
 
     from compute_service.vision import get_vision_pool
@@ -998,10 +997,8 @@ def run_server(settings: ComputeSettings) -> None:
         def _handle_shutdown(signum: int, _frame: Any) -> None:
             nonlocal shutdown_signals_received
             shutdown_signals_received += 1
-            try:
-                sig_name = signal.Signals(signum).name
-            except Exception:
-                sig_name = str(signum)
+            # Only SIGINT and SIGTERM are registered, and both are Signals members.
+            sig_name = signal.Signals(signum).name
             if shutdown_signals_received > 1:
                 log.warning("Received repeated signal %s, aborting immediately...", sig_name)
                 os._exit(1)

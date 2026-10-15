@@ -17,7 +17,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 """Calc chart management tools: list, info, create, edit, delete.
 Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties.
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
-from plugin.framework.errors import is_disposed_exception, is_real_disposal
+from plugin.framework.errors import DocumentDisposedError, is_disposed_exception, is_document_disposed, is_real_disposal
 import uno
 
 
@@ -571,6 +571,19 @@ def _format_chart_exception_msg(e: Exception) -> str:
     return f"{type(e).__name__}"
 
 
+def _chart_list_failure(doc: Any, exc: Exception, errors: list[dict[str, Any]], **where: Any) -> None:
+    """Record one chart-list read failure, or re-raise when *doc* is closed.
+
+    Calc used to re-raise only is_disposed_exception and then return status ok
+    with the charts appended before the failure. Draw/Writer skipped disposal
+    and raised other errors, so one bad shape aborted the list. A closed
+    document propagates. A live-document failure is appended to *errors*.
+    """
+    if is_real_disposal(exc) or (is_disposed_exception(exc) and is_document_disposed(doc)):
+        raise exc
+    errors.append({**where, "message": _format_chart_exception_msg(exc)})
+
+
 def _get_all_calc_chart_names(doc: Any) -> set[str]:
     """Return a set of all chart names existing across all sheets in a Calc document."""
     names: set[str] = set()
@@ -610,12 +623,13 @@ def _find_calc_chart_and_sheet(doc: Any, chart_name: str, sheet_name: str | None
     return None, None
 
 
-def _ole2_shape_at(page: Any, index: int) -> Any | None:
-    """OLE2 shape at *index*, or None when it is another type or disposed.
+def _ole2_shape_at(page: Any, index: int, doc: Any = None) -> Any | None:
+    """OLE2 shape at *index*, or None when it is another type or a dead shape.
 
-    Skip a disposed shape and keep scanning. ``getShapeType`` with no
-    per-shape guard lets one ``DisposedException`` end list/resolve for
-    every later shape. Other errors still propagate.
+    One disposed shape on a live page is skipped so later shapes still list.
+    getByIndex on a closed document raises the same DisposedException; returning
+    None made ListCharts return status ok with a partial list. When *doc* is
+    passed and that document is disposed, re-raise. Other errors still propagate.
     """
     try:
         shape = page.getByIndex(index)
@@ -623,7 +637,10 @@ def _ole2_shape_at(page: Any, index: int) -> Any | None:
             return None
         return shape
     except Exception as exc:
+        # Live page, dead shape: skip. Closed document: propagate.
         if is_disposed_exception(exc):
+            if doc is not None and is_document_disposed(doc):
+                raise
             return None
         raise
 
@@ -686,62 +703,98 @@ class ListCharts(ToolBaseDummy):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
+        # supportsService swallows DisposedException, so a closed document
+        # matched no branch and list_charts returned status ok with charts=[].
+        # Probe first and surface disposal instead of an empty success.
+        if is_document_disposed(doc):
+            raise DocumentDisposedError("Document was closed or disposed by LibreOffice", object_type="document")
         result = []
+        errors: list[dict[str, Any]] = []
 
         if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
             try:
                 sheets = doc.getSheets()
-                for i in range(sheets.getCount()):
+                sheets_count = sheets.getCount()
+            except Exception as exc:
+                if is_disposed_exception(exc) and is_document_disposed(doc):
+                    raise exc
+                return self._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
+            for i in range(sheets_count):
+                sheet_name = None
+                try:
                     sheet = sheets.getByIndex(i)
                     sheet_name = sheet.getName()
                     charts = sheet.getCharts()
-                    for name in charts.getElementNames():
+                    names = charts.getElementNames()
+                except Exception as exc:
+                    _chart_list_failure(doc, exc, errors, sheet=sheet_name or i)
+                    continue
+                for name in names:
+                    try:
                         chart_obj = charts.getByName(name)
                         result.append(self._get_summary(chart_obj, name, sheet_name=sheet_name))
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    raise
+                    except Exception as exc:
+                        _chart_list_failure(doc, exc, errors, sheet=sheet_name, name=name)
 
         elif supportsService(doc, "com.sun.star.text.TextDocument"):
-            objects = doc.getEmbeddedObjects()
-            for name in objects.getElementNames():
-                obj = objects.getByName(name)
-                if _writer_embed_is_chart(obj):
-                    result.append(self._get_summary(obj, name))
+            embed_names = ()
+            try:
+                objects = doc.getEmbeddedObjects()
+                embed_names = objects.getElementNames()
+            except Exception as exc:
+                _chart_list_failure(doc, exc, errors, source="embedded")
+            else:
+                for name in embed_names:
+                    try:
+                        obj = objects.getByName(name)
+                        if _writer_embed_is_chart(obj):
+                            result.append(self._get_summary(obj, name))
+                    except Exception as exc:
+                        _chart_list_failure(doc, exc, errors, source="embedded", name=name)
             try:
                 page = doc.getDrawPage()
                 for j in range(page.getCount()):
-                    shape = _ole2_shape_at(page, j)
-                    if shape is None:
-                        continue
                     try:
+                        shape = _ole2_shape_at(page, j, doc)
+                        if shape is None:
+                            continue
                         if _is_chart_clsid(getattr(shape, "CLSID", "") or ""):
                             nm = shape.Name or f"Chart_{j}"
                             result.append(self._get_summary(shape, nm))
                     except Exception as exc:
-                        if is_disposed_exception(exc):
-                            continue
-                        raise
+                        _chart_list_failure(doc, exc, errors, source="draw_page", index=j)
             except Exception as exc:
-                if is_real_disposal(exc):
-                    raise
+                _chart_list_failure(doc, exc, errors, source="draw_page")
 
         elif supportsService(doc, "com.sun.star.drawing.DrawingDocument") or supportsService(doc, "com.sun.star.presentation.PresentationDocument"):
-            for i in range(doc.getDrawPages().getCount()):
-                page = doc.getDrawPages().getByIndex(i)
-                for j in range(page.getCount()):
-                    shape = _ole2_shape_at(page, j)
-                    if shape is None:
-                        continue
+            try:
+                pages = doc.getDrawPages()
+                pages_count = pages.getCount()
+            except Exception as exc:
+                if is_disposed_exception(exc) and is_document_disposed(doc):
+                    raise exc
+                return self._tool_error("Could not list charts: %s" % _format_chart_exception_msg(exc))
+            for i in range(pages_count):
+                try:
+                    page = pages.getByIndex(i)
+                    shapes_count = page.getCount()
+                except Exception as exc:
+                    _chart_list_failure(doc, exc, errors, page=i)
+                    continue
+                for j in range(shapes_count):
                     try:
+                        shape = _ole2_shape_at(page, j, doc)
+                        if shape is None:
+                            continue
                         if _is_chart_clsid(getattr(shape, "CLSID", "") or ""):
                             result.append(self._get_summary(shape, shape.Name or f"Chart_{i}_{j}"))
                     except Exception as exc:
-                        if is_disposed_exception(exc):
-                            continue
-                        raise
+                        _chart_list_failure(doc, exc, errors, page=i, index=j)
 
-        return {"status": "ok", "charts": result, "count": len(result)}
+        out: dict[str, Any] = {"status": "ok", "charts": result, "count": len(result)}
+        if errors:
+            out["errors"] = errors
+        return out
 
     def _get_summary(self, chart_obj: Any, name: str, sheet_name: str | None = None) -> dict[str, Any]:
         entry = {"name": name}
@@ -753,13 +806,13 @@ class ListCharts(ToolBaseDummy):
                 entry["title"] = chart_doc.getTitle().String if chart_doc.HasMainTitle else ""
                 entry["diagram_type"] = chart_doc.getDiagram().getDiagramType()
         except Exception as exc:
-            # Bugfix: a closed document raises DisposedException from the chart summary, and this
-            # except turned that into a chart list entry.
-            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-            # Any other failure stays on the existing error path.
+            # Title and diagram type are optional. Swallowing DisposedException
+            # here still returned the chart and list_charts finished status ok
+            # after the document closed. Real disposal propagates; the caller
+            # re-raises only when the document itself is disposed.
             if is_real_disposal(exc):
                 raise
-            pass
+            log.debug("list_charts summary failed for %s: %s", name, exc)
         return entry
 
 
@@ -962,9 +1015,8 @@ class UpsertChart(ToolBaseDummy):
 
     def _create_calc_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        data_range = kwargs.get("data_range")
-        if not data_range:
-            return self._tool_error("data_range is required for Calc charts.")
+        data_range = cast("str", kwargs.get("data_range"))
+        # Missing data_range is rejected by UpsertChart.validate for calc create.
 
         target_sheet_name = kwargs.get("sheet")
         if target_sheet_name:
@@ -1395,9 +1447,9 @@ class ManageCharts(ToolCalcChartBase):
         return UpsertChart().validate(doc_type=doc_type, **kwargs)
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        # action (required + enum), create chart_type, and edit name are
+        # rejected by validate() before execute. get_info/delete name are not.
         action = kwargs.get("action")
-        if not action:
-            return self._tool_error("Action parameter is required.", code="MISSING_PARAMETER")
 
         if action == "list":
             return ListCharts().execute(ctx, **kwargs)
@@ -1405,17 +1457,10 @@ class ManageCharts(ToolCalcChartBase):
             if "name" not in kwargs:
                 return self._tool_error("name parameter is required for action='get_info'.")
             return GetChartInfo().execute(ctx, **kwargs)
-        elif action == "create":
-            if "chart_type" not in kwargs:
-                return self._tool_error("chart_type parameter is required for action='create'.")
-            return UpsertChart().execute(ctx, **kwargs)
-        elif action == "edit":
-            if "name" not in kwargs:
-                return self._tool_error("name parameter is required for action='edit'.")
+        elif action in ("create", "edit"):
             return UpsertChart().execute(ctx, **kwargs)
         elif action == "delete":
             if "name" not in kwargs:
                 return self._tool_error("name parameter is required for action='delete'.")
             return DeleteChart().execute(ctx, **kwargs)
-        else:
-            return self._tool_error(f"Unsupported action: '{action}'")
+        return cast("Any", None)

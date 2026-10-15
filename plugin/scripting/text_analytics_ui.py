@@ -389,10 +389,8 @@ class TextAnalyticsDialog:
                     ) % error
                 else:
                     text = _("Error: %s") % error
-            try:
-                res_ctrl.getModel().Text = text
-            except Exception:
-                log.exception("Failed to set error text on ResultsEdit")
+            # A raised ResultsEdit write is already logged by process_queue or the button listener.
+            res_ctrl.getModel().Text = text
             return
 
         if (
@@ -411,10 +409,8 @@ class TextAnalyticsDialog:
             log.exception("Text analytics: format failed")
             display_text = "Error: Text analytics failed."
 
-        try:
-            res_ctrl.getModel().Text = display_text
-        except Exception:
-            log.exception("Failed to set display text on ResultsEdit")
+        # A raised ResultsEdit write is already logged by process_queue or the button listener.
+        res_ctrl.getModel().Text = display_text
 
     def _insert_report(self, dlg: Any) -> None:
         if self._busy or self._closed:

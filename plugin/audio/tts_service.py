@@ -421,7 +421,13 @@ def stop_speech() -> None:
 
     # This job blocks in _reap_proc (wait timeout 5s per process, plus
     # spd-say -S timeout 2s) and the shared pool has two workers.
-    run_in_background(_bg_cleanup, dedicated=True, name="tts-cleanup")
+    # Bugfix: stop_speech raised if starting tts-cleanup thread failed, leaving procs and temps.
+    # run_in_background was unwrapped; catch Exception and reap inline so cleanup always completes.
+    try:
+        run_in_background(_bg_cleanup, dedicated=True, name="tts-cleanup")
+    except Exception:
+        log.exception("stop_speech: failed to start cleanup thread; reaping inline")
+        _bg_cleanup()
 
 
 def _begin_utterance() -> int:
@@ -761,11 +767,18 @@ def _speak_system(text: str, speed: float = 1.0, generation: int | None = None) 
                         chunk_proc = _popen_for_speech(c_cmd, generation, slot="play")
                         if chunk_proc is None:
                             return
-                        chunk_proc.wait()
+                        ret = chunk_proc.wait()
                     except OSError as exc:
                         log.warning("_speak_system spd-say OSError: %s", exc)
+                        return
                     finally:
                         _clear_speech_proc(chunk_proc, "play")
+                    # Bugfix: spd-say failure ignored its exit code and kept speaking remaining chunks.
+                    # chunk_proc.wait() was uninspected; now check ret != 0, warn if unblocked, and abort.
+                    if ret != 0:
+                        if not _playback_blocked(generation):
+                            log.warning("spd-say exited with code %s; not speaking the remaining text", ret)
+                        return
                 return
 
         if not cmd:
@@ -1112,6 +1125,11 @@ def _kokoro_audio_file(
         if misaki_ready is None:
             misaki_ready = True
     py_exe = _venv_python()
+    # Bugfix: Model files were downloaded even without a configured venv because
+    # resolution ran before checking py_exe. Returning None early skips download
+    # and lets sentence mode / caller fall back to OS speech.
+    if not py_exe:
+        return None
     model_path, voices_path = _resolve_kokoro_model_files(
         on_status=on_status,
         generation=generation,
@@ -1327,6 +1345,12 @@ def _run_sentence_pipeline(
     def _produce() -> None:
         done = 0
         try:
+            # Warn once per reply when venv is missing; _kokoro_audio_file does not log.
+            if provider == "kokoro" and not _venv_python():
+                log.warning(
+                    "Local Kokoro TTS requires a configured Python venv. "
+                    "Please configure your venv path in Settings -> Python."
+                )
             for index, sentence in enumerate(sentences):
                 if _playback_blocked(generation):
                     return

@@ -87,8 +87,8 @@ def require_execute_mode(mode: Any) -> str:
     """Return ``isolated`` or ``shared``.
 
     Anything else is rejected. A typo must not run as isolated and look
-    like a successful cell that kept no workbook state. Callers share this
-    check; the worker does not interpret mode a second way.
+    like a successful cell that kept no workbook state. HTTP and the pool
+    share this check.
     """
     if isinstance(mode, str) and mode in VALID_EXECUTE_MODES:
         return mode
@@ -99,8 +99,8 @@ def canonical_execute_mode(mode: Any) -> str:
     """Missing mode is isolated. Every other value must be a real mode.
 
     Only ``None`` and ``""`` are omitted. ``false`` and ``0`` are not
-    missing, or the HTTP handler would run an isolated cell the worker
-    rejects. Peel, multipart, the pool, and the worker all call this.
+    missing, or the HTTP handler would run an isolated cell. Peel,
+    multipart, and the pool call this before the worker runs.
     """
     if mode is None or mode == "":
         return require_execute_mode("isolated")

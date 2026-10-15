@@ -92,7 +92,7 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
         "rows": [["Jan", 100], ["Feb", 150]]
     })
     assert res.get("status") == "error"
-    assert "data_range is required for Calc charts" in res.get("message", "")
+    assert "Unknown parameter" in res.get("message", "")
 
     # Create chart without data_range should fail in Calc
     res = _execute_calc_tool(doc, ctx, "manage_charts", {
@@ -100,7 +100,7 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
         "chart_type": "bar"
     })
     assert res.get("status") == "error"
-    assert "data_range is required for Calc charts" in res.get("message", "")
+    assert "Parameter 'data_range' is required when action is 'create' in Calc" in res.get("message", "")
 
     # 2. Writer chart creation and array mapping validation
     writer_doc = TestingFactory.create_native_doc(ctx, "writer", hidden=not show_window)

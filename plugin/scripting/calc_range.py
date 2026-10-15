@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 import operator
-from typing import Any, Callable, ClassVar, Iterator, cast
+from typing import Any, Callable, ClassVar, Iterator, NoReturn, cast
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_SHAPE_DIM,
@@ -159,16 +159,9 @@ _deal_binary_op_pre = _profile(
 )
 
 
-def _numpy_required(exc: ImportError) -> TypeError:
-    """Missing-NumPy error for multi-cell arithmetic.
-
-    What was wrong: ``except Exception`` around ``to_numpy`` reported every
-    failure as ``TypeError: Multi-cell arithmetic requires NumPy``.
-    How it happened: the tests only patch ``to_numpy`` with ``ImportError``.
-    Why this fixes it: a missing NumPy is ``ImportError`` (``ModuleNotFoundError``
-    is a subclass). Any other exception propagates.
-    """
-    return TypeError(f"Multi-cell arithmetic requires NumPy: {exc}")
+def _numpy_required(exc: ImportError) -> NoReturn:
+    # Missing NumPy is ImportError. Any other to_numpy failure propagates.
+    raise TypeError(f"Multi-cell arithmetic requires NumPy: {exc}") from exc
 
 
 def _binop(op: Any, reverse: bool = False) -> Any:
@@ -437,7 +430,7 @@ class CalcRange:
                 try:
                     other_arr = other.to_numpy()
                 except ImportError as exc:
-                    raise _numpy_required(exc) from exc
+                    _numpy_required(exc)
                 return op(other_arr, val) if is_reverse else op(val, other_arr)
             other = _blank_to_nan(other)
             return op(other, val) if is_reverse else op(val, other)
@@ -445,7 +438,7 @@ class CalcRange:
         try:
             self_arr = self.to_numpy()
         except ImportError as exc:
-            raise _numpy_required(exc) from exc
+            _numpy_required(exc)
         if isinstance(other, CalcRange):
             other_val = other._values[0][0] if other.shape == (1, 1) else other.to_numpy()
             other = _blank_to_nan(other_val)
@@ -464,7 +457,7 @@ class CalcRange:
         try:
             return op(self.to_numpy())
         except ImportError as exc:
-            raise _numpy_required(exc) from exc
+            _numpy_required(exc)
 
     # Binary arithmetic
     __add__: Callable[..., Any] = _binop(operator.add)

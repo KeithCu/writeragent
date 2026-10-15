@@ -65,11 +65,19 @@ def is_download_failed(generation: int | None, key: str) -> bool:
     """True if key already failed to download during this speech generation."""
     if generation is None:
         return False
-    return key in _failed_model_downloads.get(generation, set())
+    from plugin.audio.tts_service import _speech_lock
+
+    # Unlocked read previously raced with writes. Generation check was added
+    # only on the write; clear_generation_downloads must not take the lock
+    # because callers already hold the non-reentrant lock.
+    with _speech_lock:
+        return key in _failed_model_downloads.get(generation, set())
 
 
 def clear_generation_downloads(generation: int) -> None:
-    """Clean up remembered download failures when an utterance finishes."""
+    """Drop remembered download failures for one utterance; the caller must hold
+    tts_service._speech_lock; stop_speech and _end_utterance do; the lock is not
+    taken here because it is not reentrant."""
     _failed_model_downloads.pop(generation, None)
 
 
