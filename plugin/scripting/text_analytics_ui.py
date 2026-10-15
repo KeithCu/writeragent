@@ -188,7 +188,12 @@ class TextAnalyticsDialog:
                 h_name = helper
 
                 def _cb(d: Any, h: str = h_name, scoped: bool = uses_scope) -> None:
-                    scope = owner._scope_from_dialog(d) if scoped else "whole"
+                    if scoped:
+                        scope = owner._scope_from_dialog(d)
+                        if scope is None:
+                            return
+                    else:
+                        scope = "whole"
                     owner._compute(d, h, scope)
 
                 ctrl.addActionListener(_Btn(_cb))
@@ -200,18 +205,38 @@ class TextAnalyticsDialog:
         if btn_close is not None:
             btn_close.addActionListener(_Btn(lambda d: owner.close()))
 
-    def _scope_from_dialog(self, dlg: Any) -> str:
+    def _scope_from_dialog(self, dlg: Any) -> str | None:
         try:
             chk = dlg.getControl("ChkScope")
             if chk is None:
                 return "whole"
             # getattr(chk, "State", 0) only saw a forwarded model attribute, and a missing attribute was unchecked.
             # get_checkbox_state uses getState() then model.State, which is what the other dialogs use.
-            # getControl failure still means whole document.
             return "whole" if get_checkbox_state(chk) == 1 else "selection"
         except Exception:
-            log.debug("text analytics: scope checkbox failed", exc_info=True)
-            return "whole"
+            # Bugfix: a failed scope read analyzed the whole document
+            # What was wrong: Readability, Entities, Key Phrases, Topics, and Sentiment
+            # still ran on the whole document when the scope checkbox could not be read.
+            # How it happened: the except logged at debug and returned "whole", and
+            # _compute treated that as an explicit Whole Document choice.
+            # Why this change: write the error into ResultsEdit, the same place as the
+            # other analysis messages, and do not start a run.
+            log.exception("text analytics: scope checkbox failed")
+            self._report_scope_read_failure(dlg)
+            return None
+
+    def _report_scope_read_failure(self, dlg: Any) -> None:
+        self._last_result = None
+        self._source_uid = None
+        message = _("Could not read the scope checkbox.")
+        try:
+            res = dlg.getControl("ResultsEdit")
+            if res is not None:
+                res.getModel().Text = message
+                return
+        except Exception:
+            log.exception("text analytics: could not show scope error in ResultsEdit")
+        msgbox(self._ctx, _("Text Analytics"), message)
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy

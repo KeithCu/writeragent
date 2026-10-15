@@ -529,13 +529,17 @@ class FormulaProcessPool(BaseProcessPool):
             try:
                 decoded = decode_worker_result(res)
             except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, MemoryError) as exc:
-                # What was wrong: json.loads on result_json escaped execute.
-                # Deeply nested JSON raises RecursionError, and a huge value
-                # can raise MemoryError. Either one became an unhandled 500.
-                # The pickle frame was already consumed and tasks_executed
-                # already counted, so killing the child would drop shared
-                # sessions for a bad inner JSON blob.
-                failed = error_dict("WORKER_CRASHED", f"Worker result_json could not be decoded: {exc}", req_id=req_id)
+                # What was wrong: json.loads on result_json escaped execute, and the
+                # catch that stopped that labeled the failure WORKER_CRASHED. The child
+                # did not die.
+                # How: deeply nested JSON raises RecursionError, and a huge value can
+                # raise MemoryError. JSONDecodeError and UnicodeDecodeError are the
+                # same path. The pickle frame was already consumed and tasks_executed
+                # already counted.
+                # Why: RESULT_DECODE_ERROR names a decode failure. The child stays up,
+                # so a bad inner blob does not drop shared sessions. HTTP stays 500
+                # via _HTTP_STATUS_BY_CODE.
+                failed = error_dict("RESULT_DECODE_ERROR", f"Worker result_json could not be decoded: {exc}", req_id=req_id)
                 if session_was_lost:
                     failed["session_reset"] = True
                 return failed

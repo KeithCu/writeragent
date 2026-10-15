@@ -19,14 +19,17 @@ from plugin.framework.errors import DocumentDisposedError
 from plugin.calc.charts import (
     CHART_CLSID,
     CHART_CLSID_DRAW_OLE,
+    DeleteChart,
     ListCharts,
     _apply_chart_styling,
     _await_writer_chart_document,
     _axis_title_shape_string,
+    _chart_document_from_host,
     _is_chart_clsid,
     _normalize_clsid_value,
     _resolve_chart,
     _writer_embed_is_chart,
+    supportsService,
 )
 
 
@@ -64,6 +67,13 @@ def test_writer_embed_is_chart_by_diagram():
 
 class _DisposedException(Exception):
     """Name matches the dispose heuristic without importing UNO exceptions."""
+
+
+DisposedException = _DisposedException
+
+
+class RuntimeException(Exception):
+    pass
 
 
 class _Clock:
@@ -492,3 +502,70 @@ def test_list_charts_writer_draw_page_error_keeps_embedded_chart():
     assert len(result.get("errors", [])) == 1
     assert result["errors"][0]["source"] == "draw_page"
     assert "no page" in result["errors"][0]["message"]
+def test_supports_service_disposal_propagates():
+    doc = MagicMock()
+    doc.supportsService.side_effect = DisposedException("gone")
+    with pytest.raises(DisposedException):
+        supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument")
+
+    doc.supportsService.side_effect = RuntimeException("no")
+    assert supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument") is False
+
+
+def test_chart_document_from_host_disposal_propagates():
+    host = MagicMock()
+    host.getEmbeddedObject.side_effect = DisposedException("gone")
+    with pytest.raises(DisposedException):
+        _chart_document_from_host(host)
+
+    host.getEmbeddedObject.side_effect = RuntimeException("no")
+    host.Model = None
+    host.Component = None
+    host.Name = None
+    assert _chart_document_from_host(host) is None
+
+
+def test_resolve_chart_writer_draw_page_disposal_propagates():
+    doc = MagicMock()
+    doc.getEmbeddedObjects.return_value.hasByName.return_value = False
+    doc.getDrawPage.side_effect = DisposedException("gone")
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        with pytest.raises(DisposedException):
+            _resolve_chart(doc, "Chart_9")
+
+
+def test_list_charts_writer_draw_page_disposal_propagates():
+    doc = MagicMock()
+    doc.getEmbeddedObjects.return_value.getElementNames.return_value = ()
+    doc.getDrawPage.side_effect = DisposedException("gone")
+    ctx = MagicMock()
+    ctx.doc = doc
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        with pytest.raises(DisposedException):
+            ListCharts().execute(ctx)
+
+
+def test_get_summary_disposal_propagates():
+    obj = MagicMock()
+    chart_doc = MagicMock()
+    chart_doc.HasMainTitle = True
+    chart_doc.getTitle.side_effect = DisposedException("gone")
+    with patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc):
+        with pytest.raises(DisposedException):
+            ListCharts()._get_summary(obj, "Chart_1")
+
+    chart_doc.getTitle.side_effect = RuntimeException("no title")
+    with patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc):
+        summary = ListCharts()._get_summary(obj, "Chart_1")
+        assert summary == {"name": "Chart_1"}
+
+
+def test_delete_chart_writer_draw_page_disposal_is_not_not_found():
+    doc = MagicMock()
+    doc.getEmbeddedObjects.return_value.hasByName.return_value = False
+    doc.getDrawPage.side_effect = DisposedException("gone")
+    ctx = MagicMock()
+    ctx.doc = doc
+    with patch("plugin.calc.charts.supportsService", side_effect=_supports("writer")):
+        with pytest.raises(DisposedException):
+            DeleteChart().execute(ctx, name="Chart_1")

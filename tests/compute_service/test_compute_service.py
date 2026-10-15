@@ -1607,6 +1607,16 @@ class TestSessionResetHttp:
         assert status.startswith("500")
         assert body.get("code") == "WORKER_CRASHED"
 
+    def test_execute_result_decode_error_is_500(self) -> None:
+        def decode_failed(**_kwargs):
+            return {"status": "error", "code": "RESULT_DECODE_ERROR", "error": "Worker result_json could not be decoded: bad"}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=decode_failed)
+        status, _headers, body = _wsgi_post(app, json.dumps({"id": "dec-1", "code": "result = 1"}).encode("utf-8"), path="/v1/execute")
+        assert status.startswith("500")
+        assert body.get("code") == "RESULT_DECODE_ERROR"
+        assert body.get("id") == "dec-1"
+
     def test_execute_rejected_frame_is_500(self) -> None:
         """A bad response frame killed the child. It is not a retryable 503."""
 
@@ -1952,6 +1962,32 @@ class TestSessionResetHttp:
         finally:
             shutdown_vision_pool()
 
+    @pytest.mark.parametrize(
+        "body_bytes",
+        [
+            b'{"id":[1e999]}',
+            b'{"id":[1e999],"image_b64":"abcd"}',
+            b'{"id":{"n":1e999}}',
+            b'{"id":[1]}',
+        ],
+    )
+    def test_vision_nested_nonfinite_id_is_400(self, body_bytes: bytes) -> None:
+        from compute_service.vision import shutdown_vision_pool
+
+        app = create_wsgi_app(ComputeSettings())
+        try:
+            status, _headers, body = _wsgi_post(
+                app,
+                body_bytes,
+                path="/v1/vision",
+            )
+            assert status.startswith("400")
+            assert body.get("error") == "Invalid JSON"
+            assert "id" not in body
+            assert "code" not in body
+        finally:
+            shutdown_vision_pool()
+
     def test_vision_overflow_timeout_is_json(self) -> None:
         from compute_service.vision import shutdown_vision_pool
 
@@ -2156,6 +2192,24 @@ class TestSessionResetHttp:
 
         app = create_wsgi_app(ComputeSettings(), reset_fn=reset_fn)
         status, _headers, body = _wsgi_post(app, b'{"id":' + raw_id + b"}", query="session_id=sid")
+        assert status.startswith("400")
+        assert body.get("error") == "Invalid JSON"
+        assert "id" not in body
+
+    @pytest.mark.parametrize(
+        "body_bytes",
+        [
+            b'{"id":[1e999]}',
+            b'{"id":{"n":1e999}}',
+            b'{"id":[1]}',
+        ],
+    )
+    def test_reset_nested_nonfinite_id_is_400_and_does_not_reset(self, body_bytes: bytes) -> None:
+        def reset_fn(_session_id: str, **_kwargs):
+            raise AssertionError("non-finite id must not reset")
+
+        app = create_wsgi_app(ComputeSettings(), reset_fn=reset_fn)
+        status, _headers, body = _wsgi_post(app, body_bytes, query="session_id=sid")
         assert status.startswith("400")
         assert body.get("error") == "Invalid JSON"
         assert "id" not in body

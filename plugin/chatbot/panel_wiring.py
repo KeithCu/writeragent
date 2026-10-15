@@ -127,7 +127,6 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
         "clear": get_optional("clear"),
         "chk_voice": get_optional("chk_voice"),
         "image_model_selector": get_optional("image_model_selector"),
-        "prompt_selector": get_optional("prompt_selector"),
         "model_selector": get_optional("model_selector"),
         "model_label": get_optional("model_label"),
         "status": get_optional("status"),
@@ -140,7 +139,6 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
         "btn_latex": get_optional("btn_latex"),
         "btn_search": get_optional("btn_search"),
         "btn_hamburger": get_optional("btn_hamburger"),
-        "response_label": get_optional("response_label"),
         "query_label": get_optional("query_label"),
         "backend_indicator": get_optional("backend_indicator"),
         "slash_popup": get_optional("slash_popup"),
@@ -202,6 +200,8 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
         _show_init_error("Mode UI: %s" % e)
         log.exception("Chat mode UI wiring failed")
 
+    # Session and button failures propagate. getRealInterface clears toolpanel
+    # and the next call rebuilds. Config, models, and mode UI stay degradable.
     # 2. Setup Sessions
     self._setup_sessions(model, extra_instructions)
 
@@ -406,16 +406,12 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     log.debug("calc cell link listener attach failed: %s", e)
                 hide_plain_ok = True
                 hide_response = False
-                hide_label = False
                 try:
                     from plugin.chatbot.dialogs import set_control_visible
 
                     if controls.get("response"):
                         set_control_visible(controls["response"], False)
                         hide_response = True
-                    if controls.get("response_label"):
-                        set_control_visible(controls["response_label"], False)
-                        hide_label = True
                 except Exception as e:
                     hide_plain_ok = False
                     log.warning("[RICH-CONTROL] phase=hide_plain ok=0 error=%s", e)
@@ -424,7 +420,6 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     "hide_plain",
                     ok=int(hide_plain_ok),
                     response=int(hide_response),
-                    response_label=int(hide_label),
                 )
                 if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
                     try:

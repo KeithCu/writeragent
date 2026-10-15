@@ -34,6 +34,7 @@ import unohelper
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 
 log = logging.getLogger(__name__)
+from plugin.framework.errors import is_real_disposal
 
 _ACCEPT_URL = f"{EXTENSION_ID_WRITERAGENT}:writer.accept_change"
 _REJECT_URL = f"{EXTENSION_ID_WRITERAGENT}:writer.reject_change"
@@ -54,7 +55,13 @@ _interceptor_cls: Any = None
 def _is_writer(model: Any) -> bool:
     try:
         return bool(model is not None and model.supportsService("com.sun.star.text.TextDocument"))
-    except Exception:
+    except Exception as exc:
+        # Bugfix: supportsService on a closed document raises DisposedException,
+        # and returning False skipped registration as if the model were not Writer.
+        # Re-raise real disposal so the doc-event wrapper can surface it.
+        # Any other failure still means not Writer.
+        if is_real_disposal(exc):
+            raise
         return False
 
 
@@ -183,7 +190,13 @@ def _register_controller(controller: Any) -> None:
             register_click_review(controller)
         except Exception:
             log.warning("change_context_menu: click-review registration failed", exc_info=True)
-    except Exception:
+    except Exception as exc:
+        # Bugfix: getModel() on a closed document raises DisposedException, and this
+        # except logged "register failed" and returned. The doc-event wrapper never
+        # saw it. Re-raise real disposal. Other failures stay a warning so install
+        # can skip one controller.
+        if is_real_disposal(exc):
+            raise
         # WARNING, not debug: a silent registration failure looks identical to "menu ignored".
         log.warning("change_context_menu: register failed", exc_info=True)
 
@@ -207,22 +220,23 @@ def _install_doc_event_listener(ctx: Any) -> None:
 
         class _NewDocListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
             def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
-                try:
-                    name = getattr(Event, "EventName", "") or ""
-                    if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew"):
-                        return
-                    # Prefer the event's own controller: it is guaranteed attached to the view
-                    # shell (OnViewCreated is broadcast after attach), while getCurrentController
-                    # can race and yield a controller whose registration is a silent no-op.
-                    controller = getattr(Event, "ViewController", None)
-                    if controller is not None:
-                        _register_controller(controller)
-                        return
-                    source = getattr(Event, "Source", None)
-                    if source is not None and hasattr(source, "getCurrentController"):
-                        _register_controller(source.getCurrentController())
-                except Exception:
-                    log.warning("change_context_menu: doc-event handling failed", exc_info=True)
+                # Bugfix: this callback caught Exception, logged "doc-event handling failed",
+                # and returned. That defeated documentEventOccured's @_catch_and_log, so a
+                # closed document never left as ListenerBoundary. The wrapper logs ordinary
+                # failures and re-raises real disposal.
+                name = getattr(Event, "EventName", "") or ""
+                if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew"):
+                    return
+                # Prefer the event's own controller: it is guaranteed attached to the view
+                # shell (OnViewCreated is broadcast after attach), while getCurrentController
+                # can race and yield a controller whose registration is a silent no-op.
+                controller = getattr(Event, "ViewController", None)
+                if controller is not None:
+                    _register_controller(controller)
+                    return
+                source = getattr(Event, "Source", None)
+                if source is not None and hasattr(source, "getCurrentController"):
+                    _register_controller(source.getCurrentController())
 
         smgr = ctx.getServiceManager()
         broadcaster = smgr.createInstanceWithContext("com.sun.star.frame.GlobalEventBroadcaster", ctx)

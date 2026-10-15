@@ -80,6 +80,7 @@ class TurnController:
     _stop_committed: bool
     _stop_partial_text: str | None
     closed_by_document: bool
+    send_start_msg_count: int
     _overflow_compact_attempts: int
     _last_compact_reason: str | None
     _last_compact_tokens_before: int | None
@@ -96,6 +97,7 @@ class TurnController:
         self.mode = str(mode or "")
         self.session = session
         self.messages = getattr(session, "messages", None) if session is not None else None
+        self.send_start_msg_count = len(self.messages) if isinstance(self.messages, list) else 0
         self.queue = None
         self.batcher = None
         self.model = model
@@ -121,6 +123,18 @@ class TurnController:
         if self.session is None:
             return True
         return getattr(self.session, "messages", None) is self.messages
+
+    def stored_user_row(self) -> bool:
+        """True when this turn appended a user row after the snapshot taken in __init__.
+
+        Rows already on the list at begin_send_turn do not count.
+        """
+        if not self.same_messages() or not isinstance(self.messages, list):
+            return False
+        return any(
+            isinstance(msg, dict) and msg.get("role") == "user"
+            for msg in self.messages[self.send_start_msg_count :]
+        )
 
     def abort(self) -> None:
         """Refuse later callbacks. Idempotent."""

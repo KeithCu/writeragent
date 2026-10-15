@@ -1092,7 +1092,6 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
     send.rich_text_widget = None
     send.response_control = MagicMock()
     send.response_control.getModel.return_value = MagicMock()
-    send._should_auto_scroll = MagicMock(return_value=False)
     send._scroll_response_to_bottom = MagicMock()
     send.queue_executor = MagicMock()
     send.sidebar_state = SidebarCompositeState(
@@ -1482,4 +1481,43 @@ def test_image_selector_failure_does_not_abort_image_generate():
     assert "image_model" not in called_args
     assert called_args == {"prompt": "a flag"}
     assert item[0] == StreamQueueKind.TOOL_DONE
+
+
+def test_begin_send_turn_snapshots_message_count():
+    from plugin.chatbot.tool_loop_actions import TurnController, begin_send_turn
+
+    class Host:
+        def __init__(self, messages=None):
+            self.session = MagicMock()
+            self.session.messages = messages
+
+    host = Host([{"role": "system", "content": "s"}, {"role": "user", "content": "u"}])
+    turn = begin_send_turn(host, "chat")
+    assert isinstance(turn, TurnController)
+    assert turn.send_start_msg_count == 2
+    host.session.messages.append({"role": "user", "content": "u2"})
+    assert turn.send_start_msg_count == 2
+    assert turn.stored_user_row() is True
+
+    host_none = Host(None)
+    turn_none = begin_send_turn(host_none, "chat")
+    assert turn_none.send_start_msg_count == 0
+    assert turn_none.stored_user_row() is False
+
+
+def test_stored_user_row_ignores_earlier_user_rows():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    class Host:
+        def __init__(self, messages):
+            self.session = MagicMock()
+            self.session.messages = messages
+
+    host = Host([{"role": "user", "content": "earlier"}])
+    turn = begin_send_turn(host, "chat")
+    assert turn.stored_user_row() is False
+    host.session.messages.append({"role": "assistant", "content": "reply"})
+    assert turn.stored_user_row() is False
+    host.session.messages.append({"role": "user", "content": "new user"})
+    assert turn.stored_user_row() is True
 

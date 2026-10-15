@@ -272,7 +272,7 @@ Width at creation/sync uses `last_response_rect` (placeholder fill, inset only).
 
 ### Plain multiline `response` field still visible (RichTextControl never took over)
 
-When init succeeds, wiring hides the plain `response` / `response_label` controls and shows the programmatic `response_rich` RichTextControl. If you still see the plain multiline field, init never reached `on_rich_control_ready`.
+When init succeeds, wiring hides the plain `response` field and shows the programmatic `response_rich` RichTextControl. If you still see the plain multiline field, init never reached `on_rich_control_ready`.
 
 Check `writeragent_debug.log` (same directory as `writeragent.json`) for `[RICH-CONTROL]` lines:
 

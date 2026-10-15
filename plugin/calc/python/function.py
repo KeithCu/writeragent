@@ -193,6 +193,64 @@ def worker_exception_error_code(message: str) -> int:
     return _ERR_VALUE
 
 
+_HELPER_ERROR_DICT_KEYS = frozenset({"status", "code", "message", "helper", "details"})
+
+
+def _is_helper_error_dict(val: Any) -> bool:
+    """True only for the coerce.error_result dict (venv/coerce.py lines 902–914).
+
+    status, code, and message are always set. helper and details are set only
+    when those arguments are truthy. Success payloads and other error dicts
+    carry more keys. Do not import the venv module for this check.
+    """
+    if not isinstance(val, dict):
+        return False
+    if not set(val).issubset(_HELPER_ERROR_DICT_KEYS):
+        return False
+    if "code" not in val or "message" not in val:
+        return False
+    if val.get("status") != "error":
+        return False
+    code = val.get("code")
+    message = val.get("message")
+    if not isinstance(code, str) or not code.strip():
+        return False
+    if not isinstance(message, str):
+        return False
+    if "helper" in val:
+        helper = val["helper"]
+        if not isinstance(helper, str) or not helper.strip():
+            return False
+    if "details" in val and not isinstance(val["details"], dict):
+        return False
+    return True
+
+
+def _calc_code_for_helper_error(code: str) -> int:
+    """FormulaError integer for a helper error code.
+
+    Tokens use calc_error_code_for_token (the _map_addin_error_tokens table).
+    Exception names use _WORKER_EXC_CODES (the worker_exception_error_code table).
+    Anything else is #VALUE! (519). The helper message is not scanned.
+    """
+    token_code = calc_error_code_for_token(code)
+    if token_code is not None:
+        return token_code
+    exc_code = _WORKER_EXC_CODES.get(code.strip())
+    if exc_code is not None:
+        return exc_code
+    return _ERR_VALUE
+
+
+def _helper_error_log_message(err: dict[str, Any]) -> str:
+    code = str(err["code"]).strip()
+    message = str(err["message"])
+    helper = err.get("helper")
+    if isinstance(helper, str) and helper.strip():
+        return f"{helper.strip()}: {code}: {message}"
+    return f"{code}: {message}"
+
+
 def _worker_failure_stays_text(res: dict[str, Any]) -> bool:
     if res.get("code") == "USER_STOPPED":
         return True
@@ -222,9 +280,19 @@ def py_addin_cell_value(val: Any) -> float | str | tuple[Any, ...]:
     """Return the LibreOffice Calc add-in cell value for a Python result.
 
     This maps formula error tokens (e.g. #VALUE!, #DIV/0!) into quiet-NaN doubles
-    carrying Calc FormulaError codes. to_calc_compatible itself remains a type
-    coercion so quant/tabular egress keeps token strings as text.
+    carrying Calc FormulaError codes. A helper error dict is mapped the same way.
+    to_calc_compatible itself remains a type coercion so quant/tabular egress
+    keeps dicts and token strings as text.
     """
+    if isinstance(val, dict) and _is_helper_error_dict(val):
+        # Bugfix: What was wrong: a =PY() cell showed a helper error dict as text, so ISERROR was false.
+        # How it happened: coerce.error_result returns {"status": "error", "code", "message"} instead of raising.
+        # The worker reports status ok, and to_calc_compatible stringifies every dict. An exception from the
+        # same helper already becomes a payload NaN in _addin_result_for_worker_status.
+        # Why this change fixes it: this closed shape becomes calc_formula_error_double before that stringify,
+        # and the message is logged with the same "=PY() worker failure" line as the exception path.
+        log.error("=PY() worker failure: %s", _helper_error_log_message(val))
+        return calc_formula_error_double(_calc_code_for_helper_error(val["code"]))
     return cast("float | str | tuple[Any, ...]", _map_addin_error_tokens(to_calc_compatible(val)))
 
 
@@ -2045,8 +2113,17 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
                 ipc_ms = int(round((time.perf_counter() - t_ipc) * 1000))
         log.debug("PYTHON res from worker: %r", res)
         if res.get("status") == "ok":
-            _record_py_diagnostic(ctx, code, res, status="ok", doc=target_doc)
             result = res.get("result")
+            if isinstance(result, dict) and _is_helper_error_dict(result):
+                # Worker status is ok because the helper returned a dict instead of raising.
+                # An ok diagnostic with empty stdout is dropped, so the message would never
+                # reach the LibrePy sidebar. Map here, before the image scan.
+                err_text = _helper_error_log_message(result)
+                cell = py_addin_cell_value(result)
+                _record_py_diagnostic(ctx, code, res, status="error", message=err_text, doc=target_doc)
+                log.debug("PYTHON returning formula error for helper error dict")
+                return cell
+            _record_py_diagnostic(ctx, code, res, status="ok", doc=target_doc)
             log.debug("PYTHON raw result: %r (type: %s)", result, type(result).__name__)
             images = find_image_payloads(result)
             if images:

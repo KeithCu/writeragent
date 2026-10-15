@@ -14,6 +14,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from xml.etree import ElementTree as ET
 
+import pytest
+
 from plugin.tests.testing_utils import TestingFactory
 
 # Smallest AFC-style repro for the chat cap: 9×9 = 81 cells (cap is 80).
@@ -1312,6 +1314,123 @@ def test_set_cell_style_multi_range_rolls_back_on_error():
         assert "Nothing was kept." in res["message"]
         assert "B1" in res["message"]
         undo_mgr.undo.assert_called_once()
+
+
+def test_set_cell_style_disposal_propagates():
+    from plugin.calc.cells import SetCellStyle
+
+    class DisposedException(Exception):
+        pass
+
+    titles_stack = []
+    undo_mgr = MagicMock()
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
+    undo_mgr.undo.side_effect = lambda: titles_stack.pop(0) if titles_stack else None
+    doc = MagicMock()
+    doc.getUndoManager.return_value = undo_mgr
+    ctx = SimpleNamespace(doc=doc)
+
+    class FakeCompoundUndo:
+        def __init__(self, doc, title):
+            self.title = title
+            self.entered = True
+
+        def __enter__(self):
+            titles_stack.insert(0, self.title)
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    with (
+        patch("plugin.writer.edit_review.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
+    ):
+        manipulator = manipulator_cls.return_value
+        manipulator.set_cell_style.side_effect = DisposedException("gone")
+
+        tool = SetCellStyle()
+        with pytest.raises(DisposedException):
+            tool.execute(ctx, range=["A1"], bold=True)
+        undo_mgr.undo.assert_not_called()
+
+        res = tool.execute_safe(ctx, range=["A1"], bold=True)
+        assert res["status"] == "error"
+        assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_set_cell_style_runtime_exception_still_rolls_back():
+    from plugin.calc.cells import SetCellStyle
+
+    class RuntimeException(Exception):
+        pass
+
+    titles_stack = []
+    undo_mgr = MagicMock()
+    undo_mgr.getAllUndoActionTitles.side_effect = lambda: list(titles_stack)
+    undo_mgr.undo.side_effect = lambda: titles_stack.pop(0) if titles_stack else None
+    doc = MagicMock()
+    doc.getUndoManager.return_value = undo_mgr
+    ctx = SimpleNamespace(doc=doc)
+
+    class FakeCompoundUndo:
+        def __init__(self, doc, title):
+            self.title = title
+            self.entered = True
+
+        def __enter__(self):
+            titles_stack.insert(0, self.title)
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    with (
+        patch("plugin.writer.edit_review.WriterCompoundUndo", FakeCompoundUndo),
+        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
+    ):
+        manipulator = manipulator_cls.return_value
+        manipulator.set_cell_style.side_effect = [None, RuntimeException("style failed")]
+
+        res = SetCellStyle().execute(ctx, range=["A1", "B1"], bold=True)
+        assert res["status"] == "error"
+        assert "Nothing was kept." in res["message"]
+        undo_mgr.undo.assert_called_once()
+        assert res.get("code") == "TOOL_EXECUTION_ERROR"
+
+
+def test_delete_structure_disposal_propagates():
+    from plugin.calc.cells import DeleteStructure
+
+    class DisposedException(Exception):
+        pass
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.delete_structure.side_effect = DisposedException("gone")
+        tool = DeleteStructure()
+        with pytest.raises(DisposedException):
+            tool.execute(ctx, structure_type="rows", start=2, count=1)
+
+        res = tool.execute_safe(ctx, structure_type="rows", start=2, count=1)
+        assert res["status"] == "error"
+        assert res["code"] == "DOCUMENT_DISPOSED"
+
+
+def test_delete_structure_runtime_exception_stays_tool_error():
+    from plugin.calc.cells import DeleteStructure
+
+    class RuntimeException(Exception):
+        pass
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator_cls.return_value.delete_structure.side_effect = RuntimeException("bad row")
+        tool = DeleteStructure()
+        res = tool.execute(ctx, structure_type="rows", start=2, count=1)
+        assert res["status"] == "error"
+        assert "bad row" in res["message"]
+        assert res.get("code") == "TOOL_EXECUTION_ERROR"
 
 
 def test_set_cell_style_validation():

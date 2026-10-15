@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-import unittest
 
 import uno
 
@@ -15,8 +14,6 @@ from plugin.framework.uno_context import get_desktop
 from plugin.main import get_services
 from plugin.testing_runner import native_test, show_window
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
-
-_SKIP_HEADLESS = "grep_nearby_files processEventsToIdle hangs in headless testing_runner (document_research_grep.py)"
 
 
 def _create_grep_test_env(ctx, active_doc):
@@ -76,7 +73,6 @@ def _desktop_component_count(ctx) -> int:
     return n
 
 
-@unittest.skipIf(not show_window, _SKIP_HEADLESS)
 @native_test
 @with_native_doc("calc", hidden=not show_window)
 def test_grep_budget_calc_hit_excludes_notes_from_subset(ctx, doc):
@@ -108,7 +104,6 @@ def test_grep_budget_calc_hit_excludes_notes_from_subset(ctx, doc):
         _cleanup_grep_test_env(temp_dir)
 
 
-@unittest.skipIf(not show_window, _SKIP_HEADLESS)
 @native_test
 @with_native_doc("calc", hidden=not show_window)
 def test_grep_writer_paragraph_snippet(ctx, doc):

@@ -1,6 +1,7 @@
 """Shared module.yaml settings field-spec helpers."""
 
 import json
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -202,6 +203,92 @@ def test_read_settings_control_skips_missing_and_checkbox_is_bool():
             return 1
 
     assert read_settings_control(_Box(), {"type": "bool"}) is True
+
+
+def test_read_settings_control_commits_peer_text_before_getvalue():
+    class _Peer:
+        def getValue(self):
+            return 42.0
+
+    class _Ctrl:
+        def __init__(self):
+            self.value = 1.0
+
+        def getValue(self):
+            return self.value
+
+        def setValue(self, val):
+            self.value = float(val)
+
+        def getText(self):
+            return "1"
+
+        def getPeer(self):
+            return _Peer()
+
+    ctrl = _Ctrl()
+    assert read_settings_control(ctrl, {"type": "int", "name": "count"}) == 42.0
+    assert ctrl.value == 42.0
+
+
+def test_read_settings_control_spun_value_ignores_stale_caption():
+    set_value_calls: list[Any] = []
+
+    class _Peer:
+        def getValue(self):
+            return 42.0
+
+    class _Ctrl:
+        def getValue(self):
+            return 42.0
+
+        def setValue(self, val):
+            set_value_calls.append(val)
+
+        def getText(self):
+            return "1"
+
+        def getPeer(self):
+            return _Peer()
+
+    ctrl = _Ctrl()
+    result = read_settings_control(ctrl, {"type": "int", "name": "count"})
+    assert result == 42.0
+    assert len(set_value_calls) == 0
+
+
+def test_read_settings_control_without_peer_keeps_getvalue():
+    class _Ctrl:
+        def getText(self):
+            return "1"
+
+        def getValue(self):
+            return 42
+
+    ctrl = _Ctrl()
+    assert read_settings_control(ctrl, {"type": "int", "name": "count"}) == 42
+
+
+def test_read_settings_control_uses_peer_when_setvalue_fails():
+    class _Peer:
+        def getValue(self):
+            return 42.0
+
+    class _Ctrl:
+        def getValue(self):
+            return 1.0
+
+        def setValue(self, val):
+            raise RuntimeError("setValue failed")
+
+        def getText(self):
+            return "1"
+
+        def getPeer(self):
+            return _Peer()
+
+    ctrl = _Ctrl()
+    assert read_settings_control(ctrl, {"type": "int", "name": "count"}) == 42.0
 
 
 def test_populate_settings_control_sets_string_item_list_and_numeric_value():

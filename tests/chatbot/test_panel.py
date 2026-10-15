@@ -206,7 +206,9 @@ class TestSendDispose:
         listener.send_control.getModel.return_value = send_model
         listener.disposing(None)
         assert listener._panel_teardown is True
-        listener.audio_recorder.cleanup.assert_called_once()
+        # Direct cleanup in _release_open_microphone, plus CancelRecordingEffect
+        # from ERROR_OCCURRED while is_recording.
+        assert listener.audio_recorder.cleanup.call_count == 2
         assert listener.sidebar_state.send.is_recording is False
         assert send_model.Label != "Stop Rec"
         assert listener.ctx is None
@@ -530,7 +532,9 @@ class TestSendDispose:
         clear = ClearButtonListener(listener.session, None, listener.status_control, send_listener=listener)
         with patch("plugin.audio.tts_service.stop_speech"):
             clear.on_action_performed(MagicMock())
-        listener.audio_recorder.cleanup.assert_called_once()
+        # Direct cleanup in _release_open_microphone, plus CancelRecordingEffect
+        # from ERROR_OCCURRED while is_recording.
+        assert listener.audio_recorder.cleanup.call_count == 2
         assert listener.sidebar_state.send.is_recording is False
         assert send_model.Label != "Stop Rec"
         listener.session.clear.assert_called_once()
@@ -716,6 +720,8 @@ class TestSendDispose:
         assert not (listener.sidebar_state.send.is_recording)
         assert not (listener.sidebar_state.send.is_busy)
         assert (send_model.Label) != ("Stop Rec")
+        listener.audio_recorder.cleanup.assert_called_once()
+        assert listener.sidebar_state.send.has_audio is False
 
     def test_stop_mouse_pressed_cancels_busy_send(self) -> None:
         listener = _make_send_listener()
@@ -1293,7 +1299,12 @@ class TestHandsFreeRecord:
         listener._sync_has_text_from_query = MagicMock()
         listener.queue_executor.post = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         spoken = MagicMock()
-        spoken.messages = [{"role": "assistant", "content": "Hello there"}]
+        spoken.messages = []
+        listener.session = spoken
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        begin_send_turn(listener, "chat")
+        spoken.messages.append({"role": "assistant", "content": "Hello there"})
         captured: dict[str, Any] = {}
 
         def _speak(_text: str, **kwargs: Any) -> None:
@@ -1512,6 +1523,9 @@ class TestStoppedTTS:
         listener.session = fake_session
 
         def _simulate_do_send():
+            from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+            begin_send_turn(listener, "chat")
             fake_session.messages.append({"role": "assistant", "content": "Spoken reply text."})
 
         with (
@@ -2011,5 +2025,213 @@ class TestAudioRecorderErrorCallback:
         recorder.apply_stdout_error.assert_called_once_with("late")
         listener._start_local_error_turn.assert_not_called()
         assert listener.sidebar_state.send == initial_state
+
+
+class TestPanelR14Fixes:
+    """Targeted unit tests for R14 sidebar panel fixes."""
+
+    def test_project_closing_line_folds_into_the_owning_turn(self) -> None:
+        from plugin.chatbot.tool_loop_actions import abort_turn, begin_send_turn, current_turn
+
+        listener = _make_send_listener()
+        listener.session.messages = []
+        turn = begin_send_turn(listener, "chat")
+        abort_turn(listener)
+        assert current_turn(listener) is turn
+        listener._project_closing_line("\n\n[Error: boom]\n", turn)
+        assert any("Error: boom" in str(m.get("content", "")) for m in listener.session.messages)
+        assert current_turn(listener) is turn
+
+    def test_project_closing_line_skips_a_replacement_turn(self) -> None:
+        from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
+
+        listener = _make_send_listener()
+        listener.session.messages = []
+        owner = begin_send_turn(listener, "chat")
+        second_turn = begin_send_turn(listener, "chat")
+        assert current_turn(listener) is second_turn
+        listener._project_closing_line("\n\n[Error: boom]\n", owner)
+        assert not any("Error: boom" in str(m.get("content", "")) for m in listener.session.messages)
+        assert current_turn(listener) is second_turn
+
+    def test_project_closing_line_skips_when_the_list_was_replaced(self) -> None:
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        listener = _make_send_listener()
+        old_list: list[dict[str, Any]] = []
+        listener.session.messages = old_list
+        turn = begin_send_turn(listener, "chat")
+        new_list: list[dict[str, Any]] = []
+        listener.session.messages = new_list
+        listener._project_closing_line("\n\n[Error: boom]\n", turn)
+        assert new_list == []
+        assert not any("Error: boom" in str(m.get("content", "")) for m in old_list)
+
+    def test_project_closing_line_without_a_turn_starts_a_local_error(self) -> None:
+        from plugin.chatbot.tool_loop_actions import current_turn
+
+        listener = _make_send_listener()
+        listener.session.messages = []
+        assert current_turn(listener) is None
+        listener._project_closing_line("\n\n[Error: boom]\n", None)
+        assert any("Error: boom" in str(m.get("content", "")) for m in listener.session.messages)
+        assert current_turn(listener) is None
+
+    def test_project_closing_line_does_not_write_a_foreign_live_turn(self) -> None:
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        listener = _make_send_listener()
+        listener.session.messages = [{"role": "system", "content": "s"}]
+        initial_len = len(listener.session.messages)
+        begin_send_turn(listener, "chat")
+        listener._project_closing_line("\n\n[Error: boom]\n", None)
+        assert len(listener.session.messages) == initial_len
+
+    def test_run_send_drain_passes_the_turn_captured_in_the_except(self) -> None:
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        listener = _make_send_listener()
+        created_turn: list[Any] = []
+        captured: list[tuple[str, Any]] = []
+
+        def _fake_do_send() -> None:
+            turn = begin_send_turn(listener, "chat")
+            created_turn.append(turn)
+            raise RuntimeError("boom")
+
+        def _fake_project_closing_line(text: str, owner: Any) -> None:
+            captured.append((text, owner))
+
+        with (
+            patch.object(listener, "_do_send", side_effect=_fake_do_send),
+            patch.object(listener, "_project_closing_line", side_effect=_fake_project_closing_line),
+            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        ):
+            listener._run_send_drain()
+
+        assert len(captured) == 1
+        text, owner = captured[0]
+        assert owner is created_turn[0]
+        assert owner is not None
+        assert "boom" in text
+        assert listener._terminal_status == "Error"
+
+    def test_tts_speaks_only_the_assistant_row_appended_after_the_snapshot(self) -> None:
+        from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+        listener = _make_send_listener()
+        listener.session.messages = [{"role": "assistant", "content": "prior"}]
+
+        def _fake_do_send() -> None:
+            begin_send_turn(listener, "chat")
+            listener.session.messages.append({"role": "assistant", "content": "new reply"})
+
+        with (
+            patch.object(listener, "_do_send", side_effect=_fake_do_send),
+            patch("plugin.framework.config.get_config_bool_safe", return_value=True),
+            patch("plugin.audio.tts_service.speak_text_async") as mock_speak,
+            patch("plugin.audio.tts_service.is_speaking", return_value=False),
+        ):
+            listener._run_send_drain()
+
+        mock_speak.assert_called_once()
+        spoken_text = mock_speak.call_args[0][0]
+        assert "new reply" in spoken_text
+        assert "prior" not in spoken_text
+        assert not hasattr(listener, "_send_start_msg_count")
+
+    def test_ask_text_not_restored_after_user_row_committed(self) -> None:
+        from plugin.chatbot.panel import SendButtonListener
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+        with (
+            patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False),
+            patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False),
+            patch("plugin.chatbot.panel.ChatSession"),
+        ):
+            session = MagicMock()
+            session.messages = []
+            listener = SendButtonListener(
+                MagicMock(), MagicMock(), MagicMock(), MagicMock(),
+                MagicMock(), MagicMock(), MagicMock(), MagicMock(),
+                MagicMock(), session,
+            )
+
+        listener.query_control = MagicMock()
+        listener.query_control.getModel.return_value = MagicMock()
+
+        def _fake_chat_with_tools(query: str, model: Any, doc_type: str) -> None:
+            listener.session.messages.append({"role": "user", "content": query})
+            raise RuntimeError("after commit")
+
+        with (
+            patch("plugin.chatbot.dialogs.get_control_text", return_value="some text"),
+            patch("plugin.chatbot.dialogs.set_control_text"),
+            patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model", return_value=None),
+            patch("plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT),
+            patch("plugin.framework.config.get_config", return_value="builtin"),
+            patch.object(listener, "_do_send_chat_with_tools", side_effect=_fake_chat_with_tools),
+            patch.object(listener, "_restore_query_text") as mock_restore,
+        ):
+            listener._get_document_model = MagicMock(return_value=MagicMock())
+            listener.cached_doc_type = "writer"
+            listener.audio_wav_path = None
+            listener._stt_inflight = False
+            listener.sidebar_state = MagicMock()
+            listener.sidebar_state.send.has_audio = False
+
+            with pytest.raises(RuntimeError, match="after commit"):
+                listener._do_send()
+
+            mock_restore.assert_not_called()
+
+    def test_record_start_oserror_resets_recording(self) -> None:
+        listener = _make_send_listener()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(False, False, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        send_model = MagicMock()
+        send_model.Label = "Record"
+        listener.send_control.getModel.return_value = send_model
+        listener.send_control.getPosSize.return_value = None
+        listener.stop_control.getModel.return_value = MagicMock()
+        listener.audio_recorder = MagicMock()
+        listener.audio_recorder.start_recording.side_effect = OSError("device busy")
+        listener._append_response = MagicMock()
+
+        with patch("plugin.chatbot.panel.log.exception") as mock_log_exc:
+            listener.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
+            assert mock_log_exc.called
+            mock_log_exc.assert_any_call("start_recording failed")
+
+        assert not listener.sidebar_state.send.is_recording
+        assert not listener.sidebar_state.send.is_busy
+        assert send_model.Label != "Stop Rec"
+
+    def test_idle_sm_state_read_raises(self) -> None:
+        from plugin.chatbot.tool_loop_state import ToolLoopState
+
+        listener = _make_send_listener()
+        assert listener.sidebar_state.tool_loop is None
+
+        with pytest.raises(RuntimeError, match="without active session"):
+            _ = listener._sm_state
+
+        tl = ToolLoopState(
+            round_num=0,
+            pending_tools=[],
+            max_rounds=1,
+            status="Thinking...",
+            async_tools=frozenset(),
+        )
+        listener._sm_state = tl
+        assert listener.sidebar_state.tool_loop is tl
+        assert listener._sm_state.round_num == 0
+
+        listener._sm_state = None
+        assert listener.sidebar_state.tool_loop is None
+
 
 

@@ -348,6 +348,8 @@ def _vector_backend_is_empty(mode: str, listing_root: str | None, meta_path: Pat
 def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode: str | None = None, listing_root: str | None = None) -> bool:
     """True when the active folder store has no indexed chunks.
 
+    sqlite callers may omit *db_path*; it is the corpus.db beside *meta_path*.
+    That omitted path still applies the live-db corrupt-meta guard.
     *search_mode* ``zvec`` / ``lancedb`` ignore *db_path*. Those backends never
     create corpus.db; pass *listing_root* so the collection directory can be
     probed. Other modes keep the sqlite rule: a missing corpus.db is empty.
@@ -360,6 +362,8 @@ def index_is_empty(meta_path: Path, db_path: Path | None = None, *, search_mode:
         # resolved cold on every tick and clear_folder_cache deleted the
         # real collection.
         return _vector_backend_is_empty(mode, listing_root, meta_path)
+    if db_path is None:
+        db_path = meta_path.parent / CORPUS_DB_FILENAME
     if db_path is not None and not db_path.is_file():
         return True
     # Missing meta beside a live corpus.db is empty: needs_cold_rebuild and

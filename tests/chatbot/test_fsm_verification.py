@@ -30,7 +30,7 @@ from plugin.chatbot.send_state import (
     SendButtonState,
     SendEvent,
     SendEventKind,
-    UpdateUIEffect,
+    _send_ui_invariants,
     next_state as send_next_state,
 )
 from plugin.chatbot.state_machine import (
@@ -116,16 +116,7 @@ def test_send_state_mutual_exclusion_oracle() -> None:
     for state in states:
         for event in events:
             tr = send_next_state(state, event)
-            assert not (tr.state.is_busy and tr.state.is_recording)
-            for e in tr.effects:
-                if isinstance(e, UpdateUIEffect):
-                    # A take is the one state with both: Stop Rec sends, Stop steps down.
-                    if not tr.state.is_recording:
-                        assert not (e.send_enabled and e.stop_enabled)
-                    if e.send_enabled:
-                        assert not tr.state.is_busy
-                    if e.stop_enabled:
-                        assert tr.state.is_busy or tr.state.is_recording
+            assert _send_ui_invariants(state, event, tr)
 
 
 def test_audio_error_always_reports_error_status() -> None:
@@ -186,15 +177,7 @@ def _hyp_n(key: str) -> int:
 def test_hypothesis_send_state_invariants(state: SendButtonState, event: SendEvent) -> None:
     """Deal ensure: never busy+recording; send/stop UI exclusive outside a take."""
     tr = send_next_state(state, event)
-    assert not (tr.state.is_busy and tr.state.is_recording)
-    for e in tr.effects:
-        if isinstance(e, UpdateUIEffect):
-            if not tr.state.is_recording:
-                assert not (e.send_enabled and e.stop_enabled)
-            if e.send_enabled:
-                assert not tr.state.is_busy
-            if e.stop_enabled:
-                assert tr.state.is_busy or tr.state.is_recording
+    assert _send_ui_invariants(state, event, tr)
 
 
 @given(state=audio_recorder_states(), event=audio_recorder_events())
@@ -254,7 +237,7 @@ def test_hypothesis_send_state_sequences(state: SendButtonState, events) -> None
     cur = state
     for event in events:
         tr = send_next_state(cur, event)
-        assert not (tr.state.is_busy and tr.state.is_recording)
+        assert _send_ui_invariants(cur, event, tr)
         cur = tr.state
 
 

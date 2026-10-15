@@ -542,16 +542,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     _turn: Any
     _last_mcp_turn: dict[str, Any]
     _last_mcp_req_id: int | str | None
-    _send_start_msg_count: int | None
     _stop_mouse_listener: Any
     _stop_mouse_control: Any
     _record_mouse_listener: Any
     _record_mouse_control: Any
-
-    def __new__(cls, *args: Any, **kwargs: Any) -> SendButtonListener:
-        inst = super().__new__(cls)
-        inst.__dict__["_mcp_turn_lock"] = threading.Lock()
-        return inst
 
     @property
     def _mcp_turn_lock(self) -> threading.Lock:
@@ -661,7 +655,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._dispatch_reenter: list[Any] | None = None
         self._extracted_peer_query = ""
         self._extracted_peer_already_appended = False
-        self._send_start_msg_count = None
         self._stop_mouse_listener = None
         self._stop_mouse_control = None
         self._record_mouse_listener = None
@@ -746,20 +739,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
     @property
     def stop_requested(self) -> bool:
+        # Stop writes cancel on _send_cancellation and sets _stop_requested_fallback;
+        # assigning stop_requested is not the cancel API.
         scope = getattr(self, "_send_cancellation", None)
         if scope is not None and scope.is_cancelled():
             return True
         return self._stop_requested_fallback
-
-    @stop_requested.setter
-    def stop_requested(self, value: bool) -> None:
-        if value:
-            scope = getattr(self, "_send_cancellation", None)
-            if scope is not None:
-                scope.cancel()
-            self._stop_requested_fallback = True
-        else:
-            self._stop_requested_fallback = False
 
     def resolve_stop_checker(self) -> Callable[[], bool]:
         """Stop predicate bound to the scope on this panel right now.
@@ -1043,19 +1028,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     length = len(text)
                     self.response_control.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", length, length))
 
-    '''
-    def _get_scrollbar(self):
-        ...  # commented out — scrollbar was never found in embedded frames
-    '''
-
-    def _should_auto_scroll(self) -> bool:
-        """Always returns True for now — forces scroll to bottom on every append.
-
-        Future: implement sticky scroll by reading VCL scrollbar position and
-        returning False when user has manually scrolled up.
-        """
-        return True
-
     def _run_rich_ui(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         """Run rich-control UI work inline on the main thread; post from workers."""
         # Designated UNO thread and Python main thread differ when set_designated_main_thread
@@ -1082,8 +1054,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             from plugin.chatbot.rich_text_paste import plain_transcript_text
 
             set_control_text(control, plain_transcript_text(session))
-            if self._should_auto_scroll():
-                self._scroll_response_to_bottom()
+            self._scroll_response_to_bottom()
 
         run_ui = getattr(self, "_run_rich_ui", None)
         if callable(run_ui):
@@ -1091,23 +1062,27 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         else:
             _paint()
 
-    def _project_closing_line(self, text: str) -> None:
+    def _project_closing_line(self, text: str, owner: Any) -> None:
         """Write a closing line onto this turn's session after ``abort``.
 
-        The drain aborts before the send ``finally`` can report an exception.
-        ``_append_response`` then treats the line as a late chunk. The turn
-        still owns the list until a newer send or Clear replaces it.
+        The drain aborts before the send ``finally`` can report an exception,
+        so ``_append_response`` would treat the line as a late chunk. The
+        ``owner`` argument is the turn captured from the ``except``; a later
+        ``begin_send_turn`` on the same list must not receive it.
         """
         from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
-        turn = current_turn(self)
-        if isinstance(turn, TurnController) and not turn.same_messages():
+        cur = current_turn(self)
+        if isinstance(owner, TurnController):
+            if cur is owner and owner.same_messages():
+                if owner.fold_chunk(self, text, "assistant"):
+                    if getattr(self, "session", None) is owner.session and owner.session is not None:
+                        self.render_session_messages(owner.session)
+                return
             return
-        if isinstance(turn, TurnController) and turn.fold_chunk(self, text, "assistant"):
-            if getattr(self, "session", None) is turn.session and turn.session is not None:
-                self.render_session_messages(turn.session)
+        if cur is not None:
             return
-        self._append_response(text)
+        self._start_local_error_turn(text)
 
     def _start_local_error_turn(self, text: str) -> None:
         from plugin.chatbot.tool_loop_actions import begin_send_turn, drop_turn, running_turn
@@ -1228,12 +1203,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     self.render_session_messages(session)
                     return
 
-                should_scroll = self._should_auto_scroll()
                 current = get_control_text(self.response_control) or ""
                 clean_text = _chunk_text(turn, text, role, strip_non_assistant=True)
                 set_control_text(self.response_control, current + clean_text)
-                if should_scroll:
-                    self._scroll_response_to_bottom()
+                self._scroll_response_to_bottom()
 
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
@@ -1631,8 +1604,15 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     return
                 try:
                     self.audio_recorder.start_recording()
-                except RuntimeError as re:
-                    self._start_local_error_turn("\n[Audio error: %s]\n" % str(re))
+                except Exception as exc:
+                    # Bugfix: dispatch writes is_recording=True before this effect runs;
+                    # a non-RuntimeError used to escape _interpret_effect and skip the
+                    # ERROR_OCCURRED re-entry, leaving the FSM recording after
+                    # start_recording had failed. audio_recorder.start_recording
+                    # reports start failures as RuntimeError; anything else is still that same recovery.
+                    if not isinstance(exc, RuntimeError):
+                        log.exception("start_recording failed")
+                    self._start_local_error_turn("\n[Audio error: %s]\n" % str(exc))
                     pending = getattr(self, "_dispatch_reenter", None)
                     if pending is not None:
                         pending.append(SendEvent(SendEventKind.ERROR_OCCURRED))
@@ -1804,11 +1784,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Another document's drain may still be open; this send must not
         # defer its completion onto it.
         clear_drain_capture()
-        sess = getattr(self, "session", None)
-        self._send_start_msg_count = len(sess.messages) if (sess and getattr(sess, "messages", None) is not None) else 0
         cm = agent_session(getattr(self, "_send_cancellation", None))
         entered = False
         exit_error: list[BaseException | None] = [None]
+        failed_turn: list[Any] = [None]
         try:
             cancel_scope = cm.__enter__()
             entered = True
@@ -1830,7 +1809,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 return
             self._do_send()
         except Exception as e:
+            from plugin.chatbot.tool_loop_actions import current_turn
+
             exit_error[0] = e
+            failed_turn[0] = current_turn(self)
             doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
             log.exception("SendButton unhandled exception [doc: %s]", doc_type_for_log)
         finally:
@@ -1847,7 +1829,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if err is not None:
                     # The tool-loop epilogue already aborted the turn, so
                     # _append_response would treat this as a late chunk.
-                    self._project_closing_line("\n\n[Error: %s]\n" % str(err))
+                    self._project_closing_line("\n\n[Error: %s]\n" % str(err), failed_turn[0])
                     self._terminal_status = "Error"
                 self._finish_send_drain_ui()
 
@@ -1882,11 +1864,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         # is not Stopped. An alive-turn check fails here: the
                         # tool-loop finally already ran abort_turn(self).
                         if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
-                            from plugin.chatbot.tool_loop_actions import session_for_turn
+                            from plugin.chatbot.tool_loop_actions import (
+                                TurnController,
+                                current_turn,
+                                session_for_turn,
+                            )
 
                             spoken = session_for_turn(self)
-                            start_count = getattr(self, "_send_start_msg_count", None)
-                            if spoken and spoken.messages:
+                            turn = current_turn(self)
+                            if (
+                                isinstance(turn, TurnController)
+                                and spoken is turn.session
+                                and spoken is not None
+                                and spoken.messages
+                            ):
+                                start_count = turn.send_start_msg_count
                                 last_msg = spoken.messages[-1]
                                 # Speak only when an assistant message
                                 # exists and this send appended a new message.
@@ -1896,7 +1888,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                 has_new_assistant_msg = (
                                     last_msg.get("role") == "assistant"
                                     and bool(last_msg.get("content"))
-                                    and (start_count is None or len(spoken.messages) > start_count)
+                                    and len(spoken.messages) > start_count
                                 )
                                 if has_new_assistant_msg:
                                     from plugin.chatbot.tool_loop_actions import _STOP_LINE
@@ -1977,7 +1969,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             # Spoken text was copied above. Later callbacks must not find this turn.
             drop_turn(self)
             kick_pending_peer_starts()
-            self._send_start_msg_count = None
 
     def _get_doc_type_str(self, model: Any) -> str:
         from plugin.doc.doc_type import doc_type_title_for_label
@@ -2249,7 +2240,16 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             getattr(self, "_do_send_chat_with_tools")(query_text, model, doc_type_label)
 
         except Exception:
-            self._restore_query_text(query_text)
+            # Bugfix: this except used to put the Ask text back after
+            # add_user_message had already stored it, so the next Send appended
+            # the same user row again. The user row is inside
+            # _do_send_chat_with_tools / the mode handlers, which is why the check
+            # is the turn's tail, not a flag set in this function.
+            from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+
+            turn = current_turn(self)
+            if not isinstance(turn, TurnController) or not turn.stored_user_row():
+                self._restore_query_text(query_text)
             raise
     def start_extracted_peer_send(self, query_text: str, *, already_appended: bool) -> bool:
         """Start a peer-injected turn. Caller must not hold a drain owner.
@@ -2300,6 +2300,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         cm = agent_session(scope)
         entered = False
         exit_error: list[BaseException | None] = [None]
+        failed_turn: list[Any] = [None]
         try:
             cancel_scope = cm.__enter__()
             entered = True
@@ -2308,7 +2309,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             if not (cancel_scope.is_cancelled() or self._stop_requested_fallback):
                 self._do_send_extracted_peer(query_text, already_appended=already_appended)
         except Exception as e:
+            from plugin.chatbot.tool_loop_actions import current_turn
+
             exit_error[0] = e
+            failed_turn[0] = current_turn(self)
             doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
             log.exception("Extracted peer send unhandled exception [doc: %s]", doc_type_for_log)
         finally:
@@ -2328,7 +2332,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     except Exception:
                         log.exception("peer drain agent_session close failed")
                 if err is not None:
-                    self._project_closing_line("\n\n[Error: %s]\n" % str(err))
+                    self._project_closing_line("\n\n[Error: %s]\n" % str(err), failed_turn[0])
                     self._terminal_status = "Error"
                 update_activity_state("")
                 # Same teardown guard as _run_send_drain: completion writes status
@@ -2418,17 +2422,6 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     # chat/tool undo grouping is still future work.
 
     # _run_web_research is provided by SendHandlersMixin.
-
-    @property
-    def _sm_state(self) -> Any:
-        # Idle panel has tool_loop=None; mixin raises when a session is required.
-        return self.sidebar_state.tool_loop
-
-    @_sm_state.setter
-    def _sm_state(self, value: Any) -> None:
-        import dataclasses
-
-        self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
 
     def disposing(self, Source: Any = None) -> None:
         _stop_tts()

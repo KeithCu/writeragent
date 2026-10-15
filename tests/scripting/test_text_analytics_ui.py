@@ -496,6 +496,106 @@ def test_scope_prefers_get_state_over_state_attribute(monkeypatch):
     assert recorded_call[0] == ("topics", "selection")
 
 
+def test_scope_read_failure_shows_error_and_does_not_analyze(monkeypatch):
+    dlg_obj, fake_dlg = _make_dialog()
+    dlg_obj._last_result = {"status": "ok"}
+    dlg_obj._source_uid = "uid-a"
+    dlg_obj._wire(fake_dlg)
+
+    orig_get_control = fake_dlg.getControl
+
+    def faulty_get_control(cid: str):
+        if cid == "ChkScope":
+            raise RuntimeError("scope read failed")
+        return orig_get_control(cid)
+
+    fake_dlg.getControl = faulty_get_control
+
+    recorded_resolve: list[Any] = []
+    recorded_bg: list[Any] = []
+    recorded_msgbox: list[Any] = []
+
+    monkeypatch.setattr(
+        "plugin.scripting.text_analytics_ui.resolve_text_analytics_document_inputs",
+        lambda *a, **kw: recorded_resolve.append((a, kw)),
+    )
+    monkeypatch.setattr(
+        "plugin.scripting.text_analytics_ui.run_in_background",
+        lambda *a, **kw: recorded_bg.append((a, kw)),
+    )
+    monkeypatch.setattr(
+        "plugin.scripting.text_analytics_ui.msgbox",
+        lambda *a, **kw: recorded_msgbox.append((a, kw)),
+    )
+
+    fake_dlg.controls["BtnTopics"].click()
+
+    assert len(recorded_resolve) == 0
+    assert len(recorded_bg) == 0
+    assert dlg_obj._last_result is None
+    assert dlg_obj._source_uid is None
+    assert dlg_obj._busy is False
+    assert fake_dlg.controls["ResultsEdit"].getModel().Text == "Could not read the scope checkbox."
+    assert len(recorded_msgbox) == 0
+
+
+def test_scope_read_failure_uses_msgbox_when_results_edit_unavailable(monkeypatch):
+    dlg_obj, fake_dlg = _make_dialog()
+    dlg_obj._last_result = {"status": "ok"}
+    dlg_obj._source_uid = "uid-a"
+    dlg_obj._wire(fake_dlg)
+
+    orig_get_control = fake_dlg.getControl
+
+    def faulty_get_control(cid: str):
+        if cid in ("ChkScope", "ResultsEdit"):
+            raise RuntimeError("control unavailable")
+        return orig_get_control(cid)
+
+    fake_dlg.getControl = faulty_get_control
+
+    recorded_msgbox: list[tuple[Any, Any]] = []
+    recorded_bg: list[Any] = []
+
+    monkeypatch.setattr(
+        "plugin.scripting.text_analytics_ui.msgbox",
+        lambda ctx, title, msg: recorded_msgbox.append((title, msg)),
+    )
+    monkeypatch.setattr(
+        "plugin.scripting.text_analytics_ui.run_in_background",
+        lambda *a, **kw: recorded_bg.append((a, kw)),
+    )
+
+    fake_dlg.controls["BtnRead"].click()
+
+    assert len(recorded_msgbox) == 1
+    assert recorded_msgbox[0] == ("Text Analytics", "Could not read the scope checkbox.")
+    assert len(recorded_bg) == 0
+    assert dlg_obj._last_result is None
+
+
+def test_missing_scope_checkbox_still_analyzes_whole(monkeypatch):
+    dlg_obj, fake_dlg = _make_dialog()
+    del fake_dlg.controls["ChkScope"]
+    dlg_obj._wire(fake_dlg)
+
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
+
+    recorded_scope: list[str] = []
+
+    def fake_resolve(doc, helper, scope="whole"):
+        recorded_scope.append(scope)
+        return "A" * 30, {}
+
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.resolve_text_analytics_document_inputs", fake_resolve)
+    monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_in_background", lambda *a, **kw: None)
+
+    fake_dlg.controls["BtnRead"].click()
+
+    assert recorded_scope == ["whole"]
+
+
 def test_set_busy_continues_after_one_control_failure():
     dlg_obj, fake_dlg = _make_dialog()
     dlg_obj._set_busy(True)

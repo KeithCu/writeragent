@@ -200,14 +200,64 @@ def populate_settings_control(ctrl: Any, field: dict[str, Any]) -> None:
     set_control_text(ctrl, str(field.get("value", "")))
 
 
+
+def _commit_spin_peer_value(ctrl: Any) -> float | None:
+    """Copy a pending numeric edit into the model. ``None`` means "not committed".
+
+    Bugfix: Settings could store the previous spin value.
+    What was wrong: OK saved the number already in the model after the user
+    typed a new one and activated OK without leaving the field.
+    How it happened: UnoControlNumericField.getValue reads the model Value.
+    The peer parses the VCL entry (NumericFormatter::GetValue). The model
+    catches up on textChanged, or on focus loss (Formatter::EntryLostFocus
+    → Commit). This control has no UNO commit(). getText is the inherited
+    edit caption and must not be written over a spun value.
+    Why this change: setValue(peer.getValue()) when they differ, then the
+    caller reads getValue. No peer leaves the caller on today's path.
+    """
+    get_peer = getattr(ctrl, "getPeer", None)
+    if not callable(get_peer):
+        return None
+    try:
+        peer = ctrl.getPeer()
+    except Exception:
+        log.debug("spin peer failed", exc_info=True)
+        return None
+    if peer is None or not hasattr(peer, "getValue"):
+        return None
+    try:
+        live = peer.getValue()
+    except Exception:
+        log.debug("spin peer getValue failed", exc_info=True)
+        return None
+    try:
+        current = ctrl.getValue()
+    except Exception:
+        current = None
+    if current == live:
+        return None
+    if not hasattr(ctrl, "setValue"):
+        return float(live)
+    try:
+        ctrl.setValue(float(live))
+    except Exception:
+        log.debug("spin setValue failed", exc_info=True)
+        return float(live)
+    return None
+
+
 def read_settings_control(ctrl: Any, field: dict[str, Any] | None = None) -> Any:
     """Read one settings control. ``None`` means the control is missing.
 
     Missing controls are skipped (callers must not persist ``""``).
     Checkboxes are bool (WriterAgent). LibrePy maps that to ``\"true\"`` /
-    ``\"false\"``. int/float specs prefer ``getValue`` when the control has
-    it. ``getText`` on a spin button is the stale UnoControlEdit caption
-    and overwrites the live value.
+    ``\"false\"``.
+    int/float specs prefer ``getValue`` when the control has it.
+    ``getText`` on a spin button is the stale UnoControlEdit caption and
+    must not be written over that value. Before the read, a peer value
+    that differs is copied in with ``setValue``. The model lags a typed
+    edit until focus leaves, and the peer parses that edit. There is no
+    UNO ``commit()``.
     """
     if not ctrl:
         return None
@@ -215,6 +265,9 @@ def read_settings_control(ctrl: Any, field: dict[str, Any] | None = None) -> Any
         return get_checkbox_state(ctrl) == 1
     field_type = str((field or {}).get("type") or "")
     if field_type in ("int", "float") and hasattr(ctrl, "getValue"):
+        committed = _commit_spin_peer_value(ctrl)
+        if committed is not None:
+            return committed
         try:
             return ctrl.getValue()
         except Exception:

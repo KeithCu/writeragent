@@ -1190,3 +1190,240 @@ def test_refresh_controls_continues_after_model_read_failure():
     el._update_backend_indicator.assert_called_once_with(root)
 
 
+def test_setup_sessions_session_id_write_failure_keeps_old_id(tmp_path):
+    import hashlib
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.history_db import get_chat_history
+
+    old_url = "file:///tmp/original.odt"
+    new_url = "file:///tmp/copy.odt"
+    old_id = hashlib.sha256(old_url.encode("utf-8")).hexdigest()
+    props = {
+        "WriterAgentSessionID": old_id,
+        "WriterAgentSessionURL": old_url,
+    }
+
+    el = _thin_panel_element()
+    el.ctx = object()
+    model = MagicMock()
+    model.getURL.return_value = new_url
+    db_path = str(tmp_path / "writeragent_history.db")
+
+    def _get(_model, name, default=None):
+        return props.get(name, default)
+
+    def _set(_model, name, value):
+        if name == "WriterAgentSessionID":
+            raise RuntimeError("id write failed")
+        props[name] = value
+
+    def _history(session_id, path=None):
+        return get_chat_history(session_id, db_path)
+
+    with (
+        patch("plugin.chatbot.panel_factory.get_chat_system_prompt_for_document", return_value="SEEDED"),
+        patch("plugin.chatbot.panel_factory.get_document_property", side_effect=_get),
+        patch("plugin.chatbot.panel_factory.set_document_property", side_effect=_set),
+        patch("plugin.chatbot.history_db.get_chat_history", side_effect=_history),
+        patch("plugin.chatbot.panel.ChatSession") as mock_chat_session,
+    ):
+        el._setup_sessions(model, "")
+
+    assert props["WriterAgentSessionID"] == old_id
+    assert props["WriterAgentSessionURL"] == old_url
+    assert mock_chat_session.call_args_list[0].kwargs["session_id"] == old_id
+
+
+def test_setup_sessions_session_url_write_failure_keeps_new_id(tmp_path):
+    import hashlib
+    from unittest.mock import MagicMock, patch
+
+    from plugin.chatbot.history_db import get_chat_history
+
+    old_url = "file:///tmp/original.odt"
+    new_url = "file:///tmp/copy.odt"
+    old_id = hashlib.sha256(old_url.encode("utf-8")).hexdigest()
+    new_id = hashlib.sha256(new_url.encode("utf-8")).hexdigest()
+    props = {
+        "WriterAgentSessionID": old_id,
+        "WriterAgentSessionURL": old_url,
+    }
+
+    el = _thin_panel_element()
+    el.ctx = object()
+    model = MagicMock()
+    model.getURL.return_value = new_url
+    db_path = str(tmp_path / "writeragent_history.db")
+
+    def _get(_model, name, default=None):
+        return props.get(name, default)
+
+    def _failing_set(_model, name, value):
+        if name == "WriterAgentSessionURL":
+            raise RuntimeError("url write failed")
+        props[name] = value
+
+    def _successful_set(_model, name, value):
+        props[name] = value
+
+    def _history(session_id, path=None):
+        return get_chat_history(session_id, db_path)
+
+    with (
+        patch("plugin.chatbot.panel_factory.get_chat_system_prompt_for_document", return_value="SEEDED"),
+        patch("plugin.chatbot.panel_factory.get_document_property", side_effect=_get),
+        patch("plugin.chatbot.panel_factory.set_document_property", side_effect=_failing_set),
+        patch("plugin.chatbot.history_db.get_chat_history", side_effect=_history),
+        patch("plugin.chatbot.panel.ChatSession") as mock_chat_session,
+    ):
+        el._setup_sessions(model, "")
+
+    assert props["WriterAgentSessionID"] == new_id
+    assert props["WriterAgentSessionURL"] == old_url
+    assert mock_chat_session.call_args_list[0].kwargs["session_id"] == new_id
+
+    # Call _setup_sessions again with a setter that writes every property.
+    # After the second call, WriterAgentSessionURL is the new URL and
+    # WriterAgentSessionID is unchanged. That locks the fork_to == session_id self-heal.
+    mock_chat_session.reset_mock()
+    with (
+        patch("plugin.chatbot.panel_factory.get_chat_system_prompt_for_document", return_value="SEEDED"),
+        patch("plugin.chatbot.panel_factory.get_document_property", side_effect=_get),
+        patch("plugin.chatbot.panel_factory.set_document_property", side_effect=_successful_set),
+        patch("plugin.chatbot.history_db.get_chat_history", side_effect=_history),
+        patch("plugin.chatbot.panel.ChatSession") as mock_chat_session,
+    ):
+        el._setup_sessions(model, "")
+
+    assert props["WriterAgentSessionURL"] == new_url
+    assert props["WriterAgentSessionID"] == new_id
+
+
+def test_get_real_interface_second_queued_create_keeps_first_panel():
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.xParentWindow = MagicMock()
+    el.ResourceURL = "private:resource/ChatPanel"
+    root = MagicMock()
+    panel = MagicMock()
+
+    def run_twice(fn, *args, **kwargs):
+        fn(*args, **kwargs)
+        fn(*args, **kwargs)
+
+    with (
+        patch("plugin.chatbot.panel_factory._run_on_main_thread", side_effect=run_twice),
+        patch("plugin.chatbot.panel_factory._initialize_extension_paths"),
+        patch.object(el, "_getOrCreatePanelRootWindow", return_value=root),
+        patch("plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel) as mock_panel,
+        patch("plugin.chatbot.panel_factory.wire_chatpanel_controls") as mock_wire,
+    ):
+        result = el.getRealInterface()
+
+    mock_panel.assert_called_once()
+    mock_wire.assert_called_once()
+    assert result is panel
+    assert el.toolpanel is panel
+
+
+def test_wire_buttons_send_constructor_failure_clears_stale_listener():
+    from unittest.mock import MagicMock, patch
+    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.xFrame = MagicMock()
+    el.session = MagicMock()
+    el.frame_session = None
+    el._live_panel_uid = "uid"
+    el._apply_sidebar_mode = MagicMock()
+    el._greeting_for_sidebar_mode = MagicMock(return_value="")
+
+    stale_listener = MagicMock(name="stale_send_listener")
+    el.send_listener = stale_listener
+
+    send = MagicMock()
+    stop = MagicMock()
+    controls = {
+        "send": send,
+        "stop": stop,
+        "query": MagicMock(),
+        "response": MagicMock(),
+        "image_model_selector": None,
+        "model_selector": None,
+        "status": None,
+        "chat_mode_selector": None,
+        "aspect_ratio_selector": None,
+        "base_size_input": None,
+        "clear": None,
+        "chk_voice": None,
+        "btn_settings": None,
+        "btn_python": None,
+        "btn_latex": None,
+        "btn_search": None,
+        "btn_hamburger": None,
+    }
+
+    with (
+        patch("plugin.chatbot.panel_factory.header_third_button_kind", return_value=""),
+        patch("plugin.framework.uno_context.get_extension_url", return_value=""),
+        patch("plugin.framework.menu_icon_dpi.menu_icon_asset_rel", return_value="assets/gear_16.png"),
+        patch("plugin.chatbot.panel.SendButtonListener", side_effect=RuntimeError("constructor fail")),
+        patch("plugin.chatbot.panel_factory.register_debug_live_panel"),
+        patch("plugin.doc.live_panels.register_live_panel"),
+        patch("plugin.doc.doc_type.get_document_type", return_value=MagicMock()),
+        patch("plugin.doc.doc_type.doc_type_label_for_enum", return_value="writer"),
+        patch("plugin.doc.doc_type.doc_type_title_for_label", return_value="Writer"),
+        patch("plugin.doc.doc_type.get_document_uno_services", return_value=frozenset()),
+        patch("plugin.chatbot.panel_factory.start_watchdog_thread"),
+        patch("plugin.chatbot.panel.StopButtonListener", return_value=MagicMock()),
+    ):
+        el._wire_buttons(controls, MagicMock(), "chat", SidebarModeFlags(), MagicMock())
+
+    assert el.send_listener is None
+    send.addActionListener.assert_not_called()
+
+
+def test_initialize_extension_paths_logging_failure_does_not_escape():
+    from unittest.mock import MagicMock, patch
+    from plugin.chatbot import panel_factory as pf
+
+    pf._paths_initialized = False
+    try:
+        mock_init_logging = MagicMock(side_effect=RuntimeError("logging fail"))
+        with patch.object(
+            pf, "_run_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
+        ), patch.object(pf, "get_extension_path", return_value="/tmp/ext"), patch.object(
+            pf, "init_logging", mock_init_logging
+        ), patch(
+            "plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"
+        ):
+            pf._initialize_extension_paths(object())
+        assert pf._paths_initialized is False
+        assert mock_init_logging.call_count == 2
+    finally:
+        pf._paths_initialized = False
+
+
+def test_initialize_extension_paths_handler_still_inits_logging():
+    from unittest.mock import MagicMock, patch
+    from plugin.chatbot import panel_factory as pf
+
+    pf._paths_initialized = False
+    try:
+        mock_init_logging = MagicMock()
+        with patch.object(
+            pf, "_run_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
+        ), patch.object(pf, "get_extension_path", side_effect=RuntimeError("path fail")), patch.object(
+            pf, "init_logging", mock_init_logging
+        ):
+            pf._initialize_extension_paths(object())
+        assert pf._paths_initialized is False
+        mock_init_logging.assert_called_once()
+    finally:
+        pf._paths_initialized = False
+
+

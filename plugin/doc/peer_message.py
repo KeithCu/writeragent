@@ -175,6 +175,9 @@ def identity_from_doc(doc: Any) -> dict[str, str]:
                 name = base
                 resolved_name = True
         except RuntimeError:
+            # get_document_path is @main_thread_only. The wrapper raises RuntimeError
+            # before the body; the body catches Exception and returns None. Re-raise
+            # so an off-main call does not fall through to getTitle().
             raise
         except Exception:
             pass
@@ -208,7 +211,7 @@ def format_peer_envelope(
     name: str,
     uid: str,
     url: str,
-    message: str,
+    message: str | None,
     kind: str = "work",
 ) -> str:
     """Code-inserted wrapper. ``message`` is the body only.
@@ -219,7 +222,10 @@ def format_peer_envelope(
     """
     label = "Peer result from" if kind == "result" else "Peer work from"
     header = f"[{label}: {name} | uid={uid} | url={url}]"
-    body = message.rstrip("\n") if message else message
+    # What was wrong: None became the body text "None" in the f-string.
+    # How: format_peer_envelope is public; only execute coerces with str(... or "").
+    # Why: an empty body, not the word None.
+    body = "" if message is None else message.rstrip("\n")
     if kind == "result":
         return f"{header}\n\n{body}"
     return f"{header}\n\n{body}\n\n{PEER_WORK_DELIVERY_FOOTER}"
@@ -338,6 +344,13 @@ def resolve_peer_target(
                 model = None
 
     if model is None:
+        # What was wrong: list_v1_peers omits self, so the caller's own display
+        # name came back PEER_NOT_FOUND.
+        # How: URL/uid resolve misses a title, then the name scan never sees self.
+        # Why: identity_from_doc name is the same label the envelope stamps;
+        # PEER_SELF stops the model hunting for another document.
+        if self_doc is not None and target == identity_from_doc(self_doc)["name"]:
+            return None, "PEER_SELF", "Cannot send a peer message to the same document."
         return None, "PEER_NOT_FOUND", f"No open Writer, Calc, Draw, or Impress peer matches {target!r}."
 
     peer_uid = ""
@@ -392,6 +405,29 @@ def enqueue_peer_turn(listener: Any, turn: PeerPendingTurn) -> str | None:
     return None
 
 
+def _rebuild_global_fifo(
+    *,
+    drop_listener: Any = None,
+    drop_turn: PeerPendingTurn | None = None,
+) -> None:
+    # What was wrong: dead (ref, turn) pairs stayed in _global_fifo.
+    # How: drop_listener_queue kept entries where ref() is None because None is not listener.
+    # Why: rebuilds already walk the deque; drop collected listeners in the same pass
+    # so their wrapped text does not sit until a later kick.
+    kept: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
+    for ref, turn in _global_fifo:
+        listener = ref()
+        if listener is None:
+            continue
+        if drop_listener is not None and listener is drop_listener:
+            continue
+        if drop_turn is not None and turn is drop_turn:
+            continue
+        kept.append((ref, turn))
+    _global_fifo.clear()
+    _global_fifo.extend(kept)
+
+
 def drop_listener_queue(listener: Any) -> None:
     """Stop / dispose: drop that listener's pending injects only."""
     if listener is None:
@@ -402,9 +438,7 @@ def drop_listener_queue(listener: Any) -> None:
     q = _listener_queues.pop(listener, None)
     if q is not None:
         q.clear()
-    kept = [item for item in _global_fifo if item[0]() is not listener]
-    _global_fifo.clear()
-    _global_fifo.extend(kept)
+    _rebuild_global_fifo(drop_listener=listener)
 
 
 def reset_peer_queues() -> None:
@@ -422,9 +456,7 @@ def _discard_queued_turn(listener: Any, turn: PeerPendingTurn) -> None:
             pass
         if not q:
             _listener_queues.pop(listener, None)
-    kept = [item for item in _global_fifo if item[1] is not turn]
-    _global_fifo.clear()
-    _global_fifo.extend(kept)
+    _rebuild_global_fifo(drop_turn=turn)
 
 
 def kick_pending_peer_starts() -> None:
@@ -453,6 +485,14 @@ def kick_pending_peer_starts() -> None:
             continue
         start_fn = getattr(listener, "start_extracted_peer_send", None)
         if not callable(start_fn):
+            # What was wrong: the turn was already removed from both queues and then discarded with no log.
+            # How: getattr miss when listener has no start_extracted_peer_send.
+            # Why: re-queue would keep this listener at the front of _global_fifo forever;
+            # drop it and keep scanning so a later turn in the same kick can start.
+            log.error(
+                "kick_pending_peer_starts: listener %s has no start_extracted_peer_send; dropping queued turn",
+                type(listener).__name__,
+            )
             continue
         # The turn is already removed from q, and a False return is
         # ignored. send_state refuses EXTRACTED_SEND while the
@@ -591,17 +631,27 @@ def peer_message_visible_on_specialized(
     return bool(peers) and _document_research_domain(active_domain)
 
 
+def _list_v1_peers_or_empty(uno_ctx: Any, doc: Any, where: str) -> list[dict[str, str]]:
+    try:
+        return list_v1_peers(uno_ctx, doc)
+    except RuntimeError:
+        # What was wrong: the filters caught Exception and set peers = [].
+        # How: assert_main_thread raises RuntimeError in dev builds.
+        # Why: an off-main call must not look like an empty desktop;
+        # other catalog errors still hide the tools so schema build continues.
+        raise
+    except Exception:
+        log.debug("%s: catalog failed", where, exc_info=True)
+        return []
+
+
 def filter_peer_tools_for_specialized(tools: list[Any], uno_ctx: Any, doc: Any) -> list[Any]:
     """Keep both peer tools on document_research only when a v1 peer is open."""
     if not any(getattr(t, "name", None) in PEER_TOOL_NAMES for t in tools):
         return tools
     peers: list[dict[str, str]] = []
     if uno_ctx is not None:
-        try:
-            peers = list_v1_peers(uno_ctx, doc)
-        except Exception:
-            log.debug("filter_peer_tools_for_specialized: catalog failed", exc_info=True)
-            peers = []
+        peers = _list_v1_peers_or_empty(uno_ctx, doc, "filter_peer_tools_for_specialized")
     if not peers:
         return [t for t in tools if getattr(t, "name", None) not in PEER_TOOL_NAMES]
     return tools
@@ -621,13 +671,16 @@ def filter_peer_message_schemas(
     """
     if not any(_schema_function_name(s) in PEER_TOOL_NAMES for s in schemas):
         return schemas
+    # What was wrong: every outer get_schemas ran list_v1_peers / get_open_documents /
+    # resolve_document_by_url and then threw the catalog away.
+    # How: peer tools are tier="chat", so any(...) is true on the outer wire, and
+    # active_domain is None there and on MCP.
+    # Why: strip first; the desktop walk stays on document_research only.
+    if not _document_research_domain(active_domain):
+        return [s for s in schemas if _schema_function_name(s) not in PEER_TOOL_NAMES]
     peers: list[dict[str, str]] = []
     if ctx is not None and doc is not None:
-        try:
-            peers = list_v1_peers(ctx, doc)
-        except Exception:
-            log.debug("filter_peer_message_schemas: catalog failed", exc_info=True)
-            peers = []
+        peers = _list_v1_peers_or_empty(ctx, doc, "filter_peer_message_schemas")
     if not peer_message_visible_on_specialized(active_domain=active_domain, peers=peers):
         return [s for s in schemas if _schema_function_name(s) not in PEER_TOOL_NAMES]
     catalog = format_peer_catalog(peers)

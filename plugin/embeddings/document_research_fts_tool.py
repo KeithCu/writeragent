@@ -46,7 +46,7 @@ class SearchNearbyFiles(ToolBase):
             },
             "file_subset": {
                 "type": "string",
-                "description": "Optional basename token or absolute path to restrict hits to matching files.",
+                "description": "Optional basename token, an absolute path, or a file:// URL to restrict hits to matching files.",
             },
         },
         "required": ["query"],
