@@ -462,6 +462,7 @@ def test_worker_kill_signals_and_abandons_without_close() -> None:
     worker._managed = mock_managed
 
     assert worker.kill() is True
+    assert worker.is_alive() is False
     mock_managed.kill_tree.assert_called_once()
     mock_managed.abandon.assert_called_once()
     mock_managed.close.assert_not_called()

@@ -72,6 +72,7 @@ class _KokoroWorker:
     _ready_timeout_sec: float
     _managed: ManagedSubprocess
     _shutting_down: bool
+    _killed: bool
 
     def __init__(
         self,
@@ -94,6 +95,7 @@ class _KokoroWorker:
             label="Kokoro",
         )
         self._shutting_down = False
+        self._killed = False
 
     def respawn(self) -> None:
         if self._shutting_down:
@@ -193,7 +195,7 @@ class _KokoroWorker:
             return {"status": "error", "code": "WORKER_CRASHED", "error": msg, "message": msg}
 
     def is_alive(self) -> bool:
-        return self._managed.is_alive()
+        return not self._killed and self._managed.is_alive()
 
     def is_shutting_down(self) -> bool:
         return self._shutting_down
@@ -202,6 +204,16 @@ class _KokoroWorker:
         self._shutting_down = True
 
     def kill(self) -> bool:
+        # What was wrong: when spawn failed (missing script), respawn() called
+        # kill(), which signaled and abandoned the process to the background
+        # reaper without waiting for it to be reaped. is_alive() returned True
+        # while proc.poll() was still None, leading execute() to treat spawn
+        # as successful and fail on pipe write with WORKER_PIPE_BROKEN.
+        # How it happened: kill() switched from close() to kill_tree() + abandon(),
+        # but _KokoroWorker did not track killed state.
+        # Why this change fixes it: mark _killed = True so is_alive() returns False
+        # immediately, surfacing spawn failures as WORKER_SPAWN_FAILED.
+        self._killed = True
         self._managed.kill_tree()
         self._managed.abandon()
         return True
