@@ -375,7 +375,7 @@ Settings → Python **Test** reports **Data Analysis / EDA Libraries** and sugge
 
 | Helper | Purpose |
 |--------|---------|
-| `describe_data` | Extended EDA + column quality via **fg-data-profiling** + optional IQR outlier counts. When the frame is wider than `max_cols` (default 40), `col_count` is the full width, `cols_analyzed` is how many leading columns were profiled, and a flag states both numbers |
+| `describe_data` | Extended EDA + column quality via **fg-data-profiling** + optional IQR outlier counts. When the frame is wider than `max_cols` (default 40), `col_count` is the full width, `cols_analyzed` is how many leading columns were profiled, and a flag states both numbers. `ProfileReport` is called with `pool_size=1`. The minimal config's `pool_size` 0 means `cpu_count()` threads and deadlocks an xdist worker in `future.result()`; the 300s thread-method timeout then `os._exit`s that worker. |
 | `kpi_summary` | Aggregate mean/min/max/sum for selected metrics |
 | `detect_outliers` | IQR (default), z-score, or `isolation_forest` (pandas/scipy/sklearn); unknown method is `INVALID_PARAM`; a named non-numeric column is `NON_NUMERIC_COLUMN` |
 | `quick_stats` | `QuickStats(...).tooltip()` compact metric card |
