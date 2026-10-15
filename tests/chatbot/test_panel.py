@@ -206,7 +206,9 @@ class TestSendDispose:
         listener.send_control.getModel.return_value = send_model
         listener.disposing(None)
         assert listener._panel_teardown is True
-        listener.audio_recorder.cleanup.assert_called_once()
+        # Direct cleanup in _release_open_microphone, plus CancelRecordingEffect
+        # from ERROR_OCCURRED while is_recording.
+        assert listener.audio_recorder.cleanup.call_count == 2
         assert listener.sidebar_state.send.is_recording is False
         assert send_model.Label != "Stop Rec"
         assert listener.ctx is None
@@ -530,7 +532,9 @@ class TestSendDispose:
         clear = ClearButtonListener(listener.session, None, listener.status_control, send_listener=listener)
         with patch("plugin.audio.tts_service.stop_speech"):
             clear.on_action_performed(MagicMock())
-        listener.audio_recorder.cleanup.assert_called_once()
+        # Direct cleanup in _release_open_microphone, plus CancelRecordingEffect
+        # from ERROR_OCCURRED while is_recording.
+        assert listener.audio_recorder.cleanup.call_count == 2
         assert listener.sidebar_state.send.is_recording is False
         assert send_model.Label != "Stop Rec"
         listener.session.clear.assert_called_once()
@@ -716,6 +720,8 @@ class TestSendDispose:
         assert not (listener.sidebar_state.send.is_recording)
         assert not (listener.sidebar_state.send.is_busy)
         assert (send_model.Label) != ("Stop Rec")
+        listener.audio_recorder.cleanup.assert_called_once()
+        assert listener.sidebar_state.send.has_audio is False
 
     def test_stop_mouse_pressed_cancels_busy_send(self) -> None:
         listener = _make_send_listener()

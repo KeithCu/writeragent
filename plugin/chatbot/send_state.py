@@ -105,6 +105,65 @@ def _get_send_label(state: SendButtonState) -> str:
     return "Record" if state.audio_supported else "Send"
 
 
+def _return_idle(
+    state: SendButtonState,
+    status_text: str,
+    *,
+    clear_text: bool = False,
+    release_capture: bool = False,
+) -> FsmTransition[SendButtonState]:
+    """The three idle exits share Send-on / Stop-off / label-from-cleared-flags;
+
+    status text, clearing typed text, and deleting the take stay arguments.
+    """
+    changes: dict[str, Any] = {
+        "is_busy": False,
+        "is_recording": False,
+        "has_audio": False,
+    }
+    if clear_text:
+        changes["has_text"] = False
+    new_state = _replace_state(state, **changes)
+
+    effects: List[SendEffects] = []
+    if release_capture:
+        effects.append(CancelRecordingEffect())
+    effects.append(
+        UpdateUIEffect(
+            send_enabled=True,
+            stop_enabled=False,
+            send_label=_get_send_label(new_state),
+            status_text=status_text,
+        )
+    )
+    return FsmTransition(new_state, effects)
+
+
+def _send_ui_invariants(
+    state: SendButtonState,
+    event: SendEvent,
+    result: FsmTransition[SendButtonState],
+) -> bool:
+    """Send and stop button invariants.
+
+    One predicate, still enforced by a single ``@deal.ensure``. The
+    Hypothesis oracles call this function so the contract and the tests
+    cannot drift.
+    """
+    # crosshair: off
+    if result.state.is_busy and result.state.is_recording:
+        return False
+    for effect in result.effects:
+        if isinstance(effect, UpdateUIEffect):
+            if effect.send_enabled and effect.stop_enabled and not result.state.is_recording:
+                return False
+            if effect.send_enabled and result.state.is_busy:
+                return False
+            if effect.stop_enabled and not (result.state.is_busy or result.state.is_recording):
+                return False
+    return True
+
+
 # Contract: while a send is in flight only Stop is enabled, and while idle only
 # Send is. A take is the one state with both: Stop Rec (the Send button) sends
 # the take, and Stop leaves hands-free or cancels the take.
@@ -114,23 +173,7 @@ def _get_send_label(state: SendButtonState) -> str:
 # that state and nothing else.
 # Pre rejects the illegal pair so CrossHair cannot start from (busy and recording).
 @deal.pre(lambda state, event: not (state.is_busy and state.is_recording))
-@deal.ensure(lambda state, event, result: not (result.state.is_busy and result.state.is_recording))
-@deal.ensure(
-    lambda state, event, result: result.state.is_recording
-    or not any(isinstance(e, UpdateUIEffect) and e.send_enabled and e.stop_enabled for e in result.effects)
-)
-@deal.ensure(
-    lambda state, event, result: all(
-        (not e.send_enabled) or (not result.state.is_busy) for e in result.effects if isinstance(e, UpdateUIEffect)
-    )
-)
-@deal.ensure(
-    lambda state, event, result: all(
-        (not e.stop_enabled) or result.state.is_busy or result.state.is_recording
-        for e in result.effects
-        if isinstance(e, UpdateUIEffect)
-    )
-)
+@deal.ensure(_send_ui_invariants)
 def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendButtonState]:
     """Pure state transition for the Send button."""
     # event.data is an unbounded dict; Hypothesis covers transitions.
@@ -146,22 +189,24 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
     )
 
     if event.kind == SendEventKind.TEXT_UPDATED:
-        new_state = _replace_state(state, has_text=event_data.get("has_text", False))
+        # A missing has_text used to be .get("has_text", False), which cleared
+        # the flag and relabeled Send to Record while the box still had text;
+        # every caller passes the key, so the event is ignored unless the key is present.
+        if "has_text" not in event_data:
+            return FsmTransition(state, effects)
+        new_state = _replace_state(state, has_text=event_data["has_text"])
         # Update has_text for when the turn finishes, and emit no UI effect
         # while busy. Typing during web-search approval or in-flight
         # generation would otherwise emit UpdateUIEffect, relabel Send, and
         # grey it out over overlay states such as Accept.
         if state.is_busy:
             return FsmTransition(new_state, effects)
-        # If currently recording, do not toggle back to Record
-        send_enabled = not new_state.is_busy
         # Typing during a take must not grey out Stop (the take's exit).
-        stop_enabled = new_state.is_busy or new_state.is_recording
         label = _get_send_label(new_state)
         effects.append(
             UpdateUIEffect(
-                send_enabled=send_enabled,
-                stop_enabled=stop_enabled,
+                send_enabled=True,
+                stop_enabled=new_state.is_recording,
                 send_label=label,
                 status_text="",
             )
@@ -172,7 +217,10 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         if state.is_busy or state.is_recording or not state.audio_supported:
             return FsmTransition(state, effects)  # Invalid transition
 
-        new_state = _replace_state(state, is_busy=False, is_recording=True)
+        # Idle + has_audio is a legal cold-send state; leaving the flag set on
+        # a new take made a later cancel/error treat an empty box as a committed
+        # take (_get_send_label returns Send). A new capture is not that commit.
+        new_state = _replace_state(state, is_busy=False, is_recording=True, has_audio=False)
         effects.append(StartCaptureEffect())
         effects.append(
             UpdateUIEffect(
@@ -247,32 +295,15 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         # also drops the take, but it shows "Error" for a click the user meant.
         if not state.is_recording:
             return FsmTransition(state, effects)
-        new_state = _replace_state(
-            state,
-            is_busy=False,
-            is_recording=False,
-            has_audio=False,
-        )
-        effects.append(CancelRecordingEffect())
-        effects.append(
-            UpdateUIEffect(send_enabled=True, stop_enabled=False, send_label=_get_send_label(new_state), status_text="Recording cancelled")
-        )
-        return FsmTransition(new_state, effects)
+        return _return_idle(state, "Recording cancelled", release_capture=True)
 
     elif event.kind == SendEventKind.SEND_COMPLETED:
         if not state.is_busy:
             return FsmTransition(state, effects)
 
-        new_state = _replace_state(
-            state,
-            is_busy=False,
-            is_recording=False,
-            has_text=False,  # We assume the text is cleared upon send start or completion
-            has_audio=False,  # We assume audio is cleared upon send completion
-        )
-        label = _get_send_label(new_state)
-        effects.append(UpdateUIEffect(send_enabled=True, stop_enabled=False, send_label=label, status_text="Ready"))
-        return FsmTransition(new_state, effects)
+        # Completion clears typed text and has_audio; the panel's
+        # _sync_has_text_from_query puts back text typed during the turn.
+        return _return_idle(state, "Ready", clear_text=True)
 
     elif event.kind == SendEventKind.ERROR_OCCURRED:
         if not state.is_busy and not state.is_recording:
@@ -281,14 +312,11 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         # Keep typed text so the user can retry. Always drop has_audio: Stop Rec
         # auto-send and _transcribe_audio already consume/delete the WAV. Leaving
         # has_audio True after STT/chat errors (G13/G28) shows a dead Send button.
-        new_state = _replace_state(
-            state,
-            is_busy=False,
-            is_recording=False,
-            has_audio=False,
-        )
-        label = _get_send_label(new_state)
-        effects.append(UpdateUIEffect(send_enabled=True, stop_enabled=False, send_label=label, status_text="Error"))
-        return FsmTransition(new_state, effects)
+        # Clearing is_recording with only UpdateUIEffect left the FSM idle while
+        # capture could still be running if the caller had not stopped the
+        # recorder; release_capture=state.is_recording emits the same
+        # CancelRecordingEffect as cancel, and a busy send error does not,
+        # because the drain owns that file.
+        return _return_idle(state, "Error", release_capture=state.is_recording)
 
     return FsmTransition(state, effects)

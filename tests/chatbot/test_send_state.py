@@ -82,6 +82,7 @@ def test_error_flow():
     assert tr2.state.is_busy is False
     assert tr2.state.has_text is True
     assert tr2.state.has_audio is False
+    assert not any(isinstance(e, CancelRecordingEffect) for e in tr2.effects)
     ui_effect = next(e for e in tr2.effects if isinstance(e, UpdateUIEffect))
     assert ui_effect.status_text == "Error"
 
@@ -102,6 +103,7 @@ def test_error_after_stop_rec_clears_has_audio():
     assert tr3.state.is_busy is False
     assert tr3.state.is_recording is False
     assert tr3.state.has_audio is False
+    assert not any(isinstance(e, CancelRecordingEffect) for e in tr3.effects)
     ui_effect = next(e for e in tr3.effects if isinstance(e, UpdateUIEffect))
     assert ui_effect.send_label == "Record"
     assert ui_effect.send_enabled is True
@@ -126,13 +128,62 @@ def test_error_while_recording_drops_the_take():
     assert tr.state.is_busy is False
     assert tr.state.has_text is True
     assert tr.state.has_audio is False
-    assert len(tr.effects) == 1
-    ui_effect = tr.effects[0]
+    assert len(tr.effects) == 2
+    assert isinstance(tr.effects[0], CancelRecordingEffect)
+    ui_effect = tr.effects[1]
     assert isinstance(ui_effect, UpdateUIEffect)
     assert ui_effect.status_text == "Error"
     assert ui_effect.send_enabled is True
     assert ui_effect.stop_enabled is False
     assert ui_effect.send_label == "Send"
+
+
+def test_record_clicked_clears_stale_has_audio():
+    tr1 = next_state(
+        SendButtonState(False, False, False, True, True),
+        SendEvent(SendEventKind.RECORD_CLICKED),
+    )
+    assert tr1.state.is_recording is True
+    assert tr1.state.has_audio is False
+    assert tr1.state.is_busy is False
+    assert tr1.state.has_text is False
+    tr1_cancel = next_state(tr1.state, SendEvent(SendEventKind.CANCEL_REC_CLICKED))
+    ui1 = next(e for e in tr1_cancel.effects if isinstance(e, UpdateUIEffect))
+    assert ui1.send_label == "Record"
+
+    tr2 = next_state(
+        SendButtonState(False, False, True, True, True),
+        SendEvent(SendEventKind.RECORD_CLICKED),
+    )
+    assert tr2.state.has_audio is False
+    assert tr2.state.has_text is True
+    ui2 = next(e for e in tr2.effects if isinstance(e, UpdateUIEffect))
+    assert ui2.send_label == "Stop Rec"
+
+    for bad in (
+        SendButtonState(True, False, False, True, True),
+        SendButtonState(False, False, False, True, False),
+    ):
+        tr_bad = next_state(bad, SendEvent(SendEventKind.RECORD_CLICKED))
+        assert tr_bad.state == bad
+        assert not any(isinstance(e, StartCaptureEffect) for e in tr_bad.effects)
+
+
+def test_text_updated_without_has_text_is_noop():
+    states = (
+        SendButtonState(False, False, True, False, True),
+        SendButtonState(True, False, True, False, True),
+        SendButtonState(False, True, False, False, True),
+    )
+    events = (
+        SendEvent(SendEventKind.TEXT_UPDATED),
+        SendEvent(SendEventKind.TEXT_UPDATED, {}),
+    )
+    for state in states:
+        for event in events:
+            tr = next_state(state, event)
+            assert tr.state == state
+            assert tr.effects == []
 
 
 def test_invalid_record_does_not_emit_recording_or_send_effects():
@@ -179,6 +230,14 @@ def test_send_clicked_with_audio_only_starts_send():
     assert tr.state.is_busy is True
     assert tr.state.has_audio is True
     assert any(isinstance(e, StartSendEffect) for e in tr.effects)
+
+    tr_unsupported = next_state(
+        SendButtonState(False, False, False, True, False),
+        SendEvent(SendEventKind.SEND_CLICKED),
+    )
+    assert tr_unsupported.state.is_busy is True
+    assert tr_unsupported.state.has_audio is True
+    assert any(isinstance(e, StartSendEffect) for e in tr_unsupported.effects)
 
 
 def test_next_state_rejects_busy_and_recording_pre():
