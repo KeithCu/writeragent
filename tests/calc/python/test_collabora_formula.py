@@ -76,7 +76,6 @@ def test_maybe_rewrite_skips_non_calc():
             return name != "com.sun.star.sheet.SpreadsheetDocument"
 
     assert maybe_rewrite_collabora_py_formulas(_Writer()) == 0
-    assert maybe_rewrite_collabora_py_formulas(None) == 0
 
 
 def test_maybe_rewrite_restores_is_modified():

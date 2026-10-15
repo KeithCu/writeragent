@@ -390,8 +390,7 @@ def load_named_script(origin: str, name: str, executor: Any | None = None) -> An
     code = payload.get("code")
     if not isinstance(code, str):
         raise AttributeError(f"No {origin} script named {name!r}")
-    if len(code.encode("utf-8")) > _NAMED_SCRIPT_MAX_BYTES:
-        raise RuntimeError(f"Named script {name!r} is too large to import as a library")
+    # host_get_named_python_script already rejects a body over _NAMED_SCRIPT_MAX_BYTES.
     body_hash = str(payload.get("hash") or script_body_hash(code))
     ident = python_identifier_from_script_name(name)
     ns = _eval_library(executor, code, ident)

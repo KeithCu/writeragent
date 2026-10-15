@@ -203,12 +203,8 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     still persists writeragent tokens (Collabora Online would then need a
     writeragent alias to evaluate those files).
     """
-    if doc is None:
-        return 0
-    try:
-        if not doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
-            return 0
-    except Exception:
+    # auto_open returns when doc is None and logs a raised rewrite.
+    if not doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
         return 0
 
     from plugin.framework.thread_guard import guard_uno
@@ -225,6 +221,7 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
         log.debug("collabora PY rewrite: isModified failed", exc_info=True)
     changed = 0
     controllers_locked = False
+    # A scan failure used to be logged and swallowed here. auto_open already logs it.
     try:
         if hasattr(doc, "lockControllers"):
             doc.lockControllers()
@@ -233,9 +230,6 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
             sheets = doc.getSheets()
             for i in range(int(sheets.getCount())):
                 changed += _rewrite_sheet_formulas(sheets.getByIndex(i))
-    except Exception:
-        log.warning("collabora PY rewrite: document scan failed", exc_info=True)
-        return changed
     finally:
         if controllers_locked:
             try:
