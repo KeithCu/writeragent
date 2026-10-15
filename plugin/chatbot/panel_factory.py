@@ -271,7 +271,10 @@ def _initialize_extension_paths(ctx: Any) -> None:
             # Only after success: a falsy path or an exception retries on the next sidebar.
             _paths_initialized = True
         except Exception:
-            init_logging(ctx)
+            try:
+                init_logging(ctx)
+            except Exception:
+                log.exception("init_logging failed during extension path setup")
             log.exception("_initialize_extension_paths failed")
 
     # Hop the body, not this function: WRITERAGENT_TESTING=1 inlines
@@ -499,38 +502,40 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         log.debug("[RICH-LIFECYCLE] ChatPanelElement.getRealInterface called (toolpanel already exists=%s)", bool(self.toolpanel))
         if not self.toolpanel:
             try:
-                # Dummy-N URP getRealInterface: hop path init + window/wiring
-                # (get_extension_url and later @main_thread_only getters) to VCL.
                 def _create_panel() -> None:
-                    # Reset _released so the rebuilt panel's lifecycle is
-                    # tracked. A failed getRealInterface calls
-                    # release_live_sidebar, which sets _released = True. A
-                    # retry rebuilds the panel, and disposal then returns
-                    # early on that flag, skipping cleanup and leaking
-                    # listeners.
+                    # Two off-thread getRealInterface calls can both pass the
+                    # outer check. This body runs on the main-thread queue, so
+                    # a second body observes the panel the first body stored.
+                    if self.toolpanel is not None:
+                        return
+                    # Reset _released so a retry after release_live_sidebar
+                    # still disposes listeners. The flag is set only when this
+                    # body is the one building.
                     self._released = False
-                    # Ensure extension on path early so _wireControls imports work
-                    _initialize_extension_paths(self.ctx)
-                    root_window = self._getOrCreatePanelRootWindow()
-                    log.info("[RICH-LIFECYCLE] root_window created: %s", bool(root_window))
-                    self.toolpanel = ChatToolPanel(root_window, self.xParentWindow, self.ctx)
-                    wire_chatpanel_controls(self, root_window, HAS_RECORDING, _initialize_extension_paths)
-                    log.info("[RICH-LIFECYCLE] getRealInterface completed successfully (rich_text wiring done)")
+                    try:
+                        _initialize_extension_paths(self.ctx)
+                        root_window = self._getOrCreatePanelRootWindow()
+                        log.info("[RICH-LIFECYCLE] root_window created: %s", bool(root_window))
+                        # Wiring reads self.toolpanel. On failure the except
+                        # below clears it before this function returns, so the
+                        # next queued create does not keep the half-built window
+                        # and the caller's except cannot clear a later success.
+                        self.toolpanel = ChatToolPanel(root_window, self.xParentWindow, self.ctx)
+                        wire_chatpanel_controls(self, root_window, HAS_RECORDING, _initialize_extension_paths)
+                        log.info("[RICH-LIFECYCLE] getRealInterface completed successfully (rich_text wiring done)")
+                    except Exception:
+                        with suppress_disposed("frame session release on getRealInterface fail", logger=log):
+                            release_live_sidebar(self)
+                            root = getattr(self, "m_panelRootWindow", None)
+                            rl = getattr(self.toolpanel, "resize_listener", None) if self.toolpanel else None
+                            if rl and root and hasattr(root, "removeWindowListener"):
+                                root.removeWindowListener(rl)
+                        self.toolpanel = None
+                        raise
 
                 _run_on_main_thread(_create_panel)
             except Exception as e:
-                # Assign toolpanel only after wiring. Assigning it first
-                # leaves a half-built panel latched when a later getControl
-                # fails, so the next getRealInterface returns it and never
-                # retries.
                 log.exception("getRealInterface failed [resource_url=%s]", self.ResourceURL)
-                with suppress_disposed("frame session release on getRealInterface fail", logger=log):
-                    release_live_sidebar(self)
-                    root = getattr(self, "m_panelRootWindow", None)
-                    rl = getattr(self.toolpanel, "resize_listener", None) if self.toolpanel else None
-                    if rl and root and hasattr(root, "removeWindowListener"):
-                        root.removeWindowListener(rl)
-                self.toolpanel = None
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e
         # Panel is a Python UNO component; stubs do not overlap XInterface.
         return cast("XInterface", cast("object", self.toolpanel))
@@ -652,7 +657,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     def _refresh_controls_from_config(self) -> None:
         """Reload sidebar controls from config (e.g. after user changes Settings).
 
-        Refreshes model/prompt/image/mode selectors, Voice (TTS) checkbox, and backend indicator.
+        Refreshes model, image, and mode selectors, Voice (TTS) checkbox, and backend indicator.
         Does not re-run ``translate_dialog`` — sidebar strings are translated once at wire/load.
 
         Bugfix / Re-entrancy Guard:
@@ -681,17 +686,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 return get_optional_control(root, name)
 
             model_selector = get_optional("model_selector")
-            prompt_selector = get_optional("prompt_selector")
             image_model_selector = get_optional("image_model_selector")
 
-            # Bugfix: Reading text/image models and config instructions, and
-            # populating the model/prompt comboboxes, had no except handler.
-            # An exception here skipped sidebar mode restore, chk_voice sync,
-            # and the backend indicator, leaving the config:changed handler prematurely.
+            # Bugfix: Reading text and image models, and populating those
+            # comboboxes, had no except handler. An exception here skipped
+            # sidebar mode restore, chk_voice sync, and the backend indicator,
+            # leaving the config:changed handler prematurely.
             try:
                 current_model = get_text_model()
-                extra_instructions = get_config("additional_instructions")
-
                 current_endpoint = get_current_endpoint()
 
                 # LRU plus provider defaults only, no catalog HTTP on this
@@ -706,8 +708,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     )
                     if set_val != current_model:
                         set_text_model(set_val, update_lru=False)
-                if prompt_selector:
-                    populate_combobox_with_lru(self.ctx, prompt_selector, extra_instructions, "prompt_lru", "")
 
                 # Refresh visual (image) model via shared helper; persist correction if strict replaced value
                 if image_model_selector:
@@ -913,12 +913,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             if hasattr(image_model_selector, "addTextListener"):
                 image_model_selector.addTextListener(ImageModelTextSyncListener(self, self.ctx))
 
-    def _sidebar_mode_flags(self, model: Any, *, cached_doc_type: str | None = None) -> SidebarModeFlags:
+    def _sidebar_mode_flags(self, model: Any) -> SidebarModeFlags:
         from plugin.chatbot.chat_sidebar_mode import sidebar_mode_flags_for_doc_type
         from plugin.doc.doc_type import doc_type_label_for_enum
 
-        if cached_doc_type is not None:
-            return sidebar_mode_flags_for_doc_type(cached_doc_type)
         return sidebar_mode_flags_for_doc_type(doc_type_label_for_enum(get_document_type(model)))
 
     def _greeting_for_sidebar_mode(self, mode: str, model: Any) -> str:
@@ -1190,14 +1188,18 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 try:
                     _fork_doc_chat_history(str(old_session_id), fork_to)
                     _fork_doc_chat_history(str(old_session_id) + "_web", fork_to + "_web")
-                    session_id = fork_to
                     if model:
-                        set_document_property(model, "WriterAgentSessionID", session_id)
-                        if url:
-                            set_document_property(model, "WriterAgentSessionURL", url)
+                        set_document_property(model, "WriterAgentSessionID", fork_to)
+                    # Id write succeeded, or there is no model to stamp.
+                    # Memory matches the document from here on. A URL write
+                    # failure leaves fork_failed set so the stamp below does
+                    # not run; the next open hits fork_to == session_id and
+                    # writes WriterAgentSessionURL. A failure before this
+                    # line keeps the old id and retries the fork.
+                    session_id = fork_to
+                    if model and url:
+                        set_document_property(model, "WriterAgentSessionURL", url)
                 except Exception:
-                    # Keep the old id and do not stamp the new URL below, so the
-                    # next open of this file retries the fork.
                     fork_failed = True
                     log.exception("Failed to copy chat history from %s to %s", old_session_id, fork_to)
             elif fork_to == session_id and model and url:
@@ -1304,6 +1306,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         send_listener = None
         try:
+            # A constructor raise is caught below and wiring continues.
+            # Query listeners bind to self.send_listener, so a previous
+            # attempt's listener must not stay attached to the new query box.
+            self.send_listener = None
             send_listener = SendButtonListener(
                 self.ctx,
                 self.xFrame,
