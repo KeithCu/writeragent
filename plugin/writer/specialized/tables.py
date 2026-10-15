@@ -596,7 +596,7 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
     except Exception as e:
         if is_disposed_exception(e):
             raise
-        pass
+        # no-op after the dispose re-raise; non-dispose falls through
 
     if previous is not None:
         try:
@@ -736,45 +736,40 @@ class TableList(ToolWriterTableBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        try:
-            if _is_draw_doc(ctx.doc):
-                from plugin.draw.tables import list_draw_tables
+        # execute_safe already returns TOOL_EXECUTION_ERROR; this did not name a table.
+        if _is_draw_doc(ctx.doc):
+            from plugin.draw.tables import list_draw_tables
 
-                out = list_draw_tables(ctx.doc)
-                return {"status": "ok", "count": len(out), "tables": out}
-            tables = _tables(ctx.doc)
-            nesting_by_name, hosted, cell_counts = _writer_nesting(ctx.doc)
-            out = []
-            for name in tables.getElementNames():
-                try:
-                    table_obj = tables.getByName(name)
-                    rows, cols = _dims(table_obj)
-                except Exception as exc:
-                    # One bad or corrupt table must not fail the entire table_list
-                    # call. _dims(tables.getByName(name)) raises inside the iteration.
-                    # Catch per-table errors, re-raise document disposal, log a
-                    # warning, and skip.
-                    if is_disposed_exception(exc):
-                        raise
-                    log.warning("table_list: skipping unreadable table '%s': %s", name, exc)
-                    continue
-                cell_count = cell_counts.get(name)
-                if cell_count is None:
-                    cell_count = rows * cols
-                out.append({
-                    "name": name,
-                    "rows": rows,
-                    "cols": cols,
-                    "cell_count": cell_count,
-                    "nesting": nesting_by_name.get(name, _not_nested()),
-                    "nested_in_cells": hosted.get(name, {}),
-                })
+            out = list_draw_tables(ctx.doc)
             return {"status": "ok", "count": len(out), "tables": out}
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Could not list tables")
-            return self._tool_error("Could not list tables: %s" % e)
+        tables = _tables(ctx.doc)
+        nesting_by_name, hosted, cell_counts = _writer_nesting(ctx.doc)
+        out = []
+        for name in tables.getElementNames():
+            try:
+                table_obj = tables.getByName(name)
+                rows, cols = _dims(table_obj)
+            except Exception as exc:
+                # One bad or corrupt table must not fail the entire table_list
+                # call. _dims(tables.getByName(name)) raises inside the iteration.
+                # Catch per-table errors, re-raise document disposal, log a
+                # warning, and skip.
+                if is_disposed_exception(exc):
+                    raise
+                log.warning("table_list: skipping unreadable table '%s': %s", name, exc)
+                continue
+            cell_count = cell_counts.get(name)
+            if cell_count is None:
+                cell_count = rows * cols
+            out.append({
+                "name": name,
+                "rows": rows,
+                "cols": cols,
+                "cell_count": cell_count,
+                "nesting": nesting_by_name.get(name, _not_nested()),
+                "nested_in_cells": hosted.get(name, {}),
+            })
+        return {"status": "ok", "count": len(out), "tables": out}
 
 
 class TableGetCells(ToolWriterTableBase):
@@ -906,9 +901,8 @@ class TableSetCell(ToolWriterTableBase):
         # non-string inputs. TableSetCell must not call .strip() on the
         # raw value. Coerce with str(...) before stripping whitespace.
         cell_raw = str(kwargs.get("cell") or "").strip()
-        text = kwargs.get("text")
-        if text is None:
-            return self._tool_error("text is required.")
+        # type/required checks are done by the tool schema in ToolRegistry
+        text = kwargs["text"]
         cell_name = cell_raw  # bound for the except below even if _get_table raises before resolution
         try:
             if _is_draw_doc(ctx.doc):
@@ -1006,13 +1000,8 @@ class ManageTableStructure(ToolWriterTableBase):
         if axis_arg not in ("row", "column"):
             return self._tool_error("axis must be 'row' or 'column'.")
         name = str(kwargs.get("name") or "").strip()
-        raw = kwargs.get("index")
-        if isinstance(raw, bool) or not isinstance(raw, (int, str)):
-            return self._tool_error("index must be an integer.")
-        try:
-            idx = int(raw)
-        except ValueError:
-            return self._tool_error("index must be an integer.")
+        # type/required checks are done by the tool schema in ToolRegistry
+        idx = kwargs["index"]
         if idx < 0:
             return self._tool_error("index must be non-negative.")
         axis = "rows" if axis_arg == "row" else "columns"
@@ -1137,21 +1126,13 @@ class TableInsert(ToolWriterTableBase):
                 return self._tool_error("cell is required when parent is set.")
             if cell_raw and not parent:
                 return self._tool_error("parent is required when cell is set.")
-            rows = kwargs.get("rows")
-            columns = kwargs.get("columns")
-            if rows is None or columns is None:
-                return self._tool_error("rows and columns are required.")
-            try:
-                rows = int(rows)
-                columns = int(columns)
-            except (TypeError, ValueError):
-                return self._tool_error("rows and columns must be integers.")
+            # type/required checks are done by the tool schema in ToolRegistry
+            rows = kwargs["rows"]
+            columns = kwargs["columns"]
             if rows < 1 or columns < 1:
                 return self._tool_error("rows and columns must be at least 1.")
 
             data = kwargs.get("data")
-            if data is not None and not isinstance(data, (list, tuple)):
-                return self._tool_error("data must be a list of rows.")
             if data:
                 if len(data) > rows:
                     return self._tool_error("data has %d rows but table only has %d." % (len(data), rows))

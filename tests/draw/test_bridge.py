@@ -307,11 +307,11 @@ def test_get_active_page_index_matches_via_uno_same():
 
 
 def test_get_slide_for_tool_wraps_other_errors():
+    """Non-IndexError failures propagate; execute_safe applies TOOL_EXECUTION_ERROR."""
     from plugin.draw.bridge import DrawBridge
-    from plugin.framework.errors import ToolExecutionError
 
     with patch.object(DrawBridge, "resolve_slide", side_effect=RuntimeError("No draw page available.")):
-        with pytest.raises(ToolExecutionError, match="No draw page available"):
+        with pytest.raises(RuntimeError, match="No draw page available"):
             DrawBridge.get_slide_for_tool("doc")
 
 
@@ -684,6 +684,16 @@ def test_create_slide_keeps_pages_when_exchange_rollback_fails():
     with pytest.raises(PageExchangeRollbackError):
         bridge.create_slide(0, switch=False)
     assert len(pages.pages) == 3
+
+
+def test_insert_slide_from_master_bad_after_index_raises():
+    from plugin.draw.bridge import DrawBridge
+
+    pages = _named_deck("A", "B")
+    bridge = DrawBridge(_ViewDoc(pages, None))
+    with pytest.raises(ValueError):
+        bridge.insert_slide_from_master(after_index="nope")
+    assert [p.Name for p in pages.pages] == ["A", "B"]
 
 
 def test_insert_slide_from_master_lands_after_requested_slide():

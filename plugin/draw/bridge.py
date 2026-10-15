@@ -138,19 +138,17 @@ class DrawBridge:
         test runner then treated a dead URP as a normal tool failure instead of
         aborting the remaining suite.
 
-        ``IndexError`` stays a ``ToolExecutionError`` (page out of range). Other
-        failures are wrapped the same way so callers still get a tool error, not
-        a raw UNO exception.
+        ``IndexError`` stays a ``ToolExecutionError`` (page out of range). Any
+        other failure propagates. ``execute_safe`` maps it to
+        ``TOOL_EXECUTION_ERROR`` (``Tool execution failed: ...``), the same code
+        as the old wrap, and includes the exception type.
         """
         try:
             return cls.resolve_slide(doc, page_index)
         except IndexError:
             # resolve_slide only raises IndexError when page_index is an int.
             raise ToolExecutionError("Page index %s out of range." % page_index)
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            raise ToolExecutionError(str(e)) from e
+        # Other failures propagate. execute_safe maps them to TOOL_EXECUTION_ERROR.
 
     def create_shape(self, shape_type: str, x: int, y: int, width: int, height: int, page: Any | None = None) -> Any:
         """
@@ -239,10 +237,8 @@ class DrawBridge:
         count = int(pages.getCount())
         if after_index is None:
             after_index = self.get_active_page_index()
-        try:
-            requested = int(after_index) + 1
-        except (TypeError, ValueError):
-            requested = count
+        # A bad after_index used to append (requested = count). Let int() raise.
+        requested = int(after_index) + 1
         master = self._resolve_master(master_index=master_index, master_name=master_name)
         if master is None and (master_index is not None or master_name is not None):
             raise ValueError(f"Master page not found: index={master_index} name={master_name}")
@@ -1043,9 +1039,7 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         if len(ctx_str) > limit:
             ctx_str = ctx_str[:limit] + "\n\n[... document truncated ...]"
         return ctx_str
-    except UnoObjectError:
-        log.exception("get_draw_context_for_chat error")
-        return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"
     except Exception:
-        log.exception("get_draw_context_for_chat exception")
+        # UnoObjectError is an Exception; both handlers returned the same fallback.
+        log.exception("get_draw_context_for_chat error")
         return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"

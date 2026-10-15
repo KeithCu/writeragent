@@ -46,7 +46,7 @@ def _set_shape_text(shape: Any, text: str) -> None:
             from plugin.framework.errors import is_disposed_exception
             if is_disposed_exception(e):
                 raise
-            pass
+            # no-op after the dispose re-raise; non-dispose falls through
     if hasattr(shape, "setString"):
         shape.setString(text)
 
@@ -363,7 +363,7 @@ class SlideCommandEngine:
                 from plugin.framework.errors import is_disposed_exception
                 if is_disposed_exception(e):
                     raise
-                pass
+                # no-op after the dispose re-raise; non-dispose falls through
         return None
 
     def _insert_master(self, master_index: int | None = None, master_name: str | None = None) -> None:
@@ -548,7 +548,7 @@ class SlideCommandEngine:
                     from plugin.framework.errors import is_disposed_exception
                     if is_disposed_exception(e):
                         raise
-                    pass
+                    # no-op after the dispose re-raise; non-dispose falls through
             dispatcher.executeDispatch(frame, uno_name, "", 0, props)
             return True
         except Exception as exc:

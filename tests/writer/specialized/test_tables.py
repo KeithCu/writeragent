@@ -6,6 +6,8 @@
 Fakes implement the minimal XTextTable protocol; no LibreOffice required."""
 from types import SimpleNamespace
 
+import pytest
+
 
 from plugin.writer.specialized.tables import (
     TableDelete,
@@ -858,10 +860,18 @@ def test_negative_index_errors():
 
 
 def test_non_integer_index_errors():
-    res = ManageTableStructure().execute(
-        _ctx({"T": FakeTable(2, 2)}), action="insert", axis="row", name="T", index="two"
-    )
-    assert res["status"] == "error" and "integer" in res["message"]
+    tool = ManageTableStructure()
+    ok, err = tool.validate(action="insert", axis="row", index="two")
+    assert ok is False
+    assert err is not None and "Invalid type for index" in err and "integer" in err
+    with pytest.raises(TypeError):
+        tool.execute(
+            _ctx({"T": FakeTable(2, 2)}),
+            action="insert",
+            axis="row",
+            name="T",
+            index="two",
+        )
 
 
 def test_manage_table_structure_bad_action_or_axis():
@@ -1144,12 +1154,15 @@ def test_empty_replacement_keeps_a_table_whose_cell_holds_a_pending_deletion():
 
 
 def test_table_insert_rejects_non_integer_dims_and_non_list_data():
-    doc = FakeWriterDoc({})
     tool = TableInsert()
-    bad_dims = tool.execute(SimpleNamespace(doc=doc), rows=[1], columns=2)
-    assert bad_dims["status"] == "error" and "integers" in bad_dims["message"]
-    bad_data = tool.execute(SimpleNamespace(doc=doc), rows=2, columns=2, data="ab")
-    assert bad_data["status"] == "error" and "list of rows" in bad_data["message"]
+    ok, err = tool.validate(rows=[1], columns=2)
+    assert ok is False
+    assert err is not None and "Invalid type for rows" in err and "integer" in err
+    res = tool.execute(SimpleNamespace(doc=FakeWriterDoc({})), rows=[1], columns=2)
+    assert res["status"] == "error"
+    ok_data, err_data = tool.validate(rows=2, columns=2, data="ab")
+    assert ok_data is False
+    assert err_data is not None and "Invalid type for data" in err_data and "array" in err_data
 
 
 def test_table_set_cell_non_string_cell():
