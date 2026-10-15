@@ -385,14 +385,28 @@ def open_design_source_hidden(uno_ctx: Any, design: dict[str, str], *, as_templa
 
 
 def _copy_uno_prop(dest: Any, src: Any, name: str) -> bool:
-    """Copy one UNO property. False when that property is missing.
+    """Copy one UNO property or interface attribute. False when missing.
 
-    PyUNO getattr/setattr on a property are getPropertyValue/setPropertyValue.
-    Retrying the other after the first fails does not succeed. A missing
-    property returns False so the clone continues with the rest.
+    Properties in XPropertySet use getPropertyValue/setPropertyValue.
+    However, XShape geometry (Position, Size) and certain page attributes
+    are UNO interface methods/attributes (getPosition/getSize) mapped by
+    PyUNO to Python attributes; getPropertyValue raises UnknownPropertyException
+    for them. Fall back to getattr/setattr so geometry is copied.
     """
     try:
-        dest.setPropertyValue(name, src.getPropertyValue(name))
+        value = src.getPropertyValue(name)
+    except Exception:
+        try:
+            value = getattr(src, name)
+        except Exception:
+            return False
+    try:
+        dest.setPropertyValue(name, value)
+        return True
+    except Exception:
+        pass
+    try:
+        setattr(dest, name, value)
         return True
     except Exception:
         return False

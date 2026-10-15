@@ -501,13 +501,24 @@ def test_inherit_master_from_neighbor_reraises_disposed():
         inherit_master_from_neighbor(pages, MagicMock(), 1)
 
 
-def test_copy_uno_prop_does_not_retry_setattr():
+def test_copy_uno_prop_falls_back_to_attribute_access():
     from plugin.draw.designs import _copy_uno_prop
 
-    dest = MagicMock()
-    src = MagicMock()
-    src.getPropertyValue.return_value = 1
-    dest.setPropertyValue.side_effect = RuntimeError("nope")
-    assert _copy_uno_prop(dest, src, "FillColor") is False
-    dest.setPropertyValue.assert_called_once_with("FillColor", 1)
+    class ShapeStub:
+        def __init__(self, pos=None):
+            self.Position = pos
+
+        def getPropertyValue(self, name):
+            raise RuntimeError("UnknownPropertyException")
+
+        def setPropertyValue(self, name, val):
+            raise RuntimeError("UnknownPropertyException")
+
+    src = ShapeStub((100, 200))
+    dest = ShapeStub((0, 0))
+    assert _copy_uno_prop(dest, src, "Position") is True
+    assert dest.Position == (100, 200)
+
+    # Missing attribute returns False
+    assert _copy_uno_prop(dest, src, "NoSuchProp") is False
 
