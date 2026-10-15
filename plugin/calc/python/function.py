@@ -520,8 +520,6 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
         if target is not None:
             url_val = getattr(target, "getURL", lambda: "")()
             doc_url = url_val if isinstance(url_val, str) else ""
-            from plugin.scripting.session_manager import workbook_session_id
-
             sid = workbook_session_id(ctx, doc=target) or ""
             located = locate_formula_cell_in_doc(ctx, target, code)
             if located is not None:
@@ -615,7 +613,8 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
     sk = session_key(ctx, code, doc=doc)
     if not sk[4]:
         # Ambiguous formula identity: do not share next_index across duplicate =PY() cells.
-        return flat[0] if flat else ""
+        # flat was already rejected when empty.
+        return flat[0]
     token = data_token if data_token is not None else _worker_data_token(worker_data)
     key = (tid, sk, token)
     now = time.monotonic()
@@ -746,13 +745,26 @@ def _cell_matches_stored_value(sheet: Any, row: int, col: int, cell_rec: SpillCe
         cell = sheet.getCellByPosition(col, row)
         if cell_rec.kind == "e":
             return cell.getType() == 0 or cell.getString() == ""
-        if cell_rec.kind == "n":
-            v = cell.getValue()
-            if isinstance(cell_rec.value, (int, float)):
-                return math.isclose(float(v), float(cell_rec.value), rel_tol=1e-9, abs_tol=1e-9)
-            return False
-        if cell_rec.kind == "s":
-            return cell.getString() == (cell_rec.value or "")
+        if cell_rec.kind in ("n", "s"):
+            kind_type = cell.getType()
+            if cell_rec.kind == "n":
+                # Bugfix: What was wrong: spilled 0 matched later user text and
+                # clearContents / remap treated that text as the spill.
+                # How it happened: getValue() on a text cell is 0, and kind "n"
+                # compared that without the content type.
+                # Why this change fixes it: a number matches only VALUE. PyUNO
+                # Enum.__eq__ is false for ints (uno.py Enum.__eq__); the cell
+                # stub returns the ints, so accept either form.
+                if kind_type != 1 and getattr(kind_type, "value", None) != "VALUE":
+                    return False
+                v = cell.getValue()
+                if isinstance(cell_rec.value, (int, float)):
+                    return math.isclose(float(v), float(cell_rec.value), rel_tol=1e-9, abs_tol=1e-9)
+                return False
+            if cell_rec.kind == "s":
+                if kind_type != 2 and getattr(kind_type, "value", None) != "TEXT":
+                    return False
+                return cell.getString() == (cell_rec.value or "")
         if cell_rec.kind == "err":
             get_err = getattr(cell, "getError", None)
             if not callable(get_err) or cell_rec.value is None:
@@ -1229,7 +1241,7 @@ def perform_deferred_spill(
             try:
                 # If that object is disposed, return as today
                 if hasattr(sheet, "getName"):
-                    _ = sheet.getName()
+                    sheet.getName()
             except Exception:
                 return
 
@@ -1564,8 +1576,7 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
             if target_r >= max_rows or target_c >= max_cols:
                 log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
                 return "#SPILL!"
-            if (target_r, target_c) == (formula_row, formula_col):
-                continue
+            # Origin was skipped when both offsets are 0.
             if (target_r, target_c) in prev_spill_set:
                 continue
             cell = sheet.getCellByPosition(target_c, target_r)
@@ -2095,7 +2106,8 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             # init script is UNO. Such a call runs with no shared session id and
             # no init kwargs rather than borrowing another workbook's.
             on_main = on_main_thread()
-            session_id = workbook_session_id(ctx, doc=target_doc) if on_main else None
+            # session_key already resolved this on the main thread. "" means no shared kernel.
+            session_id = (sk[2] or None) if on_main else None
             init_kwargs = get_python_init_kwargs(ctx, doc=target_doc)
 
             log.debug(

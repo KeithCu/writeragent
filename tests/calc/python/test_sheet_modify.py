@@ -288,6 +288,64 @@ def test_schedule_timer_callback_clears_pending_timer(monkeypatch):
     assert key not in _PENDING_TIMERS
 
 
+def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rekeyed pending timer is dropped on fire and posts pass for new sheet name."""
+    from plugin.calc.python.sheet_modify import migrate_sheet_rename, schedule_sheet_modify_pass
+
+    captured_callbacks: list = []
+    posted_callables: list = []
+
+    class _CaptureTimer:
+        def __init__(self, interval, function, *args, **kwargs):
+            self.interval = interval
+            self.function = function
+            self.cancelled = False
+            captured_callbacks.append(function)
+
+        def start(self) -> None:
+            pass
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _CaptureTimer)
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.post_to_main_thread",
+        lambda fn, *a, **k: posted_callables.append(fn),
+    )
+
+    doc = CalcDocStub(url="", props={"RuntimeUID": "uid-rekey-timer"})
+    sheet = doc.getSheets().getByName("Sheet1")
+    old_key = ("uid-rekey-timer", "Sheet1")
+    new_key = ("uid-rekey-timer", "SheetNew")
+
+    schedule_sheet_modify_pass("ctx", doc, sheet)
+    assert old_key in _PENDING_TIMERS
+    assert len(captured_callbacks) == 1
+
+    migrate_sheet_rename(doc, "Sheet1", "SheetNew")
+    assert old_key not in _PENDING_TIMERS
+    assert new_key in _PENDING_TIMERS
+
+    # Fire the callback
+    captured_callbacks[0]()
+    assert len(_PENDING_TIMERS) == 0
+    assert len(posted_callables) == 1
+
+    passed_kwargs: dict[str, object] = {}
+
+    def fake_run_sheet_modify_pass(ctx, d, s, *, doc_url="", sheet_name=""):
+        passed_kwargs["doc_url"] = doc_url
+        passed_kwargs["sheet_name"] = sheet_name
+
+    monkeypatch.setattr(
+        "plugin.calc.python.sheet_modify.run_sheet_modify_pass",
+        fake_run_sheet_modify_pass,
+    )
+    posted_callables[0]()
+    assert passed_kwargs.get("sheet_name") == "SheetNew"
+
+
 def test_unload_drops_pending_sheet_timer(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.sheet_modify import cancel_pending_sheet_timers, schedule_sheet_modify_pass
 

@@ -874,6 +874,7 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
 
     cell_B2 = MagicMock()
     cell_B3 = MagicMock()
+    cell_B3.getType.return_value = 1
     cell_B3.getValue.return_value = 20.0
 
     def get_cell(c, r):
@@ -946,6 +947,7 @@ def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeyp
 
     origin = MagicMock()
     spilled = MagicMock()
+    spilled.getType.return_value = 1
     spilled.getValue.return_value = 20.0
 
     def get_cell(c, r):
@@ -1817,6 +1819,45 @@ def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) 
     assert captured.get("bindings") == {"scoped_dir": "/folder"}
 
 
+def test_execute_python_addin_reuses_session_key_sid(monkeypatch: pytest.MonkeyPatch) -> None:
+    python_function.clear_python_addin_cache()
+    captured: dict[str, Any] = {}
+
+    def fake_run(*_a: object, **kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"status": "ok", "result": 1.0}
+
+    session_calls = 0
+    current_sid: str | None = "calc:file:///once.ods"
+
+    def mock_session_id(*_a: object, **_k: object) -> str | None:
+        nonlocal session_calls
+        session_calls += 1
+        return current_sid
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
+    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(python_function, "workbook_session_id", mock_session_id)
+    monkeypatch.setattr("plugin.scripting.session_manager.workbook_session_id", mock_session_id)
+
+    doc = CalcDocStub()
+    out = python_function.execute_python_addin(_ctx_with_doc(doc), "1+1", doc=doc)
+    assert out == 1.0
+    assert session_calls == 1
+    assert captured.get("session_id") == "calc:file:///once.ods"
+
+    python_function.clear_python_addin_cache()
+    captured.clear()
+    session_calls = 0
+    current_sid = None
+    out2 = python_function.execute_python_addin(_ctx_with_doc(doc), "2+2", doc=doc)
+    assert out2 == 1.0
+    assert session_calls == 1
+    assert captured.get("session_id") is None
+
+
 def test_execute_python_addin_off_main_passes_doc_through_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """Off-main the caller doc yields no session id, init kwargs, or folder (all UNO)."""
     python_function.clear_python_addin_cache()
@@ -1987,6 +2028,99 @@ def test_spill_clear_skips_formula_cell_and_edited_value(monkeypatch: pytest.Mon
     assert sheet.getCellByPosition(0, 2).getValue() == 999.0
     # Matching cell cleared
     assert sheet.getCellByPosition(0, 3).getValue() in (0, 0.0)
+
+
+def test_spill_clear_skips_user_text_matching_numeric_spill(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spilled 0.0 does not clear neighbor setString('note'), while neighbor setValue(0.0) is cleared."""
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    sheet = CalcSheetStub("Sheet1")
+    doc = CalcDocStub(sheets=[sheet], url="file:///text_zero.ods")
+    monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: doc)
+
+    # Formula cell cleared
+    sheet.getCellByPosition(0, 0).setFormula("")
+
+    # Neighbor 1 has user text "note"
+    sheet.getCellByPosition(0, 1).setString("note")
+
+    # Neighbor 2 has numeric 0.0
+    sheet.getCellByPosition(0, 2).setValue(0.0)
+
+    key = ("file:///text_zero.ods", "Sheet1", 0, 0)
+    python_function.SPILL_REGISTRY[key] = python_function.SpillRecord(
+        code="result = [0.0, 0.0]",
+        cells=[
+            python_function.SpillCell(1, 0, "n", 0.0),
+            python_function.SpillCell(2, 0, "n", 0.0),
+        ],
+    )
+
+    listener = python_function.CalcSpillModifyListener(MagicMock(), "file:///text_zero.ods", "Sheet1")
+    listener.modified(SimpleNamespace(Source=sheet))
+
+    assert key not in python_function.SPILL_REGISTRY
+    assert sheet.getCellByPosition(0, 1).getString() == "note"
+    assert sheet.getCellByPosition(0, 2).getType() == 0
+    assert sheet.getCellByPosition(0, 2).getString() == ""
+
+
+def test_cell_matches_stored_value_type_gate() -> None:
+    """Direct _cell_matches_stored_value cases for VALUE/TEXT gate and PyUNO enum compatibility."""
+    from plugin.calc.python.function import SpillCell, _cell_matches_stored_value
+    from plugin.tests.testing_utils import CalcSheetStub
+
+    sheet = CalcSheetStub("Sheet1")
+    sheet.getCellByPosition(0, 0).setValue(0.0)
+    assert _cell_matches_stored_value(sheet, 0, 0, SpillCell(0, 0, "n", 0.0)) is True
+
+    sheet.getCellByPosition(0, 1).setString("0.0")
+    assert _cell_matches_stored_value(sheet, 1, 0, SpillCell(1, 0, "n", 0.0)) is False
+
+    class _PyUnoEnum:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+        def __eq__(self, other: object) -> bool:
+            return isinstance(other, _PyUnoEnum) and self.value == other.value
+
+    class _StandInCell:
+        def __init__(self, enum_val: str, value: float = 0.0, text: str = "") -> None:
+            self._type = _PyUnoEnum(enum_val)
+            self._value = value
+            self._text = text
+
+        def getType(self) -> _PyUnoEnum:
+            return self._type
+
+        def getValue(self) -> float:
+            return self._value
+
+        def getString(self) -> str:
+            return self._text
+
+    class _StandInSheet:
+        def __init__(self, cell: _StandInCell) -> None:
+            self._cell = cell
+
+        def getCellByPosition(self, _col: int, _row: int) -> _StandInCell:
+            return self._cell
+
+    # Stand-in whose getType returns object with .value == "VALUE" and __eq__ false for ints
+    val_cell = _StandInCell("VALUE", value=123.0, text="123.0")
+    val_sheet = _StandInSheet(val_cell)
+    assert _cell_matches_stored_value(val_sheet, 0, 0, SpillCell(0, 0, "n", 123.0)) is True
+    assert _cell_matches_stored_value(val_sheet, 0, 0, SpillCell(0, 0, "s", "123.0")) is False
+
+    # The same stand-in with .value == "TEXT" and getString() equal to the stored string matches kind "s"
+    text_cell = _StandInCell("TEXT", value=0.0, text="hello")
+    text_sheet = _StandInSheet(text_cell)
+    assert _cell_matches_stored_value(text_sheet, 0, 0, SpillCell(0, 0, "s", "hello")) is True
+
+    # A VALUE stand-in whose getString() equals a stored string does not match kind "s"
+    val_with_str = _StandInCell("VALUE", value=0.0, text="target")
+    val_str_sheet = _StandInSheet(val_with_str)
+    assert _cell_matches_stored_value(val_str_sheet, 0, 0, SpillCell(0, 0, "s", "target")) is False
 
 
 def test_overflow_int_becomes_decimal_text() -> None:

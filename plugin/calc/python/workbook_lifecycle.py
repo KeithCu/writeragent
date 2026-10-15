@@ -243,7 +243,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         # do_retry sleeps up to 5s, so run it on a dedicated background
         # worker. On the shared pool that sleep starves other tasks.
         last_res: Any = None
-        for _ in range(10):
+        for _attempt in range(10):
             time.sleep(0.5)
             try:
                 last_res = reset_python_session(self._ctx, sid)
