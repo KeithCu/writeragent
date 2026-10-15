@@ -158,12 +158,17 @@ class TurnController:
         """Enqueue only while this turn is alive.
 
         After abort the item is dropped. It is not parked on a queue for a
-        later drain. Callers do not assign ``queue``; the drain did that
-        before the worker was started.
+        later drain. This used to write the raw queue, so a control item
+        could pass text still in the batcher, and callers had to flush by hand.
         """
-        if not self._alive or self.queue is None:
+        if not self._alive:
             return False
-        self.queue.put(item)
+        # This used to write the raw queue, so a control item could pass text
+        # still in the batcher, and callers had to flush by hand.
+        target = spawn_queue(self)
+        if target is None:
+            return False
+        target.put(item)
         return True
 
     def accepts_history(self, host: Any) -> bool:
@@ -718,11 +723,10 @@ class ToolLoopEffectInterpreter:
             return True
         try:
             # The frame document is the live snapshot. The model captured on
-            # the turn is what tool workers run against.
-            if hasattr(host, "_get_document_model"):
-                doc = host._get_document_model()
-            else:
-                doc = turn.model if turn is not None else None
+            # the turn is what tool workers run against. Every action host has
+            # the method; falling back to turn.model would refresh from the spawn
+            # capture.
+            doc = host._get_document_model()
             if not doc:
                 raise UnoObjectError("Document closed or unavailable.", code="DOCUMENT_UNAVAILABLE")
             session.refresh_document_context(doc, host.ctx)
@@ -837,6 +841,9 @@ class ToolLoopEffectInterpreter:
                 log.debug("image model selector unusable; image_generate keeps its arguments", exc_info=True)
                 image_model_override = None
             if image_model_override:
+                # Execution uses the sidebar override; func_args_str stays the
+                # model arguments so TOOL_DONE and history do not record the UI
+                # override.
                 func_args = dict(func_args)
                 func_args["image_model"] = image_model_override
 

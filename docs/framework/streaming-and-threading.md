@@ -429,8 +429,8 @@ The **primary user-visible chat streaming path** was updated:
 
 - `plugin/chatbot/tool_loop.py`:
   - `_start_tool_calling_async` creates both the raw queue and a `BatchingStreamQueue` wrapper and stores them on the current `TurnController` (`queue` / `batcher`).
-  - `_spawn_llm_worker` and `_spawn_final_stream` accept either a raw `Queue` or a `BatchingStreamQueue`. When the latter is supplied they use the `.content_cb()` / `.thinking_cb()` helpers (or the equivalent manual `batched.put(...)` + `batched.flush()` before every boundary put).
-  - All terminal / control puts in those two workers now do `if batched: batched.flush()` before emitting `STREAM_DONE`, `FINAL_DONE`, `STOPPED`, `ERROR`, etc.
+  - `_spawn_llm_worker` and `_spawn_final_stream` accept either a raw `Queue` or a `BatchingStreamQueue`. When the latter is supplied they use the `.content_cb()` / `.thinking_cb()` helpers.
+  - `TurnController.put` writes the batcher when one is attached, so a control item flushes pending display text, and the two workers do not call `flush()` before `emit`. Stop still flushes via `flush_pending` / `_flush_active_batcher` because that path does not go through `put`.
 - `plugin/framework/stream_batch.py`:
   - The `BatchingStreamQueue` class itself.
 - `plugin/framework/async_stream.py`:

@@ -1521,3 +1521,30 @@ def test_stored_user_row_ignores_earlier_user_rows():
     host.session.messages.append({"role": "user", "content": "new user"})
     assert turn.stored_user_row() is True
 
+
+def test_put_flushes_pending_chunks_before_control_item():
+    from plugin.chatbot.tool_loop_actions import TurnController
+    from plugin.framework.stream_batch import BatchingStreamQueue
+
+    raw_q: queue.Queue = queue.Queue()
+    bq = BatchingStreamQueue(raw_q, batch_interval=60.0)
+    turn = TurnController(session=None, mode="chat")
+    turn.queue = raw_q
+    turn.batcher = bq
+
+    assert turn.put((StreamQueueKind.CHUNK, "hel")) is True
+    assert turn.put((StreamQueueKind.CHUNK, "lo")) is True
+    assert raw_q.empty()
+
+    stream_done_item = (StreamQueueKind.STREAM_DONE, None)
+    assert turn.put(stream_done_item) is True
+    first = raw_q.get_nowait()
+    assert first == (StreamQueueKind.CHUNK, "hello")
+    second = raw_q.get_nowait()
+    assert second == stream_done_item
+    assert raw_q.empty()
+
+    assert turn.put((StreamQueueKind.CHUNK, "tail")) is True
+    turn.abort()
+    assert raw_q.empty()
+    assert turn.put((StreamQueueKind.CHUNK, "more")) is False

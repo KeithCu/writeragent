@@ -206,7 +206,6 @@ def _compact_bound_session(
     stop_checker: Callable[[], bool] | None,
     force: bool,
     status_cb: Callable[[str], None],
-    batched: Any,
 ) -> bool:
     """True when the caller should stream. False when the turn was aborted.
 
@@ -230,8 +229,7 @@ def _compact_bound_session(
         turn._last_compact_tokens_before = result.tokens_before
         turn._last_compact_tokens_after = result.tokens_after
     if result.reason == "aborted":
-        if batched:
-            batched.flush()
+        # The caller emits STOPPED through turn.put, which flushes.
         return False
     return True
 
@@ -606,8 +604,6 @@ class ToolCallingMixin:
                 # The checker and scope were captured at spawn. Resolving here
                 # would bind the next send after Stop cleared the panel field.
                 if stopped_for_this_send():
-                    if batched:
-                        batched.flush()
                     emit((StreamQueueKind.STOPPED,))
                     return
                 # Status via queue only — never self._set_status from this worker (UNO).
@@ -626,7 +622,6 @@ class ToolCallingMixin:
                         stop_checker=stop_checker,
                         force=force_compact,
                         status_cb=status_cb,
-                        batched=batched,
                     ):
                         emit((StreamQueueKind.STOPPED,))
                         return
@@ -643,24 +638,20 @@ class ToolCallingMixin:
                 # next send clears the panel field and calls clear_stop() on
                 # this shared client, so a live stop_requested read is wrong.
                 if stopped_for_this_send():
-                    if batched: batched.flush()
                     note_stop_partial(turn, response)
                     emit((StreamQueueKind.STOPPED,))
                 else:
                     update_activity_state("tool_loop", round_num=round_num)
-                    if batched: batched.flush()
                     emit((StreamQueueKind.STREAM_DONE, response))
             except Exception as e:
                 from plugin.framework.blocking_wait import BlockingWaitStopped
                 if isinstance(e, BlockingWaitStopped):
-                    if batched: batched.flush()
                     emit((StreamQueueKind.STOPPED,))
                 else:
                     if isinstance(e, NetworkError):
                         log.exception("Tool loop round %d: NetworkError" % round_num)
                     else:
                         log.exception("Tool loop round %d: API ERROR" % round_num)
-                    if batched: batched.flush()
                     emit((StreamQueueKind.ERROR, format_error_payload(e)))
 
         run_in_background(run, name=f"llm-worker-{round_num}", dedicated=True)
@@ -708,8 +699,6 @@ class ToolCallingMixin:
                     thinking_cb(t)
 
                 if stopped_for_this_send():
-                    if batched:
-                        batched.flush()
                     emit((StreamQueueKind.STOPPED,))
                     return
                 def status_cb(t: str) -> None:
@@ -727,7 +716,6 @@ class ToolCallingMixin:
                         stop_checker=stop_checker,
                         force=False,
                         status_cb=status_cb,
-                        batched=batched,
                     ):
                         emit((StreamQueueKind.STOPPED,))
                         return
@@ -737,23 +725,19 @@ class ToolCallingMixin:
                         status_callback=status_cb,
                     )
                 if stopped_for_this_send():
-                    if batched: batched.flush()
                     note_stop_partial(turn, "".join(last_streamed))
                     emit((StreamQueueKind.STOPPED,))
                 else:
-                    if batched: batched.flush()
                     emit((StreamQueueKind.FINAL_DONE, "".join(last_streamed)))
             except Exception as e:
                 from plugin.framework.blocking_wait import BlockingWaitStopped
                 if isinstance(e, BlockingWaitStopped):
-                    if batched: batched.flush()
                     emit((StreamQueueKind.STOPPED,))
                 else:
                     if isinstance(e, NetworkError):
                         log.exception("Final stream NetworkError")
                     else:
                         log.exception("Final stream failed")
-                    if batched: batched.flush()
                     emit((StreamQueueKind.ERROR, format_error_payload(e)))
 
         run_in_background(run_final, name="llm-worker-final", dedicated=True)
