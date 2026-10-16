@@ -16,8 +16,8 @@ because the runner is URP-only or because ``DISPLAY`` is set (xvfb sets it).
 from __future__ import annotations
 
 import os
-import time
 import sys
+import time
 import unittest
 from typing import Any, Callable
 
@@ -3081,16 +3081,16 @@ def test_r1_adjacent_agent_edits(ctx):
     doc = current_component(ctx)
     redlines = list_redlines(doc)
     assert len(redlines) == 2, f"R1 expected 2 agent edits, found {len(redlines)}"
+    token_0 = redlines[0].get("token")
+    token_1 = redlines[1].get("token")
 
-    # Try resolving one, expect refusal or resolving both together
     success, msg = resolve_change_at_cursor(doc, ctx, accept=True)
-    if success:
-        # Either both resolved or one. Let's see if 1 or 0 remain
-        redlines_after = list_redlines(doc)
-        assert len(redlines_after) != 1, f"R1 resolved one of two adjacent edits leaving an orphan redline: {redlines_after}"
-    else:
-        assert "overlap" in msg.lower() or "overlap" in msg, f"R1 expected overlap refusal, got: {msg}"
-        assert "failed" not in msg.lower(), "R1 refusal must be a real overlap/refusal message, not 'failed'"
+    assert success, f"R1 expected successful resolution of independent adjacent edit, got: {msg}"
+
+    redlines_after = list_redlines(doc)
+    assert len(redlines_after) == 1, f"R1 resolved one of two adjacent edits, exactly 1 should remain: {redlines_after}"
+    token_after = redlines_after[0].get("token")
+    assert token_after in (token_0, token_1), "R1 remaining token should match one of the original edits"
 
     _hello_ok()
 
@@ -3109,13 +3109,16 @@ def test_r2_user_redline_overlap(ctx):
     insert_user_redline(doc, ctx, " UserEdit ", len(body) - 5, len(body) - 1)
 
     success, msg = resolve_change_at_cursor(doc, ctx, accept=True)
-    # Must refuse and leave user redline untouched
     assert not success, "R2 should refuse resolution due to overlapping user redline"
 
     redlines = list_redlines(doc)
     assert len(redlines) > 1, f"R2 expected >1 redline including user's, got {len(redlines)}"
-    has_user = any(r.get("RedlineAuthor") == "Test User" for r in redlines)
-    assert has_user, "R2 expected user redline to remain"
+    user_redlines = [r for r in redlines if r.get("RedlineAuthor") == "Test User"]
+    assert len(user_redlines) == 1, "R2 expected user redline to remain exactly 1"
+    assert "UserEdit" in user_redlines[0].get("text", ""), "R2 user redline text should remain unchanged"
+
+    agent_redlines = [r for r in redlines if r.get("RedlineAuthor") != "Test User"]
+    assert len(agent_redlines) == 1, "R2 expected agent redline to remain pending"
 
     _hello_ok()
 
@@ -3187,6 +3190,10 @@ def test_r4_stop_mid_stream(ctx):
         _session.config.delay_ms = 20
 
     doc = current_component(ctx)
+    body = doc.getText().getString()
+    is_original = (body == WELCOME_BODY)
+    is_full = ("Mock filler paragraph from soak server." in body)
+    assert is_original or is_full, f"R4 expected all-or-nothing modification, got partial body: {body}"
     assert not has_agent_changes(doc), "R4 expected no orphan review entries after mid-stream stop"
     _hello_ok()
 
@@ -3217,8 +3224,10 @@ def test_r5_close_doc_pending_tool(ctx):
 
         from plugin.chatbot.sidebar_test_hooks import wait_idle
         assert wait_idle(listener=sl, timeout=30.0), "R5 main sidebar did not go idle after close"
-        assert "disposed" in _transcript().lower() or "close" in _transcript().lower() or "error" in _transcript().lower(), "R5 expected disposed error in transcript"
-        assert "traceback" not in _transcript().lower(), "R5 expected no traceback in transcript"
+
+        t = _transcript()
+        assert t.count("DisposedException") == 1 or t.count("disposed") == 1, "R5 expected exactly one disposed-document error in transcript"
+        assert "traceback" not in t.lower(), "R5 expected no traceback in transcript"
         time.sleep(0.5)
     finally:
         _session.config.delay_ms = 20
@@ -3248,9 +3257,9 @@ def test_r6_undo_then_accept(ctx):
 
     _send_and_wait("hello", timeout=60.0)
 
-    # Try resolving the stale token
     success, msg = resolve_agent_change(doc, ctx, token, True)
     assert not success, "R6 should cleanly fail on stale token"
+    assert "not found" in msg.lower() or "no tracked change" in msg.lower() or "failed" in msg.lower(), f"R6 expected not-found error, got: {msg}"
 
     _hello_ok()
 
@@ -3295,7 +3304,7 @@ def test_r8_accept_and_stop(ctx):
         assert wait_controls_send_finished(controls, timeout=60.0, transcript_fn=_transcript, before=before)
 
         snaps = _captures()
-        tool_count = sum(1 for row in snaps if "web_search" in row.get("decided_tools", []))
+        tool_count = sum(1 for row in snaps if "web_search" in (row.get("called_tools") or []) + (row.get("decided_tools") or []))
         assert tool_count <= 1, f"R8 expected tool to run at most once, got {tool_count}"
 
     finally:
@@ -3317,8 +3326,6 @@ def test_r9_three_edits_user_middle(ctx):
     redlines = list_redlines(doc)
     assert len(redlines) >= 3, "R9 expected 3 agent edits"
 
-    # insert inside the second edit's actual range.
-    # The second edit string is ' to2 ' (added via mock llm)
     idx = body.find(" to2 ")
     assert idx >= 0, "R9 couldn't find second agent edit"
     insert_user_redline(doc, ctx, "UserEdit", idx + 1, idx + 2)
@@ -3329,6 +3336,10 @@ def test_r9_three_edits_user_middle(ctx):
     body_after = doc.getText().getString()
     assert "UserEdit" in body_after, "R9 expected user redline to remain"
     assert " to2 " in body_after or "to2" in body_after, "R9 expected second agent edit to remain unaccepted"
+
+    redlines_after = list_redlines(doc)
+    agent_redlines = [r for r in redlines_after if r.get("RedlineAuthor") != "Test User"]
+    assert len(agent_redlines) == 1, f"R9 expected exactly 1 pending agent redline, got {len(agent_redlines)}"
 
     _hello_ok()
 
