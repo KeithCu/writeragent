@@ -451,3 +451,21 @@ The following areas are intentionally excluded from the mock LLM sidebar test su
 - **Non-Chat Sidebar Workflows:** Librarian full-corpus indexing, brainstorm mode, presentation slide deck generation, and image generation.
 - **Calc Formula Add-Ins:** `=PROMPT()` and `=PYTHON()` formula execution (tested separately in `tests/calc/`).
 - **External MCP Server Testing:** Live third-party MCP server communication (mocked in `tests/mcp/`).
+### Packet S — STT fake recorder tests
+
+- **Focus:** Fake recorder replacing the real recorder subprocess, STT edge cases, modes: silence, noisy, crash, missing, and late transcript handling.
+- **Mode:** Automated (`make test-mock-sidebar FILTER=S`).
+
+| ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
+|:--:|:----:|----------------|-----------------|------------------------|:--------------:|
+| **S1** | mock-sidebar | `silence` | press record | auto-stop, empty transcript -> no chat send | **Landed** |
+| **S2** | mock-sidebar | `noisy` | press record | above threshold, auto-stops, transcript sent | **Landed** |
+| **S3** | mock-sidebar | `noisy`, STT 404 | press record | STT request returns 404, no resend, clean banner | **Landed** |
+| **S4** | mock-sidebar | `noisy`, Native 400 + STT 404 | press record | native audio 400 fallback -> STT 404 | **Landed** |
+| **S5** | mock-sidebar | `hold` | press record, Stop mid-reply | child reaped within 1s, hands-free stopped | **Landed** |
+| **S6** | mock-sidebar | `hold` | press record, Stop | child reaped within 1s | **Landed** |
+| **S7** | mock-sidebar | `crash` | press record | child dies mid-capture, returns to idle | **Landed** |
+| **S8** | mock-sidebar | `missing` | press record | binary not found, returns to idle with message | **Landed** |
+| **S9** | mock-sidebar | `noisy`, `delay` | press record with STT delay | late transcript handled safely with hands-free | **Landed** |
+| **S10** | mock-sidebar | `noisy`, `delay` | clear while STT in flight | late transcript handles safely | **Landed** |
+| **R10** | mock-sidebar | `noisy`, `delay` | type + send while STT in flight | typed sent, late STT not auto sent to new turn | **Landed** |

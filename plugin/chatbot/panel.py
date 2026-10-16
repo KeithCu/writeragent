@@ -2087,11 +2087,21 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             log.warning("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model))
                         try:
                             transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
+
+                            typed_after = self._get_query_text()
+
                             if self._terminal_status == "Stopped":
                                 new_text = (query_text + "\n" + transcript).strip() if (query_text and transcript) else (transcript or query_text)
+                                if typed_after and typed_after != query_text:
+                                    new_text = (typed_after + "\n" + transcript).strip() if (typed_after and transcript) else (transcript or typed_after)
+
                                 self._restore_query_text(new_text)
                                 self._sync_has_text_from_query()
                                 return
+
+                            if typed_after and typed_after != query_text:
+                                query_text = typed_after
+
                             if transcript:
                                 self._empty_take_count = 0
                                 query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
