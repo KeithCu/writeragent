@@ -118,9 +118,6 @@ class suppress_disposed(contextlib.ContextDecorator):
         return self.suppress_all
 
 
-ignore_disposed = suppress_disposed
-
-
 def resolve_exception_message(e: Any) -> str:
     """Extract non-empty message string from an exception, resolving UNO Exception Message attributes and causes."""
     msg = getattr(e, "Message", None) or str(e)
@@ -750,7 +747,6 @@ __all__ = [
     "format_error_message",  # The single i18n-friendly mapper (centralized here in 2026 janitor effort)
     "format_error_payload",
     "handle_errors",
-    "ignore_disposed",
     "is_disposed_exception",
     "is_document_disposed",
     "is_real_disposal",

@@ -611,7 +611,6 @@ class TestSuppressDisposed:
     def test_suppress_disposed_as_decorator(self):
         from plugin.framework.errors import (
             DocumentDisposedError,
-            ignore_disposed,
             suppress_disposed,
         )
 
@@ -627,7 +626,6 @@ class TestSuppressDisposed:
             mock_logger.debug.assert_called_once()
         else:
             mock_logger.debug.assert_not_called()
-        assert (ignore_disposed) is (suppress_disposed)
 
     def test_safe_uno_call_returns_default_on_runtime_error(self):
         from plugin.framework.errors import safe_uno_call

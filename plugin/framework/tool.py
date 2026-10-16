@@ -408,7 +408,8 @@ class ToolBase(_ToolErrorMixin, ABC):
                 disposed = is_real_disposal(e)
 
             if disposed:
-                return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED", original_error=str(e), error_type=type(e).__name__)
+                # UNO DisposedException often has an empty str() and the text in .Message; use the same resolver as the branch below.
+                return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED", original_error=resolve_exception_message(e), error_type=type(e).__name__)
             # Returning _tool_error() already keeps the code. Raising
             # ToolPermissionError / ConfigError used to be rewritten as
             # TOOL_EXECUTION_ERROR and lose details.
