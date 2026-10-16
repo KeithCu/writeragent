@@ -724,6 +724,11 @@ def handle_debug_sidebar_command(command: str) -> None:
         _post_to_soffice_vcl(_load_visible_calc_factory, sl=sl)
         _write_debug_snapshot(sl)
         return
+    if op == "OPEN_DRAW":
+        log.info("debug_sidebar OPEN_DRAW posting factory/sdraw to VCL sl=%s", sl is not None)
+        _post_to_soffice_vcl(_load_visible_draw_factory, sl=sl)
+        _write_debug_snapshot(sl)
+        return
     if op == "KICK_PEERS":
         # Packet P URP: queues live in soffice; the test-process kick is a no-op.
         # Post to VCL via _post_to_soffice_vcl so peer sends drain on the
@@ -1134,6 +1139,17 @@ def component_is_calc(doc: Any) -> bool:
         return False
 
 
+def component_is_draw(doc: Any) -> bool:
+    """``supportsService`` over URP. Do not use ``is_draw`` (``@main_thread_only``)."""
+    _require_debug()
+    if doc is None:
+        return False
+    try:
+        return bool(doc.supportsService("com.sun.star.drawing.DrawingDocument"))
+    except Exception:
+        return False
+
+
 def iter_desktop_components(ctx: Any) -> list[Any]:
     """Open models from ``XDesktop.getComponents()`` (URP-safe enumeration)."""
     _require_debug()
@@ -1158,6 +1174,15 @@ def find_calc_component(ctx: Any) -> Any:
     _require_debug()
     for doc in iter_desktop_components(ctx):
         if component_is_calc(doc):
+            return doc
+    return None
+
+
+def find_draw_component(ctx: Any) -> Any:
+    """First open Draw model, or None. Does not load a document."""
+    _require_debug()
+    for doc in iter_desktop_components(ctx):
+        if component_is_draw(doc):
             return doc
     return None
 
@@ -1191,6 +1216,19 @@ def _load_visible_calc_factory() -> None:
         log.info("OPEN_CALC: loaded factory/scalc _blank on VCL")
     except Exception:
         log.exception("OPEN_CALC: factory/scalc _blank failed")
+        raise
+
+
+def _load_visible_draw_factory() -> None:
+    """Create a visible Draw on soffice VCL. ``_blank`` keeps the Writer window."""
+    from plugin.framework.uno_context import get_ctx, get_desktop
+
+    try:
+        desktop = get_desktop(get_ctx())
+        desktop.loadComponentFromURL("private:factory/sdraw", "_blank", 0, ())
+        log.info("OPEN_DRAW: loaded factory/sdraw _blank on VCL")
+    except Exception:
+        log.exception("OPEN_DRAW: factory/sdraw _blank failed")
         raise
 
 
@@ -1246,6 +1284,24 @@ def open_calc_document(ctx: Any, *, timeout: float = 30.0) -> Any:
     raise RuntimeError(
         "Calc did not appear after OPEN_CALC (factory/scalc was posted to VCL; "
         "do not loadComponentFromURL factory/scalc over URP after a Writer deck)"
+    )
+
+
+def open_draw_document(ctx: Any, *, timeout: float = 30.0) -> Any:
+    """Open a visible Draw after a Writer deck without blocking URP on factory/sdraw."""
+    _require_debug()
+    existing = find_draw_component(ctx)
+    if existing is not None:
+        return existing
+    execute_debug_sidebar_op("OPEN_DRAW", ctx=ctx)
+    deadline = time.monotonic() + max(0.0, timeout)
+    while time.monotonic() <= deadline:
+        found = find_draw_component(ctx)
+        if found is not None:
+            return found
+        time.sleep(0.25)
+    raise RuntimeError(
+        "Draw did not appear after OPEN_DRAW (factory/sdraw was posted to VCL)"
     )
 
 

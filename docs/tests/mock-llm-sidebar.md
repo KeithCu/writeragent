@@ -20,6 +20,7 @@ This plan is **finished**. Mouse Stop, HITL Change dialog, live DuckDuckGo, and 
 | **[Packet E](#packet-e--tools-delegate-hitl-context-refresh)** | Tool loop, nested delegate, HITL, context refresh | Automated (CI) | **Done.** 18 Landed (incl. E12 Calc). |
 | **[Packet F](#packet-f--http--sse-errors-and-hangs)** | HTTP 4xx/5xx errors, socket hangs, SSE quirks | Automated (CI) | **Done.** 15 Landed. |
 | **[Packet G](#packet-g--mocked-audio-and-stt)** | Mocked Record / Stop Rec, `input_audio`, STT | Automated (CI) | **Done.** 21 Landed (incl. G17 Calc deck). |
+| **[Packet O](#packet-o--vision-ocr)** | Sidebar OCR workflow, Draw doc support, errors/timeouts | Automated (`FILTER=O`) | **Landed.** 7 Landed. |
 | **[Packet P](#packet-p--dual-sidebar-peer-673)** | Writer+Calc mock peer round-trip (specialized-inner #673) | Automated (`FILTER=P`) | **Landed** (unit scripts always; live dual deck uses `open_calc_document`). |
 | **[Packet K](#packet-k--sidebar-compaction-712--713)** | Proactive compact, overflow retry, kill switch, death ≠ overflow | Automated (`FILTER=K`) | **Landed.** Chat mode only (Web Research / Librarian share the worker). |
 | **[Packet T](#packet-t--tts-races-and-child-lifecycle)** | TTS stop / cut-off / crash / missing binary, fake child, no audio device | Automated (`FILTER=T`) | **Landed.** 4 Landed. |
@@ -102,6 +103,7 @@ make test-mock-sidebar FILTER=D        # Run Packet D (Reasoning vs content)
 make test-mock-sidebar FILTER=E        # Run Packet E (Tools & HITL)
 make test-mock-sidebar FILTER=F        # Run Packet F (HTTP/SSE errors)
 make test-mock-sidebar FILTER=G        # Run Packet G (Mocked audio & STT)
+make test-mock-sidebar FILTER=O        # Run Packet O (Vision OCR)
 make test-mock-sidebar FILTER=P        # Packet P only (dual Writer+Calc peer, not the whole soak)
 make test-mock-sidebar FILTER=K        # Packet K only (sidebar compaction smoke)
 make test-mock-sidebar FILTER=T        # Packet T only (TTS stop / cut-off / crash / missing)
@@ -388,6 +390,24 @@ Every test must satisfy:
 - **G23–G24 (Corrupt / 0-byte WAV):** Folded into G14.
 - **G25–G26 (Late WAV timing races):** Flaky over URP; covered by unit tests.
 - **G30 (Stale WAV cleanup):** Covered by G16.
+
+---
+
+### Packet O — Vision OCR
+
+- **Focus:** Sidebar OCR workflow (insert/return text), document-type support (Writer/Draw), mock OCR execution, and errors (timeout, export failure, disabled state).
+- **Mode:** Automated (`make test-mock-sidebar FILTER=O`).
+
+| ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
+|:--:|:----:|----------------|-----------------|------------------------|:--------------:|
+| **O1** | CI | Embedded image | Insert image in Writer; select it; send `OCR image` | OCR result inserted and returned; sidebar goes idle; `next_hello_ok()` | **Landed** |
+| **O2** | CI | Draw/Impress | Open Draw doc; send `OCR image` | Vision is supported; OCR result returned; sidebar goes idle; `next_hello_ok()` | **Landed** |
+| **O3** | CI | OCR disabled | Mock OCR stack not ready (`vision_ocr_stack_ready=False`); `OCR image` | Clean error surfaced (no crash/hang); nothing inserted; sidebar goes idle; `next_hello_ok()` | **Landed** |
+| **O4** | CI | OCR timeout | Send `OCR image` with mock timeout | Clean JSON error surfaced; sidebar goes idle; `next_hello_ok()` | **Landed** |
+| **O5** | CI | Stop during OCR | Send `OCR image` then click Stop | Stream cancelled cleanly; no late insertion; no leaked worker; sidebar goes idle; `next_hello_ok()` | **Landed** |
+| **O6** | CI | Export failure | Send `OCR image` with export mocked to fail | Clean error surfaced; sidebar goes idle; `next_hello_ok()` | **Landed** |
+| **O7** | CI | Rapid retry | Send `OCR image` then immediately `OCR image` again | No duplicate output; `next_hello_ok()` | **Landed** |
+| **O8** | CI | Multi-image selection | Insert 3 images with text between; select range; `OCR image` | All 3 OCR'd concurrently/sequentially; mapped in order; text preserved; partial failure shows clear error for failed image; `next_hello_ok()` | **Landed** |
 
 ---
 
