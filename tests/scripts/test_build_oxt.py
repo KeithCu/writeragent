@@ -98,6 +98,21 @@ def test_sync_vendor_into_lib_copies_isodate(tmp_path):
     assert not (lib / "isodate" / "stale.py").exists()
 
 
+def test_sync_vendor_into_lib_keeps_only_dist_info_metadata(tmp_path):
+    """latex2mathml calls importlib.metadata.version at import; METADATA must ship."""
+    vendor = tmp_path / "vendor"
+    (vendor / "latex2mathml").mkdir(parents=True)
+    (vendor / "latex2mathml" / "__init__.py").write_text("x = 1\n", encoding="utf-8")
+    dist = vendor / "latex2mathml-3.81.1.dist-info"
+    dist.mkdir()
+    (dist / "METADATA").write_text("Name: latex2mathml\nVersion: 3.81.1\n", encoding="utf-8")
+    (dist / "RECORD").write_text("", encoding="utf-8")
+    lib = tmp_path / "plugin" / "lib"
+    assert sync_vendor_into_lib(str(vendor), str(lib), prune_websockets=False) == 1
+    assert (lib / "latex2mathml-3.81.1.dist-info" / "METADATA").is_file()
+    assert not (lib / "latex2mathml-3.81.1.dist-info" / "RECORD").exists()
+
+
 def test_resolve_bundle_path_absolute_and_relative():
     assert resolve_bundle_path("/proj", "build/bundle") == os.path.join("/proj", "build/bundle")
     assert resolve_bundle_path("/proj", "/tmp/writeragent-release-abc") == "/tmp/writeragent-release-abc"

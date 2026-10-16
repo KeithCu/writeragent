@@ -156,10 +156,20 @@ def sync_vendor_into_lib(vendor_dir: str, lib_dir: str, *, prune_websockets: boo
     os.makedirs(lib_dir, exist_ok=True)
     vendor_count = 0
     for entry in sorted(os.listdir(vendor_dir)):
-        if entry.endswith(".dist-info") or entry.startswith(("_", ".")):
+        if entry.startswith(("_", ".")):
             continue
         src_path = os.path.join(vendor_dir, entry)
         dst_path = os.path.join(lib_dir, entry)
+        if entry.endswith(".dist-info"):
+            # Keep only METADATA: latex2mathml reads its own version through
+            # importlib.metadata at import time and fails without it.
+            meta_src = os.path.join(src_path, "METADATA")
+            if os.path.isfile(meta_src):
+                if os.path.exists(dst_path):
+                    shutil.rmtree(dst_path)
+                os.makedirs(dst_path)
+                shutil.copy2(meta_src, os.path.join(dst_path, "METADATA"))
+            continue
         if os.path.isdir(src_path):
             if os.path.exists(dst_path):
                 shutil.rmtree(dst_path)
