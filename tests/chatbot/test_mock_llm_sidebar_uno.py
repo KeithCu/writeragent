@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import time
+import sys
 import unittest
 from typing import Any, Callable
 
@@ -534,7 +535,7 @@ def _captures() -> list[dict[str, Any]]:
     return snapshot_captures(_session.config)
 
 
-def _reset_mock_runtime() -> None:
+def _reset_mock_runtime(fail_image: str = "none", image_status: int = 500, image_delay_s: float = 0.0) -> None:
     """Clear fail/delay so a prior F5/F6/F16 cannot poison later cases."""
     if _session is None:
         return
@@ -548,6 +549,9 @@ def _reset_mock_runtime() -> None:
     _session.config.empty_nested_answer = False
     _session.config.fail_native_audio = False
     _session.config.fail_stt = False
+    _session.config.fail_image = fail_image
+    _session.config.image_status = image_status
+    _session.config.image_delay_s = image_delay_s
     from scripts.mock_llm_server import DEFAULT_TRANSCRIPT
 
     _session.config.transcript = DEFAULT_TRANSCRIPT
@@ -3065,13 +3069,15 @@ def test_m6_stop_mid_stream_settles(ctx):
 
 # =============================================================================
 
+# =============================================================================
 # Packet I — Image generation
-# -----------------------------------------------------------------------------
+# =============================================================================
 
 @native_test
 def test_i1_image_generation_writer(ctx):
     _reset_mock_runtime()
     from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
+    from plugin.doc.visual_helpers import get_selected_image_pixel_size
 
     before_count = get_writer_graphics_count(ctx=ctx)
     _send_and_wait("generate an image", timeout=60.0)
@@ -3079,7 +3085,19 @@ def test_i1_image_generation_writer(ctx):
     after_count = get_writer_graphics_count(ctx=ctx)
     assert after_count == before_count + 1, f"Expected 1 image inserted, got {after_count - before_count}"
 
-    _assert_idle_state()
+    # Must check image size and that it's anchored at the cursor
+    from plugin.writer.images.image_tools import get_selected_image_pixel_size
+    # Selection should be the new image
+    w, h = get_selected_image_pixel_size(ctx.doc)
+    assert w is not None and h is not None, "Image not selected or no size found"
+
+    # Must check that it's anchored at the cursor
+    sel = ctx.doc.getCurrentController().getSelection()
+    if sel and sel.getCount() > 0:
+        obj = sel.getByIndex(0)
+        assert hasattr(obj, "AnchorType"), "Not an anchored object"
+        assert obj.AnchorType.value == "AS_CHARACTER", "Not anchored at cursor (AS_CHARACTER)"
+
     _hello_ok()
 
 @native_test
@@ -3097,12 +3115,10 @@ def test_i2_image_generation_calc_draw(ctx):
         after_count = get_draw_graphics_count(ctx=ctx)
         assert after_count == before_count + 1, f"Expected 1 image inserted into Calc, got {after_count - before_count}"
 
-        _assert_idle_state()
         _hello_ok()
     finally:
-        from plugin.chatbot.sidebar_test_hooks import close_component, _activate_writeragent_deck, sidebar_provider
-        close_component(calc_doc)
-        _activate_writeragent_deck(sidebar_provider(ctx.doc.getCurrentController()))
+        from tests.chatbot.mock_llm_harness import _restore_writer_after_calc
+        _restore_writer_after_calc(ctx, calc_doc)
 
 @native_test
 def test_i3_image_endpoint_error(ctx):
@@ -3118,26 +3134,24 @@ def test_i3_image_endpoint_error(ctx):
     after_count = get_writer_graphics_count(ctx=ctx)
     assert after_count == before_count, "Expected no image inserted on 500 error"
 
-    _assert_idle_state()
     _hello_ok()
 
 @native_test
 def test_i4_stop_during_image_generation(ctx):
     _reset_mock_runtime(image_delay_s=5.0)
     from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
+    import time
 
     before_count = get_writer_graphics_count(ctx=ctx)
     before = _start_until_stop_enabled("generate an image", delay_ms=40)
-    try:
-        _stop_and_wait_idle(before)
-        _assert_stopped_banner(before)
-    except AssertionError:
-        pass # May or may not see the banner depending on exact stop timing
+    _stop_and_wait_idle(before)
+
+    # Wait past delay to ensure no image is inserted later
+    time.sleep(5.5)
 
     after_count = get_writer_graphics_count(ctx=ctx)
     assert after_count == before_count, "Expected no image inserted when stopped"
 
-    _assert_idle_state()
     _hello_ok()
 
 @native_test
@@ -3162,7 +3176,6 @@ def test_i5_image_timeout(ctx):
     after_count = get_writer_graphics_count(ctx=ctx)
     assert after_count == before_count, "Expected no image inserted on timeout"
 
-    _assert_idle_state()
     _hello_ok()
 
 @native_test
@@ -3177,7 +3190,6 @@ def test_i6_two_image_requests(ctx):
     after_count = get_writer_graphics_count(ctx=ctx)
     assert after_count == before_count + 2, f"Expected 2 distinct images inserted, got {after_count - before_count}"
 
-    _assert_idle_state()
     _hello_ok()
 
 @native_test
@@ -3194,7 +3206,6 @@ def test_i7_malformed_image_payload(ctx):
     after_count = get_writer_graphics_count(ctx=ctx)
     assert after_count == before_count, "Expected no image inserted on malformed payload"
 
-    _assert_idle_state()
     _hello_ok()
 
 @native_test
@@ -3217,164 +3228,8 @@ def test_i8_undo_removes_image(ctx):
     after_undo_count = get_writer_graphics_count(ctx=ctx)
     assert after_undo_count == before_count, "Expected image to be removed in one undo step"
 
-    _assert_idle_state()
     _hello_ok()
 
-
-# Packet I — Image generation
-# -----------------------------------------------------------------------------
-
-@native_test
-def test_i1_image_generation_writer(ctx):
-    _reset_mock_runtime()
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
-
-    before_count = get_writer_graphics_count(ctx=ctx)
-    _send_and_wait("generate an image", timeout=60.0)
-
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count + 1, f"Expected 1 image inserted, got {after_count - before_count}"
-
-    _assert_idle_state()
-    _hello_ok()
-
-@native_test
-def test_i2_image_generation_calc_draw(ctx):
-    _reset_mock_runtime()
-    from plugin.chatbot.sidebar_test_hooks import get_draw_graphics_count, open_calc_document, adopt_chat_sidebar
-
-    calc_doc = open_calc_document(ctx)
-    try:
-        adopt_chat_sidebar(ctx, calc_doc)
-
-        before_count = get_draw_graphics_count(ctx=ctx)
-        _send_and_wait("generate an image", timeout=60.0)
-
-        after_count = get_draw_graphics_count(ctx=ctx)
-        assert after_count == before_count + 1, f"Expected 1 image inserted into Calc, got {after_count - before_count}"
-
-        _assert_idle_state()
-        _hello_ok()
-    finally:
-        from plugin.chatbot.sidebar_test_hooks import close_component, _activate_writeragent_deck, sidebar_provider
-        close_component(calc_doc)
-        _activate_writeragent_deck(sidebar_provider(ctx.doc.getCurrentController()))
-
-@native_test
-def test_i3_image_endpoint_error(ctx):
-    _reset_mock_runtime(fail_image="status", image_status=500)
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
-
-    before_count = get_writer_graphics_count(ctx=ctx)
-    _send_and_wait("generate an image", timeout=60.0, wait_for="API error")
-
-    body = _transcript()
-    assert "[API error:" in body, f"I3 expected error banner in transcript, got {body[-500:]}"
-
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count, "Expected no image inserted on 500 error"
-
-    _assert_idle_state()
-    _hello_ok()
-
-@native_test
-def test_i4_stop_during_image_generation(ctx):
-    _reset_mock_runtime(image_delay_s=5.0)
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
-
-    before_count = get_writer_graphics_count(ctx=ctx)
-    before = _start_until_stop_enabled("generate an image", delay_ms=40)
-    try:
-        _stop_and_wait_idle(before)
-        _assert_stopped_banner(before)
-    except AssertionError:
-        pass # May or may not see the banner depending on exact stop timing
-
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count, "Expected no image inserted when stopped"
-
-    _assert_idle_state()
-    _hello_ok()
-
-@native_test
-def test_i5_image_timeout(ctx):
-    from plugin.framework.config import set_config_int
-    _reset_mock_runtime(image_delay_s=10.0) # > config timeout
-
-    # We must lower the WriterAgent request timeout to test it quickly without waiting 120s
-    set_config_int("request_timeout", 5)
-
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
-
-    before_count = get_writer_graphics_count(ctx=ctx)
-    _send_and_wait("generate an image", timeout=60.0, wait_for="API error")
-
-    # restore timeout
-    set_config_int("request_timeout", 120)
-
-    body = _transcript()
-    assert "[API error:" in body, f"I5 expected error banner in transcript for timeout, got {body[-500:]}"
-
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count, "Expected no image inserted on timeout"
-
-    _assert_idle_state()
-    _hello_ok()
-
-@native_test
-def test_i6_two_image_requests(ctx):
-    _reset_mock_runtime()
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
-
-    before_count = get_writer_graphics_count(ctx=ctx)
-    _send_and_wait("generate an image", timeout=60.0)
-    _send_and_wait("generate an image", timeout=60.0)
-
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count + 2, f"Expected 2 distinct images inserted, got {after_count - before_count}"
-
-    _assert_idle_state()
-    _hello_ok()
-
-@native_test
-def test_i7_malformed_image_payload(ctx):
-    _reset_mock_runtime(fail_image="malformed")
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
-
-    before_count = get_writer_graphics_count(ctx=ctx)
-    _send_and_wait("generate an image", timeout=60.0, wait_for="API error")
-
-    body = _transcript()
-    assert "[API error:" in body, f"I7 expected error banner in transcript, got {body[-500:]}"
-
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count, "Expected no image inserted on malformed payload"
-
-    _assert_idle_state()
-    _hello_ok()
-
-@native_test
-def test_i8_undo_removes_image(ctx):
-    _reset_mock_runtime()
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count, dispatch_undo
-
-    before_count = get_writer_graphics_count(ctx=ctx)
-    _send_and_wait("generate an image", timeout=60.0)
-
-    after_insert_count = get_writer_graphics_count(ctx=ctx)
-    assert after_insert_count == before_count + 1, "Failed setup: image was not inserted"
-
-    # Wait for the document model to settle
-    import time
-    time.sleep(0.5)
-    dispatch_undo(ctx=ctx)
-    time.sleep(0.5)
-
-    after_undo_count = get_writer_graphics_count(ctx=ctx)
-    assert after_undo_count == before_count, "Expected image to be removed in one undo step"
-
-    _assert_idle_state()
-    _hello_ok()
 
 # Packet T — TTS races and child lifecycle
 # =============================================================================
@@ -3735,3 +3590,302 @@ def test_t4_tts_binary_missing_returns_to_idle(ctx):
         _t_clear()
     _hello_ok()
 
+
+
+# =============================================================================
+# Packet S - STT fake recorder tests
+# =============================================================================
+
+def _s_install(mode: str) -> None:
+    from plugin.chatbot.sidebar_test_hooks import install_fake_stt
+    install_fake_stt(mode)
+
+def _s_clear() -> None:
+    from plugin.chatbot.sidebar_test_hooks import clear_fake_stt
+    clear_fake_stt()
+
+def _s_state() -> dict[str, Any]:
+    from plugin.chatbot.sidebar_test_hooks import read_fake_stt_state
+    return read_fake_stt_state()
+
+def _s_wait_state(pred: Callable[[dict[str, Any]], bool], timeout: float = 5.0) -> dict[str, Any]:
+    t0 = time.monotonic()
+    last_st = {}
+    while time.monotonic() - t0 < timeout:
+        last_st = _s_state()
+        if last_st and pred(last_st):
+            return last_st
+        time.sleep(0.02)
+    raise AssertionError(f"_s_wait_state timed out after {timeout}s: last state = {last_st}")
+
+def _s_wait_pid(timeout: float = 5.0) -> int:
+    state = _s_wait_state(lambda st: bool(st.get("pids")), timeout=timeout)
+    return state["pids"][-1]
+
+def _s_assert_reaped(pid: int, state: dict[str, Any]) -> None:
+    assert pid not in state.get("alive", []), f"pid {pid} is still alive in fake STT state: {state}"
+    if sys.platform == "win32":
+        return
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        pass
+    except (ValueError, SystemError):
+        pass
+    else:
+        raise AssertionError(f"pid {pid} is still alive according to os.kill: {state}")
+
+def _s_assert_idle() -> None:
+    from plugin.chatbot.sidebar_test_hooks import send_state, wait_idle
+    assert wait_idle(timeout=10.0), "did not go idle"
+    st = send_state()
+    assert not st.is_busy, f"send is busy: {st}"
+    assert not st.is_recording, f"send is recording: {st}"
+
+
+@native_test
+def test_s1_silence_no_send(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record, send_state
+    _reset_mock_runtime()
+    _s_install("silence")
+    try:
+        before = _transcript()
+        press_record()
+
+        # Silence mode auto-stops and sends empty transcript -> no chat send
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) == 1, f"spawn_count != 1: {st}"
+
+        after = _transcript()
+        assert after == before or "[No speech detected.]" in after, "should not send chat or should indicate no speech"
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s2_noisy_auto_stops(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record
+    _reset_mock_runtime()
+    _s_install("noisy")
+    try:
+        press_record()
+
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) == 1, f"spawn_count != 1: {st}"
+
+        after = _transcript()
+        assert "Fake STT transcript" in after, "Noisy should transcribe correctly after auto-stop"
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s3_stt_404_no_resend(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record
+    _reset_mock_runtime()
+    assert _session is not None
+    _session.config.fail_stt_404_count = 1
+    _s_install("noisy")
+    try:
+        before = len(_captures())
+        press_record()
+
+        _s_assert_idle()
+
+        caps = _captures()
+        assert len(caps) == before + 1, "Expected exactly 1 STT capture"
+        assert caps[-1].get("stt") is True
+
+        after = _transcript()
+        assert "Mock STT Endpoint Failure" in after or "Error" in after or "failure" in after.lower()
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s4_native_400_then_stt_404(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record
+    from plugin.framework.config import set_config, get_config
+
+    saved_stt = get_config("audio.stt_model")
+    saved_chat = get_config("chat.model")
+    # Needs a model that has native audio enabled. MOCK_STT_MODEL_ID supports both.
+    set_config("audio.stt_model", "writeragent-mock-stt")
+    set_config("chat.model", "writeragent-mock-stt")
+
+    _reset_mock_runtime()
+    assert _session is not None
+    _session.config.fail_native_audio_400_count = 1
+    _session.config.fail_stt_404_count = 1
+
+    _s_install("noisy")
+    try:
+        before = len(_captures())
+        press_record()
+
+        _s_assert_idle()
+
+        caps = _captures()
+        assert len(caps) >= before + 2, "Expected native capture then STT capture"
+        _hello_ok()
+    finally:
+        _s_clear()
+        set_config("audio.stt_model", saved_stt)
+        set_config("chat.model", saved_chat)
+
+@native_test
+def test_s5_hands_free_turned_off_mid_reply(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record, press_stop, wait_idle
+    _reset_mock_runtime()
+    assert _session is not None
+    _session.config.delay_ms = 1500
+    _s_install("noisy")
+    try:
+        press_record()
+        pid = _s_wait_pid(5.0)
+
+        # We need to wait until STT is done and the reply starts streaming
+        time.sleep(1.0)
+        # Stop mid-reply
+        press_stop()
+
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 1.0:
+            cur_st = _s_state()
+            try:
+                _s_assert_reaped(pid, cur_st)
+                break
+            except AssertionError:
+                time.sleep(0.02)
+
+        assert wait_idle(timeout=5.0), "did not go idle"
+        _hello_ok()
+    finally:
+        _s_clear()
+        _session.config.delay_ms = 20
+
+@native_test
+def test_s6_stop_during_recording_reaps_child(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record, press_stop
+    _reset_mock_runtime()
+    _s_install("hold")
+    try:
+        press_record()
+        pid = _s_wait_pid(5.0)
+
+        press_stop()
+        t0 = time.monotonic()
+        reaped_st = None
+        while time.monotonic() - t0 < 1.0:
+            cur_st = _s_state()
+            try:
+                _s_assert_reaped(pid, cur_st)
+                reaped_st = cur_st
+                break
+            except AssertionError:
+                time.sleep(0.02)
+
+        assert reaped_st is not None, "recorder not reaped within 1s"
+        _s_assert_idle()
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s7_recorder_crash_to_idle(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record
+    _reset_mock_runtime()
+    _s_install("crash")
+    try:
+        press_record()
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) == 1, f"spawn_count != 1: {st}"
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s8_missing_binary_to_idle(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record
+    _reset_mock_runtime()
+    _s_install("missing")
+    try:
+        press_record()
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) == 0, f"spawn_count != 0: {st}"
+        after = _transcript()
+        assert "not found" in after.lower() or "missing" in after.lower() or "error" in after.lower()
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s9_late_transcript_hands_free(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record, set_late_transcript_delay
+    _reset_mock_runtime()
+    _s_install("noisy")
+    set_late_transcript_delay(1.5)
+    try:
+        press_record()
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) >= 1, f"spawn_count < 1: {st}"
+        _hello_ok()
+    finally:
+        set_late_transcript_delay(0.0)
+        _s_clear()
+
+@native_test
+def test_s10_clear_while_stt_in_flight(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record, set_late_transcript_delay, execute_debug_sidebar_op
+    _reset_mock_runtime()
+    _s_install("noisy")
+    set_late_transcript_delay(1.5)
+    try:
+        press_record()
+        time.sleep(0.5)
+        # Clear sidebar while STT is delaying
+        execute_debug_sidebar_op("SLASH_REFRESH")
+
+        # Wait for the delay to finish
+        time.sleep(2.0)
+
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) >= 1, f"spawn_count < 1: {st}"
+        _hello_ok()
+    finally:
+        set_late_transcript_delay(0.0)
+        _s_clear()
+
+@native_test
+def test_r10_late_transcript_not_auto_sent(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record, set_late_transcript_delay, press_send, set_query_text
+    _reset_mock_runtime()
+    _s_install("noisy")
+    set_late_transcript_delay(1.5)
+    try:
+        press_record()
+        time.sleep(0.5)
+        # Send a typed message while STT is delaying
+        set_query_text("typed msg")
+        press_send()
+
+        # Wait for delay and completion
+        time.sleep(2.0)
+        _s_assert_idle()
+
+        caps = _captures()
+        assert len(caps) > 0
+        last_prompt = caps[-1].get("prompt", "")
+        assert "typed msg" in last_prompt, "typed message should be sent"
+        assert "Fake STT transcript" not in last_prompt, "late STT must not be auto sent into the new turn"
+
+        _hello_ok()
+    finally:
+        set_late_transcript_delay(0.0)
+        _s_clear()

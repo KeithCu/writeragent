@@ -265,6 +265,23 @@ def test_other_agent_overlap_detected():
     assert _other_agent_redline_in_span(model, FakeText(), span, target) is True
 
 
+def test_other_agent_touching_edge_strict_only_when_requested():
+    span = FakeRange(10, 20)
+    target = TOKEN_PREFIX + "s:1"
+    sibling = TOKEN_PREFIX + "s:2"
+    touching = FakeModel(FakeRedlines([FakeRedline(sibling, 20, 30)]))
+    assert _other_agent_redline_in_span(touching, FakeText(), span, target, strict_edges=True) is False
+    assert _other_agent_redline_in_span(touching, FakeText(), span, target) is True
+    overlapping = FakeModel(FakeRedlines([FakeRedline(sibling, 15, 25)]))
+    assert _other_agent_redline_in_span(overlapping, FakeText(), span, target, strict_edges=True) is True
+
+
+def test_foreign_touching_edge_stays_inclusive():
+    # A user Delete that stacks over the agent's inserted text only touches the agent span.
+    model = FakeModel(FakeRedlines([FakeRedline("", 20, 30)]))
+    assert _foreign_redline_in_span(model, FakeText(), FakeRange(10, 20)) is True
+
+
 def test_other_agent_same_token_not_flagged():
     span = FakeRange(10, 20)
     target = TOKEN_PREFIX + "s:1"
