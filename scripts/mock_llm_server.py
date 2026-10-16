@@ -94,6 +94,9 @@ _SPECIALIZED_INNER_PRE_FINISH = (
 # Phrase → scenario. First match wins. Keep distinct from research/comment keywords.
 _SCENARIO_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("hang", re.compile(r"\bhang the stream\b", re.IGNORECASE)),
+    # Packet I: image_generate tool calls (one, or two in one turn).
+    ("image_two", re.compile(r"\bgenerate two images\b", re.IGNORECASE)),
+    ("image_one", re.compile(r"\bgenerate an image\b", re.IGNORECASE)),
     # Packet K: more specific than fail_http / flood. Summarizer POSTs are
     # classified before phrase match so dumped history cannot re-trigger these.
     ("overflow_once", re.compile(r"\b(overflow once|prompt too large once)\b", re.IGNORECASE)),
@@ -179,6 +182,8 @@ SCENARIO_IDS = frozenset(
         "parallel",
         "mutate",
         "ocr",
+        "image_one",
+        "image_two",
         "fail_http",
         "rate_limit",
         "hang",
@@ -244,6 +249,9 @@ class MockLLMConfig:
     # Packet G29: HTTP 400 on chat completions that include input_audio (STT path stays 200).
     fail_native_audio: bool = False
     fail_stt: bool = False
+    fail_image: str = "none"
+    image_delay_s: float = 0.0
+    image_status: int = 500
     fail_stt_404_count: int = 0
     fail_native_audio_400_count: int = 0
     # Packet E oracles (E1 CURRENT QUERY, E5 doc length, E6/E7 tool names).
@@ -1210,6 +1218,17 @@ def _peer_specialized_inner(
     )
 
 
+def _image_generate_completion(scenario: str) -> Completion:
+    """Packet I: one image_generate call, or two in one turn for ``image_two``."""
+    extra = [("image_generate", {"prompt": "a second mock lighthouse"})] if scenario == "image_two" else []
+    return Completion(
+        tool_name="image_generate",
+        tool_args={"prompt": "a mock lighthouse"},
+        extra_tool_calls=extra,
+        finish_reason="tool_calls",
+    )
+
+
 def _specialized_inner_completion(
     messages: list[Any],
     tool_names: set[str],
@@ -1251,6 +1270,10 @@ def _specialized_inner_completion(
         if "extract_structure_from_image" in called:
             return _finish("Mock OCR task complete.")
         return Completion(tool_name="extract_structure_from_image", tool_args={}, finish_reason="tool_calls")
+    if scenario in ("image_one", "image_two") and "image_generate" in tool_names:
+        if "image_generate" in called:
+            return _finish("Mock image task complete.")
+        return _image_generate_completion(scenario)
     # One discovery step, then finish. Calling every advertised tool (especially
     # delegate_read_document with path="") loops the inner agent (Packet E7 soak).
     if any(name in called for name in _SPECIALIZED_INNER_PRE_FINISH):
@@ -1451,6 +1474,15 @@ def _scenario_user_turn(
                 finish_reason="tool_calls",
             )
         return Completion(content=_html_chat(user_text, turn), reasoning=reasoning, finish_reason="stop")
+    if scenario in ("image_one", "image_two"):
+        # image_generate is specialized-tier: delegate to the images domain; the inner
+        # turn (_specialized_inner_completion) issues the image_generate call(s).
+        if "image_generate" in tool_names:
+            return _image_generate_completion(scenario)
+        delegate = _delegate_for_tools(tool_names)
+        if delegate:
+            return _tool_or_html(tool_names, delegate, {"domain": "images", "task": user_text}, user_text, turn)
+        return Completion(content=_html_chat(user_text, turn), reasoning=reasoning)
     if scenario == "mutate":
         return _tool_or_html(
             tool_names,
@@ -1956,6 +1988,30 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                     return
                 self._send_json(200, transcription_response_body(transcript))
                 return
+            if path in ("/v1/images/generations", "/images/generations"):
+                record_capture(config, {"path": path, "image": True})
+                try:
+                    payload = json.loads((raw.decode("utf-8") if raw else "") or "{}")
+                except json.JSONDecodeError:
+                    self.send_error(400, "invalid json")
+                    return
+                if config.fail_image == "hang":
+                    dummy = Completion()
+                    self._fail_or_hang_headers(dummy, stream=False)
+                    return
+                if config.image_delay_s > 0:
+                    time.sleep(config.image_delay_s)
+                if config.fail_image == "status":
+                    self._send_json(config.image_status, openai_error_body("mock image failure", "server_error"))
+                    return
+                elif config.fail_image == "malformed":
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"data": [{"b64_json": "not_base64"}]}')
+                    return
+                self._send_json(200, {"created": 1234567890, "data": [{"b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQImWP4DwQACfsD/eNV8pwAAAAASUVORK5CYII="}]})
+                return
             if path not in ("/v1/chat/completions", "/chat/completions"):
                 self.send_error(404)
                 return
@@ -2097,6 +2153,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--chunk-chars", type=int, default=DEFAULT_CHUNK_CHARS, help="SSE tool-arg fragment size")
     parser.add_argument("--fail", default="none", choices=FAIL_MODES, help="Fail every request this way")
+    parser.add_argument("--fail-image", default="none")
+    parser.add_argument("--image-delay-s", type=float, default=0.0)
+    parser.add_argument("--image-status", type=int, default=500)
     parser.add_argument(
         "--fail-after-chunks",
         type=int,

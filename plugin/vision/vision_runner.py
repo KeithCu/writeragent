@@ -139,8 +139,12 @@ def _resolve_locale_language(ctx: Any, doc: Any, graphic_obj: Any) -> str:
     return "en"
 
 
-def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Export graphic bytes and run a trusted vision helper in the user venv."""
+def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, stop_checker: Any = None) -> dict[str, Any]:
+    """Export graphic bytes and run a trusted vision helper in the user venv.
+
+    *stop_checker* cancels the venv OCR mid-run. Callers pass it explicitly: *ctx* is
+    the UNO component context, which never carries the tool's stop flag.
+    """
     name = _validate_helper(helper)
     if isinstance(params, dict) and params.get("_merged"):
         params_dict = dict(params)
@@ -182,7 +186,8 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
             details={"size": len(png_bytes), "limit": VISION_IMAGE_MAX_BYTES},
         )
     spec: dict[str, Any] = {"helper": name, "params": params_out}
-    stop_checker = getattr(ctx, "stop_checker", None)
+    if stop_checker is None:
+        stop_checker = getattr(ctx, "stop_checker", None)
     # venv OCR (up to the long worker budget, ~120s) stays on this thread.
     return run_vision(ctx, spec, png_bytes, context=context, stop_checker=stop_checker)
 
@@ -218,6 +223,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         return found
 
     results: list[dict[str, Any]] = []
+    failures: list[tuple[str, dict[str, Any]]] = []
     target_names: list[str] = []
     stopped_early = False
     try:
@@ -234,20 +240,18 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
             per_params = dict(params_dict)
             per_params["image_name"] = image_name
-            result = run_trusted_vision(ctx, doc, helper=name, params=per_params)
+            result = run_trusted_vision(ctx, doc, helper=name, params=per_params, stop_checker=stop_checker)
 
             if result.get("status") == "error":
-                # Attach individual_results on failure so images that already
-                # finished can still be inserted. The error dict's
-                # images_processed / image_names do not carry those payloads.
-                failed = dict(result)
-                failed["images_processed"] = len(results)
-                failed["image_names"] = list(target_names[: len(results)])
-                failed["failed_image"] = image_name
-                failed["inserted"] = bool(insert_into_document and results)
-                failed["partial"] = bool(results)
-                failed["individual_results"] = list(results)
-                return failed
+                if result.get("code") == "USER_STOPPED":
+                    if not results:
+                        return result
+                    stopped_early = True
+                    break
+                # One failed image must not block the rest of the selection: record it
+                # and continue, so later images are still OCR'd and inserted in order.
+                failures.append((image_name, result))
+                continue
             # A finished OCR is a document mutation and is inserted. Stop is checked
             # at the top of the loop, so the next image is not started.
             if insert_into_document:
@@ -267,6 +271,25 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
             else:
                 result["context"]["image_name"] = image_name
             results.append(result)
+
+        if failures:
+            # Error dict for the first failure, carrying every image that finished
+            # (individual_results) and every image that failed (failed_images).
+            first_name, first = failures[0]
+            failed = dict(first)
+            failed_names = [n for n, _unused in failures]
+            failed["images_processed"] = len(results)
+            failed["image_names"] = [str(r.get("image_name")) for r in results]
+            failed["failed_image"] = first_name
+            failed["failed_images"] = failed_names
+            failed["inserted"] = bool(insert_into_document and results)
+            failed["partial"] = bool(results)
+            failed["individual_results"] = list(results)
+            if len(target_names) > 1:
+                failed["message"] = _("OCR failed for {failed} ({error}); {count} of {total} images completed.").format(
+                    failed=", ".join(failed_names), error=str(first.get("message") or "error"),
+                    count=len(results), total=len(target_names))
+            return failed
     except SendCancelled:
         err_out: dict[str, Any] = {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
         if results:

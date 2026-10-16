@@ -202,7 +202,7 @@ def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run,
     doc = MagicMock()
     mock_pairs.return_value = [("Img1", MagicMock()), ("Img2", MagicMock())]
 
-    def _run(_ctx, _doc, *, helper, params):
+    def _run(_ctx, _doc, *, helper, params, stop_checker=None):
         name = params["image_name"]
         return {
             "status": "ok",
@@ -251,7 +251,7 @@ def test_run_and_insert_vision_for_selection_reverse_discovery_order(mock_pairs,
     doc = MagicMock()
     mock_pairs.return_value = [("Img2", MagicMock()), ("Img1", MagicMock())]
 
-    def _run(_ctx, _doc, *, helper, params):
+    def _run(_ctx, _doc, *, helper, params, stop_checker=None):
         name = params["image_name"]
         return {
             "status": "ok",
@@ -324,13 +324,13 @@ def test_run_and_insert_vision_for_selection_no_images(mock_pairs, _mock_merge):
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
 @patch("plugin.vision.vision_runner.run_trusted_vision")
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
-def test_run_and_insert_stops_on_error_and_reports_partial(mock_pairs, mock_run, _mock_merge):
+def test_run_and_insert_continues_past_failed_image(mock_pairs, mock_run, _mock_merge):
     ctx = MagicMock()
     ctx.stop_checker = None
     doc = MagicMock()
     mock_pairs.return_value = [("Img1", MagicMock()), ("Img2", MagicMock()), ("Img3", MagicMock())]
 
-    def _run(_ctx, _doc, *, helper, params):
+    def _run(_ctx, _doc, *, helper, params, stop_checker=None):
         name = params["image_name"]
         if name == "Img2":
             return {"status": "error", "code": "VISION_ERROR", "helper": helper, "message": "boom"}
@@ -340,16 +340,52 @@ def test_run_and_insert_stops_on_error_and_reports_partial(mock_pairs, mock_run,
     with patch("plugin.vision.vision_egress.insert_vision_result") as insert:
         result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_text")
 
+    # A failed image is reported but does not block the rest: Img3 still runs and inserts.
     assert result["status"] == "error"
     assert result["code"] == "VISION_ERROR"
-    assert result["message"] == "boom"
+    assert "Img2" in result["message"] and "boom" in result["message"]
+    assert "2 of 3" in result["message"]
     assert result["partial"] is True
     assert result["inserted"] is True
-    assert result["images_processed"] == 1
-    assert result["image_names"] == ["Img1"]
+    assert result["images_processed"] == 2
+    assert result["image_names"] == ["Img1", "Img3"]
     assert result["failed_image"] == "Img2"
-    assert mock_run.call_count == 2
-    assert insert.call_count == 1
+    assert result["failed_images"] == ["Img2"]
+    assert [c.kwargs["params"]["image_name"] for c in mock_run.call_args_list] == ["Img1", "Img2", "Img3"]
+    assert [c.kwargs["params"]["image_name"] for c in insert.call_args_list] == ["Img1", "Img3"]
+    assert [r["image_name"] for r in result["individual_results"]] == ["Img1", "Img3"]
+
+
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "full_text": "t"})
+@patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png")
+@patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())])
+def test_stop_checker_reaches_run_vision(_mock_pairs, _mock_bytes, mock_run_vision, _mock_merge):
+    """The tool's stop flag must reach the venv RPC; the UNO ctx carries none."""
+    ctx = MagicMock(spec=[])  # a UNO component context has no stop_checker attribute
+    stop = MagicMock(return_value=False)
+    with patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn(*a)), \
+            patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()), \
+            patch("plugin.vision.vision_runner._resolve_locale_language", return_value="en"), \
+            patch("plugin.vision.vision_egress.insert_vision_result"):
+        run_and_insert_vision_for_selection(ctx, MagicMock(), helper="extract_text", stop_checker=stop)
+    assert mock_run_vision.call_args.kwargs["stop_checker"] is stop
+
+
+@patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
+@patch("plugin.vision.vision_runner.run_trusted_vision")
+@patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
+def test_run_and_insert_single_image_failure_returns_its_error(mock_pairs, mock_run, _mock_merge):
+    ctx = MagicMock()
+    ctx.stop_checker = None
+    mock_pairs.return_value = [("Img1", MagicMock())]
+    mock_run.return_value = {"status": "error", "code": "VISION_ERROR", "message": "boom"}
+    with patch("plugin.vision.vision_egress.insert_vision_result") as insert:
+        result = run_and_insert_vision_for_selection(ctx, MagicMock(), helper="extract_text")
+    assert result["message"] == "boom"
+    assert result["partial"] is False
+    assert result["failed_image"] == "Img1"
+    assert insert.call_count == 0
 
 
 def test_run_trusted_vision_rejects_unimplemented_helper_before_export():
@@ -479,7 +515,7 @@ def test_stop_break_reports_partial_and_stopped():
         # Stop on 2nd image check
         return called >= 1
 
-    def _run(_ctx, _doc, *, helper, params):
+    def _run(_ctx, _doc, *, helper, params, stop_checker=None):
         nonlocal called
         called += 1
         name = params["image_name"]
@@ -522,7 +558,7 @@ def test_run_and_insert_vision_multi_image_partial_failure_attaches_results():
 
     call_count = [0]
 
-    def fake_run_trusted(ctx, doc, *, helper, params):
+    def fake_run_trusted(ctx, doc, *, helper, params, stop_checker=None):
         call_count[0] += 1
         if call_count[0] == 1:
             return {"status": "ok", "helper": helper, "full_text": "text1", "html": "<p>1</p>"}
@@ -538,7 +574,7 @@ def test_run_and_insert_vision_multi_image_partial_failure_attaches_results():
         )
 
     assert result["status"] == "error"
-    assert result["message"] == "OCR model crashed"
+    assert result["message"] == "OCR failed for Img2 (OCR model crashed); 1 of 2 images completed."
     assert result["failed_image"] == "Img2"
     assert result["images_processed"] == 1
     assert result["partial"] is True

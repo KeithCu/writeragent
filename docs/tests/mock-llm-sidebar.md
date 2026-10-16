@@ -20,9 +20,10 @@ This plan is **finished**. Mouse Stop, HITL Change dialog, live DuckDuckGo, and 
 | **[Packet E](#packet-e--tools-delegate-hitl-context-refresh)** | Tool loop, nested delegate, HITL, context refresh | Automated (CI) | **Done.** 18 Landed (incl. E12 Calc). |
 | **[Packet F](#packet-f--http--sse-errors-and-hangs)** | HTTP 4xx/5xx errors, socket hangs, SSE quirks | Automated (CI) | **Done.** 15 Landed. |
 | **[Packet G](#packet-g--mocked-audio-and-stt)** | Mocked Record / Stop Rec, `input_audio`, STT | Automated (CI) | **Done.** 21 Landed (incl. G17 Calc deck). |
-| **[Packet O](#packet-o--vision-ocr)** | Sidebar OCR via the vision delegate with a fake in-soffice backend, errors/timeouts, multi-image | Automated (`FILTER=O`) | O2 (Calc selection) and O8 (failure must not block later images) fail on current master — see PR #1668. |
+| **[Packet O](#packet-o--vision-ocr)** | Sidebar OCR via the vision delegate with a fake in-soffice backend, errors/timeouts, multi-image | Automated (`FILTER=O`) | **Landed.** 8 Landed. |
 | **[Packet P](#packet-p--dual-sidebar-peer-673)** | Writer+Calc mock peer round-trip (specialized-inner #673) | Automated (`FILTER=P`) | **Landed** (unit scripts always; live dual deck uses `open_calc_document`). |
 | **[Packet K](#packet-k--sidebar-compaction-712--713)** | Proactive compact, overflow retry, kill switch, death ≠ overflow | Automated (`FILTER=K`) | **Landed.** Chat mode only (Web Research / Librarian share the worker). |
+| **[Packet I](#packet-i--image-generation)** | Image generation tool lifecycle & delays | Automated (`FILTER=I`) | **Landed.** 8 Landed. |
 | **[Packet T](#packet-t--tts-races-and-child-lifecycle)** | TTS stop / cut-off / crash / missing binary, fake child, no audio device | Automated (`FILTER=T`) | **Landed.** 4 Landed. |
 | **[Packet R](#packet-r--tracking--redline-sidebar-actions)** | Redline hooks, overlapping user edits, close-doc pending | Automated (`FILTER=R`) | **Landed.** 9 Landed. |
 
@@ -404,10 +405,10 @@ Every test must satisfy:
 | ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
 |:--:|:----:|----------------|-----------------|------------------------|:--------------:|
 | **O1** | CI | Embedded image | Insert image in Writer; select it; send `OCR image` | OCR result inserted and returned; sidebar goes idle; `next_hello_ok()` | **Landed** |
-| **O2** | CI | Calc graphic | Open Calc, insert + select a graphic; send `OCR image` | One OCR of that graphic; sidebar goes idle; `next_hello_ok()` | **Landed** |
+| **O2** | CI | Calc graphic | Open Calc, insert a cell-anchored graphic and select it; send `OCR image` | One OCR of that graphic; sidebar goes idle; `next_hello_ok()` | **Landed** |
 | **O3** | CI | OCR disabled | Fake `unavailable` (venv gate False); `OCR image` | Clean error surfaced (no crash/hang); nothing inserted; sidebar goes idle; `next_hello_ok()` | **Landed** |
 | **O4** | CI | OCR timeout | Send `OCR image` with mock timeout | Clean JSON error surfaced; sidebar goes idle; `next_hello_ok()` | **Landed** |
-| **O5** | CI | Stop during OCR | Send `OCR image` then click Stop | Turn settles; at most one OCR run/insert (a finished OCR is inserted by design); sidebar goes idle; `next_hello_ok()` | **Landed** |
+| **O5** | CI | Stop during OCR | Send `OCR image` then click Stop | Stop reaches the running OCR (stop_checker), which ends USER_STOPPED; no OCR text inserted; sidebar goes idle; `next_hello_ok()` | **Landed** |
 | **O6** | CI | Export failure | Send `OCR image` with export mocked to fail | Clean error surfaced; sidebar goes idle; `next_hello_ok()` | **Landed** |
 | **O7** | CI | Rapid retry | Send `OCR image` then immediately `OCR image` again | No duplicate output; `next_hello_ok()` | **Landed** |
 | **O8** | CI | Multi-image selection | Insert 3 images with text between; select range; `OCR image` | Image 2 fails; all 3 still OCR'd in document order; results 1 and 3 after their images; Between1–4 exactly once; failed image named in transcript; `next_hello_ok()` | **Landed** |
@@ -465,23 +466,44 @@ Smol ReAct web-research subagent compaction is out of scope.
 
 ---
 
+
+
+---
+
+### Packet I — Image generation
+
+- **Focus:** The `image_generate` tool lifecycle, delays, endpoint errors, and undo on live Writer/Calc/Draw documents.
+- **Mode:** Automated (`make test-mock-sidebar FILTER=I`).
+
+| ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
+|:--:|:----:|----------------|-----------------|------------------------|:--------------:|
+| **I1** | mock-sidebar | `generate an image` (Writer) | Send query | Delegates to the `images` domain; one `/images/generations` POST; exactly one graphic inserted, non-zero size, anchored AS_CHARACTER; `next_hello_ok()` | **Landed** |
+| **I2** | mock-sidebar | `generate an image` (Calc) | Open Calc; send query | One image POST; Calc draw page shape count +1; `next_hello_ok()` (Draw/Impress not covered) | **Landed** |
+| **I3** | mock-sidebar | `generate an image` + `fail_image=500` | Send query | Image endpoint returns 500; clean error banner surfaced; no empty graphic inserted; `next_hello_ok()` | **Landed** |
+| **I4** | mock-sidebar | `generate an image` + `image_delay=slow` | Click Stop while generating | No image inserted later; no leaked threads; sidebar returns to idle; `next_hello_ok()` | **Landed** |
+| **I5** | mock-sidebar | `generate an image` + 30s delay, `request_timeout=5` (set in soffice) | Slow response hits timeout (client retries) | Turn ends before the mock answers; clean error surfaced; no empty graphic inserted; `next_hello_ok()` | **Landed** |
+| **I6** | mock-sidebar | `generate two images` | Two `image_generate` calls in one inner turn | Two image POSTs; two distinct graphics inserted; `next_hello_ok()` | **Landed** |
+| **I7** | mock-sidebar | `generate an image` + malformed | Endpoint returns malformed JSON/base64 | Clean error surfaced; no empty graphic inserted; `next_hello_ok()` | **Landed** |
+| **I8** | mock-sidebar | `generate an image` + Undo | Insert image, then dispatch `.uno:Undo` | Image removed from document in one step; graphic count -1; `next_hello_ok()` | **Landed** |
+
 ### Packet R — Tracking / Redline Sidebar Actions
 
+- **Mode note:** review mode and the HITL toggle are switched inside soffice via `AGENT_REVIEW_*` / `WEB_RESEARCH_PROMPT_*` debug ops (URP `set_config` is not seen by the live sidebar).
 - **Focus:** Redline hooks (`list_redlines`, `toggle_record_changes`, `insert_user_redline`, `undo`), adjacent agent edits, overlapping user edits, close-doc while pending.
 - **Mode:** Automated (`make test-mock-sidebar FILTER=R`).
 - **Status:** **Landed.** 9 Landed.
 
 | ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
 |:--:|:----:|----------------|-----------------|------------------------|:--------------:|
-| **R1** | CI | `adjacent agent edits` | Stream two adjacent agent edits; accept one | Refuses or resolves both (cannot leave orphan) | **OK / Landed** |
-| **R2** | CI | `mutate` | Insert overlapping user redline; accept agent edit | Refuses; leaves user redline untouched | **OK / Landed** |
-| **R3** | CI | `mutate` | Agent edit with track changes off; undo | No redline; undo reverts. Same with ON | **OK / Landed** |
-| **R4** | CI | `mutate` (delay 100ms) | Stop mid-stream | All-or-nothing modification; no orphan review entries | **OK / Landed** |
-| **R5** | CI | `mutate` (delay 100ms) | Close doc mid-tool | Clean error; request lock released; main sidebar functional | **OK / Landed** |
-| **R6** | CI | `mutate` | Undo; accept stale redline | Context refreshed; clean not-found failure | **OK / Landed** |
-| **R7** | CI | `style tools` | 5x loop of style + parallel tools | No thread-guard violations; no proxy release races | **OK / Landed** |
-| **R8** | CI | `look up cats` | Stop and Accept back-to-back | Tool runs at most once | **OK / Landed** |
-| **R9** | CI | `three agent edits` | User redline in middle; accept all | 1st and 3rd resolved; 2nd refused | **OK / Landed** |
+| **R1** | CI | `adjacent agent edits` (record mode) | Two adjacent agent edits; accept the first by token | First resolves; the second stays pending and unchanged (#1666) | **Landed** |
+| **R2** | CI | `insert filler` (record mode) | User redline overlapping the agent insert; accept agent change | Refused; user redline and agent change both remain | **Landed** |
+| **R3** | CI | `single agent edit` | Off mode then record mode; one Undo each | Undo restores the text, no redlines left, RecordChanges unchanged | **Landed** |
+| **R4** | CI | `insert filler` (delay 100ms, record mode) | Stop mid-stream | Body all-or-nothing; a completed edit is exactly one pending change, else none | **Landed** |
+| **R5** | CI | `list sheets` in Calc (delay 400ms) | Close the Calc doc mid-turn | No traceback; Writer chat still works | **Landed** |
+| **R6** | CI | `single agent edit` (record mode) | Undo, then accept the stale token | Accept returns False; body unchanged | **Landed** |
+| **R7** | CI | `style tools` | 5x apply_style + get_document_tree | Heading 1 applied each round; no new thread-guard violations (counted via `_notify_thread_violation`) | **Landed** |
+| **R8** | CI | `look up cats` (HITL on, mock online) | Stop then Accept on the approval | Turn settles; web_research runs at most once | **Landed** |
+| **R9** | CI | `three agent edits` (3 paragraphs, record mode) | User redline in paragraph 2; resolve all | 2 resolved with a user note; the middle agent change stays pending | **Landed** |
 
 
 ## 4. Out-of-Scope Items & Boundary Invariants
@@ -490,7 +512,7 @@ The following areas are intentionally excluded from the mock LLM sidebar test su
 - **Visual watching:** Scroll, HTML look, resize, theme, focus steal. Use `make mock-llm` in the product.
 - **Killing the shared soffice:** Close/switch document mid-stream, exit while ramble.
 - **Speech Recognition Accuracy:** Testing real microphone audio quality or ASR word-error rate (covered by external benchmarks).
-- **Non-Chat Sidebar Workflows:** Librarian full-corpus indexing, brainstorm mode, presentation slide deck generation, and image generation.
+- **Non-Chat Sidebar Workflows:** Librarian full-corpus indexing, brainstorm mode, presentation slide deck generation.
 - **Calc Formula Add-Ins:** `=PROMPT()` and `=PYTHON()` formula execution (tested separately in `tests/calc/`).
 - **External MCP Server Testing:** Live third-party MCP server communication (mocked in `tests/mcp/`).
 ### Packet S — STT fake recorder tests
