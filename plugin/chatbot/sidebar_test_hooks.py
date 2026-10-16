@@ -353,7 +353,7 @@ def _apply_fake_stt(mode: str) -> None:
         _clear_fake_stt_in_process()
         return
 
-    from plugin.framework.config import get_config, set_config
+    from plugin.framework.config import get_config
     import plugin.audio.stt_service as stt_service
     import plugin.scripting.audio_recorder_service as audio_recorder_service
 
@@ -2806,16 +2806,25 @@ def wait_idle(*, listener: Any = None, timeout: float = 30.0) -> bool:
 
 
 
+
+def get_thread_guard_violations() -> int:
+    try:
+        with open("writeragent_debug.log", "r") as f:
+            log_content = f.read()
+            return log_content.count("UNO thread violation:")
+    except Exception:
+        return 0
+
 def list_redlines(doc: Any) -> list[dict[str, Any]]:
     """Return a list of redlines in the document as dictionaries."""
-    redlines = []
+    redlines: list[dict[str, Any]] = []
     if not hasattr(doc, "getRedlines"):
         return redlines
     rls = doc.getRedlines()
     enum = rls.createEnumeration()
     while enum.hasMoreElements():
         rl = enum.nextElement()
-        entry = {}
+        entry: dict[str, Any] = {}
         for prop in ("RedlineAuthor", "RedlineComment", "RedlineType", "RedlineIdentifier"):
             try:
                 entry[prop] = rl.getPropertyValue(prop)

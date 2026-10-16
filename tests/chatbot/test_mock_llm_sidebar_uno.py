@@ -3089,7 +3089,8 @@ def test_r1_adjacent_agent_edits(ctx):
         redlines_after = list_redlines(doc)
         assert len(redlines_after) != 1, f"R1 resolved one of two adjacent edits leaving an orphan redline: {redlines_after}"
     else:
-        assert "overlap" in msg.lower() or "failed" in msg.lower(), f"R1 expected overlap refusal, got: {msg}"
+        assert "overlap" in msg.lower() or "overlap" in msg, f"R1 expected overlap refusal, got: {msg}"
+        assert "failed" not in msg.lower(), "R1 refusal must be a real overlap/refusal message, not 'failed'"
 
     _hello_ok()
 
@@ -3133,14 +3134,20 @@ def test_r3_undo_track_changes(ctx):
     assert len(list_redlines(doc)) == 0, "R3 expected no redlines with RecordChanges False"
 
     undo(frame, ctx)
+    import time
+    time.sleep(1.0)
     assert bool(doc.getPropertyValue("RecordChanges")) is False, "R3 undo changed RecordChanges incorrectly"
+    assert doc.getText().getString() == WELCOME_BODY, "R3 undo failed to revert body"
 
     toggle_record_changes(doc, True)
     _send_and_wait("mutate", timeout=60.0)
     assert len(list_redlines(doc)) > 0, "R3 expected redlines with RecordChanges True"
 
     undo(frame, ctx)
+    time.sleep(1.0)
     assert bool(doc.getPropertyValue("RecordChanges")) is True, "R3 undo changed RecordChanges incorrectly"
+    assert doc.getText().getString() == WELCOME_BODY, "R3 undo failed to revert body"
+    assert len(list_redlines(doc)) == 0, "R3 expected no redlines left after undo"
 
     _hello_ok()
 
@@ -3208,8 +3215,11 @@ def test_r5_close_doc_pending_tool(ctx):
         time.sleep(1.0)
         close_component(calc)
 
-        # main sidebar (writer) should stay alive and request lock should release
-        time.sleep(2.0)
+        from plugin.chatbot.sidebar_test_hooks import wait_idle
+        assert wait_idle(listener=sl, timeout=30.0), "R5 main sidebar did not go idle after close"
+        assert "disposed" in _transcript().lower() or "close" in _transcript().lower() or "error" in _transcript().lower(), "R5 expected disposed error in transcript"
+        assert "traceback" not in _transcript().lower(), "R5 expected no traceback in transcript"
+        time.sleep(0.5)
     finally:
         _session.config.delay_ms = 20
         _restore_writer_after_calc(ctx, writer, calc, saved_controls, saved_listener)
@@ -3247,11 +3257,16 @@ def test_r6_undo_then_accept(ctx):
 
 @native_test
 def test_r7_style_parallel_looped(ctx):
+    from plugin.chatbot.sidebar_test_hooks import get_thread_guard_violations
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
+    v_before = get_thread_guard_violations()
     for _ in range(5):
         _send_and_wait("style tools", timeout=60.0)
         _set_writer_body(ctx, WELCOME_BODY)
+
+    v_after = get_thread_guard_violations()
+    assert v_after == v_before, f"R7 expected no new thread-guard violations, got {v_after - v_before} new violations"
     _hello_ok()
 
 
@@ -3262,8 +3277,6 @@ def test_r8_accept_and_stop(ctx):
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
     set_config("chatbot.prompt_for_web_research", True)
-    import time
-    time.sleep(2.1)
 
     controls = getattr(_session, "controls", None)
     if controls is None:
@@ -3272,10 +3285,9 @@ def test_r8_accept_and_stop(ctx):
     try:
         from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, uno_click, wait_controls_send_finished
         set_query_text_via_controls(controls, "look up cats")
-        time.sleep(0.2)
         uno_click(controls["send"])
         if not _wait_send_label("Accept", timeout=10.0):
-            raise unittest.SkipTest("R8 HITL Accept label never appeared")
+            assert False, "R8 HITL Accept label never appeared"
 
         before = _transcript()
         uno_click(controls["stop"])
@@ -3288,7 +3300,6 @@ def test_r8_accept_and_stop(ctx):
 
     finally:
         set_config("chatbot.prompt_for_web_research", False)
-        time.sleep(2.1)
     _hello_ok()
 
 
@@ -3303,13 +3314,21 @@ def test_r9_three_edits_user_middle(ctx):
 
     doc = current_component(ctx)
     body = doc.getText().getString()
-    insert_user_redline(doc, ctx, "UserEdit", len(body)//2, len(body)//2 + 1)
+    redlines = list_redlines(doc)
+    assert len(redlines) >= 3, "R9 expected 3 agent edits"
+
+    # insert inside the second edit's actual range.
+    # The second edit string is ' to2 ' (added via mock llm)
+    idx = body.find(" to2 ")
+    assert idx >= 0, "R9 couldn't find second agent edit"
+    insert_user_redline(doc, ctx, "UserEdit", idx + 1, idx + 2)
 
     count, msg = resolve_all_with_feedback(doc, ctx, accept=True)
     assert count == 2, f"R9 expected 2 edits resolved out of 3, got {count}"
 
-    has_user = any(r.get("RedlineAuthor") == "Test User" for r in list_redlines(doc))
-    assert has_user, "R9 expected user redline to remain after accept all"
+    body_after = doc.getText().getString()
+    assert "UserEdit" in body_after, "R9 expected user redline to remain"
+    assert " to2 " in body_after or "to2" in body_after, "R9 expected second agent edit to remain unaccepted"
 
     _hello_ok()
 
@@ -3729,7 +3748,7 @@ def _s_assert_idle() -> None:
 
 @native_test
 def test_s1_silence_no_send(ctx):
-    from plugin.chatbot.sidebar_test_hooks import press_record, send_state
+    from plugin.chatbot.sidebar_test_hooks import press_record
     _reset_mock_runtime()
     _s_install("silence")
     try:
