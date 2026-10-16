@@ -261,7 +261,7 @@ def _spacing(series: Any) -> tuple[Any, str, bool]:
 
     deltas = series.index.to_series().diff().dropna()
     pos_deltas = deltas[deltas > pd.Timedelta(0)]
-    step = pos_deltas.median() if not pos_deltas.empty else (deltas.median() if not deltas.empty else pd.Timedelta(days=30))
+    step: Any = pos_deltas.median() if not pos_deltas.empty else (deltas.median() if not deltas.empty else pd.Timedelta(days=30))
 
     if _weekday_daily(series, step):
         return pd.tseries.frequencies.to_offset("B"), "B", False

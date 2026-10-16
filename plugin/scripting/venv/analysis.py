@@ -928,7 +928,7 @@ def correlation_matrix(
 
     # Slicing happened before pair_count and total_rows were recorded, and
     # truncated used >=, so the true pair count was replaced by 50.
-    pairs_df = pd.DataFrame(pairs, columns=["column_a", "column_b", "correlation"])
+    pairs_df = pd.DataFrame(pairs, columns=cast("Any", ["column_a", "column_b", "correlation"]))
     table = _table_from_df(pairs_df, name="correlations", max_rows=MAX_TABLE_ROWS)
 
     return _ok_result(
@@ -1197,7 +1197,7 @@ def monte_carlo(
         return _error_result("INSUFFICIENT_DATA", "Need at least 2 data points", helper="monte_carlo")
 
     sims_val = max(2, min(sims_val, 1_000_000))
-    result = pmc_montecarlo(series, sims=sims_val, bust=bust_val, goal=goal_val)
+    result: Any = pmc_montecarlo(series, sims=sims_val, bust=cast("Any", bust_val), goal=cast("Any", goal_val))
     total = getattr(result, "data", None)
     if total is None or not hasattr(total, "cumsum"):
         return _error_result("MONTE_CARLO_FAILED", "pandas-montecarlo returned unexpected result", helper="monte_carlo")
@@ -1219,7 +1219,7 @@ def monte_carlo(
             "final_value": round(float(path.iloc[-1]), 6),
             "trough": round(float(path.min()), 6),
         })
-    totals_df = pd.DataFrame(rows_data, columns=["simulation", "final_value", "trough"])
+    totals_df = pd.DataFrame(rows_data, columns=cast("Any", ["simulation", "final_value", "trough"]))
     table = _table_from_df(totals_df, name="monte_carlo_totals", max_rows=MAX_TABLE_ROWS)
 
     metrics = {

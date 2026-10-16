@@ -469,10 +469,10 @@ def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
         return _parse_numeric_date_series(series, date_origin=date_origin)
 
     # Object or string dtype
-    is_num_cell = series.map(
+    is_num_cell: Any = series.map(
         lambda x: isinstance(x, (int, float, np.integer, np.floating))
         and not isinstance(x, bool)
-        and not pd.isna(x)
+        and not bool(pd.isna(x))
     )
 
     result = pd.Series(pd.NaT, index=series.index, name=series.name, dtype="datetime64[ns]")
@@ -495,7 +495,7 @@ def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
         # _coerce_column_types. Mixed offsets return object and .dt raises; when the result
         # is not datetime64, the fallback calls pd.to_datetime without format to keep one
         # offset and NaT for the rest without raising AttributeError.
-        parsed_str = pd.to_datetime(str_slice, errors="coerce", format="mixed")
+        parsed_str: Any = pd.to_datetime(str_slice, errors="coerce", format="mixed")
         if not pd.api.types.is_datetime64_any_dtype(parsed_str):
             parsed_str = pd.to_datetime(str_slice, errors="coerce")
         if getattr(parsed_str.dt, "tz", None) is not None:

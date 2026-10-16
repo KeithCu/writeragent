@@ -110,7 +110,7 @@ def _dbapi() -> Any:
     except ImportError:
         _dbapi_mod = sqlite3
         return _dbapi_mod
-    if hasattr(pysqlite3.Connection, "enable_load_extension"):
+    if hasattr(getattr(pysqlite3, "Connection", None), "enable_load_extension"):
         _dbapi_mod = pysqlite3
         return _dbapi_mod
     _dbapi_mod = sqlite3
