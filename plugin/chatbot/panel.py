@@ -2103,12 +2103,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                                 self._sync_has_text_from_query()
                                 return
 
-                            if typed_after and typed_after != query_text:
+                            user_changed_ask = bool(typed_after and typed_after != query_text)
+                            if user_changed_ask:
                                 query_text = typed_after
 
                             if transcript:
                                 self._empty_take_count = 0
-                                query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
+                                if user_changed_ask:
+                                    # R10: Do not auto-send late transcript into the new typed turn.
+                                    # Put it back in Ask so it is not silently lost.
+                                    restored = (typed_after + "\n" + transcript).strip()
+                                    self._restore_query_text(restored)
+                                else:
+                                    query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
                         except Exception as e:
                             from plugin.framework.errors import NetworkError
 
