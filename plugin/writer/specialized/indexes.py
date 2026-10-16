@@ -97,6 +97,13 @@ _BIB_FIELD_NAMES = (
 
 _BIB_FIELD_NAME_SET = frozenset(_BIB_FIELD_NAMES)
 
+
+def _bib_name_key(name: str) -> str:
+    return name.replace("-", "_").replace("_", "").lower()
+
+
+_BIB_FIELD_FOLDED = {_bib_name_key(name): name for name in _BIB_FIELD_NAMES}
+
 # Convenience / IDL / English aliases → live Fields names. Unused kinds ignore
 # these kwargs; v2 keys (zotero_key, citekey, locator, csl_style) stay unmapped.
 _BIB_FIELD_ALIASES = {
@@ -160,18 +167,9 @@ def canonicalize_bibliography_field_name(name: str) -> str | None:
     alias = _BIB_FIELD_ALIASES.get(folded.lower())
     if alias:
         return alias
-    # IDENTIFIER → Identifier, BIBILIOGRAPHIC_TYPE → BibiliographicType
-    if "_" in folded:
-        parts = [p for p in folded.split("_") if p]
-        pretty = "".join(p[:1].upper() + p[1:].lower() for p in parts)
-        if pretty == "BibilographicType":
-            pretty = "BibiliographicType"
-        if pretty in _BIB_FIELD_NAME_SET:
-            return pretty
-    titled = raw[:1].upper() + raw[1:] if raw else raw
-    if titled in _BIB_FIELD_NAME_SET:
-        return titled
-    return None
+    # Joining segments turned BOOK_TITLE into BookTitle and REPORT_TYPE into
+    # ReportType. Neither string is the live Fields name.
+    return _BIB_FIELD_FOLDED.get(_bib_name_key(raw))
 
 
 def resolve_bibliographic_type(value: Any) -> int | None:
@@ -181,7 +179,9 @@ def resolve_bibliographic_type(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
-        return value
+        # Strings already reject "-1" and "22". This branch wrote those ints
+        # straight into Fields["BibiliographicType"].
+        return value if 0 <= value <= _BIB_TYPE_MAX else None
     text = str(value).strip()
     if not text:
         return None
@@ -643,11 +643,18 @@ def _paragraphs_in_anchor(anchor: Any) -> list[Any]:
 
 
 def _paragraph_element(found: Any) -> Any | None:
-    """The paragraph object that contains the search hit *found*."""
-    # A failed read is not "no paragraph". The loop still returns None when
-    # no paragraph contains the hit.
+    """The paragraph object that contains the search hit *found*.
+
+    What was wrong: each in-TOC hit walked found.getText() from the first
+    paragraph until _contained matched.
+    How it happened: toc_match calls this once per hit inside the anchor,
+    and find_all_ranges returns up to MAX_SEARCH_REPLACEMENTS (200).
+    Why this change: the hit's own createEnumeration yields the paragraphs
+    it overlaps (same call as edit_review._block_safe_for_surgical). A hit
+    that spans two paragraphs still matches none.
+    """
+    enum = found.createEnumeration()
     text = found.getText()
-    enum = text.createEnumeration()
     while _enum_has_more(enum):
         para = enum.nextElement()
         if _contained(text, para, found):

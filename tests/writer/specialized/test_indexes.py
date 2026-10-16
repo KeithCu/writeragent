@@ -12,6 +12,7 @@ from plugin.writer.specialized.indexes import (
     IndexesListCites,
     IndexesListTocEntries,
     _compose_toc_line,
+    _paragraph_element,
     canonicalize_bibliography_field_name,
     collect_bibliography_field_pairs,
     fields_sequence_to_dict,
@@ -30,6 +31,16 @@ def test_canonicalize_bibliography_field_name():
     assert canonicalize_bibliography_field_name("BIBILIOGRAPHIC_TYPE") == "BibiliographicType"
     assert canonicalize_bibliography_field_name("BibliographicType") == "BibiliographicType"
     assert canonicalize_bibliography_field_name("bibliographic_type") == "BibiliographicType"
+    assert canonicalize_bibliography_field_name("report_type") == "Report_Type"
+    assert canonicalize_bibliography_field_name("REPORT_TYPE") == "Report_Type"
+    assert canonicalize_bibliography_field_name("Report_type") == "Report_Type"
+    assert canonicalize_bibliography_field_name("BOOK_TITLE") == "Booktitle"
+    assert canonicalize_bibliography_field_name("book_title") == "Booktitle"
+    assert canonicalize_bibliography_field_name("LOCAL_URL") == "LocalURL"
+    assert canonicalize_bibliography_field_name("local_url") == "LocalURL"
+    assert canonicalize_bibliography_field_name("CUSTOM1") == "Custom1"
+    assert canonicalize_bibliography_field_name("JOURNAL") == "Journal"
+    assert canonicalize_bibliography_field_name("HOW_PUBLISHED") == "Howpublished"
     assert canonicalize_bibliography_field_name("zotero_key") is None
     assert canonicalize_bibliography_field_name("citekey") is None
 
@@ -575,6 +586,27 @@ class _IndexText:
         return 0 if inner_end.para.inside else -1
 
 
+def test_paragraph_element_enumerates_hit_not_text():
+    text = _IndexText([])
+    text.createEnumeration = MagicMock(side_effect=AssertionError("getText().createEnumeration"))
+
+    inside_para = _IndexPara("Heading", "Contents 1", [], True)
+    hit_inside = MagicMock()
+    hit_inside.createEnumeration.return_value = _ElementEnum([inside_para])
+    hit_inside.getText.return_value = text
+    hit_inside.getStart.return_value = inside_para.getStart()
+    hit_inside.getEnd.return_value = inside_para.getEnd()
+    assert _paragraph_element(hit_inside) is inside_para
+
+    outside_para = _IndexPara("Outside", "Contents 1", [], False)
+    hit_outside = MagicMock()
+    hit_outside.createEnumeration.return_value = _ElementEnum([outside_para])
+    hit_outside.getText.return_value = text
+    hit_outside.getStart.return_value = outside_para.getStart()
+    hit_outside.getEnd.return_value = outside_para.getEnd()
+    assert _paragraph_element(hit_outside) is None
+
+
 class _IndexAnchor:
     def __init__(self, text):
         self._text = text
@@ -711,9 +743,22 @@ def test_list_toc_entries_rejects_a_missing_or_non_toc_index():
 def test_resolve_bibliographic_type_numeric_range():
     assert resolve_bibliographic_type(17) == 17
     assert resolve_bibliographic_type("21") == 21
+    assert resolve_bibliographic_type(0) == 0
+    assert resolve_bibliographic_type(21) == 21
     assert resolve_bibliographic_type("-1") is None
     assert resolve_bibliographic_type("22") is None
+    assert resolve_bibliographic_type(-1) is None
+    assert resolve_bibliographic_type(22) is None
+    assert resolve_bibliographic_type(99) is None
+    assert resolve_bibliographic_type(True) is None
     assert resolve_bibliographic_type("custom5") == 21
+    omitted = dict(collect_bibliography_field_pairs({
+        "bibliographic_type": 99,
+        "fields": {"BibiliographicType": -1},
+    }))
+    assert "BibiliographicType" not in omitted
+    stored = dict(collect_bibliography_field_pairs({"bibliographic_type": 21}))
+    assert stored["BibiliographicType"] == 21
 
 def test_indexes_refresh_toc_entry_collapses_newlines():
     tool = IndexesRefreshTocEntry()
