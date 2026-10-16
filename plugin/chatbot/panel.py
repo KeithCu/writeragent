@@ -2087,14 +2087,35 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                             log.warning("_do_send: model %s has no native audio, using stt fallback %s" % (current_model, stt_model))
                         try:
                             transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
+
+                            typed_after = ""
+                            if self.query_control and self.query_control.getModel():
+                                from plugin.chatbot.dialogs import get_control_text
+
+                                typed_after = (get_control_text(self.query_control) or "").strip()
+
                             if self._terminal_status == "Stopped":
                                 new_text = (query_text + "\n" + transcript).strip() if (query_text and transcript) else (transcript or query_text)
+                                if typed_after and typed_after != query_text:
+                                    new_text = (typed_after + "\n" + transcript).strip() if (typed_after and transcript) else (transcript or typed_after)
+
                                 self._restore_query_text(new_text)
                                 self._sync_has_text_from_query()
                                 return
+
+                            user_changed_ask = bool(typed_after and typed_after != query_text)
+                            if user_changed_ask:
+                                query_text = typed_after
+
                             if transcript:
                                 self._empty_take_count = 0
-                                query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
+                                if user_changed_ask:
+                                    # R10: Do not auto-send late transcript into the new typed turn.
+                                    # Put it back in Ask so it is not silently lost.
+                                    restored = (typed_after + "\n" + transcript).strip()
+                                    self._restore_query_text(restored)
+                                else:
+                                    query_text = (query_text + "\n" + transcript).strip() if query_text else transcript
                         except Exception as e:
                             from plugin.framework.errors import NetworkError
 

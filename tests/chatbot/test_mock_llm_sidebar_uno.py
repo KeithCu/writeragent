@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import time
+import sys
 import unittest
 from typing import Any, Callable
 
@@ -3080,7 +3081,7 @@ def test_o8_multi_image_selection_ocr(ctx):
     doc.getText().insertString(cursor, "\nBetween1\n", False)
     img1 = _insert_test_image(ctx, doc, r=255, g=0, b=0)
     doc.getText().insertString(cursor, "\nBetween2\n", False)
-    img2 = _insert_test_image(ctx, doc, r=0, g=255, b=0)
+    _img2 = _insert_test_image(ctx, doc, r=0, g=255, b=0)
     doc.getText().insertString(cursor, "\nBetween3\n", False)
     img3 = _insert_test_image(ctx, doc, r=0, g=0, b=255)
     doc.getText().insertString(cursor, "\nBetween4\n", False)
@@ -3711,3 +3712,302 @@ def test_t4_tts_binary_missing_returns_to_idle(ctx):
         _t_clear()
     _hello_ok()
 
+
+
+# =============================================================================
+# Packet S - STT fake recorder tests
+# =============================================================================
+
+def _s_install(mode: str) -> None:
+    from plugin.chatbot.sidebar_test_hooks import install_fake_stt
+    install_fake_stt(mode)
+
+def _s_clear() -> None:
+    from plugin.chatbot.sidebar_test_hooks import clear_fake_stt
+    clear_fake_stt()
+
+def _s_state() -> dict[str, Any]:
+    from plugin.chatbot.sidebar_test_hooks import read_fake_stt_state
+    return read_fake_stt_state()
+
+def _s_wait_state(pred: Callable[[dict[str, Any]], bool], timeout: float = 5.0) -> dict[str, Any]:
+    t0 = time.monotonic()
+    last_st = {}
+    while time.monotonic() - t0 < timeout:
+        last_st = _s_state()
+        if last_st and pred(last_st):
+            return last_st
+        time.sleep(0.02)
+    raise AssertionError(f"_s_wait_state timed out after {timeout}s: last state = {last_st}")
+
+def _s_wait_pid(timeout: float = 5.0) -> int:
+    state = _s_wait_state(lambda st: bool(st.get("pids")), timeout=timeout)
+    return state["pids"][-1]
+
+def _s_assert_reaped(pid: int, state: dict[str, Any]) -> None:
+    assert pid not in state.get("alive", []), f"pid {pid} is still alive in fake STT state: {state}"
+    if sys.platform == "win32":
+        return
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        pass
+    except (ValueError, SystemError):
+        pass
+    else:
+        raise AssertionError(f"pid {pid} is still alive according to os.kill: {state}")
+
+def _s_assert_idle() -> None:
+    from plugin.chatbot.sidebar_test_hooks import send_state, wait_idle
+    assert wait_idle(timeout=10.0), "did not go idle"
+    st = send_state()
+    assert not st.is_busy, f"send is busy: {st}"
+    assert not st.is_recording, f"send is recording: {st}"
+
+
+@native_test
+def test_s1_silence_no_send(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record
+    _reset_mock_runtime()
+    _s_install("silence")
+    try:
+        before = _transcript()
+        press_record()
+
+        # Silence mode auto-stops and sends empty transcript -> no chat send
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) == 1, f"spawn_count != 1: {st}"
+
+        after = _transcript()
+        assert after == before or "[No speech detected.]" in after, "should not send chat or should indicate no speech"
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s2_noisy_auto_stops(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record
+    _reset_mock_runtime()
+    _s_install("noisy")
+    try:
+        press_record()
+
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) == 1, f"spawn_count != 1: {st}"
+
+        after = _transcript()
+        assert "Fake STT transcript" in after, "Noisy should transcribe correctly after auto-stop"
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s3_stt_404_no_resend(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record
+    _reset_mock_runtime()
+    assert _session is not None
+    _session.config.fail_stt_404_count = 1
+    _s_install("noisy")
+    try:
+        before = len(_captures())
+        press_record()
+
+        _s_assert_idle()
+
+        caps = _captures()
+        assert len(caps) == before + 1, "Expected exactly 1 STT capture"
+        assert caps[-1].get("stt") is True
+
+        after = _transcript()
+        assert "Mock STT Endpoint Failure" in after or "Error" in after or "failure" in after.lower()
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s4_native_400_then_stt_404(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record
+    from plugin.framework.config import set_config, get_config
+
+    saved_stt = get_config("audio.stt_model")
+    saved_chat = get_config("chat.model")
+    # Needs a model that has native audio enabled. MOCK_STT_MODEL_ID supports both.
+    set_config("audio.stt_model", "writeragent-mock-stt")
+    set_config("chat.model", "writeragent-mock-stt")
+
+    _reset_mock_runtime()
+    assert _session is not None
+    _session.config.fail_native_audio_400_count = 1
+    _session.config.fail_stt_404_count = 1
+
+    _s_install("noisy")
+    try:
+        before = len(_captures())
+        press_record()
+
+        _s_assert_idle()
+
+        caps = _captures()
+        assert len(caps) >= before + 2, "Expected native capture then STT capture"
+        _hello_ok()
+    finally:
+        _s_clear()
+        set_config("audio.stt_model", saved_stt)
+        set_config("chat.model", saved_chat)
+
+@native_test
+def test_s5_hands_free_turned_off_mid_reply(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record, press_stop, wait_idle
+    _reset_mock_runtime()
+    assert _session is not None
+    _session.config.delay_ms = 1500
+    _s_install("noisy")
+    try:
+        press_record()
+        pid = _s_wait_pid(5.0)
+
+        # We need to wait until STT is done and the reply starts streaming
+        time.sleep(1.0)
+        # Stop mid-reply
+        press_stop()
+
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 1.0:
+            cur_st = _s_state()
+            try:
+                _s_assert_reaped(pid, cur_st)
+                break
+            except AssertionError:
+                time.sleep(0.02)
+
+        assert wait_idle(timeout=5.0), "did not go idle"
+        _hello_ok()
+    finally:
+        _s_clear()
+        _session.config.delay_ms = 20
+
+@native_test
+def test_s6_stop_during_recording_reaps_child(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record, press_stop
+    _reset_mock_runtime()
+    _s_install("hold")
+    try:
+        press_record()
+        pid = _s_wait_pid(5.0)
+
+        press_stop()
+        t0 = time.monotonic()
+        reaped_st = None
+        while time.monotonic() - t0 < 1.0:
+            cur_st = _s_state()
+            try:
+                _s_assert_reaped(pid, cur_st)
+                reaped_st = cur_st
+                break
+            except AssertionError:
+                time.sleep(0.02)
+
+        assert reaped_st is not None, "recorder not reaped within 1s"
+        _s_assert_idle()
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s7_recorder_crash_to_idle(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record
+    _reset_mock_runtime()
+    _s_install("crash")
+    try:
+        press_record()
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) == 1, f"spawn_count != 1: {st}"
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s8_missing_binary_to_idle(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record
+    _reset_mock_runtime()
+    _s_install("missing")
+    try:
+        press_record()
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) == 0, f"spawn_count != 0: {st}"
+        after = _transcript()
+        assert "not found" in after.lower() or "missing" in after.lower() or "error" in after.lower()
+        _hello_ok()
+    finally:
+        _s_clear()
+
+@native_test
+def test_s9_late_transcript_hands_free(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record, set_late_transcript_delay
+    _reset_mock_runtime()
+    _s_install("noisy")
+    set_late_transcript_delay(1.5)
+    try:
+        press_record()
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) >= 1, f"spawn_count < 1: {st}"
+        _hello_ok()
+    finally:
+        set_late_transcript_delay(0.0)
+        _s_clear()
+
+@native_test
+def test_s10_clear_while_stt_in_flight(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record, set_late_transcript_delay, execute_debug_sidebar_op
+    _reset_mock_runtime()
+    _s_install("noisy")
+    set_late_transcript_delay(1.5)
+    try:
+        press_record()
+        time.sleep(0.5)
+        # Clear sidebar while STT is delaying
+        execute_debug_sidebar_op("SLASH_REFRESH")
+
+        # Wait for the delay to finish
+        time.sleep(2.0)
+
+        _s_assert_idle()
+        st = _s_state()
+        assert st.get("spawn_count", 0) >= 1, f"spawn_count < 1: {st}"
+        _hello_ok()
+    finally:
+        set_late_transcript_delay(0.0)
+        _s_clear()
+
+@native_test
+def test_r10_late_transcript_not_auto_sent(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_record, set_late_transcript_delay, press_send, set_query_text
+    _reset_mock_runtime()
+    _s_install("noisy")
+    set_late_transcript_delay(1.5)
+    try:
+        press_record()
+        time.sleep(0.5)
+        # Send a typed message while STT is delaying
+        set_query_text("typed msg")
+        press_send()
+
+        # Wait for delay and completion
+        time.sleep(2.0)
+        _s_assert_idle()
+
+        caps = _captures()
+        assert len(caps) > 0
+        last_prompt = caps[-1].get("prompt", "")
+        assert "typed msg" in last_prompt, "typed message should be sent"
+        assert "Fake STT transcript" not in last_prompt, "late STT must not be auto sent into the new turn"
+
+        _hello_ok()
+    finally:
+        set_late_transcript_delay(0.0)
+        _s_clear()
