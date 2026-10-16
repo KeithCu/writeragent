@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import signal
+import subprocess
 import sys
 import tempfile
 import threading
@@ -27,7 +28,6 @@ from typing import TYPE_CHECKING, Any, Callable
 from weakref import WeakSet
 
 if TYPE_CHECKING:
-    import subprocess
 
 from plugin.chatbot.panel import (
     StopButtonListener,
@@ -398,7 +398,6 @@ def _apply_fake_stt(mode: str) -> None:
             }
 
         orig_popen = _FAKE_STT_ORIG["Popen"]
-        orig_popen_stt = _FAKE_STT_ORIG["Popen_stt"]
         orig_run_cmd = _FAKE_STT_ORIG["_run_cmd"]
 
         if not getattr(audio_recorder_service.subprocess.Popen, "_writeragent_fake_stt", False):
