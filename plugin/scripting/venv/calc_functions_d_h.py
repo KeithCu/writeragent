@@ -358,7 +358,9 @@ def devsq(*args: Any) -> float:
     arr = _extract_numeric_array(*args, ignore_text=True, ignore_bool=True, propagate_nan=False)
     if not arr.size:
         return float("nan")
-    return float(np.sum((arr - np.mean(arr)) ** 2))
+    # Overflow on huge inputs yields inf like LibreOffice; silence numpy's RuntimeWarning.
+    with np.errstate(all="ignore"):
+        return float(np.sum((arr - np.mean(arr)) ** 2))
 
 
 def dget(db: Any, field: Any, criteria: Any) -> Any:

@@ -434,10 +434,12 @@ def irr(values: Any, guess: Any = 0.1) -> float:
             return float("nan")
         f = 0.0
         df = 0.0
-        for i, v in enumerate(vals):
-            f += v / ((1 + x) ** i)
-            if i > 0:
-                df -= i * v / ((1 + x) ** (i + 1))
+        # Divergent guesses overflow to inf/nan (caught by isfinite above); no RuntimeWarning.
+        with np.errstate(all="ignore"):
+            for i, v in enumerate(vals):
+                f += v / ((1 + x) ** i)
+                if i > 0:
+                    df -= i * v / ((1 + x) ** (i + 1))
         if df == 0.0:
             break
         x_new = x - f / df
@@ -588,8 +590,9 @@ def kurt(*args: Any) -> float:
     k_d = (count - 2.0) * (count - 3.0)
     k_l = count * (count + 1.0) / ((count - 1.0) * k_d)
     k_t = 3.0 * (count - 1.0) * (count - 1.0) / k_d
-    centered = (arr - mean) / stdev
-    res = float(np.sum(centered**4) * k_l - k_t)
+    with np.errstate(all="ignore"):  # overflow -> non-finite -> nan below
+        centered = (arr - mean) / stdev
+        res = float(np.sum(centered**4) * k_l - k_t)
     return res if math.isfinite(res) else float("nan")
 
 

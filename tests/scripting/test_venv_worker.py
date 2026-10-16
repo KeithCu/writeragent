@@ -1572,7 +1572,8 @@ class TestLiveWorkerReuse:
     """Contiguous live-worker tests sharing one warmed manager (after lifecycle tests above)."""
 
     @pytest.fixture(scope="class")
-    def warmed_worker_manager(self):
+    @classmethod
+    def warmed_worker_manager(cls):
         PythonWorkerManager.shutdown_all()
         mgr = PythonWorkerManager.get(sys.executable, {"PATH": "/usr/bin:/bin"})
         mgr.warm()

@@ -15,6 +15,11 @@ import pytest
 pytest.importorskip("duckdb")
 pytest.importorskip("pandas")
 
+
+def _demo():
+    """Dev-only ``scripts/`` package is absent from the stripped release bundle."""
+    return pytest.importorskip("scripts.generate_pretty_demo_spreadsheet")
+
 from plugin.scripting.venv.duckdb_sql import (
     MAX_TABLE_ROWS,
     GuardedDuckDBConnection,
@@ -149,12 +154,14 @@ def test_query_folder_sql_preloaded_compact_grid(tmp_path):
 
 
 def _pretty_demo_sales_grid():
+    _demo()
     from scripts.generate_pretty_demo_spreadsheet import get_sales_dataset
 
     return get_sales_dataset()
 
 
 def _pretty_demo_marketing_grid():
+    _demo()
     from scripts.generate_pretty_demo_spreadsheet import get_marketing_dataset
 
     return get_marketing_dataset()
@@ -166,6 +173,7 @@ def _zip_income_path() -> Path:
 
 def test_pretty_demo_sheet_sql_sales_groupby_region_category():
     """Happy path: real DuckDB GROUP BY on the pretty-demo sales grid (not wallpaper)."""
+    _demo()
     from scripts.generate_pretty_demo_spreadsheet import SQL_SALES_BY_REGION_CATEGORY
 
     res = query_folder_sql(
@@ -191,6 +199,7 @@ def test_pretty_demo_sheet_sql_sales_groupby_region_category():
 
 def test_pretty_demo_sheet_sql_marketing_channel_roas():
     """Second sheet-only KPI: marketing ROAS via the same query_folder_sql helper."""
+    _demo()
     from scripts.generate_pretty_demo_spreadsheet import SQL_MARKETING_CHANNEL_ROAS
 
     res = query_folder_sql(
@@ -216,6 +225,7 @@ def test_pretty_demo_sheet_sql_marketing_channel_roas():
 
 def test_pretty_demo_join_sales_to_sibling_zip_income():
     """Happy path: sheet sales ⨝ sibling ACS zip_income.csv through query_folder_sql."""
+    _demo()
     from scripts.generate_pretty_demo_spreadsheet import (
         SQL_SALES_ZIP_INCOME_JOIN,
         SALES_ZIPS_BY_REGION,
@@ -255,6 +265,7 @@ def test_pretty_demo_join_sales_to_sibling_zip_income():
 def test_pretty_demo_results_code_reads_sql_from_cell_range():
     """The short RESULTS =PY() payload runs the SQL sitting in data[1], not a copy."""
     from plugin.scripting.calc_range import CalcRange
+    _demo()
     from scripts.generate_pretty_demo_spreadsheet import (
         SQL_SALES_BY_REGION_CATEGORY,
         duckdb_sql_from_cell_code,
@@ -419,6 +430,7 @@ def test_query_folder_sql_corrupt_parquet_is_read_error(tmp_path):
 def test_pretty_demo_join_results_code_runs_via_run_sql():
     """Live ZIP-join RESULTS payload: data[0] sheet ⨝ sibling CSV via run_sql."""
     from plugin.scripting.calc_range import CalcRange
+    _demo()
     from scripts.generate_pretty_demo_spreadsheet import (
         SQL_SALES_ZIP_INCOME_JOIN,
         ZIP_INCOME_CSV_NAME,

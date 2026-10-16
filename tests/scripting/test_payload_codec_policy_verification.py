@@ -261,7 +261,10 @@ def test_plain_dict_over_shape_dim_unpacks_with_deal() -> None:
     PreContractError (AssertionError) before the plain-dict path. compute_service
     installs deal, so HTTP egress died; release OXTs strip deal and already worked.
     """
-    from compute_service.json_egress import normalize_execute_response, to_dumb_json_value
+    # compute_service is dev-only; absent from the stripped release bundle.
+    json_egress = pytest.importorskip("compute_service.json_egress")
+    normalize_execute_response = json_egress.normalize_execute_response
+    to_dumb_json_value = json_egress.to_dumb_json_value
 
     too_many = {f"k{i}": i for i in range(DEAL_MAX_SHAPE_DIM + 1)}
     for det in _DETECTORS:
