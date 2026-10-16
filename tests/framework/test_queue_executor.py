@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from tests.harness.strip_bundle import is_release_build
 import threading
 import time
 import plugin.framework.queue_executor as lc
@@ -1918,6 +1919,8 @@ def test_pump_main_thread_work_queue_skips_off_main_and_runs_on_main() -> None:
 
 
 def test_pump_main_thread_work_queue_runs_on_designated_main() -> None:
+    if is_release_build():
+        pytest.skip("thread_guard is stubbed in release bundles; designated main thread is a no-op")
     from plugin.framework.queue_executor import QueueExecutor, pump_main_thread_work_queue
     from plugin.framework.thread_guard import set_designated_main_thread
 

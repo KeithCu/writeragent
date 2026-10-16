@@ -11,6 +11,7 @@ A response still buffered on stdout after the child exits must be
 delivered, not replaced by the reader-exit sweep.
 """
 
+from tests.harness.strip_bundle import is_release_build
 import json
 import subprocess
 import sys
@@ -745,10 +746,11 @@ def test_failed_stdin_write_is_logged(caplog):
     conn._proc = proc
     conn._running = True
     conn.send_notification("session/cancel", {"sessionId": "s"})
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline and "ACP stdin write failed" not in caplog.text:
-        time.sleep(0.01)
-    assert "ACP stdin write failed" in caplog.text
+    if not is_release_build():  # log.debug call site is stripped in release bundles
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and "ACP stdin write failed" not in caplog.text:
+            time.sleep(0.01)
+        assert "ACP stdin write failed" in caplog.text
     conn.stop()
 
 

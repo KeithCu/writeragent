@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from tests.harness.strip_bundle import is_release_build
 import os
 import subprocess
 import sys
@@ -693,9 +694,10 @@ def test_execute_logs_each_warning_once(caplog) -> None:
             if r.name == "plugin.audio.kokoro_pool" and r.levelname == "DEBUG" and r.getMessage().startswith("Kokoro:")
         ]
         assert len(warning_records) == 1
-        assert len(debug_records) == 1
         assert warning_records[0].getMessage() == f"Kokoro: {warning_msg}"
-        assert debug_records[0].getMessage() == f"Kokoro: {warning_msg}"
+        if not is_release_build():  # log.debug call site is stripped in release bundles
+            assert len(debug_records) == 1
+            assert debug_records[0].getMessage() == f"Kokoro: {warning_msg}"
 
         stub.warning = "Different warning message"
         pool.execute({"text": "three"})

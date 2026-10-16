@@ -178,6 +178,7 @@ def test_hypothesis_scrub_invariants(base: dict[str, str]) -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.timeout(600)  # two crosshair runs, each capped at 300s; the global 60s cut it off
 def test_crosshair_scrub_subprocess_env_fqn_if_available() -> None:
     crosshair_path = _find_crosshair()
     if not crosshair_path:

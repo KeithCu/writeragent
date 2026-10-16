@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from tests.harness.strip_bundle import is_release_build
 import inspect
 import io
 import logging
@@ -1442,7 +1443,8 @@ def test_persistent_editor_terminate_swallows_kill_oserror_and_still_closes_pipe
 
 def test_editor_drain_and_terminate_stay_custom() -> None:
     drain_src = inspect.getsource(PersistentEditor._stderr_drain_loop)
-    assert "editor child:" in drain_src
+    if not is_release_build():  # log.debug call sites are stripped in release bundles
+        assert "editor child:" in drain_src
     assert "start_stderr_drain" not in drain_src
 
     term_src = inspect.getsource(PersistentEditor.terminate)

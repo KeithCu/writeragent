@@ -1,3 +1,4 @@
+from tests.harness.strip_bundle import is_release_build
 import pytest
 import io
 import sys
@@ -127,6 +128,8 @@ def test_find_spec_logs_error_and_returns_none(monkeypatch) -> None:
         importer = uno_bootstrap.AliasImporter()
         spec = importer.find_spec("writeragent.missing")
         assert spec is None
+        if is_release_build():  # log.debug call site is stripped in release bundles
+            return
         assert mock_debug.called
         assert any("writeragent.missing" in str(call) for call in mock_debug.call_args_list)
 

@@ -72,7 +72,8 @@ def test_failure_detail_accepts_long_text():
 def test_exception_traceback_rejects_none():
     import deal
 
-    with pytest.raises(deal.PreContractError):
+    # Release bundles strip @deal.pre, so the body's AttributeError is the guard there.
+    with pytest.raises((deal.PreContractError, AttributeError)):
         exception_traceback(None)  # type: ignore[arg-type]
 
 

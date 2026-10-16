@@ -10,6 +10,7 @@ They are skipped gracefully if the packages are not present.
 
 from __future__ import annotations
 
+from tests.harness.strip_bundle import is_release_build
 import sys
 from typing import Any
 
@@ -932,7 +933,8 @@ def test_selection_extraction_failure_is_empty_and_logged(caplog, monkeypatch):
     with caplog.at_level(logging.DEBUG):
         text, _ = ta.resolve_text_analytics_document_inputs(FakeDoc(), "readability", scope="selection")
     assert text == ""
-    assert "selection text failed" in caplog.text
+    if not is_release_build():  # log.debug call site is stripped in release bundles
+        assert "selection text failed" in caplog.text
 
 
 def test_html_table_ignores_overall_key():

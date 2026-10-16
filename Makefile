@@ -372,6 +372,7 @@ schema-docs:
 
 release: clean
 	@$(MAKE) schema-docs
+	@$(MAKE) compile-translations
 	@$(MAKE) typecheck-full
 	@echo "Building stripped bundle for verification in a temp dir..."
 	@set -e; \

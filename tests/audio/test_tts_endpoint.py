@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for TTS HTTP endpoint synthesis and audio format handling."""
 
+from tests.harness.strip_bundle import is_release_build
 import json
 import struct
 from unittest.mock import MagicMock, patch
@@ -518,7 +519,8 @@ def test_stopped_post_logs_debug_not_warning(caplog):
     assert not any("TTS POST" in msg for msg in warnings)
 
     debugs = [r.getMessage() for r in caplog.records if r.levelname == "DEBUG"]
-    assert any("aborted by Stop" in msg for msg in debugs)
+    if not is_release_build():  # log.debug call site is stripped in release bundles
+        assert any("aborted by Stop" in msg for msg in debugs)
 
     caplog.clear()
 

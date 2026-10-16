@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from tests.harness.strip_bundle import is_release_build
 import io
 import logging
 import os
@@ -1128,7 +1129,8 @@ def test_packed_frame_write_without_int_fileno_logs_and_writes(caplog: pytest.Lo
     frame = pack_pickle_frame({"status": "ok"})
     with caplog.at_level(logging.DEBUG, logger="writeragent.scripting.ipc"):
         write_packed_frame_with_timeout(stream, frame, 0.01)
-    assert "without a deadline" in caplog.text
+    if not is_release_build():  # log.debug call site is stripped in release bundles
+        assert "without a deadline" in caplog.text
     stream.seek(0)
     assert read_pickle_frame(stream) == {"status": "ok"}
 

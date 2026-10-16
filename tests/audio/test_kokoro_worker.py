@@ -402,6 +402,6 @@ def test_stdio_loop_claim_keeps_fd1_off_the_frame(tmp_path):
     assert isinstance(res, dict) and res.get("status") == "ok"
     assert res.get("echo") == "hello"
 
-    proc.stdin.close()
+    # communicate() closes stdin itself; closing it first makes its flush raise ValueError.
     _out, stderr_bytes = proc.communicate(timeout=5)
     assert b"NOISE" in stderr_bytes
