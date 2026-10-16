@@ -365,39 +365,26 @@ class ACPBackend(AgentBackend):
 
     def _load_config(self) -> None:
         """Load configuration from WriterAgent settings."""
-        try:
-            from plugin.framework.config import get_config
+        from plugin.framework.config import get_config
 
-            path = str(get_config("agent_backend.path") or "").strip()
-            if path and os.path.isfile(path):
-                self._binary_path = path
-            else:
-                # An empty setting means "search PATH". A path that is not a
-                # file is a typo, and falling through with no log hid it.
-                if path:
-                    log.warning("ACP agent_backend.path is not a file (%s); searching PATH", path)
-                self._binary_path = self._find_binary()
-
-            args_str = str(get_config("agent_backend.args") or "").strip()
-            # str.split() breaks a quoted path into several argv entries.
-            # posix=False on Windows so backslashes in paths stay literal.
-            try:
-                self._extra_args = _split_cli_args(args_str, posix=(os.name != "nt")) if args_str else []
-            except ValueError:
-                # What was wrong: an unmatched quote in agent_backend.args raised
-                # ValueError from shlex.split, and the config handler below then
-                # replaced a resolved agent_backend.path with a PATH search.
-                # Why: the path is already set. Empty args still pick up
-                # default_extra_args when the basename matches.
-                log.exception("ACP agent_backend.args could not be parsed")
-                self._extra_args = []
-        except Exception:
-            # A failed reload used to keep the previous argv, and the
-            # exception was swallowed so a broken config looked like a
-            # missing binary.
-            log.exception("ACP agent config load failed")
+        path = str(get_config("agent_backend.path") or "").strip()
+        if path and os.path.isfile(path):
+            self._binary_path = path
+        else:
+            # An empty setting means "search PATH". A path that is not a
+            # file is a typo, and falling through with no log hid it.
+            if path:
+                log.warning("ACP agent_backend.path is not a file (%s); searching PATH", path)
             self._binary_path = self._find_binary()
+
+        args_str = str(get_config("agent_backend.args") or "").strip()
+        # str.split() breaks a quoted path into several argv entries.
+        # posix=False on Windows so backslashes in paths stay literal.
+        try:
+            self._extra_args = _split_cli_args(args_str, posix=(os.name != "nt")) if args_str else []
+        except ValueError as e:
             self._extra_args = []
+            raise ValueError(f"unbalanced quote: {e}") from e
         self._apply_default_extra_args()
 
     def get_default_extra_args(self) -> List[str]:
@@ -729,25 +716,22 @@ class ACPBackend(AgentBackend):
         if msg_id is not None:
             self._reject_unknown_request(conn, msg_id, method)
 
-    def _reply(self, conn: ACPConnection, msg_id: Any, *, result: Any = None, error: Any = None, what: str) -> None:
+    def _reply(self, conn: ACPConnection, msg_id: Any, *, result: Any = None, error: Any = None) -> None:
         """Send one JSON-RPC response on the passed connection."""
         # What was wrong: _reply loaded self._conn again, and a slot swap between
         # the request and the reply wrote connection A's result onto B.
         # Why: send on the passed connection instead of re-reading self._conn.
         # ACPConnection.send_response already returns when the process is gone.
-        try:
-            if error is not None:
-                conn.send_response(msg_id, error=error)
-            else:
-                conn.send_response(msg_id, result=result if result is not None else {})
-        except Exception:
-            log.exception("Failed to %s", what)
+        if error is not None:
+            conn.send_response(msg_id, error=error)
+        else:
+            conn.send_response(msg_id, result=result if result is not None else {})
 
     def _reject_unknown_request(self, conn: ACPConnection, msg_id: Any, method: str) -> None:
-        self._reply(conn, msg_id, error={"code": -32601, "message": f"Method not found: {method}"}, what=f"reject ACP method {method}")
+        self._reply(conn, msg_id, error={"code": -32601, "message": f"Method not found: {method}"})
 
     def _ack_request(self, conn: ACPConnection, msg_id: Any) -> None:
-        self._reply(conn, msg_id, result={}, what=f"acknowledge ACP request {msg_id}")
+        self._reply(conn, msg_id, result={})
 
     def _queue_permission_request(self, conn: ACPConnection, params: dict[str, Any], msg_id: Any, queue: Any) -> None:
         tool_call = params.get("toolCall")
@@ -772,7 +756,7 @@ class ACPBackend(AgentBackend):
             hash(msg_id)
         except TypeError:
             log.warning("ACP permission request id is unhashable; cancelling without storing it")
-            self._reply(conn, msg_id, result=_cancelled_permission(), what=f"cancel ACP permission {msg_id}")
+            self._reply(conn, msg_id, result=_cancelled_permission())
             return
         # Keep the options so Approve/Reject can echo optionId. The HITL
         # dialog only returns a bool; the id has to live with the request.
@@ -784,7 +768,7 @@ class ACPBackend(AgentBackend):
             if not reply_cancelled:
                 self._pending_permissions[msg_id] = (conn, stored)
         if reply_cancelled:
-            self._reply(conn, msg_id, result=_cancelled_permission(), what=f"cancel ACP permission {msg_id}")
+            self._reply(conn, msg_id, result=_cancelled_permission())
             return
         description = _permission_description(params)
         tool_name = _permission_tool_name(tool_call)
@@ -821,7 +805,7 @@ class ACPBackend(AgentBackend):
         with self._state_lock:
             pending_permissions = self._pop_pending_permission_ids()
         for request_id, conn in pending_permissions:
-            self._reply(conn, request_id, result=_cancelled_permission(), what=f"cancel ACP permission {request_id}")
+            self._reply(conn, request_id, result=_cancelled_permission())
 
     def _finish_stopped(self, queue: Any) -> None:
         queue.put((StreamQueueKind.STOPPED, None))
@@ -928,13 +912,10 @@ class ACPBackend(AgentBackend):
             self._clear_slot_locked(conn)
         log.info("ACP cancel was not answered within %ss; killing the CLI", _CANCEL_GRACE_SEC)
         for request_id, req_conn in pending_permissions:
-            self._reply(req_conn, request_id, result=_cancelled_permission(), what=f"cancel ACP permission {request_id}")
+            self._reply(req_conn, request_id, result=_cancelled_permission())
         if conn is None:
             return
-        try:
-            conn.set_notification_callback(None)
-        except Exception:
-            log.exception("Failed to clear ACP notification callback")
+        conn.set_notification_callback(None)
         try:
             conn.stop()
         except Exception:
@@ -1051,10 +1032,7 @@ class ACPBackend(AgentBackend):
                 # its own. shutdown() may already have cleared the connection.
                 conn = self._conn
                 if conn is not None:
-                    try:
-                        conn.set_notification_callback(None)
-                    except Exception:
-                        log.exception("Failed to clear ACP notification callback")
+                    conn.set_notification_callback(None)
 
     def _finish_prompt_result(self, result: Any, queue: Any) -> None:
         """Queue the terminal event for a ``session/prompt`` result.
@@ -1120,10 +1098,7 @@ class ACPBackend(AgentBackend):
             conn = self._conn
             session_id = self._session_id
         if inflight and conn is not None and conn.is_alive and session_id:
-            try:
-                conn.send_notification("session/cancel", {"sessionId": session_id})
-            except Exception:
-                log.exception("ACP session/cancel failed")
+            conn.send_notification("session/cancel", {"sessionId": session_id})
         # Reply while stdin is still open. A later shutdown closes it.
         self._cancel_pending_permissions()
         if inflight:
@@ -1156,7 +1131,7 @@ class ACPBackend(AgentBackend):
             log.warning("Cannot submit approval, ACP connection is dead")
             return
 
-        self._reply(conn, request_id, result=_permission_result(options, approved), what="submit ACP approval")
+        self._reply(conn, request_id, result=_permission_result(options, approved))
 
     def shutdown(self) -> None:
         """Kill the CLI and drop the session.
@@ -1180,10 +1155,7 @@ class ACPBackend(AgentBackend):
         connection. A replacement keeps its session.
         """
         if conn is not None:
-            try:
-                conn.set_notification_callback(None)
-            except Exception:
-                log.exception("Failed to clear ACP notification callback")
+            conn.set_notification_callback(None)
             try:
                 conn.stop()
             except Exception:

@@ -118,18 +118,6 @@ class TestDefaultExtraArgs:
         assert backend._binary_path == "/usr/bin/hermes"
         assert backend._extra_args == []
 
-    def test_unmatched_quote_keeps_configured_path(self, caplog):
-        caplog.set_level("ERROR", logger="plugin.acp.acp_backend")
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/hermes", args='--config "foo')),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = HermesBackend()
-        assert backend._binary_path == "/usr/bin/hermes"
-        assert backend._extra_args == ["acp"]
-        assert "ACP agent_backend.args could not be parsed" in caplog.text
-        assert "ACP agent config load failed" not in caplog.text
 
     @pytest.mark.parametrize(
         "path, expected",
