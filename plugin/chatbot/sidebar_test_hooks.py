@@ -2544,3 +2544,57 @@ def next_hello_ok(*, listener: Any = None, timeout: float = 60.0) -> bool:
         return True
     log.warning("next_hello_ok: idle but transcript did not look like a hello reply")
     return False
+
+def get_writer_graphics_count(*, ctx: Any = None) -> int:
+    """Return the number of Writer TextGraphicObjects."""
+    doc = current_component(ctx)
+    if doc is None or not hasattr(doc, "getGraphicObjects"):
+        return 0
+    return len(doc.getGraphicObjects().getElementNames())
+
+def get_draw_graphics_count(*, ctx: Any = None) -> int:
+    """Return the number of Draw/Impress GraphicObjectShapes on the first page."""
+    doc = current_component(ctx)
+    if doc is None or not hasattr(doc, "getDrawPages"):
+        return 0
+    return doc.getDrawPages().getByIndex(0).getCount()
+
+def dispatch_undo(*, ctx: Any = None) -> None:
+    """Dispatch .uno:Undo on the current document frame."""
+    doc = current_component(ctx)
+    if doc is None or not hasattr(doc, "getCurrentController"):
+        return
+    frame = doc.getCurrentController().getFrame()
+    if frame is None:
+        return
+    from plugin.framework.service import resolve
+    helper = resolve("com.sun.star.frame.DispatchHelper", ctx)
+    helper.executeDispatch(frame, ".uno:Undo", "", 0, ())
+
+
+
+def get_writer_graphics_count(*, ctx: Any = None) -> int:
+    """Return the number of Writer TextGraphicObjects."""
+    doc = current_component(ctx)
+    if doc is None or not hasattr(doc, "getGraphicObjects"):
+        return 0
+    return len(doc.getGraphicObjects().getElementNames())
+
+def get_draw_graphics_count(*, ctx: Any = None) -> int:
+    """Return the number of Draw/Impress GraphicObjectShapes on the first page."""
+    doc = current_component(ctx)
+    if doc is None or not hasattr(doc, "getDrawPages"):
+        return 0
+    return doc.getDrawPages().getByIndex(0).getCount()
+
+def dispatch_undo(*, ctx: Any = None) -> None:
+    """Dispatch .uno:Undo on the current document frame."""
+    doc = current_component(ctx)
+    if doc is None or not hasattr(doc, "getCurrentController"):
+        return
+    frame = doc.getCurrentController().getFrame()
+    if frame is None:
+        return
+    from plugin.framework.service import resolve
+    helper = resolve("com.sun.star.frame.DispatchHelper", ctx)
+    helper.executeDispatch(frame, ".uno:Undo", "", 0, ())

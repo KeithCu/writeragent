@@ -235,6 +235,9 @@ class MockLLMConfig:
     fail_native_audio: bool = False
     # Packet G28: HTTP 500 on /v1/audio/transcriptions only (chat completions stay healthy).
     fail_stt: bool = False
+    fail_image: str = "none"
+    image_delay_s: float = 0.0
+    image_status: int = 500
     # Packet E oracles (E1 CURRENT QUERY, E5 doc length, E6/E7 tool names).
     captures: list[dict[str, Any]] = field(default_factory=list)
     _capture_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
@@ -1897,6 +1900,31 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                     return
                 self._send_json(200, transcription_response_body(transcript))
                 return
+            if path in ("/v1/images/generations", "/images/generations"):
+                record_capture(config, {"path": path, "image": True})
+                try:
+                    payload = json.loads((raw.decode("utf-8") if raw else "") or "{}")
+                except json.JSONDecodeError:
+                    self.send_error(400, "invalid json")
+                    return
+                if config.fail_image == "hang":
+                    dummy = Completion()
+                    self._fail_or_hang_headers(dummy, stream=False)
+                    return
+                if config.image_delay_s > 0:
+                    import time
+                    time.sleep(config.image_delay_s)
+                if config.fail_image == "status":
+                    self._send_json(config.image_status, openai_error_body("mock image failure", "server_error"))
+                    return
+                elif config.fail_image == "malformed":
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"data": [{"b64_json": "not_base64"}]}')
+                    return
+                self._send_json(200, {"created": 1234567890, "data": [{"b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQImWP4DwQACfsD/eNV8pwAAAAASUVORK5CYII="}]})
+                return
             if path not in ("/v1/chat/completions", "/chat/completions"):
                 self.send_error(404)
                 return
@@ -2035,6 +2063,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--chunk-chars", type=int, default=DEFAULT_CHUNK_CHARS, help="SSE tool-arg fragment size")
     parser.add_argument("--fail", default="none", choices=FAIL_MODES, help="Fail every request this way")
+    parser.add_argument("--fail-image", default="none")
+    parser.add_argument("--image-delay-s", type=float, default=0.0)
+    parser.add_argument("--image-status", type=int, default=500)
     parser.add_argument(
         "--fail-after-chunks",
         type=int,

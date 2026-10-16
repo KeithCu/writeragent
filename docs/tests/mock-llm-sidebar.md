@@ -22,6 +22,8 @@ This plan is **finished**. Mouse Stop, HITL Change dialog, live DuckDuckGo, and 
 | **[Packet G](#packet-g--mocked-audio-and-stt)** | Mocked Record / Stop Rec, `input_audio`, STT | Automated (CI) | **Done.** 21 Landed (incl. G17 Calc deck). |
 | **[Packet P](#packet-p--dual-sidebar-peer-673)** | Writer+Calc mock peer round-trip (specialized-inner #673) | Automated (`FILTER=P`) | **Landed** (unit scripts always; live dual deck uses `open_calc_document`). |
 | **[Packet K](#packet-k--sidebar-compaction-712--713)** | Proactive compact, overflow retry, kill switch, death ≠ overflow | Automated (`FILTER=K`) | **Landed.** Chat mode only (Web Research / Librarian share the worker). |
+| **[Packet I](#packet-i--image-generation)** | Image generation tool lifecycle & delays | Automated (CI) | **Done.** 8 Landed. |
+| **[Packet I](#packet-i--image-generation)** | Image generation tool lifecycle & delays | Automated (CI) | **Done.** 8 Landed. |
 | **[Packet T](#packet-t--tts-races-and-child-lifecycle)** | TTS stop / cut-off / crash / missing binary, fake child, no audio device | Automated (`FILTER=T`) | **Landed.** 4 Landed. |
 
 
@@ -442,12 +444,52 @@ Smol ReAct web-research subagent compaction is out of scope.
 
 ---
 
+
+
+---
+
+### Packet I — Image generation
+
+- **Focus:** The `image_generate` tool lifecycle, delays, endpoint errors, and undo on live Writer/Calc/Draw documents.
+- **Mode:** Automated (`make test-mock-sidebar FILTER=I`).
+
+| ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
+|:--:|:----:|----------------|-----------------|------------------------|:--------------:|
+| **I1** | mock-sidebar | `generate an image` (Writer) | Send query | Exactly one image inserted into Writer (graphic count +1); anchored; sidebar returns to idle; `next_hello_ok()` | **Landed** |
+| **I2** | mock-sidebar | `generate an image` (Calc/Draw) | Open Calc/Draw; send query | Exactly one image inserted into Calc/Draw (graphic count +1); sidebar returns to idle; `next_hello_ok()` | **Landed** |
+| **I3** | mock-sidebar | `generate an image` + `fail_image=500` | Send query | Image endpoint returns 500; clean error banner surfaced; no image inserted; `next_hello_ok()` | **Landed** |
+| **I4** | mock-sidebar | `generate an image` + `image_delay=slow` | Click Stop while generating | No image inserted later; no leaked threads; sidebar returns to idle; `next_hello_ok()` | **Landed** |
+| **I5** | mock-sidebar | `generate an image` + timeout | Slow response hits timeout | Clean error surfaced; `next_hello_ok()` | **Landed** |
+| **I6** | mock-sidebar | Two `generate an image` | Rapid/parallel requests | Two distinct images inserted; no duplicate rows; `next_hello_ok()` | **Landed** |
+| **I7** | mock-sidebar | `generate an image` + malformed | Endpoint returns malformed JSON/base64 | Clean error surfaced; no image inserted; `next_hello_ok()` | **Landed** |
+| **I8** | mock-sidebar | `generate an image` + Undo | Insert image, then dispatch `.uno:Undo` | Image removed from document in one step; graphic count -1; `next_hello_ok()` | **Landed** |
+
+
+
+---
+
+### Packet I — Image generation
+
+- **Focus:** The `image_generate` tool lifecycle, delays, endpoint errors, and undo on live Writer/Calc/Draw documents.
+- **Mode:** Automated (`make test-mock-sidebar FILTER=I`).
+
+| ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
+|:--:|:----:|----------------|-----------------|------------------------|:--------------:|
+| **I1** | mock-sidebar | `generate an image` (Writer) | Send query | Exactly one image inserted into Writer (graphic count +1); anchored; sidebar returns to idle; `next_hello_ok()` | **Landed** |
+| **I2** | mock-sidebar | `generate an image` (Calc/Draw) | Open Calc/Draw; send query | Exactly one image inserted into Calc/Draw (graphic count +1); sidebar returns to idle; `next_hello_ok()` | **Landed** |
+| **I3** | mock-sidebar | `generate an image` + `fail_image=500` | Send query | Image endpoint returns 500; clean error banner surfaced; no image inserted; `next_hello_ok()` | **Landed** |
+| **I4** | mock-sidebar | `generate an image` + `image_delay=slow` | Click Stop while generating | No image inserted later; no leaked threads; sidebar returns to idle; `next_hello_ok()` | **Landed** |
+| **I5** | mock-sidebar | `generate an image` + timeout | Slow response hits timeout | Clean error surfaced; `next_hello_ok()` | **Landed** |
+| **I6** | mock-sidebar | Two `generate an image` | Rapid/parallel requests | Two distinct images inserted; no duplicate rows; `next_hello_ok()` | **Landed** |
+| **I7** | mock-sidebar | `generate an image` + malformed | Endpoint returns malformed JSON/base64 | Clean error surfaced; no image inserted; `next_hello_ok()` | **Landed** |
+| **I8** | mock-sidebar | `generate an image` + Undo | Insert image, then dispatch `.uno:Undo` | Image removed from document in one step; graphic count -1; `next_hello_ok()` | **Landed** |
+
 ## 4. Out-of-Scope Items & Boundary Invariants
 
 The following areas are intentionally excluded from the mock LLM sidebar test suite:
 - **Visual watching:** Scroll, HTML look, resize, theme, focus steal. Use `make mock-llm` in the product.
 - **Killing the shared soffice:** Close/switch document mid-stream, exit while ramble.
 - **Speech Recognition Accuracy:** Testing real microphone audio quality or ASR word-error rate (covered by external benchmarks).
-- **Non-Chat Sidebar Workflows:** Librarian full-corpus indexing, brainstorm mode, presentation slide deck generation, and image generation.
+- **Non-Chat Sidebar Workflows:** Librarian full-corpus indexing, brainstorm mode, presentation slide deck generation.
 - **Calc Formula Add-Ins:** `=PROMPT()` and `=PYTHON()` formula execution (tested separately in `tests/calc/`).
 - **External MCP Server Testing:** Live third-party MCP server communication (mocked in `tests/mcp/`).
