@@ -353,7 +353,7 @@ def _apply_fake_stt(mode: str) -> None:
         _clear_fake_stt_in_process()
         return
 
-    from plugin.framework.config import get_config, set_config
+    from plugin.framework.config import get_config
     import plugin.audio.stt_service as stt_service
     import plugin.scripting.audio_recorder_service as audio_recorder_service
 

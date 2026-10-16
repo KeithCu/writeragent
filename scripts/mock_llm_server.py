@@ -135,6 +135,7 @@ _SCENARIO_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # Packet P: specialized-inner peer (#673). peer_wait locks the Scrolly hang.
     ("peer_wait", re.compile(r"\b(wait after accepted|do not finish peer)\b", re.IGNORECASE)),
     ("peer_total", re.compile(r"\b(add a total row|ask the budget workbook|peer total)\b", re.IGNORECASE)),
+    ("ocr", re.compile(r"\bocr image\b", re.IGNORECASE)),
 )
 
 # Packet F HTTP/SSE faults that apply on the user turn (not tool follow-ups).
@@ -1433,6 +1434,8 @@ def _scenario_user_turn(
         return _specialized_inner_completion(messages, tool_names, config) if _is_specialized_inner(tool_names) else Completion(
             content=_html_chat(user_text, turn), reasoning=reasoning
         )
+    if scenario == "ocr":
+        return _tool_or_html(tool_names, "extract_text_from_image", {}, user_text, turn)
     return None
 
 

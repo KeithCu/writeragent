@@ -2959,7 +2959,7 @@ def test_o2_ocr_draw_impress(ctx):
 
         _hello_ok()
     finally:
-        _restore_writer_after_calc(ctx, writer, draw, saved_controls, saved_listener)
+        _restore_writer_after_doc(ctx, writer, draw, saved_controls, saved_listener)
 
 @native_test
 def test_o3_ocr_disabled(ctx):
@@ -2974,9 +2974,12 @@ def test_o3_ocr_disabled(ctx):
         _send_and_wait("OCR image", timeout=60.0)
 
         body = _transcript().lower()
-        assert "vision_error" in body or "disabled" in body or "unavailable" in body or "error" in body, (
+        assert "vision ocr is not fully installed" in body, (
             "O3 expected disabled OCR error, got %r" % _transcript()[-400:]
         )
+        # Assert nothing inserted
+        doc_text = doc.getText().getString().lower()
+        assert "ocr_" not in doc_text, "O3 expected no OCR output"
     _hello_ok()
 
 @native_test
@@ -3025,9 +3028,18 @@ def test_o5_stop_during_ocr(ctx):
                 controls, timeout=30.0, transcript_fn=_transcript, before=before
             ), "O5 did not go idle: %r" % _transcript()[-400:]
         else:
-            _send_and_wait("OCR image", timeout=30.0)
+            try:
+                _start_until_stop_enabled("OCR image", delay_ms=80, timeout=10.0)
+                _stop_and_wait_idle(before, timeout=30.0)
+            except AssertionError:
+                _press_stop()
+                _wait_idle_after_send(before, timeout=30.0)
     finally:
         _session.config.delay_ms = 20
+
+    # Assert no OCR text was inserted
+    doc_text = doc.getText().getString().lower()
+    assert "ocr_" not in doc_text, "O5 expected no OCR output after stop"
 
     _hello_ok()
 
@@ -3044,7 +3056,7 @@ def test_o6_ocr_export_fail(ctx):
         _send_and_wait("OCR image", timeout=60.0)
 
         body = _transcript().lower()
-        assert "export failed" in body or "could not export" in body or "error" in body, (
+        assert "could not export the selected image" in body or "export failed" in body, (
             "O6 expected export error, got %r" % _transcript()[-400:]
         )
     _hello_ok()
@@ -3063,7 +3075,7 @@ def test_o7_two_ocr_back_to_back(ctx):
     body2 = _transcript()
 
     suffix = body2[len(body1) :] if body2.startswith(body1) else body2
-    assert suffix.lower().count("ocr complete") <= 1, "O7 duplicate output detected: %r" % suffix[-400:]
+    assert suffix.lower().count("ocr complete") == 1, "O7 duplicate output detected: %r" % suffix[-400:]
     _hello_ok()
 
 @native_test
