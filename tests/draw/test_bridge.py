@@ -1159,3 +1159,24 @@ def test_move_slide_swaps_master_when_getPropertyValue_rejects_it():
     assert pages.pages[1].Layout == 5
 
 
+
+def test_get_draw_context_for_chat_speaker_notes_disposed():
+    from plugin.draw.bridge import get_draw_context_for_chat
+    from plugin.framework.errors import DocumentDisposedError
+    from unittest.mock import MagicMock, patch
+    import pytest
+
+    model = MagicMock()
+    model.supportsService.side_effect = lambda s: s == "com.sun.star.presentation.PresentationDocument"
+    model.getDrawPages.return_value.getCount.return_value = 1
+
+    mock_page = MagicMock()
+    mock_page.getNotesPage.side_effect = DocumentDisposedError("stale")
+
+    with patch("plugin.draw.bridge.DrawBridge") as MockBridge:
+        instance = MockBridge.return_value
+        instance.get_pages.return_value.getCount.return_value = 1
+        instance.get_active_page.return_value = mock_page
+
+        with pytest.raises(DocumentDisposedError):
+            get_draw_context_for_chat(model, 1000, ctx=MagicMock())

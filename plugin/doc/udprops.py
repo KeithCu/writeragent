@@ -16,7 +16,7 @@ from typing import Any
 
 import uno
 
-from plugin.framework.errors import UnoObjectError, check_disposed, safe_call
+from plugin.framework.errors import DocumentDisposedError, UnoObjectError, check_disposed, safe_call
 
 log = logging.getLogger(__name__)
 
@@ -93,6 +93,8 @@ def get_document_property(model: Any, name: str, default: Any = None) -> Any:
             log.debug("get_document_property (optional property %s not set yet)", name)
         else:
             log.exception("get_document_property failed")
+    except DocumentDisposedError:
+        raise
     except Exception:
         log.exception("Unexpected error in get_document_property")
     return default

@@ -119,3 +119,14 @@ def test_get_full_calc_text_skips_internal_active_sheet():
         text = get_full_calc_text(model, max_chars=100)
     assert "Sheet: Sales" in text
     assert "__Anonymous_Sheet_DB__0" not in text
+
+def test_get_calc_context_for_chat_disposed():
+    from plugin.calc.analyzer import get_calc_context_for_chat
+    from plugin.framework.errors import DocumentDisposedError
+    from unittest.mock import MagicMock, patch
+    import pytest
+
+    model = MagicMock()
+    with patch("plugin.calc.analyzer.SheetAnalyzer.get_sheet_summary", side_effect=DocumentDisposedError("stale")):
+        with pytest.raises(DocumentDisposedError):
+            get_calc_context_for_chat(model, 1000, ctx=MagicMock())

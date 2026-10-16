@@ -475,7 +475,7 @@ class UnoObjectError(WriterAgentException):
     code: str = "UNO_OBJECT_ERROR"
 
 
-class DocumentDisposedError(UnoObjectError):
+class DocumentDisposedError(WriterAgentException):
     """Document or UNO object was disposed during operation."""
 
     # Same code as execute_safe / tool DOCUMENT_DISPOSED so callers comparing

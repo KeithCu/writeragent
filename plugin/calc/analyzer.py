@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, check_disposed, is_disposed_exception, safe_call
+from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, UnoObjectError, check_disposed, is_disposed_exception, safe_call
 from plugin.framework.thread_guard import main_thread_only
 from plugin.calc.address_utils import index_to_column
 from plugin.calc.bridge import filter_agent_sheet_names, is_agent_visible_sheet
@@ -188,6 +188,8 @@ def get_calc_context_for_chat(model: Any, max_context: int = 8000, ctx: Any = No
     except UnoObjectError:
         logging.getLogger(__name__).exception("get_calc_context_for_chat error")
         return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"
+    except DocumentDisposedError:
+        raise
     except Exception:
         logging.getLogger(__name__).exception("get_calc_context_for_chat exception")
         return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"

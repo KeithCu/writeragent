@@ -45,3 +45,28 @@ def test_set_document_property_trace_names_each_uno_step(capsys, monkeypatch):
     assert "set_document_property: getDocumentProperties done" in err
     assert "set_document_property: setPropertyValue start name=WriterAgentSessionID" in err
     assert "set_document_property: setPropertyValue done" in err
+
+def test_get_document_property_disposed():
+    from plugin.doc.udprops import get_document_property
+    from plugin.framework.errors import DocumentDisposedError
+    from unittest.mock import MagicMock
+    import pytest
+
+    doc = MagicMock()
+    doc.getDocumentProperties.side_effect = DocumentDisposedError("stale")
+
+    with pytest.raises(DocumentDisposedError):
+        get_document_property(doc, "SomeProp")
+
+
+def test_set_document_property_disposed():
+    from plugin.doc.udprops import set_document_property
+    from plugin.framework.errors import DocumentDisposedError
+    from unittest.mock import MagicMock
+    import pytest
+
+    doc = MagicMock()
+    doc.getDocumentProperties.side_effect = DocumentDisposedError("stale")
+
+    with pytest.raises(DocumentDisposedError):
+        set_document_property(doc, "SomeProp", "Value")

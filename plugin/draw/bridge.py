@@ -22,7 +22,7 @@ import logging
 from typing import Any
 
 from plugin.doc import text_helpers as _text_helpers
-from plugin.framework.errors import ToolExecutionError, UnoObjectError, check_disposed, is_disposed_exception, is_real_disposal, safe_call
+from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, UnoObjectError, check_disposed, is_disposed_exception, is_real_disposal, safe_call
 from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger(__name__)
@@ -1087,6 +1087,8 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         if len(ctx_str) > limit:
             ctx_str = ctx_str[:limit] + "\n\n[... document truncated ...]"
         return ctx_str
+    except DocumentDisposedError:
+        raise
     except Exception:
         # UnoObjectError is an Exception; both handlers returned the same fallback.
         log.exception("get_draw_context_for_chat error")

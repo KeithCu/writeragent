@@ -533,3 +533,15 @@ def test_visible_text_midwalk_failure_keeps_deletion_free_prefix():
     got = get_string_without_tracked_deletions(_BoomRange())
     assert got == "Keep "
     assert "DELETED" not in got
+
+def test_writer_char_count_disposed():
+    from plugin.doc.text_helpers import _writer_char_count
+    from plugin.framework.errors import DocumentDisposedError
+    from unittest.mock import MagicMock
+    import pytest
+
+    model = MagicMock()
+    model.getText.side_effect = DocumentDisposedError("stale")
+
+    with pytest.raises(DocumentDisposedError):
+        _writer_char_count(model)

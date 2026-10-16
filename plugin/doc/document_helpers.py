@@ -45,7 +45,7 @@ from plugin.doc.paragraph_search import (
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.errors import (
     ToolExecutionError,
-    UnoObjectError,
+    DocumentDisposedError, UnoObjectError,
     check_disposed,
     safe_call,
 )
@@ -250,6 +250,8 @@ def get_document_context_for_chat(
             )
 
         return ""
+    except DocumentDisposedError:
+        raise
     except Exception:
         logging.getLogger(__name__).exception("get_document_context_for_chat unexpected failure, trying selection fallback")
         try:

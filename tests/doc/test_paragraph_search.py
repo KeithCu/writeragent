@@ -164,3 +164,15 @@ def test_find_picks_matching_table_when_two_share_a_gap():
     assert find_paragraph_for_range(match, elements, _TextObj()) == 2
     assert first.start_calls == 0
     assert second.start_calls == 0
+
+def test_find_paragraph_for_range_disposed():
+    from plugin.doc.paragraph_search import find_paragraph_for_range
+    from plugin.framework.errors import DocumentDisposedError
+    from unittest.mock import MagicMock
+    import pytest
+
+    match_range = MagicMock()
+    match_range.getText.side_effect = DocumentDisposedError("stale")
+
+    with pytest.raises(DocumentDisposedError):
+        find_paragraph_for_range(match_range, [])

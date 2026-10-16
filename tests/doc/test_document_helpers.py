@@ -539,3 +539,30 @@ def test_get_page_count_handles_nested_xtext_cursor():
 
     assert count == 274
     mock_body.createTextCursorByRange.assert_not_called()
+
+def test_get_full_document_text_disposed():
+    from plugin.doc.document_helpers import get_full_document_text
+    from plugin.framework.errors import DocumentDisposedError
+    from unittest.mock import MagicMock
+    import pytest
+
+    model = MagicMock()
+    model.supportsService.side_effect = DocumentDisposedError("stale")
+
+    with pytest.raises(DocumentDisposedError):
+        get_full_document_text(model)
+
+
+def test_get_document_context_for_chat_writer_disposed():
+    from plugin.doc.document_helpers import get_document_context_for_chat
+    from plugin.framework.errors import DocumentDisposedError
+    from unittest.mock import MagicMock, patch
+    import pytest
+
+    model = MagicMock()
+    model.supportsService.return_value = True
+    model.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+
+    with patch("plugin.doc.text_helpers._writer_char_count", side_effect=DocumentDisposedError("stale")):
+        with pytest.raises(DocumentDisposedError):
+            get_document_context_for_chat(model, 1000, ctx=MagicMock())
