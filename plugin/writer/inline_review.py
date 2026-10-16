@@ -546,7 +546,7 @@ def _span_contains_point(text: Any, span: Any, point: Any) -> bool:
     return True
 
 
-def _span_has_redline(model: Any, text: Any, span: Any, consider: Any) -> bool:
+def _span_has_redline(model: Any, text: Any, span: Any, consider: Any, strict_edges: bool = False) -> bool:
     """True if any redline that ``consider(comment)`` selects overlaps ``span`` -- OR if that can't
     be ruled out. ``consider`` receives the redline's RedlineComment (or None when it can't be read)
     and returns whether that redline is one the dispatch must NOT touch.
@@ -560,7 +560,15 @@ def _span_has_redline(model: Any, text: Any, span: Any, consider: Any) -> bool:
     The scan is also cross-checked against the collection's ``getCount()``: a count/enumeration
     mismatch (the enumeration yielding fewer items than getCount() reports) could hide an overlapping
     user/sibling redline in the unscanned tail, so a short scan returns True (unsafe) instead of a
-    false "no overlap". Same ``seen != total`` invariant as ``review_scan.scan_redlines``."""
+    false "no overlap". Same ``seen != total`` invariant as ``review_scan.scan_redlines``.
+
+    ``strict_edges``: when True, a redline that only touches ``span`` at an edge (10-20 vs 20-30,
+    or a collapsed span on a redline boundary) is not an overlap. Use it only for sibling AGENT
+    changes on the exact-bounds path. User redlines must stay inclusive: when the user deletes
+    an agent's inserted text, LibreOffice stacks the agent Insert under the user Delete. The
+    Insert drops out of getRedlines, and what is left of the agent change only touches the user
+    redline at an edge (checked live, LO 25.2). Agent sessions share one author, so their edits
+    merge rather than stack, and an edge touch there really is independent."""
 
     # We drive the *central* enumerator so the boilerplate (getCount, cap at total, hasMore/next
     # handling, seen!=total, Abort) is not duplicated. Because the moment we discover a protector
@@ -613,9 +621,15 @@ def _span_has_redline(model: Any, text: Any, span: Any, consider: Any) -> bool:
             raise _review_scan.RedlineScanAbort()
 
         try:
-            overlaps = (_span_contains_point(text, span, rl_span.getStart())
-                        or _span_contains_point(text, span, rl_span.getEnd())
-                        or _span_contains_point(text, rl_span, span.getStart()))
+            if strict_edges:
+                # Shared text only: rl.start < span.end and span.start < rl.end.
+                # compareRegionStarts(a, b) == 1 means a starts before b.
+                overlaps = (text.compareRegionStarts(rl_span.getStart(), span.getEnd()) == 1
+                            and text.compareRegionStarts(span.getStart(), rl_span.getEnd()) == 1)
+            else:
+                overlaps = (_span_contains_point(text, span, rl_span.getStart())
+                            or _span_contains_point(text, span, rl_span.getEnd())
+                            or _span_contains_point(text, rl_span, span.getStart()))
         except Exception:
             log.debug("inline_review: redline overlap check failed; treating as unsafe", exc_info=True)
             unsafe[0] = True
@@ -646,13 +660,15 @@ def _foreign_redline_in_span(model: Any, text: Any, span: Any) -> bool:
                              lambda c: c is None or not _review_scan.is_agent_token(c))
 
 
-def _other_agent_redline_in_span(model: Any, text: Any, span: Any, token: str) -> bool:
+def _other_agent_redline_in_span(model: Any, text: Any, span: Any, token: str,
+                                 strict_edges: bool = False) -> bool:
     """True if a DIFFERENT agent change token (not ``token``) overlaps ``span``, or if that can't be
     ruled out. The inline "this change" command is only truthful when the dispatch resolves exactly
     one logical change; a sibling sharing the span would be resolved too. Fails closed."""
     # Protect every redline that is (or might be) one of ours but a DIFFERENT token.
     return _span_has_redline(model, text, span,
-                             lambda c: c is None or (_review_scan.is_agent_token(c) and c != token))
+                             lambda c: c is None or (_review_scan.is_agent_token(c) and c != token),
+                             strict_edges=strict_edges)
 
 
 def _dispatch_resolve(ctx: Any, controller: Any, accept: bool) -> None:
@@ -704,7 +720,9 @@ def resolve_agent_change(model: Any, ctx: Any, token: str, accept: bool,
             if _foreign_redline_in_span(model, text, exact):
                 log.debug("inline_review: refusing inline resolve of %s -- a user redline overlaps it", token)
                 return False
-            if refuse_sibling_agent and _other_agent_redline_in_span(model, text, exact, token):
+            # strict_edges: an exact-bounds dispatch leaves a sibling that only touches this
+            # change's edge alone (the post-dispatch check confirms that only the target was removed).
+            if refuse_sibling_agent and _other_agent_redline_in_span(model, text, exact, token, strict_edges=True):
                 log.debug("inline_review: refusing inline resolve of %s -- another agent change overlaps it", token)
                 return False
             view_cursor.gotoRange(left, False)

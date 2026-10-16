@@ -135,6 +135,9 @@ _SCENARIO_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # Packet P: specialized-inner peer (#673). peer_wait locks the Scrolly hang.
     ("peer_wait", re.compile(r"\b(wait after accepted|do not finish peer)\b", re.IGNORECASE)),
     ("peer_total", re.compile(r"\b(add a total row|ask the budget workbook|peer total)\b", re.IGNORECASE)),
+    ("adjacent_edits", re.compile(r"\b(adjacent agent edits)\b", re.IGNORECASE)),
+    ("three_edits", re.compile(r"\b(three agent edits)\b", re.IGNORECASE)),
+    ("style_parallel", re.compile(r"\b(style tools)\b", re.IGNORECASE)),
 )
 
 # Packet F HTTP/SSE faults that apply on the user turn (not tool follow-ups).
@@ -192,6 +195,9 @@ SCENARIO_IDS = frozenset(
         "overflow_once",
         "process_death",
         "history_flood",
+        "adjacent_edits",
+        "three_edits",
+        "style_parallel",
     }
 )
 FAIL_MODES = ("none", "http500", "http429", "hang")
@@ -1386,6 +1392,33 @@ def _scenario_user_turn(
                 finish_reason="tool_calls",
             )
         return Completion(content=_html_chat(user_text, turn), reasoning=reasoning, finish_reason="stop")
+    if scenario == "adjacent_edits":
+        return Completion(
+            reasoning=reasoning,
+            tool_name="apply_document_content",
+            tool_args={"target": "search", "old_content": "Welcome", "content": ["Welcome1"]},
+            extra_tool_calls=[("apply_document_content", {"target": "search", "old_content": " to ", "content": [" to2 "]})],
+            finish_reason="tool_calls",
+        )
+    if scenario == "three_edits":
+        return Completion(
+            reasoning=reasoning,
+            tool_name="apply_document_content",
+            tool_args={"target": "search", "old_content": "Welcome", "content": ["Welcome1"]},
+            extra_tool_calls=[
+                ("apply_document_content", {"target": "search", "old_content": " to ", "content": [" to2 "]}),
+                ("apply_document_content", {"target": "search", "old_content": "WriterAgent.", "content": ["WriterAgent3."]})
+            ],
+            finish_reason="tool_calls",
+        )
+    if scenario == "style_parallel":
+        return Completion(
+            reasoning=reasoning,
+            tool_name="apply_style",
+            tool_args={"style": "Heading 1", "target": "search", "old_content": "Welcome"},
+            extra_tool_calls=[("get_document_tree", {"strategy": "heading_only", "depth": 1})],
+            finish_reason="tool_calls",
+        )
     if scenario == "parallel":
         have_search = "search_in_document" in tool_names
         have_tree = "get_document_tree" in tool_names

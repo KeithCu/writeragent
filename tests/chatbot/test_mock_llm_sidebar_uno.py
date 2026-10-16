@@ -3063,6 +3063,256 @@ def test_m6_stop_mid_stream_settles(ctx):
     _hello_ok()
 
 
+
+# =============================================================================
+# Packet R — Tracking / Redline Sidebar Actions
+# =============================================================================
+
+@native_test
+def test_r1_adjacent_agent_edits(ctx):
+    from plugin.chatbot.sidebar_test_hooks import list_redlines, current_component
+    from plugin.writer.inline_review import resolve_change_at_cursor
+
+    _reset_mock_runtime()
+    _set_writer_body(ctx, WELCOME_BODY)
+    _send_and_wait("adjacent agent edits", timeout=60.0)
+
+    doc = current_component(ctx)
+    redlines = list_redlines(doc)
+    assert len(redlines) == 2, f"R1 expected 2 agent edits, found {len(redlines)}"
+
+    # Try resolving one, expect refusal or resolving both together
+    success, msg = resolve_change_at_cursor(doc, ctx, accept=True)
+    if success:
+        # Either both resolved or one. Let's see if 1 or 0 remain
+        redlines_after = list_redlines(doc)
+        assert len(redlines_after) != 1, f"R1 resolved one of two adjacent edits leaving an orphan redline: {redlines_after}"
+    else:
+        assert "overlap" in msg.lower() or "failed" in msg.lower(), f"R1 expected overlap refusal, got: {msg}"
+
+    _hello_ok()
+
+
+@native_test
+def test_r2_user_redline_overlap(ctx):
+    from plugin.chatbot.sidebar_test_hooks import list_redlines, current_component, insert_user_redline
+    from plugin.writer.inline_review import resolve_change_at_cursor
+
+    _reset_mock_runtime()
+    _set_writer_body(ctx, WELCOME_BODY)
+    _send_and_wait("mutate", timeout=60.0)
+
+    doc = current_component(ctx)
+    body = doc.getText().getString()
+    insert_user_redline(doc, ctx, " UserEdit ", len(body) - 5, len(body) - 1)
+
+    success, msg = resolve_change_at_cursor(doc, ctx, accept=True)
+    # Must refuse and leave user redline untouched
+    assert not success, "R2 should refuse resolution due to overlapping user redline"
+
+    redlines = list_redlines(doc)
+    assert len(redlines) > 1, f"R2 expected >1 redline including user's, got {len(redlines)}"
+    has_user = any(r.get("RedlineAuthor") == "Test User" for r in redlines)
+    assert has_user, "R2 expected user redline to remain"
+
+    _hello_ok()
+
+
+@native_test
+def test_r3_undo_track_changes(ctx):
+    from plugin.chatbot.sidebar_test_hooks import toggle_record_changes, undo, current_component, list_redlines
+
+    _reset_mock_runtime()
+    _set_writer_body(ctx, WELCOME_BODY)
+    doc = current_component(ctx)
+    frame = doc.getCurrentController().getFrame()
+
+    toggle_record_changes(doc, False)
+    _send_and_wait("mutate", timeout=60.0)
+    assert len(list_redlines(doc)) == 0, "R3 expected no redlines with RecordChanges False"
+
+    undo(frame, ctx)
+    assert bool(doc.getPropertyValue("RecordChanges")) is False, "R3 undo changed RecordChanges incorrectly"
+
+    toggle_record_changes(doc, True)
+    _send_and_wait("mutate", timeout=60.0)
+    assert len(list_redlines(doc)) > 0, "R3 expected redlines with RecordChanges True"
+
+    undo(frame, ctx)
+    assert bool(doc.getPropertyValue("RecordChanges")) is True, "R3 undo changed RecordChanges incorrectly"
+
+    _hello_ok()
+
+
+@native_test
+def test_r4_stop_mid_stream(ctx):
+    from plugin.chatbot.sidebar_test_hooks import current_component
+    from plugin.writer.inline_review import has_agent_changes
+
+    _reset_mock_runtime()
+    _set_writer_body(ctx, WELCOME_BODY)
+    assert _session is not None
+    _session.config.delay_ms = 100
+    controls = getattr(_session, "controls", None)
+    before = _transcript()
+
+    try:
+        if controls is not None:
+            from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, uno_click, wait_controls_send_finished
+            set_query_text_via_controls(controls, "mutate")
+            import time
+            time.sleep(0.2)
+            uno_click(controls["send"])
+            if _wait_stop_enabled(timeout=8.0):
+                _press_stop()
+            assert wait_controls_send_finished(controls, timeout=25.0, transcript_fn=_transcript, before=before)
+        else:
+            sl = getattr(_session, "listener", None)
+            assert sl is not None
+            from plugin.chatbot.sidebar_test_hooks import press_send, set_query_text, wait_idle
+            set_query_text("mutate", listener=sl)
+            press_send(listener=sl)
+            if _wait_stop_enabled(timeout=8.0):
+                _press_stop()
+            assert wait_idle(listener=sl, timeout=25.0)
+    finally:
+        _session.config.delay_ms = 20
+
+    doc = current_component(ctx)
+    assert not has_agent_changes(doc), "R4 expected no orphan review entries after mid-stream stop"
+    _hello_ok()
+
+
+@native_test
+def test_r5_close_doc_pending_tool(ctx):
+    from plugin.chatbot.sidebar_test_hooks import open_calc_document, close_component, current_component, wait_idle
+    from plugin.chatbot.sidebar_test_hooks import set_query_text, press_send
+
+    _reset_mock_runtime()
+    writer = current_component(ctx)
+    saved_controls = getattr(_session, "controls", None)
+    saved_listener = getattr(_session, "listener", None)
+
+    try:
+        calc = open_calc_document(ctx)
+        _adopt_calc_sidebar(ctx, calc)
+        _session.config.delay_ms = 100
+
+        sl = getattr(_session, "listener", None)
+        assert sl is not None
+        set_query_text("mutate", listener=sl)
+        press_send(listener=sl)
+
+        import time
+        time.sleep(1.0)
+        close_component(calc)
+
+        # main sidebar (writer) should stay alive and request lock should release
+        time.sleep(2.0)
+    finally:
+        _session.config.delay_ms = 20
+        _restore_writer_after_calc(ctx, writer, calc, saved_controls, saved_listener)
+
+    _hello_ok()
+
+
+@native_test
+def test_r6_undo_then_accept(ctx):
+    from plugin.chatbot.sidebar_test_hooks import undo, current_component, list_redlines
+    from plugin.writer.inline_review import resolve_agent_change
+
+    _reset_mock_runtime()
+    _set_writer_body(ctx, WELCOME_BODY)
+    doc = current_component(ctx)
+    frame = doc.getCurrentController().getFrame()
+
+    _send_and_wait("mutate", timeout=60.0)
+    redlines = list_redlines(doc)
+    assert len(redlines) > 0, "R6 expected redlines to undo"
+    token = redlines[0].get("token", "")
+
+    undo(frame, ctx)
+    import time
+    time.sleep(1.0)
+
+    _send_and_wait("hello", timeout=60.0)
+
+    # Try resolving the stale token
+    success, msg = resolve_agent_change(doc, ctx, token, True)
+    assert not success, "R6 should cleanly fail on stale token"
+
+    _hello_ok()
+
+
+@native_test
+def test_r7_style_parallel_looped(ctx):
+    _reset_mock_runtime()
+    _set_writer_body(ctx, WELCOME_BODY)
+    for _ in range(5):
+        _send_and_wait("style tools", timeout=60.0)
+        _set_writer_body(ctx, WELCOME_BODY)
+    _hello_ok()
+
+
+@native_test
+def test_r8_accept_and_stop(ctx):
+    from plugin.framework.config import set_config
+
+    _reset_mock_runtime()
+    _set_writer_body(ctx, WELCOME_BODY)
+    set_config("chatbot.prompt_for_web_research", True)
+    import time
+    time.sleep(2.1)
+
+    controls = getattr(_session, "controls", None)
+    if controls is None:
+        raise unittest.SkipTest("R8 requires controls dict")
+
+    try:
+        from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, uno_click, wait_controls_send_finished
+        set_query_text_via_controls(controls, "look up cats")
+        time.sleep(0.2)
+        uno_click(controls["send"])
+        if not _wait_send_label("Accept", timeout=10.0):
+            raise unittest.SkipTest("R8 HITL Accept label never appeared")
+
+        before = _transcript()
+        uno_click(controls["stop"])
+        uno_click(controls["send"]) # Accept button
+        assert wait_controls_send_finished(controls, timeout=60.0, transcript_fn=_transcript, before=before)
+
+        snaps = _captures()
+        tool_count = sum(1 for row in snaps if "web_search" in row.get("decided_tools", []))
+        assert tool_count <= 1, f"R8 expected tool to run at most once, got {tool_count}"
+
+    finally:
+        set_config("chatbot.prompt_for_web_research", False)
+        time.sleep(2.1)
+    _hello_ok()
+
+
+@native_test
+def test_r9_three_edits_user_middle(ctx):
+    from plugin.chatbot.sidebar_test_hooks import current_component, insert_user_redline, list_redlines
+    from plugin.writer.inline_review import resolve_all_with_feedback
+
+    _reset_mock_runtime()
+    _set_writer_body(ctx, "Welcome to WriterAgent.")
+    _send_and_wait("three agent edits", timeout=60.0)
+
+    doc = current_component(ctx)
+    body = doc.getText().getString()
+    insert_user_redline(doc, ctx, "UserEdit", len(body)//2, len(body)//2 + 1)
+
+    count, msg = resolve_all_with_feedback(doc, ctx, accept=True)
+    assert count == 2, f"R9 expected 2 edits resolved out of 3, got {count}"
+
+    has_user = any(r.get("RedlineAuthor") == "Test User" for r in list_redlines(doc))
+    assert has_user, "R9 expected user redline to remain after accept all"
+
+    _hello_ok()
+
+
 # =============================================================================
 # Packet T — TTS races and child lifecycle
 # =============================================================================

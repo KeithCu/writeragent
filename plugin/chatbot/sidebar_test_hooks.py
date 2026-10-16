@@ -2531,6 +2531,79 @@ def wait_idle(*, listener: Any = None, timeout: float = 30.0) -> bool:
     return pump_until(_idle, timeout, ctx=ctx)
 
 
+
+def list_redlines(doc: Any) -> list[dict[str, Any]]:
+    """Return a list of redlines in the document as dictionaries."""
+    redlines = []
+    if not hasattr(doc, "getRedlines"):
+        return redlines
+    rls = doc.getRedlines()
+    enum = rls.createEnumeration()
+    while enum.hasMoreElements():
+        rl = enum.nextElement()
+        entry = {}
+        for prop in ("RedlineAuthor", "RedlineComment", "RedlineType", "RedlineIdentifier"):
+            try:
+                entry[prop] = rl.getPropertyValue(prop)
+            except Exception:
+                pass
+        entry["token"] = entry.get("RedlineIdentifier", "")
+        start = None
+        try:
+            start = rl.getPropertyValue("RedlineStart")
+        except Exception:
+            pass
+        txt = ""
+        if start is not None:
+            try:
+                end = rl.getPropertyValue("RedlineEnd")
+                stext = start.getText()
+                cur = stext.createTextCursorByRange(start)
+                cur.gotoRange(end, True)
+                txt = cur.getString() or ""
+            except Exception:
+                pass
+        if not txt:
+            try:
+                rt = rl.getPropertyValue("RedlineText")
+                txt = (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
+            except Exception:
+                pass
+        entry["text"] = txt
+        redlines.append(entry)
+    return redlines
+
+
+def toggle_record_changes(doc: Any, enable: bool) -> None:
+    doc.setPropertyValue("RecordChanges", enable)
+
+
+def insert_user_redline(doc: Any, ctx: Any, text: str, start_idx: int, end_idx: int) -> None:
+    was_recording = bool(doc.getPropertyValue("RecordChanges"))
+    doc.setPropertyValue("RecordChanges", True)
+
+    from plugin.writer import review_authors
+    prior = review_authors.begin(ctx)
+    review_authors._set_office_author(ctx, "Test User")
+
+    try:
+        body = doc.getText()
+        cursor = body.createTextCursor()
+        cursor.gotoStart(False)
+        cursor.goRight(start_idx, False)
+        cursor.goRight(end_idx - start_idx, True)
+        cursor.setString(text)
+    finally:
+        review_authors.end(ctx, prior)
+        doc.setPropertyValue("RecordChanges", was_recording)
+
+
+def undo(frame: Any, ctx: Any) -> None:
+    smgr = ctx.getServiceManager()
+    dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    dispatcher.executeDispatch(frame, ".uno:Undo", "", 0, ())
+
+
 def next_hello_ok(*, listener: Any = None, timeout: float = 60.0) -> bool:
     """Send ``hello``, wait until idle, require assistant HTML or hello text in the transcript."""
     _require_debug()

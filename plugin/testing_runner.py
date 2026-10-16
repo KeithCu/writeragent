@@ -578,7 +578,7 @@ def _test_function_filters(filters: Sequence[str]) -> list[str]:
     """Return CLI tokens that select tests (packet letter, case id, or ``test_*``).
 
     Skips path / ``*_uno`` module tokens. Packet letters are single A–Z;
-    case ids are ``f3a`` / ``e9``-style; full names start with ``test_``.
+    case ids are ``f3a`` / ``e9`` / ``r1``-style; full names start with ``test_``.
     """
     names: list[str] = []
     for token in filters:
@@ -2131,7 +2131,7 @@ def main() -> int:
         python -m plugin.testing_runner --repeat 20 test_draw_uno
         python -m plugin.testing_runner --repeat 50 --pair tree-math
 
-    Extra tokens select tests: packet letter (``B``/``C``/``D``/``E``/``F``/``G``/``P``/``K``/``T``), case id
+    Extra tokens select tests: packet letter (``B``/``C``/``D``/``E``/``F``/``G``/``P``/``K``/``T``/``R``), case id
     (``f3a`` / ``p1`` / ``k1``), or full ``test_*`` name. Prefer ``make test-mock-sidebar FILTER=P``
     for the dual-sidebar peer Packet.
 
