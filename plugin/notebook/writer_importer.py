@@ -298,6 +298,8 @@ def _create_import_para_style(doc: Any, para_styles: Any, style_name: str, *, pa
             except Exception:
                 log.debug("notebook import could not set %s on %r", prop_name, style_name, exc_info=True)
         para_styles.insertByName(style_name, new_style)
+        from plugin.writer.styles import _CREATED_STYLE_KEEPALIVE
+        _CREATED_STYLE_KEEPALIVE.append(new_style)
         return True
     except Exception:
         log.debug("notebook import failed to create style %r", style_name, exc_info=True)

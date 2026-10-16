@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 import logging
 import os
 from typing import TYPE_CHECKING, Any, ClassVar, cast
@@ -54,6 +55,21 @@ from .target_resolver import resolve_target_cursor
 
 
 log = logging.getLogger("writeragent.writer")
+
+# What was wrong: StyleCreate / paragraph and character StyleClone drop the
+# createInstance proxy when the function returns. insertByName adopts that
+# SwXStyle as the sheet listener FindStyle returns.
+# How it happened: the last Python ref sends a oneway URP release. The
+# destructor blocks on the SolarMutex at refcount 0. The next getByName
+# already holds the mutex, queryInterfaces that dying listener, and soffice
+# aborts (Signal 6). Seen at test_styles_uno.py test_para_back_color_hex_uno
+# line 207, after StyleCreate had returned ok. Same race as
+# _PAGE_STYLE_KEEPALIVE in page.py (SwXPageStyle). The property written
+# beforehand (ParaBackColor or FillStyle) is not the abort.
+# Why this: keeping one proxy alive holds the refcount above 0, so that
+# release never overlaps FindStyle. maxlen only bounds memory. An evicted
+# entry is many creates old, and its destructor no longer races this lookup.
+_CREATED_STYLE_KEEPALIVE: deque[Any] = deque(maxlen=256)
 
 # Families style_list will report and enumerate. PageStyles is listed because the page tools take
 # a page-style NAME and a document converted from .docx rarely uses "Standard" — without it the
@@ -453,42 +469,8 @@ def _apply_style_updates(style: Any, updates: dict[str, Any]) -> tuple[dict[str,
     applied: dict[str, Any] = {}
     failed: dict[str, str] = {}
     for prop_name, prop_val in updates.items():
-        if prop_name == "ParaBackColor":
-            # What was wrong: Writing the UNO property ParaBackColor on a style descriptor is
-            # replayed by SwXStyle::SetPropertyValue<RES_BACKGROUND> (unostyle.cxx line 1639 on
-            # LibreOffice 26.2.6.3) through setSvxBrushItemAsFillAttributesToTargetSet, and the
-            # following getByName on that style aborts soffice.
-            # How it happened: CI runs (e.g. #1618, #1607) and local reproduction showed soffice
-            # aborting with Signal 6 in test_styles_uno.py line 207 on fam.getByName(style_name)
-            # after StyleCreate had returned ok.
-            # Why this change: The getter GetStyleProperty<RES_BACKGROUND> (unostyle.cxx line 2309)
-            # already reads back the brush from drawing fill attributes (XATTR_FILLSTYLE / XATTR_FILLCOLOR).
-            # Writing FillStyle (0=NONE, 1=SOLID) and FillColor keeps the ParaBackColor read-back
-            # while skipping the problematic brush setter that triggers the crash.
-            parsed = _style_color_to_uno(prop_val)
-            if parsed is None:
-                failed[prop_name] = "Invalid color: %r" % (prop_val,)
-                continue
-            try:
-                if parsed == -1:
-                    _set_style_property(style, "FillStyle", 0)
-                else:
-                    _set_style_property(style, "FillStyle", 1)
-                    _set_style_property(style, "FillColor", int(parsed))
-                applied[prop_name] = _schema_prop_value(prop_name, parsed)
-            except Exception as e:
-                if is_disposed_exception(e):
-                    raise
-                log.warning("Failed to set property %s: %s", prop_name, e, exc_info=True)
-                hint = ""
-                close = _close_style_names(prop_name, list(_UPDATE_SCHEMA_PROPERTIES))
-                if close and close[0] != prop_name:
-                    hint = " Did you mean '%s'?" % close[0]
-                failed[prop_name] = "%s%s" % (e, hint)
-            continue
-
         # Handle color conversions (None = unparseable; do not pass raw strings to UNO).
-        if prop_name in ("CharColor", "CharBackColor", "CharUnderlineColor"):
+        if prop_name in ("CharColor", "CharBackColor", "CharUnderlineColor", "ParaBackColor"):
             parsed = _style_color_to_uno(prop_val)
             if parsed is None:
                 failed[prop_name] = "Invalid color: %r" % (prop_val,)
@@ -651,6 +633,7 @@ def _clone_text_style(
             clone.setPropertyValue("FollowStyle", follow)
     copied, skipped = _copy_direct_style_properties(source, clone)
     style_family.insertByName(new_name, clone)
+    _CREATED_STYLE_KEEPALIVE.append(clone)
     return {
         "properties_copied": len(copied),
         "skipped_properties": skipped,
@@ -1450,6 +1433,7 @@ class StyleCreate(ToolWriterStyleBase):
                         log.warning("Failed to rollback created style '%s' after condition failure: %s", style_name, rb_err)
                     return self._tool_error(f"Failed to apply conditional rules to style: {cond_err}")
 
+            _CREATED_STYLE_KEEPALIVE.append(new_style)
         except Exception as e:
             if is_disposed_exception(e):
                 raise

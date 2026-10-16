@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 from plugin.writer.page import PageGetStyleProperties
 from plugin.writer.styles import (
     StyleList, StyleGetInfo, ApplyStyle, StyleCreate, StyleClone, StyleImport, StyleUpdate,
-    _close_style_names,
+    _close_style_names, _CREATED_STYLE_KEEPALIVE,
 )
 from plugin.tests.testing_utils import TestingFactory, WriterDocStub
 
@@ -488,6 +488,7 @@ def test_create_style_standard():
     new_style.setParentStyle.assert_called_once_with("Standard")
     new_style.setPropertyValue.assert_any_call("CharColor", 0xFF0000)
     family.insertByName.assert_called_once_with("NewStyle", new_style)
+    assert _CREATED_STYLE_KEEPALIVE[-1] is new_style
 
 
 def test_create_style_parent_not_found_suggests():
@@ -680,6 +681,7 @@ def test_clone_paragraph_style_copies_parent_follow_and_direct():
     assert "CharDiffHeight" not in set_names
     assert "CharDiffHeight" not in res["skipped_properties"]
     family.insertByName.assert_called_once_with("Dst", new_style)
+    assert _CREATED_STYLE_KEEPALIVE[-1] is new_style
 
 
 def test_apply_style_uno_skips_windows_leftover_origin_canary() -> None:
@@ -970,21 +972,17 @@ def test_style_color_par_back_and_automatic():
 
     res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": "#00FF00"})
     assert res["status"] == "ok"
-    style.setPropertyValue.assert_any_call("FillStyle", 1)
-    style.setPropertyValue.assert_any_call("FillColor", 0x00FF00)
-    assert not any(call[0][0] == "ParaBackColor" for call in style.setPropertyValue.call_args_list)
+    style.setPropertyValue.assert_any_call("ParaBackColor", 0x00FF00)
 
     style.reset_mock()
     res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": -1})
     assert res["status"] == "ok"
-    style.setPropertyValue.assert_any_call("FillStyle", 0)
-    assert not any(call[0][0] == "ParaBackColor" for call in style.setPropertyValue.call_args_list)
+    style.setPropertyValue.assert_any_call("ParaBackColor", -1)
 
     style.reset_mock()
     res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": "transparent"})
     assert res["status"] == "ok"
-    style.setPropertyValue.assert_any_call("FillStyle", 0)
-    assert not any(call[0][0] == "ParaBackColor" for call in style.setPropertyValue.call_args_list)
+    style.setPropertyValue.assert_any_call("ParaBackColor", -1)
 
     style.reset_mock()
     res = StyleUpdate().execute(ctx, style="MyStyle", property_updates={"ParaBackColor": "not-a-color"})
@@ -1067,6 +1065,7 @@ def test_create_style_does_not_insert_when_a_property_fails():
     assert res["status"] == "error"
     assert "CharWeight" in res.get("failed_properties", {})
     fam.insertByName.assert_not_called()
+    assert style_instance not in _CREATED_STYLE_KEEPALIVE
 
 
 def test_create_style_bad_conditional_rule_inserts_nothing():

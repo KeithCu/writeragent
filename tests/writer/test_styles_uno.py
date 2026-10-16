@@ -64,9 +64,9 @@ def test_update_style_parent_uno(ctx, doc):
     
     # Create a style first
     style_name = "UpdateParentTest"
-    doc.getStyleFamilies().getByName("ParagraphStyles").insertByName(
-        style_name, doc.createInstance("com.sun.star.style.ParagraphStyle")
-    )
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    created = doc.createInstance("com.sun.star.style.ParagraphStyle")
+    para_styles.insertByName(style_name, created)
     
     tool = StyleUpdate()
     res = tool.execute(tool_ctx, style=style_name, parent_style="Heading 1")
@@ -83,7 +83,8 @@ def test_update_style_para_adjust_and_missing_font_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     style_name = "AgentAdjustFont"
     para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
-    para_styles.insertByName(style_name, doc.createInstance("com.sun.star.style.ParagraphStyle"))
+    created = doc.createInstance("com.sun.star.style.ParagraphStyle")
+    para_styles.insertByName(style_name, created)
 
     res = StyleUpdate().execute(
         tool_ctx, style=style_name,
