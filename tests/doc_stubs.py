@@ -285,6 +285,12 @@ class WriterDocStub:
             def __init__(self, el):
                 self.el = el
 
+            def getStart(self):
+                return self.el[0] if self.el else self
+
+            def getEnd(self):
+                return self.el[-1] if self.el else self
+
             def createEnumeration(self):
                 class EnumStub:
                     def __init__(self, el):

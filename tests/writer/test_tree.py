@@ -223,6 +223,24 @@ class TestTreeServiceSearch:
         doc.unlockControllers.assert_called_once()
         assert order == ["lock", "jumpToPage", "unlock", "restore"]
 
+    def test_resolve_page_locator_skips_lock_when_clone_fails(self):
+        doc = MagicMock()
+        controller = MagicMock()
+        vc = MagicMock()
+
+        doc.getCurrentController.return_value = controller
+        controller.getViewCursor.return_value = vc
+        vc.getText.side_effect = RuntimeError("cannot clone")
+
+        self.tree_svc._doc_svc.get_paragraph_ranges.return_value = []
+        self.tree_svc._doc_svc.find_paragraph_for_range.return_value = 1
+
+        result = self.tree_svc.resolve_writer_locator(doc, "page", "5")
+        assert result["para_index"] == 1
+        vc.jumpToPage.assert_called_once_with(5)
+        doc.lockControllers.assert_not_called()
+        doc.unlockControllers.assert_not_called()
+
     def test_serialize_tree_node_children_count_and_body_paragraphs(self):
         elements = [
             ElementStub("Heading 1", outline_level=1),
