@@ -24,10 +24,8 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 from weakref import WeakSet
-
-if TYPE_CHECKING:
 
 from plugin.chatbot.panel import (
     StopButtonListener,
