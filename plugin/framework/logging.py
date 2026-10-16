@@ -647,7 +647,12 @@ def agent_log(location: str, message: str, data: Any = None, hypothesis_id: Any 
             payload["hypothesisId"] = hypothesis_id
         if run_id is not None:
             payload["runId"] = run_id
-        _agent_logger.debug("[Agent] %s", json.dumps(payload, ensure_ascii=False))
+        # Bugfix: Release stripping deleted this .debug call, so enable_agent_log
+        # wrote nothing in a shipped OXT. Calling Logger.log(logging.DEBUG, ...)
+        # fixes this because 'log' is outside LOGGER_STRIP_ATTRS, while the level
+        # remains DEBUG so the agent logger's own level still admits the line
+        # when the parent log_level is set to WARN.
+        _agent_logger.log(logging.DEBUG, "[Agent] %s", json.dumps(payload, ensure_ascii=False))
     except Exception:
         pass
 

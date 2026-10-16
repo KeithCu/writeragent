@@ -58,6 +58,8 @@ if TYPE_CHECKING:
 
 GRAMMAR_OBS_CALL_NAMES: frozenset[str] = frozenset({"grammar_obs", "_grammar_obs"})
 PRINT_CALL_NAMES: frozenset[str] = frozenset({"print", "pprint"})
+# 'log' stays out of this set because agent_log emits with
+# Logger.log(DEBUG, ...) so a release strip still writes [Agent] lines.
 LOGGER_STRIP_ATTRS: frozenset[str] = frozenset({"debug", "info"})
 
 EXCLUDED_STRIP_PATTERNS: list[str] = [

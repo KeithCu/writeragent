@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import os
+from pathlib import Path
 import tempfile
 from logging.handlers import MemoryHandler
 from unittest.mock import MagicMock, patch
@@ -564,6 +565,22 @@ class TestAgentLog:
         assert "[Agent]" in record.getMessage()
         assert "hello" in record.getMessage()
         assert record.name == "writeragent.agent"
+
+
+def test_release_strip_keeps_agent_log_sink(tmp_path: Path) -> None:
+    from scripts.strip_code import strip_log_debug_info_calls
+
+    source_path = Path("plugin/framework/logging.py")
+    source_content = source_path.read_text(encoding="utf-8")
+    temp_target = tmp_path / "plugin" / "framework" / "logging.py"
+    temp_target.parent.mkdir(parents=True, exist_ok=True)
+    temp_target.write_text(source_content, encoding="utf-8")
+
+    strip_log_debug_info_calls(str(tmp_path))
+
+    stripped_content = temp_target.read_text(encoding="utf-8")
+    assert "_agent_logger.log(" in stripped_content
+    assert "_agent_logger.debug(" not in stripped_content
 
 
 class TestOptionalFlushFileHandler:
