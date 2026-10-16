@@ -60,7 +60,8 @@ def test_resolve_grep_candidates_file_url_opens_that_file():
         path = f.name
     try:
         file_url = Path(path).as_uri()
-        with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
+        with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list, patch("plugin.doc.document_research_grep._system_path_from_url") as mock_sys_path:
+            mock_sys_path.return_value = path
             candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=file_url)
             mock_list.assert_not_called()
         assert err is None
@@ -88,7 +89,8 @@ def test_resolve_grep_candidates_missing_file_url_is_an_error():
 def test_resolve_grep_candidates_unc_file_url_rejected():
     unc_url = "file://server/share/Budget.ods"
     with patch("os.path.isfile", return_value=True):
-        with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
+        with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list, patch("plugin.doc.document_research_grep._system_path_from_url") as mock_sys_path:
+            mock_sys_path.return_value = None
             candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=unc_url)
             mock_list.assert_not_called()
     assert candidates == []

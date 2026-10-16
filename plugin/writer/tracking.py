@@ -346,28 +346,26 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         # How it happened: relied on view service distinction rather than document capability.
         # Why this change fixes it: branch on hasattr(ctx.doc, 'getRedlines') to distinguish Writer from Calc.
         if hasattr(ctx.doc, "getRedlines"):
-            try:
-                # What was wrong: set view ShowChangesInMargin instead of document RedlineDisplayType.
-                # How it happened: ShowChangesInMargin is view's margin preference, not markup visibility toggle.
-                # Why this change fixes it: write IDL RedlineDisplayType (LO 26.8.1.1 probe):
-                # 2 is INSERTED_AND_REMOVED (IsShowChanges), 1 is INSERTED (IsHideChanges).
-                # 0 stores as 1 on LO 26.8, 3 is show-original (REMOVED).
-                # Boolean ShowChanges False is a no-op while type is 2.
-                target_type = 2 if show_b else 1
-                ctx.doc.setPropertyValue("RedlineDisplayType", target_type)
+            # What was wrong: set view ShowChangesInMargin instead of document RedlineDisplayType.
+            # How it happened: ShowChangesInMargin is view's margin preference, not markup visibility toggle.
+            # Why this change fixes it: write IDL RedlineDisplayType (LO 26.8.1.1 probe):
+            # 2 is INSERTED_AND_REMOVED (IsShowChanges), 1 is INSERTED (IsHideChanges).
+            # 0 stores as 1 on LO 26.8, 3 is show-original (REMOVED).
+            # Boolean ShowChanges False is a no-op while type is 2.
+            target_type = 2 if show_b else 1
+            ctx.doc.setPropertyValue("RedlineDisplayType", target_type)
 
-                curr_type = ctx.doc.getPropertyValue("RedlineDisplayType")
-                curr_sc = ctx.doc.getPropertyValue("ShowChanges")
-                success = (curr_type == 2 and curr_sc is True) if show_b else (curr_type == 1 and curr_sc is False)
-                if success:
-                    return {"status": "ok", "message": f"{'Showing' if show_b else 'Hiding'} tracked changes markup."}
-                return self._tool_error(
-                    "Failed to set tracked-changes markup visibility (requested show=%s, RedlineDisplayType=%r, ShowChanges=%r)."
-                    % (show_b, curr_type, curr_sc),
-                    code="TOOL_EXECUTION_ERROR",
-                )
-            except Exception as e:
-                return self._tool_error(f"Failed to set track changes visibility: {e}")
+            curr_type = ctx.doc.getPropertyValue("RedlineDisplayType")
+            curr_sc = ctx.doc.getPropertyValue("ShowChanges")
+            success = (curr_type == 2 and curr_sc is True) if show_b else (curr_type == 1 and curr_sc is False)
+            if success:
+                return {"status": "ok", "message": f"{'Showing' if show_b else 'Hiding'} tracked changes markup."}
+            return self._tool_error(
+                "Failed to set tracked-changes markup visibility (requested show=%s, RedlineDisplayType=%r, ShowChanges=%r)."
+                % (show_b, curr_type, curr_sc),
+                code="TOOL_EXECUTION_ERROR",
+            )
+
 
         controller = ctx.doc.getCurrentController()
         return _calc_track_changes_show_markup(ctx, controller, show_b)
@@ -511,34 +509,32 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             # Redline objects from getRedlines() have NO getAnchor() (live probe: AttributeError) —
             # they are property sets exposing RedlineStart/RedlineEnd (XTextRange). The old
             # getAnchor() call meant every real change died here with "Failed to select".
+            start = target_redline.getPropertyValue("RedlineStart")
+            cur = start.getText().createTextCursorByRange(start)
+            end = start
             try:
-                start = target_redline.getPropertyValue("RedlineStart")
-                cur = start.getText().createTextCursorByRange(start)
-                end = start
-                try:
-                    end_val = target_redline.getPropertyValue("RedlineEnd")
-                    if end_val is not None:
-                        end = end_val
-                        cur.gotoRange(end, True)
-                except Exception:
-                    # collapsed span (e.g. a deletion) — selecting the start point suffices
-                    log.debug("manage_tracked_changes: RedlineEnd unreadable; selecting the start point", exc_info=True)
+                end_val = target_redline.getPropertyValue("RedlineEnd")
+                if end_val is not None:
+                    end = end_val
+                    cur.gotoRange(end, True)
+            except Exception:
+                # collapsed span (e.g. a deletion) — selecting the start point suffices
+                log.debug("manage_tracked_changes: RedlineEnd unreadable; selecting the start point", exc_info=True)
 
-                refusal = _overlap_refusal(index, objs, start, end)
-                if refusal is not None:
-                    return self._tool_error(refusal)
+            refusal = _overlap_refusal(index, objs, start, end)
+            if refusal is not None:
+                return self._tool_error(refusal)
 
-                controller = ctx.doc.getCurrentController()
+            controller = ctx.doc.getCurrentController()
+            previous = None
+            try:
+                previous = controller.getSelection()
+            except Exception:
+                log.debug("manage_tracked_changes: could not read the view selection", exc_info=True)
                 previous = None
-                try:
-                    previous = controller.getSelection()
-                except Exception:
-                    log.debug("manage_tracked_changes: could not read the view selection", exc_info=True)
-                    previous = None
 
-                controller.select(cur)
-            except Exception as e:
-                return self._tool_error(f"Failed to select tracked change for processing: {e}")
+            controller.select(cur)
+
 
             try:
                 cmd = ".uno:AcceptTrackedChange" if is_accept else ".uno:RejectTrackedChange"
