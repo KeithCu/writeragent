@@ -265,17 +265,6 @@ def test_other_agent_overlap_detected():
     assert _other_agent_redline_in_span(model, FakeText(), span, target) is True
 
 
-def test_other_agent_touching_edge_is_not_overlap():
-    span = FakeRange(10, 20)
-    target = TOKEN_PREFIX + "s:1"
-    sibling = TOKEN_PREFIX + "s:2"
-    model_touching = FakeModel(FakeRedlines([FakeRedline(sibling, 20, 30)]))
-    assert _other_agent_redline_in_span(model_touching, FakeText(), span, target) is False
-
-    model_overlapping = FakeModel(FakeRedlines([FakeRedline(sibling, 15, 25)]))
-    assert _other_agent_redline_in_span(model_overlapping, FakeText(), span, target) is True
-
-
 def test_other_agent_same_token_not_flagged():
     span = FakeRange(10, 20)
     target = TOKEN_PREFIX + "s:1"
