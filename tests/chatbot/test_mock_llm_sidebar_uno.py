@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import time
+import sys
 import unittest
 from typing import Any, Callable
 
@@ -3502,7 +3503,6 @@ def test_s2_noisy_auto_stops(ctx):
     _reset_mock_runtime()
     _s_install("noisy")
     try:
-        before = _transcript()
         press_record()
 
         _s_assert_idle()
@@ -3591,7 +3591,6 @@ def test_s5_hands_free_turned_off_mid_reply(ctx):
             cur_st = _s_state()
             try:
                 _s_assert_reaped(pid, cur_st)
-                reaped_st = cur_st
                 break
             except AssertionError:
                 time.sleep(0.02)
