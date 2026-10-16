@@ -549,6 +549,8 @@ def _reset_mock_runtime(fail_image: str = "none", image_status: int = 500, image
     _session.config.empty_nested_answer = False
     _session.config.fail_native_audio = False
     _session.config.fail_stt = False
+    _session.config.fail_stt_404_count = 0
+    _session.config.fail_native_audio_400_count = 0
     _session.config.fail_image = fail_image
     _session.config.image_status = image_status
     _session.config.image_delay_s = image_delay_s
@@ -4195,13 +4197,46 @@ def test_i8_undo_removes_image(ctx):
 # Packet S - STT fake recorder tests
 # =============================================================================
 
-def _s_install(mode: str) -> None:
-    from plugin.chatbot.sidebar_test_hooks import install_fake_stt
+_S_SAVED: dict[str, Any] = {}
+
+
+def _s_install(mode: str, *, native_audio: bool = False) -> None:
+    from plugin.chatbot.sidebar_test_hooks import install_fake_stt, set_audio_supported
+    from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
+    from plugin.framework.config import get_config, get_current_endpoint, set_config
+    from scripts.mock_llm_server import MOCK_STT_MODEL_ID
+
+    assert _session is not None
+    # press_record only clicks while the button reads Record, which needs
+    # audio support on (G does the same). install_fake_stt drops G's stub.
+    set_audio_supported(True)
+    # Packet S drives the endpoint STT fallback (POST /v1/audio/transcriptions),
+    # so the mock chat model must refuse input_audio unless a case wants the
+    # native attempt first (S4). Same switches as G5.
+    endpoint = get_current_endpoint()
+    model = get_text_model()
+    _S_SAVED.clear()
+    _S_SAVED.update(model=model, endpoint=endpoint, stt_model=get_config("stt_model"), transcript=_session.config.transcript)
+    set_native_audio_support(model, endpoint, native_audio)
+    set_config("stt_model", MOCK_STT_MODEL_ID)
+    # Silence: STT hears nothing. Otherwise the mock transcribes the take.
+    _session.config.transcript = "" if mode == "silence" else "Fake STT transcript."
+    time.sleep(2.1)
     install_fake_stt(mode)
 
 def _s_clear() -> None:
     from plugin.chatbot.sidebar_test_hooks import clear_fake_stt
+    from plugin.framework.client.model_fetcher import set_native_audio_support
+    from plugin.framework.config import set_config
+
     clear_fake_stt()
+    if _S_SAVED:
+        set_native_audio_support(_S_SAVED["model"], _S_SAVED["endpoint"], True)
+        set_config("stt_model", _S_SAVED["stt_model"])
+        if _session is not None:
+            _session.config.transcript = _S_SAVED["transcript"]
+        _S_SAVED.clear()
+        time.sleep(2.1)
 
 def _s_state() -> dict[str, Any]:
     from plugin.chatbot.sidebar_test_hooks import read_fake_stt_state
@@ -4306,20 +4341,15 @@ def test_s3_stt_404_no_resend(ctx):
 @native_test
 def test_s4_native_400_then_stt_404(ctx):
     from plugin.chatbot.sidebar_test_hooks import press_record
-    from plugin.framework.config import set_config, get_config
-
-    saved_stt = get_config("audio.stt_model")
-    saved_chat = get_config("chat.model")
-    # Needs a model that has native audio enabled. MOCK_STT_MODEL_ID supports both.
-    set_config("audio.stt_model", "writeragent-mock-stt")
-    set_config("chat.model", "writeragent-mock-stt")
 
     _reset_mock_runtime()
     assert _session is not None
     _session.config.fail_native_audio_400_count = 1
     _session.config.fail_stt_404_count = 1
 
-    _s_install("noisy")
+    # The mock chat model takes native audio (400 once), then the STT
+    # fallback goes to the mock Whisper model (404 once).
+    _s_install("noisy", native_audio=True)
     try:
         before = len(_captures())
         press_record()
@@ -4331,8 +4361,6 @@ def test_s4_native_400_then_stt_404(ctx):
         _hello_ok()
     finally:
         _s_clear()
-        set_config("audio.stt_model", saved_stt)
-        set_config("chat.model", saved_chat)
 
 @native_test
 def test_s5_hands_free_turned_off_mid_reply(ctx):
@@ -4464,6 +4492,7 @@ def test_s10_clear_while_stt_in_flight(ctx):
 @native_test
 def test_r10_late_transcript_not_auto_sent(ctx):
     from plugin.chatbot.sidebar_test_hooks import press_record, set_late_transcript_delay, press_send, set_query_text
+    sl = _m_in_process_listener("R10")
     _reset_mock_runtime()
     _s_install("noisy")
     set_late_transcript_delay(1.5)
@@ -4472,7 +4501,7 @@ def test_r10_late_transcript_not_auto_sent(ctx):
         time.sleep(0.5)
         # Send a typed message while STT is delaying
         set_query_text("typed msg")
-        press_send()
+        press_send(listener=sl)
 
         # Wait for delay and completion
         time.sleep(2.0)

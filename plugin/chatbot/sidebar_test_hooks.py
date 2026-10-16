@@ -289,6 +289,25 @@ def _fake_stt_note_spawn_locked(cmd: list[str], proc: subprocess.Popen[Any]) -> 
 
     _fake_stt_refresh_locked()
 
+    # The URP test process polls this file for reaping (S5/S6), so publish
+    # the exit when the child goes, not only on the next spawn.
+    from plugin.framework.worker_pool import run_in_background
+
+    run_in_background(_fake_stt_watch_exit, proc, name="fake-stt-exit-watch", dedicated=True)
+
+
+def _fake_stt_watch_exit(proc: subprocess.Popen[Any]) -> None:
+    try:
+        returncode = proc.wait()
+    except Exception:
+        return
+    with _FAKE_STT_LOCK:
+        if _FAKE_STT_PROCS.get(proc.pid) is not proc:
+            return
+        _FAKE_STT_STATE["alive"] = [p for p, pr in _FAKE_STT_PROCS.items() if pr.poll() is None]
+        _FAKE_STT_STATE.setdefault("returncodes", {})[str(proc.pid)] = returncode
+        _fake_stt_refresh_locked()
+
 def set_late_transcript_delay(delay: float) -> None:
     _require_debug()
     sl = send_listener()
@@ -326,6 +345,10 @@ def _clear_fake_stt_in_process() -> None:
                 setattr(audio_recorder_service.subprocess, "Popen", _FAKE_STT_ORIG["Popen"])
                 setattr(stt_service.subprocess, "Popen", _FAKE_STT_ORIG["Popen_stt"])
                 setattr(stt_service, "_run_cmd", _FAKE_STT_ORIG["_run_cmd"])
+                import plugin.chatbot.audio_recorder as audio_recorder
+
+                setattr(audio_recorder, "resolve_recording_python", _FAKE_STT_ORIG["resolve_recording_python"])
+                setattr(stt_service, "transcribe", _FAKE_STT_ORIG["transcribe"])
             except Exception:
                 log.warning("clear_fake_stt: error restoring patches", exc_info=True)
             _FAKE_STT_ORIG = None
@@ -347,6 +370,65 @@ def _clear_fake_stt_in_process() -> None:
         _FAKE_STT_PROCS = {}
         _FAKE_STT_STATE = {}
 
+_FAKE_RECORDER_SCRIPT = """
+import json, sys, threading, wave
+
+mode, out = sys.argv[1], sys.argv[2]
+
+
+def emit(payload):
+    sys.stdout.write(json.dumps(payload) + "\\n")
+    sys.stdout.flush()
+
+
+def write_wav():
+    # One second of 16 kHz mono: zeros for silence, a loud square wave otherwise.
+    frames = bytearray()
+    for i in range(16000):
+        value = 0 if mode == "silence" else (12000 if (i // 40) % 2 else -12000)
+        frames += int(value).to_bytes(2, "little", signed=True)
+    with wave.open(out, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16000)
+        handle.writeframes(bytes(frames))
+
+
+stopped = threading.Event()
+
+
+def read_stdin():
+    for line in sys.stdin:
+        if "stop" in line:
+            break
+    stopped.set()
+
+
+threading.Thread(target=read_stdin, daemon=True).start()
+emit({"status": "ready"})
+auto = mode in ("silence", "noisy") and not stopped.wait(0.5)
+if not auto:
+    stopped.wait(120)
+write_wav()
+if auto:
+    emit({"status": "auto_stopped", "path": out})
+emit({"status": "ok", "path": out, "auto_stopped": auto})
+"""
+
+
+def _fake_recorder_output(cmd: list[Any]) -> str:
+    """The ``--output`` WAV path the plugin passed to audio_record_main.py."""
+    args = [str(part) for part in cmd]
+    if "--output" in args and args.index("--output") + 1 < len(args):
+        return args[args.index("--output") + 1]
+    return os.path.join(tempfile.gettempdir(), "writeragent_fake_recorder.wav")
+
+
+def _fake_recorder_script(mode: str, output_path: str) -> str:
+    """Child source that speaks the audio_record_main.py stdout/stdin protocol."""
+    return "import sys; sys.argv = %r\n%s" % (["fake_recorder", mode, output_path], _FAKE_RECORDER_SCRIPT)
+
+
 def _apply_fake_stt(mode: str) -> None:
     _require_debug()
     if mode == "off":
@@ -356,8 +438,21 @@ def _apply_fake_stt(mode: str) -> None:
     from plugin.framework.config import get_config
     import plugin.audio.stt_service as stt_service
     import plugin.scripting.audio_recorder_service as audio_recorder_service
+    import plugin.chatbot.audio_recorder as audio_recorder
 
     global _FAKE_STT_MODE, _FAKE_STT_SAVED, _FAKE_STT_ORIG, _FAKE_STT_STATE
+
+    # The fake hooks the real recorder spawn. A Packet G stub (control file
+    # skip=True, or the flags stub_recorder_child / inject_wav set on the live
+    # recorder) never spawns, and the flags outlive the file, so drop both.
+    audio_recorder.clear_stub_recorder_control()
+    rec = _live_audio_recorder()
+    if rec is not None:
+        rec._test_skip_spawn = False
+        rec._test_inject_wav = None
+        rec._test_fail_start = None
+        rec._test_missing_wav = False
+        rec._test_hang_ready = False
 
     with _FAKE_STT_LOCK:
         if _FAKE_STT_SAVED is None:
@@ -393,6 +488,8 @@ def _apply_fake_stt(mode: str) -> None:
                 "Popen": audio_recorder_service.subprocess.Popen,
                 "Popen_stt": stt_service.subprocess.Popen,
                 "_run_cmd": stt_service._run_cmd,
+                "resolve_recording_python": audio_recorder.resolve_recording_python,
+                "transcribe": stt_service.transcribe,
             }
 
         orig_popen = _FAKE_STT_ORIG["Popen"]
@@ -417,13 +514,8 @@ def _apply_fake_stt(mode: str) -> None:
                 script = "import time; time.sleep(120)"
                 if _FAKE_STT_MODE == "crash":
                     script = "import sys; sys.exit(2)"
-                elif is_recorder:
-                    if _FAKE_STT_MODE in ("silence", "noisy", "hold"):
-                        script = "import time, sys\nsys.stdout.write('{\"status\":\"ready\"}\\n')\nsys.stdout.flush()\ntime.sleep(120)"
-                        if _FAKE_STT_MODE == "noisy":
-                            script = "import time, sys\nsys.stdout.write('{\"status\":\"ready\"}\\n')\nsys.stdout.flush()\ntime.sleep(0.5)\nsys.stdout.write('{\"status\":\"auto_stopped\", \"reason\":\"max_duration\"}\\n')\nsys.stdout.flush()\ntime.sleep(120)"
-                        elif _FAKE_STT_MODE == "silence":
-                            script = "import time, sys\nsys.stdout.write('{\"status\":\"ready\"}\\n')\nsys.stdout.flush()\ntime.sleep(0.5)\nsys.stdout.write('{\"status\":\"auto_stopped\", \"reason\":\"silence\"}\\n')\nsys.stdout.flush()\ntime.sleep(120)"
+                elif is_recorder and _FAKE_STT_MODE in ("silence", "noisy", "hold"):
+                    script = _fake_recorder_script(_FAKE_STT_MODE, _fake_recorder_output(requested_cmd))
 
                 new_cmd = [sys.executable, "-c", script]
                 new_args = list(args)
@@ -459,6 +551,26 @@ def _apply_fake_stt(mode: str) -> None:
             setattr(audio_recorder_service.subprocess, "Popen", fake_popen)
             setattr(stt_service.subprocess, "Popen", fake_popen)
             setattr(stt_service, "_run_cmd", fake_run_cmd)
+
+            # Record only spawns the venv recorder when a venv python resolves.
+            # The fake replaces the child command anyway, so hand back the
+            # interpreter the fake children run under.
+            def fake_resolve_recording_python(ctx: Any) -> tuple[str | None, str]:
+                del ctx
+                return sys.executable, ""
+
+            setattr(audio_recorder, "resolve_recording_python", fake_resolve_recording_python)
+
+            orig_transcribe = _FAKE_STT_ORIG["transcribe"]
+
+            # Late-transcript cases (S9/S10/R10) also hold the endpoint STT
+            # call; fake_run_cmd only covers local Whisper.
+            def fake_transcribe(*args: Any, **kwargs: Any) -> str:
+                if _FAKE_STT_DELAY > 0 and not stt_service.uses_local_stt():
+                    time.sleep(_FAKE_STT_DELAY)
+                return orig_transcribe(*args, **kwargs)
+
+            setattr(stt_service, "transcribe", fake_transcribe)
 
         _fake_stt_refresh_locked()
 
@@ -1125,6 +1237,11 @@ def handle_debug_sidebar_command(command: str) -> None:
             sl.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
         elif op == "STOP_CLICKED":
             sl.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+        elif op == "STOP_ACTION":
+            # The Stop button's own ActionEvent path. During a take it steps
+            # the take down (cancel a one-shot take) instead of STOP_CLICKED,
+            # which the FSM ignores while not busy.
+            StopButtonListener(sl).on_action_performed(None)
         elif op == "SET_AUDIO_0":
             set_audio_supported(False, listener=sl)
         elif op == "SET_AUDIO_1":
@@ -1275,6 +1392,7 @@ def _send_event_or_urp(kind: SendEventKind, *, listener: Any = None) -> None:
             if "record" in _send_label_lower() and "stop rec" not in _send_label_lower():
                 break
             time.sleep(0.05)
+        spawns_before = read_fake_stt_state().get("spawn_count", 0)
         if _try_click_send_for_kind(kind):
             # Any move off Record, or Stop enabled, means it took. Counting
             # only Stop Rec misses G4's stub auto-stop, which sends the take
@@ -1283,7 +1401,10 @@ def _send_event_or_urp(kind: SendEventKind, *, listener: Any = None) -> None:
             # during takes, since idle = Stop off).
             deadline = time.monotonic() + 2.0
             while time.monotonic() < deadline:
-                if _urp_record_click_took():
+                # A fake recorder that crashes at once puts the label back on
+                # Record before a poll sees Stop Rec. Its spawn still shows the
+                # click took; the fallback op would start a second take (S7).
+                if _urp_record_click_took() or read_fake_stt_state().get("spawn_count", 0) > spawns_before:
                     return
                 time.sleep(0.05)
         execute_debug_sidebar_op(kind.name)
@@ -2543,6 +2664,13 @@ def press_stop(*, listener: Any = None) -> None:
     _require_debug()
     sl = listener if listener is not None else send_listener()
     if sl is None:
+        label = _send_label_lower()
+        # Stop during a recording take (S6): same listener as in-process. The
+        # Stop Rec label can lag is_recording by a tick, so ask the state while
+        # it still reads Record. A busy reply (Send label) skips the snapshot.
+        if "stop rec" in label or ("record" in label and send_state().is_recording):
+            execute_debug_sidebar_op("STOP_ACTION")
+            return
         _send_event_or_urp(SendEventKind.STOP_CLICKED, listener=None)
         return
     StopButtonListener(sl).on_action_performed(None)

@@ -1969,6 +1969,10 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                 if config.fail_stt:
                     self._send_json(500, openai_error_body("mock STT failure", "server_error"))
                     return
+                if config.fail_stt_404_count > 0:
+                    config.fail_stt_404_count -= 1
+                    self._send_json(404, openai_error_body("Mock STT Endpoint Failure: model not found", "not_found_error"))
+                    return
                 ctype = str(self.headers.get("Content-Type") or "")
                 transcript = canned_transcript(config)
                 if "multipart/form-data" in ctype.lower():
