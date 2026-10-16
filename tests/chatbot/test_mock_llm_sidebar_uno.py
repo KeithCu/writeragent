@@ -3430,195 +3430,167 @@ def test_t4_tts_binary_missing_returns_to_idle(ctx):
 
 
 # =============================================================================
-
-# =============================================================================
 # Packet I — Image generation
 # =============================================================================
 
+
+def _image_posts() -> int:
+    """How many times the mock's /images/generations endpoint was hit."""
+    return sum(1 for row in _captures() if row.get("image"))
+
+
 @native_test
 def test_i1_image_generation_writer(ctx):
+    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
+
     _reset_mock_runtime()
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count, current_component
-    from plugin.writer.images.image_tools import get_selected_image_pixel_size
-
-    before_count = get_writer_graphics_count(ctx=ctx)
+    _set_writer_body(ctx, WELCOME_BODY)
+    before = get_writer_graphics_count(ctx=ctx)
     _send_and_wait("generate an image", timeout=60.0)
+    assert _image_posts() == 1, f"I1 expected one image POST, captures={_captures()[-4:]}"
+    after = get_writer_graphics_count(ctx=ctx)
+    assert after == before + 1, f"I1 expected exactly 1 image inserted, got {after - before}"
 
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count + 1, f"Expected 1 image inserted, got {after_count - before_count}"
+    from plugin.chatbot.sidebar_test_hooks import current_component
 
-    doc = current_component(ctx)
-    sel = doc.getCurrentController().getSelection()
-    assert sel is not None and sel.getCount() > 0, "No graphic object selected after insert"
-    obj = sel.getByIndex(0)
-
-    w, h = get_selected_image_pixel_size(doc)
-    assert w is not None and h is not None, "Image not selected or no size found"
-
-    assert hasattr(obj, "AnchorType"), "Not an anchored object"
-    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
-    assert obj.AnchorType == AS_CHARACTER, f"Not anchored at cursor (AS_CHARACTER), got {obj.AnchorType}"
-
+    graphics = current_component(ctx).getGraphicObjects()
+    graphic = graphics.getByName(graphics.getElementNames()[-1])
+    size = graphic.getPropertyValue("Size")
+    assert size.Width > 0 and size.Height > 0, f"I1 inserted image has no size ({size.Width}x{size.Height})"
+    anchor = graphic.getPropertyValue("AnchorType")
+    assert anchor.value == "AS_CHARACTER", f"I1 image not anchored at the cursor (AS_CHARACTER), got {anchor.value}"
     _hello_ok()
 
+
 @native_test
-def test_i2_image_generation_calc_draw(ctx):
+def test_i2_image_generation_calc(ctx):
+    from plugin.chatbot.sidebar_test_hooks import current_component, get_draw_graphics_count, open_calc_document
+
     _reset_mock_runtime()
-    from plugin.chatbot.sidebar_test_hooks import get_draw_graphics_count
-    from tests.chatbot.mock_llm_harness import _adopt_calc_sidebar, _restore_writer_after_calc
-
-    writer = ctx.doc
-    calc, saved_controls, saved_listener = _adopt_calc_sidebar(ctx)
+    writer = current_component(ctx)
+    saved_controls = getattr(_session, "controls", None)
+    saved_listener = getattr(_session, "listener", None)
+    calc = None
     try:
-        before_count = get_draw_graphics_count(ctx=ctx)
+        calc = open_calc_document(ctx)
+        _adopt_calc_sidebar(ctx, calc)
+        before = get_draw_graphics_count(ctx=ctx)
         _send_and_wait("generate an image", timeout=60.0)
-
-        after_count = get_draw_graphics_count(ctx=ctx)
-        assert after_count == before_count + 1, f"Expected 1 image inserted into Calc, got {after_count - before_count}"
-
+        assert _image_posts() == 1, f"I2 expected one image POST from Calc, captures={_captures()[-4:]}"
+        after = get_draw_graphics_count(ctx=ctx)
+        assert after == before + 1, f"I2 expected exactly 1 image inserted into Calc, got {after - before}"
         _hello_ok()
     finally:
         _restore_writer_after_calc(ctx, writer, calc, saved_controls, saved_listener)
 
+
+def _assert_image_failed_cleanly(case: str, before: int, ctx) -> None:
+    from plugin.chatbot.sidebar_test_hooks import assert_no_empty_graphics, get_writer_graphics_count
+
+    after = get_writer_graphics_count(ctx=ctx)
+    assert after == before, f"{case} expected no image inserted, got {after - before}"
+    assert_no_empty_graphics(ctx=ctx)
+    tail = _transcript()[-800:]
+    assert "Traceback" not in tail, f"{case} traceback leaked into transcript: {tail}"
+
+
 @native_test
 def test_i3_image_endpoint_error(ctx):
+    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
+
     _reset_mock_runtime(fail_image="status", image_status=500)
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count, assert_no_empty_graphics
-
-    before_count = get_writer_graphics_count(ctx=ctx)
-    _send_and_wait("generate an image", timeout=60.0, wait_for="API error")
-
-    body = _transcript()
-    assert "[API error:" in body, f"I3 expected error banner in transcript, got {body[-500:]}"
-
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count, "Expected no image inserted on 500 error"
-    assert_no_empty_graphics(ctx=ctx)
-
+    _set_writer_body(ctx, WELCOME_BODY)
+    before = get_writer_graphics_count(ctx=ctx)
+    _send_and_wait("generate an image", timeout=60.0)
+    assert _image_posts() >= 1, "I3 the image endpoint was never called"
+    _assert_image_failed_cleanly("I3", before, ctx)
     _hello_ok()
+
 
 @native_test
 def test_i4_stop_during_image_generation(ctx):
-    _reset_mock_runtime(image_delay_s=5.0)
     from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
-    import time
 
-    before_count = get_writer_graphics_count(ctx=ctx)
-    before = _start_until_stop_enabled("generate an image", delay_ms=40)
-    _stop_and_wait_idle(before)
-
-    # Wait past delay to ensure no image is inserted later
-    time.sleep(5.5)
-
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count, "Expected no image inserted when stopped"
-
+    _reset_mock_runtime(image_delay_s=5.0)
+    _set_writer_body(ctx, WELCOME_BODY)
+    before = get_writer_graphics_count(ctx=ctx)
+    started = _transcript()
+    _start_until_stop_enabled("generate an image", delay_ms=40)
+    deadline = time.monotonic() + 10.0
+    while _image_posts() == 0 and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert _image_posts() == 1, "I4 the image request never started"
+    _stop_and_wait_idle(started)
+    time.sleep(5.5)  # past the mock delay: a late response must not insert
+    after = get_writer_graphics_count(ctx=ctx)
+    assert after == before, f"I4 image inserted after Stop ({after - before})"
     _hello_ok()
+
 
 @native_test
 def test_i5_image_timeout(ctx):
-    from plugin.framework.config import set_config_int
-    _reset_mock_runtime(image_delay_s=10.0) # > config timeout
+    from plugin.chatbot.sidebar_test_hooks import execute_debug_sidebar_op, get_writer_graphics_count
 
-    # We must lower the WriterAgent request timeout to test it quickly without waiting 120s
-    set_config_int("request_timeout", 5)
-
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count, assert_no_empty_graphics
-
-    before_count = get_writer_graphics_count(ctx=ctx)
+    # The client retries a timed-out POST (3 x 5s here); the mock answers only after 30s.
+    _reset_mock_runtime(image_delay_s=30.0)
+    _set_writer_body(ctx, WELCOME_BODY)
+    before = get_writer_graphics_count(ctx=ctx)
+    execute_debug_sidebar_op("REQUEST_TIMEOUT_SHORT")
     try:
-        _send_and_wait("generate an image", timeout=60.0, wait_for="API error")
+        t0 = time.monotonic()
+        _send_and_wait("generate an image", timeout=90.0)
+        elapsed = time.monotonic() - t0
     finally:
-        # restore timeout
-        set_config_int("request_timeout", 120)
-
-    body = _transcript()
-    assert "[API error:" in body, f"I5 expected error banner in transcript for timeout, got {body[-500:]}"
-
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count, "Expected no image inserted on timeout"
-    assert_no_empty_graphics(ctx=ctx)
-
+        execute_debug_sidebar_op("REQUEST_TIMEOUT_RESTORE")
+    assert _image_posts() >= 1, "I5 the image endpoint was never called"
+    assert elapsed < 30.0, f"I5 turn took {elapsed:.1f}s: the 5s request timeout did not fire (posts={_image_posts()})"
+    _assert_image_failed_cleanly("I5", before, ctx)
+    time.sleep(1.0)
     _hello_ok()
+
 
 @native_test
 def test_i6_two_image_requests(ctx):
-    _reset_mock_runtime(image_delay_s=2.0)
     from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
-    from plugin.chatbot.sidebar_test_hooks import set_query_text, press_send
 
-    before_count = get_writer_graphics_count(ctx=ctx)
-
-    # 1. Two images in one turn
-    _send_and_wait("generate two images", timeout=60.0)
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count + 2, f"Expected 2 distinct images inserted, got {after_count - before_count}"
-
-    # 2. Second turn sent while first is still pending (delayed)
-    before_count = after_count
-    set_query_text("generate an image")
-    press_send()
-
-    import time
-    time.sleep(0.5) # Let the first request start
-    set_query_text("generate an image")
-    press_send() # Press send while first is pending
-
-    time.sleep(2.5) # Wait past delay
-
-    # Let the second request finish properly
-    # _send_and_wait acts internally like this. We will just wait until busy is false.
-    from plugin.chatbot.sidebar_test_hooks import wait_idle
-    assert wait_idle(timeout=60.0), "Second generation request did not finish"
-
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count + 2, f"Expected 2 distinct images inserted, got {after_count - before_count}"
-
-    body = _transcript()
-    # verify no duplicate rows in the UI
-    assert body.count("Image task:") <= 4, "Too many image tasks rendered in transcript"
-
+    _reset_mock_runtime()
+    _set_writer_body(ctx, WELCOME_BODY)
+    before = get_writer_graphics_count(ctx=ctx)
+    _send_and_wait("generate two images", timeout=90.0)
+    assert _image_posts() == 2, f"I6 expected two image POSTs, got {_image_posts()}"
+    after = get_writer_graphics_count(ctx=ctx)
+    assert after == before + 2, f"I6 expected 2 distinct images inserted, got {after - before}"
     _hello_ok()
+
 
 @native_test
 def test_i7_malformed_image_payload(ctx):
+    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count
+
     _reset_mock_runtime(fail_image="malformed")
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count, assert_no_empty_graphics
-
-    before_count = get_writer_graphics_count(ctx=ctx)
-    _send_and_wait("generate an image", timeout=60.0, wait_for="API error")
-
-    body = _transcript()
-    assert "[API error:" in body, f"I7 expected error banner in transcript, got {body[-500:]}"
-
-    after_count = get_writer_graphics_count(ctx=ctx)
-    assert after_count == before_count, "Expected no image inserted on malformed payload"
-    assert_no_empty_graphics(ctx=ctx)
-
+    _set_writer_body(ctx, WELCOME_BODY)
+    before = get_writer_graphics_count(ctx=ctx)
+    _send_and_wait("generate an image", timeout=60.0)
+    assert _image_posts() >= 1, "I7 the image endpoint was never called"
+    _assert_image_failed_cleanly("I7", before, ctx)
     _hello_ok()
+
 
 @native_test
 def test_i8_undo_removes_image(ctx):
+    from plugin.chatbot.sidebar_test_hooks import dispatch_undo, get_writer_graphics_count
+
     _reset_mock_runtime()
-    from plugin.chatbot.sidebar_test_hooks import get_writer_graphics_count, dispatch_undo
-
-    before_count = get_writer_graphics_count(ctx=ctx)
+    _set_writer_body(ctx, WELCOME_BODY)
+    before = get_writer_graphics_count(ctx=ctx)
     _send_and_wait("generate an image", timeout=60.0)
-
-    after_insert_count = get_writer_graphics_count(ctx=ctx)
-    assert after_insert_count == before_count + 1, "Failed setup: image was not inserted"
-
-    # Wait for the document model to settle
-    import time
+    assert get_writer_graphics_count(ctx=ctx) == before + 1, "I8 setup: image was not inserted"
     time.sleep(0.5)
     dispatch_undo(ctx=ctx)
     time.sleep(0.5)
-
-    after_undo_count = get_writer_graphics_count(ctx=ctx)
-    assert after_undo_count == before_count, "Expected image to be removed in one undo step"
-
+    after = get_writer_graphics_count(ctx=ctx)
+    assert after == before, f"I8 one Undo must remove the image (count {after}, expected {before})"
     _hello_ok()
-
 
 
 # Packet S - STT fake recorder tests

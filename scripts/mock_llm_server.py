@@ -33,6 +33,7 @@ import re
 import socket
 import sys
 import threading
+import time
 import uuid
 import wave
 from dataclasses import dataclass, field
@@ -93,6 +94,9 @@ _SPECIALIZED_INNER_PRE_FINISH = (
 # Phrase → scenario. First match wins. Keep distinct from research/comment keywords.
 _SCENARIO_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("hang", re.compile(r"\bhang the stream\b", re.IGNORECASE)),
+    # Packet I: image_generate tool calls (one, or two in one turn).
+    ("image_two", re.compile(r"\bgenerate two images\b", re.IGNORECASE)),
+    ("image_one", re.compile(r"\bgenerate an image\b", re.IGNORECASE)),
     # Packet K: more specific than fail_http / flood. Summarizer POSTs are
     # classified before phrase match so dumped history cannot re-trigger these.
     ("overflow_once", re.compile(r"\b(overflow once|prompt too large once)\b", re.IGNORECASE)),
@@ -172,6 +176,8 @@ SCENARIO_IDS = frozenset(
         "tree",
         "parallel",
         "mutate",
+        "image_one",
+        "image_two",
         "fail_http",
         "rate_limit",
         "hang",
@@ -1202,6 +1208,17 @@ def _peer_specialized_inner(
     )
 
 
+def _image_generate_completion(scenario: str) -> Completion:
+    """Packet I: one image_generate call, or two in one turn for ``image_two``."""
+    extra = [("image_generate", {"prompt": "a second mock lighthouse"})] if scenario == "image_two" else []
+    return Completion(
+        tool_name="image_generate",
+        tool_args={"prompt": "a mock lighthouse"},
+        extra_tool_calls=extra,
+        finish_reason="tool_calls",
+    )
+
+
 def _specialized_inner_completion(
     messages: list[Any],
     tool_names: set[str],
@@ -1239,6 +1256,10 @@ def _specialized_inner_completion(
         )
     if empty:
         return _finish("")
+    if scenario in ("image_one", "image_two") and "image_generate" in tool_names:
+        if "image_generate" in called:
+            return _finish("Mock image task complete.")
+        return _image_generate_completion(scenario)
     # One discovery step, then finish. Calling every advertised tool (especially
     # delegate_read_document with path="") loops the inner agent (Packet E7 soak).
     if any(name in called for name in _SPECIALIZED_INNER_PRE_FINISH):
@@ -1403,6 +1424,15 @@ def _scenario_user_turn(
                 finish_reason="tool_calls",
             )
         return Completion(content=_html_chat(user_text, turn), reasoning=reasoning, finish_reason="stop")
+    if scenario in ("image_one", "image_two"):
+        # image_generate is specialized-tier: delegate to the images domain; the inner
+        # turn (_specialized_inner_completion) issues the image_generate call(s).
+        if "image_generate" in tool_names:
+            return _image_generate_completion(scenario)
+        delegate = _delegate_for_tools(tool_names)
+        if delegate:
+            return _tool_or_html(tool_names, delegate, {"domain": "images", "task": user_text}, user_text, turn)
+        return Completion(content=_html_chat(user_text, turn), reasoning=reasoning)
     if scenario == "mutate":
         return _tool_or_html(
             tool_names,
@@ -1912,7 +1942,6 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                     self._fail_or_hang_headers(dummy, stream=False)
                     return
                 if config.image_delay_s > 0:
-                    import time
                     time.sleep(config.image_delay_s)
                 if config.fail_image == "status":
                     self._send_json(config.image_status, openai_error_body("mock image failure", "server_error"))

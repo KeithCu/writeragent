@@ -939,6 +939,9 @@ def _parse_debug_sidebar_command(command: str) -> tuple[str, str]:
     return op, uid
 
 
+_SAVED_REQUEST_TIMEOUT: Any = None
+
+
 def handle_debug_sidebar_command(command: str) -> None:
     """Run inside soffice (protocol handler). Packet G URP FSM ops + OPEN_CALC.
 
@@ -998,6 +1001,21 @@ def handle_debug_sidebar_command(command: str) -> None:
         from plugin.doc.peer_message import kick_pending_peer_starts
 
         _post_to_soffice_vcl(kick_pending_peer_starts, sl=sl)
+        _write_debug_snapshot(sl)
+        return
+    # Packet I5: a short request_timeout read by the soffice sidebar (URP set_config is
+    # not seen there); RESTORE puts back the value SHORT replaced.
+    if op in ("REQUEST_TIMEOUT_SHORT", "REQUEST_TIMEOUT_RESTORE"):
+        global _SAVED_REQUEST_TIMEOUT
+        from plugin.framework.config import get_config, set_config
+
+        if op == "REQUEST_TIMEOUT_SHORT":
+            if _SAVED_REQUEST_TIMEOUT is None:
+                _SAVED_REQUEST_TIMEOUT = get_config("request_timeout")
+            set_config("request_timeout", 5)
+        elif _SAVED_REQUEST_TIMEOUT is not None:
+            set_config("request_timeout", _SAVED_REQUEST_TIMEOUT)
+            _SAVED_REQUEST_TIMEOUT = None
         _write_debug_snapshot(sl)
         return
     # Settings→Speech writes audio.tts_enabled then emits config:changed; these
@@ -2852,6 +2870,10 @@ def dispatch_undo(*, ctx: Any = None) -> None:
     frame = doc.getCurrentController().getFrame()
     if frame is None:
         return
-    from plugin.framework.service import resolve
-    helper = resolve("com.sun.star.frame.DispatchHelper", ctx)
+    uno_ctx = ctx if ctx is not None else _HOOK_CTX
+    if uno_ctx is None:
+        from plugin.framework.uno_context import get_ctx
+
+        uno_ctx = get_ctx()
+    helper = uno_ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
     helper.executeDispatch(frame, ".uno:Undo", "", 0, ())

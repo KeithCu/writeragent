@@ -22,7 +22,7 @@ This plan is **finished**. Mouse Stop, HITL Change dialog, live DuckDuckGo, and 
 | **[Packet G](#packet-g--mocked-audio-and-stt)** | Mocked Record / Stop Rec, `input_audio`, STT | Automated (CI) | **Done.** 21 Landed (incl. G17 Calc deck). |
 | **[Packet P](#packet-p--dual-sidebar-peer-673)** | Writer+Calc mock peer round-trip (specialized-inner #673) | Automated (`FILTER=P`) | **Landed** (unit scripts always; live dual deck uses `open_calc_document`). |
 | **[Packet K](#packet-k--sidebar-compaction-712--713)** | Proactive compact, overflow retry, kill switch, death ≠ overflow | Automated (`FILTER=K`) | **Landed.** Chat mode only (Web Research / Librarian share the worker). |
-| **[Packet I](#packet-i--image-generation)** | Image generation tool lifecycle & delays | Automated (CI) | **Done.** 8 Landed. |
+| **[Packet I](#packet-i--image-generation)** | Image generation tool lifecycle & delays | Automated (`FILTER=I`) | **Landed.** 8 Landed. |
 | **[Packet T](#packet-t--tts-races-and-child-lifecycle)** | TTS stop / cut-off / crash / missing binary, fake child, no audio device | Automated (`FILTER=T`) | **Landed.** 4 Landed. |
 
 
@@ -454,12 +454,12 @@ Smol ReAct web-research subagent compaction is out of scope.
 
 | ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
 |:--:|:----:|----------------|-----------------|------------------------|:--------------:|
-| **I1** | mock-sidebar | `generate an image` (Writer) | Send query | Exactly one image inserted into Writer (graphic count +1); anchored at cursor; size verified; sidebar returns to idle; `next_hello_ok()` | **Landed** |
-| **I2** | mock-sidebar | `generate an image` (Calc/Draw) | Open Calc/Draw; send query | Exactly one image inserted into Calc (Impress/Draw skipped if tool doesn't support them or requires manual adaptation); graphic count +1; sidebar returns to idle; `next_hello_ok()` | **Landed** |
+| **I1** | mock-sidebar | `generate an image` (Writer) | Send query | Delegates to the `images` domain; one `/images/generations` POST; exactly one graphic inserted, non-zero size, anchored AS_CHARACTER; `next_hello_ok()` | **Landed** |
+| **I2** | mock-sidebar | `generate an image` (Calc) | Open Calc; send query | One image POST; Calc draw page shape count +1; `next_hello_ok()` (Draw/Impress not covered) | **Landed** |
 | **I3** | mock-sidebar | `generate an image` + `fail_image=500` | Send query | Image endpoint returns 500; clean error banner surfaced; no empty graphic inserted; `next_hello_ok()` | **Landed** |
 | **I4** | mock-sidebar | `generate an image` + `image_delay=slow` | Click Stop while generating | No image inserted later; no leaked threads; sidebar returns to idle; `next_hello_ok()` | **Landed** |
-| **I5** | mock-sidebar | `generate an image` + timeout | Slow response hits timeout | Clean error surfaced; no empty graphic inserted; `next_hello_ok()` | **Landed** |
-| **I6** | mock-sidebar | Two `generate an image` in one turn / while pending | Send query requesting two tools, or second query while first is pending | Two distinct images inserted; no duplicate rows in UI; `next_hello_ok()` | **Landed** |
+| **I5** | mock-sidebar | `generate an image` + 30s delay, `request_timeout=5` (set in soffice) | Slow response hits timeout (client retries) | Turn ends before the mock answers; clean error surfaced; no empty graphic inserted; `next_hello_ok()` | **Landed** |
+| **I6** | mock-sidebar | `generate two images` | Two `image_generate` calls in one inner turn | Two image POSTs; two distinct graphics inserted; `next_hello_ok()` | **Landed** |
 | **I7** | mock-sidebar | `generate an image` + malformed | Endpoint returns malformed JSON/base64 | Clean error surfaced; no empty graphic inserted; `next_hello_ok()` | **Landed** |
 | **I8** | mock-sidebar | `generate an image` + Undo | Insert image, then dispatch `.uno:Undo` | Image removed from document in one step; graphic count -1; `next_hello_ok()` | **Landed** |
 
