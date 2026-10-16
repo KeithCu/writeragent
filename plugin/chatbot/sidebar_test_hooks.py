@@ -446,7 +446,7 @@ def _apply_fake_stt(mode: str) -> None:
 
             setattr(fake_popen, "_writeragent_fake_stt", True)
 
-            def fake_run_cmd(*args, **kwargs):
+            def fake_run_cmd(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
                 cmd = args[0]
                 if "whisper_transcribe.py" in str(cmd):
                     if _FAKE_STT_DELAY > 0:
