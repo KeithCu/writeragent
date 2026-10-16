@@ -393,33 +393,35 @@ def test_mock_ocr_stop_checker_aborts_without_insert(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_mock_ocr_mid_loop_failure_leaves_partial_insert(ctx, doc):
-    """Image 2 OCR fails: image 1 inserted, 2–3 untouched, labels and graphics remain."""
+def test_mock_ocr_mid_loop_failure_continues_with_remaining_images(ctx, doc):
+    """Image 2 OCR fails: images 1 and 3 are still inserted in order, the failure is reported."""
     fixture = _build_labeled_fixture(ctx, doc, image_count=3)
-    fail_name = fixture["names"][1]
+    names = fixture["names"]
+    fail_name = names[1]
     try:
         _select_whole_document(doc)
         result, captured = _run_mock_ocr_expect_fail(ctx, doc, fail_image_name=fail_name)
         assert result["status"] == "error"
-        assert result.get("code") == "VISION_ERROR" or "mock OCR failed" in str(result.get("message") or "")
+        assert result.get("code") == "VISION_ERROR"
+        assert result.get("failed_image") == fail_name
+        assert result.get("failed_images") == [fail_name]
+        assert fail_name in str(result.get("message") or "")
+        assert result.get("partial") is True
+        assert result.get("inserted") is True
+        assert result.get("images_processed") == 2
+        assert result.get("image_names") == [names[0], names[2]]
+        # Every image was attempted exactly once, in document order.
+        assert [image_name for image_name, _token in captured] == names
+        assert captured[1] == (fail_name, "FAILED")
         body = doc.getText().getString()
-        token_a = _ocr_token_for_name(captured, fixture["names"][0])
-        assert token_a in body
+        token_a = _ocr_token_for_name(captured, names[0])
+        token_c = _ocr_token_for_name(captured, names[2])
+        assert token_a.startswith("OCR_") and token_c.startswith("OCR_")
         assert body.count(token_a) == 1
-        for label in ("T0", "T1", "T2", "T3"):
-            assert label in body, f"label {label!r} missing after partial OCR failure"
-        for image_name, token in captured:
-            if image_name == fail_name:
-                assert token == "FAILED"
-            else:
-                assert token.startswith("OCR_")
-        excluded = [token for image_name, token in captured if image_name == fixture["names"][2]]
-        assert not excluded, f"unexpected OCR for image 3 after failure on image 2: {excluded!r}"
-        for name in fixture["names"][1:]:
-            stray = [token for image_name, token in captured if image_name == name and token != "FAILED"]
-            assert not stray, f"unexpected successful OCR token for {name!r}: {stray!r}"
-        _assert_strict_order(body, "T0", token_a, "T1", "T2", "T3")
-        _assert_graphics_named(doc, fixture["names"])
+        assert body.count(token_c) == 1
+        assert "FAILED" not in body
+        _assert_strict_order(body, "T0", token_a, "T1", "T2", token_c, "T3")
+        _assert_graphics_named(doc, names)
     finally:
         _cleanup_temp_paths(fixture["temp_paths"])
 
