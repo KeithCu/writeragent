@@ -6,6 +6,7 @@
 
 import io
 import os
+import threading
 import urllib.error
 from unittest.mock import patch
 
@@ -48,7 +49,6 @@ def _piper_cache(tmp_path, monkeypatch):
 def test_download_to_cancellable_and_cleans_tmp(tmp_path):
     """Bug 1: _download_to aborts when cancelled and cleans up .tmp file."""
     dest = tmp_path / "model.bin"
-    tmp = tmp_path / "model.bin.tmp"
 
     # Test cancellation mid-download
     call_count = 0
@@ -68,7 +68,8 @@ def test_download_to_cancellable_and_cleans_tmp(tmp_path):
         ok = _download_to("https://example.com/model", str(dest), timeout=10.0, cancelled=cancelled_after_first)
         assert not ok
         assert not dest.exists()
-        assert not tmp.exists()
+        assert list(tmp_path.glob("*.tmp")) == []
+        assert list(tmp_path.glob("writeragent_tts_*")) == []
 
     # Test failure on URLError cleans up .tmp
     def fail_open(*args, **kwargs):
@@ -78,7 +79,8 @@ def test_download_to_cancellable_and_cleans_tmp(tmp_path):
         ok = _download_to("https://example.com/model", str(dest), timeout=10.0)
         assert not ok
         assert not dest.exists()
-        assert not tmp.exists()
+        assert list(tmp_path.glob("*.tmp")) == []
+        assert list(tmp_path.glob("writeragent_tts_*")) == []
 
     # Test success atomically renames .tmp to dest
     with patch("urllib.request.urlopen", return_value=io.BytesIO(b"full-model-data")):
@@ -86,7 +88,67 @@ def test_download_to_cancellable_and_cleans_tmp(tmp_path):
         assert ok
         assert dest.exists()
         assert dest.read_bytes() == b"full-model-data"
-        assert not tmp.exists()
+        assert list(tmp_path.glob("*.tmp")) == []
+        assert list(tmp_path.glob("writeragent_tts_*")) == []
+
+
+def test_overlapping_downloads_do_not_share_a_temp(tmp_path):
+    """Bug 1: Concurrent downloads do not share a temp file and cannot corrupt dest."""
+    dest = tmp_path / "model.bin"
+
+    a_entered_read = threading.Event()
+    allow_a_read = threading.Event()
+    b_done = threading.Event()
+
+    class StreamA:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self, n=-1):
+            a_entered_read.set()
+            allow_a_read.wait(timeout=5.0)
+            return b"XXXX"
+
+    def fake_urlopen(req, timeout=30.0):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        if "slow" in url:
+            return StreamA()
+        return io.BytesIO(b"GOOD")
+
+    ok_a = None
+
+    def run_a():
+        nonlocal ok_a
+        ok_a = _download_to(
+            "https://example.com/slow",
+            str(dest),
+            timeout=10.0,
+            cancelled=b_done.is_set,
+        )
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        thread_a = threading.Thread(target=run_a)
+        thread_a.start()
+
+        assert a_entered_read.wait(timeout=5.0)
+
+        ok_b = _download_to("https://example.com/fast", str(dest), timeout=10.0)
+        assert ok_b
+        assert dest.read_bytes() == b"GOOD"
+
+        b_done.set()
+        allow_a_read.set()
+
+        thread_a.join(timeout=5.0)
+        assert not thread_a.is_alive()
+        assert not ok_a
+
+        assert dest.read_bytes() == b"GOOD"
+        assert list(tmp_path.glob("*.tmp")) == []
+        assert list(tmp_path.glob("writeragent_tts_*")) == []
 
 
 def test_download_failure_remembered_per_generation():

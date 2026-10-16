@@ -190,7 +190,11 @@ def _post_audio_speech(
         except (TypeError, ValueError):
             code = 0
         err_msg = str(exc)
-        log.warning("TTS POST %s failed (%s): %s", public_target(url), code, err_msg)
+        if exc.code == "STOPPED":
+            # Stop is code="STOPPED"; the transport logs it at debug, and a warning here reads as a failed POST.
+            log.debug("TTS POST %s aborted by Stop", public_target(url))
+        else:
+            log.warning("TTS POST %s failed (%s): %s", public_target(url), code, err_msg)
         return None, "", code, err_msg
 
 

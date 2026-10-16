@@ -13,6 +13,7 @@ from plugin.audio.tts_endpoint import (
     _download_endpoint_speech,
     _pcm_rate_from_content_type,
     _pcm_s16le_to_wav,
+    _post_audio_speech,
     _speak_endpoint,
 )
 from plugin.audio.tts_service import _release_temp
@@ -492,3 +493,45 @@ def test_speak_endpoint_later_chunk_failure_still_reports_status():
     system.assert_called_once()
     assert system.call_args.args[0] == downloads[1]
     assert "tail stays" in system.call_args.args[0]
+
+
+def test_stopped_post_logs_debug_not_warning(caplog):
+    import logging
+    from plugin.framework.errors import NetworkError
+
+    caplog.set_level(logging.DEBUG)
+
+    with patch(
+        "plugin.framework.client.requests.sync_request",
+        side_effect=NetworkError("LLM request aborted by Stop", code="STOPPED"),
+    ):
+        body, content_type, code, err = _post_audio_speech(
+            "https://example.com/audio/speech", {}, {"model": "test"}
+        )
+
+    assert body is None
+    assert content_type == ""
+    assert code == 0
+    assert "aborted by Stop" in err
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert not any("TTS POST" in msg for msg in warnings)
+
+    debugs = [r.getMessage() for r in caplog.records if r.levelname == "DEBUG"]
+    assert any("aborted by Stop" in msg for msg in debugs)
+
+    caplog.clear()
+
+    with patch(
+        "plugin.framework.client.requests.sync_request",
+        side_effect=NetworkError("nope", code="HTTP_ERROR", details={"status": 503}),
+    ):
+        body2, content_type2, code2, err2 = _post_audio_speech(
+            "https://example.com/audio/speech", {}, {"model": "test"}
+        )
+
+    assert body2 is None
+    assert code2 == 503
+    warnings2 = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("TTS POST" in msg and "503" in msg for msg in warnings2)
+

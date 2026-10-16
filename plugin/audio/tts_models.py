@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 import urllib.request
 from typing import Callable
 
@@ -137,14 +138,28 @@ def _download_to(
 ) -> bool:
     """Download a file from url to dest using chunked reads with cancellation support.
 
-    Writes to dest + '.tmp' and renames to dest on success.
-    Checks cancelled() periodically and removes .tmp on failure or cancel.
+    Writes to a unique temp file in dest's directory, renamed into place on success.
+    Checks cancelled() periodically; that temp is removed on failure or cancel.
     """
     if cancelled and cancelled():
         return False
-    tmp_path = dest + ".tmp"
+    dest_dir = os.path.dirname(dest)
+    tmp_path: str | None = None
     try:
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        if dest_dir:
+            os.makedirs(dest_dir, exist_ok=True)
+        # Concurrent downloads previously shared dest + ".tmp". If an in-flight
+        # download was cancelled, cancel was only noticed on the next 64 KiB poll,
+        # during which the next utterance could start another download to the same dest
+        # and truncate or overwrite the temp inode while the first was still writing.
+        # Giving each attempt a unique temp ensures it cannot be truncated or unlinked
+        # by another attempt.
+        fd, tmp_path = tempfile.mkstemp(
+            prefix="writeragent_tts_",
+            suffix=".tmp",
+            dir=dest_dir or None,
+        )
+        os.close(fd)
         req = urllib.request.Request(url, headers={"User-Agent": "WriterAgent/1.0"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             with open(tmp_path, "wb") as f_out:
@@ -162,10 +177,12 @@ def _download_to(
     except Exception as exc:
         if not isinstance(exc, InterruptedError):
             log.warning("Download failed for %s -> %s: %s", url, dest, exc)
-        if os.path.exists(tmp_path):
+        # Dropped os.path.exists check: the temp is the one this call created;
+        # FileNotFoundError means it is already gone, so catch OSError only.
+        if tmp_path is not None:
             try:
                 os.remove(tmp_path)
-            except Exception:
+            except OSError:
                 pass
         return False
 
