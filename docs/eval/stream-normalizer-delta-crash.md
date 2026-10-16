@@ -1,8 +1,7 @@
 # Harness bug: `type(delta) is dict` crash on MiniMax M3 (stream normalizer)
 
 **Status:** Open â€” confirmed on 2026-09-01 benchmark run  
-**Severity:** Harness crash (eval/chat abort, not a model quality failure)  
-**Related:** [benchmark-failure-analysis-2026-09-01.md](benchmark-failure-analysis-2026-09-01.md)
+**Severity:** Harness crash (eval/chat abort, not a model quality failure)
 
 ---
 
@@ -207,5 +206,4 @@ After the harness fix, MiniMax may still **fail the task** on document content â
 ## Background docs
 
 - Eval harness overview: [`docs/eval/eval-dev-plan.md`](eval-dev-plan.md)
-- Full run triage: [benchmark-failure-analysis-2026-09-01.md](benchmark-failure-analysis-2026-09-01.md)
 - HTTP / LLM module entry: [`plugin/framework/client/llm_client.py`](../../plugin/framework/client/llm_client.py) module doc / [`docs/repo-map.md`](../../docs/repo-map.md)

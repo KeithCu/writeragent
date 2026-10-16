@@ -269,7 +269,7 @@ Tasks 18–19 run on the **native** lane (`--backend auto`). **Board is complete
 
 Pareto SVGs regenerated from this JSON: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg), [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg).
 
-Calc fill-down base (`data_sorting` + `tax_column`) from 2026-09-11 after Tip A/B + harness `expand_single_formula` (#733). Artifacts: `benchmark_results.json`, `benchmark_results_details.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`. Triage: [`docs/eval/benchmark-failure-analysis-2026-09-01.md`](../../docs/eval/benchmark-failure-analysis-2026-09-01.md).
+Calc fill-down base (`data_sorting` + `tax_column`) from 2026-09-11 after Tip A/B + harness `expand_single_formula` (#733). Artifacts: `benchmark_results.json`, `benchmark_results_details.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`.
 
 Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squared ÷ avg $/task (`intelligence_per_dollar_metric`). **Quality** = LLM judge average among judged creative/table passes only (`—` if none judged). Models with `n_err` > 0 kept when errors are model-side (empty response, tool-loop limit), not infra/harness. **n** is **19** for every catalog model (flag + org chart spliced).
 

@@ -78,7 +78,7 @@ Contracts and RPC: [calc/analysis-tools.md](calc/analysis-tools.md).
 | Multi-document | [chat/multi-document-dev-plan.md](chat/multi-document-dev-plan.md) |
 | Memory | [archive/hermes-agent-patterns.md](archive/hermes-agent-patterns.md) |
 | Librarian | [chat/librarian-onboarding.md](chat/librarian-onboarding.md) |
-| Localization | [localization.md](localization.md) |
+| Localization | [framework/localization.md](framework/localization.md) |
 
 ## Draw / Impress
 
