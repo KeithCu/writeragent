@@ -49,7 +49,7 @@ import time
 import uuid
 from typing import Any, Callable, ClassVar, Iterator
 
-from plugin.framework.errors import ToolExecutionError, is_real_disposal, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.writer import review_scan as _review_scan
 
@@ -325,8 +325,8 @@ class EditReviewSession:
     def __enter__(self) -> "EditReviewSession":
         if not self.enabled:
             return self
-        # RecordChanges does not fail on a live document. A throw is a closed
-        # document; treating it as "was not recording" used to turn tracking off.
+        # RecordChanges get/set does not fail on a live document. The old except
+        # treated a theoretical miss as "was not recording" and then turned tracking off.
         self._was_recording = bool(self.doc.getPropertyValue("RecordChanges"))
         if not self._was_recording:
             try:
@@ -1309,14 +1309,9 @@ def _collapse_review_context(doc: Any, track_reviewable: bool, was_recording: bo
         # redline (track_reviewable flag), turn it back OFF so their later
         # manual typing is not tracked. Existing redlines persist regardless.
         if not was_recording:
-            try:
-                doc.setPropertyValue("RecordChanges", False)
-            except Exception:
-                # Same failure EditReviewSession.__exit__ already warns about.
-                # Do not raise: this finally runs after a collapse that succeeded,
-                # and a raise makes finish() rewrite that text as a failed collapse.
-                log.warning("%s: failed to restore RecordChanges=False; "
-                            "user may be left with Track Changes ON", label, exc_info=True)
+            # RecordChanges get/set does not fail on a live document. The except
+            # only logged a restore that does not happen.
+            doc.setPropertyValue("RecordChanges", False)
         # Tag the collapsed redline(s) with a session token so the inline review UI
         # (click popup / context menu) treats this streamed edit as an agent change.
         if before_ids is not None:
@@ -1364,13 +1359,9 @@ class WriterStreamedRewriteSession:
         refuse_tracked_insert_or_delete(text_range)
         self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
 
-        try:
-            self.was_recording = bool(self.doc.getPropertyValue("RecordChanges"))
-        except Exception:
-            # The undo context above is already open. The read does not fail on
-            # a live document; do not treat a throw as "was not recording".
-            self._compound_undo.close()
-            raise
+        # RecordChanges get/set does not fail on a live document. The except
+        # closed undo and re-raised a read that does not fail.
+        self.was_recording = bool(self.doc.getPropertyValue("RecordChanges"))
 
         log.info("WriterStreamedRewriteSession: was_recording=%s, compound_undo open=%s", self.was_recording, self._compound_undo._open)
         try:
@@ -1379,14 +1370,10 @@ class WriterStreamedRewriteSession:
             self.text_range.setString("")
         except Exception:
             if self.was_recording:
-                try:
-                    self.doc.setPropertyValue("RecordChanges", True)
-                except Exception:
-                    # The original error is re-raised below. This only records
-                    # that the user's Track Changes could not be put back.
-                    log.warning(
-                        "streamed rewrite: failed to restore RecordChanges during init",
-                        exc_info=True)
+                # RecordChanges get/set does not fail on a live document. The inner
+                # except only logged a restore that does not happen. close() below
+                # still runs for the original error.
+                self.doc.setPropertyValue("RecordChanges", True)
             self._compound_undo.close()
             raise
 
@@ -1484,14 +1471,9 @@ class WriterStreamedRewriteSession:
                     log.exception("streamed rewrite: fallback setString(original_text) failed")
         finally:
             if self.was_recording:
-                try:
-                    self.doc.setPropertyValue("RecordChanges", True)
-                except Exception:
-                    # on_error shows the stream error after abort returns.
-                    # Raising here would skip that message.
-                    log.warning(
-                        "streamed rewrite: failed to restore RecordChanges during abort_and_restore",
-                        exc_info=True)
+                # RecordChanges get/set does not fail on a live document. The except
+                # only logged a restore that does not happen.
+                self.doc.setPropertyValue("RecordChanges", True)
 
 
 class WriterStreamedAppendSession:
@@ -1535,27 +1517,15 @@ class WriterStreamedAppendSession:
         refuse_tracked_insert_or_delete(text_range)
         self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
 
-        try:
-            self.was_recording = bool(self.doc.getPropertyValue("RecordChanges"))
-        except Exception:
-            # The undo context above is already open. The read does not fail on
-            # a live document; do not treat a throw as "was not recording".
-            self._compound_undo.close()
-            raise
+        # RecordChanges get/set does not fail on a live document. The except
+        # closed undo and re-raised a read that does not fail.
+        self.was_recording = bool(self.doc.getPropertyValue("RecordChanges"))
         # Stream with tracking OFF so the live continuation isn't recorded as a redline per
         # chunk; finish() re-records the whole appended run as one tracked insertion.
-        try:
-            if self.was_recording:
-                self.doc.setPropertyValue("RecordChanges", False)
-        except Exception as exc:
-            # Tracking stayed on, so each streamed chunk would be its own redline.
-            # A closed document must not start that stream.
-            log.warning(
-                "streamed append: failed to disable RecordChanges before streaming",
-                exc_info=True)
-            if is_real_disposal(exc):
-                self._compound_undo.close()
-                reraise_if_disposed(exc)
+        # RecordChanges get/set does not fail on a live document. The except logged
+        # a disable that does not happen and re-raised only disposal.
+        if self.was_recording:
+            self.doc.setPropertyValue("RecordChanges", False)
 
     def append_chunk(self, chunk: str) -> None:
         """Append streamed text after the original (tracking off; one redline created at finish)."""
@@ -1576,13 +1546,9 @@ class WriterStreamedAppendSession:
                 # redline per streamed chunk. If the model produced nothing, there is no edit to
                 # collapse, but the user's prior tracking state still must be restored.
                 if self.was_recording:
-                    try:
-                        self.doc.setPropertyValue("RecordChanges", True)
-                    except Exception as exc:
-                        log.warning(
-                            "streamed append: failed to restore RecordChanges after an empty continuation",
-                            exc_info=True)
-                        reraise_if_disposed(exc)
+                    # RecordChanges get/set does not fail on a live document. The
+                    # except only logged a restore that does not happen.
+                    self.doc.setPropertyValue("RecordChanges", True)
                 if self.last_write_error is not None:
                     return _("Failed to write streamed text to the document: {0}").format(self.last_write_error)
                 return None
@@ -1607,24 +1573,18 @@ class WriterStreamedAppendSession:
                 log.exception("Failed to collapse streamed append into one tracked change")
                 # Degrade: keep the user's continuation (untracked) rather than losing it.
                 fallback_errors: list[str] = []
-                try:
-                    self.doc.setPropertyValue("RecordChanges", False)
-                except Exception as e:
-                    reraise_if_disposed(e)
-                    log.warning("streamed append: failed to disable RecordChanges during fallback", exc_info=True)
-                    fallback_errors.append(f"disable tracking failed: {e}")
+                # RecordChanges get/set does not fail on a live document. The except
+                # logged a disable that does not happen and put it in the warning.
+                self.doc.setPropertyValue("RecordChanges", False)
                 try:
                     self.text_range.setString(self.original_text + self.appended_text)
                 except Exception as e:
                     reraise_if_disposed(e)
                     log.warning("streamed append: fallback setString failed", exc_info=True)
                     fallback_errors.append(f"restore continuation failed: {e}")
-                try:
-                    self.doc.setPropertyValue("RecordChanges", self.was_recording)
-                except Exception as e:
-                    reraise_if_disposed(e)
-                    log.warning("streamed append: failed to restore RecordChanges during fallback", exc_info=True)
-                    fallback_errors.append(f"restore recording state failed: {e}")
+                # RecordChanges get/set does not fail on a live document. The except
+                # logged a restore that does not happen and put it in the warning.
+                self.doc.setPropertyValue("RecordChanges", self.was_recording)
                 if fallback_errors:
                     return _("Failed to collapse the streamed continuation into a single tracked change: {0}").format("; ".join(fallback_errors))
                 return _("Failed to collapse the streamed continuation into a single tracked change. The text was kept, but may not be reviewable.")
@@ -1636,12 +1596,9 @@ class WriterStreamedAppendSession:
 
         The partial continuation is left in place, matching the prior extend-selection behavior."""
         try:
+            # RecordChanges get/set does not fail on a live document. The except
+            # only logged a restore that does not happen. finally still closes undo.
             self.doc.setPropertyValue("RecordChanges", bool(self.was_recording))
-        except Exception:
-            # on_error shows the stream error after abort returns.
-            log.warning(
-                "streamed append: failed to restore RecordChanges during abort_and_restore",
-                exc_info=True)
         finally:
             self._compound_undo.close()
 

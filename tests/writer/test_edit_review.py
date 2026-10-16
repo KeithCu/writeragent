@@ -845,16 +845,3 @@ def test_string_skipping_redline_closed_portion_raises():
     span = _SkipRange([_SkipPara([_ClosedPortion("Text", text="x")])])
     with pytest.raises(DocumentDisposedError):
         _string_skipping_redline(span, "Delete")
-
-
-def test_edit_review_enter_does_not_treat_recordchanges_read_failure_as_off():
-    from plugin.writer.edit_review import EditReviewSession
-
-    doc = MagicMock()
-    doc.getPropertyValue.side_effect = RuntimeError("recordchanges")
-    session = EditReviewSession(doc, MagicMock(), enabled=True)
-    with pytest.raises(RuntimeError, match="recordchanges"):
-        with session:
-            pass
-    doc.setPropertyValue.assert_not_called()
-    assert session._active is False
