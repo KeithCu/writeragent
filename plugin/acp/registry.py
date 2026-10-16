@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -29,6 +30,8 @@ from plugin.acp.claude_simple import ClaudeBackend
 from plugin.acp.vibe_simple import VibeBackend
 from plugin.acp.grok_simple import GrokBackend
 from plugin.acp.opencode_simple import OpenCodeBackend
+
+log = logging.getLogger(__name__)
 
 # The class display_name is the English label; the old tuple repeated it,
 # and ACP subclasses otherwise inherited AgentBackend.display_name ("Built-in").
@@ -43,17 +46,25 @@ AGENT_BACKEND_REGISTRY = {
 
 
 def normalize_backend_id(backend_id: Any) -> str:
-    """Normalize backward-compatible or translated backend IDs to internal IDs."""
+    """Normalize backward-compatible or translated backend IDs to internal IDs.
+
+    Empty becomes builtin. A non-empty id that is not in the registry is
+    still builtin, and is logged. Option labels are rewritten earlier by
+    ``coerce_config_value``.
+    """
     if not backend_id:
         return "builtin"
 
     b_id = str(backend_id).strip().lower()
+    if not b_id:
+        return "builtin"
 
-    # Official internal IDs
     if b_id in AGENT_BACKEND_REGISTRY:
         return b_id
 
-    # Default to builtin if not found, recovering from any other corrupted string
+    # A typo or a stale id used to become the built-in agent with no log,
+    # so the sidebar ran the wrong backend and the user was not told.
+    log.warning("Unknown agent backend id %r; using builtin", b_id)
     return "builtin"
 
 

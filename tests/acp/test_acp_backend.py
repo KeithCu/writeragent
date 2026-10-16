@@ -79,32 +79,45 @@ class TestDefaultExtraArgs:
         assert _split_cli_args('--config "C:\\Program Files\\x"', posix=False) == ["--config", "C:\\Program Files\\x"]
         assert _split_cli_args("C:\\new\\tmp", posix=True) == ["C:newtmp"]
 
-    def test_config_error_drops_stale_extra_args(self, caplog):
-        caplog.set_level("ERROR", logger="plugin.acp.acp_backend")
+    def test_config_read_error_propagates(self):
+        """get_config does not raise in production. A raised error must not search PATH."""
         backend = HermesBackend.__new__(HermesBackend)
         backend._extra_args = ["--stale"]
         backend._binary_path = "/usr/bin/hermes"
         with (
             patch("plugin.framework.config.get_config", side_effect=RuntimeError("bad config")),
-            patch("shutil.which", return_value=None),
+            patch("shutil.which", return_value="/usr/bin/from-path"),
             patch("os.path.isfile", return_value=False),
         ):
-            backend._load_config()
-        assert (backend._extra_args) == ([])
-        assert ("ACP agent config load failed") in (caplog.text)
-
-    def test_unmatched_quote_keeps_configured_path(self, caplog):
-        caplog.set_level("ERROR", logger="plugin.acp.acp_backend")
-        with (
-            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/hermes", args='--config "foo')),
-            patch("os.path.isfile", return_value=True),
-            patch("shutil.which", return_value=None),
-        ):
-            backend = HermesBackend()
+            with pytest.raises(RuntimeError, match="bad config"):
+                backend._load_config()
+        assert backend._extra_args == ["--stale"]
         assert backend._binary_path == "/usr/bin/hermes"
-        assert backend._extra_args == ["acp"]
-        assert "ACP agent_backend.args could not be parsed" in caplog.text
-        assert "ACP agent config load failed" not in caplog.text
+
+    def test_unbalanced_args_keep_path_and_raise(self):
+        """An unbalanced quote must not drop the configured path or install default argv."""
+        backend = HermesBackend.__new__(HermesBackend)
+        backend._extra_args = []
+        backend._binary_path = None
+
+        def getter(key, default=None):
+            values = {
+                "agent_backend.path": "/usr/bin/hermes",
+                "agent_backend.args": '--config "unterminated',
+            }
+            return values.get(key, default)
+
+        with (
+            patch("plugin.framework.config.get_config", side_effect=getter),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value="/usr/bin/from-path") as which,
+        ):
+            with pytest.raises(ValueError, match="unbalanced quote"):
+                backend._load_config()
+        which.assert_not_called()
+        assert backend._binary_path == "/usr/bin/hermes"
+        assert backend._extra_args == []
+
 
     @pytest.mark.parametrize(
         "path, expected",
@@ -1867,4 +1880,25 @@ def test_registry_classes_own_their_display_names():
         assert (cls.backend_id) == (b_id)
         assert (cls.display_name) == (expected_display)
         assert ("display_name") in (cls.__dict__)
+
+
+class TestReplyAndCancelDoNotSwallow:
+    def test_reply_propagates_send_response_error(self):
+        backend = _bare_backend()
+        conn = MagicMock()
+        conn.send_response.side_effect = TypeError("not json")
+        with pytest.raises(TypeError, match="not json"):
+            backend._reply(conn, 1, result={"ok": True})
+
+    def test_stop_propagates_cancel_send_error(self):
+        backend = _bare_backend()
+        conn = MagicMock()
+        conn.is_alive = True
+        backend._conn = conn
+        backend._session_id = "sess-1"
+        backend._prompt_inflight = True
+        conn.send_notification.side_effect = TypeError("not json")
+        with pytest.raises(TypeError, match="not json"):
+            backend.stop()
+
 
