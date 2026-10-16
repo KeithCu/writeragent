@@ -454,13 +454,13 @@ Smol ReAct web-research subagent compaction is out of scope.
 
 | ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
 |:--:|:----:|----------------|-----------------|------------------------|:--------------:|
-| **I1** | mock-sidebar | `generate an image` (Writer) | Send query | Exactly one image inserted into Writer (graphic count +1); anchored; sidebar returns to idle; `next_hello_ok()` | **Landed** |
-| **I2** | mock-sidebar | `generate an image` (Calc/Draw) | Open Calc/Draw; send query | Exactly one image inserted into Calc/Draw (graphic count +1); sidebar returns to idle; `next_hello_ok()` | **Landed** |
-| **I3** | mock-sidebar | `generate an image` + `fail_image=500` | Send query | Image endpoint returns 500; clean error banner surfaced; no image inserted; `next_hello_ok()` | **Landed** |
+| **I1** | mock-sidebar | `generate an image` (Writer) | Send query | Exactly one image inserted into Writer (graphic count +1); anchored at cursor; size verified; sidebar returns to idle; `next_hello_ok()` | **Landed** |
+| **I2** | mock-sidebar | `generate an image` (Calc/Draw) | Open Calc/Draw; send query | Exactly one image inserted into Calc (Impress/Draw skipped if tool doesn't support them or requires manual adaptation); graphic count +1; sidebar returns to idle; `next_hello_ok()` | **Landed** |
+| **I3** | mock-sidebar | `generate an image` + `fail_image=500` | Send query | Image endpoint returns 500; clean error banner surfaced; no empty graphic inserted; `next_hello_ok()` | **Landed** |
 | **I4** | mock-sidebar | `generate an image` + `image_delay=slow` | Click Stop while generating | No image inserted later; no leaked threads; sidebar returns to idle; `next_hello_ok()` | **Landed** |
-| **I5** | mock-sidebar | `generate an image` + timeout | Slow response hits timeout | Clean error surfaced; `next_hello_ok()` | **Landed** |
-| **I6** | mock-sidebar | Two `generate an image` | Rapid/parallel requests | Two distinct images inserted; no duplicate rows; `next_hello_ok()` | **Landed** |
-| **I7** | mock-sidebar | `generate an image` + malformed | Endpoint returns malformed JSON/base64 | Clean error surfaced; no image inserted; `next_hello_ok()` | **Landed** |
+| **I5** | mock-sidebar | `generate an image` + timeout | Slow response hits timeout | Clean error surfaced; no empty graphic inserted; `next_hello_ok()` | **Landed** |
+| **I6** | mock-sidebar | Two `generate an image` in one turn / while pending | Send query requesting two tools, or second query while first is pending | Two distinct images inserted; no duplicate rows in UI; `next_hello_ok()` | **Landed** |
+| **I7** | mock-sidebar | `generate an image` + malformed | Endpoint returns malformed JSON/base64 | Clean error surfaced; no empty graphic inserted; `next_hello_ok()` | **Landed** |
 | **I8** | mock-sidebar | `generate an image` + Undo | Insert image, then dispatch `.uno:Undo` | Image removed from document in one step; graphic count -1; `next_hello_ok()` | **Landed** |
 
 ## 4. Out-of-Scope Items & Boundary Invariants

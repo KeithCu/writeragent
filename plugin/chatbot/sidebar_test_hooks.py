@@ -353,7 +353,7 @@ def _apply_fake_stt(mode: str) -> None:
         _clear_fake_stt_in_process()
         return
 
-    from plugin.framework.config import get_config, set_config
+    from plugin.framework.config import get_config
     import plugin.audio.stt_service as stt_service
     import plugin.scripting.audio_recorder_service as audio_recorder_service
 
@@ -2833,6 +2833,16 @@ def get_draw_graphics_count(*, ctx: Any = None) -> int:
     if doc is None or not hasattr(doc, "getDrawPages"):
         return 0
     return doc.getDrawPages().getByIndex(0).getCount()
+
+def assert_no_empty_graphics(*, ctx: Any = None) -> None:
+    """Assert no empty/partial graphics exist in Writer."""
+    doc = current_component(ctx)
+    if doc is None or not hasattr(doc, "getGraphicObjects"):
+        return
+    for name in doc.getGraphicObjects().getElementNames():
+        g = doc.getGraphicObjects().getByName(name)
+        if hasattr(g, "GraphicURL"):
+            assert g.GraphicURL, f"Found graphic {name} with empty GraphicURL"
 
 def dispatch_undo(*, ctx: Any = None) -> None:
     """Dispatch .uno:Undo on the current document frame."""
