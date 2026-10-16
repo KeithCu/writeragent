@@ -1093,3 +1093,69 @@ def test_get_active_page_calc_branch_other_errors_still_fall_through():
     bridge = DrawBridge(doc)
     assert bridge.get_active_page() is page
 
+
+def test_move_slide_swaps_master_when_getPropertyValue_rejects_it():
+    from plugin.draw.bridge import DrawBridge
+
+    class _RejectingMasterPage(_MovePage):
+        def __init__(
+            self,
+            name: str,
+            shapes: list[_MoveShape],
+            master: object,
+            layout: int,
+        ) -> None:
+            super().__init__(name, shapes)
+            self.MasterPage = master
+            self.Layout = layout
+
+        def getPropertyValue(self, name: str) -> object:
+            if name == "MasterPage":
+                raise RuntimeError("UnknownPropertyException: MasterPage")
+            if name == "Layout":
+                return self.Layout
+            raise AttributeError(name)
+
+        def setPropertyValue(self, name: str, value: object) -> None:
+            if name == "MasterPage":
+                raise RuntimeError("UnknownPropertyException: MasterPage")
+            if name == "Layout":
+                self.Layout = int(value)  # type: ignore[arg-type]
+                return
+            setattr(self, name, value)
+
+    class _MasterDoc(_MoveDoc):
+        def duplicate(self, page: _MovePage) -> _MovePage:
+            idx = self._pages.pages.index(page)
+            clones: list[_MoveShape] = []
+            for shape in page.shapes:
+                clone = _MoveShape(shape.getString())
+                clone.payload = getattr(shape, "payload", None)
+                clone.from_duplicate = True
+                clones.append(clone)
+            copy = _RejectingMasterPage(
+                "",
+                clones,
+                master=getattr(page, "MasterPage", None),
+                layout=getattr(page, "Layout", 0),
+            )
+            self._pages.pages.insert(idx + 1, copy)
+            return copy
+
+    m_a = object()
+    m_b = object()
+    page_a = _RejectingMasterPage("A", [_MoveShape("a")], master=m_a, layout=5)
+    page_b = _RejectingMasterPage("B", [_MoveShape("b")], master=m_b, layout=9)
+    pages = _MovePages([page_a, page_b])
+    bridge = DrawBridge(_MasterDoc(pages))
+
+    assert bridge.move_slide(0, 1) is True
+    assert len(pages.pages) == 2
+    assert pages.pages[0].shapes[0].getString() == "b"
+    assert pages.pages[0].MasterPage is m_b
+    assert pages.pages[0].Layout == 9
+    assert pages.pages[1].shapes[0].getString() == "a"
+    assert pages.pages[1].MasterPage is m_a
+    assert pages.pages[1].Layout == 5
+
+

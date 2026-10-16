@@ -752,6 +752,13 @@ class DrawBridge:
 
     def _read_page_prop(self, page: Any, prop: str) -> tuple[bool, Any]:
         try:
+            # MasterPage is XMasterPageTarget, not an XPropertySet entry;
+            # SdGenericDrawPage::getPropertyValue throws UnknownPropertyException
+            # (sd/source/ui/unoidl/unopage.cxx), so the getattr fallback below
+            # never runs on a live page. PyUNO .MasterPage calls getMasterPage /
+            # setMasterPage.
+            if prop == "MasterPage":
+                return True, getattr(page, prop)
             if hasattr(page, "getPropertyValue"):
                 return True, page.getPropertyValue(prop)
             if hasattr(page, prop):
@@ -767,7 +774,9 @@ class DrawBridge:
         # The slide's real placeholders already moved with the shapes; drop
         # only the ones this write just inserted.
         before = self._snapshot_shapes(page) if prop == "Layout" else None
-        if hasattr(page, "setPropertyValue"):
+        if prop == "MasterPage":
+            setattr(page, prop, value)
+        elif hasattr(page, "setPropertyValue"):
             page.setPropertyValue(prop, value)
         else:
             setattr(page, prop, value)
