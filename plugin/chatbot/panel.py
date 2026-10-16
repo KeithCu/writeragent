@@ -2088,11 +2088,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                         try:
                             transcript = self._transcribe_audio(self.audio_wav_path, stt_model)
 
-                            typed_after = ""
-                            if self.query_control and self.query_control.getModel():
-                                from plugin.chatbot.dialogs import get_control_text
-
-                                typed_after = (get_control_text(self.query_control) or "").strip()
+                            typed_after = self._get_query_text()
 
                             if self._terminal_status == "Stopped":
                                 new_text = (query_text + "\n" + transcript).strip() if (query_text and transcript) else (transcript or query_text)
