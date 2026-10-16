@@ -54,7 +54,7 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 | `make typecheck` | After edits (required with targeted tests). basedpyright, bandit, opengrep, pyspector, ty, thread-safety, and mypy in parallel. Details: [docs/framework/type-checking.md](docs/framework/type-checking.md) |
 | `make deploy` | WriterAgent OXT: build + install/cache sync; **restart LibreOffice** (or `make deploy writer/calc/draw/impress` to launch) |
 | `make deploy-core` | LibrePy OXT only (`build/LibrePy.oxt`); **removes WriterAgent**. Install one OXT at a time. |
-| `make pytest` | Unit pytest only: `-m "not slow and not integration" --ignore-glob='*_uno.py'` plus xdist (`-n -1`; `PYTEST_WORKERS=0` for serial). No live soffice. |
+| `make pytest` | Unit pytest only: `-m "not slow and not integration" --ignore-glob='*_uno.py'` plus xdist (`-n auto --dist=loadgroup`; `PYTEST_WORKERS=0` for serial). No live soffice. |
 | `make test-uno` | UNO / LibreOffice tests only: runs `testing_runner.py` with serial live LibreOffice instance. |
 | `make test` | Large or cross-cutting changes only (includes typecheck, SAST, pytest, LO tests) |
 | `make build` | Produce `build/WriterAgent.oxt` only (no install) |
@@ -79,7 +79,7 @@ Rules that apply in many places. Breaking them causes wrong-document bugs, froze
 
 - **Use the extension’s `self.ctx`, not a fresh UNO context.** Lookups for package info, dialogs, and similar must use the component context the extension was given. Calling `uno.getComponentContext()` can return a different context and quietly break those lookups. Same idea for Calc chat context: `get_calc_context_for_chat` needs `ctx` from the panel / MainJob, not a bootstrap call.
 
-- **Keep the chat FSM pure.** `next_state` lives in `plugin/chatbot/tool_loop_state.py` and only computes the next state—no UNO calls and no I/O. `service.py` holds the frozen markers (`BaseState`, `FsmTransition`) and `ServiceRegistry`. Side effects (UI updates, MCP, document work) belong in the panel or MCP layers.
+- **Keep the chat FSM pure.** `next_state` lives in `plugin/chatbot/tool_loop_state.py` and only computes the next state—no UNO calls and no I/O. `plugin/framework/service.py` holds the frozen markers (`BaseState`, `FsmTransition`) and `ServiceRegistry`. Side effects (UI updates, MCP, document work) belong in the panel or MCP layers.
 
 - **Stream on a worker; drain on the UI thread.** Background work pushes tuples onto a `queue.Queue`. The first element must be a `StreamQueueKind` **enum member**, not a bare string. When `AsyncCallback` exists, `run_stream_drain_loop` handles the items already queued and **returns to the VCL loop**, then re-arms with `addCallback` or a ~100 ms idle delay. Do not put the `while` / `Queue.get` loop back inside that callback: it holds SolarMutex across the idle wait. The blocking loop remains only when no callback can be armed (unit tests, eval harness). Do not use UNO `XTimerListener` for sidebar streaming. `run_blocking_in_thread(..., pump_idle=False)` stays a non-pumping wait. More: [docs/framework/streaming-and-threading.md](docs/framework/streaming-and-threading.md).
 
@@ -95,7 +95,7 @@ Rules that apply in many places. Breaking them causes wrong-document bugs, froze
 
 - **LibrePy-safe document helpers.** Linebreaks, tracked-deletion reads, heading trees, path, selection text, Writer text slices, and selection range / char count: `plugin/doc/text_helpers.py`. Type guards: `doc_type.py`. Document properties: `udprops.py`. Do **not** import `document_helpers` from LibrePy paths (WriterAgent chat context / `DocumentService`). Do **not** re-export the light helpers from `document_helpers`.
 
-- **`plugin.framework.client` package init is lazy.** HTTP / errors / provider detection load immediately; `LlmClient`, embeddings, and analysis load on attribute access. LibrePy may import `requests` / `provider_detection`. Do not import `llm_client` or embeddings from LibrePy paths.
+- **`plugin.framework.client` package init is lazy.** HTTP / errors / provider detection load immediately; `LlmClient` and analysis (`run_trusted_analysis`) load on attribute access. Embeddings live in `plugin/embeddings/`. LibrePy may import `requests` / `provider_detection`. Do not import `llm_client` or embeddings from LibrePy paths.
 
 - **Stop / cancellation policy:** When Stop is clicked, abort waiting on network/HTTP/IPC packets immediately (e.g. streaming LLM, image generation API, subprocess waits). However, do **not** abort document mutations (inserting pictures, appending in-flight text chunks, writing analysis/plots to sheets). Once data is generated and in hand, let it land in the document cleanly rather than implementing complicated defensive abort code or throwing away work. For voice/speech: clicking Stop while recording ends the take and transcribes it into the query box—do **not** abort transcription, throw away the audio, or auto-submit the transcript to the model.
 

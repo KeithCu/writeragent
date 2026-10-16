@@ -239,7 +239,7 @@ class CommentDelete(ToolWriterCommentBase):
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
 
-        to_delete = []
+        rows = []
         while enum.hasMoreElements():
             field = enum.nextElement()
             if not field.supportsService("com.sun.star.text.textfield.Annotation"):
@@ -250,11 +250,32 @@ class CommentDelete(ToolWriterCommentBase):
                 field_author = field.getPropertyValue("Author")
             except Exception:
                 continue
+            rows.append((field, name, parent, field_author))
 
-            if comment_name and (name == comment_name or parent == comment_name):
-                to_delete.append(field)
-            elif author and field_author == author:
-                to_delete.append(field)
+        selected_indices: set[int] = set()
+
+        # dispose() removes one field, and ParentName is only the immediate
+        # parent, so the name set has to be the chain.
+        if comment_name:
+            doomed = {comment_name}
+            changed = True
+            while changed:
+                changed = False
+                for idx, (_field, name, parent, _field_author) in enumerate(rows):
+                    if idx in selected_indices:
+                        continue
+                    if (name and name in doomed) or (parent and parent in doomed):
+                        selected_indices.add(idx)
+                        if name and name not in doomed:
+                            doomed.add(name)
+                            changed = True
+
+        if author:
+            for idx, (_field, _name, _parent, field_author) in enumerate(rows):
+                if field_author == author:
+                    selected_indices.add(idx)
+
+        to_delete = [rows[idx][0] for idx in sorted(selected_indices)]
 
         if not to_delete:
             # A miss must be an ERROR: "ok, deleted: 0" reads as success and the agent then

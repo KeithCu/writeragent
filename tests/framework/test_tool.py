@@ -963,6 +963,36 @@ class TestToolIsolation:
         assert result["status"] == "error"
         assert result["code"] == "DOCUMENT_DISPOSED"
 
+    def test_execute_safe_document_disposed_message_attribute(self):
+        class DisposedException(Exception):
+            def __init__(self, message: str):
+                super().__init__("")
+                self.Message = message
+
+            def __str__(self):
+                return ""
+
+        class DeadTool(ToolBase):
+            name = "test_dead_message"
+            description = "x"
+            parameters = {"type": "object", "properties": {}}
+
+            def is_async(self):
+                return True
+
+            def execute(self, ctx, **kwargs):
+                raise DisposedException("Document bridge disposed")
+
+        class DummyContext:
+            doc = None
+            doc_type = None
+            caller = None
+
+        result = DeadTool().execute_safe(DummyContext())
+        assert result["status"] == "error"
+        assert result["code"] == "DOCUMENT_DISPOSED"
+        assert result["details"]["original_error"] == "Document bridge disposed"
+
     def test_execute_safe_keeps_writeragent_exception_code(self):
         from plugin.framework.errors import ToolPermissionError
 
