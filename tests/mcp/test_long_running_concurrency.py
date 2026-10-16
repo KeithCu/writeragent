@@ -213,16 +213,15 @@ def test_unknown_tool_is_rejected_up_front_without_executing():
     assert reg.max_concurrency == 0, "an unknown tool must never reach the registry"
 
 
-def test_requires_document_lock_exception_falls_back_to_detects_mutation():
+def test_requires_document_lock_exception_propagates():
     reg = _Registry(is_mutation=True, lock_raises=True)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
     errors = _run_concurrent(handler._execute_long_running, ["file:///same.odt"] * 2)
 
-    assert not errors, "long_running should not error: %s" % errors
-    assert reg.max_concurrency == 1, (
-        "expected SERIALIZED (1) when hook fails and tool is mutating, got %d" % reg.max_concurrency
-    )
+    assert errors, "a broken requires_document_lock must surface: %s" % errors
+    assert all("hook failed" in msg for msg in errors)
+    assert reg.max_concurrency == 0
 
 
 def test_cross_path_long_running_and_backpressure_same_document_serializes():

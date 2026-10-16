@@ -99,7 +99,8 @@ def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = N
     if callable(flush):
         try:
             flush()
-        except Exception:
+        except OSError:
+            # Client disconnect during flush (BrokenPipeError, ConnectionResetError).
             pass
 
 
@@ -259,13 +260,15 @@ def _shutdown_sse_socket(sock: Any) -> None:
     if callable(shutdown):
         try:
             shutdown(socket.SHUT_RDWR)
-        except Exception:
+        except OSError:
+            # Already-closed socket. Other exceptions are bugs.
             pass
     close = getattr(sock, "close", None)
     if callable(close):
         try:
             close()
-        except Exception:
+        except OSError:
+            # Already-closed socket. Other exceptions are bugs.
             pass
 
 

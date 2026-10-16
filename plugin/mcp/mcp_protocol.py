@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
+from plugin.version import EXTENSION_VERSION
 from plugin.framework.tool import ToolContext
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, resolve_exception_message, format_error_payload, make_tool_error
@@ -254,11 +255,10 @@ def _real_active_document(doc_svc: Any) -> Any:
     doc = doc_svc.get_active_document()
     if doc is None:
         return None
-    try:
-        if not doc.supportsService("com.sun.star.document.OfficeDocument"):
-            return None
-    except Exception:
-        pass  # can't introspect -> keep it (don't break a real document)
+    # supportsService on the active component does not fail. The old except
+    # kept the component anyway, including a disposed one.
+    if not doc.supportsService("com.sun.star.document.OfficeDocument"):
+        return None
     return doc
 
 
@@ -274,15 +274,14 @@ def _resolve_mcp_doc_key(document_url: str | None, doc: Any) -> str:
     _ACTIVE_DOCUMENT_SENTINEL when there is neither — "target the active document" today.
     """
     if doc is not None:
-        try:
-            uid = get_runtime_uid(doc)
-            if uid:
-                return "uid:%s" % uid
-            url = normalize_doc_url(doc.getURL())
-            if url:
-                return "url:%s" % url
-        except Exception:
-            log.debug("Could not resolve document key for the mutation gate", exc_info=True)
+        # A failed uid or URL read must not fall through to the request URL.
+        # That second key lets two calls on the same document run at once.
+        uid = get_runtime_uid(doc)
+        if uid:
+            return "uid:%s" % uid
+        url = normalize_doc_url(doc.getURL())
+        if url:
+            return "url:%s" % url
     # No resolved doc (or one with neither uid nor URL): best-effort key off the raw request URL,
     # namespaced ("url:") so it can never collide with a resolved "uid:"/"url:" key; else the
     # active-document sentinel.
@@ -322,10 +321,10 @@ def _get_document_mutation_gate(doc_key: str) -> threading.Lock:
 def _tool_needs_document_mutation_gate(tool: Any, arguments: Any = None) -> bool:
     if tool is None:
         return True  # unknown tool -> be safe
-    try:
-        return bool(tool.requires_document_lock(arguments))
-    except Exception:
-        return bool(tool.detects_mutation())
+    # A broken requires_document_lock must not silently switch to
+    # detects_mutation. ToolBase.requires_document_lock already calls that.
+    # An override that raises is a bug and must surface.
+    return bool(tool.requires_document_lock(arguments))
 
 
 @contextmanager
@@ -428,15 +427,9 @@ class MCPProtocolHandler:
         self._cancelled_requests: set[tuple[Any, str | int]] = set()
         self._in_flight_requests: dict[tuple[Any, str | int], int] = {}
         self._requests_lock: threading.Lock = threading.Lock()
-        # EXTENSION_VERSION import can fail. Leave "unknown" so
-        # _mcp_initialize does not AttributeError on an unassigned version.
-        self.version = "unknown"
-        try:
-            from plugin.version import EXTENSION_VERSION
-
-            self.version = EXTENSION_VERSION
-        except ImportError:
-            pass
+        # plugin.version is part of the extension. A missing module is a
+        # packaging bug, not a runtime fallback to "unknown".
+        self.version = EXTENSION_VERSION
 
     # ── Raw handlers (receive GenericRequestHandler) ─────────────────
 
@@ -594,8 +587,10 @@ class MCPProtocolHandler:
                         break
                 except (ConnectionResetError, OSError):
                     break
-        except Exception as e:
-            log.debug("SSE keepalive loop exception: %s", e)
+        except Exception:
+            # Socket disconnects are handled above. Anything else closed the
+            # client stream; debug text hid the traceback.
+            log.exception("SSE keepalive loop exception")
         finally:
             forget_sse_keepalive(tcp_server, sock)
             log.info("[SSE] GET stream closed")
@@ -778,10 +773,9 @@ class MCPProtocolHandler:
 
     def _tool_exposure_mode(self) -> str:
         """Read mcp.tool_exposure_mode (delegate | direct_flat | direct_discovery)."""
-        try:
-            return self.services.config.get("mcp.tool_exposure_mode", "delegate") or "delegate"
-        except Exception:
-            return "delegate"
+        # ConfigService.get already returns the caller default on ConfigError.
+        # The except turned any other failure into the delegate catalog.
+        return self.services.config.get("mcp.tool_exposure_mode", "delegate") or "delegate"
 
     def _mcp_tools_list(self, params: Any, document_url: str | None = None) -> Any:
         mode = self._tool_exposure_mode()
@@ -844,10 +838,10 @@ class MCPProtocolHandler:
             # requires.
             from plugin.framework.uno_context import get_ctx
 
-            try:
-                uno_ctx = get_ctx()
-            except Exception:
-                uno_ctx = None  # no context to ask -> advertise, same as the catalog does
+            # This block runs on the main thread. get_ctx returns None when
+            # there is no context; an exception is a thread-guard violation
+            # and must not be turned into "advertise every domain".
+            uno_ctx = get_ctx()
             schemas = drop_unavailable_domains(schemas, self.tool_registry, uno_ctx)
 
             if mode == "direct_flat":
@@ -1143,14 +1137,12 @@ class MCPProtocolHandler:
 
         Returns ``(schemas, {doc_type: doc})`` for the types that were added, so the
         caller can apply the per-doc-type filters (sidebar-only flows) to them too.
-        Main-thread only (touches UNO). Never raises: a catalog that is merely
-        narrower is better than a tools/list that 500s.
+        Main-thread only (touches UNO). open_documents already skips a bad
+        component. A failure here propagates so tools/list does not omit a family.
         """
-        try:
-            by_type = self.services.document.open_documents_by_type()
-        except Exception:
-            log.debug("tools/list broaden: could not enumerate open documents", exc_info=True)
-            return schemas, {}
+        # open_documents already skips a component whose supportsService fails.
+        # A raise here is a catalog bug; swallowing it hid a document type.
+        by_type = self.services.document.open_documents_by_type()
         if not isinstance(by_type, dict):
             return schemas, {}
         others = {k: v for k, v in by_type.items() if k != active_doc_type}
@@ -1160,11 +1152,8 @@ class MCPProtocolHandler:
 
         seen = {sch.get("name") for sch in schemas}
         for other_type, other_doc in others.items():
-            try:
-                extra = self.tool_registry.get_schemas("mcp", doc_type=other_type, uno_services_supported=uno_services_for_document(other_doc, other_type), exclude_tiers=exclude_tiers)
-            except Exception:
-                log.debug("tools/list broaden failed for %s", other_type, exc_info=True)
-                continue
+            # A get_schemas failure is a bug. Skipping the type hid that tool family.
+            extra = self.tool_registry.get_schemas("mcp", doc_type=other_type, uno_services_supported=uno_services_for_document(other_doc, other_type), exclude_tiers=exclude_tiers)
             for sch in extra:
                 name = sch.get("name")
                 if name and name not in seen:
@@ -1193,17 +1182,16 @@ class MCPProtocolHandler:
 
         doc = None
         doc_type = "writer"
-        try:
-            doc_svc = self.services.document
-            if document_url:
-                doc, doc_type = doc_svc.resolve_document_by_url(document_url)
-            else:
-                doc = _real_active_document(doc_svc)
-                if doc:
-                    doc_type = doc_svc.detect_doc_type(doc)
-        except Exception as e:
-            log.warning("Error resolving context in execution: %s", type(e).__name__)
-            doc = None
+        # resolve_document_by_url returns (None, None) when nothing matches.
+        # An exception is a disposed document or a real failure. Mapping it to
+        # DOCUMENT_NOT_FOUND dropped the message (only the type name was logged).
+        doc_svc = self.services.document
+        if document_url:
+            doc, doc_type = doc_svc.resolve_document_by_url(document_url)
+        else:
+            doc = _real_active_document(doc_svc)
+            if doc:
+                doc_type = doc_svc.detect_doc_type(doc)
 
         if doc is None and document_url:
             return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": ("No open document matches document_url '%s'. Call list_open_documents and retry with one of the returned url or uid values." % document_url), "details": {"document_url": document_url}}
@@ -1219,10 +1207,9 @@ class MCPProtocolHandler:
             # a per-type view has one entry and would silently pick the first -- possibly the
             # wrong petition. Only a single open document is unambiguous.
             doc_svc = self.services.document
-            try:
-                open_docs = doc_svc.open_documents()
-            except Exception:
-                open_docs = []
+            # open_documents already returns [] when desktop enumeration fails.
+            # Catching here turned a later bug into a false NO_DOCUMENT_OPEN.
+            open_docs = doc_svc.open_documents()
             if not isinstance(open_docs, list):
                 open_docs = []  # stubbed/unavailable service -> behave as before
             if len(open_docs) == 1:
@@ -1246,12 +1233,12 @@ class MCPProtocolHandler:
         uno_services = uno_services_for_document(doc, doc_type)
         active_page_idx = None
         if doc_type in ("draw", "impress"):
-            try:
-                from plugin.draw.bridge import DrawBridge
+            # get_active_page_index returns 0 for a missing page and re-raises
+            # disposal. DrawBridge raises RuntimeError when the doc has no page
+            # container. The old except turned both into active_page_index None.
+            from plugin.draw.bridge import DrawBridge
 
-                active_page_idx = DrawBridge(doc).get_active_page_index()
-            except Exception:
-                pass
+            active_page_idx = DrawBridge(doc).get_active_page_index()
 
         def stop_checker() -> bool:
             if req_id is not None:

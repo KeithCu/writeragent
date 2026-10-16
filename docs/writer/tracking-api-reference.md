@@ -64,7 +64,7 @@ In LibreOffice Writer, "Comments" are internally referred to as `Annotation` tex
 
 ### Managing Annotations
 - **Listing:** Annotations are part of the document's text fields. You can retrieve them via `doc.getTextFields()`. Iterate through the enumeration, and if `field.supportsService("com.sun.star.text.textfield.Annotation")`, it is a comment. Agent-facing list is `comment_list` (name + author + resolved), not an index from tracking.
-- **Deleting:** Find the specific Annotation text field, and call its `dispose()` method. Agent-facing delete is `comment_delete` by `name` or `author`.
+- **Deleting:** Call `removeTextContent` on the text field, which disposes one field (`SwXTextField::dispose`). Agent-facing `comment_delete` by `name` removes that annotation and every reply whose `ParentName` chain reaches it. Delete by `author` removes annotations with that author only.
 
 ## Dispatch Commands (.uno:)
 

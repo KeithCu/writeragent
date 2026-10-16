@@ -198,17 +198,23 @@ def _numpy_reconstruct_nbytes(shape: object, dtype: object) -> int:
         # shape (0,) is what NumPy's own view pickles pass. The bytes arrive
         # later, inside the frame, via BUILD.
         return 0
-    if isinstance(dtype, (bytes, bytearray)):
-        # Legitimate empty reconstruct passes the format code b"b", not a dtype.
-        itemsize = 1
-    else:
-        raw_itemsize = getattr(dtype, "itemsize", 1)
-        try:
-            itemsize = int(raw_itemsize)
-        except (TypeError, ValueError):
-            itemsize = 1
-        if itemsize < 1:
-            itemsize = 1
+    # What was wrong: a dtype string, bytes spec, or tuple spec has no
+    # itemsize, and the bytes branch forced 1. _reconstruct then allocated
+    # product(shape) * the real element size from a few pickle bytes.
+    # How: getattr(dtype, "itemsize", 1) and isinstance(dtype, (bytes, bytearray)).
+    # Why: numpy.dtype is PyArray_DescrConverter, which _reconstruct uses,
+    # and a subarray dtype records its shape without allocating the array.
+    try:
+        import numpy as np
+
+        descr = np.dtype(cast("Any", dtype))
+        itemsize = int(descr.itemsize)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise pickle.UnpicklingError("numpy reconstruct dtype is not a dtype") from exc
+    if itemsize < 1:
+        # Unsized Unicode is rebuilt as one UCS-4 character. Other unsized
+        # kinds are at most one byte (void allocates nothing).
+        itemsize = 4 if descr.kind == "U" else 1
     if itemsize > cap or n > cap // itemsize:
         raise pickle.UnpicklingError(
             f"numpy reconstruct allocates more than {cap} bytes"

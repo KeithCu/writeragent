@@ -686,3 +686,87 @@ def test_drain_request_body_reads_up_to_content_length():
     _drain_request_body(handler)
     assert handler.rfile.read() == b""
 
+
+def test_reload_cors_config_failure_fails_closed():
+    from unittest.mock import MagicMock
+    from plugin.mcp.cors import (
+        get_allow_private_origins,
+        get_extra_allowed_origins,
+        reload_cors_policy_from_config,
+    )
+
+    services = MagicMock()
+    services.config.proxy_for.side_effect = RuntimeError("config")
+    set_allow_private_origins(True)
+    set_extra_allowed_origins(["https://evil.example"])
+    reload_cors_policy_from_config(services)
+    assert get_allow_private_origins() is False
+    assert get_extra_allowed_origins() == frozenset()
+
+
+def test_reload_cors_missing_private_key_stays_on():
+    from unittest.mock import MagicMock
+    from plugin.mcp.cors import get_allow_private_origins, reload_cors_policy_from_config
+
+    services = MagicMock()
+    proxy = MagicMock()
+
+    def _get(key, default=None):
+        return None
+
+    proxy.get.side_effect = _get
+    services.config.proxy_for.return_value = proxy
+    reload_cors_policy_from_config(services)
+    assert get_allow_private_origins() is True
+
+
+def test_drain_request_body_swallows_valueerror_and_oserror():
+    from plugin.mcp.cors import _drain_request_body
+
+    class _BadLength:
+        headers = {"Content-Length": "nope"}
+        rfile = None
+
+    _drain_request_body(_BadLength())
+
+    class _Reset:
+        headers = {"Content-Length": "4"}
+
+        class _R:
+            def read(self, n):
+                raise OSError("reset")
+
+        rfile = _R()
+
+    _drain_request_body(_Reset())
+
+
+def test_drain_request_body_other_error_propagates():
+    from plugin.mcp.cors import _drain_request_body
+
+    class _Bug:
+        headers = {"Content-Length": "4"}
+
+        class _R:
+            def read(self, n):
+                raise RuntimeError("bug")
+
+        rfile = _R()
+
+    with pytest.raises(RuntimeError, match="bug"):
+        _drain_request_body(_Bug())
+
+
+def test_tunnel_host_lookup_does_not_swallow(monkeypatch):
+    import plugin.mcp as mcp_pkg
+    from plugin.mcp.cors import get_configured_tunnel_host
+
+    class _Boom:
+        @property
+        def public_url(self):
+            raise RuntimeError("broken tunnel")
+
+    monkeypatch.setattr(mcp_pkg, "_shared_tunnel", _Boom(), raising=False)
+    with pytest.raises(RuntimeError, match="broken tunnel"):
+        get_configured_tunnel_host()
+

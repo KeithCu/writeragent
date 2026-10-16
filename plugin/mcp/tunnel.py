@@ -273,12 +273,12 @@ def _tailscale_arm_path() -> str | None:
     """
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return None
-    try:
-        from plugin.framework import config as config_mod
+    # The config import does not fail. getattr already defaults a missing
+    # path to None. The old except hid a broken config module and skipped
+    # the arm file.
+    from plugin.framework import config as config_mod
 
-        config_path = getattr(config_mod, "_resolved_config_path", None)
-    except Exception:
-        return None
+    config_path = getattr(config_mod, "_resolved_config_path", None)
     if not config_path:
         return None
     return os.path.join(os.path.dirname(str(config_path)), _TAILSCALE_ARM_FILENAME)
@@ -362,7 +362,9 @@ def binary_available(provider: str) -> str | None:
     except subprocess.TimeoutExpired:
         log.warning("%s binary check timed out", binary)
         return "%s binary check timed out" % binary
-    except Exception:
+    except OSError:
+        # PermissionError and other exec failures. FileNotFoundError and
+        # TimeoutExpired are handled above. Anything else is a bug.
         log.exception("Error checking %s binary", provider)
         return "could not execute %s" % binary
 
@@ -602,8 +604,19 @@ class TunnelManager:
         try:
             run_in_background(_safe_post_stop, name="tunnel-post-stop", dedicated=True)
         except Exception:
+            # What was wrong: this decrement ran without _lock while the
+            # body's finally decrements under _lock. A thread-start failure
+            # racing another reset could lose an update.
+            # How: run_in_background raises before the body exists, so that
+            # finally never runs. The caller usually already holds _lock;
+            # _lock is an RLock, so taking it again does not deadlock.
+            # Why: the same under-zero guard as the body, under the same lock.
             if provider == "tailscale":
-                self._tailscale_resets_in_flight -= 1
+                with self._lock:
+                    if self._tailscale_resets_in_flight <= 0:
+                        log.error("Tailscale reset in-flight count already zero")
+                    else:
+                        self._tailscale_resets_in_flight -= 1
             raise
 
     def _finish_pending_launch(self, pending: tuple[StartProcessEffect, int, int, Callable[[], None]]) -> None:
@@ -717,10 +730,8 @@ class TunnelManager:
         for effect in effects:
             if isinstance(effect, CancelRetryTimerEffect):
                 if self._reconnect_timer is not None:
-                    try:
-                        self._reconnect_timer.cancel()
-                    except Exception:
-                        pass
+                    # Timer.cancel only sets an Event. It does not raise.
+                    self._reconnect_timer.cancel()
                     self._reconnect_timer = None
 
             elif isinstance(effect, TerminateProcessEffect):
@@ -790,10 +801,8 @@ class TunnelManager:
 
             elif isinstance(effect, ScheduleRetryTimerEffect):
                 if self._reconnect_timer is not None:
-                    try:
-                        self._reconnect_timer.cancel()
-                    except Exception:
-                        pass
+                    # Timer.cancel only sets an Event. It does not raise.
+                    self._reconnect_timer.cancel()
                 log.info("Scheduling MCP tunnel reconnect in %.1fs (attempt %s/%s)", effect.delay_seconds, effect.attempt, effect.max_retries)
                 # Identity of this timer, same idea as spawned["proc"] for
                 # exit. Filled in before start() so a callback that is
@@ -819,7 +828,10 @@ class TunnelManager:
                     if mcp_url:
                         notify_tunnel_url_acquired(effect.provider, mcp_url)
                 except Exception:
-                    pass
+                    # The public URL is already on tunnel state. A failed toast
+                    # or snippet refresh must not abort the transition, and it
+                    # must not be silent.
+                    log.exception("Failed to notify MCP tunnel URL for %s", effect.provider)
 
     def _on_retry_timer_expired(self, timer: Optional[threading.Timer]) -> None:
         with self._lock:

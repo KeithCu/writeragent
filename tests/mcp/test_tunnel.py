@@ -1,6 +1,8 @@
 import dataclasses
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.mcp.tunnel import (
     TunnelManager,
     _redact_cmd_for_log,
@@ -1743,4 +1745,64 @@ def test_start_uses_binary_probe_error_verbatim(monkeypatch):
     assert mgr.status == TunnelStatus.FAILED
     assert mgr.last_error == "cloudflared binary check timed out"
     assert mgr.public_url is None
+
+
+def test_binary_available_unexpected_error_propagates():
+    with patch("subprocess.run", side_effect=RuntimeError("bug")):
+        with pytest.raises(RuntimeError, match="bug"):
+            binary_available("cloudflare")
+
+
+def test_notify_url_failure_is_logged(caplog):
+    import dataclasses
+    import logging
+    from plugin.mcp.tunnel_state import NotifyUrlAcquiredEffect, TunnelStatus
+
+    mgr = TunnelManager()
+    mgr._state = dataclasses.replace(mgr._state, public_url="https://abc.example.com")
+    with patch("plugin.mcp.mcp_ui.notify_tunnel_url_acquired", side_effect=RuntimeError("toast")):
+        with caplog.at_level(logging.ERROR, logger="writeragent.mcp.tunnel"):
+            mgr._apply_effects_unlocked(
+                [NotifyUrlAcquiredEffect("cloudflare", "https://abc.example.com")],
+                TunnelStatus.STARTING,
+            )
+    assert any(r.exc_info and "Failed to notify MCP tunnel URL" in r.getMessage() for r in caplog.records)
+    assert mgr.public_url == "https://abc.example.com"
+
+
+def test_post_stop_start_failure_decrements_under_lock(monkeypatch):
+    mgr = TunnelManager()
+
+    class _CountingRLock:
+        def __init__(self, inner):
+            self._inner = inner
+            self.acquires = 0
+
+        def acquire(self, *args, **kwargs):
+            self.acquires += 1
+            return self._inner.acquire(*args, **kwargs)
+
+        def release(self):
+            return self._inner.release()
+
+        def __enter__(self):
+            self.acquire()
+            return self
+
+        def __exit__(self, *args):
+            self.release()
+
+    counting = _CountingRLock(mgr._lock)
+    mgr._lock = counting
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("cannot start thread")
+
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", _boom)
+    with counting:
+        before = counting.acquires
+        with pytest.raises(RuntimeError, match="cannot start thread"):
+            mgr._schedule_post_stop_unlocked("tailscale", 18765)
+        assert counting.acquires > before
+    assert mgr._tailscale_resets_in_flight == 0
 

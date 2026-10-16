@@ -1233,6 +1233,49 @@ def test_unpack_rejects_huge_numpy_reconstruct():
         unpack_pickle_frame(payload)
 
 
+@pytest.mark.parametrize(
+    ("shape", "dtype_spec"),
+    [
+        ((1,), "V" + str(DEFAULT_MAX_PAYLOAD_BYTES + 1)),
+        ((1,), b"V" + str(DEFAULT_MAX_PAYLOAD_BYTES + 1).encode()),
+        ((1,), ("u1", (DEFAULT_MAX_PAYLOAD_BYTES + 1,))),
+        ((DEFAULT_MAX_PAYLOAD_BYTES // 8 + 1,), "f8"),
+        ((DEFAULT_MAX_PAYLOAD_BYTES // 4 + 1,), "U"),
+    ],
+)
+def test_unpack_rejects_numpy_reconstruct_specs_exceeding_cap(shape, dtype_spec):
+    import numpy as np
+    from numpy._core.multiarray import _reconstruct
+
+    class Bomb:
+        def __reduce__(self):
+            return (_reconstruct, (np.ndarray, shape, dtype_spec))
+
+    payload = pickle.dumps(Bomb(), protocol=5)
+    with pytest.raises(ValueError, match="reconstruct allocates"):
+        unpack_pickle_frame(payload)
+
+
+@pytest.mark.parametrize(
+    ("shape", "dtype_spec", "expected_nbytes"),
+    [
+        ((4,), "f8", 32),
+        ((3,), b"b", 3),
+    ],
+)
+def test_unpack_allows_numpy_reconstruct_under_cap(shape, dtype_spec, expected_nbytes):
+    import numpy as np
+    from numpy._core.multiarray import _reconstruct
+
+    class OkArray:
+        def __reduce__(self):
+            return (_reconstruct, (np.ndarray, shape, dtype_spec))
+
+    payload = pickle.dumps(OkArray(), protocol=5)
+    res = unpack_pickle_frame(payload)
+    assert res.nbytes == expected_nbytes
+
+
 def test_numpy_arbitrary_submodule_import_fails():
     import pickle
     import numpy as np

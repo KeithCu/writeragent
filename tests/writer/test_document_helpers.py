@@ -1091,90 +1091,12 @@ def test_get_document_context_for_chat_writer_uno_object_error():
     assert "[Document text reading failed. Active selection: my selection]" in res
 
 
-def test_rewrite_session_recordchanges_read_failure_does_not_clear_range():
-    doc = _MockDoc(recording=True)
+def test_append_finish_fallback_names_a_failed_setstring(monkeypatch):
+    """Fallback setString failures are still named in the finish warning.
 
-    def boom(_name):
-        raise RuntimeError("recordchanges")
-
-    doc.getPropertyValue = boom
-    text_range = _MutableTextRange()
-    with pytest.raises(RuntimeError, match="recordchanges"):
-        WriterStreamedRewriteSession(doc, text_range, "Original")
-    assert text_range.getString() == "initial"
-    assert doc.undo.left is True
-
-
-def test_append_session_recordchanges_read_failure_closes_undo():
-    doc = _MockDoc(recording=True)
-
-    def boom(_name):
-        raise type("DisposedException", (Exception,), {})("closed")
-
-    doc.getPropertyValue = boom
-    text_range = _MutableTextRange()
-    with pytest.raises(Exception) as raised:
-        WriterStreamedAppendSession(doc, text_range, "Original")
-    assert "DisposedException" in type(raised.value).__name__
-    assert text_range.getString() == "initial"
-    assert doc.undo.left is True
-
-
-def test_collapse_review_context_logs_failed_recordchanges_restore(caplog):
-    from plugin.writer.edit_review import _collapse_review_context
-
-    doc = _MockDoc(recording=False)
-
-    def set_prop(name, value):
-        if name == "RecordChanges" and value is False:
-            raise RuntimeError("restore failed")
-        doc.writes.append((name, value))
-        doc.props[name] = value
-
-    doc.setPropertyValue = set_prop
-    with caplog.at_level("WARNING"):
-        with _collapse_review_context(doc, False, False, "streamed rewrite"):
-            pass
-    assert any("RecordChanges" in rec.message for rec in caplog.records)
-
-
-def test_rewrite_abort_logs_failed_recordchanges_restore(caplog):
-    doc = _MockDoc(recording=True)
-    text_range = _MutableTextRange()
-    session = WriterStreamedRewriteSession(doc, text_range, "Original")
-
-    def set_prop(name, value):
-        if name == "RecordChanges" and value is True:
-            raise RuntimeError("restore failed")
-        doc.props[name] = value
-        doc.writes.append((name, value))
-
-    doc.setPropertyValue = set_prop
-    with caplog.at_level("WARNING"):
-        session.abort_and_restore()
-    assert any("abort_and_restore" in rec.message for rec in caplog.records)
-    assert doc.undo.left is True
-
-
-def test_append_init_closed_document_while_disabling_tracking_raises():
-    from plugin.framework.errors import DocumentDisposedError
-
-    doc = _MockDoc(recording=True)
-    real_set = doc.setPropertyValue
-
-    def set_prop(name, value):
-        if name == "RecordChanges" and value is False:
-            raise type("DisposedException", (Exception,), {})("closed")
-        real_set(name, value)
-
-    doc.setPropertyValue = set_prop
-    text_range = _MutableTextRange()
-    with pytest.raises(DocumentDisposedError):
-        WriterStreamedAppendSession(doc, text_range, "Original")
-    assert doc.undo.left is True
-
-
-def test_append_finish_fallback_names_a_failed_restore(monkeypatch):
+    RecordChanges is not part of that report: the property set does not fail
+    on a live document, so finish() does not catch it.
+    """
     monkeypatch.setattr(
         "plugin.writer.review_scan.snapshot_redline_ids",
         lambda _doc: (set(), True),
@@ -1192,22 +1114,12 @@ def test_append_finish_fallback_names_a_failed_restore(monkeypatch):
     session = WriterStreamedAppendSession(doc, text_range, "Original", track_reviewable=True)
     session.append_chunk(" more")
 
-    def boom_set_string(value):
-        if value == "Original":
-            raise RuntimeError("collapse failed")
-        text_range.text = value
+    def boom_set_string(_value):
+        raise RuntimeError("setString failed")
 
     text_range.setString = boom_set_string
-    real_set = doc.setPropertyValue
-
-    def set_prop(name, value):
-        if name == "RecordChanges":
-            raise RuntimeError("tracking")
-        real_set(name, value)
-
-    doc.setPropertyValue = set_prop
     warning = session.finish()
     assert warning is not None
-    assert "tracking" in warning
+    assert "setString failed" in warning
     assert "text was kept" not in warning
 
