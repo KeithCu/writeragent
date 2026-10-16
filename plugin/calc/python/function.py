@@ -672,14 +672,12 @@ class SpillRecord:
 # Value: SpillRecord tracking code and neighbor cells
 SPILL_REGISTRY: dict[tuple[str, str, int, int], SpillRecord] = {}
 LOADED_DOCUMENTS: set[str] = set()
-_SPILL_REGISTRY_LOCK = threading.Lock()
 _PENDING_SPILL_LOCK = threading.Lock()
 _PENDING_SPILL_TIMERS: list[tuple[str, threading.Timer]] = []
 
-# One listener per sheet — SheetModifyDispatcher (Phase 3) or the legacy
-# CalcSpillModifyListener when a test constructs it directly.
-# First element is the workbook lifecycle id (RuntimeUID). Legacy spill
-# listeners still pop a file-URL key from ``disposing``.
+# One listener per sheet — SheetModifyDispatcher is the registered listener.
+# CalcSpillModifyListener is only constructed to run modified().
+# First element is the workbook lifecycle id (RuntimeUID).
 SHEET_MODIFY_LISTENERS: dict[tuple[str, str], Any] = {}
 
 
@@ -917,7 +915,8 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
             log.exception("Error in CalcSpillModifyListener.modified")
 
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        SHEET_MODIFY_LISTENERS.pop((self.doc_key, self.sheet_name), None)
+        # This instance is not stored in SHEET_MODIFY_LISTENERS; SheetModifyDispatcher.disposing removes that entry.
+        pass
 
 
 def _spill_registry_doc_key(doc: Any) -> str:
@@ -954,10 +953,10 @@ def _spill_registry_doc_key(doc: Any) -> str:
             if url in LOADED_DOCUMENTS:
                 LOADED_DOCUMENTS.discard(url)
                 LOADED_DOCUMENTS.add(key)
-            with _SPILL_REGISTRY_LOCK:
-                for k in list(SPILL_REGISTRY.keys()):
-                    if k[0] == url:
-                        SPILL_REGISTRY[(key, k[1], k[2], k[3])] = SPILL_REGISTRY.pop(k)
+            # Registry writes are UI-thread only, so this migration is not locked.
+            for k in list(SPILL_REGISTRY.keys()):
+                if k[0] == url:
+                    SPILL_REGISTRY[(key, k[1], k[2], k[3])] = SPILL_REGISTRY.pop(k)
         return key
 
     if url:
@@ -2091,11 +2090,9 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, true_strin
             data_token = _worker_data_token(worker_data)
             cache_key = (tid, sk, data_token)
             with _MATRIX_SCALAR_SESSIONS_LOCK:
+                # _expire_matrix_sessions_locked already dropped expired entries, so the lookup does not check the gap again.
                 _expire_matrix_sessions_locked(now)
                 cached = _MATRIX_SCALAR_SESSIONS.get(cache_key)
-                if cached is not None and (now - cached.timestamp) > _PY_PASS_GAP_SEC:
-                    _MATRIX_SCALAR_SESSIONS.pop(cache_key, None)
-                    cached = None
         if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
             used_cache = True
             res = {"status": "ok", "result": cached.raw}

@@ -265,7 +265,6 @@ def migrate_sheet_rename(
     try:
         from plugin.calc.python.function import (
             SPILL_REGISTRY,
-            _SPILL_REGISTRY_LOCK,
             _spill_registry_doc_key,
             save_spill_registry_for_doc,
         )
@@ -275,14 +274,14 @@ def migrate_sheet_rename(
         if not spill_ids:
             log.warning("migrate_sheet_rename: no workbook identity found; skipping SPILL_REGISTRY migration")
         else:
-            with _SPILL_REGISTRY_LOCK:
-                keys_to_migrate = [
-                    k for k in list(SPILL_REGISTRY.keys())
-                    if k[1] == old_sheet_name and k[0] in spill_ids
-                ]
-                for k in keys_to_migrate:
-                    val = SPILL_REGISTRY.pop(k)
-                    SPILL_REGISTRY[(k[0], new_sheet_name, k[2], k[3])] = val
+            # Registry writes are UI-thread only, so this migration is not locked.
+            keys_to_migrate = [
+                k for k in list(SPILL_REGISTRY.keys())
+                if k[1] == old_sheet_name and k[0] in spill_ids
+            ]
+            for k in keys_to_migrate:
+                val = SPILL_REGISTRY.pop(k)
+                SPILL_REGISTRY[(k[0], new_sheet_name, k[2], k[3])] = val
             if doc is not None:
                 save_spill_registry_for_doc(doc)
     except Exception:
