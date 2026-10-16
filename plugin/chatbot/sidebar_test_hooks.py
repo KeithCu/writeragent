@@ -18,16 +18,14 @@ import json
 import logging
 import os
 import signal
+import subprocess
 import sys
 import tempfile
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 from weakref import WeakSet
-
-if TYPE_CHECKING:
-    import subprocess
 
 from plugin.chatbot.panel import (
     StopButtonListener,
@@ -223,6 +221,7 @@ def _tts_snapshot_fields() -> dict[str, Any]:
         "tts_fake_spawn_count": int(fake_st.get("spawn_count", 0) or 0),
         "tts_fake_alive": list(fake_st.get("alive", []) or []),
         "tts_speaking": is_speaking,
+        "stt_delay": _FAKE_STT_DELAY,
     }
 
 
@@ -233,6 +232,271 @@ _FAKE_TTS_SAVED: dict[str, Any] | None = None
 _FAKE_TTS_ORIG: dict[str, Any] | None = None
 _FAKE_TTS_PROCS: dict[int, subprocess.Popen[Any]] = {}
 _FAKE_TTS_STATE: dict[str, Any] = {}
+
+
+
+_FAKE_STT_NAME = "writeragent_fake_stt.json"
+_FAKE_STT_LOCK = threading.Lock()
+_FAKE_STT_MODE = "off"
+_FAKE_STT_SAVED: dict[str, Any] | None = None
+_FAKE_STT_ORIG: dict[str, Any] | None = None
+_FAKE_STT_PROCS: dict[int, subprocess.Popen[Any]] = {}
+_FAKE_STT_STATE: dict[str, Any] = {}
+_FAKE_STT_DELAY = 0.0
+
+def fake_stt_state_path() -> str:
+    return os.path.join(tempfile.gettempdir(), _FAKE_STT_NAME)
+
+def read_fake_stt_state() -> dict[str, Any]:
+    path = fake_stt_state_path()
+    for attempt in range(2):
+        if not os.path.isfile(path):
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            if isinstance(data, dict):
+                return data
+            return {}
+        except (json.JSONDecodeError, OSError):
+            if attempt == 0:
+                time.sleep(0.01)
+                continue
+            return {}
+    return {}
+
+def _fake_stt_refresh_locked() -> None:
+    path = fake_stt_state_path()
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(_FAKE_STT_STATE, handle)
+        handle.flush()
+    os.replace(tmp_path, path)
+
+def _fake_stt_note_spawn_locked(cmd: list[str], proc: subprocess.Popen[Any]) -> None:
+    _FAKE_STT_STATE["spawn_count"] = _FAKE_STT_STATE.get("spawn_count", 0) + 1
+    _FAKE_STT_PROCS[proc.pid] = proc
+    _FAKE_STT_STATE["pids"] = list(_FAKE_STT_PROCS.keys())
+    _FAKE_STT_STATE["argv0s"] = _FAKE_STT_STATE.get("argv0s", []) + [cmd[0]]
+    _FAKE_STT_STATE["requested_basenames"] = _FAKE_STT_STATE.get("requested_basenames", []) + [os.path.basename(cmd[0])]
+    _FAKE_STT_STATE["alive"] = [p for p, pr in _FAKE_STT_PROCS.items() if pr.poll() is None]
+
+    current_alive = len(_FAKE_STT_STATE["alive"])
+    if current_alive > 1:
+        _FAKE_STT_STATE["overlap_spawns"] = _FAKE_STT_STATE.get("overlap_spawns", 0) + 1
+    if current_alive > _FAKE_STT_STATE.get("max_alive", 0):
+        _FAKE_STT_STATE["max_alive"] = current_alive
+
+    _fake_stt_refresh_locked()
+
+def set_late_transcript_delay(delay: float) -> None:
+    _require_debug()
+    sl = send_listener()
+    if sl is None:
+        execute_debug_sidebar_op("FAKE_STT_DELAY_" + str(delay))
+        return
+    global _FAKE_STT_DELAY
+    with _FAKE_STT_LOCK:
+        _FAKE_STT_DELAY = delay
+
+def _clear_fake_stt_in_process() -> None:
+    global _FAKE_STT_MODE, _FAKE_STT_SAVED, _FAKE_STT_ORIG, _FAKE_STT_PROCS, _FAKE_STT_STATE
+
+    with _FAKE_STT_LOCK:
+        if _FAKE_STT_ORIG is None and _FAKE_STT_SAVED is None:
+            return
+
+        import plugin.audio.stt_service as stt_service
+        import plugin.scripting.audio_recorder_service as audio_recorder_service
+
+        for pid, proc in list(_FAKE_STT_PROCS.items()):
+            if proc.poll() is None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                if sys.platform != "win32":
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+
+        if _FAKE_STT_ORIG is not None:
+            try:
+                setattr(audio_recorder_service.subprocess, "Popen", _FAKE_STT_ORIG["Popen"])
+                setattr(stt_service.subprocess, "Popen", _FAKE_STT_ORIG["Popen_stt"])
+                setattr(stt_service, "_run_cmd", _FAKE_STT_ORIG["_run_cmd"])
+            except Exception:
+                log.warning("clear_fake_stt: error restoring patches", exc_info=True)
+            _FAKE_STT_ORIG = None
+
+        if _FAKE_STT_SAVED is not None:
+            from plugin.framework.config import set_config
+            for k, v in _FAKE_STT_SAVED.items():
+                set_config(k, v)
+            _FAKE_STT_SAVED = None
+
+        try:
+            path = fake_stt_state_path()
+            if os.path.isfile(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+        _FAKE_STT_MODE = "off"
+        _FAKE_STT_PROCS = {}
+        _FAKE_STT_STATE = {}
+
+def _apply_fake_stt(mode: str) -> None:
+    _require_debug()
+    if mode == "off":
+        _clear_fake_stt_in_process()
+        return
+
+    from plugin.framework.config import get_config, set_config
+    import plugin.audio.stt_service as stt_service
+    import plugin.scripting.audio_recorder_service as audio_recorder_service
+
+    global _FAKE_STT_MODE, _FAKE_STT_SAVED, _FAKE_STT_ORIG, _FAKE_STT_STATE
+
+    with _FAKE_STT_LOCK:
+        if _FAKE_STT_SAVED is None:
+            _FAKE_STT_SAVED = {
+                "audio.stt_provider": get_config("audio.stt_provider"),
+            }
+
+        # Keep existing config for STT provider to allow testing both local and endpoint.
+        # set_config("audio.stt_provider", "local")
+
+        _FAKE_STT_MODE = mode
+
+        if not _FAKE_STT_STATE or _FAKE_STT_STATE.get("mode") != mode:
+            _FAKE_STT_STATE = {
+                "mode": mode,
+                "interpreter": sys.executable,
+                "spawn_count": 0,
+                "pids": [],
+                "alive": [],
+                "returncodes": {},
+                "overlap_spawns": 0,
+                "max_alive": 0,
+                "argv0s": [],
+                "requested_basenames": [],
+                "saved": dict(_FAKE_STT_SAVED) if _FAKE_STT_SAVED is not None else None,
+            }
+        else:
+            _FAKE_STT_STATE["mode"] = mode
+            _FAKE_STT_STATE["saved"] = dict(_FAKE_STT_SAVED) if _FAKE_STT_SAVED is not None else None
+
+        if _FAKE_STT_ORIG is None:
+            _FAKE_STT_ORIG = {
+                "Popen": audio_recorder_service.subprocess.Popen,
+                "Popen_stt": stt_service.subprocess.Popen,
+                "_run_cmd": stt_service._run_cmd,
+            }
+
+        orig_popen = _FAKE_STT_ORIG["Popen"]
+        orig_run_cmd = _FAKE_STT_ORIG["_run_cmd"]
+
+        if not getattr(audio_recorder_service.subprocess.Popen, "_writeragent_fake_stt", False):
+
+            def fake_popen(*args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
+                cmd_arg = args[0] if args else kwargs.get("args")
+                if isinstance(cmd_arg, (list, tuple)):
+                    requested_cmd = list(cmd_arg)
+                elif isinstance(cmd_arg, str):
+                    requested_cmd = [cmd_arg]
+                else:
+                    return orig_popen(*args, **kwargs)
+
+                is_recorder = "audio_record_main.py" in str(requested_cmd)
+
+                if _FAKE_STT_MODE == "missing":
+                    raise FileNotFoundError(errno.ENOENT, "No such file or directory", "recorder")
+
+                script = "import time; time.sleep(120)"
+                if _FAKE_STT_MODE == "crash":
+                    script = "import sys; sys.exit(2)"
+                elif is_recorder:
+                    if _FAKE_STT_MODE in ("silence", "noisy", "hold"):
+                        script = "import time, sys\nsys.stdout.write('{\"status\":\"ready\"}\\n')\nsys.stdout.flush()\ntime.sleep(120)"
+                        if _FAKE_STT_MODE == "noisy":
+                            script = "import time, sys\nsys.stdout.write('{\"status\":\"ready\"}\\n')\nsys.stdout.flush()\ntime.sleep(0.5)\nsys.stdout.write('{\"status\":\"auto_stopped\", \"reason\":\"max_duration\"}\\n')\nsys.stdout.flush()\ntime.sleep(120)"
+                        elif _FAKE_STT_MODE == "silence":
+                            script = "import time, sys\nsys.stdout.write('{\"status\":\"ready\"}\\n')\nsys.stdout.flush()\ntime.sleep(0.5)\nsys.stdout.write('{\"status\":\"auto_stopped\", \"reason\":\"silence\"}\\n')\nsys.stdout.flush()\ntime.sleep(120)"
+
+                new_cmd = [sys.executable, "-c", script]
+                new_args = list(args)
+                if new_args:
+                    new_args[0] = new_cmd
+                else:
+                    kwargs["args"] = new_cmd
+
+                if is_recorder:
+                    # Provide a pipe to the fake recorder so it doesn't block
+                    kwargs["stdin"] = subprocess.PIPE
+                    kwargs["stdout"] = subprocess.PIPE
+                    kwargs["stderr"] = subprocess.PIPE
+
+                    proc = orig_popen(*new_args, **kwargs)
+                    with _FAKE_STT_LOCK:
+                        _fake_stt_note_spawn_locked(requested_cmd, proc)
+                    return proc
+                return orig_popen(*args, **kwargs)
+
+            setattr(fake_popen, "_writeragent_fake_stt", True)
+
+            def fake_run_cmd(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str] | None:
+                cmd = args[0]
+                if "whisper_transcribe.py" in str(cmd):
+                    if _FAKE_STT_DELAY > 0:
+                        time.sleep(_FAKE_STT_DELAY)
+                    if _FAKE_STT_MODE == "silence":
+                        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout='{"status": "ok", "text": ""}\n', stderr='')
+                    return subprocess.CompletedProcess(args=cmd, returncode=0, stdout='{"status": "ok", "text": "Fake STT transcript."}\n', stderr='')
+                return orig_run_cmd(*args, **kwargs)
+
+            setattr(audio_recorder_service.subprocess, "Popen", fake_popen)
+            setattr(stt_service.subprocess, "Popen", fake_popen)
+            setattr(stt_service, "_run_cmd", fake_run_cmd)
+
+        _fake_stt_refresh_locked()
+
+def install_fake_stt(mode: str) -> None:
+    _require_debug()
+    if mode not in ("hold", "crash", "missing", "silence", "noisy"):
+        raise ValueError(f"Invalid fake STT mode: {mode}")
+    sl = send_listener()
+    if sl is None:
+        execute_debug_sidebar_op("FAKE_STT_" + mode.upper())
+        return
+    _apply_fake_stt(mode)
+
+def clear_fake_stt() -> None:
+    _require_debug()
+    sl = send_listener()
+    if sl is None:
+        execute_debug_sidebar_op("FAKE_STT_OFF")
+        st = read_fake_stt_state()
+        if os.path.isfile(fake_stt_state_path()) and st.get("mode") != "off":
+            pids = st.get("pids", [])
+            for pid in pids:
+                if sys.platform != "win32":
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+            saved = st.get("saved")
+            if isinstance(saved, dict):
+                from plugin.framework.config import set_config
+                for k, v in saved.items():
+                    set_config(k, v)
+            try:
+                os.remove(fake_stt_state_path())
+            except OSError:
+                pass
+    else:
+        _apply_fake_stt("off")
 
 
 def fake_tts_state_path() -> str:
@@ -782,6 +1046,16 @@ def handle_debug_sidebar_command(command: str) -> None:
     if op in ("FAKE_TTS_HOLD", "FAKE_TTS_CRASH", "FAKE_TTS_MISSING", "FAKE_TTS_OFF"):
         mode = op.removeprefix("FAKE_TTS_").lower()
         _apply_fake_tts(mode)
+        _write_debug_snapshot(sl)
+        return
+    if op in ("FAKE_STT_HOLD", "FAKE_STT_CRASH", "FAKE_STT_MISSING", "FAKE_STT_SILENCE", "FAKE_STT_NOISY", "FAKE_STT_OFF"):
+        mode = op.removeprefix("FAKE_STT_").lower()
+        _apply_fake_stt(mode)
+        _write_debug_snapshot(sl)
+        return
+    if op.startswith("FAKE_STT_DELAY_"):
+        global _FAKE_STT_DELAY
+        _FAKE_STT_DELAY = float(op.removeprefix("FAKE_STT_DELAY_"))
         _write_debug_snapshot(sl)
         return
     # Slash ops only touch the Ask ListBox. Run inline like SNAPSHOT —

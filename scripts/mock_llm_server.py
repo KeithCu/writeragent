@@ -239,8 +239,9 @@ class MockLLMConfig:
     empty_nested_answer: bool = False
     # Packet G29: HTTP 400 on chat completions that include input_audio (STT path stays 200).
     fail_native_audio: bool = False
-    # Packet G28: HTTP 500 on /v1/audio/transcriptions only (chat completions stay healthy).
     fail_stt: bool = False
+    fail_stt_404_count: int = 0
+    fail_native_audio_400_count: int = 0
     # Packet E oracles (E1 CURRENT QUERY, E5 doc length, E6/E7 tool names).
     captures: list[dict[str, Any]] = field(default_factory=list)
     _capture_lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
@@ -1942,7 +1943,10 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                 self.send_error(400, "expected object")
                 return
             model = str(payload.get("model") or MOCK_MODEL_ID)
-            if config.fail_native_audio:
+            fail_400 = config.fail_native_audio_400_count > 0
+            if fail_400:
+                config.fail_native_audio_400_count -= 1
+            if config.fail_native_audio or fail_400:
                 audio_messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
                 last_user = _last_user_message(audio_messages)
                 if last_user is not None and _content_has_audio(last_user.get("content")):
