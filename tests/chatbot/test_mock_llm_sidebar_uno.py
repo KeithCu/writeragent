@@ -3257,12 +3257,10 @@ def test_t1_stop_kills_speech_process(ctx):
 
         _press_stop()
         t0 = time.monotonic()
-        reaped_st = None
         while time.monotonic() - t0 < 1.0:
             cur_st = _t_state()
             try:
                 _t_assert_reaped(pid, cur_st)
-                reaped_st = cur_st
                 break
             except AssertionError:
                 time.sleep(0.02)
@@ -3586,7 +3584,6 @@ def test_s5_hands_free_turned_off_mid_reply(ctx):
         press_stop()
 
         t0 = time.monotonic()
-        reaped_st = None
         while time.monotonic() - t0 < 1.0:
             cur_st = _s_state()
             try:
@@ -3612,12 +3609,10 @@ def test_s6_stop_during_recording_reaps_child(ctx):
 
         press_stop()
         t0 = time.monotonic()
-        reaped_st = None
         while time.monotonic() - t0 < 1.0:
             cur_st = _s_state()
             try:
                 _s_assert_reaped(pid, cur_st)
-                reaped_st = cur_st
                 break
             except AssertionError:
                 time.sleep(0.02)
