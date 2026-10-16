@@ -115,52 +115,48 @@ class FootnotesInsert(ToolWriterFootnoteBase):
 
         doc = ctx.doc
 
-        try:
-            if use_anchor:
-                occ_raw = kwargs.get("occurrence", 0)
-                try:
-                    occurrence = int(occ_raw)
-                except (TypeError, ValueError):
-                    return self._tool_error("occurrence must be an integer.")
-                if occurrence < 0:
-                    return self._tool_error("occurrence must be non-negative.")
+        if use_anchor:
+            occ_raw = kwargs.get("occurrence", 0)
+            try:
+                occurrence = int(occ_raw)
+            except (TypeError, ValueError):
+                return self._tool_error("occurrence must be an integer.")
+            if occurrence < 0:
+                return self._tool_error("occurrence must be non-negative.")
 
-                case_sensitive = bool(kwargs.get("case_sensitive", True))
+            case_sensitive = bool(kwargs.get("case_sensitive", True))
 
-                try:
-                    t_cursor = _cursor_after_nth_match(doc, insert_after, occurrence, case_sensitive)
-                except ToolExecutionError as e:
-                    return self._tool_error(str(e))
-            else:
-                # View cursor: active insertion point in the UI.
-                ctrl = doc.getCurrentController()
-                if not ctrl:
-                    return self._tool_error("Cannot access current document controller to find cursor position.")
+            try:
+                t_cursor = _cursor_after_nth_match(doc, insert_after, occurrence, case_sensitive)
+            except ToolExecutionError as e:
+                return self._tool_error(str(e))
+        else:
+            # View cursor: active insertion point in the UI.
+            ctrl = doc.getCurrentController()
+            if not ctrl:
+                return self._tool_error("Cannot access current document controller to find cursor position.")
 
-                v_cursor = ctrl.getViewCursor()
-                if not v_cursor:
-                    return self._tool_error("Cannot access view cursor.")
+            v_cursor = ctrl.getViewCursor()
+            if not v_cursor:
+                return self._tool_error("Cannot access view cursor.")
 
-                t_cursor = v_cursor.getText().createTextCursorByRange(v_cursor)
-                t_cursor.collapseToEnd()
+            t_cursor = v_cursor.getText().createTextCursorByRange(v_cursor)
+            t_cursor.collapseToEnd()
 
-            # Create the note instance
-            service_name = "com.sun.star.text.Footnote" if note_type == "footnote" else "com.sun.star.text.Endnote"
-            note = doc.createInstance(service_name)
+        # Create the note instance
+        service_name = "com.sun.star.text.Footnote" if note_type == "footnote" else "com.sun.star.text.Endnote"
+        note = doc.createInstance(service_name)
 
-            if label:
-                note.setLabel(label)
+        if label:
+            note.setLabel(label)
 
-            # Insert into document
-            t_cursor.getText().insertTextContent(t_cursor, note, False)
+        # Insert into document
+        t_cursor.getText().insertTextContent(t_cursor, note, False)
 
-            # Set text inside the note
-            note.setString(text)
+        # Set text inside the note
+        note.setString(text)
 
-            return {"status": "ok", "message": f"Successfully inserted {note_type}.", "label": note.getLabel()}
-
-        except Exception as e:
-            return self._tool_error(f"Failed to insert {note_type}: {str(e)}")
+        return {"status": "ok", "message": f"Successfully inserted {note_type}.", "label": note.getLabel()}
 
 
 class FootnotesList(ToolWriterFootnoteBase):
@@ -173,20 +169,17 @@ class FootnotesList(ToolWriterFootnoteBase):
         note_type = str(kwargs.get("note"))
         doc = ctx.doc
 
-        try:
-            notes = _get_note_supplier(doc, note_type)
-            count = notes.getCount()
+        notes = _get_note_supplier(doc, note_type)
+        count = notes.getCount()
 
-            results = []
-            for i in range(count):
-                note = notes.getByIndex(i)
-                label = note.getLabel()
-                text = note.getString()
-                results.append({"index": i, "label": label, "text": text})
+        results = []
+        for i in range(count):
+            note = notes.getByIndex(i)
+            label = note.getLabel()
+            text = note.getString()
+            results.append({"index": i, "label": label, "text": text})
 
-            return {"status": "ok", "count": count, "notes": results}
-        except Exception as e:
-            return self._tool_error(f"Failed to list {note_type}s: {str(e)}")
+        return {"status": "ok", "count": count, "notes": results}
 
 
 class FootnotesEdit(ToolWriterFootnoteBase):
@@ -211,25 +204,21 @@ class FootnotesEdit(ToolWriterFootnoteBase):
 
         doc = ctx.doc
 
-        try:
-            notes = _get_note_supplier(doc, note_type)
-            count = notes.getCount()
+        notes = _get_note_supplier(doc, note_type)
+        count = notes.getCount()
 
-            if index < 0 or index >= count:
-                return self._tool_error(f"Invalid index {index}. The document has {count} {note_type}(s).")
+        if index < 0 or index >= count:
+            return self._tool_error(f"Invalid index {index}. The document has {count} {note_type}(s).")
 
-            note = notes.getByIndex(index)
+        note = notes.getByIndex(index)
 
-            if "text" in kwargs:
-                note.setString(kwargs["text"])
+        if "text" in kwargs:
+            note.setString(kwargs["text"])
 
-            if "label" in kwargs:
-                note.setLabel(kwargs["label"])
+        if "label" in kwargs:
+            note.setLabel(kwargs["label"])
 
-            return {"status": "ok", "message": f"Successfully edited {note_type} at index {index}."}
-
-        except Exception as e:
-            return self._tool_error(f"Failed to edit {note_type}: {str(e)}")
+        return {"status": "ok", "message": f"Successfully edited {note_type} at index {index}."}
 
 
 class FootnotesDelete(ToolWriterFootnoteBase):
@@ -249,25 +238,21 @@ class FootnotesDelete(ToolWriterFootnoteBase):
 
         doc = ctx.doc
 
-        try:
-            notes = _get_note_supplier(doc, note_type)
-            count = notes.getCount()
+        notes = _get_note_supplier(doc, note_type)
+        count = notes.getCount()
 
-            if index < 0 or index >= count:
-                return self._tool_error(f"Invalid index {index}. The document has {count} {note_type}(s).")
+        if index < 0 or index >= count:
+            return self._tool_error(f"Invalid index {index}. The document has {count} {note_type}(s).")
 
-            note = notes.getByIndex(index)
+        note = notes.getByIndex(index)
 
-            # The note object itself is anchored somewhere.
-            # We delete it by removing it from its anchor's text content.
-            anchor = note.getAnchor()
-            # Deleting the anchor text removes the footnote
-            anchor.setString("")
+        # The note object itself is anchored somewhere.
+        # We delete it by removing it from its anchor's text content.
+        anchor = note.getAnchor()
+        # Deleting the anchor text removes the footnote
+        anchor.setString("")
 
-            return {"status": "ok", "message": f"Successfully deleted {note_type} at index {index}."}
-
-        except Exception as e:
-            return self._tool_error(f"Failed to delete {note_type}: {str(e)}")
+        return {"status": "ok", "message": f"Successfully deleted {note_type} at index {index}."}
 
 
 class FootnotesSettingsGet(ToolWriterFootnoteBase):
@@ -280,31 +265,28 @@ class FootnotesSettingsGet(ToolWriterFootnoteBase):
         note_type = str(kwargs.get("note"))
         doc = ctx.doc
 
-        try:
-            settings = _get_note_settings(doc, note_type)
+        settings = _get_note_settings(doc, note_type)
 
-            # Common properties
-            props = {
-                "Prefix": settings.getPropertyValue("Prefix"),
-                "Suffix": settings.getPropertyValue("Suffix"),
-                "StartAt": settings.getPropertyValue("StartAt"),
-                "NumberingType": settings.getPropertyValue("NumberingType"),
-                "CharStyleName": settings.getPropertyValue("CharStyleName"),
-                "AnchorCharStyleName": settings.getPropertyValue("AnchorCharStyleName"),
-                "PageStyleName": settings.getPropertyValue("PageStyleName"),
-                "ParaStyleName": settings.getPropertyValue("ParaStyleName"),
-            }
+        # Common properties
+        props = {
+            "Prefix": settings.getPropertyValue("Prefix"),
+            "Suffix": settings.getPropertyValue("Suffix"),
+            "StartAt": settings.getPropertyValue("StartAt"),
+            "NumberingType": settings.getPropertyValue("NumberingType"),
+            "CharStyleName": settings.getPropertyValue("CharStyleName"),
+            "AnchorCharStyleName": settings.getPropertyValue("AnchorCharStyleName"),
+            "PageStyleName": settings.getPropertyValue("PageStyleName"),
+            "ParaStyleName": settings.getPropertyValue("ParaStyleName"),
+        }
 
-            # Footnote-specific properties
-            if note_type == "footnote":
-                props["BeginNotice"] = settings.getPropertyValue("BeginNotice")
-                props["EndNotice"] = settings.getPropertyValue("EndNotice")
-                props["PositionEndOfDoc"] = settings.getPropertyValue("PositionEndOfDoc")
-                props["FootnoteCounting"] = settings.getPropertyValue("FootnoteCounting")
+        # Footnote-specific properties
+        if note_type == "footnote":
+            props["BeginNotice"] = settings.getPropertyValue("BeginNotice")
+            props["EndNotice"] = settings.getPropertyValue("EndNotice")
+            props["PositionEndOfDoc"] = settings.getPropertyValue("PositionEndOfDoc")
+            props["FootnoteCounting"] = settings.getPropertyValue("FootnoteCounting")
 
-            return {"status": "ok", "settings": props}
-        except Exception as e:
-            return self._tool_error(f"Failed to get {note_type} settings: {str(e)}")
+        return {"status": "ok", "settings": props}
 
 
 class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
@@ -325,19 +307,16 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
         if not isinstance(props_to_update, dict):
             return self._tool_error("Properties must be a dictionary.")
 
-        try:
-            settings = _get_note_settings(doc, note_type)
+        settings = _get_note_settings(doc, note_type)
 
-            updated_props = []
-            for prop_name, prop_val in props_to_update.items():
-                try:
-                    # UNO sometimes requires specific types like shorts for certain properties
-                    # e.g., StartAt and NumberingType are shorts, but let pyuno handle the coercion mostly
-                    settings.setPropertyValue(prop_name, prop_val)
-                    updated_props.append(prop_name)
-                except Exception as e:
-                    return self._tool_error(f"Failed to set property '{prop_name}' to '{prop_val}': {str(e)}")
+        updated_props = []
+        for prop_name, prop_val in props_to_update.items():
+            try:
+                # UNO sometimes requires specific types like shorts for certain properties
+                # e.g., StartAt and NumberingType are shorts, but let pyuno handle the coercion mostly
+                settings.setPropertyValue(prop_name, prop_val)
+                updated_props.append(prop_name)
+            except Exception as e:
+                return self._tool_error(f"Failed to set property '{prop_name}' to '{prop_val}': {str(e)}")
 
-            return {"status": "ok", "message": f"Successfully updated {note_type} settings.", "updated_properties": updated_props}
-        except Exception as e:
-            return self._tool_error(f"Failed to update {note_type} settings: {str(e)}")
+        return {"status": "ok", "message": f"Successfully updated {note_type} settings.", "updated_properties": updated_props}

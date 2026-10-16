@@ -52,5 +52,6 @@ def test_frame_get_info_anchor_type_uses_enum_name():
         return props[name]
 
     frame.getPropertyValue.side_effect = _disposed
-    with pytest.raises(DocumentDisposedError):
-        FrameGetInfo().execute(ctx, name="Box")
+    res_disposed = FrameGetInfo().execute_safe(ctx, name="Box")
+    assert res_disposed["status"] == "error"
+    assert res_disposed["code"] == "DOCUMENT_DISPOSED"

@@ -107,11 +107,7 @@ class ListDataSources(ToolWriterMailMergeBase):
         if not db_ctx or not hasattr(db_ctx, "getElementNames"):
             return self._tool_error("Failed to access LibreOffice DatabaseContext.")
 
-        try:
-            available_names = list(db_ctx.getElementNames())
-        except Exception as exc:
-            log.exception("Error listing database sources from DatabaseContext")
-            return self._tool_error(f"Error querying registered data sources: {exc}")
+        available_names = list(db_ctx.getElementNames())
 
         if target_ds_name:
             if target_ds_name not in available_names:
@@ -204,14 +200,10 @@ class RegisterDataSource(ToolWriterMailMergeBase):
             return self._tool_error("Failed to access LibreOffice DatabaseContext.")
 
         if action == "unregister":
-            try:
-                if db_ctx.hasByName(name):
-                    db_ctx.revokeObject(name)
-                    return {"status": "ok", "message": f"Data source '{name}' unregistered successfully."}
-                return {"status": "ok", "message": f"Data source '{name}' was not registered."}
-            except Exception as exc:
-                log.exception("Error unregistering data source")
-                return self._tool_error(f"Failed to unregister data source '{name}': {exc}")
+            if db_ctx.hasByName(name):
+                db_ctx.revokeObject(name)
+                return {"status": "ok", "message": f"Data source '{name}' unregistered successfully."}
+            return {"status": "ok", "message": f"Data source '{name}' was not registered."}
 
         # action == "register"
         if not file_path:
@@ -219,21 +211,17 @@ class RegisterDataSource(ToolWriterMailMergeBase):
 
         file_url = _to_file_url(file_path)
 
-        try:
-            # If already registered with this name, revoke first to ensure clean update
-            if db_ctx.hasByName(name):
-                db_ctx.revokeObject(name)
+        # If already registered with this name, revoke first to ensure clean update
+        if db_ctx.hasByName(name):
+            db_ctx.revokeObject(name)
 
-            db_ctx.registerObject(name, file_url)
-            return {
-                "status": "ok",
-                "message": f"Data source '{name}' registered successfully pointing to '{file_path}'.",
-                "name": name,
-                "file_url": file_url,
-            }
-        except Exception as exc:
-            log.exception("Error registering data source")
-            return self._tool_error(f"Failed to register data source '{name}': {exc}")
+        db_ctx.registerObject(name, file_url)
+        return {
+            "status": "ok",
+            "message": f"Data source '{name}' registered successfully pointing to '{file_path}'.",
+            "name": name,
+            "file_url": file_url,
+        }
 
 
 class InsertField(ToolWriterMailMergeBase):
@@ -324,40 +312,28 @@ class InsertField(ToolWriterMailMergeBase):
                     master = None
 
         if master is None:
-            try:
-                master = doc.createInstance(master_service_name)
-                if not master:
-                    return self._tool_error("Failed to create database field master service.")
-                if hasattr(master, "setPropertyValue"):
-                    master.setPropertyValue("DataBaseName", data_source_name)
-                    master.setPropertyValue("DataTableName", table_name)
-                    master.setPropertyValue("DataColumnName", column_name)
-                    master.setPropertyValue("DataCommandType", cmd_type_val)
-            except Exception as exc:
-                log.exception("Error creating database field master")
-                return self._tool_error(f"Error configuring field master: {exc}")
+            master = doc.createInstance(master_service_name)
+            if not master:
+                return self._tool_error("Failed to create database field master service.")
+            if hasattr(master, "setPropertyValue"):
+                master.setPropertyValue("DataBaseName", data_source_name)
+                master.setPropertyValue("DataTableName", table_name)
+                master.setPropertyValue("DataColumnName", column_name)
+                master.setPropertyValue("DataCommandType", cmd_type_val)
 
         # 2. Create TextField.Database instance
-        try:
-            field = doc.createInstance("com.sun.star.text.textfield.Database")
-            if not field:
-                return self._tool_error("Failed to create database textfield service.")
-            if hasattr(field, "attachTextFieldMaster"):
-                field.attachTextFieldMaster(master)
-        except Exception as exc:
-            log.exception("Error creating database textfield")
-            return self._tool_error(f"Error instantiating database textfield: {exc}")
+        field = doc.createInstance("com.sun.star.text.textfield.Database")
+        if not field:
+            return self._tool_error("Failed to create database textfield service.")
+        if hasattr(field, "attachTextFieldMaster"):
+            field.attachTextFieldMaster(master)
 
         if target == "search" and old_content:
             cursor.setString("")
 
         # 3. Insert into text cursor
-        try:
-            text = cursor.getText()
-            text.insertTextContent(cursor, field, False)
-        except Exception as exc:
-            log.exception("Error inserting merge field into document")
-            return self._tool_error(f"Failed to insert merge field into document: {exc}")
+        text = cursor.getText()
+        text.insertTextContent(cursor, field, False)
 
         return {
             "status": "ok",
@@ -580,38 +556,34 @@ class RunMerge(ToolWriterMailMergeBase):
         out_type = out_map.get(output_type_str.lower(), 2)
 
         # Configure MailMerge properties
-        try:
-            mail_merge.DocumentURL = doc_url
-            mail_merge.DataSourceName = data_source_name
-            mail_merge.CommandType = cmd_type
-            mail_merge.Command = table_name
-            mail_merge.OutputType = out_type
+        mail_merge.DocumentURL = doc_url
+        mail_merge.DataSourceName = data_source_name
+        mail_merge.CommandType = cmd_type
+        mail_merge.Command = table_name
+        mail_merge.OutputType = out_type
 
-            if out_type == 2:  # File
-                if not output_path:
-                    output_path = os.getcwd()
-                output_url = _to_file_url(output_path)
-                if not output_url.endswith("/"):
-                    output_url += "/"
-                mail_merge.OutputURL = output_url
-                mail_merge.SaveAsSingleFile = save_as_single_file
-                mail_merge.FileNamePrefix = file_name_prefix
-                mail_merge.FileNameFromColumn = file_name_from_column
+        if out_type == 2:  # File
+            if not output_path:
+                output_path = os.getcwd()
+            output_url = _to_file_url(output_path)
+            if not output_url.endswith("/"):
+                output_url += "/"
+            mail_merge.OutputURL = output_url
+            mail_merge.SaveAsSingleFile = save_as_single_file
+            mail_merge.FileNamePrefix = file_name_prefix
+            mail_merge.FileNameFromColumn = file_name_from_column
 
-                # Set filter for PDF or ODT
-                if file_format.lower() == "pdf":
-                    mail_merge.SaveFilter = "writer_pdf_export"
-                else:
-                    mail_merge.SaveFilter = "writer8"
+            # Set filter for PDF or ODT
+            if file_format.lower() == "pdf":
+                mail_merge.SaveFilter = "writer_pdf_export"
+            else:
+                mail_merge.SaveFilter = "writer8"
 
-            if filter_clause:
-                mail_merge.Filter = filter_clause
+        if filter_clause:
+            mail_merge.Filter = filter_clause
 
-            # Execute the merge
-            mail_merge.execute([])
-        except Exception as exc:
-            log.exception("Error executing mail merge")
-            return self._tool_error(f"Mail merge execution failed: {exc}")
+        # Execute the merge
+        mail_merge.execute([])
 
         return {
             "status": "ok",

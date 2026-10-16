@@ -216,7 +216,7 @@ def test_invalid_note_type():
     tool = FootnotesList()
     ctx = FakeCtx(doc)
 
-    res = tool.execute(ctx, note="invalid_type")
+    res = tool.execute_safe(ctx, note="invalid_type")
     assert res["status"] == "error"
     assert "Invalid note_type" in res["message"]
 
@@ -267,3 +267,13 @@ def test_footnotes_shortened_type_param():
     doc.getFootnoteSettings.return_value = settings
     res = FootnotesSettingsGet().execute(FakeCtx(doc), note="footnote")
     assert res["status"] == "ok"
+
+
+def test_footnotes_disposal_is_document_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+    tool = FootnotesList()
+    ctx = FakeCtx(MagicMock())
+    ctx.doc.getFootnotes.side_effect = DocumentDisposedError("gone")
+    res = tool.execute_safe(ctx, note="footnote")
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
