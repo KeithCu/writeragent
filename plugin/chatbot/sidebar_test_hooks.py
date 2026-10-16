@@ -1000,6 +1000,21 @@ def handle_debug_sidebar_command(command: str) -> None:
         _post_to_soffice_vcl(kick_pending_peer_starts, sl=sl)
         _write_debug_snapshot(sl)
         return
+    # Packet R: agent edits record as tracked changes only when soffice itself reads
+    # doc.agent_edit_review_mode=record; set it in-process (URP set_config is not seen).
+    if op in ("AGENT_REVIEW_RECORD", "AGENT_REVIEW_OFF"):
+        from plugin.framework.config import set_config
+
+        set_config("doc.agent_edit_review_mode", "record" if op == "AGENT_REVIEW_RECORD" else "off")
+        _write_debug_snapshot(sl)
+        return
+    # Packet R8: HITL approval for web_research, read by the soffice sidebar.
+    if op in ("WEB_RESEARCH_PROMPT_ON", "WEB_RESEARCH_PROMPT_OFF"):
+        from plugin.framework.config import set_config
+
+        set_config("chatbot.prompt_for_web_research", op == "WEB_RESEARCH_PROMPT_ON")
+        _write_debug_snapshot(sl)
+        return
     # Settings→Speech writes audio.tts_enabled then emits config:changed; these
     # ops exercise the same path so headed tests can prove sidebar chk_voice sync.
     if op in ("SET_TTS_ON", "SET_TTS_OFF"):
@@ -2807,13 +2822,31 @@ def wait_idle(*, listener: Any = None, timeout: float = 30.0) -> bool:
 
 
 
+_THREAD_VIOLATION_COUNT = 0
+_THREAD_VIOLATION_ORIG: Any = None
+
+
 def get_thread_guard_violations() -> int:
-    try:
-        with open("writeragent_debug.log", "r") as f:
-            log_content = f.read()
-            return log_content.count("UNO thread violation:")
-    except Exception:
-        return 0
+    """Count thread-guard violations reported since the first call (Packet R7).
+
+    Wraps ``thread_guard._notify_thread_violation`` (looked up at call time by the
+    guard) so every violation in this soffice process is counted, not log-scraped.
+    """
+    _require_debug()
+    global _THREAD_VIOLATION_ORIG
+    import plugin.framework.thread_guard as tg
+
+    if _THREAD_VIOLATION_ORIG is None:
+        _THREAD_VIOLATION_ORIG = tg._notify_thread_violation
+
+        def _counting_notify(msg: str) -> None:
+            global _THREAD_VIOLATION_COUNT
+            _THREAD_VIOLATION_COUNT += 1
+            _THREAD_VIOLATION_ORIG(msg)
+
+        setattr(tg, "_notify_thread_violation", _counting_notify)
+    return _THREAD_VIOLATION_COUNT
+
 
 def list_redlines(doc: Any) -> list[dict[str, Any]]:
     """Return a list of redlines in the document as dictionaries."""

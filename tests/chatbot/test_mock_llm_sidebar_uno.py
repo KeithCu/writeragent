@@ -16,8 +16,8 @@ because the runner is URP-only or because ``DISPLAY`` is set (xvfb sets it).
 from __future__ import annotations
 
 import os
-import sys
 import time
+import sys
 import unittest
 from typing import Any, Callable
 
@@ -3069,278 +3069,327 @@ def test_m6_stop_mid_stream_settles(ctx):
 # Packet R — Tracking / Redline Sidebar Actions
 # =============================================================================
 
+# R9 needs one agent edit per paragraph: resolve-all skips any agent change that
+# shares a paragraph with the user's own redline, so the user edit must isolate one.
+R9_PARAGRAPHS = ("Alpha one.", "Bravo two.", "Charlie three.")
+
+
+def _set_writer_paragraphs(ctx, paragraphs: tuple[str, ...]) -> None:
+    """Like :func:`_set_writer_body` but with real paragraph breaks (``\\n`` in setString is a line break)."""
+    from plugin.chatbot.sidebar_test_hooks import current_component
+
+    _set_writer_body(ctx, paragraphs[0])
+    text = current_component(ctx).getText()
+    for para in paragraphs[1:]:
+        cursor = text.createTextCursor()
+        cursor.gotoEnd(False)
+        text.insertControlCharacter(cursor, 0, False)  # ControlCharacter.PARAGRAPH_BREAK
+        cursor.gotoEnd(False)
+        text.insertString(cursor, para, False)
+
+
+class _RReviewMode:
+    """Set ``doc.agent_edit_review_mode`` in soffice for one R case, then back to ``off``.
+
+    Agent edits only land as tracked changes in ``record`` mode; the default is ``off``,
+    where every R assertion about redlines would be vacuous. The live sidebar reads its
+    own config, so the switch runs inside soffice via a debug_sidebar op.
+    """
+
+    def __init__(self, mode: str = "record") -> None:
+        assert mode in ("record", "off"), mode
+        self.mode = mode
+
+    def __enter__(self) -> "_RReviewMode":
+        from plugin.chatbot.sidebar_test_hooks import execute_debug_sidebar_op
+
+        execute_debug_sidebar_op("AGENT_REVIEW_RECORD" if self.mode == "record" else "AGENT_REVIEW_OFF")
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        from plugin.chatbot.sidebar_test_hooks import execute_debug_sidebar_op
+
+        execute_debug_sidebar_op("AGENT_REVIEW_OFF")
+
+
+def _r_pump_undo(ctx, frame) -> None:
+    from plugin.chatbot.sidebar_test_hooks import undo
+
+    undo(frame, ctx)
+    time.sleep(1.0)
+
+
 @native_test
 def test_r1_adjacent_agent_edits(ctx):
-    from plugin.chatbot.sidebar_test_hooks import list_redlines, current_component
-    from plugin.writer.inline_review import resolve_change_at_cursor
+    """Accepting one of two adjacent agent edits leaves the other pending and intact (#1666)."""
+    from plugin.chatbot.sidebar_test_hooks import current_component
+    from plugin.writer.inline_review import agent_changes, resolve_agent_change
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
-    _send_and_wait("adjacent agent edits", timeout=60.0)
+    with _RReviewMode("record"):
+        _send_and_wait("adjacent agent edits", timeout=60.0)
+        doc = current_component(ctx)
+        before = agent_changes(doc)
+        assert len(before) == 2, f"R1 expected 2 pending agent edits, got {before}"
 
-    doc = current_component(ctx)
-    redlines = list_redlines(doc)
-    assert len(redlines) == 2, f"R1 expected 2 agent edits, found {len(redlines)}"
-    token_0 = redlines[0].get("token")
-    token_1 = redlines[1].get("token")
-
-    success, msg = resolve_change_at_cursor(doc, ctx, accept=True)
-    assert success, f"R1 expected successful resolution of independent adjacent edit, got: {msg}"
-
-    redlines_after = list_redlines(doc)
-    assert len(redlines_after) == 1, f"R1 resolved one of two adjacent edits, exactly 1 should remain: {redlines_after}"
-    token_after = redlines_after[0].get("token")
-    assert token_after in (token_0, token_1), "R1 remaining token should match one of the original edits"
-
+        assert resolve_agent_change(doc, ctx, before[0]["token"], True), (
+            f"R1 accepting the first adjacent agent edit was refused: {before}"
+        )
+        after = agent_changes(doc)
+        assert after == [before[1]], (
+            f"R1 the other adjacent agent edit must stay pending and intact: before={before} after={after}"
+        )
     _hello_ok()
 
 
 @native_test
 def test_r2_user_redline_overlap(ctx):
-    from plugin.chatbot.sidebar_test_hooks import list_redlines, current_component, insert_user_redline
-    from plugin.writer.inline_review import resolve_change_at_cursor
+    """An agent change overlapped by the user's own redline is refused; both stay put."""
+    from plugin.chatbot.sidebar_test_hooks import current_component, insert_user_redline, list_redlines
+    from plugin.writer.inline_review import agent_changes, resolve_agent_change
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
-    _send_and_wait("mutate", timeout=60.0)
+    with _RReviewMode("record"):
+        _send_and_wait("insert filler", timeout=60.0)
+        doc = current_component(ctx)
+        changes = agent_changes(doc)
+        assert len(changes) == 1, f"R2 expected one pending agent insert, got {changes}"
+        body = doc.getText().getString()
+        idx = body.find("soak server")
+        assert idx >= 0, f"R2 agent filler not in body: {body!r}"
+        insert_user_redline(doc, ctx, "UserEdit", idx, idx + len("soak"))
 
-    doc = current_component(ctx)
-    body = doc.getText().getString()
-    insert_user_redline(doc, ctx, " UserEdit ", len(body) - 5, len(body) - 1)
-
-    success, msg = resolve_change_at_cursor(doc, ctx, accept=True)
-    assert not success, "R2 should refuse resolution due to overlapping user redline"
-
-    redlines = list_redlines(doc)
-    assert len(redlines) > 1, f"R2 expected >1 redline including user's, got {len(redlines)}"
-    user_redlines = [r for r in redlines if r.get("RedlineAuthor") == "Test User"]
-    assert len(user_redlines) == 1, "R2 expected user redline to remain exactly 1"
-    assert "UserEdit" in user_redlines[0].get("text", ""), "R2 user redline text should remain unchanged"
-
-    agent_redlines = [r for r in redlines if r.get("RedlineAuthor") != "Test User"]
-    assert len(agent_redlines) == 1, "R2 expected agent redline to remain pending"
-
+        assert resolve_agent_change(doc, ctx, changes[0]["token"], True) is False, (
+            "R2 must refuse to resolve an agent change overlapped by the user's redline"
+        )
+        user = [r for r in list_redlines(doc) if r.get("RedlineAuthor") == "Test User"]
+        assert any("UserEdit" in (r.get("text") or "") for r in user), f"R2 user redline lost: {user}"
+        # The user's delete inside the agent insert changes its preview text, not its identity.
+        assert [c["token"] for c in agent_changes(doc)] == [changes[0]["token"]], (
+            f"R2 agent change must stay pending: {agent_changes(doc)}"
+        )
     _hello_ok()
 
 
 @native_test
 def test_r3_undo_track_changes(ctx):
-    from plugin.chatbot.sidebar_test_hooks import toggle_record_changes, undo, current_component, list_redlines
+    """Undo of an agent edit restores the text and leaves RecordChanges as it was."""
+    from plugin.chatbot.sidebar_test_hooks import current_component, list_redlines, toggle_record_changes
+    from plugin.writer.inline_review import has_agent_changes
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
     doc = current_component(ctx)
     frame = doc.getCurrentController().getFrame()
 
-    toggle_record_changes(doc, False)
-    _send_and_wait("mutate", timeout=60.0)
-    assert len(list_redlines(doc)) == 0, "R3 expected no redlines with RecordChanges False"
+    with _RReviewMode("off"):
+        toggle_record_changes(doc, False)
+        _send_and_wait("single agent edit", timeout=60.0)
+        assert doc.getText().getString() != WELCOME_BODY, "R3 off-mode agent edit did not land"
+        assert not list_redlines(doc), "R3 expected no redlines with review mode off"
+        _r_pump_undo(ctx, frame)
+        assert bool(doc.getPropertyValue("RecordChanges")) is False, "R3 undo changed RecordChanges"
+        assert doc.getText().getString() == WELCOME_BODY, (
+            f"R3 undo did not restore text: {doc.getText().getString()!r}"
+        )
 
-    undo(frame, ctx)
-    import time
-    time.sleep(1.0)
-    assert bool(doc.getPropertyValue("RecordChanges")) is False, "R3 undo changed RecordChanges incorrectly"
-    assert doc.getText().getString() == WELCOME_BODY, "R3 undo failed to revert body"
-
-    toggle_record_changes(doc, True)
-    _send_and_wait("mutate", timeout=60.0)
-    assert len(list_redlines(doc)) > 0, "R3 expected redlines with RecordChanges True"
-
-    undo(frame, ctx)
-    time.sleep(1.0)
-    assert bool(doc.getPropertyValue("RecordChanges")) is True, "R3 undo changed RecordChanges incorrectly"
-    assert doc.getText().getString() == WELCOME_BODY, "R3 undo failed to revert body"
-    assert len(list_redlines(doc)) == 0, "R3 expected no redlines left after undo"
-
+    with _RReviewMode("record"):
+        _send_and_wait("single agent edit", timeout=60.0)
+        assert has_agent_changes(doc), "R3 expected a pending agent change in record mode"
+        _r_pump_undo(ctx, frame)
+        assert bool(doc.getPropertyValue("RecordChanges")) is False, "R3 undo left RecordChanges on"
+        assert doc.getText().getString() == WELCOME_BODY, (
+            f"R3 undo did not restore text: {doc.getText().getString()!r}"
+        )
+        assert not list_redlines(doc), f"R3 redlines left after undo: {list_redlines(doc)}"
     _hello_ok()
 
 
 @native_test
 def test_r4_stop_mid_stream(ctx):
+    """Stop mid-edit: the body is all-or-nothing and no orphan review entry is left."""
     from plugin.chatbot.sidebar_test_hooks import current_component
-    from plugin.writer.inline_review import has_agent_changes
+    from plugin.writer.inline_review import agent_changes
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
     assert _session is not None
-    _session.config.delay_ms = 100
     controls = getattr(_session, "controls", None)
-    before = _transcript()
+    assert controls is not None, "R4 requires the sidebar controls dict"
+    from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, uno_click, wait_controls_send_finished
 
-    try:
-        if controls is not None:
-            from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, uno_click, wait_controls_send_finished
-            set_query_text_via_controls(controls, "mutate")
-            import time
+    before = _transcript()
+    with _RReviewMode("record"):
+        _session.config.delay_ms = 100
+        try:
+            set_query_text_via_controls(controls, "insert filler")
             time.sleep(0.2)
             uno_click(controls["send"])
             if _wait_stop_enabled(timeout=8.0):
                 _press_stop()
             assert wait_controls_send_finished(controls, timeout=25.0, transcript_fn=_transcript, before=before)
-        else:
-            sl = getattr(_session, "listener", None)
-            assert sl is not None
-            from plugin.chatbot.sidebar_test_hooks import press_send, set_query_text, wait_idle
-            set_query_text("mutate", listener=sl)
-            press_send(listener=sl)
-            if _wait_stop_enabled(timeout=8.0):
-                _press_stop()
-            assert wait_idle(listener=sl, timeout=25.0)
-    finally:
-        _session.config.delay_ms = 20
+        finally:
+            _session.config.delay_ms = 20
 
-    doc = current_component(ctx)
-    body = doc.getText().getString()
-    is_original = (body == WELCOME_BODY)
-    is_full = ("Mock filler paragraph from soak server." in body)
-    assert is_original or is_full, f"R4 expected all-or-nothing modification, got partial body: {body}"
-    assert not has_agent_changes(doc), "R4 expected no orphan review entries after mid-stream stop"
+        doc = current_component(ctx)
+        body = doc.getText().getString()
+        changes = agent_changes(doc)
+        if body == WELCOME_BODY:
+            assert changes == [], f"R4 orphan review entry with unchanged body: {changes}"
+        else:
+            assert "Mock filler paragraph from soak server." in body, f"R4 partial body: {body!r}"
+            assert len(changes) == 1 and "Mock filler" in changes[0]["new"], (
+                f"R4 completed edit must be exactly one pending change: {changes}"
+            )
     _hello_ok()
 
 
 @native_test
 def test_r5_close_doc_pending_tool(ctx):
-    from plugin.chatbot.sidebar_test_hooks import open_calc_document, close_component, current_component, wait_idle
-    from plugin.chatbot.sidebar_test_hooks import set_query_text, press_send
+    """Closing the document while its chat turn is in flight settles cleanly; Writer chat still works."""
+    from plugin.chatbot.sidebar_test_hooks import (
+        close_component,
+        current_component,
+        open_calc_document,
+        set_query_text_via_controls,
+        uno_click,
+    )
 
     _reset_mock_runtime()
     writer = current_component(ctx)
     saved_controls = getattr(_session, "controls", None)
     saved_listener = getattr(_session, "listener", None)
-
+    calc = None
     try:
         calc = open_calc_document(ctx)
         _adopt_calc_sidebar(ctx, calc)
-        _session.config.delay_ms = 100
-
-        sl = getattr(_session, "listener", None)
-        assert sl is not None
-        set_query_text("mutate", listener=sl)
-        press_send(listener=sl)
-
-        import time
-        time.sleep(1.0)
+        controls = getattr(_session, "controls", None)
+        assert controls is not None, "R5 Calc sidebar has no controls"
+        _session.config.delay_ms = 400
+        set_query_text_via_controls(controls, "list sheets")
+        time.sleep(0.2)
+        uno_click(controls["send"])
+        assert _wait_stop_enabled(timeout=8.0), "R5 Calc turn never started"
+        calc_transcript = _transcript()
         close_component(calc)
-
-        from plugin.chatbot.sidebar_test_hooks import wait_idle
-        assert wait_idle(listener=sl, timeout=30.0), "R5 main sidebar did not go idle after close"
-
-        t = _transcript()
-        assert t.count("DisposedException") == 1 or t.count("disposed") == 1, "R5 expected exactly one disposed-document error in transcript"
-        assert "traceback" not in t.lower(), "R5 expected no traceback in transcript"
-        time.sleep(0.5)
+        calc = None
+        time.sleep(2.0)
+        assert "traceback" not in calc_transcript.lower(), f"R5 traceback in transcript: {calc_transcript[-400:]}"
     finally:
         _session.config.delay_ms = 20
         _restore_writer_after_calc(ctx, writer, calc, saved_controls, saved_listener)
-
     _hello_ok()
 
 
 @native_test
 def test_r6_undo_then_accept(ctx):
-    from plugin.chatbot.sidebar_test_hooks import undo, current_component, list_redlines
-    from plugin.writer.inline_review import resolve_agent_change
+    """Accepting a change whose edit was undone fails cleanly and changes nothing."""
+    from plugin.chatbot.sidebar_test_hooks import current_component
+    from plugin.writer.inline_review import agent_changes, resolve_agent_change
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
     doc = current_component(ctx)
     frame = doc.getCurrentController().getFrame()
+    with _RReviewMode("record"):
+        _send_and_wait("single agent edit", timeout=60.0)
+        changes = agent_changes(doc)
+        assert len(changes) == 1, f"R6 expected one pending agent change, got {changes}"
+        _r_pump_undo(ctx, frame)
+        assert agent_changes(doc) == [], "R6 undo should remove the pending change"
 
-    _send_and_wait("mutate", timeout=60.0)
-    redlines = list_redlines(doc)
-    assert len(redlines) > 0, "R6 expected redlines to undo"
-    token = redlines[0].get("token", "")
-
-    undo(frame, ctx)
-    import time
-    time.sleep(1.0)
-
-    _send_and_wait("hello", timeout=60.0)
-
-    success, msg = resolve_agent_change(doc, ctx, token, True)
-    assert not success, "R6 should cleanly fail on stale token"
-    assert "not found" in msg.lower() or "no tracked change" in msg.lower() or "failed" in msg.lower(), f"R6 expected not-found error, got: {msg}"
-
+        assert resolve_agent_change(doc, ctx, changes[0]["token"], True) is False, (
+            "R6 accepting a stale token must fail"
+        )
+        assert doc.getText().getString() == WELCOME_BODY, "R6 stale accept changed the body"
     _hello_ok()
 
 
 @native_test
 def test_r7_style_parallel_looped(ctx):
-    from plugin.chatbot.sidebar_test_hooks import get_thread_guard_violations
-    _reset_mock_runtime()
-    _set_writer_body(ctx, WELCOME_BODY)
-    v_before = get_thread_guard_violations()
-    for _ in range(5):
-        _send_and_wait("style tools", timeout=60.0)
-        _set_writer_body(ctx, WELCOME_BODY)
+    """apply_style + get_document_tree in one turn, five times: styled, no thread-guard violations."""
+    from plugin.chatbot.sidebar_test_hooks import current_component, get_thread_guard_violations
 
+    _reset_mock_runtime()
+    v_before = get_thread_guard_violations()
+    for i in range(5):
+        _set_writer_body(ctx, WELCOME_BODY)
+        _send_and_wait("style tools", timeout=60.0)
+        decided = [t for row in _captures() for t in (row.get("decided_tools") or [])]
+        assert "apply_style" in decided, f"R7 round {i}: apply_style never decided: {decided}"
+        para = current_component(ctx).getText().createEnumeration().nextElement()
+        assert para.getPropertyValue("ParaStyleName") in ("Heading 1", "Heading1"), (
+            f"R7 round {i}: style not applied: {para.getPropertyValue('ParaStyleName')!r}"
+        )
     v_after = get_thread_guard_violations()
-    assert v_after == v_before, f"R7 expected no new thread-guard violations, got {v_after - v_before} new violations"
+    assert v_after == v_before, f"R7 {v_after - v_before} new thread-guard violation(s)"
+    _set_writer_body(ctx, WELCOME_BODY)
     _hello_ok()
 
 
 @native_test
 def test_r8_accept_and_stop(ctx):
-    from plugin.framework.config import set_config
+    """Stop then Accept on a HITL approval: the gated tool runs at most once and the turn settles."""
+    from plugin.chatbot.sidebar_test_hooks import execute_debug_sidebar_op
 
     _reset_mock_runtime()
     _set_writer_body(ctx, WELCOME_BODY)
-    set_config("chatbot.prompt_for_web_research", True)
-
     controls = getattr(_session, "controls", None)
-    if controls is None:
-        raise unittest.SkipTest("R8 requires controls dict")
-
+    assert controls is not None, "R8 requires the sidebar controls dict"
+    execute_debug_sidebar_op("WEB_RESEARCH_PROMPT_ON")
+    # HITL approval gates the inner web_search step; the --offline mock answers with
+    # final_answer and never reaches it (why E9 skips). Stop lands before any search runs.
+    assert _session is not None
+    was_offline = _session.config.offline
+    _session.config.offline = False
     try:
         from plugin.chatbot.sidebar_test_hooks import set_query_text_via_controls, uno_click, wait_controls_send_finished
-        set_query_text_via_controls(controls, "look up cats")
-        uno_click(controls["send"])
-        if not _wait_send_label("Accept", timeout=10.0):
-            assert False, "R8 HITL Accept label never appeared"
 
+        set_query_text_via_controls(controls, "look up cats")
+        time.sleep(0.2)
+        uno_click(controls["send"])
+        assert _wait_send_label("Accept", timeout=10.0), "R8 HITL Accept label never appeared"
         before = _transcript()
         uno_click(controls["stop"])
-        uno_click(controls["send"]) # Accept button
-        assert wait_controls_send_finished(controls, timeout=60.0, transcript_fn=_transcript, before=before)
-
-        snaps = _captures()
-        tool_count = sum(1 for row in snaps if "web_search" in (row.get("called_tools") or []) + (row.get("decided_tools") or []))
-        assert tool_count <= 1, f"R8 expected tool to run at most once, got {tool_count}"
-
+        uno_click(controls["send"])
+        assert wait_controls_send_finished(controls, timeout=60.0, transcript_fn=_transcript, before=before), (
+            f"R8 did not settle: {_transcript()[-400:]}"
+        )
+        runs = sum(1 for row in _captures() for t in (row.get("called_tools") or []) if t == "web_research")
+        assert runs <= 1, f"R8 web_research ran {runs} times"
     finally:
-        set_config("chatbot.prompt_for_web_research", False)
+        _session.config.offline = was_offline
+        execute_debug_sidebar_op("WEB_RESEARCH_PROMPT_OFF")
     _hello_ok()
 
 
 @native_test
 def test_r9_three_edits_user_middle(ctx):
+    """Resolve-all with a user redline beside the middle agent edit resolves the other two only."""
     from plugin.chatbot.sidebar_test_hooks import current_component, insert_user_redline, list_redlines
-    from plugin.writer.inline_review import resolve_all_with_feedback
+    from plugin.writer.inline_review import agent_changes, resolve_all_with_feedback
 
     _reset_mock_runtime()
-    _set_writer_body(ctx, "Welcome to WriterAgent.")
-    _send_and_wait("three agent edits", timeout=60.0)
+    _set_writer_paragraphs(ctx, R9_PARAGRAPHS)
+    with _RReviewMode("record"):
+        _send_and_wait("three agent edits", timeout=60.0)
+        doc = current_component(ctx)
+        changes = agent_changes(doc)
+        assert len(changes) == 3, f"R9 expected 3 pending agent edits, got {changes}"
+        body = doc.getText().getString()
+        idx = body.find("two.")
+        assert idx >= 0, f"R9 middle paragraph missing: {body!r}"
+        insert_user_redline(doc, ctx, "UserEdit", idx, idx + len("two"))
 
-    doc = current_component(ctx)
-    body = doc.getText().getString()
-    redlines = list_redlines(doc)
-    assert len(redlines) >= 3, "R9 expected 3 agent edits"
-
-    idx = body.find(" to2 ")
-    assert idx >= 0, "R9 couldn't find second agent edit"
-    insert_user_redline(doc, ctx, "UserEdit", idx + 1, idx + 2)
-
-    count, msg = resolve_all_with_feedback(doc, ctx, accept=True)
-    assert count == 2, f"R9 expected 2 edits resolved out of 3, got {count}"
-
-    body_after = doc.getText().getString()
-    assert "UserEdit" in body_after, "R9 expected user redline to remain"
-    assert " to2 " in body_after or "to2" in body_after, "R9 expected second agent edit to remain unaccepted"
-
-    redlines_after = list_redlines(doc)
-    agent_redlines = [r for r in redlines_after if r.get("RedlineAuthor") != "Test User"]
-    assert len(agent_redlines) == 1, f"R9 expected exactly 1 pending agent redline, got {len(agent_redlines)}"
-
+        count, msg = resolve_all_with_feedback(doc, ctx, accept=True)
+        assert count == 2, f"R9 expected 2 of 3 resolved, got {count} ({msg!r})"
+        assert msg, "R9 skipped change should come with a user-facing note"
+        middle = [c for c in changes if "Bravo" in (c["old"] + c["new"])]
+        assert agent_changes(doc) == middle, f"R9 middle agent edit must stay pending: {agent_changes(doc)}"
+        user = [r for r in list_redlines(doc) if r.get("RedlineAuthor") == "Test User"]
+        assert any("UserEdit" in (r.get("text") or "") for r in user), f"R9 user redline lost: {user}"
     _hello_ok()
 
 
