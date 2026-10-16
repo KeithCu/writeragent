@@ -65,6 +65,51 @@ def test_write_http_json_sets_content_length_and_flushes():
     assert flushed == [True]
 
 
+def test_write_http_json_swallows_flush_oserror():
+    from plugin.mcp.server import write_http_json
+
+    handler = MockHandler({})
+
+    def _flush():
+        raise BrokenPipeError("gone")
+
+    handler.wfile.flush = _flush
+    write_http_json(handler, 200, {"ok": True})
+    assert 200 in handler.sent_responses
+
+
+def test_write_http_json_flush_other_error_propagates():
+    from plugin.mcp.server import write_http_json
+
+    handler = MockHandler({})
+    handler.wfile.flush = MagicMock(side_effect=RuntimeError("bug"))
+    with pytest.raises(RuntimeError, match="bug"):
+        write_http_json(handler, 200, {"ok": True})
+
+
+def test_shutdown_sse_socket_swallows_oserror_only():
+    from plugin.mcp.server import _shutdown_sse_socket
+
+    class _Sock:
+        def shutdown(self, how):
+            raise OSError("closed")
+
+        def close(self):
+            raise OSError("closed")
+
+    _shutdown_sse_socket(_Sock())
+
+    class _Bug:
+        def shutdown(self, how):
+            raise RuntimeError("bug")
+
+        def close(self):
+            raise RuntimeError("bug")
+
+    with pytest.raises(RuntimeError, match="bug"):
+        _shutdown_sse_socket(_Bug())
+
+
 def test_handle_mcp_post_routing():
     """Test that handle_mcp_post properly parses body and extracts X-Document-URL."""
     # Setup mock services

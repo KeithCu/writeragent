@@ -3,6 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for the find_tools discovery meta-tool + its tools/list gating."""
+import pytest
 from unittest.mock import MagicMock, patch
 
 from plugin.doc.find_tools_tool import FindTools, get_domain_guidance
@@ -730,12 +731,20 @@ def test_catalog_covers_a_writer_open_behind_the_active_calc():
     assert "apply_document_content" in names, "the open Writer document's tools must appear too"
 
 
-def test_catalog_broaden_never_breaks_tools_list():
+def test_catalog_broaden_propagates_enumeration_failure():
     handler = _handler_real("direct_flat", _real_registry())
     handler.services.document.open_documents_by_type.side_effect = RuntimeError("UNO gone")
-    original = [_schema("read_cell_range")]
+    with pytest.raises(RuntimeError, match="UNO gone"):
+        handler._add_other_open_doc_schemas([_schema("read_cell_range")], "calc", frozenset())
 
-    assert handler._add_other_open_doc_schemas(list(original), "calc", frozenset()) == (original, {})
+
+def test_catalog_broaden_propagates_schema_failure():
+    handler = _handler_real("direct_flat", _real_registry())
+    writer_doc = MagicMock()
+    handler.services.document.open_documents_by_type.return_value = {"writer": writer_doc}
+    handler.tool_registry.get_schemas = MagicMock(side_effect=RuntimeError("schema bug"))
+    with pytest.raises(RuntimeError, match="schema bug"):
+        handler._add_other_open_doc_schemas([_schema("read_cell_range")], "calc", frozenset())
 
 
 def test_broaden_does_not_smuggle_sidebar_only_flows_into_the_flat_list():
@@ -762,3 +771,14 @@ def test_execute_excludes_find_tools_itself():
     names = [t.get("name") for t in FindTools().execute(_ctx(registry), domain="footnotes")["tools"]]
     assert "find_tools" not in names
     assert "footnotes_insert" in names
+
+
+def test_tools_list_does_not_swallow_get_ctx(monkeypatch):
+    handler = _handler_real("delegate", _real_registry())
+
+    def _boom():
+        raise RuntimeError("off main thread")
+
+    monkeypatch.setattr("plugin.framework.uno_context.get_ctx", _boom)
+    with pytest.raises(RuntimeError, match="off main thread"):
+        handler._mcp_tools_list({})

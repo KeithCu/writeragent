@@ -118,10 +118,16 @@ class _DisposedDoc:
     def getImplementationName(self):
         raise type("DisposedException", (Exception,), {})("disposed")
 
+    def supportsService(self, service_name):
+        return True
+
 
 class _LiveDoc:
     def getURL(self):
         return "file:///live.odt"
+
+    def supportsService(self, service_name):
+        return True
 
 
 class _DocSvc:
@@ -150,6 +156,8 @@ class _Services:
     def __init__(self, tools, doc):
         self.tools = tools
         self.document = _DocSvc(doc)
+        self.config = MagicMock()
+        self.config.get.side_effect = lambda key, default=None: default
 
     def get(self, key):
         return _InlineMain() if key == "main_thread" else None
@@ -967,27 +975,15 @@ def test_initialize_non_string_protocol_version_returns_invalid_params():
         assert "string" in response["error"]["message"].lower()
 
 
-def test_protocol_handler_version_defaults_to_unknown(monkeypatch):
-    """If EXTENSION_VERSION cannot be imported, self.version must default to 'unknown'."""
-    import builtins
+def test_protocol_handler_version_is_extension_version():
     from unittest.mock import MagicMock
     from plugin.mcp.mcp_protocol import MCPProtocolHandler
+    from plugin.version import EXTENSION_VERSION
 
-    orig_import = builtins.__import__
-
-    def fake_import(name, *args, **kwargs):
-        if name == "plugin.version":
-            raise ImportError("simulated missing version module")
-        return orig_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-    services = MagicMock()
-    handler = MCPProtocolHandler(services)
-    assert handler.version == "unknown"
-
-    # initialize result should succeed using 'unknown'
+    handler = MCPProtocolHandler(MagicMock())
+    assert handler.version == EXTENSION_VERSION
     init_res = handler._mcp_initialize({"protocolVersion": "2024-11-05"})
-    assert init_res["serverInfo"]["version"] == "unknown"
+    assert init_res["serverInfo"]["version"] == EXTENSION_VERSION
 
 
 @pytest.mark.parametrize(
@@ -1006,4 +1002,113 @@ def test_process_jsonrpc_echoes_detectable_id(message, expected):
     assert status == 400
     assert body["id"] == expected
     assert body["error"]["code"] == wire_types.INVALID_REQUEST
+
+
+def test_tool_exposure_mode_config_error_propagates():
+    from unittest.mock import MagicMock
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+
+    services = MagicMock()
+    services.config.get.side_effect = RuntimeError("config")
+    handler = MCPProtocolHandler(services)
+    with pytest.raises(RuntimeError, match="config"):
+        handler._tool_exposure_mode()
+
+
+def test_real_active_document_does_not_swallow_supports_service():
+    from unittest.mock import MagicMock
+    from plugin.mcp.mcp_protocol import _real_active_document
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = RuntimeError("disposed")
+    svc = MagicMock()
+    svc.get_active_document.return_value = doc
+    with pytest.raises(RuntimeError, match="disposed"):
+        _real_active_document(svc)
+
+    doc.supportsService.side_effect = None
+    doc.supportsService.return_value = False
+    assert _real_active_document(svc) is None
+
+
+def test_resolve_exception_is_not_document_not_found():
+    from unittest.mock import MagicMock
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+
+    services = MagicMock()
+    tool = MagicMock()
+    tool.requires_document = True
+    services.tools.get.return_value = tool
+    services.document.resolve_document_by_url.side_effect = DocumentDisposedError("closed", object_type="Document")
+    handler = MCPProtocolHandler(services)
+    with pytest.raises(DocumentDisposedError):
+        handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///gone.odt")
+
+
+def test_unresolved_document_url_is_still_document_not_found():
+    from unittest.mock import MagicMock
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+
+    services = MagicMock()
+    tool = MagicMock()
+    tool.requires_document = True
+    services.tools.get.return_value = tool
+    services.document.resolve_document_by_url.return_value = (None, None)
+    handler = MCPProtocolHandler(services)
+    result = handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///missing.odt")
+    assert result["code"] == "DOCUMENT_NOT_FOUND"
+    assert "missing.odt" in result["message"]
+
+
+def test_open_documents_failure_is_not_no_document_open():
+    from unittest.mock import MagicMock
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+
+    services = MagicMock()
+    tool = MagicMock()
+    tool.requires_document = True
+    services.tools.get.return_value = tool
+    services.document.get_active_document.return_value = None
+    services.document.open_documents.side_effect = RuntimeError("desktop")
+    handler = MCPProtocolHandler(services)
+    with pytest.raises(RuntimeError, match="desktop"):
+        handler._prepare_mcp_execution("t", {})
+
+
+def test_draw_page_index_failure_propagates():
+    from unittest.mock import MagicMock, patch
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+
+    services = MagicMock()
+    tool = MagicMock()
+    tool.requires_document = True
+    services.tools.get.return_value = tool
+    services.document.resolve_document_by_url.return_value = (MagicMock(), "draw")
+    handler = MCPProtocolHandler(services)
+    with patch("plugin.draw.bridge.DrawBridge", side_effect=RuntimeError("no page")):
+        with pytest.raises(RuntimeError, match="no page"):
+            handler._prepare_mcp_execution("t", {}, document_url="file:///a.odg")
+
+
+def test_sse_keepalive_unexpected_error_is_logged(caplog):
+    import logging
+    import threading
+    from unittest.mock import MagicMock, patch
+    from plugin.mcp.mcp_protocol import MCPProtocolHandler
+
+    protocol = MCPProtocolHandler(MagicMock())
+    http = MagicMock()
+    http.wfile.write.side_effect = RuntimeError("bug")
+    http.connection = MagicMock()
+    http.server = object()
+    stop_event = threading.Event()
+    with (
+        patch("plugin.mcp.mcp_protocol.note_sse_keepalive", return_value=stop_event),
+        patch("plugin.mcp.mcp_protocol.forget_sse_keepalive") as mock_forget,
+        caplog.at_level(logging.ERROR, logger="writeragent.mcp.protocol"),
+    ):
+        protocol._run_sse_keepalive_loop(http, interval=30)
+    mock_forget.assert_called_once()
+    assert any(r.exc_info and "SSE keepalive loop exception" in r.getMessage() for r in caplog.records)
 

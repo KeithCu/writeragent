@@ -8,6 +8,8 @@ The per-document mutation gate must give the SAME key whether a document is addr
 URL or by its RuntimeUID, so two concurrent mutating MCP calls on that document serialize on one
 lock instead of racing on two.
 """
+import pytest
+
 from plugin.framework.uno_context import normalize_doc_url
 from plugin.mcp.mcp_protocol import _ACTIVE_DOCUMENT_SENTINEL, _resolve_mcp_doc_key
 
@@ -62,3 +64,13 @@ def test_two_different_docs_do_not_collide():
     a = Doc(uid=1, url="file:///docs/a.odt")
     b = Doc(uid=2, url="file:///docs/b.odt")
     assert _resolve_mcp_doc_key("file:///docs/a.odt", a) != _resolve_mcp_doc_key("2", b)
+
+
+def test_geturl_failure_does_not_fall_back_to_request_url():
+    class Boom(Doc):
+        def getURL(self):
+            raise RuntimeError("disposed")
+
+    doc = Boom(uid="", url="file:///docs/a.odt")
+    with pytest.raises(RuntimeError, match="disposed"):
+        _resolve_mcp_doc_key("file:///other.odt", doc)

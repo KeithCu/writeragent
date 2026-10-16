@@ -271,9 +271,15 @@ def reload_cors_policy_from_config(services: Any) -> None:
         raw = cfg.get("cors_allowed_origins")
         allow_private = cfg.get("cors_allow_private_origins")
     except Exception as e:
+        # What was wrong: a failed MCP config read set allow_private True, so
+        # private and LAN Origins were allowed when the policy could not be loaded.
+        # How: the except assigned allow_private = True.
+        # Why: fail closed. Empty explicit list and allow_private False refuse
+        # non-loopback Origins until a later successful reload. A successful
+        # read with a missing key still defaults to True on the next line.
         log.warning("Could not load MCP CORS config: %s", e)
         raw = []
-        allow_private = True
+        allow_private = False
     origins = normalize_origins_list(raw)
     set_extra_allowed_origins(origins)
     set_allow_private_origins(allow_private if allow_private is not None else True)
@@ -331,7 +337,9 @@ def _drain_request_body(handler: Any) -> None:
             rfile = getattr(handler, "rfile", None)
             if rfile is not None and hasattr(rfile, "read"):
                 rfile.read(content_length)
-    except Exception:
+    except (ValueError, OSError):
+        # Bad Content-Length is ValueError. A client socket read is OSError.
+        # Other exceptions are bugs.
         pass
 
 
@@ -364,13 +372,11 @@ def reject_forbidden_origin(handler: Any) -> bool:
 
 def get_configured_tunnel_host() -> str | None:
     """Hostname of the running MCP tunnel's public URL, if any."""
-    try:
-        from plugin.mcp import _shared_tunnel
+    # _shared_tunnel is a module global. public_url is a plain attribute.
+    # A failed lookup must not look like "no tunnel".
+    from plugin.mcp import _shared_tunnel
 
-        pub_url = _shared_tunnel.public_url if _shared_tunnel is not None else None
-    except Exception:
-        log.debug("tunnel host lookup for Host check failed", exc_info=True)
-        return None
+    pub_url = _shared_tunnel.public_url if _shared_tunnel is not None else None
     if not pub_url:
         return None
     return urlparse(pub_url if "://" in pub_url else f"https://{pub_url}").hostname
