@@ -24,6 +24,7 @@ This plan is **finished**. Mouse Stop, HITL Change dialog, live DuckDuckGo, and 
 | **[Packet K](#packet-k--sidebar-compaction-712--713)** | Proactive compact, overflow retry, kill switch, death ≠ overflow | Automated (`FILTER=K`) | **Landed.** Chat mode only (Web Research / Librarian share the worker). |
 | **[Packet I](#packet-i--image-generation)** | Image generation tool lifecycle & delays | Automated (`FILTER=I`) | **Landed.** 8 Landed. |
 | **[Packet T](#packet-t--tts-races-and-child-lifecycle)** | TTS stop / cut-off / crash / missing binary, fake child, no audio device | Automated (`FILTER=T`) | **Landed.** 4 Landed. |
+| **[Packet R](#packet-r--tracking--redline-sidebar-actions)** | Redline hooks, overlapping user edits, close-doc pending | Automated (`FILTER=R`) | **Landed.** 9 Landed. |
 
 
 
@@ -105,7 +106,9 @@ make test-mock-sidebar FILTER=F        # Run Packet F (HTTP/SSE errors)
 make test-mock-sidebar FILTER=G        # Run Packet G (Mocked audio & STT)
 make test-mock-sidebar FILTER=P        # Packet P only (dual Writer+Calc peer, not the whole soak)
 make test-mock-sidebar FILTER=K        # Packet K only (sidebar compaction smoke)
+make test-mock-sidebar FILTER=K        # Packet K only (sidebar compaction smoke)
 make test-mock-sidebar FILTER=T        # Packet T only (TTS stop / cut-off / crash / missing)
+make test-mock-sidebar FILTER=R        # Packet R only (tracking/redlines, overlap, etc)
 make test-mock-sidebar FILTER=p1       # Single peer case
 make test-mock-sidebar FILTER=b13      # Run a single case by ID
 make test-mock-sidebar FILTER=e12      # Calc list_sheets (opens Calc after Writer deck)
@@ -462,6 +465,25 @@ Smol ReAct web-research subagent compaction is out of scope.
 | **I6** | mock-sidebar | `generate two images` | Two `image_generate` calls in one inner turn | Two image POSTs; two distinct graphics inserted; `next_hello_ok()` | **Landed** |
 | **I7** | mock-sidebar | `generate an image` + malformed | Endpoint returns malformed JSON/base64 | Clean error surfaced; no empty graphic inserted; `next_hello_ok()` | **Landed** |
 | **I8** | mock-sidebar | `generate an image` + Undo | Insert image, then dispatch `.uno:Undo` | Image removed from document in one step; graphic count -1; `next_hello_ok()` | **Landed** |
+
+### Packet R — Tracking / Redline Sidebar Actions
+
+- **Focus:** Redline hooks (`list_redlines`, `toggle_record_changes`, `insert_user_redline`, `undo`), adjacent agent edits, overlapping user edits, close-doc while pending.
+- **Mode:** Automated (`make test-mock-sidebar FILTER=R`).
+- **Status:** **Landed.** 9 Landed.
+
+| ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
+|:--:|:----:|----------------|-----------------|------------------------|:--------------:|
+| **R1** | CI | `adjacent agent edits` | Stream two adjacent agent edits; accept one | Refuses or resolves both (cannot leave orphan) | **OK / Landed** |
+| **R2** | CI | `mutate` | Insert overlapping user redline; accept agent edit | Refuses; leaves user redline untouched | **OK / Landed** |
+| **R3** | CI | `mutate` | Agent edit with track changes off; undo | No redline; undo reverts. Same with ON | **OK / Landed** |
+| **R4** | CI | `mutate` (delay 100ms) | Stop mid-stream | All-or-nothing modification; no orphan review entries | **OK / Landed** |
+| **R5** | CI | `mutate` (delay 100ms) | Close doc mid-tool | Clean error; request lock released; main sidebar functional | **OK / Landed** |
+| **R6** | CI | `mutate` | Undo; accept stale redline | Context refreshed; clean not-found failure | **OK / Landed** |
+| **R7** | CI | `style tools` | 5x loop of style + parallel tools | No thread-guard violations; no proxy release races | **OK / Landed** |
+| **R8** | CI | `look up cats` | Stop and Accept back-to-back | Tool runs at most once | **OK / Landed** |
+| **R9** | CI | `three agent edits` | User redline in middle; accept all | 1st and 3rd resolved; 2nd refused | **OK / Landed** |
+
 
 ## 4. Out-of-Scope Items & Boundary Invariants
 
