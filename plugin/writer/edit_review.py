@@ -19,6 +19,7 @@ How a change is tracked end to end:
 
 * ``record_mutation`` snapshots the document's redline identifiers, runs the edit, and tags
   every NEW redline's ``RedlineComment`` with a per-change token (``wa-review:<session>:<n>``).
+  ``<n>`` is the per-attempt counter, not ``len(self.changes)``.
   Completion is a reliable empty intersection of those comments with tokens on registered
   ``ChangeRecord``s — NOT "zero redlines in the document", and NOT "every
   ``wa-review:<session>:`` comment is gone". A tag left behind when the change was not
@@ -289,6 +290,7 @@ class EditReviewSession:
         self.enabled = bool(enabled)
         self.session_id = uuid.uuid4().hex[:8]
         self.changes: list[ChangeRecord] = []
+        self._next_change: int = 0
         self._active = False
         self._was_recording = False
         self._prior_author: tuple[str, str] | None = None
@@ -398,7 +400,13 @@ class EditReviewSession:
         if not new_redlines:
             return result
 
-        n = len(self.changes)
+        # A failed tag or a failed missing-bookmark clear can leave
+        # wa-review:<session>:<n> on a redline without appending a ChangeRecord.
+        # len(self.changes) would mint that same n again, so the leftover becomes
+        # the next registered token and wait_for_review stays blocked after the
+        # user resolves the new change.
+        n = self._next_change
+        self._next_change += 1
         token = self._token(n)
         with self._undo_lock():
             # All-or-nothing: register ONLY on full success. On any failure the partial set is
@@ -407,8 +415,9 @@ class EditReviewSession:
             success, orphans = _tag_new_redlines(new_redlines, token)
         if not success:
             if orphans:
-                # The token can remain on the redline. It is not registered, and
-                # _pending_tokens will not treat that leftover as a reason to keep waiting.
+                # The token can remain on the redline. The leftover stays unregistered,
+                # its index is not issued again, and _pending_tokens will not treat that
+                # leftover as a reason to keep waiting.
                 log.warning("EditReviewSession: tagging failed and %d orphan tag(s) could not be "
                             "reverted; leaving this edit unregistered", orphans)
             else:
@@ -457,10 +466,11 @@ class EditReviewSession:
         # the edit already applied; it stays untagged. Do not "fix" this by appending and
         # special-casing _outcome — empty bookmark is not the same as a bookmark the user later
         # removed (pure-insert reject).
-        # A failed clear can leave wa-review:<session>:<n> on the redline. That orphan is not
-        # registered. _pending_tokens ignores tokens that are not on a ChangeRecord, so
-        # wait_for_review still finishes once every registered change is resolved. Keep this
-        # untag attempt: when it succeeds the redline comment is cleared.
+        # A failed clear can leave wa-review:<session>:<n> on the redline. The leftover stays
+        # unregistered, its index is not issued again, and _pending_tokens ignores tokens that
+        # are not on a ChangeRecord, so wait_for_review still finishes once every registered
+        # change is resolved. Keep this untag attempt: when it succeeds the redline comment
+        # is cleared.
         if not bookmark_name:
             log.warning(
                 "EditReviewSession: no review anchor for change %d; leaving this edit untagged "
@@ -495,9 +505,9 @@ class EditReviewSession:
         A failed tag, or a missing-bookmark clear that left orphans, does
         not register a change, but the redline can still carry
         ``wa-review:<session>:<n>``. ``wait_for_review`` must not loop
-        until every such comment is gone. After the user resolves the
-        registered change, the orphan tag — which has no review-UI row —
-        keeps the wait going until timeout.
+        until every such comment is gone. An unregistered leftover blocks
+        only if a later ``ChangeRecord`` is given the same token, which
+        the counter prevents.
 
         An unregistered token must not block completion. A registered
         token that is still on a redline still waits. ``reliable`` stays

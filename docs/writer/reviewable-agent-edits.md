@@ -63,14 +63,18 @@ chat worker or MCP HTTP thread). The main thread never block-waits so the user c
 `plugin/writer/review_scan.py` owns fail-closed `getRedlines()` enumeration and `wa-review:` token helpers. `plugin/writer/edit_review.py` owns the session via `EditReviewSession`:
 
 * `record_mutation()` snapshots the document's redline identifiers, runs the edit, and tags every
-  **new** redline's `RedlineComment` with a per-change token `wa-review:<session>:<n>`.
+  **new** redline's `RedlineComment` with a per-change token `wa-review:<session>:<n>`. `<n>` is the
+  session's per-attempt counter, not the number of registered changes, so a tag left behind on an
+  unregistered edit cannot be the token of the next registered change.
 * Tagging is **fail-closed**: if the pre- or post-edit redline scan is incomplete, the edit still
   applies but its redlines are **not** tagged — they stay untagged (treated as the user's own) so
   Accept/Reject All never touches a misclassified user redline.
 * Completion is a reliable empty intersection of redline comments with tokens on **registered**
   changes — **not** "zero redlines in the document", and **not** "every `wa-review:<session>:`
   comment is gone". A tag left behind when the change was not registered (tagging failed, or the
-  missing-bookmark clear left the token) does not keep `wait_for_review` blocked. An incomplete
+  missing-bookmark clear left the token) does not keep `wait_for_review` blocked. `<n>` is the
+  session's per-attempt counter, not the number of registered changes, so a tag left behind on an
+  unregistered edit cannot be the token of the next registered change. An incomplete
   scan still fail-closes. The user's own pre-existing redlines never block or confuse it.
 * Each change is anchored with a `wa_review_<session>_<n>` bookmark spanning the **change's own
   redline span** (not the whole paragraph), so several changes in one paragraph each get a correct

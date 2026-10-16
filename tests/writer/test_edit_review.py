@@ -134,6 +134,7 @@ class _FakeRedlines:
 def _redlines_doc(items, count=None, raise_enum=False, raise_count=False, raise_hasmore=False):
     doc = MagicMock()
     doc.getRedlines.return_value = _FakeRedlines(items, count, raise_enum, raise_count, raise_hasmore)
+    doc.getBookmarks.return_value.hasByName.return_value = False
     return doc
 
 
@@ -613,6 +614,141 @@ def test_record_mutation_missing_bookmark_still_untags_and_does_not_register_orp
     assert session.changes == []
     assert calls == [session._token(0), ""]
     assert rl.comment == session._token(0)
+
+
+def test_next_registered_change_does_not_reuse_orphan_tag_index():
+    from plugin.writer.edit_review import EditReviewSession
+
+    class _MutateThenThrow(_FakeRl):
+        def setPropertyValue(self, name, val):
+            if val == "":
+                raise RuntimeError("revert cannot clear it")
+            self.comment = val
+            raise RuntimeError("set wrote then threw")
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    rl1 = _MutateThenThrow("a")
+    with (
+        patch.object(session, "_redline_idents", return_value=(set(), True)),
+        patch("plugin.writer.review_scan.new_redlines_since", return_value=([rl1], True)),
+    ):
+        result1 = session.record_mutation(lambda: "r1")
+
+    assert result1 == "r1"
+    assert session.changes == []
+    assert rl1.comment == session._token(0)
+
+    rl2 = MagicMock()
+    start = MagicMock()
+    end = MagicMock()
+    rl2.getPropertyValue.side_effect = lambda name: start if name == "RedlineStart" else end
+    text = MagicMock()
+    cursor = MagicMock()
+    start.getText.return_value = text
+    text.createTextCursorByRange.return_value = cursor
+    cursor.getText.return_value = text
+
+    def tag2(redlines, token):
+        for item in redlines:
+            item.comment = token
+        return True, 0
+
+    with (
+        patch.object(session, "_redline_idents", return_value=(set(), True)),
+        patch("plugin.writer.review_scan.new_redlines_since", return_value=([rl2], True)),
+        patch("plugin.writer.edit_review._tag_new_redlines", side_effect=tag2),
+        patch("plugin.writer.edit_review._string_skipping_redline", return_value=""),
+    ):
+        result2 = session.record_mutation(lambda: "r2")
+
+    assert result2 == "r2"
+    assert len(session.changes) == 1
+    assert session.changes[0].token == session._token(1)
+    assert session.changes[0].bookmark == "wa_review_%s_1" % session.session_id
+    assert rl1.comment == session._token(0)
+
+    session.doc = _redlines_doc([_FakeRl("orphan", comment=rl1.comment)])
+    result = session.wait_for_review(timeout=0.2, poll=0.05)
+    assert result["complete"] is True
+    assert result["timed_out"] is False
+    assert [change["id"] for change in result["changes"]] == [session._token(1)]
+
+
+def test_missing_bookmark_orphan_index_is_not_reused():
+    from plugin.writer.edit_review import EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    rl1 = _FakeRl("a")
+    calls: list[str] = []
+
+    def tag1(redlines, token):
+        calls.append(token)
+        if token == "":
+            return False, 1
+        for item in redlines:
+            item.comment = token
+        return True, 0
+
+    start1 = MagicMock()
+    end1 = MagicMock()
+    rl1.getPropertyValue = lambda name: start1 if name == "RedlineStart" else end1
+    text1 = MagicMock()
+    cursor1 = MagicMock()
+    start1.getText.return_value = text1
+    text1.createTextCursorByRange.return_value = cursor1
+    cursor1.getText.return_value = text1
+    text1.insertTextContent.side_effect = RuntimeError("bookmark insert failed")
+
+    with (
+        patch.object(session, "_redline_idents", return_value=(set(), True)),
+        patch("plugin.writer.review_scan.new_redlines_since", return_value=([rl1], True)),
+        patch("plugin.writer.edit_review._tag_new_redlines", side_effect=tag1),
+        patch("plugin.writer.edit_review._string_skipping_redline", return_value=""),
+    ):
+        result1 = session.record_mutation(lambda: "r1")
+
+    assert result1 == "r1"
+    assert session.changes == []
+    assert calls == [session._token(0), ""]
+    assert rl1.comment == session._token(0)
+
+    rl2 = MagicMock()
+    start2 = MagicMock()
+    end2 = MagicMock()
+    rl2.getPropertyValue.side_effect = lambda name: start2 if name == "RedlineStart" else end2
+    text2 = MagicMock()
+    cursor2 = MagicMock()
+    start2.getText.return_value = text2
+    text2.createTextCursorByRange.return_value = cursor2
+    cursor2.getText.return_value = text2
+
+    def tag2(redlines, token):
+        for item in redlines:
+            item.comment = token
+        return True, 0
+
+    with (
+        patch.object(session, "_redline_idents", return_value=(set(), True)),
+        patch("plugin.writer.review_scan.new_redlines_since", return_value=([rl2], True)),
+        patch("plugin.writer.edit_review._tag_new_redlines", side_effect=tag2),
+        patch("plugin.writer.edit_review._string_skipping_redline", return_value=""),
+    ):
+        result2 = session.record_mutation(lambda: "r2")
+
+    assert result2 == "r2"
+    assert len(session.changes) == 1
+    assert session.changes[0].token == session._token(1)
+    assert session.changes[0].bookmark == "wa_review_%s_1" % session.session_id
+    assert session.changes[0].bookmark.endswith("_1")
+
+    session.doc = _redlines_doc([_FakeRl("orphan", comment=session._token(0))])
+    result = session.wait_for_review(timeout=0.2, poll=0.05)
+    assert result["complete"] is True
+    assert result["timed_out"] is False
+    assert [change["id"] for change in result["changes"]] == [session._token(1)]
+
 
 
 def test_wait_for_review_aborts_immediately_when_document_disposed():
