@@ -278,24 +278,50 @@ def test_apply_settings_result_tts_speed():
     from plugin.chatbot.settings_dialog import apply_settings_result
 
     stored = {}
+    disk = {"audio.tts_speed": "1.0x"}
     specs = [
         {
             "name": "audio__tts_speed",
             "options": [
                 {"value": "1.0x", "label": "1.0x"},
                 {"value": "1.25x", "label": "1.25x"},
+                {"value": "2.0x", "label": "2.0x"},
             ],
         },
     ]
 
+    def _save(values):
+        stored.clear()
+        stored.update(values)
+        disk.update(values)
+
+    mock_set = MagicMock(side_effect=_save)
+
     with patch("plugin.chatbot.settings_dialog.get_settings_field_specs", return_value=specs), \
-         patch("plugin.chatbot.settings_dialog.set_configs", side_effect=lambda values: stored.update(values)), \
+         patch("plugin.chatbot.settings_dialog.get_config", side_effect=lambda k, d=None: disk.get(k, d)), \
+         patch("plugin.chatbot.settings_dialog.set_configs", mock_set), \
          patch("plugin.chatbot.settings_dialog.get_current_endpoint", return_value="https://openrouter.ai/api"):
-        # Select from dropdown
+        # "1.0x" matches disk default -> does not call set_configs
+        apply_settings_result(MagicMock(), {"audio__tts_speed": "1.0x"})
+        mock_set.assert_not_called()
+
+        # "2.0x" stores "2.0x"
+        apply_settings_result(MagicMock(), {"audio__tts_speed": "2.0x"})
+        assert stored.get("audio.tts_speed") == "2.0x"
+
+        # "1x" stores "1.0x"
+        apply_settings_result(MagicMock(), {"audio__tts_speed": "1x"})
+        assert stored.get("audio.tts_speed") == "1.0x"
+
+        # "2x" stores "2.0x"
+        apply_settings_result(MagicMock(), {"audio__tts_speed": "2x"})
+        assert stored.get("audio.tts_speed") == "2.0x"
+
+        # Select from dropdown: "1.25x"
         apply_settings_result(MagicMock(), {"audio__tts_speed": "1.25x"})
         assert stored.get("audio.tts_speed") == "1.25x"
 
-        # Type custom valid lower number
+        # Type custom valid lower number: "0.5"
         apply_settings_result(MagicMock(), {"audio__tts_speed": "0.5"})
         assert stored.get("audio.tts_speed") == "0.5"
 

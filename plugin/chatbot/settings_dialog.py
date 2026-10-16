@@ -313,8 +313,20 @@ def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
         elif key in ("audio__tts_speed", "audio.tts_speed"):
             from plugin.audio.tts_voices import parse_tts_speed
             spd = parse_tts_speed(val)
-            s_val = str(val).strip()
-            val = f"{spd:g}x" if s_val.endswith(("x", "X")) or s_val.startswith("1.0x") else f"{spd:g}"
+            # Why-comment: :g turns the untouched presets 1.0 and 2.0 into "1x" / "2x",
+            # which are not options, so OK rewrote the default and the combo dropped the preset.
+            matched_opt: str | None = None
+            if isinstance(opts, list):
+                for opt in opts:
+                    opt_val = opt.get("value") if isinstance(opt, dict) else opt
+                    if opt_val is not None and parse_tts_speed(opt_val) == spd:
+                        matched_opt = str(opt_val)
+                        break
+            if matched_opt is not None:
+                val = matched_opt
+            else:
+                s_val = str(val).strip()
+                val = f"{spd:g}x" if s_val.endswith(("x", "X")) else f"{spd:g}"
 
         if save_key in ("image_model", "audio.stt_model", "audio.tts_model"):
             # Skip empty and placeholder values, and persist the sanitized

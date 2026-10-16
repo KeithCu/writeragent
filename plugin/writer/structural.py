@@ -399,15 +399,25 @@ class CloneHeadingBlock(ToolBaseDummy):
         # body never gets written. get_string_without_tracked_deletions has to
         # run before that split so the body clone is the visible text.
         clones: list[tuple[str, Any]] = []
+        skipped_tables = 0
         for el in elements:
+            # Why-comment: a table is in this enumeration and has no ParaStyleName
+            # (same fact as html_export.py:767-772); do not add a table copier.
+            if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.TextTable") is True:
+                skipped_tables += 1
+                continue
             clones.append((
                 get_string_without_tracked_deletions(el),
                 el.getPropertyValue("ParaStyleName"),
             ))
 
         last = elements[-1]
-        cursor = doc_text.createTextCursorByRange(last)
-        cursor.gotoEndOfParagraph(False)
+        if hasattr(last, "supportsService") and last.supportsService("com.sun.star.text.TextTable") is True:
+            cursor = doc_text.createTextCursorByRange(last.getAnchor())
+            cursor.collapseToEnd()
+        else:
+            cursor = doc_text.createTextCursorByRange(last)
+            cursor.gotoEndOfParagraph(False)
 
         for txt, sty in clones:
             doc_text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
@@ -423,5 +433,14 @@ class CloneHeadingBlock(ToolBaseDummy):
             cursor.setPropertyValue("ParaStyleName", sty)
             cursor.gotoEndOfParagraph(False)
 
-        return {"status": "ok", "message": "Cloned heading block '%s' (%d paragraphs)." % (node.get("text", ""), total), "heading_text": node.get("text", ""), "block_size": total}
+        if skipped_tables:
+            msg = "Cloned heading block '%s' (%d paragraphs, %d tables skipped)." % (
+                node.get("text", ""),
+                total,
+                skipped_tables,
+            )
+        else:
+            msg = "Cloned heading block '%s' (%d paragraphs)." % (node.get("text", ""), total)
+
+        return {"status": "ok", "message": msg, "heading_text": node.get("text", ""), "block_size": total}
 

@@ -30,9 +30,9 @@ from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import confirm_paragraph_index
 from plugin.doc.text_helpers import (
     apply_chapter_number,
-    clone_text_range,
     find_heading_by_chapter_number,
     get_string_without_tracked_deletions,
+    with_view_cursor_left_body_locked,
 )
 
 
@@ -251,7 +251,7 @@ class TreeService(ServiceBase):
             node["body_text"] = self._get_full_body_text(doc, para_idx)
 
     def _serialize_tree_node(self, child: dict[str, Any], doc: Any, content_strategy: str, depth: int, current_depth: int = 1, bookmark_map: dict[Any, Any] | None = None) -> dict[str, Any]:
-        node = {"type": "heading", "level": child["level"], "text": child["text"], "para_index": child["para_index"], "bookmark": (bookmark_map or {}).get(child["para_index"]), "children_count": self._count_all_children(child), "body_paragraphs": child["body_paragraphs"]}
+        node = {"type": "heading", "level": child["level"], "text": child["text"], "para_index": child["para_index"], "bookmark": (bookmark_map or {}).get(child["para_index"]), "children_count": len(child.get("children") or []), "body_paragraphs": child["body_paragraphs"]}
         if child.get("chapter_number"):
             node["chapter_number"] = child["chapter_number"]
         self._apply_content_strategy(node, doc, content_strategy)
@@ -365,24 +365,16 @@ class TreeService(ServiceBase):
             try:
                 controller = doc.getCurrentController()
                 vc = controller.getViewCursor()
-                saved = None
-                try:
-                    saved = clone_text_range(vc)
-                except Exception:
-                    pass
 
-                doc.lockControllers()
-                try:
+                def _jump() -> Any:
                     vc.jumpToPage(page_num)
                     vc.jumpToStartOfPage()
-                    anchor = vc.getStart()
-                finally:
-                    if saved is not None:
-                        try:
-                            vc.gotoRange(saved, False)
-                        except Exception:
-                            pass
-                    doc.unlockControllers()
+                    return vc.getStart()
+
+                # Why-comment: restoring inside the lock leaves a view cursor that
+                # started in a table cell or frame on the target page. Do not add a
+                # second save/restore.
+                anchor = with_view_cursor_left_body_locked(doc, vc, _jump)
                 para_ranges = self._doc_svc.get_paragraph_ranges(doc)
                 text_obj = doc.getText()
                 para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)

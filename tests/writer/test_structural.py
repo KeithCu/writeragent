@@ -1,6 +1,6 @@
 """clone_heading_block must not clone paragraph 0 when the locator misses."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -92,3 +92,92 @@ def test_clone_heading_block_stale_bookmark_does_not_insert():
     assert result["status"] == "error"
     assert "anchor is not in the document" in result["message"]
     assert inserted == []
+
+
+def test_clone_heading_block_with_table():
+    from plugin.writer.tree import TreeService
+
+    class TableStub:
+        def __init__(self):
+            self.anchor = MagicMock(name="table_anchor")
+            self.para_style_called = False
+
+        def supportsService(self, service):
+            return service == "com.sun.star.text.TextTable"
+
+        def getPropertyValue(self, name):
+            if name == "ParaStyleName":
+                self.para_style_called = True
+                raise RuntimeError("TextTable has no ParaStyleName")
+            if name == "OutlineLevel":
+                return 0
+            raise RuntimeError(f"Unknown property: {name}")
+
+        def getAnchor(self):
+            return self.anchor
+
+        def getString(self):
+            return ""
+
+    class ParaStub(ElementStub):
+        def __init__(self, text, outline_level=0, style="Standard"):
+            super().__init__(text, outline_level=outline_level)
+            self.style = style
+
+        def getPropertyValue(self, name):
+            if name == "ParaStyleName":
+                return self.style
+            return super().getPropertyValue(name)
+
+    table = TableStub()
+    elements = [
+        ParaStub("Heading A", outline_level=1, style="Heading 1"),
+        ParaStub("Body text", outline_level=0, style="Standard"),
+        table,
+        ParaStub("Heading B", outline_level=1, style="Heading 1"),
+    ]
+    doc = WriterDocStub(elements)
+    inserted_strings = []
+    created_cursors = []
+
+    text_obj = doc.getText()
+    cursor_mock = MagicMock()
+
+    def mock_create_cursor(target_range):
+        created_cursors.append(target_range)
+        return cursor_mock
+
+    text_obj.createTextCursorByRange = mock_create_cursor
+    text_obj.insertControlCharacter = MagicMock()
+    text_obj.insertString = lambda _c, txt, _b: inserted_strings.append(txt)
+    doc.getText = lambda: text_obj
+
+    ctx = MagicMock()
+    ctx.doc = doc
+    doc_svc = DocumentService()
+    doc_svc.yield_to_gui = MagicMock()
+    doc_svc.doc_key = MagicMock(return_value="test_doc")
+    bm_svc = MagicMock()
+    bm_svc.ensure_heading_bookmarks.return_value = {}
+    events = MagicMock()
+
+    services = MagicMock()
+    services.document = doc_svc
+    services.writer_bookmarks = bm_svc
+    services.events = events
+    tree_svc = TreeService(services)
+    services.get.side_effect = lambda name: tree_svc if name == "writer_tree" else None
+    ctx.services = services
+
+    import sys
+    import types
+
+    cc_mod = types.ModuleType("com.sun.star.text.ControlCharacter")
+    cc_mod.PARAGRAPH_BREAK = 0  # type: ignore[attr-defined]
+    with patch.dict(sys.modules, {"com.sun.star.text.ControlCharacter": cc_mod}):
+        res = CloneHeadingBlock().execute(ctx, locator="heading_text:Heading A")
+    assert res["status"] == "ok"
+    assert not table.para_style_called
+    assert inserted_strings == ["Heading A", "Body text"]
+    assert created_cursors == [table.getAnchor()]
+    cursor_mock.collapseToEnd.assert_called_once()

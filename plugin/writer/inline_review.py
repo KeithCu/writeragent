@@ -533,7 +533,7 @@ def cursor_in_agent_change(model: Any) -> str | None:
     return None
 
 
-def _span_contains_point(text: Any, span: Any, point: Any) -> bool:
+def _span_contains_point(text: Any, span: Any, point: Any) -> bool:  # pyright: ignore[reportUnusedFunction]
     """True if collapsed range ``point`` lies within ``span``'s [start, end] (same ``text``).
 
     Raises (does NOT swallow) on a comparison failure, so the overlap guards can fail CLOSED rather
@@ -613,9 +613,10 @@ def _span_has_redline(model: Any, text: Any, span: Any, consider: Any) -> bool:
             raise _review_scan.RedlineScanAbort()
 
         try:
-            overlaps = (_span_contains_point(text, span, rl_span.getStart())
-                        or _span_contains_point(text, span, rl_span.getEnd())
-                        or _span_contains_point(text, rl_span, span.getStart()))
+            # Why-comment: a change that only shares this span’s edge is not inside it;
+            # the inclusive point test made adjacent agent edits refuse single-click resolve.
+            overlaps = (text.compareRegionStarts(rl_span.getStart(), span.getEnd()) == 1
+                        and text.compareRegionStarts(span.getStart(), rl_span.getEnd()) == 1)
         except Exception:
             log.debug("inline_review: redline overlap check failed; treating as unsafe", exc_info=True)
             unsafe[0] = True

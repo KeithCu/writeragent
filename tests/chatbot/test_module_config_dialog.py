@@ -167,6 +167,8 @@ def test_apply_stays_open_when_save_fails():
 
 
 def test_open_passes_ctx_to_get_extension_url():
+    import pytest
+
     ctx = MagicMock()
     smgr = MagicMock()
     ctx.getServiceManager.return_value = smgr
@@ -181,5 +183,18 @@ def test_open_passes_ctx_to_get_extension_url():
             return_value="file:///tmp/LibrePy.oxt",
         ) as geu,
     ):
-        ModuleConfigDialog(ctx, "vision")._open()
+        with pytest.raises(RuntimeError, match="stop after url"):
+            ModuleConfigDialog(ctx, "vision")._open()
     geu.assert_called_once_with(ctx)
+
+
+def test_show_does_not_register_in_active_dialogs_when_open_raises():
+    import pytest
+    from plugin.chatbot.module_config_dialog import _active_dialogs
+
+    ctx = MagicMock()
+    _active_dialogs.pop("test_mod", None)
+    with patch.object(ModuleConfigDialog, "_open", side_effect=RuntimeError("open failed")):
+        with pytest.raises(RuntimeError, match="open failed"):
+            ModuleConfigDialog.show(ctx, "test_mod")
+    assert "test_mod" not in _active_dialogs

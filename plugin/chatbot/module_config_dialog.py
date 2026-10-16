@@ -86,8 +86,8 @@ class ModuleConfigDialog:
             except Exception:
                 log.debug("Failed to close prior module config dialog", exc_info=True)
         dialog = cls(ctx, module_name)
-        _active_dialogs[module_name] = dialog
         dialog._open()
+        _active_dialogs[module_name] = dialog
 
     def close(self) -> None:
         if self._closed:
@@ -111,54 +111,59 @@ class ModuleConfigDialog:
         ctx = self._ctx
         dialog_id = get_module_config_dialog_id(self._module_name)
         if not dialog_id:
-            log.error("No config_dialog.id for module %s", self._module_name)
-            return
+            raise RuntimeError("No config_dialog.id for module %s" % self._module_name)
 
-        try:
-            smgr = ctx.getServiceManager()
-            base_url = get_extension_url(ctx)
-            dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-            dlg = dp.createDialog(base_url + "/Dialogs/%s.xdl" % dialog_id)
-        except Exception:
-            log.exception("Failed to load module config dialog %s", dialog_id)
-            return
+        # Why-comment: a logged return never reached open_dialog_safely, so the
+        # menu did nothing and left a dialog with _dlg is None in _active_dialogs.
+        smgr = ctx.getServiceManager()
+        base_url = get_extension_url(ctx)
+        dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
+        dlg = dp.createDialog(base_url + "/Dialogs/%s.xdl" % dialog_id)
 
         self._dlg = dlg
-        translate_dialog(dlg)
-        self._setup_tabs()
-        self._wire_buttons()
-        self._populate_fields(get_module_config_field_specs(ctx, self._module_name))
+        try:
+            translate_dialog(dlg)
+            self._setup_tabs()
+            self._wire_buttons()
+            self._populate_fields(get_module_config_field_specs(ctx, self._module_name))
 
-        owner = self
+            owner = self
 
-        class _TopWindowListener(unohelper.Base, XTopWindowListener):
-            def windowClosing(self, e: EventObject) -> None:
-                owner.close()
+            class _TopWindowListener(unohelper.Base, XTopWindowListener):
+                def windowClosing(self, e: EventObject) -> None:
+                    owner.close()
 
-            def windowClosed(self, e: EventObject) -> None:
-                pass
+                def windowClosed(self, e: EventObject) -> None:
+                    pass
 
-            def windowOpened(self, e: EventObject) -> None:
-                pass
+                def windowOpened(self, e: EventObject) -> None:
+                    pass
 
-            def windowMinimized(self, e: EventObject) -> None:
-                pass
+                def windowMinimized(self, e: EventObject) -> None:
+                    pass
 
-            def windowNormalized(self, e: EventObject) -> None:
-                pass
+                def windowNormalized(self, e: EventObject) -> None:
+                    pass
 
-            def windowActivated(self, e: EventObject) -> None:
-                pass
+                def windowActivated(self, e: EventObject) -> None:
+                    pass
 
-            def windowDeactivated(self, e: EventObject) -> None:
-                pass
+                def windowDeactivated(self, e: EventObject) -> None:
+                    pass
 
-            def disposing(self, Source: EventObject) -> None:
-                pass
+                def disposing(self, Source: EventObject) -> None:
+                    pass
 
-        self._top_listener = _TopWindowListener()
-        dlg.addTopWindowListener(self._top_listener)
-        dlg.setVisible(True)
+            self._top_listener = _TopWindowListener()
+            dlg.addTopWindowListener(self._top_listener)
+            dlg.setVisible(True)
+        except Exception:
+            self._dlg = None
+            try:
+                dlg.dispose()
+            except Exception:
+                log.exception("Failed to dispose module config dialog")
+            raise
 
     def _setup_tabs(self) -> None:
         assert self._dlg is not None

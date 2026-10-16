@@ -503,9 +503,13 @@ def _ensure_html_linebreaks(content: str) -> str:
     # Vision/Docling export full documents; nesting another wrapper breaks StarWriter import.
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
         content = format_mod._strip_html_boilerplate(content)
-    html_tags = ["<p>", "<br>", "<h1", "<h2", "<h3", "</ul>", "</li>", "</div>"]
-    has_html = any(tag in content.lower() for tag in html_tags)
-    if has_html:
+    # Why-comment: a table or <h4> has none of the old markers, so it was
+    # wrapped in <p> and its newlines became <br>. Do not treat every tag as HTML.
+    if re.search(
+        r"</?(?:p|br|div|h[1-6]|ul|ol|li|table|thead|tbody|tfoot|tr|td|th|blockquote|pre|hr)\b",
+        content,
+        re.IGNORECASE,
+    ):
         return _wrap_html_fragment(content)
 
     content = re.sub(r"\n{3,}", "\n\n", content)
@@ -1533,6 +1537,9 @@ def _select_placeholder(text_obj: Any, needle: str) -> Any | None:
             para = enum.nextElement()
         except Exception:
             break
+        if paras > 1:
+            # Why-comment: the break is a cursor step and is not in portion text.
+            steps += 1
         try:
             portions = para.createEnumeration()
         except Exception:
@@ -1625,13 +1632,19 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
     The document search remains the path for body text, and the fallback
     when the cursor walk cannot see the token.
     """
+    walked = 0
     if text_obj is not None:
         walked = _restore_fields_by_cursor(model, text_obj)
         if walked:
-            return walked
+            try:
+                plain = text_obj.getString() or ""
+            except Exception:
+                return walked
+            if "[[WA-FIELD:" not in plain:
+                return walked
     if model is None or not hasattr(model, "createSearchDescriptor"):
-        return 0
-    restored = 0
+        return walked
+    restored = walked
 
     # createSearchDescriptor, findFirst, getString, and findNext do not fail
     # on a live model. Swallowing them left [[WA-FIELD:…]] in the header and

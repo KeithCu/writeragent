@@ -228,3 +228,50 @@ def test_resolve_form_page_reraises_disposed(monkeypatch):
     bridge_mock.get_pages.return_value.getByIndex.side_effect = IndexError("bad index")
     assert _resolve_form_page(doc, page=0) is None
 
+
+def test_append_text_multi_range_selection_uses_first_range():
+    cell = _cell("EMPTY", "")
+    doc = MagicMock()
+    controller = MagicMock()
+    sheet = MagicMock()
+    controller.ActiveSheet = sheet
+    addr = SimpleNamespace(StartColumn=2, StartRow=3)
+    selection = MagicMock(spec=["getRangeAddresses"])
+    selection.getRangeAddresses.return_value = [addr]
+    controller.getSelection.return_value = selection
+    doc.getCurrentController.return_value = controller
+    sheet.getCellByPosition.return_value = cell
+
+    _append_text_to_calc_active_area(doc, "Label")
+
+    sheet.getCellByPosition.assert_called_once_with(2, 3)
+    cell.setString.assert_called_once_with("Label")
+
+
+def test_form_control_create_writer_inserts_on_anchor_host():
+    from plugin.writer.specialized.forms import FormCreateControl
+
+    doc = MagicMock()
+    body_text = MagicMock(name="body_text")
+    doc.getText.return_value = body_text
+
+    controller = MagicMock()
+    doc.getCurrentController.return_value = controller
+
+    host = MagicMock(name="cell_host")
+    anchor = MagicMock(name="anchor")
+    anchor.getText.return_value = host
+
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = anchor
+    controller.getSelection.return_value = selection
+
+    doc.createInstance.return_value = MagicMock()
+
+    ctx = SimpleNamespace(doc=doc)
+    res = FormCreateControl()._execute_main(ctx, control="text", name="fld")
+    assert res["status"] == "ok"
+    host.insertTextContent.assert_called_once()
+    body_text.insertTextContent.assert_not_called()
+

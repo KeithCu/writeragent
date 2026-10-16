@@ -192,13 +192,12 @@ class AddComment(ToolBase):
         # Setting Name before insert sticks (LO probe: listed ParentName + Name).
         assigned_name = _ensure_annotation_name(reply, doc)
         _set_annotation_date(reply)
-        # Same insert as CommentResolve.execute (point insert at parent anchor,
-        # absorb=False). That path also sets Resolved; this one must not.
-        doc_text = doc.getText()
+        # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
         anchor = parent.getAnchor()
-        cursor = doc_text.createTextCursorByRange(anchor.getStart())
+        host = anchor.getText()
+        cursor = host.createTextCursorByRange(anchor.getStart())
         names_before = _annotation_field_names(doc)
-        doc_text.insertTextContent(cursor, reply, False)
+        host.insertTextContent(cursor, reply, False)
         names_after = _annotation_field_names(doc)
         if len(names_after) <= len(names_before):
             return {
@@ -235,7 +234,6 @@ class CommentDelete(ToolWriterCommentBase):
             return self._tool_error("Provide name or author.")
 
         doc = ctx.doc
-        text_obj = doc.getText()
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
 
@@ -286,7 +284,8 @@ class CommentDelete(ToolWriterCommentBase):
                     "deleted": 0}
 
         for field in to_delete:
-            text_obj.removeTextContent(field)
+            # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
+            field.getAnchor().getText().removeTextContent(field)
 
         return {"status": "ok", "deleted": len(to_delete)}
 
@@ -315,7 +314,6 @@ class CommentResolve(ToolWriterCommentBase):
         author = kwargs.get("author", "AI")
 
         doc = ctx.doc
-        doc_text = doc.getText()
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
 
@@ -333,9 +331,11 @@ class CommentResolve(ToolWriterCommentBase):
                 break
 
         if target is None:
-            # TODO(follow-up): align with add_comment — status="error" + structured fields so MCP
-            # / chat FSM do not treat a miss as success (not_found is still ok today).
-            return {"status": "not_found", "message": "Comment '%s' not found." % comment_name}
+            return {
+                "status": "error",
+                "code": "COMMENT_NOT_FOUND",
+                "message": "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
+            }
 
         if resolution:
             reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
@@ -343,9 +343,11 @@ class CommentResolve(ToolWriterCommentBase):
             reply.setPropertyValue("Content", resolution)
             reply.setPropertyValue("Author", author)
             _set_annotation_date(reply)
+            # Why-comment: the body XText does not own an annotation anchored in a cell or frame.
             anchor = target.getAnchor()
-            cursor = doc_text.createTextCursorByRange(anchor.getStart())
-            doc_text.insertTextContent(cursor, reply, False)
+            host = anchor.getText()
+            cursor = host.createTextCursorByRange(anchor.getStart())
+            host.insertTextContent(cursor, reply, False)
 
         target.setPropertyValue("Resolved", True)
 

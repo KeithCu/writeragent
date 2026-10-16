@@ -240,6 +240,14 @@ def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
     if selection is not None and hasattr(selection, "getRangeAddress"):
         addr = selection.getRangeAddress()
         cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
+    elif selection is not None and hasattr(selection, "getRangeAddresses"):
+        ranges = selection.getRangeAddresses()
+        if ranges:
+            # Why-comment: a multi-range has no getRangeAddress, and A1 is not that selection.
+            addr = ranges[0]
+            cell = sheet.getCellByPosition(addr.StartColumn, addr.StartRow)
+        else:
+            cell = sheet.getCellByPosition(0, 0)
     else:
         cell = sheet.getCellByPosition(0, 0)
     kind = _calc_cell_content_kind(cell)
@@ -381,13 +389,14 @@ class FormCreateControl(ToolWriterFormBase):
             else:
                 # Anchor 'As Character' so it flows with text
                 shape.setPropertyValue("AnchorType", AS_CHARACTER)
-                text = doc.getText()
                 selection = doc.getCurrentController().getSelection()
                 if selection and hasattr(selection, "getCount") and selection.getCount() > 0:
                     anchor = selection.getByIndex(0)
                 else:
                     anchor = doc.getCurrentController().getViewCursor()
-                text.insertTextContent(anchor, shape, False)
+                # Why-comment: the anchor’s XText owns that range.
+                host = anchor.getText()
+                host.insertTextContent(anchor, shape, False)
 
             return {"status": "ok", "message": f"Created {control_type} control '{name}'", "control_name": name}
 

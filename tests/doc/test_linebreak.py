@@ -58,6 +58,16 @@ def test_full_document_not_double_wrapped():
     assert '<h2 style="font-weight: bold">Title</h2>' in result, result
     assert "<p>Body</p>" in result, result
 
+
+def test_block_only_html_not_wrapped_in_p_or_br():
+    for tag_sample in ("<table><tr><td>A</td></tr></table>", "<h4>T</h4>"):
+        res = _ensure_html_linebreaks(tag_sample)
+        assert "<!DOCTYPE html>" in res
+        assert "<p>" not in res
+        assert "<br>" not in res
+        assert tag_sample in res
+
+
 if __name__ == "__main__":
     try:
         test_conversion()

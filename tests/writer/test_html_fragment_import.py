@@ -330,6 +330,102 @@ def test_restore_fields_in_region_without_document_search():
     model.findFirst.assert_not_called()
 
 
+def test_restore_fields_in_region_two_paragraphs_advances_past_break():
+    needle = "[[WA-FIELD:page-number]]"
+    para1_text = "First paragraph"
+    para2_text = needle
+
+    class _Portion:
+        def __init__(self, s):
+            self.s = s
+
+        def getPropertyValue(self, name):
+            assert name == "TextPortionType"
+            return "Text"
+
+        def getString(self):
+            return self.s
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    class _Para:
+        def __init__(self, s):
+            self.s = s
+
+        def createEnumeration(self):
+            return _Enum([_Portion(self.s)])
+
+    go_right_offsets = []
+
+    class _Text:
+        def __init__(self):
+            self.plain = para1_text + "\n" + para2_text
+
+        def getString(self):
+            return self.plain
+
+        def createEnumeration(self):
+            return _Enum([_Para(para1_text), _Para(para2_text)])
+
+        def createTextCursor(self):
+            cursor = MagicMock()
+            def _go_right(count, select):
+                go_right_offsets.append(count)
+                return True
+            cursor.goRight.side_effect = _go_right
+            cursor.getString.return_value = needle
+            return cursor
+
+    text = _Text()
+    model = MagicMock()
+    model.findFirst.side_effect = AssertionError("findFirst should not run")
+
+    def _inserted(unused_model, unused_cursor, title):
+        assert title == "page-number"
+        text.plain = para1_text + "\n1"
+        return True
+
+    with patch("plugin.writer.html_import._insert_restored_field", side_effect=_inserted):
+        restored = _restore_field_placeholders(model, text)
+
+    assert restored == 1
+    assert go_right_offsets[0] == len(para1_text) + 1
+    assert go_right_offsets[1] == len(needle)
+
+
+def test_restore_field_placeholders_falls_through_to_find_first_if_token_remains():
+    needle = "[[WA-FIELD:page-number]]"
+    text = MagicMock()
+    text.getString.return_value = "Unresolved " + needle
+
+    model = MagicMock()
+    found = MagicMock()
+    found.getString.return_value = needle
+    found.getText.return_value = text
+    found.getEnd.return_value = MagicMock()
+    model.findFirst.return_value = found
+    model.findNext.return_value = None
+
+    with (
+        patch("plugin.writer.html_import._restore_fields_by_cursor", return_value=1),
+        patch("plugin.writer.html_import.uno_same", return_value=True),
+        patch("plugin.writer.html_import._insert_restored_field", return_value=True) as insert,
+    ):
+        restored = _restore_field_placeholders(model, text)
+
+    assert restored >= 2
+    assert model.findFirst.called
+    assert insert.called
+
+
 def test_rewrite_exported_field_spans_keeps_page_offset():
     html = '<p><span title="page-number" data-offset="-2" data-subtype="PREV"/></p>'
     out = rewrite_exported_field_spans(html)

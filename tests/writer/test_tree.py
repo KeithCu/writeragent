@@ -185,15 +185,26 @@ class TestTreeServiceSearch:
         doc.getCurrentController.return_value = controller
         controller.getViewCursor.return_value = vc
 
-        # Make jumpToPage work but gotoRange raise an exception to simulate text tables/frames nesting
-        vc.jumpToPage = MagicMock()
+        order = []
+        doc.lockControllers = MagicMock(side_effect=lambda: order.append("lock"))
+        doc.unlockControllers = MagicMock(side_effect=lambda: order.append("unlock"))
+
+        vc.jumpToPage = MagicMock(side_effect=lambda _p: order.append("jumpToPage"))
         vc.jumpToStartOfPage = MagicMock()
         vc.getStart = MagicMock()
-        vc.gotoRange = MagicMock(side_effect=RuntimeError("Cannot jump to nested range"))
 
-        # we can't easily patch clone_text_range since it's used inside resolve_writer_locator,
-        # but resolve_writer_locator uses the `vc` we just mocked.
-        # Actually clone_text_range creates a mock clone if it's mock
+        # First gotoRange moves to body start (must succeed).
+        # Second gotoRange restores previous range (raises).
+        goto_count = 0
+        def _goto_range(target, _select):
+            nonlocal goto_count
+            goto_count += 1
+            if goto_count == 1:
+                return
+            order.append("restore")
+            raise RuntimeError("Cannot jump to nested range")
+
+        vc.gotoRange = MagicMock(side_effect=_goto_range)
 
         # Make the paragraph search logic mock out successfully
         self.tree_svc._doc_svc.get_paragraph_ranges.return_value = []
@@ -207,9 +218,25 @@ class TestTreeServiceSearch:
         # Verify jumpToPage was called
         vc.jumpToPage.assert_called_once_with(5)
 
-        # VERY IMPORTANT: Verify unlockControllers was still called despite the exception in gotoRange
+        # Verify lock, jump, unlock, then restore order
         doc.lockControllers.assert_called_once()
         doc.unlockControllers.assert_called_once()
+        assert order == ["lock", "jumpToPage", "unlock", "restore"]
+
+    def test_serialize_tree_node_children_count_and_body_paragraphs(self):
+        elements = [
+            ElementStub("Heading 1", outline_level=1),
+            ElementStub("Body paragraph 1"),
+            ElementStub("Body paragraph 2"),
+            ElementStub("Subheading", outline_level=2),
+        ]
+        doc = WriterDocStub(elements)
+        self.bm_svc.ensure_heading_bookmarks.return_value = {}
+        tree = self.tree_svc.get_document_tree(doc, content_strategy="none", depth=2)
+        h1_node = tree["children"][0]
+        assert h1_node["text"] == "Heading 1"
+        assert h1_node["children_count"] == 1
+        assert h1_node["body_paragraphs"] == 2
 
 
 def test_ensure_writer_tree_loads_onto_bare_native_context():
