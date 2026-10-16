@@ -321,11 +321,12 @@ class ACPConnection:
             try:
                 proc.wait(timeout=0.5)
             except subprocess.TimeoutExpired:
-                try:
-                    _kill_acp_tree(proc)
-                except Exception:
-                    log.debug("ACP stop watchdog kill failed", exc_info=True)
-            except Exception:
+                # _kill_acp_tree already logs a failed tree kill and falls
+                # back to proc.kill. A second try never saw a new exception.
+                _kill_acp_tree(proc)
+            except OSError:
+                # TimeoutExpired is handled above and is not an OSError.
+                # Any other wait() failure is OSError.
                 log.debug("ACP stop watchdog wait failed", exc_info=True)
 
         run_in_background(_watchdog_terminate, name="acp-stop-watchdog", dedicated=True)
@@ -395,7 +396,10 @@ class ACPConnection:
                     try:
                         if proc and proc.stdin:
                             proc.stdin.close()
-                    except Exception:
+                    except (OSError, ValueError):
+                        # A broken pipe is OSError. close() on a pipe stop()
+                        # already closed raises ValueError, which is not an OSError.
+                        # Either one must still reach the tree kill below.
                         log.debug("ACP stdin close failed", exc_info=True)
                     # What was wrong: terminate()/kill() hit only this process, and
                     # closing stdout was supposed to unblock readline. close()
@@ -407,7 +411,10 @@ class ACPConnection:
                         _kill_acp_tree(proc)
                         try:
                             proc.wait(timeout=3)
-                        except Exception:
+                        except (OSError, subprocess.TimeoutExpired):
+                            # The 3s timeout is TimeoutExpired, and that class
+                            # is not an OSError. Other wait() failures are OSError.
+                            # Unregister below still runs.
                             log.debug("ACP process wait failed", exc_info=True)
                     if self._managed is not None:
                         self._managed.unregister()
@@ -417,11 +424,12 @@ class ACPConnection:
                     if stdin and item.data is not None:
                         stdin.write(item.data)
                         stdin.flush()
-                except Exception as exc:
+                except (OSError, ValueError) as exc:
                     # A closed pipe during stop is expected. Debug keeps a
                     # failed session/cancel visible without an error traceback.
-                    # A request write must still unblock send_request. ValueError
-                    # from a closed pipe used to escape the caller's handler.
+                    # A request write must still unblock send_request.
+                    # BrokenPipeError is OSError. A pipe stop() already closed
+                    # raises ValueError, which is not an OSError.
                     log.debug("ACP stdin write failed", exc_info=True)
                     if item.fail_req_id is not None:
                         self._fail_request(item.fail_req_id, f"Failed to write to ACP: {exc}")
