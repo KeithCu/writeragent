@@ -1005,6 +1005,21 @@ def handle_debug_sidebar_command(command: str) -> None:
         _post_to_soffice_vcl(kick_pending_peer_starts, sl=sl)
         _write_debug_snapshot(sl)
         return
+    # Packet R: agent edits record as tracked changes only when soffice itself reads
+    # doc.agent_edit_review_mode=record; set it in-process (URP set_config is not seen).
+    if op in ("AGENT_REVIEW_RECORD", "AGENT_REVIEW_OFF"):
+        from plugin.framework.config import set_config
+
+        set_config("doc.agent_edit_review_mode", "record" if op == "AGENT_REVIEW_RECORD" else "off")
+        _write_debug_snapshot(sl)
+        return
+    # Packet R8: HITL approval for web_research, read by the soffice sidebar.
+    if op in ("WEB_RESEARCH_PROMPT_ON", "WEB_RESEARCH_PROMPT_OFF"):
+        from plugin.framework.config import set_config
+
+        set_config("chatbot.prompt_for_web_research", op == "WEB_RESEARCH_PROMPT_ON")
+        _write_debug_snapshot(sl)
+        return
     # Settings→Speech writes audio.tts_enabled then emits config:changed; these
     # ops exercise the same path so headed tests can prove sidebar chk_voice sync.
     if op in ("SET_TTS_ON", "SET_TTS_OFF"):
@@ -2808,6 +2823,106 @@ def wait_idle(*, listener: Any = None, timeout: float = 30.0) -> bool:
 
     ctx = getattr(listener, "ctx", None) if listener is not None else None
     return pump_until(_idle, timeout, ctx=ctx)
+
+
+
+
+_THREAD_VIOLATION_COUNT = 0
+_THREAD_VIOLATION_ORIG: Any = None
+
+
+def get_thread_guard_violations() -> int:
+    """Count thread-guard violations reported since the first call (Packet R7).
+
+    Wraps ``thread_guard._notify_thread_violation`` (looked up at call time by the
+    guard) so every violation in this soffice process is counted, not log-scraped.
+    """
+    _require_debug()
+    global _THREAD_VIOLATION_ORIG
+    import plugin.framework.thread_guard as tg
+
+    if _THREAD_VIOLATION_ORIG is None:
+        _THREAD_VIOLATION_ORIG = tg._notify_thread_violation
+
+        def _counting_notify(msg: str) -> None:
+            global _THREAD_VIOLATION_COUNT
+            _THREAD_VIOLATION_COUNT += 1
+            _THREAD_VIOLATION_ORIG(msg)
+
+        setattr(tg, "_notify_thread_violation", _counting_notify)
+    return _THREAD_VIOLATION_COUNT
+
+
+def list_redlines(doc: Any) -> list[dict[str, Any]]:
+    """Return a list of redlines in the document as dictionaries."""
+    redlines: list[dict[str, Any]] = []
+    if not hasattr(doc, "getRedlines"):
+        return redlines
+    rls = doc.getRedlines()
+    enum = rls.createEnumeration()
+    while enum.hasMoreElements():
+        rl = enum.nextElement()
+        entry: dict[str, Any] = {}
+        for prop in ("RedlineAuthor", "RedlineComment", "RedlineType", "RedlineIdentifier"):
+            try:
+                entry[prop] = rl.getPropertyValue(prop)
+            except Exception:
+                pass
+        entry["token"] = entry.get("RedlineIdentifier", "")
+        start = None
+        try:
+            start = rl.getPropertyValue("RedlineStart")
+        except Exception:
+            pass
+        txt = ""
+        if start is not None:
+            try:
+                end = rl.getPropertyValue("RedlineEnd")
+                stext = start.getText()
+                cur = stext.createTextCursorByRange(start)
+                cur.gotoRange(end, True)
+                txt = cur.getString() or ""
+            except Exception:
+                pass
+        if not txt:
+            try:
+                rt = rl.getPropertyValue("RedlineText")
+                txt = (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
+            except Exception:
+                pass
+        entry["text"] = txt
+        redlines.append(entry)
+    return redlines
+
+
+def toggle_record_changes(doc: Any, enable: bool) -> None:
+    doc.setPropertyValue("RecordChanges", enable)
+
+
+def insert_user_redline(doc: Any, ctx: Any, text: str, start_idx: int, end_idx: int) -> None:
+    was_recording = bool(doc.getPropertyValue("RecordChanges"))
+    doc.setPropertyValue("RecordChanges", True)
+
+    from plugin.writer import review_authors
+    prior = review_authors.begin(ctx)
+    review_authors._set_office_author(ctx, "Test User")
+
+    try:
+        body = doc.getText()
+        cursor = body.createTextCursor()
+        cursor.gotoStart(False)
+        cursor.goRight(start_idx, False)
+        cursor.goRight(end_idx - start_idx, True)
+        cursor.setString(text)
+    finally:
+        review_authors.end(ctx, prior)
+        doc.setPropertyValue("RecordChanges", was_recording)
+
+
+def undo(frame: Any, ctx: Any) -> None:
+    smgr = ctx.getServiceManager()
+    dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    dispatcher.executeDispatch(frame, ".uno:Undo", "", 0, ())
 
 
 def next_hello_ok(*, listener: Any = None, timeout: float = 60.0) -> bool:
