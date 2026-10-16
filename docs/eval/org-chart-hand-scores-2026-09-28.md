@@ -42,6 +42,9 @@ The current `org_chart_gen` **code scoring** (`oracles.oracle_org_chart_gen` / `
 | `deepseek/deepseek-v4.1-flash` | catalog FAIL (stay 0) | 0 | catalog FAIL (no boxes/connectors) |
 | `nvidia/nemotron-3-ultra-550b-a55b` | catalog FAIL (stay 0) | 0 | catalog FAIL (no boxes/connectors) |
 | `prism-ml/ternary-bonsai-2-27b` | catalog FAIL (stay 0) | 0 | catalog FAIL (hang / rate limit) |
+| `nvidia/nemotron-3.5-super-vl` | pending (2026-10-16) | 1 (catalog oracle PASS) | pending hand visual grade |
+| `liquid/lfm-2.5-24b-a2b` | pending (2026-10-16) | 1 (catalog oracle PASS) | pending hand visual grade |
+| `reflection/beam-1.0-501b-a23b` | pending (2026-10-16) | 0 (catalog oracle FAIL) | pending; oracle saw 0 labeled boxes / 0 connectors |
 
 ## Visual HARD PASS (keep)
 

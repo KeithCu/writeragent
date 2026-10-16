@@ -60,3 +60,6 @@ libreoffice-skill-repo/
 lightproof/
 python_libre_pythonista_ext/
 gpt-researcher/
+
+# Eval-1 per-task transcripts (run_eval / run_eval_multi always write these)
+scripts/prompt_optimization/transcripts/

@@ -120,6 +120,9 @@ def parse_args(argv: list[str] | None = None):
 
 def main(argv: list[str] | None = None):
     args = parse_args(argv)
+    from llm_chat_eval import enable_default_transcripts
+
+    print(f"Transcripts: {enable_default_transcripts()}")
 
     api_key = args.api_key
     api_base = args.api_base

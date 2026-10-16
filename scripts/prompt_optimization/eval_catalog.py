@@ -84,7 +84,14 @@ def _headless_registry() -> ToolRegistry:
     if _registry is not None:
         return _registry
 
-    init_config(MagicMock())
+    # Hardened config store rejects a bare MagicMock UserConfig path (#1439);
+    # point the headless catalog at a throwaway temp dir instead.
+    import tempfile
+
+    ctx = MagicMock()
+    path_settings = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
+    path_settings.UserConfig = tempfile.mkdtemp(prefix="wa-eval-cfg-")
+    init_config(ctx)
     services = ServiceRegistry()
     services.register("config", MagicMock())
     services.register("document", MagicMock())

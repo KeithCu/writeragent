@@ -110,7 +110,7 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 ## Benchmarks & Evaluation
 
-WriterAgent's **Eval-1 LLM Evaluation Suite** runs models on real Writer, Calc, and Draw jobs through the same tools the sidebar uses, then scores the exported document. Typical tasks: reformatting documents, recalculating taxes, drawing diagrams like the American flag using shapes. Every run is ranked by Value (correctness² ÷ dollars). The table below is the **2026-09-28 complete 26×19 dual-lane** board (flag-18 + `org_chart_gen`, with hand-scored org-chart gallery overrides — 5 visual hard PASS). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
+WriterAgent's **Eval-1 LLM Evaluation Suite** runs models on real Writer, Calc, and Draw jobs through the same tools the sidebar uses, then scores the exported document. Typical tasks: reformatting documents, recalculating taxes, drawing diagrams like the American flag using shapes. Every run is ranked by Value (correctness² ÷ dollars). The table below is the **2026-09-28 complete 29×19 dual-lane** board (flag-18 + `org_chart_gen`, with hand-scored org-chart gallery overrides — 5 visual hard PASS). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
 
 ![Cost–quality Pareto fronts](docs/eval/pareto-fronts.svg)
 
@@ -129,6 +129,8 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | meta/muse-spark-1.3-contributor | 0.981 | 147 |
 | openai/gpt-6-luna | 0.873 | 139 |
 | z-ai/glm-5.3-flash | 0.856 | 87 |
+| nvidia/nemotron-3.5-super-vl | 0.932 | 82 |
+| liquid/lfm-2.5-24b-a2b | 0.589 | 82 |
 | prism-ml/ternary-bonsai-2-27b | 0.543 | 78 |
 | deepseek/deepseek-v4.1-flash | 0.883 | 77 |
 | qwen/qwen3.8-flash | 0.792 | 65 |
@@ -139,6 +141,7 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | google/gemini-3.5-flash-lite | 0.708 | 49 |
 | nvidia/nemotron-3.5-lightning | 0.395 | 46 |
 | nvidia/nemotron-3-super-120b-a12b | 0.854 | 38 |
+| reflection/beam-1.0-501b-a23b | 0.879 | 18 |
 | cohere/command-a-plus | 0.641 | 13 |
 | minimax/minimax-m3 | 0.780 | 11 |
 | x-ai/grok-4.6 | 0.918 | 9 |

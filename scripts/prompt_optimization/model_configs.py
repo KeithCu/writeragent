@@ -263,6 +263,30 @@ MODELS: list[ModelConfig] = [
         output_cost_per_million=1.5,
         notes="Cohere Command A+. Not Command A (non-plus).",
     ),
+    ModelConfig(
+        openrouter_id="reflection/beam-1.0-501b-a23b",
+        display_name="Reflection: Beam 1.0 501B A23B",
+        context_window_tokens=1_048_576,
+        input_cost_per_million=0.25,
+        output_cost_per_million=1.0,
+        notes="Reflection Beam 1.0 (501B MoE, 23B active); new open-weight Apache-2.0 model (2026-10-16). https://huggingface.co/blog/reflection-beam",
+    ),
+    ModelConfig(
+        openrouter_id="nvidia/nemotron-3.5-super-vl",
+        display_name="NVIDIA: Nemotron 3.5 Super VL",
+        context_window_tokens=1_048_576,
+        input_cost_per_million=0.15,
+        output_cost_per_million=0.5,
+        notes="NVIDIA Nemotron 3.5 Super VL; paid OpenRouter id (not :free).",
+    ),
+    ModelConfig(
+        openrouter_id="liquid/lfm-2.5-24b-a2b",
+        display_name="Liquid: LFM 2.5 24B A2B",
+        context_window_tokens=128_000,
+        input_cost_per_million=0.05,
+        output_cost_per_million=0.7,
+        notes="Liquid LFM 2.5 24B (2B active).",
+    ),
 ]
 
 # Smoke / optimize / run_eval.py student. :nitro is OpenRouter routing

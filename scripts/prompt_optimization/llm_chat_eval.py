@@ -10,6 +10,7 @@ Mirrors sidebar chat semantics (sync ``request_with_tools``) without DSPy ReAct.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import uuid
 from pathlib import Path
@@ -536,8 +537,9 @@ def _dispatch_delegate_tool_domains(
     )
 
 
-def run_llm_chat_eval(
+def _run_llm_chat_eval_impl(
     *,
+    _capture: dict[str, Any] | None = None,
     system_prompt: str,
     document_content: str,
     user_question: str,
@@ -607,6 +609,11 @@ def run_llm_chat_eval(
     }
     err: str | None = None
     trace: list[dict[str, Any]] = []
+    if _capture is not None:
+        _capture["messages"] = messages
+        _capture["trace"] = trace
+        _capture["usage"] = usage_acc
+        _capture["rounds"] = []
 
     if student == "scripted":
         from scripted_student import ScriptedStudent
@@ -653,6 +660,12 @@ def run_llm_chat_eval(
             if tool_calls:
                 asst_msg["tool_calls"] = tool_calls
             messages.append(asst_msg)
+            if _capture is not None:
+                # Transcript only: keep reasoning/finish_reason without sending
+                # them back to the model.
+                _capture["rounds"].append(
+                    {k: v for k, v in resp.items() if k not in ("content", "tool_calls")}
+                )
 
             if not tool_calls:
                 last_had_tools = False
@@ -746,3 +759,71 @@ def run_llm_chat_eval(
             final = state.get_html()
 
     return final, usage_acc, err, trace
+
+
+# --- Transcript persistence (always on for run_eval / run_eval_multi CLIs) ---
+TRANSCRIPTS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "transcripts")
+_TRANSCRIPT_DIR: str | None = None
+
+
+def set_transcript_dir(path: str | None) -> None:
+    """Set (path) or clear (None) the per-task transcript JSON directory."""
+    global _TRANSCRIPT_DIR
+    _TRANSCRIPT_DIR = path or None
+
+
+def enable_default_transcripts(root: str | None = None) -> str:
+    """Point transcripts at ``transcripts/<run-timestamp>/`` (gitignored) and return it."""
+    import time
+
+    path = os.path.join(root or TRANSCRIPTS_ROOT, time.strftime("%Y%m%d-%H%M%S"))
+    set_transcript_dir(path)
+    return path
+
+
+def _safe_name(s: str) -> str:
+    return "".join(c if (c.isalnum() or c in "-_.") else "_" for c in (s or "unknown"))
+
+
+def transcript_path(root: str, model: str, task_id: str) -> str:
+    return os.path.join(root, _safe_name(model), f"{_safe_name(task_id or 'task')}.json")
+
+
+def write_transcript(
+    root: str, *, model: str, task_id: str, backend: str, capture: dict[str, Any],
+    final: str, usage: dict[str, int], error: str | None, trace: list[dict[str, Any]],
+) -> str:
+    path = transcript_path(root, model, task_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    payload = {
+        "model": model,
+        "task_id": task_id,
+        "backend": backend,
+        "messages": capture.get("messages", []),
+        "rounds": capture.get("rounds", []),
+        "trace": trace,
+        "usage": usage,
+        "error": error,
+        "final_document": final,
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
+    return path
+
+
+def run_llm_chat_eval(**kwargs: Any) -> tuple[str, dict[str, int], str | None, list[dict[str, Any]]]:
+    """Public entry; see ``_run_llm_chat_eval_impl``. Writes a transcript when enabled."""
+    root = _TRANSCRIPT_DIR
+    if not root:
+        return _run_llm_chat_eval_impl(**kwargs)
+    capture: dict[str, Any] = {}
+    final, usage, err, trace = _run_llm_chat_eval_impl(_capture=capture, **kwargs)
+    try:
+        write_transcript(
+            root, model=str(kwargs.get("model") or ""), task_id=str(kwargs.get("task_id") or ""),
+            backend=str(kwargs.get("backend") or "string"), capture=capture,
+            final=final, usage=usage, error=err, trace=trace,
+        )
+    except Exception as e:  # never fail an eval over a transcript write
+        print(f"  Warning: transcript write failed: {e}", file=sys.stderr)
+    return final, usage, err, trace

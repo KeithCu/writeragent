@@ -112,6 +112,9 @@ SHORT_NAMES: dict[str, str] = {
     "bytedance-seed/seed-2.0-mini": "Seed 2 Mini",
     "upstage/solar-pro4": "Solar Pro 4",
     "mistralai/mistral-small-2603": "Mistral Small 2603",
+    "reflection/beam-1.0-501b-a23b": "Beam 1.0",
+    "nvidia/nemotron-3.5-super-vl": "Nemotron 3.5 Super VL",
+    "liquid/lfm-2.5-24b-a2b": "LFM 2.5 24B",
 }
 
 
@@ -165,6 +168,9 @@ MODEL_LABEL_CONFIG: dict[str, tuple[int, int, str, str]] = {
     "google/gemini-3.5-flash-lite": (6, 0, "left", "center"),
     "x-ai/grok-4.6": (6, 0, "left", "center"),
     "z-ai/glm-5.3": (0, 7, "center", "bottom"),
+    "reflection/beam-1.0-501b-a23b": (6, -8, "left", "top"),
+    "nvidia/nemotron-3.5-super-vl": (-6, 8, "right", "bottom"),
+    "liquid/lfm-2.5-24b-a2b": (6, 0, "left", "center"),
 }
 
 Y_AXIS_MIN = 0.52

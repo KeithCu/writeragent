@@ -24,6 +24,30 @@
     "pareto_status": "frontier"
   },
   {
+    "openrouter_id": "nvidia/nemotron-3.5-super-vl",
+    "display_name": "NVIDIA: Nemotron 3.5 Super VL",
+    "context_window_tokens": 1048576,
+    "input_cost_per_million": 0.15,
+    "output_cost_per_million": 0.5,
+    "pricing_known": true,
+    "avg_correctness": 0.9315789473684211,
+    "avg_agent_score": 0.9473684210526315,
+    "hard_pass_rate": 0.9473684210526315,
+    "document_pass_rate": 0.9473684210526315,
+    "avg_quality": 0.9400000000000001,
+    "n_judged": 5,
+    "n_error": 0,
+    "n_examples": 19,
+    "avg_metric_score": 0.6138031578947368,
+    "total_tokens": 1035721,
+    "total_cost_usd": 0.20142654999999998,
+    "avg_cost_per_example": 0.01060139736842105,
+    "intelligence_per_dollar_correctness": 81.86084390772247,
+    "intelligence_per_dollar_metric": 35.53817516206019,
+    "pareto_front": 2,
+    "pareto_status": "dominated"
+  },
+  {
     "openrouter_id": "openai/gpt-oss-120b",
     "display_name": "OpenAI: gpt-oss-120b",
     "context_window_tokens": 131072,
@@ -68,7 +92,7 @@
     "avg_cost_per_example": 0.014293275789473685,
     "intelligence_per_dollar_correctness": 59.55590887694328,
     "intelligence_per_dollar_metric": 29.490892654158884,
-    "pareto_front": 2,
+    "pareto_front": 3,
     "pareto_status": "dominated"
   },
   {
@@ -92,7 +116,7 @@
     "avg_cost_per_example": 0.09479764210526316,
     "intelligence_per_dollar_correctness": 8.897871415201228,
     "intelligence_per_dollar_metric": 4.903911318694393,
-    "pareto_front": 3,
+    "pareto_front": 4,
     "pareto_status": "dominated"
   },
   {
@@ -116,7 +140,7 @@
     "avg_cost_per_example": 0.09898345625,
     "intelligence_per_dollar_correctness": 8.5020755167316,
     "intelligence_per_dollar_metric": 2.947859430072193,
-    "pareto_front": 4,
+    "pareto_front": 5,
     "pareto_status": "dominated"
   },
   {
@@ -141,6 +165,30 @@
     "intelligence_per_dollar_correctness": 76.7943552054155,
     "intelligence_per_dollar_metric": 34.81508685656943,
     "pareto_front": 2,
+    "pareto_status": "dominated"
+  },
+  {
+    "openrouter_id": "reflection/beam-1.0-501b-a23b",
+    "display_name": "Reflection: Beam 1.0 501B A23B",
+    "context_window_tokens": 1048576,
+    "input_cost_per_million": 0.25,
+    "output_cost_per_million": 1.0,
+    "pricing_known": true,
+    "avg_correctness": 0.8789473684210526,
+    "avg_agent_score": 0.8421052631578947,
+    "hard_pass_rate": 0.8421052631578947,
+    "document_pass_rate": 0.8421052631578947,
+    "avg_quality": 0.925,
+    "n_judged": 4,
+    "n_error": 1,
+    "n_examples": 19,
+    "avg_metric_score": 0.6454852631578948,
+    "total_tokens": 2822963,
+    "total_cost_usd": 0.83620475,
+    "avg_cost_per_example": 0.04401077631578948,
+    "intelligence_per_dollar_correctness": 17.553620752132268,
+    "intelligence_per_dollar_metric": 9.467027392664674,
+    "pareto_front": 4,
     "pareto_status": "dominated"
   },
   {
@@ -552,6 +600,30 @@
     "pareto_status": "dominated"
   },
   {
+    "openrouter_id": "liquid/lfm-2.5-24b-a2b",
+    "display_name": "Liquid: LFM 2.5 24B A2B",
+    "context_window_tokens": 128000,
+    "input_cost_per_million": 0.05,
+    "output_cost_per_million": 0.7,
+    "pricing_known": true,
+    "avg_correctness": 0.5886842105263158,
+    "avg_agent_score": 0.5789473684210527,
+    "hard_pass_rate": 0.5789473684210527,
+    "document_pass_rate": 0.5789473684210527,
+    "avg_quality": 0.89,
+    "n_judged": 4,
+    "n_error": 1,
+    "n_examples": 19,
+    "avg_metric_score": 0.38703315789473686,
+    "total_tokens": 630515,
+    "total_cost_usd": 0.08023544999999999,
+    "avg_cost_per_example": 0.004222918421052631,
+    "intelligence_per_dollar_correctness": 82.06388690705721,
+    "intelligence_per_dollar_metric": 35.47183496683167,
+    "pareto_front": 5,
+    "pareto_status": "dominated"
+  },
+  {
     "openrouter_id": "mistralai/mistral-small-2603",
     "display_name": "Mistral: Mistral Small 4",
     "context_window_tokens": 262144,
@@ -572,7 +644,7 @@
     "avg_cost_per_example": 0.0053403461842105255,
     "intelligence_per_dollar_correctness": 63.62251856308366,
     "intelligence_per_dollar_metric": 39.23731485136468,
-    "pareto_front": 5,
+    "pareto_front": 6,
     "pareto_status": "dominated"
   },
   {

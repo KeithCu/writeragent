@@ -235,7 +235,7 @@ python run_eval_multi.py --models openai/gpt-oss-120b,openai/gpt-4o-mini -j 20
 
 For each model, `run_eval_multi.py` reports **hard pass %**, **agent score**, **quality** (among judged passes), then historical avg correctness / cost / C²/$. Rank is hard pass, then agent, then quality; C²/$ is secondary.
 
-Use `--out path.json` or `--out path.csv` to write results (format by extension). Details files include missing/reject/oracle/process failures and `judge_error`. Results are written after each model completes so partial data is saved if the run is interrupted.
+Use `--out path.json` or `--out path.csv` to write results (format by extension). **Transcripts are always saved:** every `run_eval.py` / `run_eval_multi.py` run writes `scripts/prompt_optimization/transcripts/<run-timestamp>/<model>/<task_id>.json` (gitignored) for every task, pass or fail — full message list (system, user, each assistant message with tool calls, each tool result), per-round response extras (`reasoning`, `finish_reason` when the provider returns them), the tool `trace`, `usage`, `error` and `final_document`. The path is printed at startup. Details files include missing/reject/oracle/process failures and `judge_error`. Results are written after each model completes so partial data is saved if the run is interrupted.
 
 To merge a selective model run back into the master dataset without overwriting existing data (and retire older superseded generations like Mercury 2 in favor of Mercury 2.5):
 
@@ -276,30 +276,33 @@ Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squ
 | Rank | Model | Hard pass | Agent | Correctness | Quality | Tokens/task | $/task | C²/$ | n_err |
 | ---- | ---- | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
 | 1 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.981 | 0.93 | 56766 | 0.00653 | 64.4 | 0 |
-| 2 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 | 0 |
-| 3 | meta/muse-glimmer-30b | 0.895 | 0.895 | 0.923 | 0.96 | 32858 | 0.01429 | 29.5 | 0 |
-| 4 | x-ai/grok-4.6 | 0.895 | 0.895 | 0.918 | 0.94 | 36460 | 0.09480 | 4.9 | 0 |
-| 5 | qwen/qwen3.8-27b | 0.842 | 0.842 | 0.917 | 0.92 | 133087 | 0.09898 | 2.9 | 1 |
-| 6 | deepseek/deepseek-v4.1-flash | 0.842 | 0.842 | 0.883 | 0.97 | 138573 | 0.01015 | 34.8 | 2 |
-| 7 | openai/gpt-6-luna | 0.842 | 0.842 | 0.873 | 0.93 | 34348 | 0.00550 | 71.1 | 0 |
-| 8 | google/gemma-4-31b-it | 0.842 | 0.842 | 0.861 | 0.90 | 17594 | 0.00224 | 236.2 | 0 |
-| 9 | bytedance-seed/seed-2.0-mini | 0.842 | 0.842 | 0.861 | 0.90 | 28592 | 0.00415 | 93.3 | 0 |
-| 10 | z-ai/glm-5.3-flash | 0.842 | 0.842 | 0.856 | 0.90 | 83249 | 0.00843 | 40.2 | 0 |
-| 11 | poolside/laguna-xs-2.1 | 0.842 | 0.842 | 0.838 | 0.81 | 28418 | 0.00196 | 183.0 | 0 |
-| 12 | inception/mercury-2.5-preview | 0.789 | 0.789 | 0.817 | 0.95 | 36864 | 0.01198 | 22.1 | 0 |
-| 13 | qwen/qwen3.8-flash | 0.789 | 0.789 | 0.792 | 0.89 | 49095 | 0.00972 | 22.8 | 2 |
-| 14 | nvidia/nemotron-3-ultra-550b-a55b | 0.789 | 0.789 | 0.787 | 0.74 | 145858 | 0.14586 | 1.4 | 2 |
-| 15 | ibm-granite/granite-4.2-8b | 0.737 | 0.737 | 0.810 | 0.93 | 110856 | 0.01192 | 12.7 | 2 |
-| 16 | minimax/minimax-m3 | 0.737 | 0.737 | 0.780 | 0.94 | 126882 | 0.05519 | 5.1 | 1 |
-| 17 | openai/gpt-oss-20b | 0.737 | 0.737 | 0.759 | 0.89 | 24456 | 0.00110 | 349.7 | 0 |
-| 18 | upstage/solar-pro4 | 0.737 | 0.737 | 0.716 | 0.90 | 33501 | 0.00146 | 178.0 | 0 |
-| 19 | poolside/laguna-s-2.1 | 0.684 | 0.684 | 0.732 | 0.90 | 32409 | 0.00335 | 80.8 | 2 |
-| 20 | google/gemma-4-26b-a4b-it | 0.684 | 0.684 | 0.701 | 0.89 | 20530 | 0.00227 | 125.9 | 0 |
-| 21 | nvidia/nemotron-3-super-120b-a12b | 0.632 | 0.684 | 0.854 | 0.91 | 143994 | 0.01904 | 10.7 | 4 |
-| 22 | google/gemini-3.5-flash-lite | 0.632 | 0.632 | 0.708 | 0.93 | 16160 | 0.01018 | 34.4 | 0 |
-| 23 | cohere/command-a-plus | 0.579 | 0.579 | 0.641 | 0.94 | 66553 | 0.03195 | 4.8 | 6 |
-| 24 | mistralai/mistral-small-2603 | 0.579 | 0.579 | 0.583 | 0.85 | 24553 | 0.00534 | 39.2 | 2 |
-| 25 | prism-ml/ternary-bonsai-2-27b | 0.474 | 0.474 | 0.543 | 0.97 | 27120 | 0.00376 | 35.0 | 9 |
-| 26 | nvidia/nemotron-3.5-lightning | 0.368 | 0.421 | 0.395 | 0.68 | 34466 | 0.00338 | 17.0 | 0 |
+| 2 | nvidia/nemotron-3.5-super-vl | 0.947 | 0.947 | 0.932 | 0.94 | 54511 | 0.01060 | 35.5 | 0 |
+| 3 | openai/gpt-oss-120b | 0.947 | 0.947 | 0.921 | 0.90 | 18554 | 0.00106 | 584.2 | 0 |
+| 4 | meta/muse-glimmer-30b | 0.895 | 0.895 | 0.923 | 0.96 | 32858 | 0.01429 | 29.5 | 0 |
+| 5 | x-ai/grok-4.6 | 0.895 | 0.895 | 0.918 | 0.94 | 36460 | 0.09480 | 4.9 | 0 |
+| 6 | qwen/qwen3.8-27b | 0.842 | 0.842 | 0.917 | 0.92 | 133087 | 0.09898 | 2.9 | 1 |
+| 7 | deepseek/deepseek-v4.1-flash | 0.842 | 0.842 | 0.883 | 0.97 | 138573 | 0.01015 | 34.8 | 2 |
+| 8 | reflection/beam-1.0-501b-a23b | 0.842 | 0.842 | 0.879 | 0.93 | 148577 | 0.04401 | 9.5 | 1 |
+| 9 | openai/gpt-6-luna | 0.842 | 0.842 | 0.873 | 0.93 | 34348 | 0.00550 | 71.1 | 0 |
+| 10 | google/gemma-4-31b-it | 0.842 | 0.842 | 0.861 | 0.90 | 17594 | 0.00224 | 236.2 | 0 |
+| 11 | bytedance-seed/seed-2.0-mini | 0.842 | 0.842 | 0.861 | 0.90 | 28592 | 0.00415 | 93.3 | 0 |
+| 12 | z-ai/glm-5.3-flash | 0.842 | 0.842 | 0.856 | 0.90 | 83249 | 0.00843 | 40.2 | 0 |
+| 13 | poolside/laguna-xs-2.1 | 0.842 | 0.842 | 0.838 | 0.81 | 28418 | 0.00196 | 183.0 | 0 |
+| 14 | inception/mercury-2.5-preview | 0.789 | 0.789 | 0.817 | 0.95 | 36864 | 0.01198 | 22.1 | 0 |
+| 15 | qwen/qwen3.8-flash | 0.789 | 0.789 | 0.792 | 0.89 | 49095 | 0.00972 | 22.8 | 2 |
+| 16 | nvidia/nemotron-3-ultra-550b-a55b | 0.789 | 0.789 | 0.787 | 0.74 | 145858 | 0.14586 | 1.4 | 2 |
+| 17 | ibm-granite/granite-4.2-8b | 0.737 | 0.737 | 0.810 | 0.93 | 110856 | 0.01192 | 12.7 | 2 |
+| 18 | minimax/minimax-m3 | 0.737 | 0.737 | 0.780 | 0.94 | 126882 | 0.05519 | 5.1 | 1 |
+| 19 | openai/gpt-oss-20b | 0.737 | 0.737 | 0.759 | 0.89 | 24456 | 0.00110 | 349.7 | 0 |
+| 20 | upstage/solar-pro4 | 0.737 | 0.737 | 0.716 | 0.90 | 33501 | 0.00146 | 178.0 | 0 |
+| 21 | poolside/laguna-s-2.1 | 0.684 | 0.684 | 0.732 | 0.90 | 32409 | 0.00335 | 80.8 | 2 |
+| 22 | google/gemma-4-26b-a4b-it | 0.684 | 0.684 | 0.701 | 0.89 | 20530 | 0.00227 | 125.9 | 0 |
+| 23 | nvidia/nemotron-3-super-120b-a12b | 0.632 | 0.684 | 0.854 | 0.91 | 143994 | 0.01904 | 10.7 | 4 |
+| 24 | google/gemini-3.5-flash-lite | 0.632 | 0.632 | 0.708 | 0.93 | 16160 | 0.01018 | 34.4 | 0 |
+| 25 | cohere/command-a-plus | 0.579 | 0.579 | 0.641 | 0.94 | 66553 | 0.03195 | 4.8 | 6 |
+| 26 | liquid/lfm-2.5-24b-a2b | 0.579 | 0.579 | 0.589 | 0.89 | 33185 | 0.00422 | 35.5 | 1 |
+| 27 | mistralai/mistral-small-2603 | 0.579 | 0.579 | 0.583 | 0.85 | 24553 | 0.00534 | 39.2 | 2 |
+| 28 | prism-ml/ternary-bonsai-2-27b | 0.474 | 0.474 | 0.543 | 0.97 | 27120 | 0.00376 | 35.0 | 9 |
+| 29 | nvidia/nemotron-3.5-lightning | 0.368 | 0.421 | 0.395 | 0.68 | 34466 | 0.00338 | 17.0 | 0 |
 
 Re-run: `make run_eval EVAL_ARGS="--models … -j 20"` or edit `model_configs.py`. User-facing summary: [`docs/eval/benchmarks.md`](../../docs/eval/benchmarks.md).

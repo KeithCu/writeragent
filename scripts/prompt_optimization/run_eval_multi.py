@@ -422,7 +422,7 @@ def _run_one_model(
         examples = [by_id[tid] for tid in task_ids if tid in by_id]
     else:
         if example_arg:
-            examples = [ex for ex in examples if getattr(ex, "task_id", "") == example_arg]
+            examples = [ex for ex in examples if getattr(ex, "task_id", "") in _task_id_set(example_arg)]
         if n is not None:
             examples = examples[:n]
     cfg = _model_config_for_id(model_id, allow_unknown=allow_unknown)
@@ -536,6 +536,11 @@ def _run_one_model(
     }
 
 
+def _task_id_set(spec: str | None) -> set[str]:
+    """``-e a,b,c`` -> {"a","b","c"} (same idea as run_eval.py)."""
+    return {t.strip() for t in (spec or "").split(",") if t.strip()}
+
+
 def parse_args(argv: list[str] | None = None):
     p = argparse.ArgumentParser(
         description=(
@@ -582,7 +587,7 @@ def parse_args(argv: list[str] | None = None):
         "--example",
         "-e",
         metavar="TASK_ID",
-        help="Run only this task_id (e.g. table_from_mess). Recommended with --generate-golds (one teacher call per run).",
+        help="Run only these task_ids, comma-separated (e.g. table_from_mess,tax_column). Recommended with --generate-golds (one teacher call per run).",
     )
     p.add_argument(
         "-n",
@@ -689,6 +694,9 @@ def parse_args(argv: list[str] | None = None):
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    from llm_chat_eval import enable_default_transcripts
+
+    print(f"Transcripts: {enable_default_transcripts()}")
 
     api_base = resolve_api_base(cli_base=args.api_base)
     api_key = resolve_api_key(cli_key=args.api_key)
@@ -736,7 +744,7 @@ def main(argv: list[str] | None = None) -> int:
         examples = [
             ex
             for ex in examples
-            if getattr(ex, "task_id", "") == args.example
+            if getattr(ex, "task_id", "") in _task_id_set(args.example)
         ]
         if not examples:
             print(
