@@ -174,6 +174,7 @@ SCENARIO_IDS = frozenset(
         "tree",
         "parallel",
         "mutate",
+        "ocr",
         "fail_http",
         "rate_limit",
         "hang",
@@ -1238,6 +1239,10 @@ def _specialized_inner_completion(
         )
     if empty:
         return _finish("")
+    if scenario == "ocr" and "extract_structure_from_image" in tool_names:
+        if "extract_structure_from_image" in called:
+            return _finish("Mock OCR task complete.")
+        return Completion(tool_name="extract_structure_from_image", tool_args={}, finish_reason="tool_calls")
     # One discovery step, then finish. Calling every advertised tool (especially
     # delegate_read_document with path="") loops the inner agent (Packet E7 soak).
     if any(name in called for name in _SPECIALIZED_INNER_PRE_FINISH):
@@ -1435,7 +1440,13 @@ def _scenario_user_turn(
             content=_html_chat(user_text, turn), reasoning=reasoning
         )
     if scenario == "ocr":
-        return _tool_or_html(tool_names, "extract_text_from_image", {}, user_text, turn)
+        # Packet O: OCR is the specialized "vision" domain (extract_structure_from_image).
+        if "extract_structure_from_image" in tool_names:
+            return _tool_or_html(tool_names, "extract_structure_from_image", {}, user_text, turn)
+        delegate = _delegate_for_tools(tool_names)
+        if delegate:
+            return _tool_or_html(tool_names, delegate, {"domain": "vision", "task": user_text}, user_text, turn)
+        return Completion(content=_html_chat(user_text, turn), reasoning=reasoning)
     return None
 
 

@@ -988,9 +988,9 @@ def handle_debug_sidebar_command(command: str) -> None:
         _post_to_soffice_vcl(_load_visible_calc_factory, sl=sl)
         _write_debug_snapshot(sl)
         return
-    if op == "OPEN_DRAW":
-        log.info("debug_sidebar OPEN_DRAW posting factory/sdraw to VCL sl=%s", sl is not None)
-        _post_to_soffice_vcl(_load_visible_draw_factory, sl=sl)
+    # Packet O: fake vision backend inside soffice (the OCR venv is not installed in CI).
+    if op.startswith("FAKE_VISION_"):
+        _apply_fake_vision(op[len("FAKE_VISION_"):].lower())
         _write_debug_snapshot(sl)
         return
     if op == "KICK_PEERS":
@@ -1413,17 +1413,6 @@ def component_is_calc(doc: Any) -> bool:
         return False
 
 
-def component_is_draw(doc: Any) -> bool:
-    """``supportsService`` over URP. Do not use ``is_draw`` (``@main_thread_only``)."""
-    _require_debug()
-    if doc is None:
-        return False
-    try:
-        return bool(doc.supportsService("com.sun.star.drawing.DrawingDocument"))
-    except Exception:
-        return False
-
-
 def iter_desktop_components(ctx: Any) -> list[Any]:
     """Open models from ``XDesktop.getComponents()`` (URP-safe enumeration)."""
     _require_debug()
@@ -1448,15 +1437,6 @@ def find_calc_component(ctx: Any) -> Any:
     _require_debug()
     for doc in iter_desktop_components(ctx):
         if component_is_calc(doc):
-            return doc
-    return None
-
-
-def find_draw_component(ctx: Any) -> Any:
-    """First open Draw model, or None. Does not load a document."""
-    _require_debug()
-    for doc in iter_desktop_components(ctx):
-        if component_is_draw(doc):
             return doc
     return None
 
@@ -1490,19 +1470,6 @@ def _load_visible_calc_factory() -> None:
         log.info("OPEN_CALC: loaded factory/scalc _blank on VCL")
     except Exception:
         log.exception("OPEN_CALC: factory/scalc _blank failed")
-        raise
-
-
-def _load_visible_draw_factory() -> None:
-    """Create a visible Draw on soffice VCL. ``_blank`` keeps the Writer window."""
-    from plugin.framework.uno_context import get_ctx, get_desktop
-
-    try:
-        desktop = get_desktop(get_ctx())
-        desktop.loadComponentFromURL("private:factory/sdraw", "_blank", 0, ())
-        log.info("OPEN_DRAW: loaded factory/sdraw _blank on VCL")
-    except Exception:
-        log.exception("OPEN_DRAW: factory/sdraw _blank failed")
         raise
 
 
@@ -1558,24 +1525,6 @@ def open_calc_document(ctx: Any, *, timeout: float = 30.0) -> Any:
     raise RuntimeError(
         "Calc did not appear after OPEN_CALC (factory/scalc was posted to VCL; "
         "do not loadComponentFromURL factory/scalc over URP after a Writer deck)"
-    )
-
-
-def open_draw_document(ctx: Any, *, timeout: float = 30.0) -> Any:
-    """Open a visible Draw after a Writer deck without blocking URP on factory/sdraw."""
-    _require_debug()
-    existing = find_draw_component(ctx)
-    if existing is not None:
-        return existing
-    execute_debug_sidebar_op("OPEN_DRAW", ctx=ctx)
-    deadline = time.monotonic() + max(0.0, timeout)
-    while time.monotonic() <= deadline:
-        found = find_draw_component(ctx)
-        if found is not None:
-            return found
-        time.sleep(0.25)
-    raise RuntimeError(
-        "Draw did not appear after OPEN_DRAW (factory/sdraw was posted to VCL)"
     )
 
 
@@ -2874,3 +2823,123 @@ def next_hello_ok(*, listener: Any = None, timeout: float = 60.0) -> bool:
         return True
     log.warning("next_hello_ok: idle but transcript did not look like a hello reply")
     return False
+
+
+# --- Packet O: fake vision OCR backend (runs inside soffice) -----------------
+#
+# The trusted OCR venv (Docling / PaddleOCR) is not installed in CI. These modes
+# replace only the venv boundary -- ``vision_runner.run_vision`` and the venv
+# gate ``vision_availability.vision_venv_configured`` -- so the sidebar,
+# delegate gateway, per-image discovery, export and insert all run for real.
+# Every fake call is logged to a JSON state file the URP test process reads.
+
+_FAKE_VISION_NAME = "writeragent_fake_vision.json"
+_FAKE_VISION_LOCK = threading.Lock()
+_FAKE_VISION_ORIG: dict[tuple[Any, str], Any] = {}
+_FAKE_VISION_STATE: dict[str, Any] = {}
+FAKE_VISION_MODES = ("ok", "fail_second", "timeout", "slow", "export_fail", "unavailable", "off")
+
+
+def fake_vision_state_path() -> str:
+    return os.path.join(tempfile.gettempdir(), _FAKE_VISION_NAME)
+
+
+def read_fake_vision_state() -> dict[str, Any]:
+    """URP side: ``{"mode", "calls": [{"image_name", "status"}...]}`` or ``{}``."""
+    try:
+        with open(fake_vision_state_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _write_fake_vision_state() -> None:
+    path = fake_vision_state_path()
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(_FAKE_VISION_STATE, f)
+    os.replace(tmp, path)
+
+
+def fake_ocr_text(image_name: str) -> str:
+    """The text the fake backend 'reads' from *image_name*."""
+    return f"OCR_TEXT_{image_name}"
+
+
+def _apply_fake_vision(mode: str) -> None:
+    _require_debug()
+    if mode not in FAKE_VISION_MODES:
+        raise ValueError(f"unknown fake vision mode {mode!r}")
+    import plugin.vision.vision_availability as availability
+    import plugin.vision.vision_runner as runner
+    import plugin.writer.images.image_tools as image_tools
+
+    with _FAKE_VISION_LOCK:
+        for (module, attr), orig in list(_FAKE_VISION_ORIG.items()):
+            setattr(module, attr, orig)
+        _FAKE_VISION_ORIG.clear()
+        _FAKE_VISION_STATE.clear()
+        if mode == "off":
+            try:
+                os.remove(fake_vision_state_path())
+            except OSError:
+                pass
+            return
+        _FAKE_VISION_STATE.update({"mode": mode, "calls": []})
+        _write_fake_vision_state()
+
+        def _patch(module: Any, attr: str, value: Any) -> None:
+            _FAKE_VISION_ORIG[(module, attr)] = getattr(module, attr)
+            setattr(module, attr, value)
+
+        _patch(availability, "vision_venv_configured", lambda ctx=None: mode != "unavailable")
+        if mode == "export_fail":
+            # Fail inside the real resolve_vision_image_bytes so its own error surfaces.
+            def _no_export(*_a: Any, **_k: Any) -> Any:
+                raise RuntimeError("fake export failure")
+
+            _patch(runner, "export_graphic_object_to_bytes", _no_export)
+            _patch(image_tools, "export_graphic_object_to_bytes", _no_export)
+
+        def _fake_run_vision(ctx: Any, spec: Any, image: Any = None, *, context: dict[str, Any] | None = None,
+                             stop_checker: Any = None) -> dict[str, Any]:
+            name = str((context or {}).get("image_name") or "")
+            with _FAKE_VISION_LOCK:
+                index = len(_FAKE_VISION_STATE["calls"])
+                result: dict[str, Any]
+                if mode == "timeout":
+                    result = {"status": "error", "code": "VISION_ERROR", "message": "Vision timed out after 120s"}
+                elif mode == "fail_second" and index == 1:
+                    result = {"status": "error", "code": "VISION_ERROR", "message": f"fake OCR crash on {name}"}
+                else:
+                    result = {"status": "ok"}
+            if mode == "slow":
+                deadline = time.monotonic() + 6.0
+                while time.monotonic() < deadline:
+                    if stop_checker is not None and stop_checker():
+                        result = {"status": "error", "code": "USER_STOPPED", "message": "Cancelled by user."}
+                        break
+                    time.sleep(0.05)
+            if result["status"] == "ok":
+                text = fake_ocr_text(name)
+                result = {"status": "ok", "helper": "extract_structure", "full_text": text, "html": f"<p>{text}</p>"}
+            with _FAKE_VISION_LOCK:
+                _FAKE_VISION_STATE["calls"].append({"image_name": name, "status": result["status"],
+                                                    "bytes": len(image or b"")})
+                _write_fake_vision_state()
+            return result
+
+        _patch(runner, "run_vision", _fake_run_vision)
+
+
+def set_fake_vision(mode: str, *, ctx: Any = None) -> dict[str, Any]:
+    """URP client: switch the soffice fake vision backend (``FAKE_VISION_MODES``)."""
+    _require_debug()
+    if mode not in FAKE_VISION_MODES:
+        raise ValueError(f"unknown fake vision mode {mode!r}")
+    execute_debug_sidebar_op("FAKE_VISION_" + mode.upper(), ctx=ctx)
+    state = read_fake_vision_state()
+    if mode != "off" and state.get("mode") != mode:
+        raise AssertionError(f"fake vision {mode!r} not installed in soffice: {state}")
+    return state

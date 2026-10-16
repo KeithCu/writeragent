@@ -20,7 +20,7 @@ This plan is **finished**. Mouse Stop, HITL Change dialog, live DuckDuckGo, and 
 | **[Packet E](#packet-e--tools-delegate-hitl-context-refresh)** | Tool loop, nested delegate, HITL, context refresh | Automated (CI) | **Done.** 18 Landed (incl. E12 Calc). |
 | **[Packet F](#packet-f--http--sse-errors-and-hangs)** | HTTP 4xx/5xx errors, socket hangs, SSE quirks | Automated (CI) | **Done.** 15 Landed. |
 | **[Packet G](#packet-g--mocked-audio-and-stt)** | Mocked Record / Stop Rec, `input_audio`, STT | Automated (CI) | **Done.** 21 Landed (incl. G17 Calc deck). |
-| **[Packet O](#packet-o--vision-ocr)** | Sidebar OCR workflow, Draw doc support, errors/timeouts | Automated (`FILTER=O`) | **Landed.** 7 Landed. |
+| **[Packet O](#packet-o--vision-ocr)** | Sidebar OCR via the vision delegate with a fake in-soffice backend, errors/timeouts, multi-image | Automated (`FILTER=O`) | O2 (Calc selection) and O8 (failure must not block later images) fail on current master — see PR #1668. |
 | **[Packet P](#packet-p--dual-sidebar-peer-673)** | Writer+Calc mock peer round-trip (specialized-inner #673) | Automated (`FILTER=P`) | **Landed** (unit scripts always; live dual deck uses `open_calc_document`). |
 | **[Packet K](#packet-k--sidebar-compaction-712--713)** | Proactive compact, overflow retry, kill switch, death ≠ overflow | Automated (`FILTER=K`) | **Landed.** Chat mode only (Web Research / Librarian share the worker). |
 | **[Packet T](#packet-t--tts-races-and-child-lifecycle)** | TTS stop / cut-off / crash / missing binary, fake child, no audio device | Automated (`FILTER=T`) | **Landed.** 4 Landed. |
@@ -395,19 +395,19 @@ Every test must satisfy:
 
 ### Packet O — Vision OCR
 
-- **Focus:** Sidebar OCR workflow (insert/return text), document-type support (Writer/Draw), mock OCR execution, and errors (timeout, export failure, disabled state).
+- **Focus:** Sidebar OCR workflow (insert/return text), document-type support (Writer/Calc; the vision tool rejects Draw), a fake OCR backend installed in soffice via `set_fake_vision` (only `run_vision` and the venv gate are replaced), and errors (timeout, export failure, disabled state).
 - **Mode:** Automated (`make test-mock-sidebar FILTER=O`).
 
 | ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
 |:--:|:----:|----------------|-----------------|------------------------|:--------------:|
 | **O1** | CI | Embedded image | Insert image in Writer; select it; send `OCR image` | OCR result inserted and returned; sidebar goes idle; `next_hello_ok()` | **Landed** |
-| **O2** | CI | Draw/Impress | Open Draw doc; send `OCR image` | Vision is supported; OCR result returned; sidebar goes idle; `next_hello_ok()` | **Landed** |
-| **O3** | CI | OCR disabled | Mock OCR stack not ready (`vision_ocr_stack_ready=False`); `OCR image` | Clean error surfaced (no crash/hang); nothing inserted; sidebar goes idle; `next_hello_ok()` | **Landed** |
+| **O2** | CI | Calc graphic | Open Calc, insert + select a graphic; send `OCR image` | One OCR of that graphic; sidebar goes idle; `next_hello_ok()` | **Landed** |
+| **O3** | CI | OCR disabled | Fake `unavailable` (venv gate False); `OCR image` | Clean error surfaced (no crash/hang); nothing inserted; sidebar goes idle; `next_hello_ok()` | **Landed** |
 | **O4** | CI | OCR timeout | Send `OCR image` with mock timeout | Clean JSON error surfaced; sidebar goes idle; `next_hello_ok()` | **Landed** |
-| **O5** | CI | Stop during OCR | Send `OCR image` then click Stop | Stream cancelled cleanly; no late insertion; no leaked worker; sidebar goes idle; `next_hello_ok()` | **Landed** |
+| **O5** | CI | Stop during OCR | Send `OCR image` then click Stop | Turn settles; at most one OCR run/insert (a finished OCR is inserted by design); sidebar goes idle; `next_hello_ok()` | **Landed** |
 | **O6** | CI | Export failure | Send `OCR image` with export mocked to fail | Clean error surfaced; sidebar goes idle; `next_hello_ok()` | **Landed** |
 | **O7** | CI | Rapid retry | Send `OCR image` then immediately `OCR image` again | No duplicate output; `next_hello_ok()` | **Landed** |
-| **O8** | CI | Multi-image selection | Insert 3 images with text between; select range; `OCR image` | All 3 OCR'd concurrently/sequentially; mapped in order; text preserved; partial failure shows clear error for failed image; `next_hello_ok()` | **Landed** |
+| **O8** | CI | Multi-image selection | Insert 3 images with text between; select range; `OCR image` | Image 2 fails; all 3 still OCR'd in document order; results 1 and 3 after their images; Between1–4 exactly once; failed image named in transcript; `next_hello_ok()` | **Landed** |
 
 ---
 
