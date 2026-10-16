@@ -212,7 +212,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/framework/url_utils.py`](../../plugin/framework/url_utils.py) | Endpoint normalization — imported by `config.py` |
 | [`plugin/framework/thread_guard.py`](../../plugin/framework/thread_guard.py) | `background` — imported by `venv_worker.py` |
 | [`plugin/framework/client/errors.py`](../../plugin/framework/client/errors.py) | Bundled for other LibrePy callers (update check / Settings). **Not** used by the `=PY()` add-in. |
-| [`plugin/framework/client/__init__.py`](../../plugin/framework/client/__init__.py) | Package — **lazy** LLM/embeddings (PEP 562). LibrePy may import `requests` / `provider_detection` without loading `llm_client`. |
+| [`plugin/framework/client/__init__.py`](../../plugin/framework/client/__init__.py) | Package — **lazy** `LlmClient` and `run_trusted_analysis` (PEP 562). Embeddings are `plugin.embeddings`, not this package. LibrePy may import `requests` / `provider_detection` without loading `llm_client`. |
 | [`plugin/framework/__init__.py`](../../plugin/framework/__init__.py) | Package |
 | [`plugin/_manifest.py`](../../plugin/_manifest.py) | **Generated** (`make manifest`). `MODULES` is the source of truth for module.yaml defaults (`config_schema` binds derived tables; `config_limits.py` also reads `MODULES`) |
 
@@ -525,7 +525,7 @@ flowchart TB
 6. **Sandbox slimming** — `local_python_executor.send_tools` takes a dict; LibrePy does not ship `tools.py` / `agent_types.py` / `tool_validation.py` / `_function_type_hints_utils.py`.
 7. **`pkgutil.extend_path`** in [`plugin/__init__.py`](../../plugin/__init__.py).
 8. **Slim bootstrap** — [`plugin/main_core.py`](../../plugin/main_core.py); `make build-core` / `deploy-core`. `deploy-core` removes WriterAgent (xor install).
-9. **`plugin.framework.client` package init is lazy** — HTTP / errors / provider detection only at import; `LlmClient` / embeddings / analysis load on attribute access. Do not re-eager-import `llm_client` in `__init__.py`.
+9. **`plugin.framework.client` package init is lazy** — HTTP / errors / provider detection only at import; `LlmClient` and analysis (`run_trusted_analysis`) load on attribute access. Embeddings stay in `plugin.embeddings`. Do not re-eager-import `llm_client` in `__init__.py`.
 10. **LLM image gen stays out of LibrePy** — ship [`image_tools.py`](../../plugin/writer/images/image_tools.py) (graphic insert). Do **not** ship [`image_utils.py`](../../plugin/writer/images/image_utils.py) or [`images.py`](../../plugin/writer/images/images.py).
 11. **`analyzer.py` stays in the LibrePy bundle** — reserved for later use; do not drop as dead weight.
 12. **Whole trusted registry ships** — do not slim [`trusted_action_registry.py`](../../plugin/scripting/trusted_action_registry.py), [`venv_diagnostics.py`](../../plugin/scripting/venv_diagnostics.py), or SQL picker leftovers for core. Missing modules already skip at runtime.

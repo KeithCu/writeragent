@@ -159,7 +159,7 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | **Model Context Protocol (MCP)** | [docs/mcp-protocol.md](docs/mcp-protocol.md) |
 | **Embeddings & Search** | [docs/embeddings.md](docs/embeddings.md) |
 | **Benchmarks** | [docs/eval/benchmarks.md](docs/eval/benchmarks.md) |
-| **Localization (35 Locales)** | [docs/localization.md](docs/localization.md) |
+| **Localization (35 Locales)** | [docs/framework/localization.md](docs/framework/localization.md) |
 | **Code Explorer** | [DeepWiki](https://deepwiki.com/KeithCu/writeragent) |
 | **Cursor / Agent Skills** | [cursor-libreoffice](https://github.com/KeithCu/cursor-libreoffice) · [libreoffice-skill](https://github.com/KeithCu/libreoffice-skill) |
 

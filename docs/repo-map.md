@@ -86,7 +86,7 @@ Start here by task.
 | Writer Python sidebar (Run Python Script ideas) | [writer/python-sidebar-ideas.md](writer/python-sidebar-ideas.md) |
 | Agent Search / Web | [chat/search.md](chat/search.md) |
 | MCP protocol | [mcp-protocol.md](mcp-protocol.md) |
-| Localization / translations | [localization.md](localization.md), [locales/README.md](../locales/README.md) |
+| Localization / translations | [framework/localization.md](framework/localization.md), [locales/README.md](../locales/README.md) |
 | Audio Architecture | [chat/audio-architecture.md](chat/audio-architecture.md) |
 | Image generation | [images/generation.md](images/generation.md) |
 | Image recognition (local OCR / detection) | [images/recognition.md](images/recognition.md) |
