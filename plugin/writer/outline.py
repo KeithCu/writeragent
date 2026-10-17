@@ -97,13 +97,8 @@ def _count_headings(nodes: Any) -> int:
 def collect_document_stats(doc: Any, doc_svc: Any) -> dict[str, Any]:
     """Character/word/paragraph/page/heading counts for a Writer document.
 
-    What was wrong: one failing count aborted the whole stats dict, so
-    get_document_tree lost every count.
-    How: 6012fd3ec dropped the per-piece handlers and let the first
-    exception escape.
-    Why: the counts are independent. Each piece is one errors helper.
-    Headings use uno_read so a disposed document still raises;
-    best_effort would swallow that and look like zero headings.
+    Each count degrades on its own. Headings use uno_read so a closed
+    document raises instead of looking like zero headings.
     """
 
     def _visible_counts() -> tuple[int, int]:
@@ -114,9 +109,7 @@ def collect_document_stats(doc: Any, doc_svc: Any) -> dict[str, Any]:
         full_text = get_string_without_tracked_deletions(cursor)
         return len(full_text), len(full_text.split())
 
-    # None means the read failed. (0, 0) is a real empty document.
-    # get_document_length runs only then, and is not itself best_effort,
-    # so a failure of the fallback still propagates.
+    # None means the read failed; (0, 0) is a real empty document.
     counted = best_effort(_visible_counts, "character and word counts")
     if counted is None:
         char_count = doc_svc.get_document_length(doc)

@@ -108,5 +108,3 @@ def test_collect_document_stats_text_failure_uses_length_and_zero_words():
         "heading_count": 0,
     }
     doc_svc.get_document_length.assert_called_once_with(doc)
-
-
