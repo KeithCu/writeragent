@@ -75,6 +75,7 @@ from plugin.calc.navigation import (
     portion_looks_like_cell_link,
     register_cell_link_span,
 )
+from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 
@@ -123,12 +124,10 @@ def _text_table_cell_rows(table: Any) -> list[list[str]]:
     n_cols = int(table.getColumns().getCount())
     rows: list[list[str]] = []
     for row_idx in range(n_rows):
-        cells: list[str] = []
-        for col_idx in range(n_cols):
-            try:
-                cells.append(table.getCellByPosition(col_idx, row_idx).getString() or "")
-            except Exception:
-                cells.append("")
+        cells: list[str] = [
+            uno_probe(lambda c=col_idx, r=row_idx: table.getCellByPosition(c, r).getString() or "", "")
+            for col_idx in range(n_cols)
+        ]
         rows.append(cells)
     return rows
 
@@ -220,17 +219,19 @@ _TABLE_V_PAD_MM100 = int(round(_TABLE_V_PAD_EM * CHAT_FONT_HEIGHT * _MM100_PER_P
 def _apply_table_row_vpad(cursor: Any, *, top: int = 0, bottom: int = 0) -> None:
     if cursor is None:
         return
-    try:
+
+    def _apply() -> None:
         cursor.ParaTopMargin = int(top)
         cursor.ParaBottomMargin = int(bottom)
-    except Exception as e:
-        log.debug("_apply_table_row_vpad failed: %s", e)
+
+    best_effort(_apply, "_apply_table_row_vpad")
 
 
 def _apply_table_tab_stops(cursor: Any, positions_twips: Any) -> None:
     if cursor is None or not positions_twips:
         return
-    try:
+
+    def _apply() -> None:
         import uno
 
         stops = []
@@ -242,8 +243,8 @@ def _apply_table_tab_stops(cursor: Any, positions_twips: Any) -> None:
             ts.FillChar = " "
             stops.append(ts)
         cursor.ParaTabStops = tuple(stops)
-    except Exception as e:
-        log.debug("_apply_table_tab_stops failed: %s", e)
+
+    best_effort(_apply, "_apply_table_tab_stops")
 
 
 def _role_color_for_text(text: str, user_color: int, assistant_color: int, default_role: str = "assistant") -> int:
@@ -361,10 +362,7 @@ def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: Any
         "CharFontName",
         "CharUnderlineColor",
     ):
-        try:
-            setattr(dest_cursor, prop, getattr(src_portion, prop))
-        except Exception:
-            pass
+        uno_probe(lambda p=prop: setattr(dest_cursor, p, getattr(src_portion, p)), None)
     resolved = char_color
     if resolved is None:
         raw = getattr(src_portion, "CharColor", None)
@@ -638,14 +636,15 @@ def paint_message_items(
         _replace_control_with_plain(control, rows, ctx, style_window, restore_focus=restore_focus)
         return True
     finally:
-        if doc is not None:
-            try:
-                doc.close(True)
-            except Exception:
-                # doc.close(True) can raise CloseVetoException. A bare pass
-                # leaked this hidden Writer with no log. Log and continue so
-                # a veto cannot fail the paint.
-                log.debug("paint_message_items: hidden writer close failed", exc_info=True)
+        _close_hidden_doc(doc, "paint_message_items")
+
+
+def _close_hidden_doc(doc: Any, context: str) -> None:
+    if doc is not None:
+        try:
+            doc.close(True)
+        except Exception:
+            log.debug("%s: hidden writer close failed", context, exc_info=True)
 
 
 def _copy_formatted_from_hidden_doc_to_control(
@@ -970,21 +969,14 @@ def append_rich_messages_via_clipboard(
                 if _plain_append_messages(control, batch, ctx, style_window, restore_focus=restore_focus):
                     any_inserted = True
         finally:
-            if doc is not None:
-                try:
-                    doc.close(True)
-                except Exception:
-                    # doc.close(True) can raise CloseVetoException. A bare pass
-                    # leaked this hidden Writer with no log. Log and continue so
-                    # a veto cannot fail the paint.
-                    log.debug("append_rich_messages_via_clipboard: hidden writer close failed", exc_info=True)
+            _close_hidden_doc(doc, "append_rich_messages_via_clipboard")
     if any_inserted and items[-1][0] == "user":
         _ensure_trailing_line_break(control)
 
 
 def _ensure_message_separator(control: Any) -> None:
     """Insert paragraph breaks without assigning model.Text (preserves rich formatting)."""
-    try:
+    def _do_separate() -> None:
         model = control.getModel()
         text = (model.Text or "") if model is not None else ""
         if model is None or not text.strip():
@@ -1000,8 +992,8 @@ def _ensure_message_separator(control: Any) -> None:
         cursor.gotoEnd(False)
         _insert_string_at_rich_cursor(model, cursor, "\n\n")
         log_rich_scroll("separator", control=control)
-    except Exception:
-        pass
+
+    best_effort(_do_separate, "_ensure_message_separator")
 
 
 def _ensure_trailing_line_break(control: Any) -> None:
@@ -1010,7 +1002,7 @@ def _ensure_trailing_line_break(control: Any) -> None:
     Formatted copy from Writer often has no trailing ``\\n``; a single ``\\n`` only moves to
     the next line. We want ``\\n\\n`` (same gap as ``_ensure_message_separator``).
     """
-    try:
+    def _do_break() -> None:
         model = control.getModel()
         if model is None or not (model.Text or "").strip():
             return
@@ -1024,8 +1016,8 @@ def _ensure_trailing_line_break(control: Any) -> None:
         cursor.gotoEnd(False)
         _insert_string_at_rich_cursor(model, cursor, suffix)
         log_rich_scroll("trailing_break", control=control, suffix_len=len(suffix))
-    except Exception:
-        pass
+
+    best_effort(_do_break, "_ensure_trailing_line_break")
 
 
 def append_rich_text_via_clipboard(
@@ -1130,12 +1122,5 @@ def append_rich_text_via_clipboard(
         if not inserted:
             _rollback_rich_insert(control, before)
     finally:
-        if doc is not None:
-            try:
-                doc.close(True)
-            except Exception:
-                # doc.close(True) can raise CloseVetoException. A bare pass
-                # leaked this hidden Writer with no log. Log and continue so
-                # a veto cannot fail the paint.
-                log.debug("append_rich_text_via_clipboard: hidden writer close failed", exc_info=True)
+        _close_hidden_doc(doc, "append_rich_text_via_clipboard")
     return False

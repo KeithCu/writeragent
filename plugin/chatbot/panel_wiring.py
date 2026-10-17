@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 from plugin.chatbot.dialogs import get_optional as get_optional_control, get_control_text, set_control_text, set_control_visible, translate_dialog
 from plugin.chatbot.panel_resize import _PanelResizeListener
 from plugin.framework.config import get_config
-from plugin.framework.errors import suppress_disposed
+from plugin.framework.errors import best_effort, suppress_disposed
 from plugin.framework.i18n import _
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.logging import init_logging
@@ -418,16 +418,10 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                 except Exception:
                     log.exception("Initial RichTextControl render failed")
                 if hasattr(self, "_rich_control_listener") and self._rich_control_listener:
-                    try:
-                        log_rich_scroll("on_ready_step", control=rich_control, step="sync_bounds")
-                        self._rich_control_listener._sync_bounds()
-                    except Exception as e:
-                        log.debug("on_rich_control_ready sync bounds: %s", e)
-                try:
-                    log_rich_scroll("on_ready_step", control=rich_control, step="reveal_caret")
-                    widget.reveal_caret(reason="on_ready")
-                except Exception as e:
-                    log.debug("on_rich_control_ready reveal caret: %s", e)
+                    log_rich_scroll("on_ready_step", control=rich_control, step="sync_bounds")
+                    best_effort(self._rich_control_listener._sync_bounds, "on_rich_control_ready sync bounds")
+                log_rich_scroll("on_ready_step", control=rich_control, step="reveal_caret")
+                best_effort(lambda: widget.reveal_caret(reason="on_ready"), "on_rich_control_ready reveal caret")
 
             rich_control_listener = RichTextControlListener(
                 self.ctx,

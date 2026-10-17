@@ -189,7 +189,7 @@ from plugin.framework.uno_listeners import BaseItemListener, BaseTextListener
 from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model, set_text_model
 from plugin.framework.i18n import _
-from plugin.framework.errors import UnoObjectError, suppress_disposed
+from plugin.framework.errors import UnoObjectError, best_effort, suppress_disposed
 from plugin.framework.prompts import get_chat_system_prompt_for_document, get_greeting_for_document
 from plugin.doc.doc_type import get_document_type
 from plugin.doc.udprops import get_document_property, set_document_property
@@ -268,10 +268,7 @@ def _initialize_extension_paths(ctx: Any) -> None:
             # Only after success: a falsy path or an exception retries on the next sidebar.
             _paths_initialized = True
         except Exception:
-            try:
-                init_logging(ctx)
-            except Exception:
-                log.exception("init_logging failed during extension path setup")
+            best_effort(lambda: init_logging(ctx), "init_logging failed during extension path setup")
             log.exception("_initialize_extension_paths failed")
 
     # Hop the body, not this function: WRITERAGENT_TESTING=1 inlines
@@ -554,15 +551,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if not self.m_panelRootWindow:
             # Empty white sidebar: ContainerWindowProvider returns null when the XDL
             # URL cannot be loaded (e.g. Dialogs/ wiped by Windows dialogs/ case collision).
-            xdl_fs_path = ""
-            xdl_exists = False
-            try:
-                ext_path = get_extension_path(self.ctx)
-                if ext_path:
-                    xdl_fs_path = os.path.join(ext_path, *XDL_PATH.split("/"))
-                    xdl_exists = os.path.isfile(xdl_fs_path)
-            except Exception as e:
-                log.debug("[RICH-LIFECYCLE] could not resolve XDL filesystem path: %s", e)
+            ext_path = best_effort(lambda: get_extension_path(self.ctx), "resolve XDL filesystem path")
+            xdl_fs_path = os.path.join(ext_path, *XDL_PATH.split("/")) if ext_path else ""
+            xdl_exists = os.path.isfile(xdl_fs_path) if xdl_fs_path else False
             log.error(
                 "[RICH-LIFECYCLE] createContainerWindow returned no window url=%s xdl_path=%s exists=%s",
                 dialog_url,
@@ -1059,10 +1050,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             # Session owns the builder; factory only asks for a fresh snapshot.
             session = getattr(self, "doc_session", None)
             if session is not None and model is not None:
-                try:
-                    session.refresh_document_context(model, self.ctx)
-                except Exception:
-                    log.debug("refresh_document_context failed", exc_info=True)
+                best_effort(lambda: session.refresh_document_context(model, self.ctx), "refresh_document_context failed")
         toggle_image_ui(is_image_mode(mode))
         greeting = self._greeting_for_sidebar_mode(mode, model)
         if send_listener:

@@ -3,6 +3,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.uno_listeners import BaseWindowListener
 
 log = logging.getLogger(__name__)
@@ -336,11 +337,10 @@ def _measure(ctrl: Any, method: str) -> tuple[int, int] | None:
     fn = getattr(ctrl, method, None) if ctrl is not None else None
     if not callable(fn):
         return None
-    try:
-        size: Any = fn()
-        w, h = size.Width, size.Height
-    except Exception:
+    size: Any = uno_probe(fn, None)
+    if size is None:
         return None
+    w, h = getattr(size, "Width", 0), getattr(size, "Height", 0)
     if not isinstance(w, int) or not isinstance(h, int) or w <= 0 or h <= 0:
         return None
     return w, h
@@ -474,12 +474,9 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         # container, which fires windowResized with a larger height and
         # repeats (test_e12).
         if self._parent_window is not None:
-            try:
-                pr = self._parent_window.getPosSize()
-                if pr.Height > 0 and h > pr.Height:
-                    h = int(pr.Height)
-            except Exception:
-                pass
+            pr = uno_probe(self._parent_window.getPosSize, None)
+            if pr is not None and pr.Height > 0 and h > pr.Height:
+                h = int(pr.Height)
         if h > 3000:
             h = 3000
         # Column is last getHeightForWidth. Before the first hfw, the first
@@ -527,7 +524,8 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             )
             rich = self._c.get("response_rich")
             if rich is not None:
-                try:
+                def _sync_rich() -> None:
+                    nonlocal rich
                     from plugin.chatbot.rich_text_control import log_rich_scroll, sync_rich_control_bounds
 
                     log_rich_scroll("relayout", control=rich, root_w=w, root_h=h)
@@ -542,5 +540,5 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
                     )
                     rich = rich_out[0]
                     self._c["response_rich"] = rich
-                except Exception as e:
-                    log.debug("response_rich sync after relayout: %s", e)
+
+                best_effort(_sync_rich, "response_rich sync after relayout")

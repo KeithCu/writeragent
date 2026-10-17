@@ -27,6 +27,7 @@ import re
 from typing import Any, cast
 
 from plugin.framework.appearance import get_theme_colors
+from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.html_stripper import strip_html_tags, text_has_real_html_tag
 from plugin.framework.i18n import _
 
@@ -101,6 +102,10 @@ CHAT_FONT_WEIGHT = 100.0
 CHAT_PARA_SIDE_MARGIN = 250
 
 
+def _safe_set_prop(obj: Any, name: str, val: Any) -> None:
+    uno_probe(lambda: setattr(obj, name, val), None)
+
+
 def apply_chat_char_props(target: Any, *, bg_color: int | None = None) -> None:
     """Apply sidebar chat Liberation Sans 10pt Char* props to a cursor, portion, or style object."""
     for name, val in (
@@ -111,15 +116,9 @@ def apply_chat_char_props(target: Any, *, bg_color: int | None = None) -> None:
         ("CharWeight", CHAT_FONT_WEIGHT),
         ("CharPosture", 0),
     ):
-        try:
-            setattr(target, name, val)
-        except Exception:
-            pass
+        _safe_set_prop(target, name, val)
     if bg_color is not None:
-        try:
-            target.CharBackColor = bg_color
-        except Exception:
-            pass
+        _safe_set_prop(target, "CharBackColor", bg_color)
 
 
 def apply_rich_control_para_margins(cursor: Any) -> None:
@@ -129,10 +128,7 @@ def apply_rich_control_para_margins(cursor: Any) -> None:
         ("ParaRightMargin", CHAT_PARA_SIDE_MARGIN),
         ("ParaFirstLineIndent", 0),
     ):
-        try:
-            setattr(cursor, name, val)
-        except Exception:
-            pass
+        _safe_set_prop(cursor, name, val)
 
 
 def configure_hidden_writer_for_chat(doc: Any) -> None:
@@ -228,10 +224,7 @@ def _tighten_list_indent(body_range: Any) -> None:
     while enum.hasMoreElements():
         para = enum.nextElement()
         para_count += 1
-        try:
-            if not para.getPropertyValue("NumberingIsNumber"):
-                continue
-        except Exception:
+        if not uno_probe(lambda: para.getPropertyValue("NumberingIsNumber"), False):
             continue
 
         level = para.getPropertyValue("NumberingLevel")
@@ -242,7 +235,7 @@ def _tighten_list_indent(body_range: Any) -> None:
             continue
         processed_levels.add(key)
 
-        try:
+        def _tighten() -> bool:
             rules = para.getPropertyValue("NumberingRules")
             props = list(rules.getByIndex(level))
             # Read the existing FirstLineOffset so we can position the bullet
@@ -261,9 +254,10 @@ def _tighten_list_indent(body_range: Any) -> None:
             any_props = uno_any("[]com.sun.star.beans.PropertyValue", cast("Any", tuple(props)))
             uno.invoke(rules, "replaceByIndex", (level, any_props))
             para.NumberingRules = rules
+            return True
+
+        if best_effort(_tighten, f"_tighten_list_indent: failed for level {level}"):
             tightened += 1
-        except Exception as e:
-            log.debug("_tighten_list_indent: failed for level %d: %s", level, e)
 
     log.debug("_tighten_list_indent: scanned %d paragraphs, tightened %d", para_count, tightened)
 

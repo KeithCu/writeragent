@@ -22,6 +22,7 @@ import os
 import threading
 from typing import Any, cast
 
+from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import BaseWindowListener
 from plugin.chatbot.rich_text import (
     _go_right,
@@ -125,15 +126,15 @@ def log_rich_control_context(ctx: Any, phase: str, **extra: Any) -> None:
             env_val = os.environ.get(env_key)
             if env_val:
                 env_bits.append(f"{env_key.lower()}={env_val}")
-        try:
+        def _get_work_area() -> None:
             from plugin.framework.uno_context import get_toolkit
 
             toolkit = get_toolkit(ctx)
             if toolkit is not None and hasattr(toolkit, "getWorkArea"):
                 work_area = toolkit.getWorkArea()
                 env_bits.append("work_area=%sx%s" % (int(work_area.Width), int(work_area.Height)))
-        except Exception as e:
-            log.debug("log_rich_control_context work_area: %s", e)
+
+        best_effort(_get_work_area, "log_rich_control_context work_area")
         if env_bits:
             parts.append("env=" + " ".join(env_bits))
     log.info(" ".join(parts))
@@ -691,8 +692,9 @@ def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -
     _apply_control_surface_colors(control, theme.bg_color)
 
     if hasattr(model, "createTextCursor"):
-        try:
+        def _apply_cursor() -> None:
             import uno
+
             cursor = model.createTextCursor()
             cursor.gotoStart(False)
             text_len = len(model.Text or "")
@@ -703,8 +705,8 @@ def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -
             cursor.gotoEnd(False)
             if control is not None and hasattr(control, "setSelection"):
                 control.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", text_len, text_len))
-        except Exception as e:
-            log.debug("_apply_rich_control_style_defaults cursor failed: %s", e)
+
+        best_effort(_apply_cursor, "_apply_rich_control_style_defaults cursor")
     log.info(
         "_apply_rich_control_style_defaults: font=%s %.1fpt",
         CHAT_FONT_NAME,
@@ -765,12 +767,9 @@ def _apply_control_surface_colors(control: Any, bg_color: int) -> None:
                 return
         except Exception as e:
             log.debug("_apply_control_surface_colors %s failed: %s", name, e)
-    try:
-        model = control.getModel()
-        if model is not None and _set_model_property(model, "BackgroundColor", bg_color):
-            return
-    except Exception as e:
-        log.debug("_apply_control_surface_colors model failed: %s", e)
+    model = getattr(control, "getModel", lambda: None)()
+    if model is not None:
+        _set_model_property(model, "BackgroundColor", bg_color)
 
 
 def _log_scrollish_props(label: str, obj: Any) -> None:
@@ -807,11 +806,7 @@ def _disable_rich_hscroll(control: Any) -> None:
     _log_scrollish_props("rich-model", model)
     if model is not None and hasattr(model, "setPropertyValue"):
         for name in ("HScroll", "HardLineBreaks"):
-            try:
-                model.setPropertyValue(name, False)
-                log.debug("_disable_rich_hscroll model.%s=False", name)
-            except Exception as e:
-                log.debug("_disable_rich_hscroll model.%s failed: %s", name, e)
+            best_effort(lambda: model.setPropertyValue(name, False), f"_disable_rich_hscroll model.{name}")
     peer = control.getPeer() if hasattr(control, "getPeer") else None
     if peer is not None and hasattr(peer, "getImplementationName"):
         impl = peer.getImplementationName()
@@ -826,11 +821,7 @@ def _disable_rich_hscroll(control: Any) -> None:
     )
     _log_scrollish_props("rich-peer", peer)
     if peer is not None and hasattr(peer, "setProperty"):
-        try:
-            peer.setProperty("HScroll", False)
-            log.debug("_disable_rich_hscroll peer.setProperty(HScroll, False) ok")
-        except Exception as e:
-            log.debug("_disable_rich_hscroll peer.setProperty(HScroll) failed: %s", e)
+        best_effort(lambda: peer.setProperty("HScroll", False), "_disable_rich_hscroll peer.setProperty(HScroll)")
 
 
 def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: Any, parent_window: Any) -> Any | None:
@@ -1175,19 +1166,21 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
 def _apply_char_color_to_cursor_range(model: Any, start: Any, end: Any, char_color: Any) -> None:
     if char_color is None or _is_automatic_char_color(char_color):
         return
-    try:
+
+    def _apply() -> None:
         sel = model.createTextCursor()
         sel.gotoRange(start, False)
         sel.gotoRange(end, True)
         sel.CharColor = char_color
-    except Exception as e:
-        log.debug("_apply_char_color_to_cursor_range failed: %s", e)
+
+    best_effort(_apply, "_apply_char_color_to_cursor_range")
 
 
 def _apply_char_emphasis_to_cursor_range(model: Any, start: Any, end: Any, *, bold: bool | None = None, underline: bool | None = None) -> None:
     if start is None or end is None or (bold is None and underline is None):
         return
-    try:
+
+    def _apply() -> None:
         sel = model.createTextCursor()
         sel.gotoRange(start, False)
         sel.gotoRange(end, True)
@@ -1199,8 +1192,8 @@ def _apply_char_emphasis_to_cursor_range(model: Any, start: Any, end: Any, *, bo
             sel.CharUnderline = 1
         elif underline is False:
             sel.CharUnderline = 0
-    except Exception as e:
-        log.debug("_apply_char_emphasis_to_cursor_range failed: %s", e)
+
+    best_effort(_apply, "_apply_char_emphasis_to_cursor_range")
 
 
 def _insert_string_at_rich_cursor(
