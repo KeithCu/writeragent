@@ -59,7 +59,8 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
 
     Calls ``on_item(rl)`` for each redline. Return True when the item was classified; False when it
     could not be (marks the scan unreliable but continues). Raise ``RedlineScanAbort`` to abort
-    immediately (returns ``reliable=False``).
+    immediately (returns ``reliable=False``). Any other exception from ``on_item`` also aborts
+    with ``reliable=False``.
 
     Also marks unreliable when ``seen != total``.
     """
@@ -89,6 +90,10 @@ def scan_redlines(doc: Any, on_item: Callable[[Any], bool]) -> tuple[bool, int, 
             if not on_item(rl):
                 reliable = False
         except RedlineScanAbort:
+            return False, seen, total
+        except Exception:
+            # A per-redline read failed (for example the document closed mid-scan).
+            # Fail closed in one place so callbacks can read properties directly.
             return False, seen, total
     if seen != total:
         reliable = False

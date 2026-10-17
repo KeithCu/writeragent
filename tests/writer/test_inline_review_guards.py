@@ -740,3 +740,35 @@ def test_closed_document_resolve_fails_closed_without_dispatch():
     assert tokens == set() and ok is False
     _ids, foreign_ok = _foreign_redline_ids(model)
     assert foreign_ok is False
+
+
+# Per-redline read failures (e.g. the document closed mid-scan) still fail closed:
+# scan_redlines turns any on_item exception into reliable=False.
+
+def test_foreign_redline_fails_closed_on_per_redline_error():
+    span = FakeRange(10, 20)
+    # A user redline whose RedlineStart read blows up -> can't tell if it overlaps -> refuse.
+    model = FakeModel(FakeRedlines([FakeRedline("", 15, 25, raise_on={"RedlineStart"})]))
+    assert _foreign_redline_in_span(model, FakeText(), span) is True
+
+
+def test_all_redlines_are_agent_false_on_unreadable_comment():
+    model = FakeModel(FakeRedlines([_agent_rl(), FakeRedline("", 0, 0, raise_on={"RedlineComment"})]))
+    assert _all_redlines_are_agent(model) is False
+
+
+def test_change_bounds_fail_closed_on_unreadable_comment():
+    # A redline whose comment can't be read might BE a target mark we'd miss -> fail closed.
+    target = TOKEN_PREFIX + "s:1"
+    model = FakeModel(FakeRedlines([FakeRedline(target, 10, 15),
+                                    FakeRedline("", 0, 0, raise_on={"RedlineComment"})]))
+    assert _change_bounds(model, target) == (None, None)
+
+
+def test_change_bounds_fail_closed_on_unreadable_target_bounds():
+    # A TARGET mark whose Start can't be read -> we can't build the complete span -> fail closed
+    # (the old code skipped it and could return only the other half).
+    target = TOKEN_PREFIX + "s:1"
+    model = FakeModel(FakeRedlines([FakeRedline(target, 10, 15),
+                                    FakeRedline(target, 15, 20, raise_on={"RedlineStart"})]))
+    assert _change_bounds(model, target) == (None, None)
