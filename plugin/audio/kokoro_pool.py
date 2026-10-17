@@ -39,6 +39,7 @@ import threading
 import time
 from typing import Any, Callable
 
+from plugin.framework.errors import best_effort
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.ipc import (
@@ -245,13 +246,8 @@ def _signal_kokoro_child(worker: Any) -> None:
     proc = getattr(managed, "popen", None)
     if proc is None:
         return
-    try:
-        if sys.platform == "win32":
-            proc.terminate()
-        else:
-            proc.kill()
-    except Exception as exc:
-        log.debug("Kokoro child signal failed: %s", exc)
+    action = proc.terminate if sys.platform == "win32" else proc.kill
+    best_effort(action, "Kokoro child signal failed")
 
 
 class KokoroProcessPool:
@@ -440,20 +436,19 @@ class KokoroProcessPool:
                 "code": "WORKER_CANCELLED",
                 "error": "Kokoro worker was cancelled.",
             }
-        if isinstance(result, dict):
-            raw_warning = result.get("warning")
-            if isinstance(raw_warning, str):
-                text = raw_warning.strip()
-                if text:
-                    first = False
-                    with self._lock:
-                        if text not in self._seen_warnings:
-                            self._seen_warnings.add(text)
-                            first = True
-                    if first:
-                        log.warning("Kokoro: %s", text)
-                    else:
-                        log.debug("Kokoro: %s", text)
+        raw_warning = result.get("warning")
+        if isinstance(raw_warning, str):
+            text = raw_warning.strip()
+            if text:
+                first = False
+                with self._lock:
+                    if text not in self._seen_warnings:
+                        self._seen_warnings.add(text)
+                        first = True
+                if first:
+                    log.warning("Kokoro: %s", text)
+                else:
+                    log.debug("Kokoro: %s", text)
         return result
 
     def cancel_inflight(self, token: object | None = None) -> None:

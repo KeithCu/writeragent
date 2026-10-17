@@ -28,7 +28,7 @@ import time
 from typing import Any, Callable
 
 from plugin.framework.config import get_config, get_config_str
-from plugin.framework.errors import ConfigError
+from plugin.framework.errors import ConfigError, best_effort
 from plugin.framework.i18n import _
 from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
 
@@ -250,34 +250,20 @@ def terminate_stt_process(proc: subprocess.Popen[str] | None) -> None:
     """
     if proc is None or proc.poll() is not None:
         return
-    try:
-        proc.kill()
-    except OSError:
-        log.debug("STT kill failed", exc_info=True)
+    best_effort(proc.kill, "STT kill failed")
 
 
 def _reap_stt_process(proc: subprocess.Popen[str]) -> None:
-    try:
-        proc.wait(timeout=1.0)
-    except Exception:
-        log.debug("STT reap failed", exc_info=True)
+    best_effort(lambda: proc.wait(timeout=1.0), "STT reap failed")
 
 
 def _close_stt_pipe(stream: Any) -> None:
-    if stream is None:
-        return
-    try:
-        stream.close()
-    except Exception:
-        log.debug("STT pipe close failed", exc_info=True)
+    if stream is not None:
+        best_effort(stream.close, "STT pipe close failed")
 
 
 def _read_stt_pipe(stream: Any, sink: list[str]) -> None:
-    try:
-        data = stream.read() if stream is not None else ""
-    except Exception:
-        log.debug("STT pipe read failed", exc_info=True)
-        data = ""
+    data = best_effort(stream.read, "STT pipe read failed", default="") if stream is not None else ""
     sink.append(data if isinstance(data, str) else "")
 
 
@@ -339,10 +325,7 @@ def _run_cmd(
 
     def _join_drains() -> None:
         for handle in handles:
-            try:
-                handle.join(timeout=1.0)
-            except Exception:
-                log.debug("STT pipe drain join failed", exc_info=True)
+            best_effort(lambda: handle.join(timeout=1.0), "STT pipe drain join failed")
 
     try:
         deadline = time.monotonic() + timeout

@@ -35,6 +35,7 @@ import shutil
 import subprocess
 from typing import Any, Callable
 
+from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -250,11 +251,7 @@ def _emit(on_status: Callable[[str], None] | None, message: str) -> None:
 def _cancelled(cancelled: Callable[[], bool] | None) -> bool:
     if cancelled is None:
         return False
-    try:
-        return bool(cancelled())
-    except Exception:
-        log.debug("Kokoro phonemizer cancel check failed", exc_info=True)
-        return False
+    return bool(best_effort(cancelled, "Kokoro phonemizer cancel check failed", False))
 
 
 def _run_cmd(cmd: list[str], timeout: float) -> subprocess.CompletedProcess[str] | None:
