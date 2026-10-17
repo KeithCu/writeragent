@@ -632,10 +632,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
             # and rewrite the cache after a successful read.
             log.warning("Cached ODS unreadable for %s; re-importing source", full_path)
             if model is not None and opened_flag:
-                try:
-                    close_document_research_document(model, opened_for_document_research=opened_flag)
-                except Exception:
-                    pass
+                close_document_research_document(model, opened_for_document_research=opened_flag)
             model = None
             opened_flag = False
             cache_hit = False
@@ -665,7 +662,4 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
         raise _sibling_office_error(full_path, f"failed to read used range: {exc}") from exc
     finally:
         if model is not None and opened_flag:
-            try:
-                close_document_research_document(model, opened_for_document_research=opened_flag)
-            except Exception:
-                pass
+            close_document_research_document(model, opened_for_document_research=opened_flag)

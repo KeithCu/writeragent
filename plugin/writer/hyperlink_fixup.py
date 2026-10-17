@@ -123,10 +123,7 @@ def empty_snapshot() -> OutlineSnapshot:
 
 
 def _prop(obj: Any, name: str) -> str:
-    try:
-        value = obj.getPropertyValue(name)
-    except Exception:
-        return ""
+    value = obj.getPropertyValue(name)
     return value if isinstance(value, str) else ""
 
 
@@ -280,10 +277,7 @@ def _enum_has_more(enum: Any) -> bool:
     (``test_edited_context``, ``test_small_fixes_r5``) and hung until GHA
     SIGTERM. ``is True`` matches UNO bools and the ``_Enum`` fake.
     """
-    try:
-        return enum.hasMoreElements() is True
-    except Exception:
-        return False
+    return enum.hasMoreElements() is True
 
 
 def _iter_portions(text: Any, anchor_pos: Any) -> Iterator[Any]:
@@ -291,31 +285,15 @@ def _iter_portions(text: Any, anchor_pos: Any) -> Iterator[Any]:
     cursor = _cursor_at(text, anchor_pos)
     cursor.gotoStartOfParagraph(False)
     cursor.gotoEndOfParagraph(True)
-    try:
-        para_enum = cursor.createEnumeration()
-    except Exception:
-        return
-    while True:
-        try:
-            if not _enum_has_more(para_enum):
-                break
-            para = para_enum.nextElement()
-        except Exception:
-            break
-        try:
-            if hasattr(para, "supportsService") and not para.supportsService(
-                    "com.sun.star.text.Paragraph"):
-                continue
-            portion_enum = para.createEnumeration()
-        except Exception:
+    para_enum = cursor.createEnumeration()
+    while _enum_has_more(para_enum):
+        para = para_enum.nextElement()
+        if hasattr(para, "supportsService") and not para.supportsService(
+                "com.sun.star.text.Paragraph"):
             continue
-        while True:
-            try:
-                if not _enum_has_more(portion_enum):
-                    break
-                yield portion_enum.nextElement()
-            except Exception:
-                break
+        portion_enum = para.createEnumeration()
+        while _enum_has_more(portion_enum):
+            yield portion_enum.nextElement()
 
 
 def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
@@ -458,21 +436,12 @@ def _write_plan_on_cursor(cursor: Any, plan: dict[str, Any],
 
 
 def _read_char_look(obj: Any) -> dict[str, Any]:
-    """Direct colour / underline on *obj*, or empty when the property is missing.
-
-    Unit-test fakes raise for unset Char*; UNO returns an int (0 = black /
-    FontUnderline.NONE). None is treated as missing so a mock does not snapshot
-    a placeholder.
-    """
+    """Direct colour / underline on *obj*, or empty when the property is missing."""
     props: dict[str, Any] = {}
     for name in _CHAR_LOOK:
-        try:
-            value = obj.getPropertyValue(name)
-        except Exception:
-            continue
-        if value is None:
-            continue
-        props[name] = value
+        value = obj.getPropertyValue(name)
+        if value is not None:
+            props[name] = value
     return props
 
 

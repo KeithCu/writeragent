@@ -229,10 +229,7 @@ def _set_image_cell_annotation(ctx: Any, doc: Any, code: str | None, error_messa
             if hasattr(annotations, "insertNew"):
                 addr: Any = None
                 if hasattr(cell, "getCellAddress"):
-                    try:
-                        addr = cell.getCellAddress()
-                    except Exception:
-                        addr = None
+                    addr = cell.getCellAddress()
                 if addr is None:
                     sheet_idx = getattr(sheet.getRangeAddress(), "Sheet", 0) if hasattr(sheet, "getRangeAddress") else 0
                     from com.sun.star.table import CellAddress
@@ -293,30 +290,24 @@ def _egress_fail(message: str, *, level: str = "debug") -> NoReturn:
 
 def _cell_address_key(cell: Any) -> tuple[Any, int, int] | None:
     """Sheet + column + row for a cell-like UNO object, or None."""
-    try:
-        if hasattr(cell, "getRangeAddress"):
-            addr = cell.getRangeAddress()
-            sheet_idx = getattr(addr, "Sheet", None)
-            return (sheet_idx, int(addr.StartColumn), int(addr.StartRow))
-        if hasattr(cell, "getCellAddress"):
-            addr = cell.getCellAddress()
-            return (getattr(addr, "Sheet", None), int(addr.Column), int(addr.Row))
-    except Exception:
-        return None
+    if hasattr(cell, "getRangeAddress"):
+        addr = cell.getRangeAddress()
+        sheet_idx = getattr(addr, "Sheet", None)
+        return (sheet_idx, int(addr.StartColumn), int(addr.StartRow))
+    if hasattr(cell, "getCellAddress"):
+        addr = cell.getCellAddress()
+        return (getattr(addr, "Sheet", None), int(addr.Column), int(addr.Row))
     return None
 
 
 def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
     """True when the shape is already anchored to the same grid cell (not UNO identity)."""
-    try:
-        if not hasattr(shape, "getPropertyValue"):
-            return False
-        anchor = shape.getPropertyValue("Anchor")
-        left = _cell_address_key(anchor)
-        right = _cell_address_key(target_cell)
-        return left is not None and left == right
-    except Exception:
+    if not hasattr(shape, "getPropertyValue"):
         return False
+    anchor = shape.getPropertyValue("Anchor")
+    left = _cell_address_key(anchor)
+    right = _cell_address_key(target_cell)
+    return left is not None and left == right
 
 
 def _supports_draw_graphic(shape: Any) -> bool:
@@ -328,23 +319,17 @@ def _supports_draw_graphic(shape: Any) -> bool:
     supports = getattr(shape, "supportsService", None)
     if not callable(supports):
         return False
-    try:
-        hit = supports(_DRAW_GRAPHIC_SERVICE)
-    except Exception:
-        return False
+    hit = supports(_DRAW_GRAPHIC_SERVICE)
     if hit is True:
         return True
     return type(hit) is int and hit == 1
 
 
 def _shape_name(shape: Any) -> str:
-    try:
-        if hasattr(shape, "getPropertyValue"):
-            value = shape.getPropertyValue("Name")
-        else:
-            value = getattr(shape, "Name", "")
-    except Exception:
-        return ""
+    if hasattr(shape, "getPropertyValue"):
+        value = shape.getPropertyValue("Name")
+    else:
+        value = getattr(shape, "Name", "")
     return value if isinstance(value, str) else ""
 
 
@@ -586,10 +571,7 @@ def _insert_image_result_on_sheet_impl(
                 shape.setSize(aspect_size)
             draw_page.add(shape)
             created_shape = True
-            try:
-                shape.setPropertyValue("Name", slot_name)
-            except Exception:
-                log.debug("insert_image_result_on_sheet: could not name plot shape", exc_info=True)
+            shape.setPropertyValue("Name", slot_name)
 
         try:
             # Setter loads the file into the shape's Graphic before returning.

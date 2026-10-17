@@ -206,3 +206,20 @@ def test_image_get_info_reads_hyperlink_url(ctx, doc):
     linked = TestingFactory.execute_tool(doc, ctx, "image_get_info", {"name": names[0]}, doc_type="writer")
     assert linked.get("status") == "ok", linked
     assert linked.get("hyperlink_url") == "#ÍNDEX"
+
+
+@native_test
+@with_native_doc("writer")
+def test_writer_graphic_object_get_size_uno(ctx, doc):
+    """XShape.getSize() on a Writer GraphicObjectShape returns its Size (REPORT37 I2)."""
+    logo = _logo_path()
+    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    before = set(doc.getGraphicObjects().getElementNames())
+    insert_image(ctx, doc, logo, 64, 64, add_to_gallery=False, add_frame=False)
+    names = [n for n in doc.getGraphicObjects().getElementNames() if n not in before]
+    assert names, "expected an inserted graphic"
+    graphic = doc.getGraphicObjects().getByName(names[0])
+    size = graphic.getSize()
+    assert size.Width > 0
+    assert size.Height > 0
+

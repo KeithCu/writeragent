@@ -656,8 +656,8 @@ class TestWriterImageCursorConversion:
 
 class TestReplaceGraphicSource:
     def test_embed_path_sets_graphic_url(self):
-        graphic = MagicMock(spec=["getPropertyValue", "setPropertyValue", "getPropertySetInfo"])
-        graphic.getPropertyValue.return_value = MagicMock(Width=5000, Height=4000)
+        graphic = MagicMock(spec=["getPropertyValue", "setPropertyValue", "getPropertySetInfo", "getSize"])
+        graphic.getSize.return_value = MagicMock(Width=5000, Height=4000)
         psi = MagicMock()
         psi.hasPropertyByName.return_value = True
         graphic.getPropertySetInfo.return_value = psi
@@ -673,8 +673,8 @@ class TestReplaceGraphicSource:
         graphic.setPropertyValue.assert_any_call("GraphicURL", "file:////tmp/new.png")
 
     def test_user_path_updates_graphic_url_in_place(self):
-        graphic = MagicMock(spec=["getPropertyValue", "setPropertyValue", "getPropertySetInfo"])
-        graphic.getPropertyValue.return_value = MagicMock(Width=5000, Height=4000)
+        graphic = MagicMock(spec=["getPropertyValue", "setPropertyValue", "getPropertySetInfo", "getSize"])
+        graphic.getSize.return_value = MagicMock(Width=5000, Height=4000)
         psi = MagicMock()
         psi.hasPropertyByName.return_value = True
         graphic.getPropertySetInfo.return_value = psi

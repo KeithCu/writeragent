@@ -131,20 +131,12 @@ def _graphic_from_provider(ctx: Any, file_url: str) -> Any | None:
 def _is_same_graphic(a: Any, b: Any) -> bool:
     if a is None or b is None:
         return False
-    if a is b:
+    if a is b or a == b:
         return True
-    try:
-        if a == b:
-            return True
-    except Exception:
-        pass
-    try:
-        a_name = a.getName()
-        b_name = b.getName()
-        if isinstance(a_name, str) and isinstance(b_name, str) and a_name and a_name == b_name:
-            return True
-    except Exception:
-        pass
+    a_name = a.getName()
+    b_name = b.getName()
+    if isinstance(a_name, str) and isinstance(b_name, str) and a_name and a_name == b_name:
+        return True
     return False
 
 
@@ -606,17 +598,9 @@ def replace_graphic_source(
 
     inside = get_type_doc(model)
     if width_units is None or height_units is None:
-        try:
-            size = graphic.getSize()
-            width_units = size.Width
-            height_units = size.Height
-        except Exception:
-            try:
-                size = graphic.getPropertyValue("Size")
-                width_units = size.Width
-                height_units = size.Height
-            except Exception:
-                width_units, height_units = 8000, 8000
+        size = graphic.getSize()
+        width_units = size.Width
+        height_units = size.Height
 
     with WriterCompoundUndo(model, "WriterAgent: Replace image"):
         file_url = _file_url_for_path(img_path)
@@ -687,23 +671,11 @@ def get_selected_image_pixel_size(model: Any) -> tuple[int | None, int | None]:
     if graphic is None:
         log.debug("get_selected_image_pixel_size: no SizePixel")
         return None, None
-    try:
-        px = graphic.getPropertyValue("SizePixel")
-    except Exception:
-        log.debug("get_selected_image_pixel_size: no SizePixel", exc_info=True)
+    px = graphic.getPropertyValue("SizePixel")
+    if px is None or px.Width <= 0 or px.Height <= 0:
+        log.debug("get_selected_image_pixel_size: no SizePixel")
         return None, None
-    try:
-        if px is None or px.Width <= 0 or px.Height <= 0:
-            log.debug("get_selected_image_pixel_size: no SizePixel")
-            return None, None
-    except Exception:
-        log.debug("get_selected_image_pixel_size: no SizePixel", exc_info=True)
-        return None, None
-    try:
-        return int(px.Width), int(px.Height)
-    except Exception:
-        log.exception("get_selected_image_pixel_size failed")
-        return None, None
+    return int(px.Width), int(px.Height)
 
 
 def get_selected_image_dimensions_px(model: Any) -> tuple[int | None, int | None]:
@@ -714,14 +686,10 @@ def get_selected_image_dimensions_px(model: Any) -> tuple[int | None, int | None
     obj, _unused = _get_selected_graphic_object(model)
     if obj is None:
         return None, None
-    try:
-        size = visual_helpers.safe_get_property(obj, "Size")
-        if size is None:
-            size = obj.getSize()
-        return visual_helpers.units_to_px(size.Width, size.Height, minimum=64)
-    except Exception:
-        log.exception("get_selected_image_dimensions_px failed")
-        return None, None
+    size = visual_helpers.safe_get_property(obj, "Size")
+    if size is None:
+        size = obj.getSize()
+    return visual_helpers.units_to_px(size.Width, size.Height, minimum=64)
 
 
 def _graphic_from_object(obj: Any) -> Any | None:

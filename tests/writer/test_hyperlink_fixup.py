@@ -219,12 +219,8 @@ class _Cursor:
                 if name == "HyperLinkTarget":
                     return sl.target
                 if name == "CharColor":
-                    if sl.color is None:
-                        raise AttributeError(name)
                     return sl.color
                 if name == "CharUnderline":
-                    if sl.underline is None:
-                        raise AttributeError(name)
                     return sl.underline
         raise AttributeError(name)
 
@@ -288,12 +284,8 @@ class _Portion:
         if name == "HyperLinkTarget":
             return self.sl.target
         if name == "CharColor":
-            if self.sl.color is None:
-                raise AttributeError(name)
             return self.sl.color
         if name == "CharUnderline":
-            if self.sl.underline is None:
-                raise AttributeError(name)
             return self.sl.underline
         if name == "TextPortionType":
             return "Text"
