@@ -854,5 +854,3 @@ def test_paragraph_has_frame_true_on_imported_control_paragraphs(ctx, doc):
             ipynb.unlink()
         except OSError:
             pass
-
-
