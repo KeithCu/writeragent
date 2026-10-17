@@ -346,14 +346,6 @@ class GetDrawSummary(ToolDrawShapeBase):
             page = DrawBridge.resolve_slide(ctx.doc, actual_idx)
         except IndexError:
             return self._tool_error("Invalid page index: %s" % actual_idx)
-        except Exception as exc:
-            # A disposed document is not "No draw page". resolve_slide
-            # raises DisposedException; treating every other Exception as a
-            # missing page hides disposal. Re-raise disposal so the tool
-            # layer reports it.
-            if is_disposed_exception(exc):
-                raise
-            return self._tool_error("No draw page available.")
 
         shapes = []
         for i in range(page.getCount()):
@@ -765,15 +757,13 @@ class UpsertShape(ToolDrawShapeBase):
                 # setString can still resize Writer AT_PAGE custom shapes (Arch: 4001x4001 → 2249x489).
                 _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
                 _try_writer_invalidate_and_pump(ctx.doc)
-            except Exception as e:
-                if is_disposed_exception(e):
-                    raise
-                # Cleanup the shape if any exception occurs during formatting or anchor set
+            except Exception:
+                # Remove the half-built shape; execute_safe reports the error (or disposal).
                 try:
                     page.remove(shape)
                 except Exception:
                     pass
-                return self._tool_error(f"Failed to create shape fully: {e}")
+                raise
             # Do not select after create: selected Writer AT_PAGE CustomShapes often
             # show handles-only / no fill on Arch and headed Universal Sample.
             _log_shape_uno_snapshot("after_formatting", shape)
@@ -909,9 +899,7 @@ class ConnectShapes(ToolDrawShapeBase):
             # Additional properties
             _apply_shape_properties(shape, kwargs)
 
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
+        except Exception:
             # The connector is already on the page. Remove it so a failed
             # connect does not leave an unbound shape.
             try:
@@ -919,7 +907,7 @@ class ConnectShapes(ToolDrawShapeBase):
             except Exception as remove_exc:
                 if is_disposed_exception(remove_exc):
                     raise
-            return self._tool_error(f"Failed to set connector properties: {str(e)}")
+            raise
 
         return {"status": "ok", "message": f"Connected shape {start_idx} to {end_idx}", "index": page.getCount() - 1}
 
