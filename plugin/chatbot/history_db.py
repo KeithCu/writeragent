@@ -317,14 +317,9 @@ class JSONHistory:
                 raise json.JSONDecodeError("session is not a list of objects", "", 0)
             log.debug(f"JSONHistory: Retrieved {len(msgs)} messages for session {self.session_id}")
             return msgs
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
             # Callers (ChatSession open, add_message) must not treat a corrupt
-            # file as an empty history and write a fresh system row over it.
-            log.exception("JSONHistory: Error reading messages")
-            raise
-        except OSError:
-            # An OSError used to return [] and the next add_message replaced
-            # the file. Same refusal as a decode error: leave the file alone.
+            # file or OS error as an empty history and write a fresh system row over it.
             log.exception("JSONHistory: Error reading messages")
             raise
 

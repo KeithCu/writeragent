@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent
     from com.sun.star.datatransfer import DataFlavor
     from com.sun.star.lang import EventObject
+from plugin.framework.errors import best_effort
 from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url
 from plugin.framework.i18n import _
 
@@ -156,10 +157,7 @@ def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent
         try:
             result = box.execute()
         finally:
-            try:
-                box.dispose()
-            except Exception:
-                log.debug("show_approval_dialog dispose failed", exc_info=True)
+            best_effort(box.dispose, "show_approval_dialog dispose failed")
         return result in (1, 2)
     except Exception as e:
         log.exception("Approval dialog failed")
@@ -193,12 +191,9 @@ def show_web_search_query_edit_dialog(ctx: Any, parent_frame: Any, initial_text:
         class _OkListener(unohelper.Base, XActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
-                try:
-                    ec = dlg.getControl("QueryEdit")
-                    t = (ec.getModel().Text or "").strip() if ec and ec.getModel() else ""
-                except Exception:
-                    t = ""
-                _outcome = [t]
+                ec = dlg.getControl("QueryEdit")
+                m = ec.getModel() if ec else None
+                _outcome = [(m.Text or "").strip() if m and hasattr(m, "Text") else ""]
                 dlg.endDialog(1)
 
             def disposing(self, Source: EventObject) -> None:
@@ -259,12 +254,9 @@ def show_text_input_dialog(ctx: Any, message: str, title: str = "", default: str
         class _OkListener(unohelper.Base, XActionListener):
             def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
-                try:
-                    ec = dlg.getControl("TextEdit")
-                    t = (ec.getModel().Text or "").strip() if ec and ec.getModel() else ""
-                except Exception:
-                    t = ""
-                _outcome = [t]
+                ec = dlg.getControl("TextEdit")
+                m = ec.getModel() if ec else None
+                _outcome = [(m.Text or "").strip() if m and hasattr(m, "Text") else ""]
                 dlg.endDialog(1)
 
             def disposing(self, Source: EventObject) -> None:
@@ -773,10 +765,7 @@ class _UnoExceptionAdapter(BaseException):
         self.uno_type_name = type(uno_exc).__name__
         message = ""
         if hasattr(uno_exc, "Message"):
-            try:
-                message = str(uno_exc.Message or "").strip()
-            except Exception:
-                pass
+            message = str(best_effort(lambda: uno_exc.Message, "read uno_exc.Message", default="") or "").strip()
         if not message:
             message = type(uno_exc).__name__
         super().__init__(message)
@@ -942,16 +931,13 @@ def is_checkbox_control(ctrl: Any) -> bool:
     """
     if not ctrl:
         return False
-    try:
+    def _check() -> bool:
         if ctrl.supportsService("com.sun.star.awt.UnoControlCheckBox"):
             return True
         if hasattr(ctrl, "setState") or hasattr(ctrl, "getState"):
             return True
-        if hasattr(ctrl.getModel(), "State"):
-            return True
-    except Exception as e:
-        log.debug("is_checkbox_control exception: %s", e)
-    return False
+        return hasattr(ctrl.getModel(), "State")
+    return bool(best_effort(_check, "is_checkbox_control exception", default=False))
 
 
 def set_control_enabled(ctrl: Any, enabled: bool) -> None:
@@ -959,13 +945,12 @@ def set_control_enabled(ctrl: Any, enabled: bool) -> None:
     Logs instead of crashing if the capability is missing."""
     if not ctrl:
         return
-    try:
+    def _apply() -> None:
         if hasattr(ctrl, "setEnable"):
             ctrl.setEnable(enabled)
         elif hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), "Enabled"):
             ctrl.getModel().Enabled = enabled
-    except Exception as e:
-        log.debug("set_control_enabled exception: %s", e)
+    best_effort(_apply, "set_control_enabled exception")
 
 
 def set_control_visible(ctrl: Any, visible: bool) -> None:
@@ -973,13 +958,12 @@ def set_control_visible(ctrl: Any, visible: bool) -> None:
     Logs instead of crashing if the capability is missing."""
     if not ctrl:
         return
-    try:
+    def _apply() -> None:
         if hasattr(ctrl, "setVisible"):
             ctrl.setVisible(visible)
         elif hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), "Visible"):
             ctrl.getModel().Visible = visible
-    except Exception as e:
-        log.debug("set_control_visible exception: %s", e)
+    best_effort(_apply, "set_control_visible exception")
 
 
 def get_control_text(ctrl: Any, default: str = "") -> str:
@@ -987,14 +971,14 @@ def get_control_text(ctrl: Any, default: str = "") -> str:
     Returns default if missing or on error."""
     if not ctrl:
         return default
-    try:
+    def _get() -> str:
         if hasattr(ctrl, "getText"):
-            return ctrl.getText()
-        elif hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), "Text"):
-            return ctrl.getModel().Text
-    except Exception as e:
-        log.debug("get_control_text exception: %s", e)
-    return default
+            return str(ctrl.getText())
+        if hasattr(ctrl, "getModel") and hasattr(ctrl.getModel(), "Text"):
+            return str(ctrl.getModel().Text)
+        return default
+    res = best_effort(_get, "get_control_text exception", default=default)
+    return str(res if res is not None else default)
 
 
 def set_control_text(ctrl: Any, text: str) -> None:
@@ -1006,7 +990,7 @@ def set_control_text(ctrl: Any, text: str) -> None:
     """
     if not ctrl:
         return
-    try:
+    def _set() -> None:
         if hasattr(ctrl, "setText"):
             ctrl.setText(text)
         model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
@@ -1015,8 +999,7 @@ def set_control_text(ctrl: Any, text: str) -> None:
                 model.Text = text
             if hasattr(model, "Label"):
                 model.Label = text
-    except Exception as e:
-        log.debug("set_control_text exception: %s", e)
+    best_effort(_set, "set_control_text exception")
 
 
 def get_checkbox_state(ctrl: Any) -> int:
@@ -1026,14 +1009,14 @@ def get_checkbox_state(ctrl: Any) -> int:
     """
     if not ctrl:
         return 0
-    try:
+    def _get() -> int:
         if hasattr(ctrl, "getState"):
-            return ctrl.getState()
+            return int(ctrl.getState())
         if hasattr(ctrl.getModel(), "State"):
-            return ctrl.getModel().State
-    except Exception as e:
-        log.debug("get_checkbox_state exception: %s", e)
-    return 0
+            return int(ctrl.getModel().State)
+        return 0
+    res = best_effort(_get, "get_checkbox_state exception", default=0)
+    return int(res if res is not None else 0)
 
 
 def set_checkbox_state(ctrl: Any, value: int) -> None:
@@ -1043,13 +1026,12 @@ def set_checkbox_state(ctrl: Any, value: int) -> None:
     """
     if not ctrl:
         return
-    try:
+    def _set() -> None:
         if hasattr(ctrl, "setState"):
             ctrl.setState(value)
         elif hasattr(ctrl.getModel(), "State"):
             ctrl.getModel().State = value
-    except Exception as e:
-        log.debug("set_checkbox_state error: %s", e)
+    best_effort(_set, "set_checkbox_state error")
 
 
 class TabListener(BaseActionListener):

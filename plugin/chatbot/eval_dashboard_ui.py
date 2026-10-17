@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from plugin.framework.config import get_config_str
 from plugin.framework.client.model_fetcher import get_text_model
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import best_effort, is_disposed_exception, suppress_disposed
 from plugin.framework.uno_context import get_active_document
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
@@ -72,11 +72,7 @@ class EvalDashboard:
         """Paint the model combo from a list already in hand. No catalog GET."""
         if self._closed or self._dlg is None:
             return
-        try:
-            ctrl = self._dlg.getControl("models")
-        except Exception:
-            log.debug("Eval dashboard model combo unavailable", exc_info=True)
-            return
+        ctrl = best_effort(lambda: self._dlg.getControl("models"), "Eval dashboard model combo unavailable")
         if ctrl is None:
             return
         populate_combobox_with_lru(
@@ -232,7 +228,7 @@ class EvalRunListener(BaseActionListener):
             # later Run is not stuck after the dialog is already gone.
             if self._dialog_closed():
                 return
-            try:
+            with suppress_disposed("eval summary", logger=log, suppress_all=False):
                 log_text = f"Benchmarks Complete for {model_name}!\n"
                 log_text += f"Passed: {summary['passed']}, Failed: {summary['failed']}\n"
                 log_text += f"Total Est. Cost: ${summary['total_cost']:.4f}\n\n Details:\n"
@@ -240,10 +236,6 @@ class EvalRunListener(BaseActionListener):
                     log_text += f"[{res['status']}] {res['name']} ({res.get('latency', 0):.1f}s)\n"
                 self.dialog.getControl("log_area").setText(log_text)
                 self.dialog.getControl("status").setText("Finished")
-            except Exception as exc:
-                if not is_disposed_exception(exc):
-                    raise
-                log.debug("eval summary skipped; dialog disposed", exc_info=True)
         finally:
             self.is_running = False
 

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from com.sun.star.lang import EventObject
 
 from plugin.chatbot.dialogs import TabListener, get_optional, translate_dialog
+from plugin.framework.errors import best_effort
 from plugin.framework.uno_context import get_extension_url
 
 log = logging.getLogger(__name__)
@@ -150,10 +151,7 @@ class ModuleConfigDialog:
             dlg.setVisible(True)
         except Exception:
             self._dlg = None
-            try:
-                dlg.dispose()
-            except Exception:
-                log.exception("Failed to dispose module config dialog")
+            best_effort(dlg.dispose, "Failed to dispose module config dialog")
             raise
 
     def _setup_tabs(self) -> None:

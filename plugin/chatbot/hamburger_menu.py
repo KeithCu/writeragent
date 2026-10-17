@@ -14,6 +14,7 @@ import logging
 from typing import Any
 
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
+from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler
 from plugin.framework.menu_icon_dpi import menu_icon_filename
@@ -68,15 +69,9 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
                 g = _load_graphic(ctx, icon_filename)
                 if g is not None:
                     if hasattr(menu, "setItemImage"):
-                        try:
-                            menu.setItemImage(n_id, g, False)
-                        except Exception as e:
-                            log.debug("setItemImage failed for %s: %s", icon_filename, e)
+                        best_effort(lambda: menu.setItemImage(n_id, g, False), f"setItemImage failed for {icon_filename}")
                     elif hasattr(menu, "setItemGraphic"):
-                        try:
-                            menu.setItemGraphic(n_id, g)
-                        except Exception as e:
-                            log.debug("setItemGraphic failed for %s: %s", icon_filename, e)
+                        best_effort(lambda: menu.setItemGraphic(n_id, g), f"setItemGraphic failed for {icon_filename}")
 
         pos = 0
 

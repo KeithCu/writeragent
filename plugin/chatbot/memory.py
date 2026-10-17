@@ -11,7 +11,7 @@ from plugin.framework.tool import ToolBase
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 from plugin.framework.config import user_config_dir
-from plugin.framework.errors import ConfigError
+from plugin.framework.errors import ConfigError, best_effort
 
 log = logging.getLogger(__name__)
 
@@ -85,12 +85,8 @@ class MemoryStore:
 
 def user_profile_exists(ctx: Any) -> bool:
     """True when USER.md has non-empty content. Missing store or I/O → False (start Librarian)."""
-    try:
-        store = MemoryStore(ctx)
-        return bool(str(store.read("user") or "").strip())
-    except Exception:
-        log.debug("user_profile_exists: treating profile as missing", exc_info=True)
-        return False
+    val = best_effort(lambda: MemoryStore(ctx).read("user"), "user_profile_exists: treating profile as missing")
+    return bool(str(val or "").strip())
 
 
 # Chat preview when upsert_memory runs (sidebar / librarian); value truncated for huge strings.

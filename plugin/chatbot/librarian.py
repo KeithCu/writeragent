@@ -9,6 +9,7 @@ import getpass
 import logging
 from typing import TYPE_CHECKING, Any
 
+from plugin.framework.errors import best_effort
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -52,7 +53,8 @@ def get_libreoffice_user_display_name(ctx: Any) -> str | None:
     uno_ctx = _resolve_uno_ctx(ctx)
     if uno_ctx is None:
         return None
-    try:
+
+    def _read() -> str | None:
         from com.sun.star.beans import NamedValue
 
         smgr = uno_ctx.getServiceManager()
@@ -64,21 +66,14 @@ def get_libreoffice_user_display_name(ctx: Any) -> str | None:
         given = _normalize_suggested_name(str(access.getPropertyValue("givenname")))
         if given:
             return given
-        sn = _normalize_suggested_name(str(access.getPropertyValue("sn")))
-        if sn:
-            return sn
-    except Exception:
-        log.debug("Failed to read LibreOffice user profile name", exc_info=True)
-    return None
+        return _normalize_suggested_name(str(access.getPropertyValue("sn")))
+
+    return best_effort(_read, "Failed to read LibreOffice user profile name")
 
 
 def get_os_login_name() -> str | None:
     """Return the OS login account name (cross-platform via getpass)."""
-    try:
-        return _normalize_suggested_name(getpass.getuser())
-    except Exception:
-        log.debug("Failed to read OS login name", exc_info=True)
-        return None
+    return best_effort(lambda: _normalize_suggested_name(getpass.getuser()), "Failed to read OS login name")
 
 
 def get_suggested_user_name(ctx: Any) -> str | None:
@@ -115,12 +110,7 @@ def _run_librarian_agent(
         if len(history_text) > 4000:
             history_text = "..." + history_text[-4000:]
 
-    user_mem = ""
-    try:
-        store = MemoryStore(ctx)
-        user_mem = store.read("user")
-    except Exception as e:
-        log.debug("Failed to read user memory for librarian: %s", e)
+    user_mem = best_effort(lambda: MemoryStore(ctx).read("user"), "Failed to read user memory for librarian", default="") or ""
 
     if status_callback:
         status_callback("Librarian is thinking...")
