@@ -1879,3 +1879,30 @@ def test_import_cells_closed_document_aborts(monkeypatch):
         _import_cells(doc, _Nb(), stats, 2, 0.0)
     # Counted before the try. The second cell must not run.
     assert stats["cells"] == 1
+
+
+def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.notebook.writer_importer import _cursor_para_is_empty, _doc_body_nonempty
+
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    closed = MagicMock()
+    closed.getText.side_effect = DisposedException("closed")
+    with pytest.raises(DocumentDisposedError):
+        _doc_body_nonempty(closed)
+
+    odd = MagicMock()
+    odd.getText.side_effect = RuntimeException("uno")
+    assert _doc_body_nonempty(odd) is True
+    assert _cursor_para_is_empty(odd) is False
+
+    cursor = MagicMock()
+    rng = cursor.getText.return_value.createTextCursorByRange.return_value
+    for raw, expected in ((None, True), ("  ", True), ("x", False), (5, False)):
+        rng.getString.return_value = raw
+        assert _cursor_para_is_empty(cursor) is expected

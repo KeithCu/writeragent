@@ -46,7 +46,7 @@ from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 from plugin.contrib.nbformat import read_ipynb
 from plugin.notebook.cell_registry import NotebookDocState, _cell_heading, _coerce_notebook_text, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
 from plugin.notebook.notebook_controls import _CODE_FONT_NAME, _insert_code_input_in_flow, _insert_run_button_in_flow, _log_shape_add, _resolve_para_style, _style_control_paragraph, _text_area_width_units
-from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.writer.images.image_tools import _apply_graphic_properties, _create_embedded_graphic, _file_url_for_path, _mm_to_units, insert_image_at_locator
 
 log = logging.getLogger("writeragent.notebook")
@@ -398,11 +398,11 @@ def _doc_body_nonempty(doc: Any) -> bool:
     compareRegionStarts(text.getStart(), text.getEnd()) is O(1) and correctly sees
     in-flow graphics because start != end even when text is empty.
     """
-    try:
+    def nonempty() -> bool:
         text = doc.getText()
         return int(text.compareRegionStarts(text.getStart(), text.getEnd())) != 0
-    except Exception:
-        return True
+
+    return uno_read(nonempty, True)
 
 
 def _append_paragraph_break_at_end(doc: Any) -> None:
@@ -445,10 +445,8 @@ def _numbering_kind(name: str) -> str:
 
 def _copy_previous_outer_list(cursor: Any) -> bool:
     """Copy NumberingStyleName + NumberingRules from the nearest level-0 list para."""
-    try:
-        text_obj = cursor.getText()
-        prev = text_obj.createTextCursorByRange(cursor)
-    except Exception:
+    prev = uno_read(lambda: cursor.getText().createTextCursorByRange(cursor), None)
+    if prev is None:
         return False
     steps = 0
     while steps < 32:
@@ -481,10 +479,7 @@ def _promote_para_to_outer_ol(cursor: Any, *, start: int) -> bool:
     numbering on a 1-item ``<ol start=N>``. Keep the list style, force level 0,
     restart at N.
     """
-    try:
-        style = str(cursor.getPropertyValue("NumberingStyleName") or "")
-    except Exception:
-        style = ""
+    style = uno_read(lambda: str(cursor.getPropertyValue("NumberingStyleName") or ""), "")
     kind = _numbering_kind(style)
     if kind == "outline":
         return False
@@ -501,10 +496,13 @@ def _promote_para_to_outer_ol(cursor: Any, *, start: int) -> bool:
 
 
 def _last_nonempty_para_cursor(text: Any) -> Any | None:
-    try:
+    def end_cursor() -> Any:
         cursor = text.createTextCursor()
         cursor.gotoEnd(False)
-    except Exception:
+        return cursor
+
+    cursor = uno_read(end_cursor, None)
+    if cursor is None:
         return None
     steps = 0
     while steps < 16:
@@ -521,19 +519,16 @@ def _last_nonempty_para_cursor(text: Any) -> Any | None:
 
 def _cursor_para_is_empty(cursor: Any) -> bool:
     """True when *cursor*'s paragraph has no visible text (trailing list leftover)."""
-    try:
-        text_obj = cursor.getText()
-        rng = text_obj.createTextCursorByRange(cursor)
+    def empty() -> bool:
+        rng = cursor.getText().createTextCursorByRange(cursor)
         rng.gotoStartOfParagraph(False)
         rng.gotoEndOfParagraph(True)
         raw = rng.getString()
         if raw is None:
             return True
-        if not isinstance(raw, str):
-            return False
-        return raw.strip() == ""
-    except Exception:
-        return False
+        return isinstance(raw, str) and raw.strip() == ""
+
+    return uno_read(empty, False)
 
 
 def _clear_para_numbering(cursor: Any) -> None:
@@ -597,16 +592,12 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
         if (para_rng.getString() or "").strip() != "":
             return
 
-        try:
-            style = str(cursor.getPropertyValue("ParaStyleName") or "")
-        except Exception:
+        style = uno_read(lambda: str(cursor.getPropertyValue("ParaStyleName") or ""), None)
+        if style is None:
             style = str(getattr(cursor, "ParaStyleName", "") or "")
         if "Heading" in style:
             return
-        try:
-            portions = para_rng.createEnumeration()
-        except Exception:
-            portions = None
+        portions = uno_read(lambda: para_rng.createEnumeration(), None)
         if portions:
             psteps = 0
             while psteps < 64:
@@ -615,9 +606,8 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
                     break
                 psteps += 1
                 portion = portions.nextElement()
-                try:
-                    ptype = str(portion.getPropertyValue("TextPortionType") or "")
-                except Exception:
+                ptype = uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), None)
+                if ptype is None:
                     ptype = str(getattr(portion, "TextPortionType", "") or "")
                 if ptype == "Frame":
                     return
