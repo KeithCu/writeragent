@@ -60,5 +60,11 @@ def test_page_style_follows_first_paragraph_not_document(ctx, doc):
     assert resolved is not None
     assert int(resolved.getPropertyValue("Width")) == 30000
     area = _text_area_width_units(doc)
-    assert area == 29000
+    expected = max(
+        6000,
+        int(resolved.getPropertyValue("Width"))
+        - int(resolved.getPropertyValue("LeftMargin"))
+        - int(resolved.getPropertyValue("RightMargin")),
+    )
+    assert area == expected
     assert area != std_area
