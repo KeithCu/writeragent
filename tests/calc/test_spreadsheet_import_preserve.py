@@ -115,4 +115,3 @@ def test_enrich_number_formats_updates_constants():
     enrich_number_formats(sheet, model)
     assert model.cells["A1"].number_format == 4
     assert model.cells["B1"].number_format is None
-

@@ -942,6 +942,3 @@ def test_supports_viz_manual():
     doc_other = MagicMock()
     doc_other.supportsService.return_value = False
     assert supports_viz_manual(doc_other) is False
-
-
-

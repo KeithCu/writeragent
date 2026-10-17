@@ -603,4 +603,3 @@ def test_supports_units_manual():
     doc_other = MagicMock()
     doc_other.supportsService.return_value = False
     assert supports_units_manual(doc_other) is False
-

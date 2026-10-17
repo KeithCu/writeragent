@@ -256,4 +256,3 @@ def test_ensure_index_wakeup_when_not_cancelled():
         with patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index") as enqueue_mock:
             embeddings_indexer.ensure_index_wakeup(ctx, services, model)
             enqueue_mock.assert_called_once_with(ctx, services, model)
-
