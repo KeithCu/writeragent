@@ -48,6 +48,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, cast
 
+from plugin.framework.blocking_wait import automatic_gc_suspended
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
@@ -1202,7 +1203,8 @@ def _run_stream_drain_blocking(
         # different one. The depth counter makes pump_ui_idle skip nested
         # VCL. Rejecting any existing owner, including "stream", makes
         # dual-deck peer sends raise NestedDrainOwnerError.
-        with drain_owner_scope("stream"):
+        # This loop holds SolarMutex between pumps; see automatic_gc_suspended.
+        with drain_owner_scope("stream"), automatic_gc_suspended():
             if on_drain_started is not None:
                 on_drain_started()
             while not job_done[0]:

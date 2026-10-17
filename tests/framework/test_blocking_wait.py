@@ -220,3 +220,83 @@ def test_run_blocking_in_thread_pump_idle_true_toolkit_present_calls_pump_ui_idl
     mock_pump_ui.assert_called()
     mock_pump_marshal.assert_not_called()
 
+
+
+# ---- automatic GC stays off while a pump_idle=False wait holds SolarMutex ----
+
+import gc  # noqa: E402
+
+from plugin.framework.blocking_wait import automatic_gc_suspended  # noqa: E402
+
+
+@pytest.fixture
+def gc_enabled_restored():
+    was = gc.isenabled()
+    gc.enable()
+    try:
+        yield
+    finally:
+        if was:
+            gc.enable()
+        else:
+            gc.disable()
+
+
+def test_automatic_gc_suspended_nested_keeps_gc_off_until_outer_exit(gc_enabled_restored):
+    with automatic_gc_suspended():
+        assert not gc.isenabled()
+        with automatic_gc_suspended():
+            assert not gc.isenabled()
+        # The inner call found GC already off, so it must not turn it back on.
+        assert not gc.isenabled()
+    assert gc.isenabled()
+
+
+def test_automatic_gc_suspended_leaves_disabled_gc_disabled(gc_enabled_restored):
+    gc.disable()
+    with automatic_gc_suspended():
+        assert not gc.isenabled()
+    assert not gc.isenabled()
+
+
+def test_automatic_gc_suspended_restores_on_error(gc_enabled_restored):
+    with pytest.raises(RuntimeError):
+        with automatic_gc_suspended():
+            raise RuntimeError("boom")
+    assert gc.isenabled()
+
+
+def test_pump_idle_false_worker_runs_with_gc_off_and_nested_call_does_not_reenable(gc_enabled_restored):
+    ctx = MagicMock()
+    seen: list[tuple[str, bool]] = []
+
+    def inner_worker():
+        seen.append(("inner", gc.isenabled()))
+        return "inner"
+
+    def outer_worker():
+        seen.append(("outer", gc.isenabled()))
+        return "outer"
+
+    with patch("plugin.framework.blocking_wait.pump_main_thread_work_queue"):
+        with automatic_gc_suspended():
+            # Caller already suspended GC (for example an outer blocking wait).
+            assert run_blocking_in_thread(ctx, inner_worker, pump_idle=False) == "inner"
+            assert not gc.isenabled()
+        assert gc.isenabled()
+        assert run_blocking_in_thread(ctx, outer_worker, pump_idle=False) == "outer"
+    assert seen == [("inner", False), ("outer", False)]
+    assert gc.isenabled()
+
+
+def test_pump_idle_true_leaves_gc_alone(gc_enabled_restored):
+    ctx = MagicMock()
+    seen: list[bool] = []
+
+    def worker():
+        seen.append(gc.isenabled())
+        return "ok"
+
+    with patch("plugin.framework.blocking_wait.pump_ui_idle"):
+        assert run_blocking_in_thread(ctx, worker) == "ok"
+    assert seen == [True]

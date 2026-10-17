@@ -25,10 +25,12 @@ drain. Re-exported from ``async_stream``.
 
 from __future__ import annotations
 
+import contextlib
+import gc
 import logging
 import queue
 from enum import Enum
-from typing import Any, Callable, TypeAlias
+from typing import Any, Callable, Iterator, TypeAlias
 
 from plugin.framework.queue_executor import pump_main_thread_work_queue, pump_ui_idle
 from plugin.framework.worker_pool import run_in_background
@@ -48,6 +50,32 @@ class BlockingWaitStopped(Exception):
 
 
 BlockingPumpQueueItem: TypeAlias = tuple[BlockingPumpKind, Any]
+
+
+@contextlib.contextmanager
+def automatic_gc_suspended() -> Iterator[None]:
+    """Keep automatic cyclic GC off while the caller holds SolarMutex and waits.
+
+    A wait that never returns to the VCL loop keeps SolarMutex. If a worker
+    thread runs an automatic collection that frees a cycle holding a PyUNO
+    proxy, the proxy's C++ destructor (SvxShape, SwX*) blocks in
+    ``SolarMutex::doAcquire``. When the caller is waiting for that worker,
+    nothing ever finishes: the 90s freeze, outside the event-driven chat
+    drain. Refcount frees are unaffected; deferred collections run here on
+    the caller thread, where SolarMutex is recursive.
+
+    Only the call that found GC enabled turns it back on, so a nested call
+    never re-enables it while the outer one is still waiting, and GC ends in
+    the state it started in.
+    """
+    was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if was_enabled:
+            gc.enable()
+            gc.collect()
 
 
 def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = True, stop_checker: Callable[[], bool] | None = None, **kwargs: Any) -> Any:
@@ -100,7 +128,19 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
             log.warning("run_blocking_with_pump: Failed to create toolkit, waiting without pump. %s", e)
             toolkit = None
 
-    run_in_background(worker, daemon=True, name="blocking-thread", dedicated=True)
+    pump_vcl = pump_idle and toolkit is not None
+    if pump_vcl:
+        run_in_background(worker, daemon=True, name="blocking-thread", dedicated=True)
+        return _wait_for_worker(q, toolkit, pump_vcl, stop_checker)
+    # Without the VCL pump this wait never yields SolarMutex. GC goes off
+    # before the worker starts and stays off until it is done.
+    with automatic_gc_suspended():
+        run_in_background(worker, daemon=True, name="blocking-thread", dedicated=True)
+        return _wait_for_worker(q, toolkit, pump_vcl, stop_checker)
+
+
+def _wait_for_worker(q: "queue.Queue[BlockingPumpQueueItem]", toolkit: Any, pump_vcl: bool, stop_checker: Callable[[], bool] | None) -> Any:
+    # crosshair: off
 
     # Do not take drain_owner_scope here: this helper may run under an active stream
     # drain. pump_ui_idle remains the owner-safe VCL pump path.
@@ -110,7 +150,6 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     # pump_vcl or not pump_vcl is always true, so the old else-None branch never
     # ran. On Empty, pump_vcl calls pump_ui_idle; otherwise
     # pump_main_thread_work_queue (no processEventsToIdle).
-    pump_vcl = pump_idle and toolkit is not None
     while True:
         # Only the get waits on the queue. A worker that raised queue.Empty
         # must propagate: catching it here and calling get again with
