@@ -6,6 +6,8 @@
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, call, patch
+from plugin.framework.errors import DocumentDisposedError
+from plugin.writer.specialized.comments import CommentList
 
 
 def test_read_annotation_falls_back_to_paragraph_context():
@@ -526,3 +528,12 @@ def test_comment_resolve_reply_insert_uses_anchor_host():
     assert res["status"] == "ok"
     host.insertTextContent.assert_called_once()
     body_text.insertTextContent.assert_not_called()
+
+
+def test_comment_list_disposal_is_document_disposed():
+    tool = CommentList()
+    ctx = MagicMock()
+    ctx.doc.getTextFields.side_effect = DocumentDisposedError("gone")
+    res = tool.execute_safe(ctx)
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"

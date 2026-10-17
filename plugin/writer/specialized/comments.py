@@ -151,11 +151,7 @@ class AddComment(ToolBase):
         # display-off, not a failed insert. PR #493 switched to a point insert
         # on that mistaken diagnosis; this restores the original API and keeps
         # only that PR's field-count check.
-        anchor_text = ""
-        try:
-            anchor_text = found.getString()
-        except Exception:
-            pass
+        anchor_text = found.getString()
         names_before = _annotation_field_names(doc)
         match_text = found.getText()
         cursor = match_text.createTextCursorByRange(found.getStart())
@@ -649,25 +645,20 @@ def _name_of_new_annotation(doc: Any, field: Any, names_before: Any) -> str:
 def _set_annotation_date(annotation: Any) -> None:
     """Set DateTimeValue (and Date) to now for a new annotation."""
     now = now_aware()
-    try:
-        dt = cast("Any", uno.createUnoStruct("com.sun.star.util.DateTime"))
-        dt.Year = now.year
-        dt.Month = now.month
-        dt.Day = now.day
-        dt.Hours = now.hour
-        dt.Minutes = now.minute
-        dt.Seconds = now.second
-        annotation.setPropertyValue("DateTimeValue", dt)
-    except Exception:
-        pass
-    try:
-        d = cast("Any", uno.createUnoStruct("com.sun.star.util.Date"))
-        d.Year = now.year
-        d.Month = now.month
-        d.Day = now.day
-        annotation.setPropertyValue("Date", d)
-    except Exception:
-        pass
+    dt = cast("Any", uno.createUnoStruct("com.sun.star.util.DateTime"))
+    dt.Year = now.year
+    dt.Month = now.month
+    dt.Day = now.day
+    dt.Hours = now.hour
+    dt.Minutes = now.minute
+    dt.Seconds = now.second
+    annotation.setPropertyValue("DateTimeValue", dt)
+
+    d = cast("Any", uno.createUnoStruct("com.sun.star.util.Date"))
+    d.Year = now.year
+    d.Month = now.month
+    d.Day = now.day
+    annotation.setPropertyValue("Date", d)
 
 
 def _read_annotation(field: Any, para_ranges: Any, text_obj: Any, doc_svc: Any) -> dict[str, Any]:
