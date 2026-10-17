@@ -113,16 +113,13 @@ def resolve_all_with_feedback(model: Any, ctx: Any, accept: bool) -> tuple[int, 
 
 def show_review_message(ctx: Any, message: str) -> None:
     """Surface a review outcome (e.g. a conservative refusal) to the user so a click that
-    resolves nothing isn't silent. No-op on an empty message; best-effort -- UI feedback must
-    never break the resolve itself."""
+    resolves nothing isn't silent. No-op on an empty message. ``msgbox`` logs and swallows
+    its own UI failures."""
     if not message:
         return
-    try:
-        from plugin.chatbot.dialogs import msgbox
+    from plugin.chatbot.dialogs import msgbox
 
-        msgbox(ctx, "Review agent changes", message)
-    except Exception:
-        log.debug("inline_review: could not show review message %r", message, exc_info=True)
+    msgbox(ctx, "Review agent changes", message)
 
 
 # --- agent-change helpers (used by the click popup and the context menu) -------------------
@@ -144,10 +141,7 @@ def _agent_redlines(model: Any) -> list[tuple[str, Any]]:
     out: list[tuple[str, Any]] = []
 
     def on_item(rl: Any) -> bool:
-        try:
-            comment = str(rl.getPropertyValue("RedlineComment"))
-        except Exception:
-            return True  # unreadable -> skip (best-effort display scan)
+        comment = str(rl.getPropertyValue("RedlineComment"))
         if _review_scan.is_agent_token(comment):
             out.append((comment, rl))
         return True
@@ -166,33 +160,18 @@ def _agent_and_foreign_redline_snapshot(model: Any) -> _RedlineSnapshot:
     """
     agents: set[str] = set()
     foreign: set[str] = set()
-    t_rel = True
-    f_rel = True
 
     def on_item(rl: Any) -> bool:
-        nonlocal t_rel, f_rel
-        try:
-            comment = str(rl.getPropertyValue("RedlineComment"))
-            is_agent = _review_scan.is_agent_token(comment)
-        except Exception:
-            # Unreadable comment on *any* redline makes both views incomplete.
-            t_rel = f_rel = False
-            return False
-        if is_agent:
+        comment = str(rl.getPropertyValue("RedlineComment"))
+        if _review_scan.is_agent_token(comment):
             agents.add(comment)
             return True
-        # Non-agent (user) redline: we need its identifier for the foreign set.
-        try:
-            foreign.add(rl.getPropertyValue("RedlineIdentifier"))
-        except Exception:
-            f_rel = False
-            return False
+        # Non-agent (user) redline: its identifier is the foreign id.
+        foreign.add(rl.getPropertyValue("RedlineIdentifier"))
         return True
 
     scan_rel = _review_scan.scan_redlines(model, on_item)[0]
-    return _RedlineSnapshot(
-        agents, foreign, (t_rel and scan_rel), (f_rel and scan_rel)
-    )
+    return _RedlineSnapshot(agents, foreign, scan_rel, scan_rel)
 
 
 def _reliable_agent_tokens(model: Any) -> set[str] | None:
@@ -209,9 +188,9 @@ def _agent_change_tokens(model: Any) -> tuple[set[str], bool]:
     """``(set of agent-change tokens on the document's redlines, reliable)``. Used after a resolve
     dispatch to verify that EXACTLY the target change was resolved.
 
-    ``reliable`` is False when the snapshot is INCOMPLETE -- the enumeration can't start or finish, a
-    redline's RedlineComment can't be read (so we can't tell whether it is one of our tokens), or the
-    scan yields fewer items than the collection's own ``getCount()`` reports. A
+    ``reliable`` is False when the snapshot is INCOMPLETE -- the enumeration can't start or finish (a
+    closed document whose ``getRedlines()`` raises), or the scan yields fewer items than the
+    collection's own ``getCount()`` reports. A
     partial token set makes ``before - after`` unsound (a sibling missing from the BEFORE snapshot
     could be silently resolved and still compute ``removed == {token}``), so the caller must treat an
     unreliable snapshot as failure -- never as proof that only the target was removed. Enumerates
@@ -301,10 +280,10 @@ def agent_self_resolution_block_reason(model: Any) -> str | None:
 def _foreign_redline_ids(model: Any) -> tuple[set[str], bool]:  # pyright: ignore[reportUnusedFunction]  # used by inline review UNO/guard tests
     """``(identifiers of non-agent redlines, reliable)``. The identifiers are the user's OWN tracked
     changes (plus any we can't classify, counted as foreign). ``reliable`` is False when the snapshot
-    is INCOMPLETE -- the enumeration failed, a foreign redline's identifier couldn't be read, or the
-    scan yields fewer items than the collection's own ``getCount()`` reports -- so
-    a caller can tell "couldn't verify" apart from "no user redlines" and fail CLOSED instead of
-    claiming success without proving the user's changes survived."""
+    is INCOMPLETE -- the enumeration failed (including a closed document), or the scan yields fewer
+    items than the collection's own ``getCount()`` reports -- so a caller can tell "couldn't verify"
+    apart from "no user redlines" and fail CLOSED instead of claiming success without proving the
+    user's changes survived."""
     snap = _agent_and_foreign_redline_snapshot(model)
     return snap.foreign_ids, snap.foreign_reliable
 
@@ -346,24 +325,18 @@ def _change_bounds(model: Any, token: str | frozenset[str]) -> tuple[Any | None,
     Enumerates COMPLETELY and fails CLOSED (returns (None, None) so the caller refuses): a partial or
     best-effort scan could miss the Insert OR the Delete mark of a replace and hand back HALF the
     change's span -- the dispatch would then resolve only half, and if the caller later refuses by
-    conflict the document is left partially resolved. So any enumeration/count error, count/enumeration
-    mismatch (enumeration yields fewer items than getCount() reports), unreadable comment, or a target
-    mark with unreadable / None bounds -> (None, None)."""
+    conflict the document is left partially resolved. So any enumeration/count error (including a
+    closed document), count/enumeration mismatch (enumeration yields fewer items than getCount() reports),
+    or a target mark whose Start or End is None -> (None, None)."""
     ranges: list[tuple[Any, Any]] = []
     wanted = frozenset([token]) if isinstance(token, str) else token
 
     def on_item(rl: Any) -> bool:
-        try:
-            comment = str(rl.getPropertyValue("RedlineComment"))
-        except Exception:
-            raise _review_scan.RedlineScanAbort()
+        comment = str(rl.getPropertyValue("RedlineComment"))
         if comment not in wanted:
             return True
-        try:
-            s = rl.getPropertyValue("RedlineStart")
-            e = rl.getPropertyValue("RedlineEnd")
-        except Exception:
-            raise _review_scan.RedlineScanAbort()
+        s = rl.getPropertyValue("RedlineStart")
+        e = rl.getPropertyValue("RedlineEnd")
         if s is None or e is None:
             raise _review_scan.RedlineScanAbort()
         ranges.append((s, e))
@@ -447,10 +420,7 @@ def goto_adjacent_agent_change(model: Any, forward: bool = True) -> str | None:
         text = vc.getText()
         cur_start = text.createTextCursorByRange(vc.getStart())
         cur_end = text.createTextCursorByRange(vc.getEnd())
-        try:
-            cur_collapsed = bool(vc.isCollapsed())
-        except Exception:
-            cur_collapsed = text.compareRegionStarts(vc.getStart(), vc.getEnd()) == 0
+        cur_collapsed = bool(vc.isCollapsed())
     except Exception:
         text = None
         cur_start = None
@@ -548,14 +518,13 @@ def _span_contains_point(text: Any, span: Any, point: Any) -> bool:
 
 def _span_has_redline(model: Any, text: Any, span: Any, consider: Any, strict_edges: bool = False) -> bool:
     """True if any redline that ``consider(comment)`` selects overlaps ``span`` -- OR if that can't
-    be ruled out. ``consider`` receives the redline's RedlineComment (or None when it can't be read)
+    be ruled out. ``consider`` receives the redline's RedlineComment
     and returns whether that redline is one the dispatch must NOT touch.
 
     Data-safety guard: it fails CLOSED. A redline we don't need to protect, or that we can
-    prove sits outside ``span``, is skipped; anything we must protect but can't overlap-check (its
-    position is unreadable / a comparison raises) is treated as a possible overlap and returns True.
-    Crucially, a redline clearly OUTSIDE the span is skipped regardless of whether its comment was
-    readable -- so one unreadable redline elsewhere never permanently blocks resolution.
+    prove sits outside ``span``, is skipped; anything we must protect but can't overlap-check (Start/End
+    is None, the redline cannot be mapped and is not provably in another text, a comparison raises, or
+    the scan is unreliable) is treated as a possible overlap and returns True.
 
     The scan is also cross-checked against the collection's ``getCount()``: a count/enumeration
     mismatch (the enumeration yielding fewer items than getCount() reports) could hide an overlapping
@@ -578,23 +547,14 @@ def _span_has_redline(model: Any, text: Any, span: Any, consider: Any, strict_ed
     unsafe = [False]
 
     def on_item(rl: Any) -> bool:
-        try:
-            comment = str(rl.getPropertyValue("RedlineComment"))
-        except Exception:
-            comment = None  # unclassifiable -> let consider decide
+        comment = str(rl.getPropertyValue("RedlineComment"))
         if not consider(comment):
             return True  # not something we must protect; keep scanning
 
-        try:
-            s = rl.getPropertyValue("RedlineStart")
-            e = rl.getPropertyValue("RedlineEnd")
-        except Exception:
-            # Can't read this protected redline's bounds -> can't prove it is outside span.
-            log.debug("inline_review: protected redline bounds unreadable; treating as unsafe", exc_info=True)
-            unsafe[0] = True
-            raise _review_scan.RedlineScanAbort()
+        s = rl.getPropertyValue("RedlineStart")
+        e = rl.getPropertyValue("RedlineEnd")
         if s is None or e is None:
-            # Protected redline whose bounds are unreadable -> cannot prove it is outside span.
+            # Protected redline with no start/end: cannot prove it sits outside span.
             log.debug("inline_review: protected redline has no start/end; treating as unsafe")
             unsafe[0] = True
             raise _review_scan.RedlineScanAbort()
@@ -655,7 +615,7 @@ def _foreign_redline_in_span(model: Any, text: Any, span: Any) -> bool:
     """True if any redline NOT tagged by an EditReviewSession (i.e. one of the USER's own) overlaps
     ``span``, or if that can't be ruled out. An accept/reject dispatch over ``span`` resolves every
     redline it covers, so it must never touch the user's own change. Fails closed (see _span_has_redline)."""
-    # Protect every redline not confirmed to be one of ours (unreadable comment -> protect).
+    # Protect every redline not confirmed to be one of ours (comment that is not an agent token).
     return _span_has_redline(model, text, span,
                              lambda c: c is None or not _review_scan.is_agent_token(c))
 

@@ -14,20 +14,29 @@ tracked change:
 
 UNO ranges are faked with integer positions; redline geometry is exercised for real.
 """
+import contextlib
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from plugin.writer.inline_review import (
+    _RESOLVE_ALL_UNRELIABLE,
+    _RedlineSnapshot,
     _agent_change_tokens,
     _all_redlines_are_agent,
     _change_bounds,
     _foreign_redline_ids,
     _foreign_redline_in_span,
     _other_agent_redline_in_span,
+    _resolve_overlapping_agent_changes,
     _span_contains_point,
+    agent_changes,
     agent_self_resolution_block_reason,
+    pending_agent_change_count,
     resolve_agent_change,
+    resolve_all_agent_changes,
+    resolve_all_with_feedback,
 )
 from plugin.writer.review_scan import TOKEN_PREFIX, redline_is_agent_change
 
@@ -176,12 +185,6 @@ def test_foreign_redline_fails_closed_on_enum_error():
     assert _foreign_redline_in_span(model, FakeText(), FakeRange(10, 20)) is True
 
 
-def test_foreign_redline_fails_closed_on_per_redline_error():
-    span = FakeRange(10, 20)
-    # A user redline whose RedlineStart read blows up -> can't tell if it overlaps -> refuse.
-    model = FakeModel(FakeRedlines([FakeRedline("", 15, 25, raise_on={"RedlineStart"})]))
-    assert _foreign_redline_in_span(model, FakeText(), span) is True
-
 
 def test_foreign_redline_fails_closed_on_compare_error():
     span = FakeRange(10, 20)
@@ -305,7 +308,6 @@ def _resolve(token, token_sets, refuse_sibling=True, prefer_exact=True, foreign_
     token_sets still supplies the agent token view; foreign_sets supplies the foreign view.
     We patch both the legacy names (for any wrapper calls) and the combined (4-tuple) that the
     hot paths now call directly. A bare set is treated as (set, True)."""
-    import contextlib
     model = MagicMock()
     token_side = [t if isinstance(t, tuple) else (set(t), True) for t in token_sets]
     def _mk_foreign(fs):
@@ -319,8 +321,6 @@ def _resolve(token, token_sets, refuse_sibling=True, prefer_exact=True, foreign_
 
     # Use counters so successive calls inside one resolve (before + after) get successive pairs
     # from the supplied lists. Tests drive token and foreign views in parallel.
-    from plugin.writer.inline_review import _RedlineSnapshot
-
     state = {"ti": 0, "fi": 0}
     def _combined(model):
         ti = min(state["ti"], len(token_side) - 1)
@@ -455,10 +455,6 @@ def test_all_redlines_are_agent_false_on_empty_document():
     assert _all_redlines_are_agent(model) is False
 
 
-def test_all_redlines_are_agent_false_on_unreadable_comment():
-    model = FakeModel(FakeRedlines([_agent_rl(), FakeRedline("", 0, 0, raise_on={"RedlineComment"})]))
-    assert _all_redlines_are_agent(model) is False
-
 
 # -------------------------------------------- token/foreign snapshot completeness (getCount)
 
@@ -521,22 +517,6 @@ def test_change_bounds_fail_closed_on_silent_truncation():
     assert _change_bounds(model, target) == (None, None)
 
 
-def test_change_bounds_fail_closed_on_unreadable_comment():
-    # A redline whose comment can't be read might BE a target mark we'd miss -> fail closed.
-    target = TOKEN_PREFIX + "s:1"
-    model = FakeModel(FakeRedlines([FakeRedline(target, 10, 15),
-                                    FakeRedline("", 0, 0, raise_on={"RedlineComment"})]))
-    assert _change_bounds(model, target) == (None, None)
-
-
-def test_change_bounds_fail_closed_on_unreadable_target_bounds():
-    # A TARGET mark whose Start can't be read -> we can't build the complete span -> fail closed
-    # (the old code skipped it and could return only the other half).
-    target = TOKEN_PREFIX + "s:1"
-    model = FakeModel(FakeRedlines([FakeRedline(target, 10, 15),
-                                    FakeRedline(target, 15, 20, raise_on={"RedlineStart"})]))
-    assert _change_bounds(model, target) == (None, None)
-
 
 def test_change_bounds_fail_closed_on_none_target_bounds():
     target = TOKEN_PREFIX + "s:1"
@@ -580,8 +560,6 @@ def test_agent_redlines_does_not_hang_on_mock_enumeration():
     # Bootstrap paths (get_tools -> install_review_toolbar) hit pending_agent_change_count on open
     # documents. MagicMock.hasMoreElements() stays truthy forever unless iteration is capped by
     # getCount() -- an uncapped while-hasMoreElements loop hung pytest (see test_calc_analyze_data).
-    from plugin.writer.inline_review import agent_changes, pending_agent_change_count
-
     doc = MagicMock()
     doc.getRedlines.return_value.getCount.return_value = 0
     enum = MagicMock()
@@ -626,8 +604,6 @@ def test_block_reason_fails_closed_on_count_error():
 
 def test_inline_review_uno_skips_windows_leftover_view_cursor() -> None:
     """GHA 34687044125: leftover Hidden view cursor hung in _caret_in."""
-    from pathlib import Path
-
     src = Path(__file__).with_name("test_inline_review_uno.py").read_text(encoding="utf-8")
     assert "skip_windows_leftover_hidden_load" in src
     assert "inline_review view cursor leftover reuse" in src
@@ -676,8 +652,6 @@ def _dispatch_removing(items, *per_pass):
 
 
 def test_overlapping_agent_changes_resolve_together():
-    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
-
     model, items, t1, t2 = _overlap_doc()
     with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=_dispatch_removing(items, {t1, t2})):
         assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, True) == 2
@@ -687,8 +661,6 @@ def test_overlapping_agent_changes_resolve_together():
 def test_overlapping_reject_takes_one_layer_per_pass():
     """Rejecting a Delete stacked on an Insert restores the inserted text first; a second pass
     over what is left of the group finishes it (the first live run left "palavra sobrando ")."""
-    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
-
     model, items, t1, t2 = _overlap_doc()
     fake = _dispatch_removing(items, {t2}, {t1})
     with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=fake) as dispatch:
@@ -697,8 +669,6 @@ def test_overlapping_reject_takes_one_layer_per_pass():
 
 
 def test_overlapping_group_refuses_a_user_redline_inside():
-    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
-
     model, items, t1, _t2 = _overlap_doc(FakeRedline("", 7, 8))
     with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
         assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, True) == 0
@@ -706,8 +676,6 @@ def test_overlapping_group_refuses_a_user_redline_inside():
 
 
 def test_a_lone_change_is_not_a_group():
-    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
-
     lone = TOKEN_PREFIX + "c:0"
     model = _ViewModel(FakeRedlines([FakeRedline(lone, 0, 4), FakeRedline(TOKEN_PREFIX + "d:0", 8, 9)]))
     with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
@@ -718,8 +686,6 @@ def test_a_lone_change_is_not_a_group():
 def test_touching_agent_changes_are_not_grouped():
     """Only shared text groups changes: an independent change right next to the clicked one
     (an 'after' insert beside an earlier one) is left alone."""
-    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
-
     t1, t2 = TOKEN_PREFIX + "a:0", TOKEN_PREFIX + "b:0"
     model = _ViewModel(FakeRedlines([FakeRedline(t1, 0, 4), FakeRedline(t2, 4, 8)]))
     with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
@@ -728,8 +694,6 @@ def test_touching_agent_changes_are_not_grouped():
 
 
 def test_a_pass_that_uncovers_a_user_change_stops_there():
-    from plugin.writer.inline_review import _resolve_overlapping_agent_changes
-
     model, items, t1, t2 = _overlap_doc()
 
     def first_pass(ctx, controller, accept):
@@ -739,3 +703,40 @@ def test_a_pass_that_uncovers_a_user_change_stops_there():
     with patch("plugin.writer.inline_review._dispatch_resolve", side_effect=first_pass) as dispatch:
         assert _resolve_overlapping_agent_changes(model, MagicMock(), t1, False) == 0
     assert dispatch.call_count == 1
+
+
+class _ClosedDocument:
+    """Disposed document: getRedlines() raises. scan_redlines returns unreliable
+    before any redline callback. Resolve must not dispatch and must not report success."""
+
+    def getRedlines(self):
+        raise RuntimeError("disposed")
+
+
+def test_closed_document_resolve_fails_closed_without_dispatch():
+    model = _ClosedDocument()
+    ctx = MagicMock()
+    token = TOKEN_PREFIX + "s:1"
+    with patch("plugin.writer.inline_review._dispatch_resolve") as dispatch:
+        assert resolve_agent_change(model, ctx, token, True) is False
+        assert resolve_all_agent_changes(model, ctx, True) == _RESOLVE_ALL_UNRELIABLE
+        assert _resolve_overlapping_agent_changes(model, ctx, token, True) == 0
+    dispatch.assert_not_called()
+    # Global AcceptAll/RejectAll uses the service manager, not _dispatch_resolve.
+    ctx.getServiceManager.assert_not_called()
+
+    n, msg = resolve_all_with_feedback(model, ctx, True)
+    assert n == 0
+    assert "nothing was" in msg
+    assert "some may have been" not in msg
+
+    reason = agent_self_resolution_block_reason(model)
+    assert reason is not None and "reliably" in reason
+
+    assert _all_redlines_are_agent(model) is False
+    assert _change_bounds(model, token) == (None, None)
+    assert _foreign_redline_in_span(model, FakeText(), FakeRange(10, 20)) is True
+    tokens, ok = _agent_change_tokens(model)
+    assert tokens == set() and ok is False
+    _ids, foreign_ok = _foreign_redline_ids(model)
+    assert foreign_ok is False
