@@ -1019,6 +1019,3 @@ def test_edit_outline_capture_failure_does_not_change_text():
         assert res_all["replaced_count"] == 0
         assert "rolled back" in res_all["message"]
         preserve.assert_not_called()
-
-
-
