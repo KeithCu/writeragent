@@ -435,8 +435,7 @@ class NativePythonScriptDialog:
                 # What was wrong: the editor did not take focus on the floating dialog.
                 # How it happened: setFocus ran before setVisible(True). Modal execute() is different:
                 # it shows the dialog and blocks, so focus stays before execute().
-                # Why this change fixes it: the modeless dialog focuses CodeEdit after it is visible,
-                # and a focus error is logged instead of disposing the dialog.
+                # Why this change fixes it: the modeless dialog focuses CodeEdit after it is visible.
                 if code_ctrl is not None:
                     code_ctrl.setFocus()
                 return True
