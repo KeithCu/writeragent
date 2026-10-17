@@ -740,6 +740,32 @@ def test_reraise_if_disposed_leaves_runtime_exception():
     assert exc_info.value.__cause__ is disp
 
 
+def test_uno_probe_reraises_disposal_unchanged_and_defaults_otherwise():
+    from plugin.framework.errors import DocumentDisposedError, uno_probe
+
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    def boom(exc):
+        def fn():
+            raise exc
+
+        return fn
+
+    assert uno_probe(lambda: 7, 0) == 7
+    assert uno_probe(boom(ValueError("bad")), []) == []
+    # Same broad predicate as is_disposed_exception: the original exception propagates, unwrapped.
+    for exc in (DisposedException("dead"), RuntimeException("bridge gone"), DocumentDisposedError("closed")):
+        with pytest.raises(type(exc)) as exc_info:
+            uno_probe(boom(exc), None)
+        assert exc_info.value is exc
+    with pytest.raises(KeyboardInterrupt):
+        uno_probe(boom(KeyboardInterrupt()), None)
+
+
 def test_format_error_message_urlerror_ssl_is_tls():
     import ssl
     import urllib.error

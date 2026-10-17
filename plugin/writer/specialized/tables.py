@@ -11,7 +11,7 @@ import logging
 from typing import Any, Iterator
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import is_disposed_exception, uno_probe
 
 from ..html_export import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase
@@ -21,20 +21,18 @@ log = logging.getLogger("writeragent.writer.specialized.tables")
 # The zero-width joiner Writer drops into an empty row to anchor its tracked deletion.
 _EMPTY_ROW_ANCHOR = "\u200d"
 
+# uno_probe default for sites where None is a real UNO result.
+_FAILED: Any = object()
+
 
 def _is_draw_doc(doc: Any) -> bool:
     """True for Draw/Impress. Mocks without supportsService are treated as Writer."""
-    try:
+
+    def probe() -> bool:
         ss = getattr(doc, "supportsService", None)
-        if not callable(ss):
-            return False
-        return bool(
-            ss("com.sun.star.drawing.DrawingDocument") or ss("com.sun.star.presentation.PresentationDocument")
-        )
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return False
+        return callable(ss) and bool(ss("com.sun.star.drawing.DrawingDocument") or ss("com.sun.star.presentation.PresentationDocument"))
+
+    return uno_probe(probe, False)
 
 
 def _tables(doc: Any) -> Any:
@@ -80,13 +78,7 @@ def _writer_named_cells(table: Any) -> list[str]:
     the ``IsTableComplex`` guard above that return is commented out). After
     merging A1:D1 on a 5×4 table it reports 1, so ``range(cols)`` skipped D2.
     """
-    try:
-        names = table.getCellNames()
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return []
-    return list(names or ())
+    return list(uno_probe(lambda: table.getCellNames(), []) or ())
 
 
 def _cells_sample(names: list[str]) -> str:
@@ -108,19 +100,15 @@ def _unknown_cell_message(cell_raw: str, table_name: str, names: list[str]) -> s
 
 def _service_named(obj: Any, name: str) -> bool:
     """True if *obj* supports *name*. Prefer supportsService; fall back to names."""
-    try:
+
+    def via_supports_service() -> bool | None:
         ss = getattr(obj, "supportsService", None)
-        if callable(ss):
-            return bool(ss(name))
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-    try:
-        return name in (obj.getSupportedServiceNames() or ())
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return False
+        return bool(ss(name)) if callable(ss) else None
+
+    found = uno_probe(via_supports_service, None)
+    if found is not None:
+        return found
+    return uno_probe(lambda: name in (obj.getSupportedServiceNames() or ()), False)
 
 
 def _is_text_table(obj: Any) -> bool:
@@ -139,36 +127,18 @@ def _container_xtext(obj: Any) -> Any | None:
         or _service_named(obj, "com.sun.star.text.TextSection")
     ):
         return None
-    try:
-        inner = obj.getText() if hasattr(obj, "getText") else obj
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        inner = obj
-    return inner
+    return uno_probe(lambda: obj.getText() if hasattr(obj, "getText") else obj, obj)
 
 
 def _safe_enumerate(obj: Any) -> Iterator[Any]:
     """Yield elements from an object's XEnumeration, re-raising disposal."""
-    try:
-        enum = obj.createEnumeration()
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return
+    enum = uno_probe(lambda: obj.createEnumeration(), None)
     if enum is None:
         return
-    while True:
-        try:
-            # Portion walks must use hasMoreElements() is True; bare "if not enum.hasMoreElements()"
-            # never stops on MagicMock (AGENTS.md).
-            if enum.hasMoreElements() is not True:
-                break
-            yield enum.nextElement()
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            return
+    # Portion walks must use hasMoreElements() is True; bare "if not enum.hasMoreElements()"
+    # never stops on MagicMock (AGENTS.md). A failed read ends the walk like the end does.
+    while (element := uno_probe(lambda: enum.nextElement() if enum.hasMoreElements() is True else _FAILED, _FAILED)) is not _FAILED:
+        yield element
 
 
 def _iter_direct_children(xtext: Any) -> Iterator[Any]:
@@ -183,12 +153,7 @@ def _iter_text_frames_in_para(para: Any) -> Iterator[Any]:
     is only Paragraph; the frame hangs off a portion.
     """
     for portion in _safe_enumerate(para):
-        try:
-            frame = portion.getPropertyValue("TextFrame")
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            continue
+        frame = uno_probe(lambda: portion.getPropertyValue("TextFrame"), None)
         if frame is not None:
             yield frame
 
@@ -229,12 +194,7 @@ def _cell_hosted_table_names(cell: Any) -> list[str]:
     for kind, obj in _walk_xtext_siblings(cell):
         if kind != "table":
             continue
-        try:
-            nested_name = str(obj.getName() or "")
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            nested_name = ""
+        nested_name = uno_probe(lambda: str(obj.getName() or ""), "")
         if nested_name:
             names.append(nested_name)
     return names
@@ -246,12 +206,7 @@ def _cell_plain_siblings(cell: Any) -> str:
     for kind, obj in _walk_xtext_siblings(cell):
         if kind != "para":
             continue
-        try:
-            part = obj.getString()
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            part = ""
+        part = uno_probe(lambda: obj.getString(), "")
         if part:
             parts.append(str(part))
     return "\n".join(parts)
@@ -269,17 +224,9 @@ def _cell_matrix_text(cell: Any, visible: bool = True) -> str:
     return get_string_without_tracked_deletions(cell) if visible else cell.getString()
 
 
-def _table_from_range(found: Any) -> Any | None:
+def _table_from_range(found: Any) -> Any:
     """The TextTable that owns *found*, or None when the match is not in a cell."""
-    try:
-        table = found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable")
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return None
-    if table is None:
-        return None
-    return table
+    return uno_probe(lambda: found.getText().createTextCursorByRange(found.getStart()).getPropertyValue("TextTable"), None)
 
 
 def range_table_name(found: Any) -> str | None:
@@ -287,13 +234,7 @@ def range_table_name(found: Any) -> str | None:
     table = _table_from_range(found)
     if table is None:
         return None
-    try:
-        name = str(table.getName() or "")
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return None
-    return name or None
+    return uno_probe(lambda: str(table.getName() or ""), "") or None
 
 
 def _range_in_cell(found: Any, cell: Any) -> bool:
@@ -303,21 +244,17 @@ def _range_in_cell(found: Any, cell: Any) -> bool:
     ``uno_same`` and then by asking the cell to build a cursor at the match.
     A match in a different cell raises instead of building that cursor.
     """
-    try:
+
+    def same_text() -> bool:
         from plugin.framework.uno_context import uno_same
 
-        if uno_same(found.getText(), cell):
-            return True
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-    try:
+        return bool(uno_same(found.getText(), cell))
+
+    def cursor_fits() -> bool:
         cell.createTextCursorByRange(found.getStart())
         return True
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return False
+
+    return uno_probe(same_text, False) or uno_probe(cursor_fits, False)
 
 
 def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tuple[Any, str]]:
@@ -340,12 +277,7 @@ def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tu
         table = _table_from_range(found)
         if table is None:
             continue
-        try:
-            name = str(table.getName() or "")
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            continue
+        name = uno_probe(lambda: str(table.getName() or ""), "")
         if not name:
             continue
         if name not in grouped:
@@ -366,30 +298,17 @@ def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
     Unreadable cells and hosted nested tables return False so the caller edits
     text instead of guessing which table to remove.
     """
-    try:
-        cell_names = list(table.getCellNames())
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return False
+    cell_names: list[Any] = uno_probe(lambda: list(table.getCellNames()), [])
     if not cell_names:
         return False
     for cell_name in cell_names:
-        try:
-            cell = table.getCellByName(cell_name)
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
+        cell = uno_probe(lambda: table.getCellByName(cell_name), _FAILED)
+        if cell is _FAILED or _cell_hosted_table_names(cell):
             return False
-        if _cell_hosted_table_names(cell):
-            return False
-        try:
-            # Raw text, pending deletions included: a cell that still holds a pending change is
-            # not an empty shell, so an empty replacement must not delete the whole table.
-            text = _cell_matrix_text(cell, visible=False).strip()
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
+        # Raw text, pending deletions included: a cell that still holds a pending change is
+        # not an empty shell, so an empty replacement must not delete the whole table.
+        text = uno_probe(lambda: _cell_matrix_text(cell, visible=False).strip(), None)
+        if text is None:
             return False
         if not text:
             continue
@@ -401,12 +320,7 @@ def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
 def _match_is_whole_cell(found: Any, cell: Any, cell_text: str) -> bool:
     if not _range_in_cell(found, cell):
         return False
-    try:
-        return str(found.getString() or "").strip() == cell_text
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return False
+    return uno_probe(lambda: str(found.getString() or "").strip() == cell_text, False)
 
 
 def _set_host_paragraphs(cell: Any, text: str) -> None:
@@ -436,16 +350,14 @@ def range_hosted_nested_tables(text_range: Any) -> list[str]:
     set). Body XText tables are top-level — a body search-replace must not
     be treated as a host-cell wipe.
     """
-    try:
+
+    def host_text() -> Any:
         text_obj = text_range.getText()
         cur = text_obj.createTextCursorByRange(text_range.getStart())
-        if cur.getPropertyValue("TextTable") is None:
-            return []
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return []
-    return _cell_hosted_table_names(text_obj)
+        return _FAILED if cur.getPropertyValue("TextTable") is None else text_obj
+
+    text_obj = uno_probe(host_text, _FAILED)
+    return [] if text_obj is _FAILED else _cell_hosted_table_names(text_obj)
 
 
 def raise_if_range_hosts_nested_table(text_range: Any) -> None:
@@ -482,20 +394,14 @@ def _writer_nesting(
     cell_counts: dict[str, int] = {}
 
     for parent_name in names:
-        try:
-            parent = tables.getByName(parent_name)
-            cell_names = parent.getCellNames()
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
+        parent = uno_probe(lambda: tables.getByName(parent_name), _FAILED)
+        cell_names = _FAILED if parent is _FAILED else uno_probe(lambda: parent.getCellNames(), _FAILED)
+        if cell_names is _FAILED:
             continue
         cell_counts[parent_name] = len(cell_names)
         for cell_name in cell_names:
-            try:
-                cell = parent.getCellByName(cell_name)
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    raise
+            cell = uno_probe(lambda: parent.getCellByName(cell_name), _FAILED)
+            if cell is _FAILED:
                 continue
             children = _cell_hosted_table_names(cell)
             if not children:
@@ -536,12 +442,7 @@ def _is_wrong_start_node(exc: BaseException) -> bool:
 
 
 def _recording_changes(doc: Any) -> bool:
-    try:
-        return bool(doc.getPropertyValue("RecordChanges"))
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return False
+    return uno_probe(lambda: bool(doc.getPropertyValue("RecordChanges")), False)
 
 
 def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) -> None:
@@ -572,12 +473,7 @@ def _delete_writer_table_tracked(doc: Any, uno_ctx: Any, table: Any, name: str) 
     if controller is None:
         raise RuntimeError("no document view to delete the table through")
     empty_cells = [n for n in table.getCellNames() if not table.getCellByName(n).getString()]
-    try:
-        previous = controller.getSelection()
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        previous = None
+    previous = uno_probe(lambda: controller.getSelection(), None)
     before = doc.getRedlines().getCount()
     controller.select(table)
     helper = uno_ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
@@ -670,13 +566,9 @@ def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
                 continue
         elif col_idx != idx:
             continue
-        try:
-            cell = table.getCellByName(cell_name)
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            continue
-        hosted.extend(_cell_hosted_table_names(cell))
+        cell = uno_probe(lambda: table.getCellByName(cell_name), _FAILED)
+        if cell is not _FAILED:
+            hosted.extend(_cell_hosted_table_names(cell))
     # Preserve first-seen order (a band can host more than one nested table).
     seen: list[str] = []
     for name in hosted:
@@ -697,13 +589,13 @@ def _resolve_uno_context(ctx: Any) -> Any:
 
 def _set_cell_string(cell: Any, text: str) -> None:
     """Set text on a Writer or Draw cell."""
-    if hasattr(cell, "getText"):
-        try:
-            cell.getText().setString(text)
-            return
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
+
+    def via_text() -> bool:
+        cell.getText().setString(text)
+        return True
+
+    if hasattr(cell, "getText") and uno_probe(via_text, False):
+        return
     if hasattr(cell, "setString"):
         cell.setString(text)
 
@@ -1163,13 +1055,7 @@ class TableInsert(ToolWriterTableBase):
                     host.insertTextContent(host.getEnd(), table, False)
                 else:
                     text = doc.getText()
-                    cursor = None
-                    try:
-                        cursor = doc.getCurrentController().getViewCursor()
-                    except Exception as exc:
-                        if is_disposed_exception(exc):
-                            raise
-                        cursor = None
+                    cursor = uno_probe(lambda: doc.getCurrentController().getViewCursor(), None)
                     if cursor is None:
                         cursor = text.getEnd()
                     try:
@@ -1188,11 +1074,7 @@ class TableInsert(ToolWriterTableBase):
                 if data:
                     written_cells = fill_table_cells(table, data)
 
-                try:
-                    created_name = str(table.getName() if hasattr(table, "getName") else getattr(table, "Name", "") or "")
-                except Exception as exc:
-                    if is_disposed_exception(exc):
-                        raise
+                created_name = uno_probe(lambda: str(table.getName() if hasattr(table, "getName") else getattr(table, "Name", "") or ""), created_name)
 
                 if parent and host_cell_name:
                     created_nesting = {"is_nested": True, "parent_table": parent, "parent_cell": host_cell_name}

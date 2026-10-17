@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
@@ -68,6 +68,26 @@ def is_disposed_exception(exc: BaseException) -> bool:
         return True
     exc_name = type(exc).__name__
     return "DisposedException" in exc_name or "RuntimeException" in exc_name
+
+
+_T = TypeVar("_T")
+
+
+def uno_probe(fn: Callable[[], _T], default: _T) -> _T:
+    """Return ``fn()``, or *default* when it raises a non-disposal ``Exception``.
+
+    Disposal re-raises the original exception, judged by the broad
+    :func:`is_disposed_exception` (RuntimeException name match included). That
+    is the inline form of ``except Exception: if is_disposed_exception(e): raise;
+    return default``. :func:`safe_uno_call` differs: it re-raises only real
+    disposal, wrapped as ``DocumentDisposedError``, and logs at DEBUG.
+    """
+    try:
+        return fn()
+    except Exception as exc:
+        if is_disposed_exception(exc):
+            raise
+        return default
 
 
 class suppress_disposed(contextlib.ContextDecorator):
@@ -759,4 +779,5 @@ __all__ = [
     "safe_python_literal_eval",
     "safe_uno_call",
     "suppress_disposed",
+    "uno_probe",
 ]
