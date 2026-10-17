@@ -1,5 +1,6 @@
 import pytest
 import json
+import sys
 from unittest.mock import MagicMock, patch
 
 
@@ -59,27 +60,17 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.statuses.append(text)
 
 @pytest.fixture
-def mock_get_tools():
-    import sys
-    # Save original modules
-    original_main = sys.modules.get('plugin.main')
-    
-    # Add a mock plugin.main module so we can patch plugin.main.get_tools
+def mock_get_tools(monkeypatch):
+    # Stand in a mock plugin.main so we can patch plugin.main.get_tools.
+    # monkeypatch.setitem restores (or removes) the sys.modules entry on teardown.
     class MockMain:
         pass
-    sys.modules['plugin.main'] = MockMain()
+    monkeypatch.setitem(sys.modules, "plugin.main", MockMain())
 
-    try:
-        with patch("plugin.main.get_tools", create=True) as mock_gt:
-            registry = MagicMock()
-            mock_gt.return_value = registry
-            yield registry
-    finally:
-        # Restore original module
-        if original_main:
-            sys.modules['plugin.main'] = original_main
-        else:
-            del sys.modules['plugin.main']
+    with patch("plugin.main.get_tools", create=True) as mock_gt:
+        registry = MagicMock()
+        mock_gt.return_value = registry
+        yield registry
 
 @pytest.fixture
 def test_instance():
