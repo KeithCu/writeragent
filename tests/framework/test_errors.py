@@ -740,6 +740,34 @@ def test_reraise_if_disposed_leaves_runtime_exception():
     assert exc_info.value.__cause__ is disp
 
 
+def test_uno_read_wraps_real_disposal_and_defaults_otherwise():
+    from plugin.framework.errors import DocumentDisposedError, uno_read
+
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    def boom(exc):
+        def fn():
+            raise exc
+
+        return fn
+
+    assert uno_read(lambda: "v", "") == "v"
+    assert uno_read(boom(ValueError("bad")), "") == ""
+    # A bare RuntimeException is a live-document failure, not disposal (same as safe_uno_call).
+    assert uno_read(boom(RuntimeException("bridge")), None) is None
+    # Real disposal leaves wrapped, as reraise_if_disposed does.
+    for exc in (DisposedException("dead"), DocumentDisposedError("closed")):
+        with pytest.raises(DocumentDisposedError) as exc_info:
+            uno_read(boom(exc), None)
+        assert exc_info.value.__cause__ is exc
+    with pytest.raises(KeyboardInterrupt):
+        uno_read(boom(KeyboardInterrupt()), None)
+
+
 def test_uno_probe_reraises_disposal_unchanged_and_defaults_otherwise():
     from plugin.framework.errors import DocumentDisposedError, uno_probe
 

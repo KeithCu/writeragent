@@ -28,7 +28,7 @@ refresh does not rewrite it.
 import logging
 from typing import Any, Callable, cast
 
-from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed, uno_read
 
 from ..specialized_base import ToolWriterIndexBase
 from ..target_resolver import resolve_target_cursor
@@ -266,22 +266,14 @@ def index_kind_from_uno(idx: Any) -> str:
     """Prefer getServiceName(); fall back to the old SwX* remaps."""
     service = None
     if hasattr(idx, "getServiceName"):
-        try:
-            service = idx.getServiceName()
-        except Exception as exc:
-            # A missing service name falls through; a closed document must not list as "unknown".
-            reraise_if_disposed(exc)
-            service = None
+        # A missing service name falls through; a closed document must not list as "unknown".
+        service = uno_read(lambda: idx.getServiceName(), None)
     if isinstance(service, str) and service in _INDEX_SERVICE_TO_KIND:
         return _INDEX_SERVICE_TO_KIND[service]
 
     impl = None
     if hasattr(idx, "getImplementationName"):
-        try:
-            impl = idx.getImplementationName()
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            impl = None
+        impl = uno_read(lambda: idx.getImplementationName(), None)
     if isinstance(impl, str) and impl in _INDEX_IMPL_TO_KIND:
         return _INDEX_IMPL_TO_KIND[impl]
     if isinstance(impl, str) and impl:
@@ -494,13 +486,10 @@ def _commit_toc_mutation(
 
     was_protected = False
     if manage_protection:
-        try:
-            was_protected = bool(idx.getPropertyValue("IsProtected"))
-        except Exception as exc:
-            # Attribute fallback is for a live index without getPropertyValue.
-            # A disposed index must not be edited.
-            reraise_if_disposed(exc)
-            was_protected = bool(getattr(idx, "IsProtected", False))
+        # Attribute fallback is for a live index without getPropertyValue.
+        # A disposed index must not be edited.
+        read = uno_read(lambda: bool(idx.getPropertyValue("IsProtected")), None)
+        was_protected = bool(getattr(idx, "IsProtected", False)) if read is None else read
     try:
         mgr = doc.getUndoManager()
         if mgr is None or mgr.isLocked():
@@ -607,22 +596,13 @@ def _is_contents_level_style(style: str) -> bool:
 
 
 def _para_style_name(para: Any) -> str:
-    try:
-        return str(para.getPropertyValue("ParaStyleName") or "")
-    except Exception as exc:
-        # Unknown on some objects inside the anchor; a disposed paragraph is not an empty style.
-        reraise_if_disposed(exc)
-        return ""
+    # Unknown on some objects inside the anchor; a disposed paragraph is not an empty style.
+    return uno_read(lambda: str(para.getPropertyValue("ParaStyleName") or ""), "")
 
 
 def _paragraph_style_exists(doc: Any, name: str) -> bool:
-    try:
-        styles = doc.getStyleFamilies().getByName("ParagraphStyles")
-        return bool(styles.hasByName(name))
-    except Exception as exc:
-        # A missing style family is "not found"; disposal is not.
-        reraise_if_disposed(exc)
-        return False
+    # A missing style family is "not found"; disposal is not.
+    return uno_read(lambda: bool(doc.getStyleFamilies().getByName("ParagraphStyles").hasByName(name)), False)
 
 
 def _paragraphs_in_anchor(anchor: Any) -> list[Any]:
@@ -682,20 +662,12 @@ def _paragraph_hyperlink(para: Any) -> str:
     outline = ""
     internal = ""
     other = ""
-    try:
-        portions = para.createEnumeration()
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        portions = None
+    portions = uno_read(lambda: para.createEnumeration(), None)
     if portions is not None:
         while _enum_has_more(portions):
             portion = portions.nextElement()
-            try:
-                url = portion.getPropertyValue("HyperLinkURL") or ""
-            except Exception as exc:
-                # Some portion types have no HyperLinkURL. Disposal is not that case.
-                reraise_if_disposed(exc)
-                url = ""
+            # Some portion types have no HyperLinkURL. Disposal is not that case.
+            url = uno_read(lambda: portion.getPropertyValue("HyperLinkURL") or "", "")
             if not isinstance(url, str) or not url:
                 continue
             if "|outline" in url:
@@ -707,11 +679,7 @@ def _paragraph_hyperlink(para: Any) -> str:
                 other = url
     if outline or internal or other:
         return outline or internal or other
-    try:
-        url = para.getPropertyValue("HyperLinkURL") or ""
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return ""
+    url = uno_read(lambda: para.getPropertyValue("HyperLinkURL") or "", "")
     return url if isinstance(url, str) else ""
 
 
@@ -796,29 +764,17 @@ def _char_props(para: Any) -> dict[str, Any]:
     match a customized TOC.
     """
     props: dict[str, Any] = {}
-    try:
-        portions = para.createEnumeration()
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return props
+    # A failed enumeration reads as None, which _enum_has_more treats as empty.
+    portions: Any = uno_read(lambda: para.createEnumeration(), None)
     while _enum_has_more(portions):
         portion = portions.nextElement()
-        try:
-            if portion.getPropertyValue("TextPortionType") != "Text":
-                continue
-            chunk = portion.getString() or ""
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            continue
+        # A non-Text portion and an unreadable one both read as "" and are skipped.
+        chunk = uno_read(lambda: (portion.getString() or "") if portion.getPropertyValue("TextPortionType") == "Text" else "", "")
         if not isinstance(chunk, str) or not chunk:
             continue
         for name in _CLONED_CHAR_PROPS:
-            try:
-                value = portion.getPropertyValue(name)
-            except Exception as exc:
-                # Unknown on this portion type; disposal is not an unknown property.
-                reraise_if_disposed(exc)
-                continue
+            # Unknown on this portion type; disposal is not an unknown property.
+            value = uno_read(lambda: portion.getPropertyValue(name), None)
             if value is None:
                 continue
             props[name] = value
@@ -834,11 +790,7 @@ def _snapshot_tab_stops(para: Any) -> tuple[Any, ...]:
     round-trip through ``uno.Any``. ``styles._set_style_property`` builds new
     structs and passes ``[]com.sun.star.style.TabStop`` via ``uno.invoke``.
     """
-    try:
-        tabs = list(para.getPropertyValue("ParaTabStops") or ())
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return ()
+    tabs: list[Any] = uno_read(lambda: list(para.getPropertyValue("ParaTabStops") or ()), [])
     if not tabs:
         return ()
     import uno
@@ -915,12 +867,8 @@ def _insert_toc_paragraph(
     if url:
         para.setPropertyValue("HyperLinkURL", url)
     for name, value in char_props.items():
-        try:
-            para.setPropertyValue(name, value)
-        except Exception as exc:
-            # A property this paragraph rejects is skipped; disposal rolls the insert back.
-            reraise_if_disposed(exc)
-            continue
+        # A property this paragraph rejects is skipped; disposal rolls the insert back.
+        uno_read(lambda: para.setPropertyValue(name, value), None)
     lived = para.getString() or ""
     return lived if isinstance(lived, str) else new_text
 
