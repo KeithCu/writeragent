@@ -28,7 +28,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception, is_real_disposal
+from plugin.framework.errors import is_disposed_exception, is_real_disposal, uno_probe
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -117,7 +117,7 @@ def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
 
     if hasattr(resolved, "getSpreadsheet"):
         sp = resolved.getSpreadsheet()
-        name = sp.getName() if hasattr(sp, "getName") else None
+        name = sp.getName()
         if isinstance(name, str) and name:
             return _sheet_token(name) + "."
     return ""
@@ -139,22 +139,19 @@ def _compound_undo(doc: Any, title: str) -> Any:
 
 def _undo_titled_group(doc: Any, title: str) -> bool:
     """Undo the group we just closed, only when its title is the newest one."""
-    try:
+    def _do_undo() -> bool:
         if not hasattr(doc, "getUndoManager"):
             return False
         um = doc.getUndoManager()
         if um is None:
             return False
-        titles = um.getAllUndoActionTitles() if hasattr(um, "getAllUndoActionTitles") else ()
+        titles = um.getAllUndoActionTitles()
         if titles and titles[0] == title:
             um.undo()
             return True
         return False
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
-        log.exception("Could not undo titled group %r", title)
-        return False
+
+    return uno_probe(_do_undo, False)
 
 
 def _mutate_ranges(
@@ -719,11 +716,7 @@ class InsertCellHtml(ToolBase):
         if ctx.services is not None and hasattr(ctx.services, "get"):
             config_svc = ctx.services.get("config")
 
-        try:
-            insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html if isinstance(html, str) else "", config_svc=config_svc)
-        except ToolExecutionError as e:
-            return self._tool_error(str(e))
-
+        insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html if isinstance(html, str) else "", config_svc=config_svc)
         return {"status": "ok", "message": f"Inserted rich HTML into cell {addr.upper()}."}
 
 
