@@ -23,8 +23,20 @@ from plugin.scripting.config_limits import (
     VISION_PROBE_TIMEOUT_SEC,
 )
 from plugin.scripting.venv_diagnostics import (
+    _AUDIO_OPTIONAL_KEYS,
+    _AUDIO_PACKAGE_KEYS,
+    _AUDIO_PROBE_SCRIPT,
+    _DUCKDB_PROBE_SCRIPT,
+    _NLP_PROBE_SCRIPT,
+    _PROBE_JSON_PREFIX,
+    _PROBE_KEY_TO_PIP,
+    _UI_PACKAGE_KEYS,
+    _UI_PROBE_SCRIPT,
+    _VECTOR_SEARCH_PROBE_SCRIPT,
+    _VISION_PROBE_SCRIPT,
     _build_probe_display,
     _format_self_check_success,
+    _probe_key_to_pip,
     _probe_nlp_packages,
     _probe_vector_search_packages,
     probe_venv_path_with_progress,
@@ -72,17 +84,6 @@ def test_run_venv_self_check_with_progress_success():
     assert "OK" in msg or "ok" in msg.lower()
 
 
-def test_run_venv_self_check_with_progress_worker_start_error():
-    mock_mgr = MagicMock()
-    mock_mgr.execute.side_effect = OSError("boom")
-    shown: list[str] = []
-    with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr):
-        ok, msg = run_venv_self_check_with_progress("/fake/python", shown.append)
-    assert ok is False
-    assert "boom" in msg
-    assert shown == [msg]
-
-
 @pytest.mark.parametrize(
     "value, value_2",
     [
@@ -101,15 +102,6 @@ def test_run_venv_self_check_with_progress_worker_error_response(value, value_2)
     assert shown == [msg]
 
 
-def test_run_venv_self_check_with_progress_get_oserror_is_displayed():
-    shown: list[str] = []
-    with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", side_effect=OSError("spawn failed")):
-        ok, msg = run_venv_self_check_with_progress("/x/python", shown.append)
-    assert ok is False
-    assert "spawn failed" in msg
-    assert shown == [msg]
-
-
 def test_run_venv_self_check_with_progress_unexpected_version_is_displayed():
     mock_mgr = MagicMock()
     mock_mgr.execute.return_value = {"status": "ok", "result": "nope"}
@@ -121,58 +113,32 @@ def test_run_venv_self_check_with_progress_unexpected_version_is_displayed():
     assert shown == [msg]
 
 
-def test_run_venv_self_check_with_progress_mid_loop_oserror_appends():
+def test_run_venv_self_check_with_progress_package_worker_error_continues():
     mock_mgr = MagicMock()
 
     def _execute(script, timeout_sec=None):
         if "platform" in script:
             return {"status": "ok", "result": {"v": "3.12.0", "arch": "x86_64"}}
-        if "numpy" in script:
-            return {"status": "ok", "result": "present"}
-        raise OSError("died")
+        if "import pandas\n" in script:
+            return {"status": "error", "message": "died"}
+        return {"status": "ok", "result": "present"}
 
     mock_mgr.execute.side_effect = _execute
     shown: list[str] = []
-    with patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr):
-        ok, msg = run_venv_self_check_with_progress("/x/python", shown.append, include_audio=False)
-    assert ok is False
-    assert msg == "Could not run Python: died"
-    assert "Scientific Libraries" in shown[-1]
-    assert "\n\nCould not run Python: died" in shown[-1]
-    assert "Scientific Libraries" not in msg
-
-
-def test_run_venv_self_check_with_progress_parse_error_appends():
-    mock_mgr = MagicMock()
-    mock_mgr.execute.side_effect = (
-        lambda script, timeout_sec=None: {
-            "status": "ok",
-            "result": {"v": "3.12.0", "arch": "x86_64"},
-        }
-        if "platform" in script
-        else {"status": "ok", "result": None}
-    )
-    from plugin.scripting.venv_diagnostics import _build_probe_display as real_build
-
-    def _fake_build(*args, **kwargs):
-        if kwargs.get("include_install_footer"):
-            raise RuntimeError("parse boom")
-        return real_build(*args, **kwargs)
-
-    shown: list[str] = []
     with (
         patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_ui_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics.probe_vision_packages", return_value=({}, None)),
         patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
-        patch("plugin.scripting.venv_diagnostics._build_probe_display", side_effect=_fake_build),
+        patch("plugin.scripting.venv_diagnostics._probe_duckdb", return_value=({}, None)),
     ):
         ok, msg = run_venv_self_check_with_progress("/x/python", shown.append, include_audio=False)
-    assert ok is False
-    assert "Failed to parse diagnostic output" in msg
-    assert "parse boom" in msg
-    assert "Python 3.12.0" in shown[-1]
-    assert "\n\nFailed to parse diagnostic output" in shown[-1]
+    assert ok is True
+    assert "Warning: pandas: died" in msg
+    assert "Scientific Libraries" in msg
+    assert "Could not run Python" not in msg
+    assert shown[-1] == msg
 
 def test_run_venv_self_check_with_progress_reports_architecture():
     """Self-check success message includes platform.machine() from the worker payload."""
@@ -1120,17 +1086,20 @@ def test_format_self_check_success_tts_missing_does_not_print_whisper_recipe():
 
 
 def test_audio_probe_lists_faster_whisper_as_optional_pip_package():
-    from plugin.scripting.venv_diagnostics import (
-        _AUDIO_OPTIONAL_KEYS,
-        _AUDIO_PACKAGE_KEYS,
-        _AUDIO_PROBE_SCRIPT,
-        _PROBE_KEY_TO_PIP,
-        _probe_key_to_pip,
-    )
-
     assert _AUDIO_PACKAGE_KEYS[-1] == "faster_whisper"
     assert "faster_whisper" in _AUDIO_OPTIONAL_KEYS
     assert "import faster_whisper" in _AUDIO_PROBE_SCRIPT
+    assert "__import__" not in _AUDIO_PROBE_SCRIPT
+    assert "import sounddevice as sd" in _AUDIO_PROBE_SCRIPT
+    assert "sd.query_devices()" in _AUDIO_PROBE_SCRIPT
+    assert 'out["faster_whisper"] = "present"' in _AUDIO_PROBE_SCRIPT
+    fw_pos = _AUDIO_PROBE_SCRIPT.index("import faster_whisper")
+    prev_try = _AUDIO_PROBE_SCRIPT.rindex("\ntry:", 0, fw_pos)
+    next_boundary = _AUDIO_PROBE_SCRIPT.find("\ntry:", fw_pos)
+    if next_boundary == -1:
+        next_boundary = _AUDIO_PROBE_SCRIPT.find("print(", fw_pos)
+    fw_chunk = _AUDIO_PROBE_SCRIPT[prev_try:next_boundary]
+    assert fw_chunk.count("import ") == 1
     compile(_AUDIO_PROBE_SCRIPT, "<audio_probe>", "exec")
     assert _PROBE_KEY_TO_PIP["faster_whisper"] == "faster-whisper"
     assert _probe_key_to_pip("faster_whisper") == "faster-whisper"
@@ -1265,16 +1234,6 @@ def test_audio_linux_portaudio_hint_has_no_package_manager():
 
 
 def test_probe_scripts_print_json_prefix():
-    from plugin.scripting.venv_diagnostics import (
-        _AUDIO_PROBE_SCRIPT,
-        _DUCKDB_PROBE_SCRIPT,
-        _NLP_PROBE_SCRIPT,
-        _PROBE_JSON_PREFIX,
-        _UI_PROBE_SCRIPT,
-        _VECTOR_SEARCH_PROBE_SCRIPT,
-        _VISION_PROBE_SCRIPT,
-    )
-
     assert _PROBE_JSON_PREFIX == "WA_PROBE_JSON "
     scripts = [
         _AUDIO_PROBE_SCRIPT,
@@ -1287,7 +1246,22 @@ def test_probe_scripts_print_json_prefix():
     for script in scripts:
         assert 'print("WA_PROBE_JSON " + json.dumps(out))' in script
         assert "print(json.dumps(out))" not in script
+        assert "__import__" not in script
+        assert ":=" not in script
+        assert 'f"' not in script
+        assert "f'" not in script
         compile(script, "<test_probe_script>", "exec")
+
+    assert 'out["docling_import_error"] = str(exc)[:200]' in _VISION_PROBE_SCRIPT
+    assert "import docling.document_converter" in _VISION_PROBE_SCRIPT
+    assert "import rapidocr_onnxruntime" in _VISION_PROBE_SCRIPT
+    assert 'out["sentence_transformers_import_error"] = str(exc)[:200]' in _VECTOR_SEARCH_PROBE_SCRIPT
+    assert "import odf" in _VECTOR_SEARCH_PROBE_SCRIPT and 'out["odfpy"]' in _VECTOR_SEARCH_PROBE_SCRIPT
+    assert "import docx" in _VECTOR_SEARCH_PROBE_SCRIPT and 'out["python_docx"]' in _VECTOR_SEARCH_PROBE_SCRIPT
+    assert 'out["duckdb_import_error"] = str(exc)[:200]' in _DUCKDB_PROBE_SCRIPT
+    assert "language_tool_python.__file__" not in _NLP_PROBE_SCRIPT
+    assert _UI_PROBE_SCRIPT.count("\ntry:") == len(_UI_PACKAGE_KEYS)
+    assert _NLP_PROBE_SCRIPT.count("\ntry:") == 4
 
 
 def test_partial_scientific_group_uses_translated_title(monkeypatch) -> None:

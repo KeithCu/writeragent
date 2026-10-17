@@ -105,12 +105,45 @@ _PROBE_KEY_TO_PIP: dict[str, str] = {
 # anywhere on a line. A C extension can write a banner with no trailing
 # newline, so the probe print is glued to that banner and the line does
 # not start with the prefix. Parse from the prefix to the end of the
-# line. The six probe scripts below print it as a literal; keep the
-# characters identical, including the trailing space.
+# line. The six probe scripts below are built by _import_probe_script,
+# which emits print("WA_PROBE_JSON " + json.dumps(out)) (concatenation,
+# trailing space on the prefix unchanged).
 _PROBE_JSON_PREFIX = "WA_PROBE_JSON "
-_AUDIO_PROBE_SCRIPT = """
-import json
-out = {}
+
+
+def _import_try_block(key: str, module: str, *, record_error: bool = False) -> str:
+    """One child try/except for one import. Source is plain Python (no f-string, walrus, or match)."""
+    lines = [
+        "try:",
+        f"    import {module}",
+        f'    out["{key}"] = "present"',
+        "except Exception as exc:" if record_error else "except Exception:",
+        f'    out["{key}"] = None',
+    ]
+    if record_error:
+        lines.append(f'    out["{key}_import_error"] = str(exc)[:200]')
+    return "\n".join(lines) + "\n"
+
+
+def _import_probe_script(*chunks: str) -> str:
+    """Wrap probe chunks with json header and the WA_PROBE_JSON print.
+
+    Each chunk is either one _import_try_block or a hand-written snippet that
+    already has its own try/except. The print expression is concatenation, not
+    an f-string, so the prefix stays identical to _PROBE_JSON_PREFIX.
+    """
+    body = "".join(chunks)
+    if body and not body.endswith("\n"):
+        body += "\n"
+    return (
+        "import json\n"
+        "out = {}\n"
+        + body
+        + 'print("WA_PROBE_JSON " + json.dumps(out))\n'
+    )
+
+
+_SOUNDDEVICE_PROBE_BODY = """\
 try:
     import sounddevice as sd
     out["sounddevice"] = "present"
@@ -127,33 +160,15 @@ else:
         out["input_device"] = "present" if has_input else None
     except Exception:
         out["input_device"] = None
-
-try:
-    import kokoro_onnx
-    out["kokoro_onnx"] = "present"
-except Exception:
-    out["kokoro_onnx"] = None
-
-try:
-    import soundfile
-    out["soundfile"] = "present"
-except Exception:
-    out["soundfile"] = None
-
-try:
-    import piper
-    out["piper"] = "present"
-except Exception:
-    out["piper"] = None
-
-try:
-    import faster_whisper
-    out["faster_whisper"] = "present"
-except Exception:
-    out["faster_whisper"] = None
-
-print("WA_PROBE_JSON " + json.dumps(out))
 """
+
+_AUDIO_PROBE_SCRIPT = _import_probe_script(
+    _SOUNDDEVICE_PROBE_BODY,
+    _import_try_block("kokoro_onnx", "kokoro_onnx"),
+    _import_try_block("soundfile", "soundfile"),
+    _import_try_block("piper", "piper"),
+    _import_try_block("faster_whisper", "faster_whisper"),
+)
 def _audio_probe_timeout_hint() -> str:
     return _("Audio probe timed out (sounddevice import failed or hung).")
 
@@ -164,32 +179,9 @@ def _audio_probe_failed_hint() -> str:
 
 _NLP_PACKAGE_KEYS = ("spacy", "textdescriptives", "transformers", "language_tool_python")
 _NLP_OPTIONAL_KEYS = ("language_tool_python",)
-_NLP_PROBE_SCRIPT = """
-import json
-out = {}
-try:
-    import spacy  # noqa: F401
-    out["spacy"] = "present"
-except Exception:
-    out["spacy"] = None
-try:
-    import textdescriptives  # noqa: F401
-    out["textdescriptives"] = "present"
-except Exception:
-    out["textdescriptives"] = None
-try:
-    import transformers  # noqa: F401
-    out["transformers"] = "present"
-except Exception:
-    out["transformers"] = None
-try:
-    import language_tool_python  # noqa: F401
-    res = language_tool_python.__file__
-    out["language_tool_python"] = "present"
-except Exception:
-    out["language_tool_python"] = None
-print("WA_PROBE_JSON " + json.dumps(out))
-"""
+_NLP_PROBE_SCRIPT = _import_probe_script(
+    *(_import_try_block(name, name) for name in _NLP_PACKAGE_KEYS)
+)
 
 def _nlp_probe_timeout_hint() -> str:
     return _(
@@ -201,15 +193,7 @@ def _nlp_probe_failed_hint() -> str:
     return _("Text/NLP probe failed (see writeragent_debug.log).")
 
 
-_VISION_PROBE_SCRIPT = """
-import json
-out = {}
-try:
-    import docling.document_converter  # noqa: F401
-    out["docling"] = "present"
-except Exception as exc:
-    out["docling"] = None
-    out["docling_import_error"] = str(exc)
+_RAPIDOCR_PROBE_BODY = """\
 try:
     import rapidocr
     out["rapidocr"] = "present"
@@ -219,33 +203,17 @@ except Exception:
         out["rapidocr"] = "present"
     except Exception:
         out["rapidocr"] = None
-try:
-    import paddleocr
-    out["paddleocr"] = "present"
-except Exception:
-    out["paddleocr"] = None
-try:
-    import paddle
-    out["paddle"] = "present"
-except Exception:
-    out["paddle"] = None
-try:
-    import ultralytics
-    out["ultralytics"] = "present"
-except Exception:
-    out["ultralytics"] = None
-try:
-    import skimage
-    out["skimage"] = "present"
-except Exception:
-    out["skimage"] = None
-try:
-    import css_inline  # noqa: F401
-    out["css_inline"] = "present"
-except Exception:
-    out["css_inline"] = None
-print("WA_PROBE_JSON " + json.dumps(out))
 """
+
+_VISION_PROBE_SCRIPT = _import_probe_script(
+    _import_try_block("docling", "docling.document_converter", record_error=True),
+    _RAPIDOCR_PROBE_BODY,
+    _import_try_block("paddleocr", "paddleocr"),
+    _import_try_block("paddle", "paddle"),
+    _import_try_block("ultralytics", "ultralytics"),
+    _import_try_block("skimage", "skimage"),
+    _import_try_block("css_inline", "css_inline"),
+)
 
 
 def _vision_probe_timeout_hint() -> str:
@@ -274,82 +242,22 @@ _VECTOR_SEARCH_PACKAGE_KEYS = (
     "python_docx",
     "langdetect",
 )
-_VECTOR_SEARCH_PROBE_SCRIPT = """
-import json
-out = {}
-try:
-    import envwrap  # noqa: F401
-    out["envwrap"] = "present"
-except Exception:
-    out["envwrap"] = None
-try:
-    import sentence_transformers  # noqa: F401
-    out["sentence_transformers"] = "present"
-except Exception as exc:
-    out["sentence_transformers"] = None
-    out["sentence_transformers_import_error"] = str(exc)
-try:
-    import sqlite_vec  # noqa: F401
-    out["sqlite_vec"] = "present"
-except Exception:
-    out["sqlite_vec"] = None
-try:
-    import zvec  # noqa: F401
-    out["zvec"] = "present"
-except Exception:
-    out["zvec"] = None
-try:
-    import langgraph  # noqa: F401
-    out["langgraph"] = "present"
-except Exception:
-    out["langgraph"] = None
-try:
-    import langchain_core  # noqa: F401
-    out["langchain_core"] = "present"
-except Exception:
-    out["langchain_core"] = None
-try:
-    import langchain_text_splitters  # noqa: F401
-    out["langchain_text_splitters"] = "present"
-except Exception:
-    out["langchain_text_splitters"] = None
-try:
-    import icu4py  # noqa: F401
-    out["icu4py"] = "present"
-except Exception:
-    out["icu4py"] = None
-try:
-    import odf  # noqa: F401
-    out["odfpy"] = "present"
-except Exception:
-    out["odfpy"] = None
-try:
-    import pandas  # noqa: F401
-    out["pandas"] = "present"
-except Exception:
-    out["pandas"] = None
-try:
-    import openpyxl  # noqa: F401
-    out["openpyxl"] = "present"
-except Exception:
-    out["openpyxl"] = None
-try:
-    import xlrd  # noqa: F401
-    out["xlrd"] = "present"
-except Exception:
-    out["xlrd"] = None
-try:
-    import docx  # noqa: F401
-    out["python_docx"] = "present"
-except Exception:
-    out["python_docx"] = None
-try:
-    import langdetect  # noqa: F401
-    out["langdetect"] = "present"
-except Exception:
-    out["langdetect"] = None
-print("WA_PROBE_JSON " + json.dumps(out))
-"""
+_VECTOR_SEARCH_PROBE_SCRIPT = _import_probe_script(
+    _import_try_block("envwrap", "envwrap"),
+    _import_try_block("sentence_transformers", "sentence_transformers", record_error=True),
+    _import_try_block("sqlite_vec", "sqlite_vec"),
+    _import_try_block("zvec", "zvec"),
+    _import_try_block("langgraph", "langgraph"),
+    _import_try_block("langchain_core", "langchain_core"),
+    _import_try_block("langchain_text_splitters", "langchain_text_splitters"),
+    _import_try_block("icu4py", "icu4py"),
+    _import_try_block("odfpy", "odf"),
+    _import_try_block("pandas", "pandas"),
+    _import_try_block("openpyxl", "openpyxl"),
+    _import_try_block("xlrd", "xlrd"),
+    _import_try_block("python_docx", "docx"),
+    _import_try_block("langdetect", "langdetect"),
+)
 
 def _vector_search_probe_timeout_hint() -> str:
     return _(
@@ -506,25 +414,9 @@ def _probe_audio_packages(
 # Editor GUI stacks. Probed in a one-shot subprocess so Qt/WebEngine never
 # land in the warm worker that later runs =PY() and Run Python Script.
 _UI_PACKAGE_KEYS = ("webview", "rocher", "jedi", "PyQt6", "PyQt6.QtWebEngineWidgets", "qtpy")
-_UI_PROBE_SCRIPT = """
-import json
-out = {}
-pairs = (
-    ("webview", "webview"),
-    ("rocher", "rocher"),
-    ("jedi", "jedi"),
-    ("PyQt6", "PyQt6"),
-    ("PyQt6.QtWebEngineWidgets", "PyQt6.QtWebEngineWidgets"),
-    ("qtpy", "qtpy"),
+_UI_PROBE_SCRIPT = _import_probe_script(
+    *(_import_try_block(name, name) for name in _UI_PACKAGE_KEYS)
 )
-for key, mod in pairs:
-    try:
-        __import__(mod)
-        out[key] = "present"
-    except Exception:
-        out[key] = None
-print("WA_PROBE_JSON " + json.dumps(out))
-"""
 
 
 def _ui_probe_failed_hint() -> str:
@@ -553,15 +445,9 @@ def _duckdb_probe_failed_hint() -> str:
 # Not a _package_probe_script target: duckdb is off the venv AST allowlist.
 # A sandbox import raises InterpreterError, which is not ImportError, so the
 # worker probe would fail the package instead of reporting it missing.
-_DUCKDB_PROBE_SCRIPT = """
-import json
-try:
-    import duckdb
-    out = {"duckdb": "present"}
-except Exception as exc:
-    out = {"duckdb": None, "duckdb_import_error": str(exc)[:200]}
-print("WA_PROBE_JSON " + json.dumps(out))
-"""
+_DUCKDB_PROBE_SCRIPT = _import_probe_script(
+    _import_try_block("duckdb", "duckdb", record_error=True),
+)
 
 
 def _probe_duckdb(
@@ -631,7 +517,9 @@ result = {'v': platform.python_version(), 'arch': platform.machine()}
 # sandboxed LocalPythonExecutor. Do NOT use dynamic execution primitives like
 # __import__(), eval(), or exec(). The sandbox rejects them with
 # InterpreterError. Use an explicit import statement inside try/except ImportError.
-# The one-shot subprocess scripts above this note may use __import__.
+# The one-shot subprocess scripts above this note use an explicit import
+# inside their own try/except; do not switch them to __import__ or to one
+# try around every import.
 def _package_probe_script(module: str) -> str:
     """Return a sandbox-safe one-import probe script for a whitelisted *module*."""
     if module not in _ALLOWED_PROBE_MODULES:
@@ -1090,8 +978,10 @@ def run_venv_self_check_with_progress(
         # and these returns never called on_display. Path checks in
         # probe_venv_path_with_progress do call on_display; these do not.
         # Why: show msg when the log is still empty, and append it under the
-        # last body when a group was already drawn, so a mid-loop OSError
-        # does not wipe that body. The returned message stays msg.
+        # last body when a group was already drawn. Package IPC failures are
+        # not this path: execute() returns a status dict, and the
+        # status != "ok" branch records a warning and continues.
+        # The returned message stays msg.
         if shown:
             body = shown[-1] + "\n\n" + msg
         else:
@@ -1132,22 +1022,16 @@ def run_venv_self_check_with_progress(
             warnings.append(f"{pkg}: {message}")
 
     _status(_("Starting Python worker..."))
-    try:
-        from plugin.framework.constants import WORKER_POOL_DIAGNOSTICS
+    from plugin.framework.constants import WORKER_POOL_DIAGNOSTICS
 
-        manager = PythonWorkerManager.get(
-            python_exe,
-            scrub_subprocess_env(dict(os.environ)),
-            pool=WORKER_POOL_DIAGNOSTICS,
-        )
-    except OSError as e:
-        return _fail(f"Could not run Python: {e}")
+    manager = PythonWorkerManager.get(
+        python_exe,
+        scrub_subprocess_env(dict(os.environ)),
+        pool=WORKER_POOL_DIAGNOSTICS,
+    )
 
     _status(_("Reading Python version..."))
-    try:
-        response = manager.execute(_VERSION_PROBE_SCRIPT, timeout_sec=per_pkg_timeout)
-    except OSError as e:
-        return _fail(f"Could not run Python: {e}")
+    response = manager.execute(_VERSION_PROBE_SCRIPT, timeout_sec=per_pkg_timeout)
 
     if response.get("status") != "ok":
         msg = str(response.get("message", "Unknown error"))
@@ -1216,10 +1100,7 @@ def run_venv_self_check_with_progress(
                     include_audio=include_audio,
                 )
                 continue
-            try:
-                pkg_resp = manager.execute(_package_probe_script(pkg), timeout_sec=per_pkg_timeout)
-            except OSError as e:
-                return _fail(f"Could not run Python: {e}")
+            pkg_resp = manager.execute(_package_probe_script(pkg), timeout_sec=per_pkg_timeout)
             if pkg_resp.get("status") != "ok":
                 msg = str(pkg_resp.get("message", "Unknown error"))
                 log.warning("Package probe failed for %s: %s", pkg, msg)
@@ -1293,20 +1174,17 @@ def run_venv_self_check_with_progress(
             include_audio=include_audio,
         )
 
-    try:
-        final_msg = _build_probe_display(
-            data,
-            completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
-            include_vector_search=include_vector_search,
-            include_vision=True,
-            include_audio=include_audio,
-            include_install_footer=True,
-            extra_lines_after_header=extra_lines_after_header,
-        )
-        _show(final_msg)
-        return True, final_msg
-    except Exception as e:
-        return _fail(f"Failed to parse diagnostic output: {e}\nRaw output: {data!r}")
+    final_msg = _build_probe_display(
+        data,
+        completed_groups=_SELF_CHECK_DISPLAY_GROUP_COUNT,
+        include_vector_search=include_vector_search,
+        include_vision=True,
+        include_audio=include_audio,
+        include_install_footer=True,
+        extra_lines_after_header=extra_lines_after_header,
+    )
+    _show(final_msg)
+    return True, final_msg
 
 
 def probe_venv_path_with_progress(
