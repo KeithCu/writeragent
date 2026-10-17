@@ -1111,16 +1111,11 @@ class ApplyStyle(FrameworkToolBase):
                     )
             else:
                 for found in ranges:
-                    try:
-                        ftext = found.getText()
-                        c = ftext.createTextCursorByRange(found.getStart())
-                        c.gotoRange(found.getEnd(), True)
-                        reports.append(self._apply_one(ctx, family, uno_prop, uno_value, c, clear_direct))
-                        applied += 1
-                    except Exception as e:
-                        if is_disposed_exception(e):
-                            raise
-                        return self._tool_error("Applied to %d of %d; failed on one match: %s" % (applied, len(ranges), e))
+                    ftext = found.getText()
+                    c = ftext.createTextCursorByRange(found.getStart())
+                    c.gotoRange(found.getEnd(), True)
+                    reports.append(self._apply_one(ctx, family, uno_prop, uno_value, c, clear_direct))
+                    applied += 1
 
             result = {"status": "ok", "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, applied),
                       "style_name": style_name, "family": family, "target": "search", "applied": True, "matched": True, "applied_count": applied}
@@ -1380,61 +1375,54 @@ class StyleCreate(ToolWriterStyleBase):
 
         applied: dict[str, Any] = {}
         failed: dict[str, str] = {}
-        try:
-            new_style = doc.createInstance(service)
-            if not new_style:
-                return self._tool_error("Failed to create style instance for %s" % service)
+        new_style = doc.createInstance(service)
+        if not new_style:
+            return self._tool_error("Failed to create style instance for %s" % service)
 
-            if actual_parent:
+        if actual_parent:
+            try:
+                new_style.setParentStyle(actual_parent)
+            except Exception as e:
+                if is_disposed_exception(e):
+                    raise
+                log.warning("Failed to set parent_style '%s' on new style", actual_parent, exc_info=True)
+                return self._tool_error(f"Failed to set parent_style '{actual_parent}': {e}")
+
+        applied, failed = _apply_style_updates(new_style, updates)
+        if failed:
+            return {
+                "status": "error",
+                "message": "Style was not created. Failed properties: %s" % (failed,),
+                "failed_properties": failed,
+            }
+
+        # Only insert if all requested properties were applied without failure.
+        style_family.insertByName(style_name, new_style)
+
+        # Apply conditional rules
+        if family == "ParagraphStyles" and conditional_rules:
+            try:
+                conditions = []
+                for rule in cast("list[dict[str, str]]", conditional_rules):
+                    # createUnoStruct("com.sun.star.beans.NamedValue") is the UNO struct.
+                    nv = cast("Any", uno.createUnoStruct("com.sun.star.beans.NamedValue"))
+                    nv.Name = rule["context"]
+                    nv.Value = rule["target_style"]
+                    conditions.append(nv)
+                new_style.setPropertyValue("ParaStyleConditions", tuple(conditions))
+            except Exception as cond_err:
+                if is_disposed_exception(cond_err):
+                    raise
+                log.warning("Failed to set ParaStyleConditions on new style", exc_info=True)
+                # ParaStyleConditions is read-only at the UNO level; fail loudly and rollback the created style.
                 try:
-                    new_style.setParentStyle(actual_parent)
-                except Exception as e:
-                    if is_disposed_exception(e):
-                        raise
-                    log.warning("Failed to set parent_style '%s' on new style", actual_parent, exc_info=True)
-                    return self._tool_error(f"Failed to set parent_style '{actual_parent}': {e}")
+                    if style_family.hasByName(style_name):
+                        style_family.removeByName(style_name)
+                except Exception as rb_err:
+                    log.warning("Failed to rollback created style '%s' after condition failure: %s", style_name, rb_err)
+                return self._tool_error(f"Failed to apply conditional rules to style: {cond_err}")
 
-            applied, failed = _apply_style_updates(new_style, updates)
-            if failed:
-                return {
-                    "status": "error",
-                    "message": "Style was not created. Failed properties: %s" % (failed,),
-                    "failed_properties": failed,
-                }
-
-            # Only insert if all requested properties were applied without failure.
-            style_family.insertByName(style_name, new_style)
-
-            # Apply conditional rules
-            if family == "ParagraphStyles" and conditional_rules:
-                try:
-                    conditions = []
-                    for rule in cast("list[dict[str, str]]", conditional_rules):
-                        # createUnoStruct("com.sun.star.beans.NamedValue") is the UNO struct.
-                        nv = cast("Any", uno.createUnoStruct("com.sun.star.beans.NamedValue"))
-                        nv.Name = rule["context"]
-                        nv.Value = rule["target_style"]
-                        conditions.append(nv)
-                    new_style.setPropertyValue("ParaStyleConditions", tuple(conditions))
-                except Exception as cond_err:
-                    if is_disposed_exception(cond_err):
-                        raise
-                    log.warning("Failed to set ParaStyleConditions on new style", exc_info=True)
-                    # ParaStyleConditions is read-only at the UNO level; fail loudly and rollback the created style.
-                    try:
-                        if style_family.hasByName(style_name):
-                            style_family.removeByName(style_name)
-                    except Exception as rb_err:
-                        log.warning("Failed to rollback created style '%s' after condition failure: %s", style_name, rb_err)
-                    return self._tool_error(f"Failed to apply conditional rules to style: {cond_err}")
-
-            _CREATED_STYLE_KEEPALIVE.append(new_style)
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Failed to create style '%s' in %s", style_name, family)
-            msg = getattr(e, "Message", str(e))
-            return self._tool_error("Failed to create style: %s" % msg)
+        _CREATED_STYLE_KEEPALIVE.append(new_style)
 
         result = {"status": "ok", "style_name": style_name, "family": family, "service": service}
         if "CharFontName" in applied:
@@ -1505,26 +1493,19 @@ class StyleClone(ToolWriterStyleBase):
 
         from plugin.writer.edit_review import WriterCompoundUndo
 
-        try:
-            with WriterCompoundUndo(doc, "WriterAgent: Clone style"):
-                if family == "PageStyles":
-                    # Local import: page.copy_page_style imports this module at call time.
-                    from .page import copy_page_style
+        with WriterCompoundUndo(doc, "WriterAgent: Clone style"):
+            if family == "PageStyles":
+                # Local import: page.copy_page_style imports this module at call time.
+                from .page import copy_page_style
 
-                    stats = copy_page_style(
-                        doc, style_name, new_name,
-                        uno_ctx=ctx.ctx, services=getattr(ctx, "services", None),
-                    )
-                else:
-                    stats = _clone_text_style(
-                        doc, family, style_family.getByName(style_name), new_name, style_family,
-                    )
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Failed to clone style '%s' to '%s' in %s", style_name, new_name, family)
-            msg = getattr(e, "Message", str(e))
-            return self._tool_error("Failed to clone style: %s" % msg)
+                stats = copy_page_style(
+                    doc, style_name, new_name,
+                    uno_ctx=ctx.ctx, services=getattr(ctx, "services", None),
+                )
+            else:
+                stats = _clone_text_style(
+                    doc, family, style_family.getByName(style_name), new_name, style_family,
+                )
 
         result = {
             "status": "ok",
@@ -1581,24 +1562,18 @@ class StyleImport(ToolWriterStyleBase):
         load_frame = kwargs.get("load_frame_styles", False)
         load_num = kwargs.get("load_numbering_styles", False)
 
-        try:
-            url = uno.systemPathToFileUrl(file_path)
+        url = uno.systemPathToFileUrl(file_path)
 
-            opts = (
-                PropertyValue(Name="OverwriteStyles", Value=overwrite),
-                PropertyValue(Name="LoadTextStyles", Value=load_text),
-                PropertyValue(Name="LoadPageStyles", Value=load_page),
-                PropertyValue(Name="LoadFrameStyles", Value=load_frame),
-                PropertyValue(Name="LoadNumberingStyles", Value=load_num),
-            )
+        opts = (
+            PropertyValue(Name="OverwriteStyles", Value=overwrite),
+            PropertyValue(Name="LoadTextStyles", Value=load_text),
+            PropertyValue(Name="LoadPageStyles", Value=load_page),
+            PropertyValue(Name="LoadFrameStyles", Value=load_frame),
+            PropertyValue(Name="LoadNumberingStyles", Value=load_num),
+        )
 
-            # The document object implements XStyleLoader
-            ctx.doc.loadStylesFromURL(url, opts)
-
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error("Failed to import styles from %s: %s" % (file_path, e))
+        # The document object implements XStyleLoader
+        ctx.doc.loadStylesFromURL(url, opts)
 
         result = {"status": "ok", "file_path": file_path, "overwrite": overwrite}
         flag_style_unreviewed(ctx.ctx, result)
