@@ -115,16 +115,10 @@ def msgbox(
         try:
             box.execute()
         finally:
-            try:
-                box.dispose()
-            except Exception:
-                log.debug("msgbox dispose failed", exc_info=True)
-        try:
-            from plugin.framework.uno_context import process_events_to_idle
+            box.dispose()
+        from plugin.framework.uno_context import process_events_to_idle
 
-            process_events_to_idle(ctx)
-        except Exception:
-            log.debug("msgbox process_events_to_idle failed", exc_info=True)
+        process_events_to_idle(ctx)
         log.debug("msgbox execute done title=%s", title)
     except Exception:
         log.exception("MSGBOX fallback - %s: %s", title, message)
@@ -678,16 +672,14 @@ def _xcc(ctrl: Any) -> Any:
 
     LibreOffice pyuno expects ``obj.queryInterface(iface)``. The ``uno`` module
     does not provide ``queryInterface`` (unlike some Java examples), which
-    previously broke recursion in ``translate_dialog``.
+    previously broke recursion in ``translate_dialog``. A missing interface
+    returns None and does not raise.
     """
     if ctrl is None:
         return None
     from com.sun.star.awt import XControlContainer
 
-    try:
-        return ctrl.queryInterface(XControlContainer)
-    except Exception:
-        return None
+    return ctrl.queryInterface(XControlContainer)
 
 
 def _uno_impl_to_control_type(impl_name: str) -> str:
@@ -706,19 +698,16 @@ def _uno_impl_to_control_type(impl_name: str) -> str:
 
 def _dialog_model_element_names(dlg: Any) -> tuple[str, ...]:
     """Return control name strings from the dialog model (``ElementNames``), or ``()``."""
-    try:
-        dm = dlg.getModel()
-        if dm is None:
-            return ()
-        en = getattr(dm, "ElementNames", None)
-        if en is not None:
-            return tuple(en)
-    except Exception:
-        pass
+    dm = dlg.getModel()
+    if dm is None:
+        return ()
+    en = getattr(dm, "ElementNames", None)
+    if en is not None:
+        return tuple(en)
     return ()
 
 
-def _translate_model_help_text(model: Any, name: str) -> None:
+def _translate_model_help_text(model: Any, _name: str = "") -> None:
     """Translate UNO ``HelpText`` the same way labels are translated.
 
     ``translate_dialog`` walks type-specific captions (Label, Text, Title,
@@ -728,14 +717,11 @@ def _translate_model_help_text(model: Any, name: str) -> None:
     Edit and NumericField are not in ``control_types`` at all, so listing
     HelpText only on that map still misses text and number fields.
     """
-    try:
-        if model is None:
-            return
-        current = getattr(model, "HelpText", None)
-        if isinstance(current, str) and current:
-            model.HelpText = _(current)
-    except Exception as e:
-        log.debug("Failed to translate %s.HelpText: %s", name, e)
+    if model is None:
+        return
+    current = getattr(model, "HelpText", None)
+    if isinstance(current, str) and current:
+        model.HelpText = _(current)
 
 
 def translate_dialog(dlg: Any) -> None:
@@ -750,14 +736,8 @@ def translate_dialog(dlg: Any) -> None:
     # Map control types to their translatable properties
     control_types = {"Dialog": ("Title",), "FixedText": ("Text", "Label"), "Button": ("Label",), "CheckBox": ("Label",), "RadioButton": ("Label",), "ListBox": ("StringItemList",), "ComboBox": ("StringItemList",), "GroupBox": ("Label",), "FixedLine": ("Label",)}
 
-    _xcc_root = None
-    root_child_count = 0
-    try:
-        _xcc_root = _xcc(dlg)
-        if _xcc_root is not None:
-            root_child_count = len(_xcc_root.getControls())
-    except Exception:
-        root_child_count = 0
+    _xcc_root = _xcc(dlg)
+    root_child_count = len(_xcc_root.getControls()) if _xcc_root is not None else 0
 
     def translate_one(ctrl: Any) -> None:
         try:
@@ -767,34 +747,28 @@ def translate_dialog(dlg: Any) -> None:
             name = ctrl.getModel().Name if ctrl.getModel() else "?"
 
             for prop in control_types.get(short_type, ()):
-                try:
-                    if prop == "StringItemList":
-                        # ListBox often exposes getStringItemList on the view; ComboBox
-                        # typically only has StringItemList on the model.
-                        model = ctrl.getModel()
-                        used_control = False
-                        try:
-                            if hasattr(ctrl, "getStringItemList"):
-                                items = ctrl.getStringItemList()
-                                if items:
-                                    translated = tuple(_(item) if item else "" for item in items)
-                                    ctrl.setStringItemList(translated)
-                                used_control = True
-                        except Exception:
-                            pass
-                        if not used_control and model is not None:
-                            items = model.StringItemList
-                            if items:
-                                translated = tuple(_(item) if item else "" for item in items)
-                                model.StringItemList = translated
-                    else:
-                        model = ctrl.getModel()
-                        if hasattr(model, prop):
-                            current = getattr(model, prop)
-                            if current:
-                                setattr(model, prop, _(current))
-                except Exception as e:
-                    log.debug("Failed to translate %s.%s: %s", name, prop, e)
+                if prop == "StringItemList":
+                    # ListBox often exposes getStringItemList on the view; ComboBox
+                    # typically only has StringItemList on the model.
+                    model = ctrl.getModel()
+                    used_control = False
+                    if hasattr(ctrl, "getStringItemList"):
+                        items = ctrl.getStringItemList()
+                        if items:
+                            translated = tuple(_(item) if item else "" for item in items)
+                            ctrl.setStringItemList(translated)
+                        used_control = True
+                    if not used_control and model is not None and hasattr(model, "StringItemList"):
+                        items = model.StringItemList
+                        if items:
+                            translated = tuple(_(item) if item else "" for item in items)
+                            model.StringItemList = translated
+                else:
+                    model = ctrl.getModel()
+                    if hasattr(model, prop):
+                        current = getattr(model, prop)
+                        if current:
+                            setattr(model, prop, _(current))
 
             help_model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
             _translate_model_help_text(help_model, name)
@@ -806,10 +780,7 @@ def translate_dialog(dlg: Any) -> None:
         except Exception as e:
             log.debug("Failed to inspect control for translation: %s", e)
 
-    try:
-        translate_one(dlg)
-    except Exception as e:
-        log.debug("Failed to translate dialog: %s", e)
+    translate_one(dlg)
 
     # ContainerWindow + XDL: root is often ``UnoDialogControl``, which does not
     # implement ``XControlContainer``, so ``getControls()`` is never reached.
@@ -818,12 +789,9 @@ def translate_dialog(dlg: Any) -> None:
         names = _dialog_model_element_names(dlg)
         if names:
             for nm in names:
-                try:
-                    c = dlg.getControl(nm)
-                    if c:
-                        translate_one(c)
-                except Exception as e:
-                    log.debug("translate_dialog ElementNames id=%s: %s", nm, e)
+                c = dlg.getControl(nm)
+                if c:
+                    translate_one(c)
 
 
 def load_module_dialog(module_name: Any, dialog_name: str) -> Any:

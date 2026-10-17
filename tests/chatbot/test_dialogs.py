@@ -106,8 +106,9 @@ def test_xcc():
     # Should return what queryInterface returns
     assert _xcc(mock_ctrl) == mock_xcc
 
-    # Should handle queryInterface raising exception
-    mock_ctrl.queryInterface.side_effect = Exception("No interface")
+    # Should handle queryInterface returning None
+    mock_ctrl.queryInterface.side_effect = None
+    mock_ctrl.queryInterface.return_value = None
     assert _xcc(mock_ctrl) is None
 
     # Should handle None
@@ -225,7 +226,7 @@ def test_translate_dialog_xcc(mock_i18n_translate):
     mock_child_model.Label = "Old Label"
     mock_child.getModel.return_value = mock_child_model
     # Child doesn't have an XControlContainer itself
-    mock_child.queryInterface.side_effect = Exception("No container")
+    mock_child.queryInterface.return_value = None
 
     mock_xcc.getControls.return_value = [mock_child]
 
@@ -249,7 +250,7 @@ def test_translate_dialog_element_names(mock_i18n_translate):
 
     # Setup a fake dialog without XControlContainer, but with ElementNames
     mock_dlg = MagicMock()
-    mock_dlg.queryInterface.side_effect = Exception("No container")
+    mock_dlg.queryInterface.return_value = None
 
     mock_dlg_model = MagicMock()
     mock_dlg_model.ElementNames = ["Btn2"]
@@ -261,7 +262,7 @@ def test_translate_dialog_element_names(mock_i18n_translate):
     mock_child_model.Name = "Btn2"
     mock_child_model.Label = "Another Label"
     mock_child.getModel.return_value = mock_child_model
-    mock_child.queryInterface.side_effect = Exception("No container")
+    mock_child.queryInterface.return_value = None
 
     mock_dlg.getControl.return_value = mock_child
 
@@ -276,7 +277,7 @@ def test_translate_dialog_listbox(mock_i18n_translate):
     mock_i18n_translate.side_effect = lambda x: f"T_{x}" if x else x
 
     mock_dlg = MagicMock()
-    mock_dlg.queryInterface.side_effect = Exception("No container")
+    mock_dlg.queryInterface.return_value = None
 
     mock_dlg_model = MagicMock()
     mock_dlg_model.ElementNames = ["List1"]
@@ -310,6 +311,9 @@ def test_translate_dialog_combobox_stringitemlist_on_model(mock_i18n_translate):
         def getModel(self):
             return self.model
 
+        def queryInterface(self, _iface):
+            return None
+
         def __init__(self):
             class M:
                 Name = "cb1"
@@ -318,7 +322,7 @@ def test_translate_dialog_combobox_stringitemlist_on_model(mock_i18n_translate):
             self.model = M()
 
     mock_dlg = MagicMock()
-    mock_dlg.queryInterface.side_effect = Exception("No container")
+    mock_dlg.queryInterface.return_value = None
     mock_dlg_model = MagicMock()
     mock_dlg_model.ElementNames = ["cb1"]
     mock_dlg.getModel.return_value = mock_dlg_model
@@ -343,7 +347,7 @@ def test_translate_dialog_help_text(mock_i18n_translate):
             return self.model
 
         def queryInterface(self, _iface):
-            raise Exception("No container")
+            return None
 
         def __init__(self):
             class M:
@@ -360,7 +364,7 @@ def test_translate_dialog_help_text(mock_i18n_translate):
             return self.model
 
         def queryInterface(self, _iface):
-            raise Exception("No container")
+            return None
 
         def __init__(self):
             class M:
@@ -378,7 +382,7 @@ def test_translate_dialog_help_text(mock_i18n_translate):
             return self.model
 
         def queryInterface(self, _iface):
-            raise Exception("No container")
+            return None
 
         def __init__(self):
             class M:
@@ -398,7 +402,7 @@ def test_translate_dialog_help_text(mock_i18n_translate):
     }
 
     mock_dlg = MagicMock()
-    mock_dlg.queryInterface.side_effect = Exception("No container")
+    mock_dlg.queryInterface.return_value = None
     mock_dlg_model = MagicMock()
     mock_dlg_model.ElementNames = list(controls)
     mock_dlg.getModel.return_value = mock_dlg_model

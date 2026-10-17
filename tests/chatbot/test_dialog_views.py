@@ -2,6 +2,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.chatbot.dialog_views import (
+    _SETTINGS_LISTENER_DETACH,
+    SettingsDialog,
+    setup_module_tabs,
+)
+
 
 class TestInputBoxExtraTokens:
     def _mock_dialog(self, *, execute_ok=True):
@@ -2091,5 +2097,117 @@ def test_settings_hf_button_uses_router():
     ):
         dialog._setup_tabs()
     assert seen == ["https://router.huggingface.co/v1"]
+
+
+def test_settings_cleanup_detaches_each_listener_and_disposes():
+    ctx = MagicMock()
+    dialog = SettingsDialog(ctx)
+    dlg = MagicMock()
+    controls: dict[str, MagicMock] = {}
+
+    def get_control(name: str) -> MagicMock:
+        if name not in controls:
+            controls[name] = MagicMock()
+        return controls[name]
+
+    dlg.getControl.side_effect = get_control
+    dialog._dlg = dlg
+
+    api_key_listener = MagicMock()
+    endpoint_listener = MagicMock()
+    dialog._api_key_listener = api_key_listener
+    dialog._endpoint_listener = endpoint_listener
+
+    listener_objs: dict[str, MagicMock] = {}
+    for attr, _name, _method in _SETTINGS_LISTENER_DETACH:
+        if attr not in listener_objs:
+            listener_objs[attr] = MagicMock()
+        setattr(dialog, attr, listener_objs[attr])
+
+    dialog._cleanup()
+
+    controls["api_key"].removeTextListener.assert_called_once_with(api_key_listener)
+    assert dialog._api_key_listener is api_key_listener
+
+    endpoint_listener.close.assert_called_once()
+    assert dialog._endpoint_listener is endpoint_listener
+
+    for attr, name, method in _SETTINGS_LISTENER_DETACH:
+        ctrl = controls[name]
+        getattr(ctrl, method).assert_called_with(listener_objs[attr])
+        assert getattr(dialog, attr) is None
+
+    assert "tts_model" not in controls
+    dlg.dispose.assert_called_once()
+
+
+def test_settings_cleanup_missing_control_still_clears_listener():
+    ctx = MagicMock()
+    dialog = SettingsDialog(ctx)
+    dlg = MagicMock()
+    dlg.getControl.side_effect = RuntimeError("Control missing")
+    dialog._dlg = dlg
+
+    listener = MagicMock()
+    dialog._grammar_recheck_listener = listener
+
+    dialog._cleanup()
+
+    assert dialog._grammar_recheck_listener is None
+    dlg.dispose.assert_called_once()
+
+
+def test_settings_cleanup_without_dialog_leaves_listeners():
+    ctx = MagicMock()
+    dialog = SettingsDialog(ctx)
+    dialog._dlg = None
+
+    listener = MagicMock()
+    dialog._grammar_recheck_listener = listener
+
+    dialog._cleanup()
+
+    assert dialog._grammar_recheck_listener is listener
+
+
+def test_settings_cleanup_does_not_swallow_remove_failure():
+    ctx = MagicMock()
+    dialog = SettingsDialog(ctx)
+    dlg = MagicMock()
+    venv_btn = MagicMock()
+    venv_btn.removeActionListener.side_effect = RuntimeError("Removal failed")
+
+    def get_control(name: str) -> MagicMock:
+        if name == "scripting__test_venv":
+            return venv_btn
+        return MagicMock()
+
+    dlg.getControl.side_effect = get_control
+    dialog._dlg = dlg
+
+    dialog._scripting_venv_test_listener = MagicMock()
+
+    with pytest.raises(RuntimeError, match="Removal failed"):
+        dialog._cleanup()
+
+    dlg.dispose.assert_not_called()
+
+
+def test_setup_module_tabs_missing_manifest_is_quiet():
+    dlg = MagicMock()
+    with patch.dict("sys.modules", {"plugin._manifest": None}):
+        setup_module_tabs(dlg)
+    dlg.getControl.assert_not_called()
+
+
+def test_setup_module_tabs_wiring_error_propagates():
+    dlg = MagicMock()
+    with patch(
+        "plugin.chatbot.settings_tab_order.iter_settings_tab_modules",
+        side_effect=RuntimeError("Tab wiring error"),
+    ):
+        with pytest.raises(RuntimeError, match="Tab wiring error"):
+            setup_module_tabs(dlg)
+
 
 

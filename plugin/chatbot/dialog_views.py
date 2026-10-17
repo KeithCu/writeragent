@@ -185,6 +185,31 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "", x: Any
             dlg.dispose()
 
 
+# Table of (attr, control_name, method) for live settings listeners to remove before dialog disposal.
+# One row per listener removal that previously had its own try/except block.
+_SETTINGS_LISTENER_DETACH: tuple[tuple[str, str, str], ...] = (
+    ("_scripting_venv_test_listener", "scripting__test_venv", "removeActionListener"),
+    ("_ppt_master_data_test_listener", "scripting__test_ppt_master_data", "removeActionListener"),
+    ("_download_audio_listener", "scripting__download_audio_binaries", "removeActionListener"),
+    ("_copy_mcp_listener", "mcp__copy_config", "removeActionListener"),
+    ("_test_tunnel_listener", "mcp__test_tunnel", "removeActionListener"),
+    ("_grammar_recheck_listener", "doc__grammar_proofreader_recheck", "removeActionListener"),
+    ("_mcp_tunnel_enabled_listener", "mcp__tunnel_enabled", "removeItemListener"),
+    ("_mcp_tunnel_provider_listener", "mcp__tunnel_provider", "removeItemListener"),
+    ("_mcp_tunnel_provider_listener", "mcp__tunnel_provider", "removeTextListener"),
+    ("_mcp_port_listener", "mcp__mcp_port", "removeTextListener"),
+    ("_tts_listener", "audio__tts_provider", "removeItemListener"),
+    ("_tts_listener", "audio__tts_provider", "removeTextListener"),
+    ("_tts_listener", "audio__tts_model", "removeItemListener"),
+    ("_tts_listener", "audio__tts_model", "removeTextListener"),
+    ("_tts_voice_listener", "audio__tts_voice", "removeItemListener"),
+    ("_tts_voice_listener", "audio__tts_voice", "removeTextListener"),
+    ("_tts_test_listener", "audio__test_voice", "removeActionListener"),
+    ("_stt_listener", "audio__stt_provider", "removeItemListener"),
+    ("_stt_listener", "audio__stt_provider", "removeTextListener"),
+)
+
+
 class SettingsDialog:
     """Manages the lifecycle of the WriterAgent Settings dialog."""
 
@@ -307,7 +332,7 @@ class SettingsDialog:
                 )
             )
 
-        self._setup_module_tabs()
+        setup_module_tabs(self._dlg)
         test_venv_btn = get_optional(self._dlg, "scripting__test_venv")
         if test_venv_btn:
             self._scripting_venv_test_listener = ScriptingVenvTestListener(self._ctx, self._dlg)
@@ -355,15 +380,6 @@ class SettingsDialog:
                 provider_ctrl.addItemListener(self._mcp_tunnel_provider_listener)
             if hasattr(provider_ctrl, "addTextListener"):
                 provider_ctrl.addTextListener(self._mcp_tunnel_provider_listener)
-
-    def _setup_module_tabs(self) -> None:
-        try:
-            # Register module tabs in the Settings dialog
-            setup_module_tabs(self._dlg)
-        except Exception:
-            # setup_module_tabs already logs its own failures. This used to
-            # swallow that and leave the dialog with dead module tabs.
-            log.exception("Failed to set up module tabs")
 
     def _api_key_from_field_specs(self, field_specs: list[dict[str, Any]]) -> str:
         for field in field_specs:
@@ -558,149 +574,38 @@ class SettingsDialog:
             result[name] = value
         return result
 
+    def _detach(self, name: str, method: str, listener: Any) -> None:
+        """Remove ``listener`` from one live Settings control before ``dispose``.
+
+        ``get_optional`` is None when that id is not in the XDL. ``remove*Listener``
+        on a live control does not raise.
+        """
+        ctrl = get_optional(self._dlg, name)
+        # Same control as today (line 664): audio__tts_model or the legacy id.
+        if ctrl is None and name == "audio__tts_model":
+            ctrl = get_optional(self._dlg, "tts_model")
+        if ctrl is None:
+            return
+        getattr(ctrl, method)(listener)
+
     def _cleanup(self) -> None:
         if self._api_key_listener:
-            ak = get_optional(self._dlg, "api_key")
-            if ak and hasattr(ak, "removeTextListener"):
-                ak.removeTextListener(self._api_key_listener)
+            self._detach("api_key", "removeTextListener", self._api_key_listener)
         if self._endpoint_listener:
             self._endpoint_listener.close()
-        if self._scripting_venv_test_listener and self._dlg is not None:
-            test_venv_btn = get_optional(self._dlg, "scripting__test_venv")
-            if test_venv_btn and hasattr(test_venv_btn, "removeActionListener"):
-                try:
-                    test_venv_btn.removeActionListener(self._scripting_venv_test_listener)
-                except Exception:
-                    pass
-            self._scripting_venv_test_listener = None
-        if self._ppt_master_data_test_listener and self._dlg is not None:
-            test_ppt_btn = get_optional(self._dlg, "scripting__test_ppt_master_data")
-            if test_ppt_btn and hasattr(test_ppt_btn, "removeActionListener"):
-                try:
-                    test_ppt_btn.removeActionListener(self._ppt_master_data_test_listener)
-                except Exception:
-                    pass
-            self._ppt_master_data_test_listener = None
-        if self._download_audio_listener and self._dlg is not None:
-            download_audio_btn = get_optional(self._dlg, "scripting__download_audio_binaries")
-            if download_audio_btn and hasattr(download_audio_btn, "removeActionListener"):
-                try:
-                    download_audio_btn.removeActionListener(self._download_audio_listener)
-                except Exception:
-                    pass
-            self._download_audio_listener = None
-        if self._copy_mcp_listener and self._dlg is not None:
-            copy_mcp_btn = get_optional(self._dlg, "mcp__copy_config")
-            if copy_mcp_btn and hasattr(copy_mcp_btn, "removeActionListener"):
-                try:
-                    copy_mcp_btn.removeActionListener(self._copy_mcp_listener)
-                except Exception:
-                    pass
-            self._copy_mcp_listener = None
-        if self._test_tunnel_listener and self._dlg is not None:
-            test_tunnel_btn = get_optional(self._dlg, "mcp__test_tunnel")
-            if test_tunnel_btn and hasattr(test_tunnel_btn, "removeActionListener"):
-                try:
-                    test_tunnel_btn.removeActionListener(self._test_tunnel_listener)
-                except Exception:
-                    pass
-            self._test_tunnel_listener = None
-        if self._grammar_recheck_listener and self._dlg is not None:
-            recheck_btn = get_optional(self._dlg, "doc__grammar_proofreader_recheck")
-            if recheck_btn and hasattr(recheck_btn, "removeActionListener"):
-                try:
-                    recheck_btn.removeActionListener(self._grammar_recheck_listener)
-                except Exception:
-                    pass
-            self._grammar_recheck_listener = None
-        if self._mcp_tunnel_enabled_listener and self._dlg is not None:
-            tunnel_enabled_ctrl = get_optional(self._dlg, "mcp__tunnel_enabled")
-            if tunnel_enabled_ctrl and hasattr(tunnel_enabled_ctrl, "removeItemListener"):
-                try:
-                    tunnel_enabled_ctrl.removeItemListener(self._mcp_tunnel_enabled_listener)
-                except Exception:
-                    pass
-            self._mcp_tunnel_enabled_listener = None
-        if self._mcp_tunnel_provider_listener and self._dlg is not None:
-            provider_ctrl = get_optional(self._dlg, "mcp__tunnel_provider")
-            if provider_ctrl:
-                if hasattr(provider_ctrl, "removeItemListener"):
-                    try:
-                        provider_ctrl.removeItemListener(self._mcp_tunnel_provider_listener)
-                    except Exception:
-                        pass
-                if hasattr(provider_ctrl, "removeTextListener"):
-                    try:
-                        provider_ctrl.removeTextListener(self._mcp_tunnel_provider_listener)
-                    except Exception:
-                        pass
-            self._mcp_tunnel_provider_listener = None
-        if self._mcp_port_listener and self._dlg is not None:
-            port_ctrl = get_optional(self._dlg, "mcp__mcp_port")
-            if port_ctrl and hasattr(port_ctrl, "removeTextListener"):
-                try:
-                    port_ctrl.removeTextListener(self._mcp_port_listener)
-                except Exception:
-                    pass
-            self._mcp_port_listener = None
-        if self._tts_listener and self._dlg is not None:
-            prov_ctrl = get_optional(self._dlg, "audio__tts_provider")
-            if prov_ctrl and hasattr(prov_ctrl, "removeItemListener"):
-                try:
-                    prov_ctrl.removeItemListener(self._tts_listener)
-                except Exception:
-                    pass
-            if prov_ctrl and hasattr(prov_ctrl, "removeTextListener"):
-                try:
-                    prov_ctrl.removeTextListener(self._tts_listener)
-                except Exception:
-                    pass
-            model_ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
-            if model_ctrl and hasattr(model_ctrl, "removeItemListener"):
-                try:
-                    model_ctrl.removeItemListener(self._tts_listener)
-                except Exception:
-                    pass
-            if model_ctrl and hasattr(model_ctrl, "removeTextListener"):
-                try:
-                    model_ctrl.removeTextListener(self._tts_listener)
-                except Exception:
-                    pass
-            self._tts_listener = None
-        if self._tts_voice_listener and self._dlg is not None:
-            voice_ctrl = get_optional(self._dlg, "audio__tts_voice")
-            if voice_ctrl and hasattr(voice_ctrl, "removeItemListener"):
-                try:
-                    voice_ctrl.removeItemListener(self._tts_voice_listener)
-                except Exception:
-                    pass
-            if voice_ctrl and hasattr(voice_ctrl, "removeTextListener"):
-                try:
-                    voice_ctrl.removeTextListener(self._tts_voice_listener)
-                except Exception:
-                    pass
-            self._tts_voice_listener = None
-        if self._tts_test_listener and self._dlg is not None:
-            test_btn = get_optional(self._dlg, "audio__test_voice")
-            if test_btn and hasattr(test_btn, "removeActionListener"):
-                try:
-                    test_btn.removeActionListener(self._tts_test_listener)
-                except Exception:
-                    pass
-            self._tts_test_listener = None
-        if self._stt_listener and self._dlg is not None:
-            prov_ctrl = get_optional(self._dlg, "audio__stt_provider")
-            if prov_ctrl and hasattr(prov_ctrl, "removeItemListener"):
-                try:
-                    prov_ctrl.removeItemListener(self._stt_listener)
-                except Exception:
-                    pass
-            if prov_ctrl and hasattr(prov_ctrl, "removeTextListener"):
-                try:
-                    prov_ctrl.removeTextListener(self._stt_listener)
-                except Exception:
-                    pass
-            self._stt_listener = None
+        if self._dlg is not None:
+            # Null only after every row for that attr. _tts_listener has four rows;
+            # clearing it on the first row would skip the model control.
+            pending: list[str] = []
+            for attr, name, method in _SETTINGS_LISTENER_DETACH:
+                listener = getattr(self, attr)
+                if listener is None:
+                    continue
+                self._detach(name, method, listener)
+                if attr not in pending:
+                    pending.append(attr)
+            for attr in pending:
+                setattr(self, attr, None)
         clear_active_settings_dialog(self._dlg)
         if self._dlg:
             self._dlg.dispose()
@@ -1842,9 +1747,8 @@ def setup_module_tabs(dlg: Any) -> None:
                 btn.addActionListener(TabListener(dlg, step))
                 step += 1
     except ImportError:
+        # plugin/_manifest.py is generated and gitignored; importing it fails in some test trees.
         pass
-    except Exception:
-        log.exception("Failed to setup module tabs")
 
 
 class DownloadAudioListener(BaseActionListener):
