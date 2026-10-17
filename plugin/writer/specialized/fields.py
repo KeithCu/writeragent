@@ -11,6 +11,8 @@
 
 from typing import Any
 
+from plugin.framework.errors import is_real_disposal
+
 from ..specialized_base import ToolWriterFieldBase
 from ..target_resolver import resolve_target_cursor
 
@@ -216,7 +218,13 @@ class FieldsInsert(ToolWriterFieldBase):
 
         # Apply properties
         for key, value in properties.items():
-            field.setPropertyValue(key, value)
+            try:
+                field.setPropertyValue(key, value)
+            except Exception as e:
+                # A closed document still reaches execute_safe as DOCUMENT_DISPOSED.
+                if is_real_disposal(e):
+                    raise
+                return self._tool_error(f"Failed to set property '{key}' to '{value}': {e}")
 
         if target == "search" and old_content:
             cursor.setString("")

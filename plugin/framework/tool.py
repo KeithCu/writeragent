@@ -350,7 +350,7 @@ class ToolBase(_ToolErrorMixin, ABC):
                 continue
             enum = prop.get("enum")
             if isinstance(enum, list) and enum and value not in enum:
-                return False, f"Invalid value for {key}: {value!r}"
+                return False, f"Invalid value for {key}: {value!r}. Valid options: {', '.join(str(v) for v in enum)}"
             if not _tool_arg_matches_type(value, prop.get("type")):
                 return False, f"Invalid type for {key}: expected {prop.get('type')}, got {type(value).__name__}"
         return True, None
