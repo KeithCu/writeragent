@@ -204,11 +204,6 @@ class SearchDialog:
             def on_key_pressed(self, e: Any) -> None:
                 if e.KeyCode != _SEARCH_KEY_RETURN:
                     return
-                try:
-                    if hasattr(e, "Consume"):
-                        setattr(e, "Consume", True)
-                except Exception:
-                    pass
                 btn_search = dlg.getControl("BtnSearch")
                 if btn_search and not btn_search.getModel().Enabled:
                     # Search is already in progress

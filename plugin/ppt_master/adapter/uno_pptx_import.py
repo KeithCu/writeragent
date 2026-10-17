@@ -59,11 +59,8 @@ def _ensure_target_page(bridge: DrawBridge, slide_index: int) -> Any:
 
 
 def _apply_target_page_size(page: Any) -> None:
-    try:
-        page.setPropertyValue("Width", DEFAULT_SLIDE_WIDTH_HMM)
-        page.setPropertyValue("Height", DEFAULT_SLIDE_HEIGHT_HMM)
-    except Exception as exc:
-        log.debug("set target page size: %s", exc)
+    page.setPropertyValue("Width", DEFAULT_SLIDE_WIDTH_HMM)
+    page.setPropertyValue("Height", DEFAULT_SLIDE_HEIGHT_HMM)
 
 
 def _trim_appended_shapes(page: Any, keep_count: int) -> None:
@@ -73,33 +70,16 @@ def _trim_appended_shapes(page: Any, keep_count: int) -> None:
     still have added a shape before that clone failed; those are not user
     content and are removed from the end.
     """
-    while True:
-        try:
-            count = int(page.getCount())
-        except Exception as exc:
-            log.debug("trim appended shapes: %s", exc)
-            return
-        if count <= keep_count:
-            return
-        try:
-            page.remove(page.getByIndex(count - 1))
-        except Exception as exc:
-            log.debug("trim appended shapes: %s", exc)
-            return
+    while page.getCount() > keep_count:
+        page.remove(page.getByIndex(page.getCount() - 1))
 
 
 def _drop_front_shapes(page: Any, drop_count: int) -> None:
     """Remove the shapes that were on the page before a successful append."""
     remaining = drop_count
-    while remaining > 0:
+    while remaining > 0 and page.getCount() > 0:
         remaining -= 1
-        try:
-            if int(page.getCount()) < 1:
-                return
-            page.remove(page.getByIndex(0))
-        except Exception as exc:
-            log.debug("drop previous shapes: %s", exc)
-            return
+        page.remove(page.getByIndex(0))
 
 
 def _drop_page(pages: Any, page: Any) -> None:

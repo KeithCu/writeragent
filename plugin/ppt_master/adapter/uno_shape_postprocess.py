@@ -105,24 +105,14 @@ def _copy_shape_text(source_shape: Any, dest_shape: Any) -> None:
 
 
 def _is_graphic_shape(shape: Any) -> bool:
-    try:
-        shape_type = str(shape.getShapeType())
-    except Exception:
-        return False
-    return "GraphicObject" in shape_type
+    return "GraphicObject" in str(shape.getShapeType())
 
 
 def _shape_graphic(source_shape: Any) -> Any | None:
     try:
-        graphic = source_shape.getPropertyValue("Graphic")
+        return source_shape.getPropertyValue("Graphic")
     except Exception:
-        try:
-            graphic = source_shape.Graphic
-        except Exception:
-            return None
-    if graphic is None:
         return None
-    return graphic
 
 
 def _graphic_load_prop(name: str, value: Any) -> Any:
@@ -142,11 +132,6 @@ def _assign_graphic(dest_shape: Any, graphic: Any) -> bool:
         return True
     except Exception:
         log.debug("setPropertyValue Graphic failed", exc_info=True)
-    try:
-        dest_shape.Graphic = graphic
-        return True
-    except Exception:
-        log.debug("assign Graphic attribute failed", exc_info=True)
         return False
 
 
@@ -171,18 +156,10 @@ def _reimport_shape_graphic(uno_ctx: Any | None, source_shape: Any, dest_shape: 
     graphic = _shape_graphic(source_shape)
     if graphic is None:
         return False
-    try:
-        smgr = getattr(uno_ctx, "ServiceManager", None) or uno_ctx.getServiceManager()
-    except Exception:
-        log.debug("graphic reimport: no service manager", exc_info=True)
-        return False
+    smgr = getattr(uno_ctx, "ServiceManager", None) or uno_ctx.getServiceManager()
     if smgr is None:
         return False
-    try:
-        provider = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", uno_ctx)
-    except Exception:
-        log.debug("GraphicProvider create failed", exc_info=True)
-        return False
+    provider = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", uno_ctx)
     if provider is None:
         return False
 
@@ -271,8 +248,4 @@ def copy_shapes_to_page(source_page: Any, target_doc: Any, target_page: Any, uno
 def clear_page_shapes(page: Any) -> None:
     """Remove all shapes from a draw page (for re-export)."""
     while page.getCount() > 0:
-        try:
-            page.remove(page.getByIndex(page.getCount() - 1))
-        except Exception as exc:
-            log.debug("clear_page_shapes: %s", exc)
-            break
+        page.remove(page.getByIndex(page.getCount() - 1))

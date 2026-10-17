@@ -104,7 +104,6 @@ class TestSearchDialog:
             try:
                 hb({"file": "test.txt", "phase": "index", "paragraphs": 5, "chunks": 10})
             except Exception as e:
-                import pytest
                 pytest.fail(f"Heartbeat callback raised exception: {e}")
         assert mock_maintain.call_args.kwargs["search_mode"] == "llama_index"
 

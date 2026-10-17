@@ -10,8 +10,13 @@ import tempfile
 from typing import Any
 from unittest.mock import MagicMock
 
+from plugin.ppt_master.adapter import uno_shape_postprocess as postprocess
 from plugin.ppt_master.adapter.uno_shape_postprocess import (
     _COPY_PROPS,
+    _assign_graphic,
+    _is_graphic_shape,
+    _shape_graphic,
+    clear_page_shapes,
     clone_shape_to_page,
     copy_shapes_to_page,
 )
@@ -73,6 +78,9 @@ class FakePage:
 
     def add(self, shape: Any) -> None:
         self.shapes.append(shape)
+
+    def remove(self, shape: Any) -> None:
+        self.shapes.remove(shape)
 
 
 def test_copy_props_omit_hidden_pool_items():
@@ -172,8 +180,6 @@ def test_copy_shapes_to_page_forwards_uno_ctx(monkeypatch):
         seen["page"] = target_page
         return object()
 
-    from plugin.ppt_master.adapter import uno_shape_postprocess as postprocess
-
     monkeypatch.setattr(postprocess, "clone_shape_to_page", fake_clone)
     marker = object()
     copied = copy_shapes_to_page(FakePage([source]), doc, dest_page, uno_ctx=marker)
@@ -183,3 +189,36 @@ def test_copy_shapes_to_page_forwards_uno_ctx(monkeypatch):
     assert seen["source"] is source
     assert seen["doc"] is doc
     assert seen["page"] is dest_page
+
+
+def test_is_graphic_shape():
+    graphic = FakeShape("com.sun.star.drawing.GraphicObjectShape")
+    rect = FakeShape("com.sun.star.drawing.RectangleShape")
+    assert _is_graphic_shape(graphic) is True
+    assert _is_graphic_shape(rect) is False
+
+
+def test_shape_graphic_and_assign_graphic():
+    g = object()
+    shape_with_graphic = FakeShape("com.sun.star.drawing.GraphicObjectShape", {"Graphic": g})
+    assert _shape_graphic(shape_with_graphic) is g
+
+    shape_without_graphic = FakeShape("com.sun.star.drawing.RectangleShape")
+    assert _shape_graphic(shape_without_graphic) is None
+
+    # _assign_graphic success
+    dest = FakeShape("com.sun.star.drawing.GraphicObjectShape")
+    assert _assign_graphic(dest, g) is True
+    assert dest.props["Graphic"] is g
+
+    # _assign_graphic failure on exception
+    fail_dest = MagicMock()
+    fail_dest.setPropertyValue.side_effect = Exception("boom")
+    assert _assign_graphic(fail_dest, g) is False
+
+
+def test_clear_page_shapes():
+    page = FakePage([FakeShape("s1"), FakeShape("s2")])
+    assert page.getCount() == 2
+    clear_page_shapes(page)
+    assert page.getCount() == 0
