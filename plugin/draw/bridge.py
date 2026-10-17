@@ -22,7 +22,7 @@ import logging
 from typing import Any
 
 from plugin.doc import text_helpers as _text_helpers
-from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, UnoObjectError, check_disposed, is_disposed_exception, is_real_disposal, safe_call
+from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, UnoObjectError, check_disposed, is_disposed_exception, is_real_disposal, safe_call, uno_probe
 from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger(__name__)
@@ -360,23 +360,13 @@ class DrawBridge:
         get_controller = getattr(self.doc, "getCurrentController", None)
         if not callable(get_controller):
             return None
-        try:
-            controller = get_controller()
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            return None
+        controller = uno_probe(get_controller, None)
         if controller is None:
             return None
         get_page = getattr(controller, "getCurrentPage", None)
         if not callable(get_page):
             return None
-        try:
-            return get_page()
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            return None
+        return uno_probe(get_page, None)
 
     def _show_inserted_page(self, landed: int, switch: bool, previous: Any, exchanged: bool) -> None:
         if switch:
@@ -614,12 +604,7 @@ class DrawBridge:
             return False
 
     def _snapshot_shapes(self, page: Any) -> list[Any]:
-        try:
-            count = int(page.getCount())
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            return []
+        count = uno_probe(lambda: int(page.getCount()), 0)
         return [page.getByIndex(i) for i in range(count)]
 
     def _move_shapes(self, shapes: list[Any], src: Any, dest: Any) -> None:
@@ -677,15 +662,10 @@ class DrawBridge:
             log.exception("move_slide restore page names failed")
 
     def _swap_page_names(self, first: Any, second: Any) -> None:
-        try:
-            name_first = str(first.Name or "")
-            name_second = str(second.Name or "")
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
+        names = uno_probe(lambda: (str(first.Name or ""), str(second.Name or "")), None)
+        if names is None or names[0] == names[1]:
             return
-        if name_first == name_second:
-            return
+        name_first, name_second = names
         # Two pages cannot share a name. Park both, then assign.
         parked_first = name_first + "\u200b"
         parked_second = name_second + "\u200b\u200b"
@@ -751,7 +731,7 @@ class DrawBridge:
         return True
 
     def _read_page_prop(self, page: Any, prop: str) -> tuple[bool, Any]:
-        try:
+        def read() -> tuple[bool, Any]:
             # MasterPage is XMasterPageTarget, not an XPropertySet entry;
             # SdGenericDrawPage::getPropertyValue throws UnknownPropertyException
             # (sd/source/ui/unoidl/unopage.cxx), so the getattr fallback below
@@ -763,11 +743,9 @@ class DrawBridge:
                 return True, page.getPropertyValue(prop)
             if hasattr(page, prop):
                 return True, getattr(page, prop)
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
             return False, None
-        return False, None
+
+        return uno_probe(read, (False, None))
 
     def _write_page_prop(self, page: Any, prop: str, value: Any) -> None:
         # Assigning Layout instantiates placeholders (apply_slide_layout).
@@ -787,12 +765,8 @@ class DrawBridge:
         from plugin.framework.uno_context import uno_same
 
         guard = 0
-        try:
-            count = int(page.getCount())
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            return
+        # A failed count reads as 0, so the loop below never starts.
+        count = uno_probe(lambda: int(page.getCount()), 0)
         while count > len(before) and guard < count + 5:
             guard += 1
             removed = False
@@ -848,21 +822,10 @@ class DrawBridge:
             raise
 
     def _notes_text(self, page: Any) -> str | None:
-        try:
-            notes = page.getNotesPage()
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            return None
-        shape = find_notes_shape(notes)
+        shape = find_notes_shape(uno_probe(lambda: page.getNotesPage(), None))
         if shape is None:
             return None
-        try:
-            return str(shape.getString() or "")
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            return None
+        return uno_probe(lambda: str(shape.getString() or ""), None)
 
     def _set_notes_text(self, page: Any, text: str) -> None:
         shape = find_notes_shape(page.getNotesPage())
@@ -990,13 +953,7 @@ def find_notes_shape(notes_page: Any) -> Any | None:
     """
     if notes_page is None:
         return None
-    try:
-        count = notes_page.getCount()
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return None
-    for i in range(count):
+    for i in range(uno_probe(lambda: notes_page.getCount(), 0)):
         try:
             shape = notes_page.getByIndex(i)
             shape_type = shape.getShapeType() if hasattr(shape, "getShapeType") else getattr(shape, "ShapeType", "")
