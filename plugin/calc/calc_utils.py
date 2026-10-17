@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any, Tuple, cast
 import uno
 
-from plugin.framework.errors import UnoObjectError
+from plugin.framework.errors import UnoObjectError, uno_read
 
 
 def resolve_sheet(doc: Any, sheet_name: str | None = None) -> Any:
@@ -60,10 +60,7 @@ def resolve_sheet_and_cell(doc: Any, address: str) -> tuple[Any, int, int] | Non
     except ValueError:
         return None
 
-    try:
-        sheet = resolve_sheet(doc, sheet_name)
-    except Exception:
-        return None
+    sheet = uno_read(lambda: resolve_sheet(doc, sheet_name), None)
     if sheet is None:
         return None
     return sheet, col, row

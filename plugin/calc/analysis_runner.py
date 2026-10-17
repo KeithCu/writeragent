@@ -12,7 +12,7 @@ from plugin.calc.address_utils import index_to_column
 from plugin.calc.bridge import CalcBridge
 from plugin.doc.doc_type import is_calc
 from plugin.scripting.client import run_analysis
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, uno_read
 from plugin.scripting.analysis import HELPER_NAMES
 
 if TYPE_CHECKING:
@@ -31,8 +31,11 @@ def calc_selection_to_a1(doc: Any) -> str | None:
     """Format the current Calc selection as a sheet-qualified A1 address."""
     if doc is None or not is_calc(doc):
         return None
-    try:
+
+    def _get() -> str | None:
         controller = doc.getCurrentController()
+        if controller is None:
+            return None
         selection = controller.getSelection()
         if selection is None or not hasattr(selection, "getRangeAddress"):
             return None
@@ -47,8 +50,8 @@ def calc_selection_to_a1(doc: Any) -> str | None:
             escaped_name = sheet_name.replace("'", "''")
             return f"'{escaped_name}'.{cell_part}"
         return f"{sheet_name}.{cell_part}"
-    except Exception:
-        return None
+
+    return uno_read(_get, None)
 
 
 def run_trusted_analysis(uno_ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, data_range: str | None = None, data: Any = None, headers: bool = True, task_hint: str | None = None) -> dict[str, Any]:
@@ -71,16 +74,9 @@ def run_trusted_analysis(uno_ctx: Any, doc: Any, *, helper: str, params: dict[st
         data_out, error_out = _resolve_python_data(tool_ctx, data_range=dr, data=data)
 
         ctx_out: dict[str, Any] = {}
-        try:
-            bridge = CalcBridge(doc)
-            ctx_out["sheet_name"] = bridge.get_active_sheet().getName()
-        except Exception as exc:
-            # What was wrong: DisposedException was ignored, then run_analysis ran
-            # against a dead document.
-            # How it happened: the sheet name is best-effort context.
-            # Why this change: reraise_if_disposed propagates real disposal. Other
-            # failures still leave sheet_name unset.
-            reraise_if_disposed(exc)
+        sheet_name = uno_read(lambda: CalcBridge(doc).get_active_sheet().getName(), None)
+        if sheet_name:
+            ctx_out["sheet_name"] = sheet_name
         return data_out, error_out, ctx_out
 
     py_data, err, context = execute_on_main_thread(_read_data)

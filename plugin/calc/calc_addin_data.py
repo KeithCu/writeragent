@@ -23,6 +23,7 @@ from plugin.scripting.payload_codec import ForceBinary, host_pack_data, wire_cel
 
 
 from plugin.framework.deal_shim import deal
+from plugin.framework.errors import reraise_if_disposed
 
 
 def _unwrap_cell(value: Any, true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> Any:
@@ -43,8 +44,6 @@ def _unwrap_cell(value: Any, true_strings: set[str] | None = None, false_strings
             return False
         return value
 
-    if isinstance(value, (bool, int, float)):
-        return value
     return value
 
 
@@ -281,6 +280,7 @@ def _resolve_python_data(ctx: Any, *, data_range: Any = None, data: Any = None) 
                 range_data = inspector.read_range(addr)
                 grids.append(values_from_inspector_range(range_data))
         except Exception as e:
+            reraise_if_disposed(e)
             return None, f"Failed to read data_range: {e}"
 
         if len(grids) == 1:

@@ -8,6 +8,7 @@
 from unittest.mock import MagicMock
 
 from plugin.calc.bridge import CalcBridge
+from plugin.framework.errors import DocumentDisposedError
 import pytest
 
 
@@ -132,4 +133,17 @@ def test_get_sheet_error_omits_leading_underscore_sheets():
         assert "_foo" not in str(e)
         assert "__Anonymous_Sheet_DB__0" not in str(e)
     assert not is_agent_visible_sheet("__Anonymous_Sheet_DB__0")
+
+
+def test_resolve_range_or_address_disposal_propagates():
+    class DisposedException(Exception):
+        pass
+
+    doc = MagicMock()
+    doc.getCurrentController.side_effect = DisposedException("disposed")
+    doc.getSheets.side_effect = DisposedException("disposed")
+
+    bridge = CalcBridge(doc)
+    with pytest.raises(DocumentDisposedError):
+        bridge.resolve_range_or_address("Total")
 

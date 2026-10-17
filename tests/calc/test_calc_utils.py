@@ -19,7 +19,7 @@ from plugin.calc.calc_utils import (
     resolve_sheet,
     resolve_sheet_and_cell,
 )
-from plugin.framework.errors import UnoObjectError
+from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 
 
 class TestGetCellGeometry:
@@ -143,6 +143,17 @@ class TestSheetAndCellResolution:
         assert resolve_sheet_and_cell(doc, "") is None
         assert resolve_sheet_and_cell(doc, "InvalidAddress") is None
         assert resolve_sheet_and_cell(None, "A1") is None
+
+    def test_resolve_sheet_and_cell_disposal_propagates(self):
+        class DisposedException(Exception):
+            pass
+
+        doc = MagicMock()
+        doc.getCurrentController.side_effect = DisposedException("disposed")
+        doc.getSheets.side_effect = DisposedException("disposed")
+
+        with pytest.raises(DocumentDisposedError):
+            resolve_sheet_and_cell(doc, "A1")
 
     def test_resolve_cell_address_valid(self):
         mock_cell = MagicMock()
