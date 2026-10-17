@@ -32,7 +32,7 @@ from plugin.chatbot.slash_commands import (
     run_slash_command,
     slash_typed_prefix,
 )
-from plugin.framework.errors import suppress_disposed
+from plugin.framework.errors import best_effort, suppress_disposed, uno_probe
 
 log = logging.getLogger("writeragent.slash_popup")
 
@@ -213,22 +213,18 @@ def _location_on_screen(obj: Any) -> tuple[int, int] | None:
     get_acc = getattr(obj, "getAccessibleContext", None)
     if not callable(get_acc):
         return None
-    try:
-        acc = get_acc()
-    except Exception:
-        return None
+    acc = uno_probe(get_acc, None)
     fn = getattr(acc, "getLocationOnScreen", None) if acc is not None else None
     if not callable(fn):
         return None
-    try:
-        pt = fn()
-        x = getattr(pt, "X", None)
-        y = getattr(pt, "Y", None)
-        if x is None or y is None:
-            return None
-        return int(x), int(y)
-    except Exception:
+    pt = uno_probe(fn, None)
+    if pt is None:
         return None
+    x = getattr(pt, "X", None)
+    y = getattr(pt, "Y", None)
+    if x is None or y is None:
+        return None
+    return int(x), int(y)
 
 
 def _is_parent_local(pt: tuple[int, int], local_x: int, local_y: int, width: int) -> bool:
@@ -257,37 +253,24 @@ def _trusted_ask_screen(
         _ovlog("Ask accessible parent-local %s ignored", ask)
     dlg = _location_on_screen(parent)
     dw = 0
-    try:
-        if parent is not None and hasattr(parent, "getPosSize"):
-            dw = int(parent.getPosSize().Width or 0)
-    except Exception:
-        dw = 0
+    if parent is not None and hasattr(parent, "getPosSize"):
+        dw = uno_probe(lambda: int(parent.getPosSize().Width or 0), 0)
     if dlg is not None and not _is_parent_local(dlg, 0, 0, dw or 1):
         origin = (dlg[0] + qr_x, dlg[1] + qr_y)
         _ovlog("Ask screen from dialog %s -> %s", dlg, origin)
         return origin
     get = getattr(frame, "getContainerWindow", None) if frame is not None else None
-    win = None
-    if callable(get):
-        try:
-            win = get()
-        except Exception:
-            win = None
+    win = uno_probe(get, None) if callable(get) else None
     fw = _location_on_screen(win)
     fw_w = 0
     get_ps = getattr(win, "getPosSize", None) if win is not None else None
     if fw is None and callable(get_ps):
-        try:
-            r = get_ps()
+        r = uno_probe(get_ps, None)
+        if r is not None:
             fw = (int(getattr(r, "X", 0) or 0), int(getattr(r, "Y", 0) or 0))
             fw_w = int(getattr(r, "Width", 0) or 0)
-        except Exception:
-            fw = None
     elif callable(get_ps):
-        try:
-            fw_w = int(getattr(get_ps(), "Width", 0) or 0)
-        except Exception:
-            fw_w = 0
+        fw_w = uno_probe(lambda: int(getattr(get_ps(), "Width", 0) or 0), 0)
     if fw is not None and dw and fw_w and dw < fw_w:
         # Right-docked sidebar: panel is on the trailing edge of the frame.
         origin = (fw[0] + fw_w - dw + qr_x, fw[1] + qr_y)
@@ -370,9 +353,8 @@ def _query_peer(query_control: Any, label: str = "Ask") -> Any:
     if not callable(get_peer):
         _ovlog("%s getPeer missing query=%s", label, type(query_control).__name__)
         return None
-    try:
-        peer = get_peer()
-    except Exception:
+    peer = uno_probe(get_peer, None)
+    if peer is None:
         _ovlog("%s getPeer failed", label, exc_info=True)
         return None
     _ovdiag(query_control, "%s control" % label)
@@ -398,12 +380,7 @@ def _query_peer(query_control: Any, label: str = "Ask") -> Any:
 
 def _toolkit_for_peer(peer: Any) -> Any:
     if peer is not None and hasattr(peer, "getToolkit"):
-        try:
-            toolkit = peer.getToolkit()
-            if toolkit is not None:
-                return toolkit
-        except Exception:
-            pass
+        return uno_probe(peer.getToolkit, None)
     return None
 
 
@@ -506,10 +483,8 @@ def _create_ask_peer_listbox(
         win = None
     if win is None:
         log.warning("slash popup: listbox in TOP window could not be created")
-        try:
-            host.dispose()
-        except Exception:
-            pass
+        if hasattr(host, "dispose"):
+            best_effort(host.dispose, "slash popup: host dispose failed")
         return None
     _ovdiag(win, "listbox-in-TOP")
     return win, host, None
@@ -635,19 +610,13 @@ class SlashPopupController:
         """
         dispose = getattr(win, "dispose", None)
         if callable(dispose):
-            try:
-                dispose()
-                _ovlog("hide disposed toolkit window")
-            except Exception:
-                log.warning("slash popup: hide dispose failed", exc_info=True)
+            best_effort(dispose, "slash popup: hide dispose failed")
+            _ovlog("hide disposed toolkit window")
         if floater is not None and floater is not win:
             dispose_f = getattr(floater, "dispose", None)
             if callable(dispose_f):
-                try:
-                    dispose_f()
-                    _ovlog("hide disposed floater")
-                except Exception:
-                    log.warning("slash popup: hide dispose floater failed", exc_info=True)
+                best_effort(dispose_f, "slash popup: hide dispose floater failed")
+                _ovlog("hide disposed floater")
 
     def _dispatch_query_has_text(self) -> None:
         """Re-enable Send from the text still in Ask.
@@ -872,11 +841,8 @@ class SlashPopupController:
             if not callable(to_front):
                 _ovlog("toFront skip %s (no method)", label)
                 continue
-            try:
-                to_front()
-                _ovlog("toFront ok %s", label)
-            except Exception:
-                _ovlog("toFront failed %s", label, exc_info=True)
+            best_effort(to_front, f"toFront failed {label}")
+            _ovlog("toFront ok %s", label)
 
     def reposition(self) -> None:
         """Size the overlay to the match rows and park it above Ready (TOP) or Ask."""
@@ -1018,10 +984,8 @@ class SlashPopupController:
             from com.sun.star.awt import XKeyHandler
         except ImportError:
             return
-        try:
-            controller = get_controller()
-        except Exception:
-            log.warning("slash popup: frame key handler getController failed", exc_info=True)
+        controller = uno_probe(get_controller, None)
+        if controller is None:
             return
         add = getattr(controller, "addKeyHandler", None)
         if not callable(add):
@@ -1062,13 +1026,9 @@ class SlashPopupController:
         if controller is None or handler is None:
             return
         rem = getattr(controller, "removeKeyHandler", None)
-        if not callable(rem):
-            return
-        try:
-            rem(handler)
+        if callable(rem):
+            best_effort(lambda: rem(handler), "frame key handler remove failed")
             _ovlog("frame key handler removed")
-        except Exception:
-            _ovlog("frame key handler remove failed", exc_info=True)
 
     def _attach_toolkit_keys(self) -> None:
         """Catch Esc/Enter on the TOP floater, which does not route through Ask or the doc frame."""
@@ -1128,13 +1088,9 @@ class SlashPopupController:
         if tk is None or handler is None:
             return
         rem = getattr(tk, "removeKeyHandler", None)
-        if not callable(rem):
-            return
-        try:
-            rem(handler)
+        if callable(rem):
+            best_effort(lambda: rem(handler), "toolkit key handler remove failed")
             _ovlog("toolkit key handler removed")
-        except Exception:
-            _ovlog("toolkit key handler remove failed", exc_info=True)
 
     def _attach_click(self) -> None:
         ctrl = self.control

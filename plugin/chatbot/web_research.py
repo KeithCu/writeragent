@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from plugin.contrib.smolagents.memory import ToolCall
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
-from plugin.framework.errors import ToolExecutionError, format_error_payload, safe_json_loads
+from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, safe_json_loads
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 
 log = logging.getLogger("writeragent.web_research")
@@ -423,10 +423,10 @@ class VisitWebpageCdpTool(Tool):
             return f"Error visiting webpage via CDP: {e}"
         finally:
             if target_id:
-                try:
-                    browser_cdp("Target.closeTarget", {"targetId": target_id})
-                except Exception:
-                    log.debug("visit_webpage: closeTarget failed for %s", target_id)
+                best_effort(
+                    lambda: browser_cdp("Target.closeTarget", {"targetId": target_id}),
+                    f"visit_webpage: closeTarget failed for {target_id}",
+                )
             _cdp_visit_leave()
 
 
@@ -826,13 +826,12 @@ class WebResearchTool(ToolBase):
         max_steps = get_config_int("chatbot.max_tool_rounds")
 
         from plugin.framework.config import get_config
+        from plugin.framework.config_schema import as_bool
+
         browser_type = "off"
-        try:
-            val = get_config("chatbot.web_research_browser")
-            if isinstance(val, str):
-                browser_type = val
-        except (ValueError, TypeError):
-            pass
+        val = get_config("chatbot.web_research_browser")
+        if isinstance(val, str):
+            browser_type = val
 
         cdp_enabled = (browser_type in ["chrome", "firefox", "chromium"])
         cdp_url = None
@@ -842,14 +841,7 @@ class WebResearchTool(ToolBase):
         cancel_scope = getattr(ctx, "send_cancellation", None)
         smol_model = WriterAgentSmolModel(LlmClient(config, ctx.ctx, cancellation_scope=cancel_scope), max_tokens=max_tokens, status_callback=status_callback, stop_checker=stop_checker)
 
-        prompt_for_web_research = False
-        try:
-            from plugin.framework.config import get_config
-            from plugin.framework.config_schema import as_bool
-
-            prompt_for_web_research = as_bool(get_config("chatbot.prompt_for_web_research"))
-        except (ValueError, TypeError):
-            pass
+        prompt_for_web_research = as_bool(get_config("chatbot.prompt_for_web_research"))
 
         try:
             if cdp_enabled:
@@ -931,10 +923,7 @@ class WebResearchTool(ToolBase):
         finally:
             if cdp_held:
                 _finish_cdp_browser()
-            try:
-                smol_model.api.stop()
-            except Exception as e:
-                log.debug("Error stopping smol_model api: %s", e)
+            best_effort(smol_model.api.stop, "Error stopping smol_model api")
 
 
 def _web_search_query_from_arguments(arguments: Any) -> str:

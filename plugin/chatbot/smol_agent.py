@@ -350,12 +350,7 @@ class SmolAgentExecutor:
             err = ToolExecutionError(f"{error_prefix}: {str(e)}", code=e.code, details=e.details)
             return format_error_payload(err)
         except Exception as e:
-            from plugin.framework.errors import NetworkError
-
-            if isinstance(e, NetworkError):
-                log.exception("%s NetworkError", error_prefix)
-            else:
-                log.exception("%s failed", error_prefix)
+            log.exception("%s failed", error_prefix)
             err = ToolExecutionError(f"{error_prefix}: {str(e)}")
             return format_error_payload(err)
 

@@ -24,10 +24,11 @@ if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
     from plugin.chatbot.panel import ChatSession
 
+from plugin.framework.blocking_wait import BlockingWaitStopped
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
 from plugin.framework.async_stream import defer_until_drain_done, run_stream_drain_loop
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.errors import format_error_message, is_disposed_exception, suppress_disposed, UnoObjectError
+from plugin.framework.errors import best_effort, format_error_message, is_disposed_exception, suppress_disposed, UnoObjectError
 from plugin.framework.client.errors import (
     is_local_model_server_crash,
     local_model_overflow_message,
@@ -45,7 +46,7 @@ from plugin.framework.client.model_fetcher import (
 )
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-from plugin.framework.errors import format_error_payload, NetworkError
+from plugin.framework.errors import format_error_payload
 from plugin.framework.queue_executor import capture_send_stop, llm_request_lane
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
@@ -642,16 +643,11 @@ class ToolCallingMixin:
                 else:
                     update_activity_state("tool_loop", round_num=round_num)
                     emit((StreamQueueKind.STREAM_DONE, response))
+            except BlockingWaitStopped:
+                emit((StreamQueueKind.STOPPED,))
             except Exception as e:
-                from plugin.framework.blocking_wait import BlockingWaitStopped
-                if isinstance(e, BlockingWaitStopped):
-                    emit((StreamQueueKind.STOPPED,))
-                else:
-                    if isinstance(e, NetworkError):
-                        log.exception("Tool loop round %d: NetworkError" % round_num)
-                    else:
-                        log.exception("Tool loop round %d: API ERROR" % round_num)
-                    emit((StreamQueueKind.ERROR, format_error_payload(e)))
+                log.exception("Tool loop round %d: API ERROR" % round_num)
+                emit((StreamQueueKind.ERROR, format_error_payload(e)))
 
         run_in_background(run, name=f"llm-worker-{round_num}", dedicated=True)
 
@@ -728,16 +724,11 @@ class ToolCallingMixin:
                     emit((StreamQueueKind.STOPPED,))
                 else:
                     emit((StreamQueueKind.FINAL_DONE, "".join(last_streamed)))
+            except BlockingWaitStopped:
+                emit((StreamQueueKind.STOPPED,))
             except Exception as e:
-                from plugin.framework.blocking_wait import BlockingWaitStopped
-                if isinstance(e, BlockingWaitStopped):
-                    emit((StreamQueueKind.STOPPED,))
-                else:
-                    if isinstance(e, NetworkError):
-                        log.exception("Final stream NetworkError")
-                    else:
-                        log.exception("Final stream failed")
-                    emit((StreamQueueKind.ERROR, format_error_payload(e)))
+                log.exception("Final stream failed")
+                emit((StreamQueueKind.ERROR, format_error_payload(e)))
 
         run_in_background(run_final, name="llm-worker-final", dedicated=True)
 
@@ -933,18 +924,17 @@ class ToolCallingMixin:
         self._append_response("\nAI: ")
         self._record_assistant_start = True
 
-        try:
+        def _get_async_tools() -> frozenset[str]:
             from plugin.main import get_tools as _get_tools_registry
 
             registry = _get_tools_registry()
-            async_tools = frozenset(
+            return frozenset(
                 tool.name
                 for tool in registry.get_tools(filter_doc_type=False, exclude_tiers=())
                 if tool.name is not None and getattr(tool, "is_async", lambda: False)()
             )
-        except Exception as e:
-            log.debug("Failed to get async tools list, falling back to defaults: %s", e)
-            async_tools = frozenset({"web_research", "image_generate"})
+
+        async_tools = best_effort(_get_async_tools, "Failed to get async tools list, falling back to defaults", default=frozenset({"web_research", "image_generate"})) or frozenset({"web_research", "image_generate"})
 
         self._sm_state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=max_tool_rounds, status="Thinking...", async_tools=async_tools)
 

@@ -32,7 +32,15 @@ from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.client.model_fetcher import set_native_audio_support
 from plugin.framework.html_stripper import StreamingHTMLStripper
 from plugin.framework.config import get_config_bool
-from plugin.framework.errors import DocumentDisposedError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception, is_tool_document_disposed
+from plugin.framework.errors import (
+    DocumentDisposedError,
+    ToolExecutionError,
+    UnoObjectError,
+    best_effort,
+    format_error_payload,
+    is_disposed_exception,
+    is_tool_document_disposed,
+)
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import capture_send_stop, execute_on_main_thread
 from plugin.framework.tool import ToolContext
@@ -222,11 +230,7 @@ class TurnController:
         self.stripper = None
         if stripper is None:
             return ""
-        try:
-            leftover = stripper.finalize()
-        except Exception:
-            log.debug("stripper finalize on stop failed", exc_info=True)
-            return ""
+        leftover = best_effort(stripper.finalize, "stripper finalize on stop failed", default="")
         return leftover if isinstance(leftover, str) else ""
 
     def close_stopped(self, host: Any, partial: str | None = None) -> None:
@@ -585,16 +589,14 @@ def build_tool_execute_fn(
 
         active_page_idx = None
         if doc_type_str in ("draw", "impress"):
-            try:
-                from plugin.draw.bridge import DrawBridge
+            from plugin.draw.bridge import DrawBridge
 
-                # Async gateways (delegate_to_specialized_draw_toolset) run
-                # execute_fn on the worker; hasattr(doc, "getDrawPages") is UNO.
-                active_page_idx = execute_on_main_thread(
-                    lambda: DrawBridge(doc).get_active_page_index()
-                )
-            except Exception:
-                log.debug("execute_fn: failed to get active page index for %s", doc_type_str)
+            # Async gateways (delegate_to_specialized_draw_toolset) run
+            # execute_fn on the worker; hasattr(doc, "getDrawPages") is UNO.
+            active_page_idx = best_effort(
+                lambda: execute_on_main_thread(lambda: DrawBridge(doc).get_active_page_index()),
+                f"execute_fn: failed to get active page index for {doc_type_str}",
+            )
 
         # The spawn passes the scope it captured. Reading
         # host._send_cancellation when the tool runs registers on the next
@@ -819,11 +821,10 @@ class ToolLoopEffectInterpreter:
         # a stream error. Only image_generate uses the override; a widget
         # failure leaves that call's arguments unchanged.
         if func_name == "image_generate" and isinstance(func_args, dict) and host.image_model_selector:
-            try:
-                image_model_override = execute_on_main_thread(lambda: host.image_model_selector.getText())
-            except Exception:
-                log.debug("image model selector unusable; image_generate keeps its arguments", exc_info=True)
-                image_model_override = None
+            image_model_override = best_effort(
+                lambda: execute_on_main_thread(lambda: host.image_model_selector.getText()),
+                "image model selector unusable; image_generate keeps its arguments",
+            )
             if image_model_override:
                 # Execution uses the sidebar override; func_args_str stays the
                 # model arguments so TOOL_DONE and history do not record the UI
