@@ -75,7 +75,7 @@ def test_explain_error_precedent_probe_fallback():
     assert precs["B1"]["value"] == "UNREADABLE"
 
 
-def test_explain_error_dep_chain_best_effort():
+def test_explain_error_dep_chain_failure_is_swallowed():
     bridge = MagicMock()
     inspector = MagicMock()
     cell = MagicMock()
@@ -88,7 +88,7 @@ def test_explain_error_dep_chain_best_effort():
     inspector.read_cell.return_value = {"address": "A1", "value": "0", "type": "number"}
 
     detector = ErrorDetector(bridge, inspector)
-    with patch("plugin.calc.error_detector.fetch_formula_dep_chain", side_effect=RuntimeError("no dep chain")):
+    with patch("plugin.calc.formula_dep_chain.fetch_formula_dep_chain", side_effect=RuntimeError("no dep chain")):
         res = detector.explain_error("B1")
         assert "dependency_chain" not in res
         assert res["error"]["code"] == "#DIV/0!"
