@@ -265,20 +265,14 @@ class ManagedSubprocess:
             return drain.finish_text(timeout=timeout)
         except Exception:
             log.debug("%s could not join stderr drain", self._label, exc_info=True)
-            try:
-                return drain.text()
-            except Exception:
-                return ""
+            return drain.text()
 
     def stderr_text(self) -> str:
-        """``text()`` with no join. No drain or an exception returns ``""``."""
+        """``text()`` with no join. No drain returns ``""``."""
         drain = self._stderr_drain
         if drain is None:
             return ""
-        try:
-            return drain.text()
-        except Exception:
-            return ""
+        return drain.text()
 
     def abandon(self) -> None:
         """Enqueue ``("abandon", self)``. Does not close pipes."""
@@ -459,29 +453,17 @@ class ManagedSubprocess:
                 self._stderr_drain = drain
             except Exception as e:
                 if proc is not None:
-                    try:
-                        kill_process_tree(proc)
-                    except Exception:
-                        pass
+                    kill_process_tree(proc)
                     try:
                         proc.wait(timeout=1.0)
                     except Exception:
                         pass
-                    if proc.stdin:
-                        try:
-                            proc.stdin.close()
-                        except Exception:
-                            pass
-                    if proc.stdout:
-                        try:
-                            proc.stdout.close()
-                        except Exception:
-                            pass
-                    if proc.stderr:
-                        try:
-                            proc.stderr.close()
-                        except Exception:
-                            pass
+                    for s in (proc.stdin, proc.stdout, proc.stderr):
+                        if s:
+                            try:
+                                s.close()
+                            except OSError:
+                                pass
                 self._proc = None
                 self._stderr_drain = None
                 if self._log_start_failure:
@@ -826,10 +808,7 @@ def shutdown_all() -> None:
     with _registry_lock:
         targets = list(_instances)
     for inst in targets:
-        try:
-            inst.kill_tree()
-        except Exception:
-            log.exception("Error signaling managed subprocess during shutdown_all")
+        inst.kill_tree()
         try:
             inst.abandon()
         except Exception:
@@ -864,11 +843,7 @@ def _enqueue_reaper(item: tuple[str, ManagedSubprocess]) -> None:
 
 def _reaper_loop() -> None:
     while True:
-        try:
-            kind, inst = _reaper_queue.get()
-        except Exception:
-            log.exception("Unexpected error getting process from reaper queue")
-            continue
+        kind, inst = _reaper_queue.get()
         try:
             if kind == "close":
                 _reap_close(inst)

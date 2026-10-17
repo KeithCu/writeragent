@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import sys
 import threading
 import types
@@ -54,7 +56,9 @@ _ensure_main_import_stubs()
 _patch_unohelper_implementation_helper()
 
 import plugin.main as main
+from plugin.doc.doc_type import DocumentType
 from plugin.framework.errors import WriterAgentException
+from plugin.framework.event_bus import EventBus
 from plugin.framework.main_shared import (
     _ACTION_HANDLERS,
     get_action_handler,
@@ -200,7 +204,6 @@ def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
-    import os
     orig_env = os.environ.get("WRITERAGENT_EVAL_HARNESS")
     try:
         os.environ["WRITERAGENT_EVAL_HARNESS"] = "1"
@@ -320,8 +323,6 @@ def test_get_tools_and_get_services_raise_bootstrap_failed_when_registry_none(mo
 
 def test_menu_update_subscriber_runs_in_background(monkeypatch):
     """menu:update subscriber must use run_in_background, not QueueExecutor.execute."""
-    from plugin.framework.event_bus import EventBus
-
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
@@ -400,19 +401,16 @@ def test_report_action_failure_survives_dialog_exceptions(monkeypatch):
 # --- Bug 5 tests: DispatchHandler.dispatch catches dialog failures ---
 
 
-def test_dispatch_handler_survives_dialog_exceptions(monkeypatch):
-    """DispatchHandler.dispatch survives dialog errors during error reporting."""
+def test_dispatch_handler_shows_error_report(monkeypatch):
+    """DispatchHandler.dispatch shows error report when command fails."""
     monkeypatch.setattr(
         "plugin.main._dispatch_command",
         MagicMock(side_effect=RuntimeError("command dispatch failure")),
     )
+    mock_report = MagicMock()
     monkeypatch.setattr(
         "plugin.chatbot.dialogs.msgbox_with_report",
-        MagicMock(side_effect=RuntimeError("dialog error")),
-    )
-    monkeypatch.setattr(
-        "plugin.chatbot.dialogs.msgbox",
-        MagicMock(side_effect=RuntimeError("fallback dialog error")),
+        mock_report,
     )
 
     handler = main.DispatchHandler(MagicMock())
@@ -420,8 +418,8 @@ def test_dispatch_handler_survives_dialog_exceptions(monkeypatch):
     url.Path = "test.command"
     url.Query = ""
 
-    # Should not raise
     handler.dispatch(url, ())
+    mock_report.assert_called_once()
 
 
 # --- Bug 6 tests: removeStatusListener drops proxy with uno_same ---
@@ -538,8 +536,6 @@ def test_notify_menu_update_prune_uses_uno_same(monkeypatch):
 
 def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
     """Off the main thread, dead listeners are posted to the main thread for uno_same pruning."""
-    import threading
-
     class ListenerProxy:
         def __init__(self, val: int):
             self.val = val
@@ -878,8 +874,6 @@ def test_trigger_body_exception_is_reported():
 
 def test_trigger_extend_selection_bootstraps():
     """Triggering ExtendSelection on a Writer document bootstraps before dispatching."""
-    from plugin.doc.doc_type import DocumentType
-
     fake_ctx = MagicMock()
     job = main.MainBootstrapJob(fake_ctx)
     fake_doc = MagicMock()
@@ -968,8 +962,6 @@ def test_split_command():
 def test_register_core_handlers_continues_after_optional_import_failure(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    import logging
-
     orig_handlers = dict(_ACTION_HANDLERS)
     had_module = "plugin.calc.excel_py_convert.auto_open" in sys.modules
     prev_module = sys.modules.get("plugin.calc.excel_py_convert.auto_open")

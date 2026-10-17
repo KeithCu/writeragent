@@ -76,13 +76,10 @@ def _debug_live_panels_on() -> bool:
     thread_guard stub has no ``_designated_main_thread``. Still track the live
     panel so URP slash/Packet G hooks can find ``SendButtonListener``.
     """
-    try:
-        from plugin.framework import thread_guard as tg
+    from plugin.framework import thread_guard as tg
 
-        if hasattr(tg, "_designated_main_thread"):
-            return True
-    except Exception:
-        pass
+    if hasattr(tg, "_designated_main_thread"):
+        return True
     return os.environ.get("WRITERAGENT_TESTING") == "1"
 
 
@@ -752,12 +749,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                     from plugin.framework.config import get_config_bool_safe
 
                     want = 1 if get_config_bool_safe("audio.tts_enabled") else 0
-                    cur = None
-                    if hasattr(chk_voice, "getState"):
-                        try:
-                            cur = int(chk_voice.getState())
-                        except Exception:
-                            cur = None
+                    cur = int(chk_voice.getState()) if hasattr(chk_voice, "getState") else None
                     if cur != want:
                         chk_voice.setState(want)
 
@@ -1158,10 +1150,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         session_id = get_document_property(model, "WriterAgentSessionID")
         url = ""
         if model is not None and hasattr(model, "getURL"):
-            try:
-                raw_url = model.getURL()
-            except Exception:
-                raw_url = ""
+            raw_url = model.getURL()
             url = raw_url if isinstance(raw_url, str) else ""
         fork_failed = False
         if session_id:
@@ -1288,21 +1277,16 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             )
         )
         for btn_id, listener_obj, tooltip_text, icon_rel_path, label_text in header_buttons:
-            if controls.get(btn_id):
-                try:
-                    btn_ctrl = controls[btn_id]
-                    if hasattr(btn_ctrl, "getModel"):
-                        btn_m = btn_ctrl.getModel()
-                        if btn_m:
-                            if hasattr(btn_m, "HelpText"):
-                                btn_m.HelpText = tooltip_text
-                            if label_text is not None and hasattr(btn_m, "Label"):
-                                btn_m.Label = label_text
-                            if icon_rel_path and ext_url and hasattr(btn_m, "ImageURL"):
-                                btn_m.ImageURL = ext_url.rstrip("/") + "/" + icon_rel_path
-                    btn_ctrl.addActionListener(listener_obj)
-                except Exception as e:
-                    log.exception("Button %s wiring error: %s", btn_id, e)
+            btn_ctrl = controls.get(btn_id)
+            if btn_ctrl:
+                btn_m = btn_ctrl.getModel()
+                if btn_m:
+                    btn_m.HelpText = tooltip_text
+                    if label_text is not None:
+                        btn_m.Label = label_text
+                    if icon_rel_path and ext_url:
+                        btn_m.ImageURL = ext_url.rstrip("/") + "/" + icon_rel_path
+                btn_ctrl.addActionListener(listener_obj)
 
         send_listener = None
         try:
@@ -1410,54 +1394,45 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         clear_listener = None
         active_greeting = self._greeting_for_sidebar_mode(initial_mode, model)
         if controls["clear"]:
-            try:
-                clear_listener = ClearButtonListener(self.session, controls["response"], controls["status"], greeting=active_greeting, send_listener=send_listener)
-                controls["clear"].addActionListener(clear_listener)
-                if send_listener is not None:
-                    send_listener.clear_listener = clear_listener
-            except Exception:
-                log.exception("Clear button wiring failed")
+            clear_listener = ClearButtonListener(self.session, controls["response"], controls["status"], greeting=active_greeting, send_listener=send_listener)
+            controls["clear"].addActionListener(clear_listener)
+            if send_listener is not None:
+                send_listener.clear_listener = clear_listener
 
         if controls.get("chk_voice"):
-            try:
-                chk_ctrl = controls["chk_voice"]
-                from plugin.framework.config import get_config_bool_safe, set_config
-                from plugin.framework.uno_listeners import BaseItemListener
+            chk_ctrl = controls["chk_voice"]
+            from plugin.framework.config import get_config_bool_safe, set_config
+            from plugin.framework.uno_listeners import BaseItemListener
 
-                is_voice = get_config_bool_safe("audio.tts_enabled")
-                if hasattr(chk_ctrl, "setState"):
-                    chk_ctrl.setState(1 if is_voice else 0)
-                if hasattr(chk_ctrl, "getModel") and hasattr(chk_ctrl.getModel(), "HelpText"):
-                    chk_ctrl.getModel().HelpText = _("Speak responses aloud (TTS)")
+            is_voice = get_config_bool_safe("audio.tts_enabled")
+            if hasattr(chk_ctrl, "setState"):
+                chk_ctrl.setState(1 if is_voice else 0)
+            if hasattr(chk_ctrl, "getModel") and hasattr(chk_ctrl.getModel(), "HelpText"):
+                chk_ctrl.getModel().HelpText = _("Speak responses aloud (TTS)")
 
-                class VoiceCheckboxListener(BaseItemListener):
-                    panel: Any
+            class VoiceCheckboxListener(BaseItemListener):
+                panel: Any
 
-                    def __init__(self, panel: Any) -> None:
-                        self.panel = panel
+                def __init__(self, panel: Any) -> None:
+                    self.panel = panel
 
-                    def on_item_state_changed(self, rEvent: Any) -> None:
-                        # Programmatic setState during _refresh_controls_from_config must not
-                        # re-enter set_config → config:changed → refresh (UNO fires listeners).
-                        if getattr(self.panel, "_in_refresh_controls", False):
-                            return
-                        # Prefer the control state: ItemEvent.Selected is not always set on
-                        # programmatic setState, which would wrongly persist False.
-                        src = getattr(rEvent, "Source", None)
-                        if src is not None and hasattr(src, "getState"):
-                            try:
-                                val = bool(int(src.getState()) == 1)
-                            except Exception:
-                                val = bool(getattr(rEvent, "Selected", 0) == 1)
-                        else:
-                            val = bool(getattr(rEvent, "Selected", 0) == 1)
-                        set_config("audio.tts_enabled", val)
-                        log.info("Voice checkbox toggled: tts_enabled=%s", val)
+                def on_item_state_changed(self, rEvent: Any) -> None:
+                    # Programmatic setState during _refresh_controls_from_config must not
+                    # re-enter set_config → config:changed → refresh (UNO fires listeners).
+                    if getattr(self.panel, "_in_refresh_controls", False):
+                        return
+                    # Prefer the control state: ItemEvent.Selected is not always set on
+                    # programmatic setState, which would wrongly persist False.
+                    src = getattr(rEvent, "Source", None)
+                    if src is not None and hasattr(src, "getState"):
+                        val = bool(int(src.getState()) == 1)
+                    else:
+                        val = bool(getattr(rEvent, "Selected", 0) == 1)
+                    set_config("audio.tts_enabled", val)
+                    log.info("Voice checkbox toggled: tts_enabled=%s", val)
 
-                if hasattr(chk_ctrl, "addItemListener"):
-                    chk_ctrl.addItemListener(VoiceCheckboxListener(self))
-            except Exception:
-                log.exception("Voice checkbox wiring failed")
+            if hasattr(chk_ctrl, "addItemListener"):
+                chk_ctrl.addItemListener(VoiceCheckboxListener(self))
 
         self._apply_sidebar_mode(initial_mode, model, controls["response"], send_listener, clear_listener, toggle_image_ui)
         self._wire_chat_mode_listener(

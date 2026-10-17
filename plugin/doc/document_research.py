@@ -201,21 +201,9 @@ def get_document_directory(model: Any) -> str | None:
 
 def _path_settings_from_ctx(ctx: Any) -> Any | None:
     """Return LO PathSettings singleton, or None when UNO is unavailable."""
-    if ctx is None:
+    if ctx is None or not hasattr(ctx, "getValueByName"):
         return None
-    try:
-        if hasattr(ctx, "getValueByName"):
-            settings = ctx.getValueByName("/singletons/com.sun.star.util.thePathSettings")
-            if settings is not None:
-                return settings
-    except Exception:
-        log.debug("_path_settings_from_ctx singleton lookup failed", exc_info=True)
-    try:
-        smgr = ctx.ServiceManager
-        return smgr.createInstanceWithContext("com.sun.star.util.PathSettings", ctx)
-    except Exception:
-        log.debug("_path_settings_from_ctx createInstance failed", exc_info=True)
-    return None
+    return ctx.getValueByName("/singletons/com.sun.star.util.thePathSettings")
 
 
 def _substitute_lo_path_variables(ctx: Any, raw: str) -> str:
@@ -223,13 +211,13 @@ def _substitute_lo_path_variables(ctx: Any, raw: str) -> str:
     text = str(raw).strip()
     if not text:
         return ""
-    try:
-        if hasattr(ctx, "getValueByName"):
-            subst = ctx.getValueByName("/singletons/com.sun.star.util.thePathSubstitution")
-            if subst is not None and hasattr(subst, "substituteVariables"):
+    if ctx is not None and hasattr(ctx, "getValueByName"):
+        subst = ctx.getValueByName("/singletons/com.sun.star.util.thePathSubstitution")
+        if subst is not None and hasattr(subst, "substituteVariables"):
+            try:
                 return str(subst.substituteVariables(text, True)).strip()
-    except Exception:
-        log.debug("_substitute_lo_path_variables failed", exc_info=True)
+            except Exception:
+                log.debug("_substitute_lo_path_variables failed", exc_info=True)
     return text
 
 
@@ -252,13 +240,7 @@ def get_work_directory(ctx: Any) -> str | None:
     settings = _path_settings_from_ctx(ctx)
     if settings is None:
         return None
-    work_raw: Any = None
-    try:
-        work_raw = settings.getPropertyValue("Work")
-    except Exception:
-        log.debug("get_work_directory getPropertyValue(Work) failed", exc_info=True)
-    if work_raw is None:
-        work_raw = getattr(settings, "Work", None)
+    work_raw = settings.getPropertyValue("Work")
     if work_raw is None:
         return None
     return _resolve_lo_directory_path(ctx, str(work_raw))
@@ -744,17 +726,11 @@ def _is_same_document(model: Any, active_model: Any) -> bool:
         return False
     from plugin.framework.uno_context import get_runtime_uid
 
-    try:
-        ua, ub = get_runtime_uid(model), get_runtime_uid(active_model)
-        if ua and ub:
-            return ua == ub
-    except Exception:
-        pass
-    try:
-        url = str(getattr(model, "URL", "") or "")
-        return bool(url) and url == str(getattr(active_model, "URL", "") or "")
-    except Exception:
-        return False
+    ua, ub = get_runtime_uid(model), get_runtime_uid(active_model)
+    if ua and ub:
+        return ua == ub
+    url = str(getattr(model, "URL", "") or "")
+    return bool(url) and url == str(getattr(active_model, "URL", "") or "")
 
 
 def _is_modified(model: Any) -> bool:

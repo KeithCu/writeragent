@@ -8,26 +8,32 @@ import os
 import sys
 import tempfile
 import time
+import threading
 from unittest.mock import MagicMock, patch
 
-
+import plugin.doc.document_research as dr
+from plugin.doc.doc_type import DocumentType
 from plugin.doc.document_research import (
     NEARBY_FILE_EXTENSIONS,
     NEARBY_IMAGE_EXTENSIONS,
     _collect_open_file_urls,
+    _is_same_document,
     _system_path_from_url,
     close_document_research_document,
-    get_open_documents,
-    guess_doc_type_from_path,
     get_document_directory,
+    get_open_documents,
     get_work_directory,
+    guess_doc_type_from_path,
     list_nearby_files,
     open_document_for_read,
     resolve_listing_directory,
     resolve_path_or_name,
 )
 from plugin.doc.text_helpers import normalize_file_url
+from plugin.framework import thread_guard as tg
+from plugin.framework.uno_listeners import ListenerBoundary
 from plugin.framework.url_utils import path_to_file_url
+from tests.harness.strip_bundle import skip_if_release_build
 
 
 def test_guess_doc_type_from_path():
@@ -189,24 +195,19 @@ def test_get_work_directory_file_url():
             assert get_work_directory(ctx) == norm
 
 
-def test_get_work_directory_uses_singleton_before_create_instance():
+def test_get_work_directory_uses_singleton():
     with tempfile.TemporaryDirectory() as tmp:
         ctx = MagicMock()
         path_settings = MagicMock()
         path_settings.getPropertyValue.return_value = tmp
         ctx.getValueByName.side_effect = lambda name: path_settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
         assert get_work_directory(ctx) == os.path.normpath(tmp)
-        ctx.ServiceManager.createInstanceWithContext.assert_not_called()
 
 
-def test_get_work_directory_falls_back_to_create_instance():
-    with tempfile.TemporaryDirectory() as tmp:
-        ctx = MagicMock()
-        path_settings = MagicMock()
-        path_settings.getPropertyValue.return_value = tmp
-        ctx.getValueByName.return_value = None
-        ctx.ServiceManager.createInstanceWithContext.return_value = path_settings
-        assert get_work_directory(ctx) == os.path.normpath(tmp)
+def test_get_work_directory_none_when_singleton_missing():
+    ctx = MagicMock()
+    ctx.getValueByName.return_value = None
+    assert get_work_directory(ctx) is None
 
 
 def test_resolve_listing_directory_prefers_saved_parent():
@@ -473,8 +474,6 @@ def test_open_document_for_read_reuses_existing_without_close_flag(mock_isfile, 
 
 def test_hidden_readonly_load_args_named_on_windows(monkeypatch):
     """GHA 34636251918: leftover Hidden _default file load raised system bitmap."""
-    import plugin.doc.document_research as dr
-
     monkeypatch.setattr(dr.sys, "platform", "win32")
     assert dr._hidden_readonly_load_args() == ("_wa_doc_research", 8 | 55)
     monkeypatch.setattr(dr.sys, "platform", "linux")
@@ -486,8 +485,6 @@ def test_hidden_readonly_load_args_named_on_windows(monkeypatch):
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
-    from plugin.doc.doc_type import DocumentType
-
     opened_model = MagicMock()
     mock_desktop.return_value.loadComponentFromURL.return_value = opened_model
     mock_dtype.return_value = DocumentType.CALC
@@ -511,8 +508,6 @@ def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_re
 @patch("plugin.doc.document_research.os.path.isfile", return_value=True)
 def test_open_document_for_read_closes_unsupported_type(mock_isfile, mock_resolve, mock_desktop, mock_dtype):
     """Unknown types must not leave the hidden component loaded."""
-    from plugin.doc.doc_type import DocumentType
-
     opened_model = MagicMock()
     mock_desktop.return_value.loadComponentFromURL.return_value = opened_model
     mock_dtype.return_value = DocumentType.UNKNOWN
@@ -560,8 +555,6 @@ def test_nearby_uno_env_does_not_open_second_scalc_factory():
     assert "skip_windows_hidden_open_after_bitmap" in src
 
 def test_is_same_document_uses_uid_not_identity():
-    from plugin.doc.document_research import _is_same_document
-
     class Doc:
         def __init__(self, uid, url=""):
             self.RuntimeUID = uid
@@ -584,8 +577,6 @@ class _DisposedException(Exception):
 
 def test_get_open_documents_disposed_desktop_is_not_an_empty_list():
     """A dead desktop enumeration must not look like no documents are open."""
-    from plugin.framework.uno_listeners import ListenerBoundary
-
     desktop = MagicMock()
     enum = MagicMock()
     enum.hasMoreElements.side_effect = _DisposedException("enum dead")
@@ -604,8 +595,6 @@ def test_get_open_documents_disposed_desktop_is_not_an_empty_list():
 
 
 def test_get_open_documents_disposed_component_access_is_not_empty():
-    from plugin.framework.uno_listeners import ListenerBoundary
-
     desktop = MagicMock()
     desktop.getComponents.side_effect = _DisposedException("desktop gone")
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
@@ -621,8 +610,6 @@ def test_get_open_documents_disposed_component_access_is_not_empty():
 
 
 def test_get_open_documents_empty_desktop_is_not_disposed():
-    from plugin.framework.uno_listeners import ListenerBoundary
-
     desktop = MagicMock()
     desktop.getComponents.return_value = None
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
@@ -635,12 +622,6 @@ def test_get_open_documents_empty_desktop_is_not_disposed():
 
 def test_get_open_documents_off_thread_is_not_an_empty_list():
     """A caller's except Exception must not hide the main-thread check."""
-    import threading
-
-    from plugin.framework import thread_guard as tg
-    from plugin.framework.uno_listeners import ListenerBoundary
-    from tests.harness.strip_bundle import skip_if_release_build
-
     skip_if_release_build("release bundles stub the main-thread guard")
     was = tg.GUARD_ON
     tg.GUARD_ON = True
@@ -675,8 +656,6 @@ def test_get_open_documents_off_thread_is_not_an_empty_list():
 
 
 def test_get_open_documents_runtime_error_is_not_disposal_or_empty():
-    from plugin.framework.uno_listeners import ListenerBoundary
-
     desktop = MagicMock()
     enum = MagicMock()
     enum.hasMoreElements.side_effect = RuntimeError("not disposed")

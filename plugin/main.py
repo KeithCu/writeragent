@@ -549,15 +549,9 @@ def _tests_bundled() -> bool:
 
 def _show_tests_unavailable(test_name: str) -> None:
     """Show a message when test suites are not bundled (release builds)."""
-    try:
-        from plugin.chatbot.dialogs import msgbox
+    from plugin.chatbot.dialogs import msgbox
 
-        msgbox(get_ctx(), test_name, "This WriterAgent build was packaged without the optional `plugin.tests` test modules.")
-    except Exception:
-        # What was wrong: failure to show dialog was silently ignored without logging.
-        # How it happened: bare except: pass hid UI or dialog creation errors.
-        # Why this change: log the exception while still avoiding breaking callers.
-        log.exception("test unavailable dialog failed: %s", test_name)
+    msgbox(get_ctx(), test_name, "This WriterAgent build was packaged without the optional `plugin.tests` test modules.")
 
 
 def _run_test_suite(module_name: str, doc_checker: Callable[[Any], bool], test_name: str) -> None:
@@ -956,12 +950,9 @@ def _update_menu_icons_impl() -> None:
         # One-shot DPI probe → pixel size (16 at 1×, 32 on HiDPI).
         # A probe miss caches 32 until a real VCL DPI reading. Warm
         # StyleSettings so startup does not stick on that weak reading.
-        try:
-            from plugin.framework.appearance import get_style_window
+        from plugin.framework.appearance import get_style_window
 
-            get_style_window(ctx=ctx)
-        except Exception:
-            pass
+        get_style_window(ctx=ctx)
         icon_px = resolve_menu_icon_pixel_size(ctx)
         image_type = image_type_for_pixel_size(icon_px)
 
@@ -1208,28 +1199,18 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
             run_in_background(notify_menu_update)
         except Exception as e:
             log_exception(e, context="Dispatch")
-            try:
-                from plugin.chatbot.dialogs import msgbox_with_report
-                from plugin.framework.i18n import _
+            from plugin.chatbot.dialogs import msgbox_with_report
+            from plugin.framework.i18n import _
 
-                msgbox_with_report(
-                    self.ctx,
-                    _("Dispatch Error"),
-                    str(e),
-                    box_type=3,
-                    reportable=True,
-                    report_title="Dispatch Error",
-                    report_extra=str(e),
-                )
-            except Exception:
-                log.exception("msgbox_with_report failed")
-                try:
-                    from plugin.chatbot.dialogs import msgbox
-                    from plugin.framework.i18n import _
-
-                    msgbox(self.ctx, _("Dispatch Error"), str(e), box_type=3)
-                except Exception:
-                    log.exception("msgbox failed")
+            msgbox_with_report(
+                self.ctx,
+                _("Dispatch Error"),
+                str(e),
+                box_type=3,
+                reportable=True,
+                report_title="Dispatch Error",
+                report_extra=str(e),
+            )
 
     def addStatusListener(self, Control: Any, URL: UnoURL) -> None:
         listener = Control

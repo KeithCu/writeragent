@@ -961,14 +961,7 @@ class _EventDrain:
                 _finish_on_stop(state, self._flush_pending)
                 self._finish()
                 return
-            try:
-                items = _drain_ready(state.q)
-            except Exception as exc:
-                log.exception("Stream queue drain failed")
-                self._report_slice_error(exc)
-                state.job_done[0] = True
-                self._finish()
-                return
+            items = _drain_ready(state.q)
             if items:
                 try:
                     _process_batch(state, items, self._stop_checker, self._flush_pending)
@@ -984,10 +977,7 @@ class _EventDrain:
             # apply_chunk can be slow enough for the worker to queue the next
             # batch. Take that on the next callback. An empty queue waits,
             # otherwise a quiet stream busy-spins addCallback.
-            try:
-                pending = state.q.qsize()
-            except Exception:
-                pending = 0
+            pending = state.q.qsize()
 
             elapsed = time.monotonic() - t0
             if elapsed > 0.1:
@@ -1221,11 +1211,7 @@ def _run_stream_drain_blocking(
                     _finish_on_stop(state, flush_pending)
                     break
 
-                try:
-                    items = _drain_batch(q, 0.1)
-                except Exception as e:
-                    _notify_drain_failure(on_error, job_done, e, "Stream queue drain failed")
-                    break
+                items = _drain_batch(q, 0.1)
 
                 if not items:
                     marshal_depth = default_executor.pending_work_count()

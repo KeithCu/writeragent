@@ -46,10 +46,11 @@ def _patch_unohelper_implementation_helper() -> None:
 _ensure_main_import_stubs()
 _patch_unohelper_implementation_helper()
 
+import plugin.main as main_mod
+
+
 def test_run_test_suite_invokes_run_module_suite_on_main_thread() -> None:
     """``run_module_suite`` must run on the UI thread so UNO tools pass ``execute_safe``."""
-    import plugin.main as main_mod
-    
     threads_seen: list[threading.Thread] = []
     sentinel_module = object()
     modules_seen: list[Any] = []
@@ -82,8 +83,6 @@ def test_menu_text_translates_vision_ocr_and_debug(monkeypatch) -> None:
     Vision OCR was missing from the static map (None → Addons.xcu en-US).
     Debug was a raw English literal, so the status event overwrote the catalog.
     """
-    import plugin.main as main_mod
-
     monkeypatch.setattr(main_mod, "bootstrap", lambda: None)
 
     def fake_gettext(message: str) -> str:
@@ -100,8 +99,6 @@ def test_menu_text_translates_vision_ocr_and_debug(monkeypatch) -> None:
 
 def test_run_test_suite_unavailable_does_not_print() -> None:
     """When tests are not bundled, _run_test_suite must not emit debug prints."""
-    import plugin.main as main_mod
-
     printed: list[str] = []
     with (
         patch("plugin.main._tests_bundled", return_value=False),
@@ -115,8 +112,6 @@ def test_run_test_suite_unavailable_does_not_print() -> None:
 
 def test_run_test_suite_unavailable_does_not_import() -> None:
     """When tests are not bundled, _run_test_suite must not import the test module."""
-    import plugin.main as main_mod
-
     with (
         patch("plugin.main._tests_bundled", return_value=False),
         patch("plugin.main._show_tests_unavailable") as mock_unavailable,
@@ -130,8 +125,6 @@ def test_run_test_suite_unavailable_does_not_import() -> None:
 
 def test_run_test_suite_logs_failure() -> None:
     """When run_module_suite raises, _run_test_suite logs the failure and shows a dialog."""
-    import plugin.main as main_mod
-
     fake_ctx = MagicMock()
     sentinel_module = object()
     with (
@@ -148,15 +141,15 @@ def test_run_test_suite_logs_failure() -> None:
         assert any("_run_test_suite failed" in str(call) for call in mock_log_exc.call_args_list)
 
 
-def test_show_tests_unavailable_logs_dialog_failure() -> None:
-    """When msgbox raises in _show_tests_unavailable, error is logged and not propagated."""
-    import plugin.main as main_mod
-
+def test_show_tests_unavailable_invokes_msgbox() -> None:
+    """_show_tests_unavailable invokes msgbox with package info."""
     fake_ctx = MagicMock()
     with (
-        patch("plugin.chatbot.dialogs.msgbox", side_effect=RuntimeError("dialog boom")),
-        patch.object(main_mod.log, "exception") as mock_log_exc,
+        patch("plugin.main.get_ctx", return_value=fake_ctx),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
     ):
-        main_mod._show_tests_unavailable(fake_ctx)
-        assert any("test unavailable dialog failed" in str(call) for call in mock_log_exc.call_args_list)
+        main_mod._show_tests_unavailable("writer.format_tests")
+        mock_msgbox.assert_called_once_with(
+            fake_ctx, "writer.format_tests", "This WriterAgent build was packaged without the optional `plugin.tests` test modules."
+        )
 
