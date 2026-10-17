@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+from plugin.framework.errors import best_effort
 from plugin.doc.text_helpers import normalize_linebreaks as _normalize
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.uno_context import new_blank_writer, uno_same
@@ -178,14 +179,16 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
     """
     if not spans or text_obj is None:
         return
-    try:
+    def read_imported() -> tuple[Any, str]:
         origin = text_obj.getStart()
         hay = text_obj.createTextCursorByRange(origin)
         hay.gotoEnd(True)
-        haystack = hay.getString() or ""
-    except Exception:
-        log.debug("_apply_ruby_spans: could not read imported text", exc_info=True)
+        return origin, hay.getString() or ""
+
+    got = best_effort(read_imported, "_apply_ruby_spans: could not read imported text")
+    if got is None:
         return
+    origin, haystack = got
     # skip_chars is the imported suffix. Offsets from extract_and_strip_ruby
     # are relative to that suffix, not to earlier document text.
     anchor = skip_chars if skip_chars > 0 else 0
@@ -1290,12 +1293,12 @@ def _replace_single_range_with_content(
         # accepting the change would keep BOTH the old and new text. The inline import does not
         # demote the style here, so skipping the restore keeps a clean Delete + Insert pair.
         if not _is_recording_changes(model):
-            try:
+            def restore_style() -> None:
                 restore = text_obj.createTextCursorByRange(anchor.getStart())
                 restore.gotoRange(cursor.getEnd(), True)
                 format_mod.apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
-            except Exception:
-                log.debug("replace_single_range_with_content: could not restore ParaStyleName", exc_info=True)
+
+            best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
     else:
         # apply_styles=False: a search/replace splits the matched paragraph, so applying a
         # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
