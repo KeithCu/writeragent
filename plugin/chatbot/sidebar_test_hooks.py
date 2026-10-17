@@ -12,6 +12,7 @@ See docs/chat/rich-text-control-sidebar.md (Hooks).
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import errno
 import json
@@ -92,13 +93,10 @@ def debug_hooks_available() -> bool:
     so the thread_guard stub has no ``_designated_main_thread``. Still allow
     Packet G protocol dispatch in that process (``WRITERAGENT_TESTING=1``).
     """
-    try:
-        from plugin.framework import thread_guard as tg
+    from plugin.framework import thread_guard as tg
 
-        if hasattr(tg, "_designated_main_thread"):
-            return True
-    except Exception:
-        pass
+    if hasattr(tg, "_designated_main_thread"):
+        return True
     return os.environ.get("WRITERAGENT_TESTING") == "1"
 
 
@@ -172,46 +170,44 @@ def _inflate_session_history(session: Any) -> int:
 
 
 
+def _all_live_panels() -> list[Any]:
+    from plugin.doc.live_panels import get_live_panel, iter_live_panel_uids
+
+    panels = list(iter_live_chat_panels())
+    for uid in iter_live_panel_uids():
+        panel = get_live_panel(uid)
+        if panel is not None and panel not in panels:
+            panels.append(panel)
+    return panels
+
+
+def _voice_checkboxes() -> list[Any]:
+    chks: list[Any] = []
+    for panel in _all_live_panels():
+        root = getattr(panel, "m_panelRootWindow", None)
+        if root is None or not hasattr(root, "getControl"):
+            continue
+        chk = root.getControl("chk_voice")
+        if chk is not None:
+            chks.append(chk)
+    return chks
+
+
 def _tts_snapshot_fields() -> dict[str, Any]:
     """Sidebar Voice checkbox vs config (Settings → Speech audio.tts_enabled)."""
     from plugin.framework.config import get_config_bool_safe
 
     enabled = bool(get_config_bool_safe("audio.tts_enabled"))
     chk_state: int | None = None
-    panels = list(iter_live_chat_panels())
-    # Also walk doc.live_panels (always registered; debug WeakSet may be empty).
-    try:
-        from plugin.doc.live_panels import iter_live_panel_uids, get_live_panel
-
-        for uid in iter_live_panel_uids():
-            panel = get_live_panel(uid)
-            if panel is not None and panel not in panels:
-                panels.append(panel)
-    except Exception:
-        log.debug("tts snapshot: doc.live_panels unavailable", exc_info=True)
-    for panel in panels:
-        root = getattr(panel, "m_panelRootWindow", None)
-        if root is None or not hasattr(root, "getControl"):
-            continue
-        try:
-            chk = root.getControl("chk_voice")
-        except Exception:
-            chk = None
-        if chk is None:
-            continue
-        try:
-            if hasattr(chk, "getState"):
-                chk_state = int(chk.getState())
-                break
-        except Exception:
-            log.debug("tts snapshot: chk_voice getState failed", exc_info=True)
+    panels = _all_live_panels()
+    for chk in _voice_checkboxes():
+        if hasattr(chk, "getState"):
+            chk_state = int(chk.getState())
+            break
     fake_st = read_fake_tts_state()
-    try:
-        import plugin.audio.tts_service as tts_service
+    import plugin.audio.tts_service as tts_service
 
-        is_speaking = bool(tts_service.is_speaking())
-    except Exception:
-        is_speaking = False
+    is_speaking = bool(tts_service.is_speaking())
     return {
         "tts_enabled": enabled,
         "chk_voice_state": chk_state,
@@ -247,9 +243,10 @@ _FAKE_STT_DELAY = 0.0
 def fake_stt_state_path() -> str:
     return os.path.join(tempfile.gettempdir(), _FAKE_STT_NAME)
 
-def read_fake_stt_state() -> dict[str, Any]:
-    path = fake_stt_state_path()
-    for attempt in range(2):
+
+def _read_json_dict(path: str, *, retry: bool = False) -> dict[str, Any]:
+    attempts = 2 if retry else 1
+    for attempt in range(attempts):
         if not os.path.isfile(path):
             return {}
         try:
@@ -258,12 +255,21 @@ def read_fake_stt_state() -> dict[str, Any]:
             if isinstance(data, dict):
                 return data
             return {}
-        except (json.JSONDecodeError, OSError):
-            if attempt == 0:
+        except (ValueError, OSError):
+            if retry and attempt == 0:
                 time.sleep(0.01)
                 continue
             return {}
     return {}
+
+
+def _remove_quiet(path: str) -> None:
+    with contextlib.suppress(OSError):
+        os.remove(path)
+
+
+def read_fake_stt_state() -> dict[str, Any]:
+    return _read_json_dict(fake_stt_state_path(), retry=True)
 
 def _fake_stt_refresh_locked() -> None:
     path = fake_stt_state_path()
@@ -297,10 +303,7 @@ def _fake_stt_note_spawn_locked(cmd: list[str], proc: subprocess.Popen[Any]) -> 
 
 
 def _fake_stt_watch_exit(proc: subprocess.Popen[Any]) -> None:
-    try:
-        returncode = proc.wait()
-    except Exception:
-        return
+    returncode = proc.wait()
     with _FAKE_STT_LOCK:
         if _FAKE_STT_PROCS.get(proc.pid) is not proc:
             return
@@ -328,29 +331,18 @@ def _clear_fake_stt_in_process() -> None:
         import plugin.audio.stt_service as stt_service
         import plugin.scripting.audio_recorder_service as audio_recorder_service
 
-        for pid, proc in list(_FAKE_STT_PROCS.items()):
+        for proc in _FAKE_STT_PROCS.values():
             if proc.poll() is None:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-                if sys.platform != "win32":
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except OSError:
-                        pass
+                proc.kill()
 
         if _FAKE_STT_ORIG is not None:
-            try:
-                setattr(audio_recorder_service.subprocess, "Popen", _FAKE_STT_ORIG["Popen"])
-                setattr(stt_service.subprocess, "Popen", _FAKE_STT_ORIG["Popen_stt"])
-                setattr(stt_service, "_run_cmd", _FAKE_STT_ORIG["_run_cmd"])
-                import plugin.chatbot.audio_recorder as audio_recorder
+            setattr(audio_recorder_service.subprocess, "Popen", _FAKE_STT_ORIG["Popen"])
+            setattr(stt_service.subprocess, "Popen", _FAKE_STT_ORIG["Popen_stt"])
+            setattr(stt_service, "_run_cmd", _FAKE_STT_ORIG["_run_cmd"])
+            import plugin.chatbot.audio_recorder as audio_recorder
 
-                setattr(audio_recorder, "resolve_recording_python", _FAKE_STT_ORIG["resolve_recording_python"])
-                setattr(stt_service, "transcribe", _FAKE_STT_ORIG["transcribe"])
-            except Exception:
-                log.warning("clear_fake_stt: error restoring patches", exc_info=True)
+            setattr(audio_recorder, "resolve_recording_python", _FAKE_STT_ORIG["resolve_recording_python"])
+            setattr(stt_service, "transcribe", _FAKE_STT_ORIG["transcribe"])
             _FAKE_STT_ORIG = None
 
         if _FAKE_STT_SAVED is not None:
@@ -359,12 +351,7 @@ def _clear_fake_stt_in_process() -> None:
                 set_config(k, v)
             _FAKE_STT_SAVED = None
 
-        try:
-            path = fake_stt_state_path()
-            if os.path.isfile(path):
-                os.remove(path)
-        except OSError:
-            pass
+        _remove_quiet(fake_stt_state_path())
 
         _FAKE_STT_MODE = "off"
         _FAKE_STT_PROCS = {}
@@ -584,29 +571,31 @@ def install_fake_stt(mode: str) -> None:
         return
     _apply_fake_stt(mode)
 
+def _clear_fake_out_of_process(op: str, read_state: Callable[[], dict[str, Any]], path: str) -> None:
+    execute_debug_sidebar_op(op)
+    st = read_state()
+    if os.path.isfile(path) and st.get("mode") != "off":
+        pids = st.get("pids", [])
+        for pid in pids:
+            if sys.platform != "win32":
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+        saved = st.get("saved")
+        if isinstance(saved, dict):
+            from plugin.framework.config import set_config
+
+            for k, v in saved.items():
+                set_config(k, v)
+        _remove_quiet(path)
+
+
 def clear_fake_stt() -> None:
     _require_debug()
     sl = send_listener()
     if sl is None:
-        execute_debug_sidebar_op("FAKE_STT_OFF")
-        st = read_fake_stt_state()
-        if os.path.isfile(fake_stt_state_path()) and st.get("mode") != "off":
-            pids = st.get("pids", [])
-            for pid in pids:
-                if sys.platform != "win32":
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except OSError:
-                        pass
-            saved = st.get("saved")
-            if isinstance(saved, dict):
-                from plugin.framework.config import set_config
-                for k, v in saved.items():
-                    set_config(k, v)
-            try:
-                os.remove(fake_stt_state_path())
-            except OSError:
-                pass
+        _clear_fake_out_of_process("FAKE_STT_OFF", read_fake_stt_state, fake_stt_state_path())
     else:
         _apply_fake_stt("off")
 
@@ -616,22 +605,7 @@ def fake_tts_state_path() -> str:
 
 
 def read_fake_tts_state() -> dict[str, Any]:
-    path = fake_tts_state_path()
-    for attempt in range(2):
-        if not os.path.isfile(path):
-            return {}
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                data = json.load(handle)
-            if isinstance(data, dict):
-                return data
-            return {}
-        except (json.JSONDecodeError, OSError):
-            if attempt == 0:
-                time.sleep(0.01)
-                continue
-            return {}
-    return {}
+    return _read_json_dict(fake_tts_state_path(), retry=True)
 
 
 def _fake_tts_refresh_locked() -> None:
@@ -657,12 +631,9 @@ def _fake_tts_refresh_locked() -> None:
         _FAKE_TTS_STATE["saved"] = dict(_FAKE_TTS_SAVED)
     else:
         _FAKE_TTS_STATE.setdefault("saved", None)
-    try:
-        import plugin.audio.tts_service as tts_service
+    import plugin.audio.tts_service as tts_service
 
-        _FAKE_TTS_STATE["speaking"] = bool(tts_service.is_speaking())
-    except Exception:
-        _FAKE_TTS_STATE["speaking"] = False
+    _FAKE_TTS_STATE["speaking"] = bool(tts_service.is_speaking())
 
     path = fake_tts_state_path()
     tmp_path = path + ".tmp"
@@ -706,17 +677,9 @@ def _clear_fake_tts_in_process() -> None:
         except Exception:
             log.debug("clear_fake_tts: stop_speech failed", exc_info=True)
 
-        for pid, proc in list(_FAKE_TTS_PROCS.items()):
+        for proc in _FAKE_TTS_PROCS.values():
             if proc.poll() is None:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-                if sys.platform != "win32":
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except OSError:
-                        pass
+                proc.kill()
 
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline:
@@ -725,16 +688,13 @@ def _clear_fake_tts_in_process() -> None:
             time.sleep(0.02)
 
         if _FAKE_TTS_ORIG is not None:
-            try:
-                import plugin.audio.tts_service as tts_service
+            import plugin.audio.tts_service as tts_service
 
-                setattr(tts_service.subprocess, "Popen", _FAKE_TTS_ORIG["Popen"])
-                setattr(tts_service.shutil, "which", _FAKE_TTS_ORIG["which"])
-                setattr(tts_service, "stop_speech", _FAKE_TTS_ORIG["stop_speech"])
-                setattr(tts_service, "_speak_system", _FAKE_TTS_ORIG["speak_system"])
-                setattr(tts_service, "_end_utterance", _FAKE_TTS_ORIG["end_utterance"])
-            except Exception:
-                log.warning("clear_fake_tts: error restoring patches", exc_info=True)
+            setattr(tts_service.subprocess, "Popen", _FAKE_TTS_ORIG["Popen"])
+            setattr(tts_service.shutil, "which", _FAKE_TTS_ORIG["which"])
+            setattr(tts_service, "stop_speech", _FAKE_TTS_ORIG["stop_speech"])
+            setattr(tts_service, "_speak_system", _FAKE_TTS_ORIG["speak_system"])
+            setattr(tts_service, "_end_utterance", _FAKE_TTS_ORIG["end_utterance"])
             _FAKE_TTS_ORIG = None
 
         if _FAKE_TTS_SAVED is not None:
@@ -744,12 +704,7 @@ def _clear_fake_tts_in_process() -> None:
                 set_config(k, v)
             _FAKE_TTS_SAVED = None
 
-        try:
-            path = fake_tts_state_path()
-            if os.path.isfile(path):
-                os.remove(path)
-        except OSError:
-            pass
+        _remove_quiet(fake_tts_state_path())
 
         _FAKE_TTS_MODE = "off"
         _FAKE_TTS_PROCS = {}
@@ -894,12 +849,9 @@ def _apply_fake_tts(mode: str) -> None:
                         if cur_gen is not None:
                             tts_service._speech_generation = cur_gen
                     finally:
-                        for p in list(_FAKE_TTS_PROCS.values()):
+                        for p in _FAKE_TTS_PROCS.values():
                             if p.poll() is None:
-                                try:
-                                    p.kill()
-                                except Exception:
-                                    pass
+                                p.kill()
                         for _ in range(50):
                             if all(p.poll() is not None for p in _FAKE_TTS_PROCS.values()):
                                 break
@@ -924,13 +876,10 @@ def _apply_fake_tts(mode: str) -> None:
                             with _FAKE_TTS_LOCK:
                                 if _FAKE_TTS_MODE == "off":
                                     break
-                            try:
-                                if not tts_service.is_speaking():
-                                    with _FAKE_TTS_LOCK:
-                                        if _FAKE_TTS_MODE != "off":
-                                            _fake_tts_refresh_locked()
-                                    break
-                            except Exception:
+                            if not tts_service.is_speaking():
+                                with _FAKE_TTS_LOCK:
+                                    if _FAKE_TTS_MODE != "off":
+                                        _fake_tts_refresh_locked()
                                 break
 
                     run_in_background(_poll_idle)
@@ -961,26 +910,7 @@ def clear_fake_tts() -> None:
     _require_debug()
     sl = send_listener()
     if sl is None:
-        execute_debug_sidebar_op("FAKE_TTS_OFF")
-        st = read_fake_tts_state()
-        if os.path.isfile(fake_tts_state_path()) and st.get("mode") != "off":
-            pids = st.get("pids", [])
-            for pid in pids:
-                if sys.platform != "win32":
-                    try:
-                        os.kill(pid, signal.SIGKILL)
-                    except OSError:
-                        pass
-            saved = st.get("saved")
-            if isinstance(saved, dict):
-                from plugin.framework.config import set_config
-
-                for k, v in saved.items():
-                    set_config(k, v)
-            try:
-                os.remove(fake_tts_state_path())
-            except OSError:
-                pass
+        _clear_fake_out_of_process("FAKE_TTS_OFF", read_fake_tts_state, fake_tts_state_path())
     else:
         _apply_fake_tts("off")
 
@@ -1017,15 +947,7 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
 
 
 def _read_debug_snapshot() -> dict[str, Any]:
-    path = debug_sidebar_snapshot_path()
-    if not os.path.isfile(path):
-        return {}
-    try:
-        with open(path, encoding="utf-8") as handle:
-            data = json.load(handle)
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
+    return _read_json_dict(debug_sidebar_snapshot_path())
 
 
 def _parse_debug_sidebar_command(command: str) -> tuple[str, str]:
@@ -1162,25 +1084,8 @@ def handle_debug_sidebar_command(command: str) -> None:
         # Drive the sidebar Voice checkbox (reverse of Settings→sidebar).
         from plugin.framework.config import set_config
 
-        panels = list(iter_live_chat_panels())
-        try:
-            from plugin.doc.live_panels import get_live_panel, iter_live_panel_uids
-
-            for uid in iter_live_panel_uids():
-                panel = get_live_panel(uid)
-                if panel is not None and panel not in panels:
-                    panels.append(panel)
-        except Exception:
-            pass
-        for panel in panels:
-            root = getattr(panel, "m_panelRootWindow", None)
-            if root is None or not hasattr(root, "getControl"):
-                continue
-            try:
-                chk = root.getControl("chk_voice")
-            except Exception:
-                chk = None
-            if chk is None or not hasattr(chk, "getState") or not hasattr(chk, "setState"):
+        for chk in _voice_checkboxes():
+            if not hasattr(chk, "getState") or not hasattr(chk, "setState"):
                 continue
             try:
                 cur = int(chk.getState())
@@ -1293,6 +1198,16 @@ def _debug_sidebar_query(op: str, uid: str = "") -> str:
     return token
 
 
+def _doc_frame(doc: Any) -> Any:
+    if doc is None:
+        return None
+    try:
+        controller = doc.getCurrentController()
+        return controller.getFrame() if controller is not None else None
+    except Exception:
+        return None
+
+
 def execute_debug_sidebar_op(op: str, *, ctx: Any = None) -> dict[str, Any]:
     """URP client: dispatch ``org.extension.writeragent:chatbot.debug_sidebar.<OP>`` in soffice."""
     _require_debug()
@@ -1302,12 +1217,7 @@ def execute_debug_sidebar_op(op: str, *, ctx: Any = None) -> dict[str, Any]:
 
         uno_ctx = get_ctx()
     doc = current_component(uno_ctx)
-    frame = None
-    try:
-        if doc is not None:
-            frame = doc.getCurrentController().getFrame()
-    except Exception:
-        frame = None
+    frame = _doc_frame(doc)
     if frame is None:
         raise RuntimeError("debug_sidebar: no frame for executeDispatch")
     uid = ""
@@ -1336,10 +1246,7 @@ def _urp_send_control() -> Any:
     ctx = _HOOK_CTX
     if ctx is None:
         return None
-    try:
-        controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
-    except Exception:
-        return None
+    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
     return controls.get("send")
 
 
@@ -1374,10 +1281,7 @@ def _urp_record_click_took() -> bool:
     ctx = _HOOK_CTX
     if ctx is None:
         return False
-    try:
-        controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
-    except Exception:
-        return False
+    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
     return control_enabled(controls.get("stop")) is True
 
 
@@ -1461,10 +1365,7 @@ def _frames_match(left: Any, right: Any) -> bool:
 
 def _listener_torn_down(listener: Any) -> bool:
     """True when deck close already set ``_panel_teardown`` on the listener."""
-    try:
-        return bool(getattr(listener, "_panel_teardown", False))
-    except Exception:
-        return False
+    return bool(getattr(listener, "_panel_teardown", False))
 
 
 def _panel_send_listener(panel: Any) -> Any:
@@ -1498,10 +1399,7 @@ def _current_frame() -> Any:
             from plugin.framework.uno_context import get_ctx
 
             ctx = get_ctx()
-        doc = current_component(ctx)
-        if doc is None:
-            return None
-        return doc.getCurrentController().getFrame()
+        return _doc_frame(current_component(ctx))
     except Exception:
         return None
 
@@ -1687,23 +1585,13 @@ def adopt_chat_sidebar(ctx: Any, doc: Any, *, timeout: float = 20.0) -> tuple[An
     _require_debug()
     controls = wait_for_chat_dialog_controls(ctx, timeout=timeout, doc=doc)
     adopt_runtime_send_listeners()
-    frame = None
-    try:
-        if doc is not None:
-            frame = doc.getCurrentController().getFrame()
-    except Exception:
-        frame = None
-    return controls, send_listener(frame)
+    return controls, send_listener(_doc_frame(doc))
 
 
 def uno_click(control: Any) -> None:
     """Fire the control's default accessible action (button click) over URP."""
     _require_debug()
-    acc = None
-    try:
-        acc = control.getAccessibleContext()
-    except Exception:
-        acc = None
+    acc = control.getAccessibleContext()
     if acc is not None and hasattr(acc, "doAccessibleAction"):
         acc.doAccessibleAction(0)
         return
@@ -1714,12 +1602,9 @@ def _query_uno_interface(obj: Any, typename: str) -> Any:
     """PyUNO ``queryInterface`` needs ``uno.getTypeByName``, not the IDL class."""
     if obj is None or not hasattr(obj, "queryInterface"):
         return None
-    try:
-        import uno
+    import uno
 
-        return obj.queryInterface(uno.getTypeByName(typename))
-    except Exception:
-        return None
+    return obj.queryInterface(uno.getTypeByName(typename))
 
 
 def sidebar_provider(controller: Any) -> Any:
@@ -1803,10 +1688,7 @@ def _controls_from_window(window: Any) -> dict[str, Any] | None:
         return None
     out: dict[str, Any] = {}
     for name in _CHAT_CONTROL_NAMES:
-        try:
-            ctrl = root.getControl(name)
-        except Exception:
-            ctrl = None
+        ctrl = root.getControl(name)
         if ctrl is not None:
             out[name] = ctrl
     if "query" in out and "send" in out:
@@ -1892,11 +1774,7 @@ def _listener_with_slash_popup(sl: Any) -> Any:
             continue
         if getattr(obj, "slash_popup", None) is not None:
             return obj
-    try:
-        panels = iter_live_chat_panels()
-    except Exception:
-        panels = []
-    for panel in panels:
+    for panel in iter_live_chat_panels():
         cand = _panel_send_listener(panel)
         if cand is not None and getattr(cand, "slash_popup", None) is not None:
             return cand
@@ -1979,18 +1857,13 @@ def show_writeragent_chat_deck(ctx: Any, doc: Any) -> None:
     _require_debug()
     if doc is None:
         return
-    try:
-        controller = doc.getCurrentController()
-        frame = controller.getFrame()
-    except Exception:
+    frame = _doc_frame(doc)
+    if frame is None:
         return
-    provider = sidebar_provider(controller)
+    provider = sidebar_provider(doc.getCurrentController())
     already_visible = False
     if provider is not None and hasattr(provider, "isVisible"):
-        try:
-            already_visible = bool(provider.isVisible())
-        except Exception:
-            already_visible = False
+        already_visible = bool(provider.isVisible())
 
     # OpenThenToggleDeck: same-deck second time closes the sidebar — skip when on.
     if already_visible and provider is not None:
@@ -2000,33 +1873,24 @@ def show_writeragent_chat_deck(ctx: Any, doc: Any) -> None:
             pass
         deck = _writeragent_deck(provider)
         if deck is not None:
-            try:
-                if hasattr(deck, "isActive") and deck.isActive():
-                    return
-            except Exception:
-                pass
+            if hasattr(deck, "isActive") and deck.isActive():
+                return
             try:
                 deck.activate(True)
             except Exception:
                 log.debug("show_writeragent_chat_deck activate while visible failed", exc_info=True)
         return
 
+    smgr = ctx.getServiceManager()
+    helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
     try:
-        smgr = ctx.getServiceManager()
-        helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        try:
-            helper.executeDispatch(frame, ".uno:SidebarDeck.WriterAgentDeck", "", 0, ())
-        except Exception:
-            log.debug("show_writeragent_chat_deck dispatch WriterAgentDeck failed", exc_info=True)
+        helper.executeDispatch(frame, ".uno:SidebarDeck.WriterAgentDeck", "", 0, ())
     except Exception:
-        log.debug("show_writeragent_chat_deck DispatchHelper failed", exc_info=True)
+        log.debug("show_writeragent_chat_deck dispatch WriterAgentDeck failed", exc_info=True)
     if provider is None:
         return
-    try:
-        if hasattr(provider, "setVisible"):
-            provider.setVisible(True)
-    except Exception:
-        pass
+    if hasattr(provider, "setVisible"):
+        provider.setVisible(True)
     try:
         provider.showDecks(True)
     except Exception:
@@ -2077,11 +1941,7 @@ def send_listener_for_doc(doc: Any) -> Any:
     _require_debug()
     if doc is None:
         return None
-    try:
-        frame = doc.getCurrentController().getFrame()
-    except Exception:
-        return None
-    return send_listener(frame)
+    return send_listener(_doc_frame(doc))
 
 
 def send_listener_for_uid(uid: str) -> Any:
@@ -2095,12 +1955,9 @@ def send_listener_for_uid(uid: str) -> Any:
     token = str(uid or "").strip()
     if not token:
         return None
-    try:
-        from plugin.doc.live_panels import get_live_panel
+    from plugin.doc.live_panels import get_live_panel
 
-        panel = get_live_panel(token)
-    except Exception:
-        panel = None
+    panel = get_live_panel(token)
     sl = _panel_send_listener(panel)
     if sl is not None:
         return sl
@@ -2135,11 +1992,7 @@ def iter_send_listeners() -> list[Any]:
     _prune_teardown_listeners()
     out: list[Any] = []
     seen: set[int] = set()
-    try:
-        panels = iter_live_chat_panels()
-    except Exception:
-        panels = []
-    for panel in panels:
+    for panel in iter_live_chat_panels():
         sl = _panel_send_listener(panel)
         if sl is None:
             continue
@@ -2517,11 +2370,8 @@ def slash_popup_state(*, listener: Any = None) -> dict[str, Any]:
     if not items:
         ctrl = getattr(popup, "control", None)
         if ctrl is not None and hasattr(ctrl, "getItemCount"):
-            try:
-                count = int(ctrl.getItemCount() or 0)
-                items = [str(ctrl.getItem(i)) for i in range(count)]
-            except Exception:
-                items = []
+            count = int(ctrl.getItemCount() or 0)
+            items = [str(ctrl.getItem(i)) for i in range(count)]
     return {
         "visible": visible,
         "items": items,
@@ -2577,10 +2427,7 @@ def inflate_sidebar_history(*, ctx: Any = None) -> dict[str, Any]:
     _require_debug()
     sl = None
     if ctx is not None:
-        try:
-            sl = send_listener_for_doc(current_component(ctx))
-        except Exception:
-            sl = None
+        sl = send_listener_for_doc(current_component(ctx))
     if sl is None:
         sl = send_listener()
     session = getattr(sl, "session", None) if sl is not None else None
@@ -2632,10 +2479,7 @@ def clear_sidebar_chat(*, listener: Any = None) -> None:
     ctx = _HOOK_CTX
     if ctx is None:
         return
-    try:
-        controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
-    except Exception:
-        return
+    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
     clear_btn = controls.get("clear")
     if clear_btn is not None:
         try:
@@ -2955,10 +2799,7 @@ def wait_idle(*, listener: Any = None, timeout: float = 30.0) -> bool:
             ctx = _HOOK_CTX
             if ctx is None:
                 return False
-            try:
-                controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
-            except Exception:
-                return False
+            controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
             stop = controls.get("stop")
             send = controls.get("send")
             if control_enabled(stop) is True:
@@ -3010,16 +2851,9 @@ def list_redlines(doc: Any) -> list[dict[str, Any]]:
         rl = enum.nextElement()
         entry: dict[str, Any] = {}
         for prop in ("RedlineAuthor", "RedlineComment", "RedlineType", "RedlineIdentifier"):
-            try:
-                entry[prop] = rl.getPropertyValue(prop)
-            except Exception:
-                pass
+            entry[prop] = rl.getPropertyValue(prop)
         entry["token"] = entry.get("RedlineIdentifier", "")
-        start = None
-        try:
-            start = rl.getPropertyValue("RedlineStart")
-        except Exception:
-            pass
+        start = rl.getPropertyValue("RedlineStart")
         txt = ""
         if start is not None:
             try:
@@ -3107,12 +2941,7 @@ def fake_vision_state_path() -> str:
 
 def read_fake_vision_state() -> dict[str, Any]:
     """URP side: ``{"mode", "calls": [{"image_name", "status"}...]}`` or ``{}``."""
-    try:
-        with open(fake_vision_state_path(), encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    return _read_json_dict(fake_vision_state_path())
 
 
 def _write_fake_vision_state() -> None:
@@ -3142,10 +2971,7 @@ def _apply_fake_vision(mode: str) -> None:
         _FAKE_VISION_ORIG.clear()
         _FAKE_VISION_STATE.clear()
         if mode == "off":
-            try:
-                os.remove(fake_vision_state_path())
-            except OSError:
-                pass
+            _remove_quiet(fake_vision_state_path())
             return
         _FAKE_VISION_STATE.update({"mode": mode, "calls": []})
         _write_fake_vision_state()
