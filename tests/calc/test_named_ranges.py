@@ -16,6 +16,7 @@
 """Unit tests for Calc named range tools and flag parsing."""
 
 import sys
+from types import ModuleType
 from unittest.mock import MagicMock
 import pytest
 
@@ -189,7 +190,11 @@ def test_extract_range_info():
     assert info["referred_range"]["columns"] == 2
 
 
-def test_named_range_tools_execution_with_mock():
+def test_named_range_tools_execution_with_mock(monkeypatch):
+    # Another test module may leave its own com.sun.star.table in sys.modules.
+    table = ModuleType("com.sun.star.table")
+    setattr(table, "CellAddress", _RecordingCellAddress)
+    monkeypatch.setitem(sys.modules, "com.sun.star.table", table)
     """Verify NamedRangeAdd, NamedRangeList, NamedRangeEdit, NamedRangeDelete tools."""
     doc = MagicMock()
     named_ranges = MagicMock()
