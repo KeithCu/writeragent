@@ -23,6 +23,7 @@ import zlib
 from html import escape as html_escape
 from typing import Any, ClassVar, Iterator
 
+from plugin.framework.errors import best_effort
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     _visible_portions as _shared_visible_portions,
@@ -328,10 +329,8 @@ def _inject_ruby_from_model(model: Any, content: str, fodt_has_ruby: bool | None
         return content
     if fodt_has_ruby is False:
         return content
-    try:
-        spans = list(iter_ruby_spans(model.getText()))
-    except Exception:
-        log.debug("_inject_ruby_from_model: portion walk failed", exc_info=True)
+    spans = best_effort(lambda: list(iter_ruby_spans(model.getText())), "_inject_ruby_from_model: portion walk failed")
+    if spans is None:
         return content
     return inject_ruby_into_html(content, spans)
 
@@ -343,13 +342,12 @@ def _inject_exported_math_tex(model: Any, ctx: Any, content: str) -> str:
     """
     if not content or model is None or ctx is None:
         return content
-    try:
+    def inject() -> str:
         from plugin.writer.math.math_mml_export import inject_math_tex_into_html
 
         return inject_math_tex_into_html(model, ctx, content)
-    except Exception:
-        log.debug("_inject_exported_math_tex failed", exc_info=True)
-        return content
+
+    return best_effort(inject, "_inject_exported_math_tex failed", content)
 
 
 
@@ -397,7 +395,7 @@ def _autostyle_maps(doc: Any, config_svc: Any) -> tuple[dict[str, str], dict[str
 
     Both scopes report overrides: the range path copies the source paragraphs' direct formatting
     onto the temp document first (see _paint_direct_formatting)."""
-    try:
+    def read_maps() -> tuple[dict[str, str], dict[str, str], bool | None]:
         with format_mod._with_temp_buffer(None, config_svc, ext=format_mod.FODT_EXTENSION) as (path, file_url):
             props = (format_mod.create_property_value("FilterName", format_mod.FLAT_ODF_FILTER),)
             doc.storeToURL(file_url, props)
@@ -406,9 +404,9 @@ def _autostyle_maps(doc: Any, config_svc: Any) -> tuple[dict[str, str], dict[str
         return (xhtml_post.extract_autostyle_parents_from_fodt(fodt),
                 xhtml_post.extract_autostyle_overrides_from_fodt(fodt),
                 "<text:ruby" in fodt)
-    except Exception:
-        log.debug("_autostyle_maps: flat-ODF export failed", exc_info=True)
-        return ({}, {}, None)
+
+    failed: tuple[dict[str, str], dict[str, str], bool | None] = ({}, {}, None)
+    return best_effort(read_maps, "_autostyle_maps: flat-ODF export failed", failed)
 
 
 
@@ -519,23 +517,25 @@ def _paint_direct_formatting(
     text is already in place, so there is no insertion-point bookkeeping to get wrong, and a
     failure here degrades to the old plain-text result instead of corrupting the copy.
     """
-    try:
+    def paragraph_start() -> tuple[Any, Any]:
         # The copy always appends, so the paragraph just written is the one at the document end.
         para_cursor = temp_text.createTextCursor()
         para_cursor.gotoEnd(False)
         para_cursor.gotoStartOfParagraph(False)
-        para_start = para_cursor.getStart()
-    except Exception:
-        log.debug("_paint_direct_formatting: paragraph start skipped", exc_info=True)
-        return
+        return para_cursor, para_cursor.getStart()
 
-    try:
+    got = best_effort(paragraph_start, "_paint_direct_formatting: paragraph start skipped")
+    if got is None:
+        return
+    para_cursor, para_start = got
+
+    def paint_paragraph() -> None:
         para_cursor.gotoEndOfParagraph(True)
         _copy_properties(para, para_cursor, _COPIED_PARA_PROPERTIES, style)
-    except Exception:
-        # A refused Para* used to return here and skip the Char* loop, dropping bold/colour
-        # for the whole range — the reason the temp-doc path exists. Log and keep painting.
-        log.debug("_paint_direct_formatting: paragraph properties skipped", exc_info=True)
+
+    # A refused Para* used to return here and skip the Char* loop, dropping bold/colour
+    # for the whole range — the reason the temp-doc path exists. Log and keep painting.
+    best_effort(paint_paragraph, "_paint_direct_formatting: paragraph properties skipped")
 
     offset = 0  # position within the visible (tracked-deletions removed) paragraph text
     for portion, chunk in portions:
@@ -650,13 +650,12 @@ def _selection_cursor(model: Any) -> Any | None:
     if not found:
         return None
     text, start, end = found
-    try:
+    def select() -> Any:
         cursor = text.createTextCursorByRange(start)
         cursor.gotoRange(end, True)
         return cursor
-    except Exception:
-        log.debug("_selection_cursor failed", exc_info=True)
-        return None
+
+    return best_effort(select, "_selection_cursor failed")
 
 
 def _apply_temp_para_style(temp_doc: Any, temp_cursor: Any, style: str) -> None:
@@ -1072,12 +1071,11 @@ def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field:
             new_field.setPropertyValue(prop, src_field.getPropertyValue(prop))
         except Exception as e:
             log.debug("_copy_field_into failed to set property %r: %s", prop, e)
-    try:
+    def insert() -> bool:
         dest_text.insertTextContent(dest_cursor, new_field, False)
         return True
-    except Exception:
-        log.debug("_copy_field_into failed", exc_info=True)
-        return False
+
+    return best_effort(insert, "_copy_field_into failed", False)
 
 
 def _copy_cell_xtext(src_doc: Any, src_cell: Any, dest_doc: Any, dest_cell: Any) -> None:
@@ -1476,12 +1474,14 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
     found the way page._scan_region_content finds them: draw page, uno_same
     on the anchor's XText.
     """
-    try:
+    def page_and_count() -> tuple[Any, int]:
         draw_page = src_doc.getDrawPage()
-        count = int(draw_page.getCount())
-    except Exception:
-        log.debug("_copy_anchored_graphics: no draw page", exc_info=True)
+        return draw_page, int(draw_page.getCount())
+
+    got = best_effort(page_and_count, "_copy_anchored_graphics: no draw page")
+    if got is None:
         return
+    draw_page, count = got
     shapes: list[Any] = []
     for i in range(min(count, 5000)):
         try:
@@ -1499,10 +1499,10 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
                 continue
         except Exception:
             continue
-        try:
+        def copy_one() -> None:
             clone = dest_doc.createInstance("com.sun.star.text.TextGraphicObject")
             if not clone:
-                continue
+                return
             for prop in _ANCHORED_GRAPHIC_PROPS:
                 try:
                     clone.setPropertyValue(prop, shape.getPropertyValue(prop))
@@ -1523,8 +1523,8 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
             if offset:
                 cursor.goRight(offset, False)
             dest_text.insertTextContent(cursor, clone, False)
-        except Exception:
-            log.debug("_copy_anchored_graphics: skipped a graphic", exc_info=True)
+
+        best_effort(copy_one, "_copy_anchored_graphics: skipped a graphic")
 
 
 def _copy_xtext_into_doc(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
