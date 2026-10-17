@@ -88,10 +88,7 @@ def supports_units_manual(doc: Any) -> bool:
     """True when Run Python Script should expose Units Helpers for *doc*."""
     if doc is None:
         return False
-    try:
-        return is_writer(doc) or is_calc(doc)
-    except Exception:
-        return False
+    return is_writer(doc) or is_calc(doc)
 
 
 # --- Egress ---

@@ -6,9 +6,15 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from plugin.calc.spreadsheet_import.ingest import ingest_from_arrays
 from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
-from plugin.calc.spreadsheet_import.preserve import build_output_model
+from plugin.calc.spreadsheet_import.preserve import (
+    _safe_number_format,
+    build_output_model,
+    enrich_number_formats,
+)
 
 
 def test_build_output_preserves_constants():
@@ -82,3 +88,31 @@ def test_build_output_empty_cells():
     output = build_output_model(model)
     assert output.cells["A1"].value is None
     assert output.cells["A1"].formula is None
+
+
+def test_safe_number_format_returns_int_or_none():
+    cell = MagicMock()
+    cell.getPropertyValue.return_value = 123
+    assert _safe_number_format(cell) == 123
+    cell.getPropertyValue.return_value = None
+    assert _safe_number_format(cell) is None
+
+
+def test_enrich_number_formats_updates_constants():
+    model = SheetModel(
+        sheet_name="S",
+        used_range="A1:B1",
+        cells={
+            "A1": CellRecord("A1", "constant", 42.0, None, None),
+            "B1": CellRecord("B1", "formula", "=SUM(1)", None, None),
+        },
+    )
+    sheet = MagicMock()
+    cell_a1 = MagicMock()
+    cell_a1.getPropertyValue.return_value = 4
+    sheet.getCellByPosition.return_value = cell_a1
+
+    enrich_number_formats(sheet, model)
+    assert model.cells["A1"].number_format == 4
+    assert model.cells["B1"].number_format is None
+

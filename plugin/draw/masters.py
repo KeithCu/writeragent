@@ -31,12 +31,12 @@ class ListMasterSlides(ToolDrawSlideMastersBase):
         result = []
         for i in range(masters.getCount()):
             m = masters.getByIndex(i)
-            entry = {"index": i, "name": m.Name if hasattr(m, "Name") else ""}
-            try:
-                entry["width_mm"] = m.Width // 100
-                entry["height_mm"] = m.Height // 100
-            except Exception:
-                pass
+            entry = {
+                "index": i,
+                "name": m.Name if hasattr(m, "Name") else "",
+                "width_mm": m.Width // 100,
+                "height_mm": m.Height // 100,
+            }
             result.append(entry)
         return {"status": "ok", "master_slides": result, "count": len(result)}
 

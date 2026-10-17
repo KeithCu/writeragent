@@ -18,6 +18,7 @@ from plugin.embeddings.embedding_client import get_embedding_model
 from plugin.embeddings.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
 from plugin.framework.config import get_config
 from plugin.framework.constants import folder_search_enabled
+from plugin.framework.queue_executor import get_current_send_cancellation
 from plugin.framework.worker_pool import run_in_background
 
 __all__ = ["enqueue_folder_index", "ensure_index_wakeup"]
@@ -90,13 +91,8 @@ def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
 
 def ensure_index_wakeup(ctx: Any, services: Any, model: Any) -> None:
     """Non-blocking wakeup when search runs against a missing or stale cache."""
-    try:
-        from plugin.framework.queue_executor import get_current_send_cancellation
-
-        # TurnController has no cancellation scope. Stop latches SendCancellation.
-        scope = get_current_send_cancellation()
-        if scope is not None and scope.is_cancelled():
-            return
-    except Exception:
-        pass
+    # TurnController has no cancellation scope. Stop latches SendCancellation.
+    scope = get_current_send_cancellation()
+    if scope is not None and scope.is_cancelled():
+        return
     enqueue_folder_index(ctx, services, model)

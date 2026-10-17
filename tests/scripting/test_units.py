@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,6 +17,7 @@ from plugin.scripting.units import (
     is_units_result,
     resolve_output_style,
     split_helper_params,
+    supports_units_manual,
     units_display_text,
 )
 from plugin.scripting.units import run_units
@@ -586,3 +587,20 @@ def test_is_units_result_uses_helper_names():
     assert is_units_result({"status": "ok", "values": [[36.0]], "magnitudes": [36.0]}) is False
     assert is_units_result({"status": "error", "code": "PARSE_ERROR"}) is False
     assert is_units_result("36 km/h") is False
+
+
+def test_supports_units_manual():
+    assert supports_units_manual(None) is False
+
+    doc_writer = MagicMock()
+    doc_writer.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    assert supports_units_manual(doc_writer) is True
+
+    doc_calc = MagicMock()
+    doc_calc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    assert supports_units_manual(doc_calc) is True
+
+    doc_other = MagicMock()
+    doc_other.supportsService.return_value = False
+    assert supports_units_manual(doc_other) is False
+

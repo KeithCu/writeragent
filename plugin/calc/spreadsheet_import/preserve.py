@@ -15,11 +15,8 @@ from plugin.calc.spreadsheet_import.models import CellRecord, OutputCell, Output
 
 
 def _safe_number_format(cell: Any) -> int | None:
-    try:
-        value = cell.getPropertyValue("NumberFormat")
-        return int(value) if value is not None else None
-    except Exception:
-        return None
+    value = cell.getPropertyValue("NumberFormat")
+    return int(value) if value is not None else None
 
 
 def enrich_number_formats(sheet: Any, model: SheetModel, *, enrich_all: bool = False) -> SheetModel:

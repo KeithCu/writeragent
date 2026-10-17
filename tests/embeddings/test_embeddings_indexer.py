@@ -232,3 +232,28 @@ def test_index_worker_clears_inflight_on_failure():
         with patch("plugin.embeddings.embeddings_indexer.maintain_folder_index_rpc", side_effect=RuntimeError("fail")):
             embeddings_indexer._index_worker(ctx, "folderkey", "/tmp/listing")
     assert "folderkey" not in embeddings_indexer._inflight
+
+
+def test_ensure_index_wakeup_when_cancelled():
+    ctx = MagicMock()
+    services = MagicMock()
+    model = MagicMock()
+    scope = MagicMock()
+    scope.is_cancelled.return_value = True
+
+    with patch("plugin.embeddings.embeddings_indexer.get_current_send_cancellation", return_value=scope):
+        with patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index") as enqueue_mock:
+            embeddings_indexer.ensure_index_wakeup(ctx, services, model)
+            enqueue_mock.assert_not_called()
+
+
+def test_ensure_index_wakeup_when_not_cancelled():
+    ctx = MagicMock()
+    services = MagicMock()
+    model = MagicMock()
+
+    with patch("plugin.embeddings.embeddings_indexer.get_current_send_cancellation", return_value=None):
+        with patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index") as enqueue_mock:
+            embeddings_indexer.ensure_index_wakeup(ctx, services, model)
+            enqueue_mock.assert_called_once_with(ctx, services, model)
+

@@ -14,7 +14,12 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from plugin.scripting.viz import get_viz_script_templates, parse_viz_script_header, run_viz
+from plugin.scripting.viz import (
+    get_viz_script_templates,
+    parse_viz_script_header,
+    run_viz,
+    supports_viz_manual,
+)
 
 
 def _mock_figure_payload():
@@ -921,5 +926,22 @@ def test_try_insert_plot_result_mixed_multi_data_is_not_a_plot():
     assert res is False
     mock_insert.assert_not_called()
     mock_sheet.assert_not_called()
+
+
+def test_supports_viz_manual():
+    assert supports_viz_manual(None) is False
+
+    doc_writer = MagicMock()
+    doc_writer.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    assert supports_viz_manual(doc_writer) is True
+
+    doc_calc = MagicMock()
+    doc_calc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    assert supports_viz_manual(doc_calc) is True
+
+    doc_other = MagicMock()
+    doc_other.supportsService.return_value = False
+    assert supports_viz_manual(doc_other) is False
+
 
 
