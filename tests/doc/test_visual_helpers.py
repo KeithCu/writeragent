@@ -528,6 +528,8 @@ def test_remove_graphic_ambiguous_name_deletes_nothing():
 def test_get_active_draw_page_reraises_disposed() -> None:
     import pytest
 
+    from plugin.framework.errors import DocumentDisposedError
+
     class DisposedException(Exception):
         pass
 
@@ -540,16 +542,16 @@ def test_get_active_draw_page_reraises_disposed() -> None:
             raise DisposedException("closed")
 
     doc = DisposedDoc()
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         visual_helpers.get_active_draw_page(doc, "calc")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         visual_helpers.get_active_draw_page(doc, "draw")
 
     class DisposedWriterDoc(FakeWriterDoc):
         def getDrawPage(self):
             raise DisposedException("closed")
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         visual_helpers.get_active_draw_page(DisposedWriterDoc({}), "writer")
 
     assert visual_helpers.get_active_draw_page(FakeWriterDoc({}), "writer") is None
@@ -558,6 +560,8 @@ def test_get_active_draw_page_reraises_disposed() -> None:
 def test_list_graphic_objects_reraises_disposed() -> None:
     import pytest
 
+    from plugin.framework.errors import DocumentDisposedError
+
     class DisposedException(Exception):
         pass
 
@@ -565,6 +569,37 @@ def test_list_graphic_objects_reraises_disposed() -> None:
         def getDrawPages(self):
             raise DisposedException("closed")
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         visual_helpers.list_graphic_objects(DisposedDrawDoc(), "draw")
 
+
+
+def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
+    from unittest.mock import MagicMock
+
+    from plugin.doc.visual_helpers import _graphics_in_text_range, safe_get_property, selected_graphic_object
+    from plugin.framework.errors import DocumentDisposedError
+
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    closed = MagicMock()
+    closed.getPropertyValue.side_effect = DisposedException("closed")
+    with pytest.raises(DocumentDisposedError):
+        safe_get_property(closed, "Size")
+
+    odd = MagicMock()
+    odd.getPropertyValue.side_effect = RuntimeException("uno")
+    assert safe_get_property(odd, "HyperLinkURL", "") == ""
+
+    rng = MagicMock()
+    rng.getText.side_effect = RuntimeException("uno")
+    assert _graphics_in_text_range(MagicMock(), rng) == []
+
+    # selected_graphic_object keeps its own log-and-None outer handler.
+    model = MagicMock()
+    model.getCurrentController.side_effect = DisposedException("closed")
+    assert selected_graphic_object(model) is None

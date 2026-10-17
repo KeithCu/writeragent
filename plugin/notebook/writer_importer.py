@@ -43,10 +43,11 @@ from typing import Any, Iterator, final
 
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
+from plugin.framework.errors import best_effort
 from plugin.contrib.nbformat import read_ipynb
 from plugin.notebook.cell_registry import NotebookDocState, _cell_heading, _coerce_notebook_text, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
 from plugin.notebook.notebook_controls import _CODE_FONT_NAME, _insert_code_input_in_flow, _insert_run_button_in_flow, _log_shape_add, _resolve_para_style, _style_control_paragraph, _text_area_width_units
-from plugin.framework.errors import reraise_if_disposed
+from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.writer.images.image_tools import _apply_graphic_properties, _create_embedded_graphic, _file_url_for_path, _mm_to_units, insert_image_at_locator
 
 log = logging.getLogger("writeragent.notebook")
@@ -157,7 +158,7 @@ def _scroll_view_to_start(doc: Any) -> None:
     Moving the view cursor first makes the first layout pass start at the top.
     Use a text range, not ``jumpToFirstPage``: page jumps can force layout while locked.
     """
-    try:
+    def scroll() -> None:
         controller = doc.getCurrentController()
         if controller is None:
             return
@@ -171,8 +172,8 @@ def _scroll_view_to_start(doc: Any) -> None:
         start = doc.getText().getStart()
         goto_range(start, False)
         log.info("notebook import view_to_start")
-    except Exception:
-        log.debug("notebook import view_to_start failed", exc_info=True)
+
+    best_effort(scroll, "notebook import view_to_start failed")
 
 
 def flush_ui_idle(ctx: Any | None, *, log_phase: str | None = None) -> None:
@@ -341,12 +342,12 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
     _create_import_para_style(doc, para_styles, _STYLE_NOTEBOOK_IN, parent_style=parent_body, property_updates=property_updates)
     # Re-import into a document that already has this style must still drop the
     # old KeepTogether glue (create-if-missing would leave True in place).
-    try:
+    def drop_keep() -> None:
         if para_styles.hasByName(_STYLE_NOTEBOOK_IN):
             existing = para_styles.getByName(_STYLE_NOTEBOOK_IN)
             existing.setPropertyValue("ParaKeepTogether", False)
-    except Exception:
-        log.debug("notebook import could not update In keep properties", exc_info=True)
+
+    best_effort(drop_keep, "notebook import could not update In keep properties")
     return _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
 
 
@@ -398,11 +399,11 @@ def _doc_body_nonempty(doc: Any) -> bool:
     compareRegionStarts(text.getStart(), text.getEnd()) is O(1) and correctly sees
     in-flow graphics because start != end even when text is empty.
     """
-    try:
+    def nonempty() -> bool:
         text = doc.getText()
         return int(text.compareRegionStarts(text.getStart(), text.getEnd())) != 0
-    except Exception:
-        return True
+
+    return uno_read(nonempty, True)
 
 
 def _append_paragraph_break_at_end(doc: Any) -> None:
@@ -424,13 +425,13 @@ def _unglue_last_paragraph(doc: Any) -> None:
     keep-with-next is ``ParaKeepTogether``; the old ``ParaKeepWithNext`` set
     ran first, raised UnknownPropertyException and skipped the real unglue.
     """
-    try:
-        text = doc.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoEnd(False)
-        cursor.setPropertyValue("ParaKeepTogether", False)
-    except Exception:
-        log.debug("notebook import unglue last paragraph failed", exc_info=True)
+    best_effort(lambda: _clear_keep_at_body_end(doc), "notebook import unglue last paragraph failed")
+
+
+def _clear_keep_at_body_end(doc: Any) -> None:
+    cursor = doc.getText().createTextCursor()
+    cursor.gotoEnd(False)
+    cursor.setPropertyValue("ParaKeepTogether", False)
 
 
 def _numbering_kind(name: str) -> str:
@@ -445,10 +446,8 @@ def _numbering_kind(name: str) -> str:
 
 def _copy_previous_outer_list(cursor: Any) -> bool:
     """Copy NumberingStyleName + NumberingRules from the nearest level-0 list para."""
-    try:
-        text_obj = cursor.getText()
-        prev = text_obj.createTextCursorByRange(cursor)
-    except Exception:
+    prev = uno_read(lambda: cursor.getText().createTextCursorByRange(cursor), None)
+    if prev is None:
         return False
     steps = 0
     while steps < 32:
@@ -481,10 +480,7 @@ def _promote_para_to_outer_ol(cursor: Any, *, start: int) -> bool:
     numbering on a 1-item ``<ol start=N>``. Keep the list style, force level 0,
     restart at N.
     """
-    try:
-        style = str(cursor.getPropertyValue("NumberingStyleName") or "")
-    except Exception:
-        style = ""
+    style = uno_read(lambda: str(cursor.getPropertyValue("NumberingStyleName") or ""), "")
     kind = _numbering_kind(style)
     if kind == "outline":
         return False
@@ -501,10 +497,13 @@ def _promote_para_to_outer_ol(cursor: Any, *, start: int) -> bool:
 
 
 def _last_nonempty_para_cursor(text: Any) -> Any | None:
-    try:
+    def end_cursor() -> Any:
         cursor = text.createTextCursor()
         cursor.gotoEnd(False)
-    except Exception:
+        return cursor
+
+    cursor = uno_read(end_cursor, None)
+    if cursor is None:
         return None
     steps = 0
     while steps < 16:
@@ -521,19 +520,16 @@ def _last_nonempty_para_cursor(text: Any) -> Any | None:
 
 def _cursor_para_is_empty(cursor: Any) -> bool:
     """True when *cursor*'s paragraph has no visible text (trailing list leftover)."""
-    try:
-        text_obj = cursor.getText()
-        rng = text_obj.createTextCursorByRange(cursor)
+    def empty() -> bool:
+        rng = cursor.getText().createTextCursorByRange(cursor)
         rng.gotoStartOfParagraph(False)
         rng.gotoEndOfParagraph(True)
         raw = rng.getString()
         if raw is None:
             return True
-        if not isinstance(raw, str):
-            return False
-        return raw.strip() == ""
-    except Exception:
-        return False
+        return isinstance(raw, str) and raw.strip() == ""
+
+    return uno_read(empty, False)
 
 
 def _clear_para_numbering(cursor: Any) -> None:
@@ -542,14 +538,8 @@ def _clear_para_numbering(cursor: Any) -> None:
     # item. A following paragraph break inherits that leftover. Clear both
     # properties on heading/body/blockquote insertion cursors — not on the
     # list fragment itself (see ``_insert_html_at_body_end``).
-    try:
-        cursor.setPropertyValue("NumberingStyleName", "")
-    except Exception:
-        log.debug("notebook import NumberingStyleName clear failed", exc_info=True)
-    try:
-        cursor.setPropertyValue("NumberingRules", None)
-    except Exception:
-        log.debug("notebook import NumberingRules clear failed", exc_info=True)
+    best_effort(lambda: cursor.setPropertyValue("NumberingStyleName", ""), "notebook import NumberingStyleName clear failed")
+    best_effort(lambda: cursor.setPropertyValue("NumberingRules", None), "notebook import NumberingRules clear failed")
 
 
 def _append_body_paragraph(doc: Any, content: str, para_style: str | None, *, lead_break: bool) -> None:
@@ -586,7 +576,7 @@ def _append_body_text_block(doc: Any, block: str, para_style: str | None, *, lea
 
 
 def _trim_trailing_empty_paragraph(doc: Any) -> None:
-    try:
+    def trim() -> None:
         text = doc.getText()
         cursor = text.createTextCursor()
         cursor.gotoEnd(False)
@@ -597,16 +587,12 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
         if (para_rng.getString() or "").strip() != "":
             return
 
-        try:
-            style = str(cursor.getPropertyValue("ParaStyleName") or "")
-        except Exception:
+        style = uno_read(lambda: str(cursor.getPropertyValue("ParaStyleName") or ""), None)
+        if style is None:
             style = str(getattr(cursor, "ParaStyleName", "") or "")
         if "Heading" in style:
             return
-        try:
-            portions = para_rng.createEnumeration()
-        except Exception:
-            portions = None
+        portions = uno_read(lambda: para_rng.createEnumeration(), None)
         if portions:
             psteps = 0
             while psteps < 64:
@@ -615,9 +601,8 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
                     break
                 psteps += 1
                 portion = portions.nextElement()
-                try:
-                    ptype = str(portion.getPropertyValue("TextPortionType") or "")
-                except Exception:
+                ptype = uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), None)
+                if ptype is None:
                     ptype = str(getattr(portion, "TextPortionType", "") or "")
                 if ptype == "Frame":
                     return
@@ -627,8 +612,8 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
             prev.gotoEndOfParagraph(False)
             cursor.gotoRange(prev.getEnd(), True)
             cursor.setString("")
-    except Exception:
-        log.debug("notebook import: trim trailing empty paragraph failed", exc_info=True)
+
+    best_effort(trim, "notebook import: trim trailing empty paragraph failed")
 
 
 # ---------------------------------------------------------------------------
@@ -1748,12 +1733,7 @@ def _import_cells(
                 _append_body_paragraph(doc, title, notebook_in, lead_break=lead)
                 # Pin keep-with-next (ParaKeepTogether) off on the gutter
                 # paragraph too so In+field is not one unsplittable brick.
-                try:
-                    gutter = doc.getText().createTextCursor()
-                    gutter.gotoEnd(False)
-                    gutter.setPropertyValue("ParaKeepTogether", False)
-                except Exception:
-                    log.debug("notebook import In gutter keep flags not applied", exc_info=True)
+                best_effort(lambda: _clear_keep_at_body_end(doc), "notebook import In gutter keep flags not applied")
                 field_name = f"nb_cell_{idx}_code"
                 if registry_state is not None:
                     entry = new_code_cell_entry(idx, ec, field_name)

@@ -1024,8 +1024,9 @@ def test_draw_bridge_writer_disposed_get_draw_page_is_not_missing_page():
 
     from plugin.draw.bridge import DrawBridge
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError) as info:
         DrawBridge(doc)
+    assert isinstance(info.value.__cause__, DisposedException)
 
 
 def test_draw_bridge_calc_disposed_sheet_is_not_missing_page():
@@ -1037,8 +1038,9 @@ def test_draw_bridge_calc_disposed_sheet_is_not_missing_page():
 
     from plugin.draw.bridge import DrawBridge
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError) as info:
         DrawBridge(doc)
+    assert isinstance(info.value.__cause__, DisposedException)
 
 
 def test_draw_bridge_get_draw_page_runtime_exception_is_still_no_page():

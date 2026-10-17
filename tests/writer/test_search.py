@@ -523,3 +523,34 @@ def test_find_chained_range_cross_text_is_skipped():
          patch("plugin.writer.search.get_string_without_tracked_deletions", side_effect=["Hello", "World"]):
         assert find_chained_range(doc, "Hello\nWorld", all_matches=False) is None
     assert n["i"] == 7
+
+
+def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.search import _prop, _safe_name, describe_match_location, enclosing_paragraph_text
+
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    closed = MagicMock()
+    closed.getText.side_effect = DisposedException("closed")
+    with pytest.raises(DocumentDisposedError):
+        describe_match_location(closed)
+
+    odd = MagicMock()
+    odd.getText.side_effect = RuntimeException("uno")
+    odd.getString.return_value = "raw"
+    assert describe_match_location(odd) == "body"
+    assert enclosing_paragraph_text(odd) == "raw"
+
+    # getName/getPropertyValue failures still fall back to the attribute.
+    obj = MagicMock()
+    obj.getName.side_effect = RuntimeException("uno")
+    obj.Name = "Shape 1"
+    assert _safe_name(obj) == "Shape 1"
+    obj.getPropertyValue.side_effect = RuntimeException("uno")
+    obj.CellName = "B2"
+    assert _prop(obj, "CellName") == "B2"

@@ -759,11 +759,6 @@ class TableGetCells(ToolWriterTableBase):
             return payload
         except ValueError as ve:
             return self._tool_error(str(ve))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Could not read table '%s'", name)
-            return self._tool_error("Could not read table '%s': %s" % (name, e))
 
 
 class TableSetCell(ToolWriterTableBase):
@@ -796,7 +791,6 @@ class TableSetCell(ToolWriterTableBase):
         cell_raw = str(kwargs.get("cell") or "").strip()
         # type/required checks are done by the tool schema in ToolRegistry
         text = kwargs["text"]
-        cell_name = cell_raw  # bound for the except below even if _get_table raises before resolution
         try:
             if _is_draw_doc(ctx.doc):
                 from plugin.draw.tables import resolve_draw_table, set_draw_cell
@@ -815,12 +809,11 @@ class TableSetCell(ToolWriterTableBase):
             if not name:
                 return self._tool_error("name is required.")
             table = _get_table(ctx.doc, name)
-            resolved_name = _resolve_cell_name(table, cell_raw)
-            if resolved_name is None:
+            cell_name = _resolve_cell_name(table, cell_raw)
+            if cell_name is None:
                 return self._tool_error(
                     _unknown_cell_message(cell_raw, name, _writer_named_cells(table))
                 )
-            cell_name = resolved_name
             cell = table.getCellByName(cell_name)
             # setString wipes nested TextTables. Rewrite host paragraphs instead.
             nested = _cell_hosted_table_names(cell)
@@ -840,11 +833,6 @@ class TableSetCell(ToolWriterTableBase):
             return {"status": "ok", "table_name": name, "cell": cell_name, "old_text": old, "new_text": str(text)}
         except ValueError as ve:
             return self._tool_error(str(ve))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Could not set cell '%s' in table '%s'", cell_name, name)
-            return self._tool_error("Could not set cell '%s' in table '%s': %s" % (cell_name, name, e))
 
 
 class ManageTableStructure(ToolWriterTableBase):
@@ -953,11 +941,6 @@ class ManageTableStructure(ToolWriterTableBase):
             return {"status": "ok", "table_name": name, "rows": rows, "cols": cols}
         except ValueError as ve:
             return self._tool_error(str(ve))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Could not edit %s of table '%s'", axis, name)
-            return self._tool_error("Could not edit %s of table '%s': %s" % (axis, name, e))
 
 
 class TableInsert(ToolWriterTableBase):
@@ -1098,11 +1081,6 @@ class TableInsert(ToolWriterTableBase):
             }
         except ValueError as ve:
             return self._tool_error(str(ve))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Could not insert Writer table")
-            return self._tool_error("Could not insert table: %s" % e)
 
 
 class TableDelete(ToolWriterTableBase):
@@ -1176,8 +1154,3 @@ class TableDelete(ToolWriterTableBase):
             }
         except ValueError as ve:
             return self._tool_error(str(ve))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            log.exception("Could not delete table '%s'", name)
-            return self._tool_error("Could not delete table '%s': %s" % (name, e))

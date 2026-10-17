@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, overload
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
@@ -87,6 +87,25 @@ def uno_probe(fn: Callable[[], _T], default: _T) -> _T:
     except Exception as exc:
         if is_disposed_exception(exc):
             raise
+        return default
+
+
+@overload
+def best_effort(fn: Callable[[], _T], what: str) -> _T | None: ...
+@overload
+def best_effort(fn: Callable[[], _T], what: str, default: _T) -> _T: ...
+def best_effort(fn: Callable[[], _T], what: str, default: _T | None = None) -> _T | None:
+    """Return ``fn()``, or *default* after a DEBUG log of *what* with the traceback.
+
+    The call form of ``except Exception: log.debug(what, exc_info=True)``. It
+    intentionally swallows every ``Exception``, disposal included: use it only
+    for cosmetic or cleanup steps whose failure must not fail the caller. A
+    UNO read that should report a closed document is :func:`uno_read`.
+    """
+    try:
+        return fn()
+    except Exception:
+        logging.getLogger("writeragent.errors").debug("%s", what, exc_info=True)
         return default
 
 
@@ -779,6 +798,7 @@ __all__ = [
     "WriterAgentException",
     "WriterError",
     "UNO_DISPOSED_EXCEPTIONS",
+    "best_effort",
     "check_disposed",
     "check_not_none",
     "format_error_message",  # The single i18n-friendly mapper (centralized here in 2026 janitor effort)

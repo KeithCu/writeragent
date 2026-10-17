@@ -154,6 +154,20 @@ def test_validate():
     assert "Unknown parameter: extra" in err
 
 
+def test_validate_enum_error_lists_valid_options():
+    class EnumTool(ToolBase):
+        name = "enum_tool"
+        description = "test"
+        parameters = {"type": "object", "properties": {"region": {"type": "string", "enum": ["header", "footer", "first_header"]}}, "required": []}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    ok, err = EnumTool().validate(region="x")
+    assert ok is False
+    assert err == "Invalid value for region: 'x'. Valid options: header, footer, first_header"
+
+
 def test_validate_non_list_required():
     """required as a string (or other non-list) must not split into characters."""
     class StringRequiredTool(ToolBase):

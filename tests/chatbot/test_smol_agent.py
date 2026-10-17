@@ -447,8 +447,58 @@ def test_smol_tool_adapter_handles_positional_arguments():
         tool.execute.assert_called_once()
         _, kwargs = tool.execute.call_args
         assert kwargs.get("p") == "dict_value"
-        assert kwargs.get("extra") == 42
+        # Unknown keys are dropped and reported, as on ToolRegistry.execute.
+        assert "extra" not in kwargs
         mock_main.assert_called_once()
+
+
+class _EnumTool(_StubTool):
+    name = "enum_stub"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "position": {"type": "string", "enum": ["before", "after", "end"]},
+            "level": {"type": "integer"},
+            "note": {"type": "string"},
+        },
+        "required": [],
+    }
+
+
+def test_smol_tool_adapter_rejects_bad_enum_like_registry():
+    """forward runs ToolRegistry's validation: a bad enum never reaches execute."""
+    from plugin.framework.tool import ToolRegistry
+
+    ctx = SimpleNamespace(read_only_target=False, caller="specialized", doc_type="writer", uno_services_supported=None)
+    tool = _EnumTool()
+    tool.execute = MagicMock(return_value={"status": "ok"})
+    tool.execute_safe = MagicMock(return_value={"status": "ok"})
+    adapter = SmolToolAdapter(tool, ctx, safe=True, inputs_style="specialized")
+    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+        out = adapter.forward(position="start")
+    mock_main.assert_not_called()
+    tool.execute.assert_not_called()
+    tool.execute_safe.assert_not_called()
+    assert out["code"] == "VALIDATION_ERROR"
+    assert "position" in out["message"]
+
+    registry = ToolRegistry(services=MagicMock())
+    registry.register(tool)
+    assert registry.execute("enum_stub", ctx, position="start") == out
+    tool.execute_safe.assert_not_called()
+
+
+def test_smol_tool_adapter_valid_call_runs_with_coerced_args():
+    ctx = SimpleNamespace(read_only_target=False, caller="specialized", doc_type="writer")
+    tool = _EnumTool()
+    tool.execute_safe = MagicMock(return_value={"status": "ok"})
+    adapter = SmolToolAdapter(tool, ctx, safe=True, inputs_style="specialized")
+    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+        mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+        out = adapter.forward(position="end", level=2.0, note=None, bogus=1)
+    tool.execute_safe.assert_called_once_with(ctx, position="end", level=2)
+    assert type(tool.execute_safe.call_args.kwargs["level"]) is int
+    assert out == {"status": "ok", "ignored_parameters": ["bogus"]}
 
 
 def test_smol_tool_adapter_read_only_target_rejects_mutation():

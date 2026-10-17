@@ -356,6 +356,25 @@ class MockBase():
     pass
 sys.modules['unohelper'].Base = MockBase
 
+def test_best_effort_logs_and_swallows_everything(caplog):
+    import logging
+
+    from plugin.framework.errors import DocumentDisposedError, best_effort
+
+    class DisposedException(Exception):
+        pass
+
+    assert best_effort(lambda: 7, "never logged") == 7
+    with caplog.at_level(logging.DEBUG, logger="writeragent.errors"):
+        for exc in (DisposedException("closed"), DocumentDisposedError("closed"), ValueError("bad")):
+            def boom(exc: Exception = exc) -> int:
+                raise exc
+            assert best_effort(boom, "cleanup step failed") is None
+            assert best_effort(boom, "cleanup step failed", 3) == 3
+    records = [r for r in caplog.records if r.getMessage() == "cleanup step failed"]
+    assert len(records) == 6 and all(r.levelno == logging.DEBUG and r.exc_info for r in records)
+
+
 def test_draw_shapes_safe_create_shape_valid():
     'Test safe_create_shape with valid inputs creates and adds the shape.'
     draw_shapes = DrawShapes()
@@ -764,6 +783,9 @@ def test_uno_read_wraps_real_disposal_and_defaults_otherwise():
         with pytest.raises(DocumentDisposedError) as exc_info:
             uno_read(boom(exc), None)
         assert exc_info.value.__cause__ is exc
+    with pytest.raises(DocumentDisposedError) as exc_info:
+        uno_read(boom(DisposedException("dead")), None, object_type="TextRange")
+    assert exc_info.value.object_type == "TextRange"
     with pytest.raises(KeyboardInterrupt):
         uno_read(boom(KeyboardInterrupt()), None)
 

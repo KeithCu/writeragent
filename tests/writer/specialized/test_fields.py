@@ -99,6 +99,32 @@ def test_fields_insert(mock_ctx):
     used_cursor.getText().insertTextContent.assert_called_with(used_cursor, mock_field, False)
 
 
+def test_fields_insert_reports_the_failing_property(mock_ctx):
+    doc = mock_ctx.doc
+    mock_field = MagicMock()
+    mock_field.setPropertyValue.side_effect = [None, ValueError("no such property")]
+    doc.createInstance.return_value = mock_field
+
+    res = FieldsInsert().execute(mock_ctx, field="PageNumber", properties={"NumberingType": 4, "Bogus": 1}, target="selection")
+
+    assert res["status"] == "error"
+    assert res["message"] == "Failed to set property 'Bogus' to '1': no such property"
+    mock_controller = doc.getCurrentController.return_value
+    mock_controller.getSelection().getByIndex().getText().createTextCursorByRange().getText().insertTextContent.assert_not_called()
+
+
+def test_fields_insert_property_disposal_propagates(mock_ctx):
+    class DisposedException(Exception):
+        pass
+
+    mock_field = MagicMock()
+    mock_field.setPropertyValue.side_effect = DisposedException("closed")
+    mock_ctx.doc.createInstance.return_value = mock_field
+
+    with pytest.raises(DisposedException):
+        FieldsInsert().execute(mock_ctx, field="PageNumber", properties={"NumberingType": 4}, target="selection")
+
+
 def test_fields_delete(mock_ctx):
     doc = mock_ctx.doc
     mock_fields = MagicMock()

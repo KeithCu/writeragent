@@ -117,7 +117,7 @@ def test_native_helpers():
     manipulator = MagicMock()
     inspector = MagicMock()
     
-    manipulator.safe_get_cell_value.return_value = "HELLO"
+    # lp() reads every address (single cells included) through inspector.read_range.
     inspector.read_range.side_effect = lambda addr: [[{"value": "HELLO"}]] if addr == "A1" else [[{"value": 1}, {"value": 2}]]
     
     executor.inject_helpers(manipulator, inspector)
@@ -176,7 +176,6 @@ def test_lp_helper_reraises_execution_timeout():
     executor = PythonExecutor()
     manipulator = MagicMock()
     inspector = MagicMock()
-    manipulator.safe_get_cell_value.side_effect = ExecutionTimeoutError("budget")
     inspector.read_range.side_effect = ExecutionTimeoutError("budget")
     executor.inject_helpers(manipulator, inspector)
     lp = executor.executor.state["lp"]
@@ -210,7 +209,8 @@ def test_lp_helper_sheet_prefix_invokes_read_range():
     val = executor.executor.state["lp"]("Sheet2.A1")
     assert val == 42
     inspector.read_range.assert_called_once_with("Sheet2.A1")
-    manipulator.safe_get_cell_value.assert_not_called()
+    # Reads never go through the manipulator (it only writes, via set_range).
+    assert manipulator.method_calls == []
 
 
 def test_format_result_stringifies_non_json_values():

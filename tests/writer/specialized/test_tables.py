@@ -569,13 +569,12 @@ def test_set_table_cell_out_of_bounds_lists_real_names():
 
 
 def test_set_table_cell_uno_failure_returns_clean_error():
-    """A non-ValueError UNO failure BEFORE cell resolution must return a clean tool error, not
-    an UnboundLocalError from the except block referencing an unassigned cell_name."""
+    """A non-ValueError UNO failure BEFORE cell resolution reaches execute_safe as itself."""
     def boom():
         raise RuntimeError("uno exploded")
     ctx = SimpleNamespace(doc=SimpleNamespace(getTextTables=boom))
-    res = TableSetCell().execute(ctx, name="T", cell="A1", text="x")
-    assert res["status"] == "error" and "A1" in res["message"] and "uno exploded" in res["message"]
+    res = TableSetCell().execute_safe(ctx, name="T", cell="A1", text="x")
+    assert res["status"] == "error" and "uno exploded" in res["message"]
 
 
 def test_set_table_cell_never_blind_uppercases_real_lowercase_names():
@@ -1113,14 +1112,14 @@ def test_tracked_delete_marks_the_empty_row_anchor_too():
 def test_tracked_delete_fails_closed_when_nothing_was_recorded():
     table = _TrackingTable(1, 1, cells={"A1": "Item"}, name="T")
     doc = _TrackingDoc({"T": table}, redlines_per_delete=0)
-    res = TableDelete().execute(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
+    res = TableDelete().execute_safe(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
     assert res["status"] == "error" and "left in place" in res["message"]
 
 
 def test_tracked_delete_reports_an_untracked_removal():
     table = _TrackingTable(1, 1, cells={"A1": "Item"}, name="T")
     doc = _TrackingDoc({"T": table}, redlines_per_delete=0, keep_table=False)
-    res = TableDelete().execute(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
+    res = TableDelete().execute_safe(SimpleNamespace(doc=doc, ctx=_uno_ctx_for(doc)), name="T")
     assert res["status"] == "error" and "no tracked change" in res["message"]
 
 
@@ -1158,7 +1157,7 @@ def test_table_insert_rejects_non_integer_dims_and_non_list_data():
     ok, err = tool.validate(rows=[1], columns=2)
     assert ok is False
     assert err is not None and "Invalid type for rows" in err and "integer" in err
-    res = tool.execute(SimpleNamespace(doc=FakeWriterDoc({})), rows=[1], columns=2)
+    res = tool.execute_safe(SimpleNamespace(doc=FakeWriterDoc({})), rows=[1], columns=2)
     assert res["status"] == "error"
     ok_data, err_data = tool.validate(rows=2, columns=2, data="ab")
     assert ok_data is False
