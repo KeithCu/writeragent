@@ -11,7 +11,10 @@ import logging
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
+import pytest
 
+from plugin.chatbot import rich_text_paste as rich_text_paste_module
+from tests.harness.strip_bundle import is_release_build, module_source_contains
 from plugin.chatbot.rich_text_control import HISTORY_RENDER_BATCH_CHARS
 from plugin.chatbot.rich_text_paste import (
     _cell_width_em,
@@ -1052,6 +1055,10 @@ def test_plain_transcript_text_strips_html():
     assert "done" in plain
 
 
+@pytest.mark.skipif(
+    is_release_build() or not module_source_contains(rich_text_paste_module, "hidden writer close failed"),
+    reason="Stripped release bundle removes logger .debug call sites (scripts/strip_code.py)",
+)
 def test_hidden_writer_close_failure_is_logged(caplog):
     """CloseVeto-style failure is logged with traceback and does not escape."""
     control = MagicMock()
