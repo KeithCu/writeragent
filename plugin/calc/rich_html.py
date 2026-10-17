@@ -102,9 +102,10 @@ def _controller_get_transferable(controller: Any) -> Any:
     if callable(t):
         return t()
     try:
-        from com.sun.star.datatransfer import XTransferableSupplier
+        from plugin.calc.calc_utils import query_interface
 
-        xs = controller.queryInterface(XTransferableSupplier)
+        # pyuno needs a UNO type here; the imported IDL class raises "Couldn't convert".
+        xs = query_interface(controller, "com.sun.star.datatransfer.XTransferableSupplier")
         if xs is not None:
             return xs.getTransferable()
     except Exception:

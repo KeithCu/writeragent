@@ -1233,9 +1233,10 @@ def _insert_string_at_rich_cursor(
             insert_fn(cursor, text, False)
             inserted = True
     if not inserted:
-        from com.sun.star.text import XText
+        import uno
 
-        xtext = model.queryInterface(XText)
+        # pyuno needs a UNO type here; the imported IDL class raises "Couldn't convert".
+        xtext = model.queryInterface(uno.getTypeByName("com.sun.star.text.XText"))
         if xtext is not None:
             xtext.insertString(cursor, text, False)
             inserted = True

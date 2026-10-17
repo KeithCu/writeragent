@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from plugin.calc.address_utils import format_address
+from plugin.calc.calc_utils import query_interface
 from plugin.calc.calc_utils import resolve_sheet_and_cell as _resolve_sheet_and_cell
 from plugin.calc.inspector import CellInspector
 from plugin.framework.errors import safe_json_loads
@@ -90,13 +91,9 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any = Non
     ``CellRangeAddress.Sheet`` so a cross-sheet precedent is read from
     that sheet. Without ``doc``, ranges are read from *sheet*.
     """
-    try:
-        from com.sun.star.sheet import XFormulaQuery
-    except ImportError:
-        return {"source": "formula_query_unavailable", "precedents": []}
-
     cell_range = sheet.getCellRangeByPosition(col, row, col, row)
-    fq = cell_range.queryInterface(XFormulaQuery)
+    # pyuno needs a UNO type here; the imported IDL class raises "Couldn't convert".
+    fq = query_interface(cell_range, "com.sun.star.sheet.XFormulaQuery")
     if fq is None:
         return {"source": "formula_query_unavailable", "precedents": []}
 

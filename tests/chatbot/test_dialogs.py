@@ -114,6 +114,15 @@ def test_xcc():
     # Should handle None
     assert _xcc(None) is None
 
+
+def test_xcc_passes_uno_type_not_interface_class():
+    """pyuno raises "Couldn't convert ... to a UNO type" for an imported IDL class."""
+    mock_ctrl = MagicMock()
+    with patch("uno.getTypeByName") as get_type:
+        _xcc(mock_ctrl)
+    get_type.assert_called_once_with("com.sun.star.awt.XControlContainer")
+    mock_ctrl.queryInterface.assert_called_once_with(get_type.return_value)
+
 @patch("plugin.chatbot.dialogs._")
 @patch("plugin.chatbot.dialogs._")
 

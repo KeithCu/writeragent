@@ -560,16 +560,17 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
 def _xcc(ctrl: Any) -> Any:
     """Return ``XControlContainer`` for ``ctrl``, or None.
 
-    LibreOffice pyuno expects ``obj.queryInterface(iface)``. The ``uno`` module
-    does not provide ``queryInterface`` (unlike some Java examples), which
-    previously broke recursion in ``translate_dialog``. A missing interface
-    returns None and does not raise.
+    pyuno's ``queryInterface`` needs a UNO type from ``uno.getTypeByName``.
+    Passing the imported ``XControlContainer`` class raises "Couldn't convert
+    ... to a UNO type" on every call, which broke every ``translate_dialog``
+    caller (Chat and LibrePy sidebar panels). A missing interface returns None
+    and does not raise.
     """
     if ctrl is None:
         return None
-    from com.sun.star.awt import XControlContainer
+    import uno
 
-    return ctrl.queryInterface(XControlContainer)
+    return ctrl.queryInterface(uno.getTypeByName("com.sun.star.awt.XControlContainer"))
 
 
 def _uno_impl_to_control_type(impl_name: str) -> str:
