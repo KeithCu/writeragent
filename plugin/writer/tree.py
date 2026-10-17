@@ -380,7 +380,7 @@ class TreeService(ServiceBase):
                 para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
                 return {"para_index": para_idx}
             except Exception as e:
-                raise ToolExecutionError("Cannot resolve page:%s — %s" % (loc_value, e))
+                raise ToolExecutionError("Cannot resolve page:%s — %s" % (loc_value, e)) from e
 
         if loc_type == "section":
             if not hasattr(doc, "getTextSections"):

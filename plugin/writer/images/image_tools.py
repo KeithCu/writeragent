@@ -771,11 +771,7 @@ def export_graphic_object_to_bytes(ctx: Any, obj: Any) -> bytes | None:
     graphic = _graphic_from_object(obj)
     if graphic is None:
         return None
-    try:
-        return export_graphic_to_bytes(ctx, graphic)
-    except Exception:
-        log.exception("Failed to export graphic object")
-        raise
+    return export_graphic_to_bytes(ctx, graphic)
 
 
 def get_selected_image_base64(model: Any, ctx: Any = None) -> str | None:

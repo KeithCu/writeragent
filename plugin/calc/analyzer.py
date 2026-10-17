@@ -132,7 +132,6 @@ class SheetAnalyzer:
             # TOOL_EXECUTION_ERROR).
             if is_disposed_exception(e):
                 raise
-            log.exception("Error creating sheet summary")
             raise ToolExecutionError(str(e)) from e
 
 

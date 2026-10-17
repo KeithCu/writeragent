@@ -856,7 +856,6 @@ def _range_to_content_via_temp_doc(
         if isinstance(e, ToolExecutionError):
             raise
         # Same silent "ok with empty content" as the full read (relato #63): say why instead.
-        log.exception("_range_to_content_via_temp_doc failed")
         raise ToolExecutionError("Could not read that part of the document (%s)." % _reason(e)) from e
     finally:
         if temp_doc is not None:
@@ -1007,7 +1006,6 @@ def document_to_content(
         # 57003, content ""), so neither the agent nor the log reader can
         # tell why. The failure surfaces as a tool error that names both
         # reasons (a full /tmp, a filter error, ...).
-        log.exception("document_to_content (full) failed")
         raise ToolExecutionError(
             "Could not read the document: the XHTML export failed (%s) and the HTML export "
             "failed too (%s)." % (_reason(xhtml_error), _reason(e))) from e

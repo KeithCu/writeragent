@@ -148,7 +148,6 @@ class ListCalcFunctions(ToolBase):
             log.info("Found %d matching Calc functions for filter '%s'", len(matched_functions), filter_str)
             return {"status": "ok", "functions": matched_functions}
         except Exception as e:
-            log.exception("Listing Calc functions failed")
             raise ToolExecutionError(f"Error listing Calc functions: {str(e)}") from e
 
 
@@ -240,7 +239,6 @@ class EvaluateFormula(ToolCalcErrorBase):
 
             return {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
         except Exception as e:
-            log.exception("Formula evaluation failed")
             raise ToolExecutionError(f"Formula evaluation failed: {str(e)}") from e
         finally:
             try:

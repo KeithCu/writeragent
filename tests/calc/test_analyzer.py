@@ -4,13 +4,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.calc.analyzer import get_calc_context_for_chat, get_full_calc_text
-from plugin.framework.errors import DocumentDisposedError
+from plugin.calc.analyzer import SheetAnalyzer, get_calc_context_for_chat, get_full_calc_text
+from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 
 
 def test_get_sheet_summary_used_range_letters():
-    from plugin.calc.analyzer import SheetAnalyzer
-
     bridge = MagicMock()
     sheet = bridge.get_active_sheet.return_value
     sheet.getName.return_value = "Sheet1"
@@ -30,8 +28,6 @@ def test_get_sheet_summary_used_range_letters():
 
 
 def test_get_sheet_summary_reraises_disposed():
-    from plugin.calc.analyzer import SheetAnalyzer
-
     class DisposedException(Exception):
         pass
 
@@ -42,9 +38,6 @@ def test_get_sheet_summary_reraises_disposed():
 
 
 def test_get_sheet_summary_wraps_other_errors():
-    from plugin.calc.analyzer import SheetAnalyzer
-    from plugin.framework.errors import ToolExecutionError
-
     bridge = MagicMock()
     bridge.get_active_sheet.side_effect = ValueError("bad sheet")
     with pytest.raises(ToolExecutionError, match="bad sheet"):

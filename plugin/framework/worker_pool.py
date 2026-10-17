@@ -708,7 +708,6 @@ class AsyncProcess:
         try:
             proc: subprocess.Popen[Any] = subprocess.Popen(self.args, **self._popen_kwargs)
         except Exception as e:
-            log.exception("Failed to start process: %s", self.args)
             raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
 
         self.process = proc

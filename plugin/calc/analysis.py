@@ -149,13 +149,8 @@ class GoalSeekTool(ToolBaseDummy):
 
             return {"status": "ok", "message": message, "result": {"value": result_val, "divergence": divergence}}
         except Exception as e:
-            # Re-raise disposal before wrapping. Catching DisposedException
-            # as ToolExecutionError makes execute_safe report
-            # TOOL_EXECUTION_ERROR, and the native runner keeps going on a
-            # dead document.
             if is_disposed_exception(e):
                 raise
-            log.exception("Goal Seek failed")
             raise ToolExecutionError(str(e)) from e
 
 
@@ -329,12 +324,9 @@ class SolverTool(ToolBaseDummy):
                 return {"status": "ok", "message": f"Solver success. Objective value: {solver.ResultValue}", "result": {"success": True, "result_value": solver.ResultValue, "solution": list(solver.Solution)}}
             else:
                 return {"status": "error", "message": "Solver failed to find a solution.", "result": {"success": False}}
-
         except Exception as e:
-            # Same dispose guard as Goal Seek: do not wrap a dead document.
             if is_disposed_exception(e):
                 raise
-            log.exception("Solver failed")
             raise ToolExecutionError(str(e)) from e
 
 

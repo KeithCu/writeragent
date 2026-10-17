@@ -574,7 +574,6 @@ def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> st
         reraise_if_disposed(exc)
         if isinstance(exc, ToolExecutionError):
             raise
-        log.exception("html_to_plain_text failed")
         raise ToolExecutionError(
             "Could not turn that HTML into plain text for the search."
         ) from exc

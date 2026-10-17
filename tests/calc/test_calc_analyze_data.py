@@ -10,7 +10,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.calc.analysis import AnalyzeDataTool
+from plugin.calc.address_utils import parse_output_anchor as _output_anchor
+from plugin.calc.analysis import AnalyzeDataTool, GoalSeekTool, SolverTool
+from plugin.framework.errors import ToolExecutionError
 
 
 @pytest.fixture
@@ -24,7 +26,6 @@ def calc_ctx():
 
 def test_output_anchor_quoted_dotted_sheet_and_range():
     """rsplit('.') dropped quoted/dotted sheets and used the range's end cell."""
-    from plugin.calc.address_utils import parse_output_anchor as _output_anchor
 
     assert _output_anchor("'Q1.Sales'!B2") == ("Q1.Sales", 1, 1)
     assert _output_anchor("'Data Sheet'.C3") == ("Data Sheet", 2, 2)
@@ -64,8 +65,6 @@ def _disposed():
 
 
 def test_goal_seek_reraises_disposed(calc_ctx):
-    from plugin.calc.analysis import GoalSeekTool
-
     boom = _disposed()
     with (
         patch("plugin.calc.analysis.UNO_AVAILABLE", True),
@@ -76,9 +75,6 @@ def test_goal_seek_reraises_disposed(calc_ctx):
 
 
 def test_goal_seek_wraps_other_errors(calc_ctx):
-    from plugin.calc.analysis import GoalSeekTool
-    from plugin.framework.errors import ToolExecutionError
-
     with (
         patch("plugin.calc.analysis.UNO_AVAILABLE", True),
         patch("plugin.calc.analysis.CalcBridge", side_effect=ValueError("seek failed")),
@@ -91,10 +87,8 @@ def test_solver_reraises_disposed(calc_ctx):
     import sys
     import types
 
-    from plugin.calc.analysis import SolverTool
-
-    # Solver imports sheet UNO types before its try. Unit tests have no live
-    # office, so install stubs and fail inside the try on CalcBridge.
+    # Solver imports sheet UNO types before its execution. Unit tests have no live
+    # office, so install stubs and fail inside CalcBridge.
     star = types.ModuleType("com.sun.star")
     sheet = types.ModuleType("com.sun.star.sheet")
     ops = types.ModuleType("com.sun.star.sheet.SolverConstraintOperator")

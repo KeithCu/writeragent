@@ -662,7 +662,6 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
         raise
     except Exception as exc:
         _reraise_if_disposed(exc)
-        log.exception("Failed to read sibling office file %s for DuckDB", full_path)
         raise _sibling_office_error(full_path, f"failed to read used range: {exc}") from exc
     finally:
         if model is not None and opened_flag:
