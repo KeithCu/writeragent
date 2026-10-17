@@ -120,32 +120,29 @@ class ListCalcFunctions(ToolBase):
         if not uno_ctx:
             raise ToolExecutionError("UNO context not available.")
 
-        try:
-            smgr = cast("Any", uno_ctx).getServiceManager()
-            func_descr_service = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionDescriptions", uno_ctx)
-            if not func_descr_service:
-                raise ToolExecutionError("FunctionDescriptions service not available.")
+        smgr = cast("Any", uno_ctx).getServiceManager()
+        func_descr_service = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionDescriptions", uno_ctx)
+        if not func_descr_service:
+            raise ToolExecutionError("FunctionDescriptions service not available.")
 
-            matched_functions = []
-            for i in range(func_descr_service.getCount()):
-                props = func_descr_service.getByIndex(i)
-                func_data = {prop.Name: prop.Value for prop in props}
-                name = func_data.get("Name", "")
-                desc = func_data.get("Description", "")
+        matched_functions = []
+        for i in range(func_descr_service.getCount()):
+            props = func_descr_service.getByIndex(i)
+            func_data = {prop.Name: prop.Value for prop in props}
+            name = func_data.get("Name", "")
+            desc = func_data.get("Description", "")
 
-                if filter_str and (filter_str not in name.upper() and filter_str not in desc.upper()):
-                    continue
+            if filter_str and (filter_str not in name.upper() and filter_str not in desc.upper()):
+                continue
 
-                arguments = func_data.get("Arguments") or ()
-                arg_list = []
-                for a in arguments:
-                    arg_list.append({"name": getattr(a, "Name", ""), "description": getattr(a, "Description", ""), "optional": getattr(a, "IsOptional", False)})
+            arguments = func_data.get("Arguments") or ()
+            arg_list = []
+            for a in arguments:
+                arg_list.append({"name": getattr(a, "Name", ""), "description": getattr(a, "Description", ""), "optional": getattr(a, "IsOptional", False)})
 
-                matched_functions.append({"name": name, "description": func_data.get("Description", ""), "category_id": func_data.get("Category", 0), "arguments": arg_list})
-            log.info("Found %d matching Calc functions for filter '%s'", len(matched_functions), filter_str)
-            return {"status": "ok", "functions": matched_functions}
-        except Exception as e:
-            raise ToolExecutionError(f"Error listing Calc functions: {str(e)}") from e
+            matched_functions.append({"name": name, "description": func_data.get("Description", ""), "category_id": func_data.get("Category", 0), "arguments": arg_list})
+        log.info("Found %d matching Calc functions for filter '%s'", len(matched_functions), filter_str)
+        return {"status": "ok", "functions": matched_functions}
 
 
 class EvaluateFormula(ToolCalcErrorBase):
@@ -235,8 +232,6 @@ class EvaluateFormula(ToolCalcErrorBase):
                 result_type_str = "unknown"
 
             return {"status": "ok", "formula": formula_string, "result": result, "result_type": result_type_str}
-        except Exception as e:
-            raise ToolExecutionError(f"Formula evaluation failed: {str(e)}") from e
         finally:
             try:
                 if sheets.hasByName(temp_sheet_name):

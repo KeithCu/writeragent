@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.calc.address_utils import column_to_index, index_to_column, parse_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
-from plugin.framework.errors import UnoObjectError, suppress_disposed
+from plugin.framework.errors import UnoObjectError, best_effort, suppress_disposed, uno_read
 
 from com.sun.star.lang import IllegalArgumentException
 
@@ -277,28 +277,25 @@ def _extract_range_info(nr: Any, scope: str, doc: Any = None) -> dict[str, Any]:
 
     # If this named range refers to concrete cells, resolve coordinates
     if hasattr(nr, "getReferredCells"):
-        try:
-            cells = nr.getReferredCells()
-            if cells is not None and hasattr(cells, "getRangeAddress"):
-                addr = cells.getRangeAddress()
-                sheet_name = ""
-                if doc is not None and hasattr(doc, "getSheets"):
-                    sheet_name = doc.getSheets().getByIndex(addr.Sheet).getName()
-                start_str = f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}"
-                end_str = f"{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
-                range_str = f"{start_str}:{end_str}" if (addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow) else start_str
-                info["referred_range"] = {
-                    "sheet": sheet_name or f"Sheet{addr.Sheet + 1}",
-                    "address": range_str,
-                    "start_column": addr.StartColumn,
-                    "start_row": addr.StartRow,
-                    "end_column": addr.EndColumn,
-                    "end_row": addr.EndRow,
-                    "rows": addr.EndRow - addr.StartRow + 1,
-                    "columns": addr.EndColumn - addr.StartColumn + 1,
-                }
-        except Exception:
-            pass
+        cells = uno_read(nr.getReferredCells, None)
+        if cells is not None and hasattr(cells, "getRangeAddress"):
+            addr = cells.getRangeAddress()
+            sheet_name = ""
+            if doc is not None and hasattr(doc, "getSheets"):
+                sheet_name = doc.getSheets().getByIndex(addr.Sheet).getName()
+            start_str = f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}"
+            end_str = f"{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
+            range_str = f"{start_str}:{end_str}" if (addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow) else start_str
+            info["referred_range"] = {
+                "sheet": sheet_name or f"Sheet{addr.Sheet + 1}",
+                "address": range_str,
+                "start_column": addr.StartColumn,
+                "start_row": addr.StartRow,
+                "end_column": addr.EndColumn,
+                "end_row": addr.EndRow,
+                "rows": addr.EndRow - addr.StartRow + 1,
+                "columns": addr.EndColumn - addr.StartColumn + 1,
+            }
 
     return info
 
@@ -319,32 +316,28 @@ class NamedRangeList(ToolCalcRangeBase):
             scope_arg = "global"
         scope_clean = str(scope_arg).strip()
 
-        try:
-            doc = bridge.get_active_document()
-            result: list[dict[str, Any]] = []
+        doc = bridge.get_active_document()
+        result: list[dict[str, Any]] = []
 
-            if scope_clean.lower() == "all":
-                # Global
-                if hasattr(doc, "NamedRanges"):
-                    for name in doc.NamedRanges.getElementNames():
-                        nr = doc.NamedRanges.getByName(name)
-                        result.append(_extract_range_info(nr, "global", doc))
-                # Visible sheets only. _-prefixed generated tabs stay in the file.
-                for sheet, s_name in _iter_named_range_sheets(doc, agent_visible_only=True):
-                    for name in sheet.NamedRanges.getElementNames():
-                        nr = sheet.NamedRanges.getByName(name)
-                        result.append(_extract_range_info(nr, s_name, doc))
-            else:
-                container, effective_scope, _ = _resolve_container(doc, scope_clean)
-                for name in container.getElementNames():
-                    nr = container.getByName(name)
-                    result.append(_extract_range_info(nr, effective_scope, doc))
+        if scope_clean.lower() == "all":
+            # Global
+            if hasattr(doc, "NamedRanges"):
+                for name in doc.NamedRanges.getElementNames():
+                    nr = doc.NamedRanges.getByName(name)
+                    result.append(_extract_range_info(nr, "global", doc))
+            # Visible sheets only. _-prefixed generated tabs stay in the file.
+            for sheet, s_name in _iter_named_range_sheets(doc, agent_visible_only=True):
+                for name in sheet.NamedRanges.getElementNames():
+                    nr = sheet.NamedRanges.getByName(name)
+                    result.append(_extract_range_info(nr, s_name, doc))
+        else:
+            container, effective_scope, _ = _resolve_container(doc, scope_clean)
+            for name in container.getElementNames():
+                nr = container.getByName(name)
+                result.append(_extract_range_info(nr, effective_scope, doc))
 
-            log.info("Named ranges listed (scope=%s): count=%d", scope_clean, len(result))
-            return {"status": "ok", "result": result}
-        except IllegalArgumentException as e:
-            log.exception("List named ranges failed")
-            return self._tool_error(f"Failed to list named ranges: {str(e)}", code="NAMED_RANGE_ERROR")
+        log.info("Named ranges listed (scope=%s): count=%d", scope_clean, len(result))
+        return {"status": "ok", "result": result}
 
 
 class NamedRangeGetInfo(ToolCalcRangeBase):
@@ -365,25 +358,21 @@ class NamedRangeGetInfo(ToolCalcRangeBase):
         name = kwargs["name"].strip()
         scope_arg = kwargs.get("scope")
 
-        try:
-            doc = bridge.get_active_document()
+        doc = bridge.get_active_document()
 
-            if scope_arg is not None and str(scope_arg).strip():
-                container, effective_scope, _ = _resolve_container(doc, str(scope_arg).strip())
-                if not container.hasByName(name):
-                    return self._tool_error(f"No named range found with name '{name}' in scope '{effective_scope}'.", code="NAMED_RANGE_NOT_FOUND")
-                nr = container.getByName(name)
-                info = _extract_range_info(nr, effective_scope, doc)
-                return {"status": "ok", "result": info}
+        if scope_arg is not None and str(scope_arg).strip():
+            container, effective_scope, _ = _resolve_container(doc, str(scope_arg).strip())
+            if not container.hasByName(name):
+                return self._tool_error(f"No named range found with name '{name}' in scope '{effective_scope}'.", code="NAMED_RANGE_NOT_FOUND")
+            nr = container.getByName(name)
+            info = _extract_range_info(nr, effective_scope, doc)
+            return {"status": "ok", "result": info}
 
-            found = _find_named_range(doc, bridge, name)
-            if found is None:
-                return self._tool_error(f"No named range found with name '{name}'.", code="NAMED_RANGE_NOT_FOUND")
-            _container, effective_scope, _sheet, nr = found
-            return {"status": "ok", "result": _extract_range_info(nr, effective_scope, doc)}
-        except IllegalArgumentException as e:
-            log.exception("Get named range info failed for %s", name)
-            return self._tool_error(f"Failed to get named range info: {str(e)}", code="NAMED_RANGE_ERROR")
+        found = _find_named_range(doc, bridge, name)
+        if found is None:
+            return self._tool_error(f"No named range found with name '{name}'.", code="NAMED_RANGE_NOT_FOUND")
+        _container, effective_scope, _sheet, nr = found
+        return {"status": "ok", "result": _extract_range_info(nr, effective_scope, doc)}
 
 
 class NamedRangeAdd(ToolCalcRangeBase):
@@ -523,10 +512,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
                     nr.setReferencePosition(pos)
             except Exception:
                 if new_clean:
-                    try:
-                        nr.setName(name)
-                    except Exception:
-                        log.exception("Rollback of named range rename %s -> %s failed", name, new_clean)
+                    best_effort(lambda: nr.setName(name), f"Rollback of named range rename {name} -> {new_clean} failed")
                 raise
 
             log.info("Named range edited: [%s] %s (new_name=%s)", effective_scope, name, new_name)

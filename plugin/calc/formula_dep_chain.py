@@ -7,16 +7,13 @@
 # crosshair: off
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from plugin.calc.address_utils import format_address
 from plugin.calc.calc_utils import query_interface
 from plugin.calc.calc_utils import resolve_sheet_and_cell as _resolve_sheet_and_cell
 from plugin.calc.inspector import CellInspector
-from plugin.framework.errors import safe_json_loads
-
-log = logging.getLogger("writeragent.calc")
+from plugin.framework.errors import best_effort, safe_json_loads
 
 _FORMULA_DEP_CHAIN_CMD = ".uno:FormulaDepChain"
 # A full-column precedent such as A:Z is about 27 million cells. Walking
@@ -101,25 +98,22 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any = Non
     # Set once the cap is hit so callers can tell a partial list from a
     # complete one. Whole-column refs used to expand with no limit.
     truncated = False
-    try:
-        ranges = fq.queryPrecedents(False)
-        if ranges is None:
-            return {"source": "formula_query", "precedents": precedents, "truncated": False}
-        for addr in ranges.getRangeAddresses():
-            # Sheet 0 is a real sheet. Only a missing index means "this sheet".
-            prec_sheet = _sheet_for_precedent(doc, sheet, getattr(addr, "Sheet", None))
-            for r in range(addr.StartRow, addr.EndRow + 1):
-                for c in range(addr.StartColumn, addr.EndColumn + 1):
-                    if len(precedents) >= _MAX_PRECEDENT_CELLS:
-                        truncated = True
-                        break
-                    precedents.append(_cell_snapshot(prec_sheet, c, r))
-                if truncated:
+    ranges = best_effort(lambda: fq.queryPrecedents(False), "queryPrecedents failed")
+    if ranges is None:
+        return {"source": "formula_query", "precedents": precedents, "truncated": False}
+    for addr in ranges.getRangeAddresses():
+        # Sheet 0 is a real sheet. Only a missing index means "this sheet".
+        prec_sheet = _sheet_for_precedent(doc, sheet, getattr(addr, "Sheet", None))
+        for r in range(addr.StartRow, addr.EndRow + 1):
+            for c in range(addr.StartColumn, addr.EndColumn + 1):
+                if len(precedents) >= _MAX_PRECEDENT_CELLS:
+                    truncated = True
                     break
+                precedents.append(_cell_snapshot(prec_sheet, c, r))
             if truncated:
                 break
-    except Exception:
-        log.debug("queryPrecedents failed", exc_info=True)
+        if truncated:
+            break
     return {"source": "formula_query", "precedents": precedents, "truncated": truncated}
 
 
@@ -138,26 +132,20 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
         # That used to abort before getCommandValues and the formula-query
         # fallback, so the dep chain was lost even though it does not need
         # the view.
-        try:
-            from plugin.calc.navigation import navigate_to_cell
+        from plugin.calc.navigation import navigate_to_cell
 
-            navigate_to_cell(doc, ctx, address)
-        except Exception:
-            log.debug("navigate_to_cell failed for %r; continuing dep chain", address, exc_info=True)
+        best_effort(lambda: navigate_to_cell(doc, ctx, address), f"navigate_to_cell failed for {address!r}; continuing dep chain")
 
     chain: dict[str, Any] | None = None
     if hasattr(doc, "getCommandValues"):
-        try:
-            raw = doc.getCommandValues(_FORMULA_DEP_CHAIN_CMD)
-            if raw:
-                parsed = safe_json_loads(raw, default=None) if isinstance(raw, str) else raw
-                if isinstance(parsed, dict):
-                    chain = parsed.get("commandValues") if "commandValues" in parsed else parsed
-                    if chain:
-                        chain = dict(chain)
-                        chain["source"] = "uno_formula_dep_chain"
-        except Exception:
-            log.debug("getCommandValues(%s) failed", _FORMULA_DEP_CHAIN_CMD, exc_info=True)
+        raw = best_effort(lambda: doc.getCommandValues(_FORMULA_DEP_CHAIN_CMD), f"getCommandValues({_FORMULA_DEP_CHAIN_CMD}) failed")
+        if raw:
+            parsed = safe_json_loads(raw, default=None) if isinstance(raw, str) else raw
+            if isinstance(parsed, dict):
+                chain = parsed.get("commandValues") if "commandValues" in parsed else parsed
+                if chain:
+                    chain = dict(chain)
+                    chain["source"] = "uno_formula_dep_chain"
 
     if not chain:
         chain = _precedents_via_formula_query(sheet, col, row, doc)
