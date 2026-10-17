@@ -642,7 +642,10 @@ def paint_message_items(
             try:
                 doc.close(True)
             except Exception:
-                pass
+                # doc.close(True) can raise CloseVetoException. A bare pass
+                # leaked this hidden Writer with no log. Log and continue so
+                # a veto cannot fail the paint.
+                log.debug("paint_message_items: hidden writer close failed", exc_info=True)
 
 
 def _copy_formatted_from_hidden_doc_to_control(
@@ -971,7 +974,10 @@ def append_rich_messages_via_clipboard(
                 try:
                     doc.close(True)
                 except Exception:
-                    pass
+                    # doc.close(True) can raise CloseVetoException. A bare pass
+                    # leaked this hidden Writer with no log. Log and continue so
+                    # a veto cannot fail the paint.
+                    log.debug("append_rich_messages_via_clipboard: hidden writer close failed", exc_info=True)
     if any_inserted and items[-1][0] == "user":
         _ensure_trailing_line_break(control)
 
@@ -1128,5 +1134,8 @@ def append_rich_text_via_clipboard(
             try:
                 doc.close(True)
             except Exception:
-                pass
+                # doc.close(True) can raise CloseVetoException. A bare pass
+                # leaked this hidden Writer with no log. Log and continue so
+                # a veto cannot fail the paint.
+                log.debug("append_rich_text_via_clipboard: hidden writer close failed", exc_info=True)
     return False

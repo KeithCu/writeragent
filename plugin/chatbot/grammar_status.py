@@ -39,10 +39,7 @@ def format_grammar_status(data: dict[str, Any]) -> str:
     phase = str(data.get("phase") or "")
     preview_raw = str(data.get("preview") or "")
     result = str(data.get("result") or "")
-    try:
-        length = int(data.get("length") or 0)
-    except Exception:
-        length = 0
+    length = int(data.get("length") or 0)
     elapsed = data.get("elapsed_ms")
     area = _grammar_status_area(phase, result, preview_raw)
     preview = _clip_grammar_status_preview(preview_raw)

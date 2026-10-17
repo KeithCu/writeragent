@@ -99,10 +99,7 @@ class SkillStore:
                 log.debug("Failed to read user humanizer skill: %s", e)
         else:
             # Seed the editable file from the built-in default the first time anyone asks for it.
-            try:
-                self.write_humanizer_guidance(HUMANIZER_GUIDANCE)
-            except Exception:
-                pass
+            self.write_humanizer_guidance(HUMANIZER_GUIDANCE)
 
         return HUMANIZER_GUIDANCE
 

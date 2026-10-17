@@ -81,10 +81,7 @@ class ModuleConfigDialog:
     def show(cls, ctx: Any, module_name: str) -> None:
         existing = _active_dialogs.get(module_name)
         if existing is not None:
-            try:
-                existing.close()
-            except Exception:
-                log.debug("Failed to close prior module config dialog", exc_info=True)
+            existing.close()
         dialog = cls(ctx, module_name)
         dialog._open()
         _active_dialogs[module_name] = dialog
@@ -98,14 +95,8 @@ class ModuleConfigDialog:
         self._dlg = None
         if dlg is None:
             return
-        try:
-            dlg.setVisible(False)
-        except Exception:
-            log.exception("Failed to hide module config dialog")
-        try:
-            dlg.dispose()
-        except Exception:
-            log.exception("Failed to dispose module config dialog")
+        dlg.setVisible(False)
+        dlg.dispose()
 
     def _open(self) -> None:
         ctx = self._ctx

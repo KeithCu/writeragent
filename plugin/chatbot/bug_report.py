@@ -65,27 +65,17 @@ def should_offer_bug_report(*, exc: BaseException | None = None, code: str | Non
 
 def _config_has_property(ca: Any, name: str) -> bool:
     """Return True when *name* exists on a ConfigurationAccess node."""
-    try:
-        info = ca.getPropertySetInfo()
-    except Exception:
-        return False
+    info = ca.getPropertySetInfo()
     if info is None or not hasattr(info, "hasPropertyByName"):
         return False
-    try:
-        return bool(info.hasPropertyByName(name))
-    except Exception:
-        return False
+    return bool(info.hasPropertyByName(name))
 
 
 def _read_config_string(ca: Any, prop: str) -> str | None:
     """Read a non-empty string property from ConfigurationAccess, or None."""
     if not _config_has_property(ca, prop):
         return None
-    try:
-        val = ca.getPropertyValue(prop)
-    except Exception:
-        log.debug("bug_report: failed reading LO product property %s", prop)
-        return None
+    val = ca.getPropertyValue(prop)
     if val is None:
         return None
     text = str(val).strip()

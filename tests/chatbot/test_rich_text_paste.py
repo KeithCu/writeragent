@@ -1050,3 +1050,64 @@ def test_plain_transcript_text_strips_html():
     assert "Welcome" in plain
     assert "hello" in plain
     assert "done" in plain
+
+
+def test_hidden_writer_close_failure_is_logged(caplog):
+    """CloseVeto-style failure is logged with traceback and does not escape."""
+    control = MagicMock()
+    control.getModel.return_value = MagicMock(Text="")
+    ctx = MagicMock()
+
+    def _doc():
+        doc = MagicMock()
+        doc.getText.return_value.getString.return_value = "Hi"
+        doc.close.side_effect = RuntimeError("hidden close veto")
+        return doc
+
+    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.rich_text_paste"):
+        doc = _doc()
+        with (
+            patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc),
+            patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
+            patch("plugin.chatbot.rich_text_paste.render_messages_to_hidden_doc"),
+            patch("plugin.chatbot.rich_text_paste.clear_control"),
+            patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=True),
+            patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat"),
+            patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"),
+        ):
+            assert paint_message_items(ctx, control, [("assistant", "Hi")]) is True
+        doc.close.assert_called_once_with(True)
+
+        doc = _doc()
+        with (
+            patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc),
+            patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
+            patch("plugin.chatbot.rich_text_paste.append_rich_text", return_value=True),
+            patch("plugin.chatbot.rich_text_paste._append_hidden_doc_to_control", return_value=True),
+            patch("plugin.chatbot.rich_text_paste._scroll_rich_to_tail"),
+            patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0),
+        ):
+            append_rich_messages_via_clipboard(ctx, control, [("assistant", "Hi")])
+        doc.close.assert_called_once_with(True)
+
+        doc = _doc()
+        with (
+            patch("plugin.chatbot.rich_text_paste.create_hidden_html_writer", return_value=doc),
+            patch("plugin.chatbot.rich_text_paste.configure_hidden_writer_for_chat"),
+            patch("plugin.chatbot.rich_text_paste.append_rich_text", return_value=True),
+            patch("plugin.chatbot.rich_text_paste._copy_formatted_from_hidden_doc_to_control", return_value=(True, None)),
+            patch("plugin.chatbot.rich_text_paste.get_control_text_length", return_value=0),
+            patch("plugin.chatbot.rich_text_paste._ensure_message_separator"),
+        ):
+            assert append_rich_text_via_clipboard(ctx, control, "Hi", role="assistant") is True
+        doc.close.assert_called_once_with(True)
+
+    close_records = [r for r in caplog.records if "hidden writer close failed" in r.message]
+    assert len(close_records) == 3
+    assert any("paint_message_items: hidden writer close failed" in r.message for r in close_records)
+    assert any("append_rich_messages_via_clipboard: hidden writer close failed" in r.message for r in close_records)
+    assert any("append_rich_text_via_clipboard: hidden writer close failed" in r.message for r in close_records)
+    for record in close_records:
+        assert record.exc_info is not None
+        assert record.exc_info[0] is RuntimeError
+

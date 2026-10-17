@@ -63,10 +63,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             menu.insertItem(n_id, label, 0, pos)
             item_actions[n_id] = action
             if hasattr(menu, "setCommand"):
-                try:
-                    menu.setCommand(n_id, "org.extension.writeragent:" + action)
-                except Exception:
-                    pass
+                menu.setCommand(n_id, "org.extension.writeragent:" + action)
             if icon_filename:
                 g = _load_graphic(ctx, icon_filename)
                 if g is not None:
