@@ -17,7 +17,7 @@
 """Dialog utilities for LibreOffice UNO.
 
 Provides helpers for message boxes, clipboard operations, rich dialogs
-(with buttons, live updates, etc.), and XDL dialog loading.
+(with buttons, etc.), and XDL dialog loading.
 
 LibrePy Settings, Run Python Script, and message boxes use this module as a
 shared XDL kit — it is not the chat panel.
@@ -58,11 +58,9 @@ import os
 from typing import TYPE_CHECKING, Any, cast
 import unohelper
 from plugin.framework.uno_listeners import BaseActionListener
-from plugin.framework.worker_pool import run_in_background
 from com.sun.star.awt import XActionListener
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from com.sun.star.awt import ActionEvent
     from com.sun.star.datatransfer import DataFlavor
     from com.sun.star.lang import EventObject
@@ -420,6 +418,27 @@ def add_dialog_hyperlink(dlg_model: Any, name: str, label: str, url: str, x: int
     return link
 
 
+class _CopyListener(BaseActionListener):
+    """Copy button shared by msgbox_with_copy and msgbox_with_report.
+
+    actionPerformed is already wrapped by BaseActionListener._catch_and_log,
+    so a missing CopyBtn is logged at the listener boundary.
+    """
+
+    _dlg: Any
+    _ctx: Any
+    _text: str
+
+    def __init__(self, dialog: Any, context: Any, text: str) -> None:
+        self._dlg = dialog
+        self._ctx = context
+        self._text = text
+
+    def on_action_performed(self, rEvent: Any) -> None:
+        if copy_to_clipboard(self._ctx, self._text):
+            self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
+
+
 # ── Message box with Copy button ─────────────────────────────────────
 
 
@@ -440,23 +459,6 @@ def msgbox_with_copy(ctx: Any, title: str, message: str, copy_text: str) -> None
         msg_ctrl = dlg.getControl("Msg")
         if msg_ctrl is not None:
             msg_ctrl.getModel().Label = str(message)
-
-        class _CopyListener(BaseActionListener):
-            _dlg: Any
-            _ctx: Any
-            _text: str
-
-            def __init__(self, dialog: Any, context: Any, text: str) -> None:
-                self._dlg = dialog
-                self._ctx = context
-                self._text = text
-
-            def on_action_performed(self, rEvent: Any) -> None:
-                if copy_to_clipboard(self._ctx, self._text):
-                    try:
-                        self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
-                    except Exception as e:
-                        log.debug("Failed to set CopyBtn Label: %s", e)
 
         copy_btn = dlg.getControl("CopyBtn")
         if copy_btn is not None:
@@ -511,23 +513,6 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
         if msg_ctrl is not None:
             msg_ctrl.getModel().Label = str(message)
 
-        class _CopyListener(BaseActionListener):
-            _dlg: Any
-            _ctx: Any
-            _text: str
-
-            def __init__(self, dialog: Any, context: Any, text: str) -> None:
-                self._dlg = dialog
-                self._ctx = context
-                self._text = text
-
-            def on_action_performed(self, rEvent: Any) -> None:
-                if copy_to_clipboard(self._ctx, self._text):
-                    try:
-                        self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
-                    except Exception as e:
-                        log.debug("Failed to set CopyBtn Label: %s", e)
-
         copy_btn = dlg.getControl("CopyBtn")
         if copy_btn is not None:
             copy_btn.getModel().Label = _("Copy URL")
@@ -567,101 +552,6 @@ def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool =
     except Exception:
         log.exception("Report dialog error")
         msgbox(ctx, title, message, box_type=box_type)
-
-
-# ── Status dialog with live updates ──────────────────────────────────
-
-
-def status_dialog(ctx: Any, title: str, build_status_fn: Callable[[], str], copy_url_fn: Callable[[], str] | None = None) -> None:
-    """Show a status dialog that updates live via a background thread.
-
-    Args:
-        ctx: UNO component context.
-        title: Dialog title.
-        build_status_fn: Callable() -> str returning the status text.
-            Called once immediately, then once more after a short delay
-            for live probe results.
-        copy_url_fn: Optional callable() -> str returning a URL to copy.
-            If provided and returns non-empty, a Copy button is shown.
-    """
-    if not ctx:
-        log.info("STATUS (no ctx) - %s", title)
-        return
-    try:
-        dlg = load_writeragent_dialog("StatusUpdateDialog", ctx)
-        if dlg is None:
-            msgbox(ctx, title, build_status_fn())
-            return
-
-        if title:
-            dlg.getModel().Title = _(title)
-
-        initial_text = build_status_fn()
-        status_ctrl = dlg.getControl("StatusText")
-        if status_ctrl is not None:
-            status_ctrl.getModel().Label = initial_text
-
-        # Copy button (disabled until copy_url_fn returns something)
-        has_copy = copy_url_fn is not None
-        copy_btn = dlg.getControl("CopyBtn")
-        if copy_btn is not None:
-            if has_copy:
-                copy_btn.getModel().Enabled = bool(copy_url_fn() if copy_url_fn else False)
-                
-                class _CopyListener(BaseActionListener):
-                    _dlg: Any
-                    _ctx: Any
-                    _url_fn: Any
-
-                    def __init__(self, dialog: Any, context: Any, url_fn: Any) -> None:
-                        self._dlg = dialog
-                        self._ctx = context
-                        self._url_fn = url_fn
-
-                    def on_action_performed(self, rEvent: Any) -> None:
-                        url = self._url_fn()
-                        if url and copy_to_clipboard(self._ctx, url):
-                            try:
-                                self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
-                            except Exception as e:
-                                log.debug("Failed to set CopyBtn Label: %s", e)
-
-                copy_btn.addActionListener(_CopyListener(dlg, ctx, copy_url_fn))
-            else:
-                copy_btn.getModel().Visible = False
-
-        class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent) -> None:
-                dlg.endDialog(1)
-            def disposing(self, Source: EventObject) -> None:
-                pass
-
-        ok_btn = dlg.getControl("OKBtn")
-        if ok_btn is not None:
-            ok_btn.addActionListener(_OkListener())
-
-        # Background update
-        import time
-
-        def _probe_update() -> None:
-            time.sleep(0.05)
-            try:
-                updated = build_status_fn()
-                if status_ctrl is not None:
-                    status_ctrl.getModel().Label = updated
-                if has_copy and copy_btn is not None:
-                    url = copy_url_fn() if copy_url_fn else None
-                    copy_btn.getModel().Enabled = bool(url)
-            except Exception:
-                pass  # dialog already closed
-
-        run_in_background(_probe_update, daemon=True, name="status-dialog-probe")
-
-        dlg.execute()
-        dlg.dispose()
-    except Exception:
-        log.exception("Status dialog error")
-        msgbox(ctx, title, build_status_fn())
 
 
 # ── XDL dialog loading ──────────────────────────────────────────────

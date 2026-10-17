@@ -119,8 +119,6 @@ Button widths are measured from the English strings `"Send"`, `"Record"`, `"Stop
 
 The image-model combo is editable (`dlg:dropdown="true"`) and only has an item listener (`plugin/chatbot/panel_factory.py` around line 766). The text-model combo gets both `ModelSyncListener` and `ModelTextSyncListener` because list selection and typing do not share one event. A typed image id never reaches `set_image_model`. The next `config:changed` refresh repaints the combo from `get_image_model()` and drops it. Add the same `addTextListener` path, still bailing out while `_in_refresh_controls` is set.
 
-`status_dialog` in `plugin/chatbot/dialogs.py` (around line 647) sets a label from a pool thread while `dlg.execute()` blocks the main thread, and `except: pass` drops disposal. No `plugin/` caller. MCP status is a different dialog (`ServerStatusDialog` in `plugin/mcp/__init__.py`). If this helper stays, post the label update with `post_to_main_thread` and log disposal.
-
 `_OkListener` / `_CancelListener` are raw `unohelper.Base, XActionListener` in several `dialogs.py` helpers. Copy buttons in the same functions use `BaseActionListener`. Those dialogs also `dispose()` after `execute()` with no `finally`. `msgbox` and `show_approval_dialog` already dispose in `finally`. One local `BaseActionListener` that calls `endDialog`, plus `try` / `finally: dlg.dispose()`, matches `msgbox`.
 
 ## Transcript and history

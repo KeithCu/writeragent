@@ -94,15 +94,12 @@ def provider_icon_filename(stem: str, ctx: Any = None, px: int | None = None) ->
 def apply_provider_button_icon(ctrl: Any, ctx: Any, stem: str) -> None:
     """Load the mark onto a PushButton control model aligned with LeftCenter."""
     filename = provider_icon_filename(stem, ctx=ctx)
-    try:
-        ext_url = get_extension_url(ctx)
-        if not ext_url:
-            return
-        model = ctrl.getModel()
-        model.ImageURL = menu_icon_asset_url(ext_url, filename)
-        model.ImagePosition = _IMAGE_POSITION_LEFT_CENTER
-    except Exception:
-        log.debug("Provider button icon %s failed", filename, exc_info=True)
+    ext_url = get_extension_url(ctx)
+    if not ext_url:
+        return
+    model = ctrl.getModel()
+    model.ImageURL = menu_icon_asset_url(ext_url, filename)
+    model.ImagePosition = _IMAGE_POSITION_LEFT_CENTER
 
 
 def _load_selection_token_controls(extend_ctrl: Any, edit_extra_ctrl: Any) -> None:
@@ -1057,14 +1054,8 @@ class _TtsTestProgressBox:
         self._dlg = None
         if dlg is None:
             return
-        try:
-            dlg.setVisible(False)
-        except Exception:
-            log.debug("TTS test progress hide failed", exc_info=True)
-        try:
-            dlg.dispose()
-        except Exception:
-            log.debug("TTS test progress dispose failed", exc_info=True)
+        dlg.setVisible(False)
+        dlg.dispose()
 
 
 class _TtsTestStatusSink:
@@ -1126,10 +1117,7 @@ class TtsTestVoiceListener(BaseActionListener):
     def _status(self, message: str) -> None:
         """Tell the user why the sample did not play. A failed box must not close Settings."""
         log.info("TTS test: %s", message)
-        try:
-            msgbox(self._ctx, _("Speech"), message)
-        except Exception:
-            log.debug("TTS test status dialog failed", exc_info=True)
+        msgbox(self._ctx, _("Speech"), message)
 
     def _show_progress(self, message: str) -> None:
         if self._progress is None or self._progress._closed:
@@ -1147,10 +1135,7 @@ class TtsTestVoiceListener(BaseActionListener):
             ctrl = get_optional(self._dlg, name)
             if ctrl is None or not hasattr(ctrl, "getText"):
                 continue
-            try:
-                return str(ctrl.getText() or "")
-            except Exception:
-                log.debug("TTS test: could not read %s", name, exc_info=True)
+            return str(ctrl.getText() or "")
         return ""
 
     def _speak_sample(self) -> None:
@@ -1313,10 +1298,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self.get_tts_model = get_tts_model
         # URL whose saved key the field was last aligned to. Set from the
         # combo at attach time so the first keystroke is a change, not a baseline.
-        try:
-            opened = str(combo_ctrl.getText() or "") if combo_ctrl is not None else ""
-        except Exception:
-            opened = ""
+        opened = str(combo_ctrl.getText() or "") if combo_ctrl is not None else ""
         self._synced_endpoint = self.endpoint_from_selector_text(opened) or None
         # True once the user types in the key field after the last URL sync.
         self._user_edited_key: bool = False
@@ -1587,11 +1569,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         ctrl = get_optional(self._dlg, "audio__tts_model") or get_optional(self._dlg, "tts_model")
         if ctrl is None or not hasattr(ctrl, "getText"):
             return ""
-        try:
-            return str(ctrl.getText() or "").strip()
-        except Exception:
-            log.debug("TTS model id for voice fetch unavailable", exc_info=True)
-            return ""
+        return str(ctrl.getText() or "").strip()
 
     def _bg_fetch(self, gen: int, resolved: str, tts_model_id: str = "", key_ov: str | None = None) -> None:
         if self._closed or gen != self._debounce_gen: return

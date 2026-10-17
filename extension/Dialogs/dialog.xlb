@@ -16,7 +16,6 @@
  <library:element library:name="WebSearchQueryEditDialog"/>
  <library:element library:name="ShortTextInputDialog"/>
  <library:element library:name="MsgBoxWithCopyDialog"/>
- <library:element library:name="StatusUpdateDialog"/>
  <library:element library:name="PythonTestProgressDialog"/>
  <library:element library:name="NewScriptDialog"/>
  <library:element library:name="VisionSettingsDialog"/>

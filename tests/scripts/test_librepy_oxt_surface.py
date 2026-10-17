@@ -66,7 +66,6 @@ _FORBIDDEN_UI = (
     "Dialogs/SpreadsheetImportDialog.xdl",
     "Dialogs/WebSearchQueryEditDialog.xdl",
     "Dialogs/ServerStatusDialog.xdl",
-    "Dialogs/StatusUpdateDialog.xdl",
 )
 
 

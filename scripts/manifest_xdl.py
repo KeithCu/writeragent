@@ -926,7 +926,6 @@ def update_dialog_xlb(library_dir, dialog_names, tpl_path=None):
         "WebSearchQueryEditDialog",
         "ShortTextInputDialog",
         "MsgBoxWithCopyDialog",
-        "StatusUpdateDialog",
         "PythonTestProgressDialog",
         "NewScriptDialog",
     ]

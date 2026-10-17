@@ -86,7 +86,6 @@ For building dialogs entirely in code or adding dynamic widgets:
 | `msgbox_with_report(ctx, title, message, ...)` | `plugin.chatbot.dialogs` | Error message box with a "Report Issue" button opening GitHub. |
 | `input_box(ctx, message, title="", default="")` | `plugin.chatbot.dialog_views` | Multi-line text input dialog (`EditInputDialog.xdl`) with prompt/model LRU comboboxes. The model combo passes `skip_remote_fetch` so Edit/Extend Selection does not block the UI thread on `/v1/models`. |
 | `show_text_input_dialog(ctx, message, title="", default="")` | `plugin.chatbot.dialogs` | Simple single-line text input dialog (`ShortTextInputDialog.xdl`). |
-| `status_dialog(ctx, title, build_status_fn, copy_url_fn=None)` | `plugin.chatbot.dialogs` | Modeless live-updating probe/status dialog (`ServerStatusDialog.xdl`). |
 
 ### 3.5 Combobox & Dropdown Populators
 
