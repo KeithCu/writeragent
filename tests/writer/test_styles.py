@@ -547,7 +547,7 @@ def test_create_style_conditional_failure_rolls_back():
 
     tool = StyleCreate()
     rules = [{"context": "Table", "target_style": "Heading 1"}]
-    with patch.object(styles_mod.uno, "createUnoStruct", return_value=nv_instance, create=True):
+    with patch.object(styles_mod.uno, "createUnoStruct", return_value=nv_instance):
         res = tool.execute(mock_ctx, style="CondStyle", conditional_rules=rules)
 
     assert res["status"] == "error"
@@ -568,7 +568,7 @@ def test_create_style_conditional():
 
     tool = StyleCreate()
     rules = [{"context": "Table", "target_style": "Heading 1"}]
-    with patch.object(styles_mod.uno, "createUnoStruct", return_value=nv_instance, create=True):
+    with patch.object(styles_mod.uno, "createUnoStruct", return_value=nv_instance):
         res = tool.execute(mock_ctx, style="CondStyle", conditional_rules=rules)
 
     assert res["status"] == "ok"
@@ -828,7 +828,7 @@ def test_tab_stops_are_set_through_a_typed_sequence():
 
     style = MagicMock()
     value = (object(),)
-    with patch("uno.invoke", create=True) as invoke, patch("uno.Any", create=True) as any_:
+    with patch("uno.invoke") as invoke, patch("uno.Any") as any_:
         styles._set_style_property(style, "ParaTabStops", value)
     any_.assert_called_once_with("[]com.sun.star.style.TabStop", value)
     assert invoke.call_args.args[1] == "setPropertyValue"

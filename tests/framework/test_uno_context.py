@@ -733,14 +733,14 @@ def test_uno_same_issame_when_is_and_eq_fail(return_value, expected):
     from plugin.framework.uno_context import uno_same
 
     a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", return_value=return_value, create=True):
+    with patch.object(sys.modules["uno"], "isSame", return_value=return_value):
         assert uno_same(a, b) is expected
 
 def test_uno_same_false_when_issame_missing():
     from plugin.framework.uno_context import uno_same
 
     a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", None, create=True):
+    with patch.object(sys.modules["uno"], "isSame", None):
         assert uno_same(a, b) is False
 
 
@@ -749,7 +749,7 @@ def test_uno_same_mocked_issame_is_not_treated_as_true():
     from plugin.framework.uno_context import uno_same
 
     a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", MagicMock(), create=True):
+    with patch.object(sys.modules["uno"], "isSame", MagicMock()):
         assert uno_same(a, b) is False
 
 
@@ -782,7 +782,7 @@ def test_uno_same_issame_unwraps_proxy_first():
         seen.append((left, right))
         return left is real_a and right is real_b
 
-    with patch.object(sys.modules["uno"], "isSame", _issame, create=True):
+    with patch.object(sys.modules["uno"], "isSame", _issame):
         # ``==`` is False (distinct objects / proxy target ≠ other), so ladder hits isSame.
         assert uno_same(proxy_a, real_b) is True
     assert seen == [(real_a, real_b)]
@@ -796,7 +796,7 @@ def test_uno_same_off_thread_raises_on_thread_issame_still_works(monkeypatch):
     skip_if_release_build("release bundles stub main_thread_only")
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     a, b = _NeverEq(), _NeverEq()
-    with patch.object(sys.modules["uno"], "isSame", return_value=True, create=True):
+    with patch.object(sys.modules["uno"], "isSame", return_value=True):
         assert uno_same(a, b) is True
 
     was = tg.GUARD_ON

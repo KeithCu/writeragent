@@ -550,7 +550,7 @@ def test_scan_sees_logo_when_pyuno_wrappers_differ():
     assert header != other
     doc, _style = _page_style_doc(header, shapes=[_logo_anchored_in(other)])
 
-    with patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {header, other}, create=True):
+    with patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {header, other}):
         scan = _scan_region_content(doc, header)
 
     assert scan["images"] == ["TIMBRE"]
@@ -567,7 +567,7 @@ def test_get_header_reports_logo_when_anchor_text_wrapper_differs():
     doc, _style = _page_style_doc(text_obj, shapes=[_logo_anchored_in(other)])
 
     with (
-        patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {text_obj, other}, create=True),
+        patch.object(sys.modules["uno"], "isSame", side_effect=lambda a, b: {a, b} == {text_obj, other}),
         patch("plugin.writer.html_export.xtext_to_content", return_value=""),
     ):
         res = PageGetHeaderFooterText().execute(

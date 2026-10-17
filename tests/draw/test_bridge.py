@@ -798,7 +798,7 @@ def test_get_draw_context_for_chat_uses_uno_same_when_wrappers_differ():
         patch("plugin.draw.bridge.check_disposed"),
         patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
         patch("plugin.draw.bridge.safe_call", side_effect=lambda fn, _msg, *args: fn(*args) if args else fn()),
-        patch("uno.isSame", _issame, create=True),
+        patch("uno.isSame", _issame),
     ):
         out = get_draw_context_for_chat(model, 8000)
 
