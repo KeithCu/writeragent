@@ -299,6 +299,56 @@ class TestSendDispose:
             assert not _live_bus_callbacks(shared, "mcp:result")
             assert not _live_bus_callbacks(shared, "grammar:status")
 
+    def test_off_main_thread_before_bootstrap_defers_mcp_subscribe(self) -> None:
+        """Outside URP dispatch builds the panel on a Dummy thread before bootstrap.
+
+        get_tools() would raise BOOTSTRAP_OFF_THREAD there. The MCP subscription
+        must be posted to the main thread instead of called inline.
+        """
+        from plugin.framework.event_bus import EventBus
+
+        local_bus = EventBus()
+        grammar_bus = EventBus()
+        services = MagicMock()
+        services.events = local_bus
+        tools = MagicMock()
+        tools._services = services
+        posted: list[Any] = []
+        get_tools = MagicMock(return_value=tools)
+        with (
+            patch("plugin.main._initialized", False),
+            patch("plugin.main.get_tools", get_tools),
+            patch("plugin.framework.thread_guard.on_python_main_thread", return_value=False),
+            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: posted.append(fn)),
+            patch("plugin.framework.event_bus.global_event_bus", grammar_bus),
+        ):
+            listener = _make_send_listener()
+            get_tools.assert_not_called()
+            assert _live_bus_callbacks(grammar_bus, "grammar:status")
+            assert not _live_bus_callbacks(local_bus, "mcp:request")
+            assert len(posted) == 1
+            posted[0]()  # what the main thread runs later
+            get_tools.assert_called_once()
+            assert _live_bus_callbacks(local_bus, "mcp:request")
+            assert _live_bus_callbacks(local_bus, "mcp:result")
+            listener.disposing(None)
+            assert not _live_bus_callbacks(local_bus, "mcp:request")
+
+    def test_deferred_mcp_subscribe_skipped_after_teardown(self) -> None:
+        posted: list[Any] = []
+        get_tools = MagicMock()
+        with (
+            patch("plugin.main._initialized", False),
+            patch("plugin.main.get_tools", get_tools),
+            patch("plugin.framework.thread_guard.on_python_main_thread", return_value=False),
+            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: posted.append(fn)),
+        ):
+            listener = _make_send_listener()
+            listener.disposing(None)
+            posted[0]()
+        get_tools.assert_not_called()
+        assert listener._mcp_event_bus is None
+
     def test_disposing_clears_audio_auto_stop_callbacks(self) -> None:
         listener = _make_send_listener()
         listener.audio_recorder = MagicMock()

@@ -688,21 +688,39 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         # Subscribe to MCP/tool bus events
         try:
-            from plugin.main import get_tools
             from plugin.framework.event_bus import global_event_bus
+            from plugin.framework.queue_executor import post_to_main_thread
+            from plugin.framework.thread_guard import on_python_main_thread
+            import plugin.main as _main
 
-            event_bus = getattr(get_tools()._services, "events", None)
-            if event_bus:
-                # Remember this object and unsubscribe it in disposing.
-                # Unsubscribing global_event_bus leaves this subscription,
-                # which keeps calling a closed panel.
-                self._mcp_event_bus = event_bus
-                event_bus.subscribe("mcp:request", self._on_mcp_request, weak=True)
-                event_bus.subscribe("mcp:result", self._on_mcp_result, weak=True)
-                log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
+            # get_tools() may have to bootstrap, and bootstrap only runs on the
+            # Python main thread. A Chat deck opened by an outside URP dispatch
+            # builds this listener on a PyUNO Dummy thread before bootstrap has
+            # run, and get_tools() raised BOOTSTRAP_OFF_THREAD here. Defer the
+            # MCP subscription to the main thread in that case.
+            if _main._initialized or on_python_main_thread():
+                self._subscribe_mcp_events()
+            else:
+                post_to_main_thread(self._subscribe_mcp_events)
             global_event_bus.subscribe("grammar:status", self._on_grammar_status, weak=True)
         except Exception:
             log.exception("SendButtonListener event subscribe error")
+
+    def _subscribe_mcp_events(self) -> None:
+        """Join services.events for mcp:request / mcp:result (may bootstrap; main thread)."""
+        if self._panel_teardown:
+            return
+        from plugin.main import get_tools
+
+        event_bus = getattr(get_tools()._services, "events", None)
+        if event_bus:
+            # Remember this object and unsubscribe it in disposing.
+            # Unsubscribing global_event_bus leaves this subscription,
+            # which keeps calling a closed panel.
+            self._mcp_event_bus = event_bus
+            event_bus.subscribe("mcp:request", self._on_mcp_request, weak=True)
+            event_bus.subscribe("mcp:result", self._on_mcp_result, weak=True)
+            log.debug(f"*** SendButtonListener subscribed to MCP events on services.events (id={id(event_bus)}) ***")
 
     def set_rich_text_widget(self, widget: Any) -> None:
         """Enable RichTextControl sidebar rendering via hidden-doc formatted copy."""
