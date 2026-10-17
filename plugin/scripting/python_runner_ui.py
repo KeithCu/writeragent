@@ -107,17 +107,10 @@ def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: s
     from plugin.framework.errors import is_disposed_exception
 
     text = _("The document is no longer open.") if is_disposed_exception(exc) else str(exc)
-    lbl = None
-    try:
-        lbl = dlg.getControl("InstructionLbl")
-    except Exception:
-        lbl = None
+    lbl = dlg.getControl("InstructionLbl")
     if lbl is not None:
-        try:
-            set_control_text(lbl, text)
-            return
-        except Exception:
-            log.exception("Could not update the script dialog status")
+        set_control_text(lbl, text)
+        return
     msgbox(ctx, _("Error"), text)
 
 
@@ -241,17 +234,11 @@ def _picker_select_name(select_ctrl: Any, name: str, names: list[str]) -> None:
                 # test_picker_select_name_combobox_uses_set_text uses MagicMock(spec=[]), which has no selectItemPos,
                 # so it never took the return.
                 # Why this change fixes it: selectItemPos still runs when the name is in the list, and setText
-                # still runs when the control has it, including when selectItemPos raises.
-                try:
-                    select_ctrl.selectItemPos(idx, True)
-                except Exception as e:
-                    log.debug("script picker: selectItemPos failed: %s", e)
+                # still runs when the control has it.
+                select_ctrl.selectItemPos(idx, True)
                 break
     if hasattr(select_ctrl, "setText"):
-        try:
-            select_ctrl.setText(name)
-        except Exception as e:
-            log.debug("script picker: setText failed: %s", e)
+        select_ctrl.setText(name)
 
 
 class NativePythonScriptDialog:
@@ -333,14 +320,8 @@ class NativePythonScriptDialog:
                 log.debug("native script dialog: hide after windowClosing failed", exc_info=True)
             return
         log.debug("native script dialog: close dispose")
-        try:
-            dlg.setVisible(False)
-        except Exception:
-            log.exception("Failed to hide native script dialog")
-        try:
-            dlg.dispose()
-        except Exception:
-            log.exception("Failed to dispose native script dialog")
+        dlg.setVisible(False)
+        dlg.dispose()
 
     def _refresh_script_dropdown(self, select_display: str | None = None) -> None:
         select_ctrl = self._select_ctrl
@@ -375,21 +356,15 @@ class NativePythonScriptDialog:
             _picker_select_name(select_ctrl, selected_name, names)
             set_config(config_key, selected_name)
             if dlg is not None:
-                try:
-                    code_ctrl = dlg.getControl("CodeEdit")
-                    if code_ctrl is not None:
-                        code_ctrl.setText(merged.get(selected_name, ""))
-                except Exception as exc:
-                    log.debug("Failed to set code edit text on refresh: %s", exc)
+                code_ctrl = dlg.getControl("CodeEdit")
+                if code_ctrl is not None:
+                    code_ctrl.setText(merged.get(selected_name, ""))
         else:
             # Clear editor when no scripts remain
             if dlg is not None:
-                try:
-                    code_ctrl = dlg.getControl("CodeEdit")
-                    if code_ctrl is not None:
-                        code_ctrl.setText("")
-                except Exception as exc:
-                    log.debug("Failed to clear code edit text on refresh: %s", exc)
+                code_ctrl = dlg.getControl("CodeEdit")
+                if code_ctrl is not None:
+                    code_ctrl.setText("")
 
     def _open(self) -> bool:
         ctx = self._ctx
@@ -463,18 +438,12 @@ class NativePythonScriptDialog:
                 # Why this change fixes it: the modeless dialog focuses CodeEdit after it is visible,
                 # and a focus error is logged instead of disposing the dialog.
                 if code_ctrl is not None:
-                    try:
-                        code_ctrl.setFocus()
-                    except Exception:
-                        log.debug("native script dialog: setFocus after show failed", exc_info=True)
+                    code_ctrl.setFocus()
                 return True
             dlg.execute()
             self._closed = True
             self._dlg = None
-            try:
-                dlg.dispose()
-            except Exception:
-                log.debug("native script dialog: modal dispose after execute", exc_info=True)
+            dlg.dispose()
             return True
         except Exception as exc:
             from plugin.scripting.editor_errors import exception_traceback

@@ -1075,12 +1075,6 @@ def test_picker_select_name_set_text_follows_select_item_pos():
     ctrl.setText.assert_called_once_with("B")
 
 
-def test_picker_select_name_set_text_when_select_item_pos_raises():
-    ctrl = MagicMock()
-    ctrl.selectItemPos.side_effect = RuntimeError("uno")
-    ui._picker_select_name(ctrl, "B", ["A", "B"])
-    ctrl.setText.assert_called_once_with("B")
-
 
 def test_picker_select_name_unknown_name_skips_select_item_pos():
     ctrl = MagicMock()

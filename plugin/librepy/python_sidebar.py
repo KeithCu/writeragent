@@ -291,41 +291,19 @@ def _populate_listbox(control: Any, lines: list[str]) -> None:
     model = control.getModel() if hasattr(control, "getModel") else None
     if model is None:
         return
-    try:
-        model.StringItemList = tuple(lines)
-    except Exception:
-        try:
-            # Some UNO builds want a sequence assignment via remove/insert
-            while model.getItemCount():
-                model.removeItem(0)
-            for line in lines:
-                model.insertItem(model.getItemCount(), line, "")
-        except Exception:
-            log.debug("populate listbox failed", exc_info=True)
+    model.StringItemList = tuple(lines)
 
 
 def _selected_index(control: Any) -> int:
     if control is None:
         return -1
-    try:
-        return int(control.getSelectedItemPos())
-    except Exception:
-        try:
-            sels = control.getSelectedItemsPos()
-            if sels:
-                return int(sels[0])
-        except Exception:
-            pass
-    return -1
+    return int(control.getSelectedItemPos())
 
 
 def _filter_from_combo(control: Any) -> DiagnosticFilter:
     if control is None:
         return "all"
-    try:
-        text = str(control.getText() or "").strip()
-    except Exception:
-        text = ""
+    text = str(control.getText() or "").strip()
     for label, filt in _filter_choices():
         if text == label:
             return filt
@@ -338,10 +316,7 @@ def _filter_from_combo(control: Any) -> DiagnosticFilter:
 def _select_diag_row(control: Any, index: int) -> None:
     if control is None or not hasattr(control, "selectItemPos"):
         return
-    try:
-        control.selectItemPos(index, True)
-    except Exception:
-        log.debug("selectItemPos failed", exc_info=True)
+    control.selectItemPos(index, True)
 
 
 class PythonSidebarController:
@@ -370,10 +345,7 @@ class PythonSidebarController:
         self._disposed = False
         self._refresh_pending = False
         self._suppress_diag_nav = False
-        try:
-            translate_dialog(root_window)
-        except Exception:
-            log.debug("translate_dialog failed for Python sidebar", exc_info=True)
+        translate_dialog(root_window)
         if not self._calc_panel:
             self._hide_calc_only_controls()
         self._wire()
@@ -396,10 +368,7 @@ class PythonSidebarController:
         except Exception:
             log.exception("python sidebar initial refresh failed")
         if self._calc_panel:
-            try:
-                self._store.add_listener(self._on_diag)
-            except Exception:
-                log.debug("sidebar diagnostics listener add failed", exc_info=True)
+            self._store.add_listener(self._on_diag)
 
     def disposing(self) -> None:
         self._disposed = True
@@ -417,14 +386,8 @@ class PythonSidebarController:
             root = getattr(rl, "_root_window", None)
             rl._root_window = None
             if root is not None and hasattr(root, "removeWindowListener"):
-                try:
-                    root.removeWindowListener(rl)
-                except Exception:
-                    log.debug("sidebar resize listener remove failed", exc_info=True)
-        try:
-            self._store.remove_listener(self._on_diag)
-        except Exception:
-            log.debug("sidebar diagnostics listener remove failed", exc_info=True)
+                root.removeWindowListener(rl)
+        self._store.remove_listener(self._on_diag)
         activation = getattr(self, "_activation_listener", None)
         self._activation_listener = None
         if activation is not None and self.frame is not None:
@@ -460,13 +423,10 @@ class PythonSidebarController:
     def _wire(self) -> None:
         filter_combo = self._ctrl("filter_combo") if self._calc_panel else None
         if filter_combo is not None:
-            try:
-                model = filter_combo.getModel()
-                choices = _filter_choices()
-                model.StringItemList = tuple(label for label, _filt in choices)
-                filter_combo.setText(choices[0][0])
-            except Exception:
-                log.debug("filter combo init failed", exc_info=True)
+            model = filter_combo.getModel()
+            choices = _filter_choices()
+            model.StringItemList = tuple(label for label, _filt in choices)
+            filter_combo.setText(choices[0][0])
 
         bindings: list[tuple[str, Any]] = [("btn_reset", self._on_reset), ("btn_settings", self._on_settings)]
         if self._calc_panel:
@@ -475,31 +435,19 @@ class PythonSidebarController:
             ctrl = self._ctrl(cid)
             if ctrl is None:
                 continue
-            try:
-                ctrl.addActionListener(_Action(handler))
-            except Exception:
-                log.debug("wire action %s failed", cid, exc_info=True)
+            ctrl.addActionListener(_Action(handler))
 
         if self._calc_panel:
             cells = self._ctrl("cells_list")
             if cells is not None:
-                try:
-                    cells.addItemListener(_Item(self._on_cell_selected))
-                except Exception:
-                    log.debug("wire cells_list failed", exc_info=True)
+                cells.addItemListener(_Item(self._on_cell_selected))
 
             diags = self._ctrl("diag_list")
             if diags is not None:
-                try:
-                    diags.addItemListener(_Item(self._on_diag_selected))
-                except Exception:
-                    log.debug("wire diag_list failed", exc_info=True)
+                diags.addItemListener(_Item(self._on_diag_selected))
 
             if filter_combo is not None:
-                try:
-                    filter_combo.addItemListener(_Item(self._on_filter_changed))
-                except Exception:
-                    log.debug("wire filter_combo failed", exc_info=True)
+                filter_combo.addItemListener(_Item(self._on_filter_changed))
 
         try:
             header = {cid: self._ctrl(cid) for cid in HEADER_BUTTON_IDS}

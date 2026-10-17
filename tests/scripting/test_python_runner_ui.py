@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework import queue_executor as qe
 from plugin.scripting import python_runner_ui as ui
 from plugin.scripting.document_scripts import DocumentScriptError, DocumentScriptErrorCode
 
@@ -45,7 +46,7 @@ def test_report_script_dialog_error_shows_the_exception():
 def test_report_script_dialog_error_disposed_document():
     ctx = MagicMock()
     dlg = MagicMock()
-    dlg.getControl.side_effect = RuntimeError("no dialog")
+    dlg.getControl.return_value = None
     with (
         patch.object(ui, "msgbox") as mock_box,
         patch("plugin.framework.errors.is_disposed_exception", return_value=True),
@@ -114,8 +115,6 @@ def _deliver_posted_native_run():
     no-service inline) and drain that queue from the poke. The product still
     posts the outcome; the harness plays the UI turn that would run it.
     """
-    from plugin.framework import queue_executor as qe
-
     executor = qe.default_executor
     saved_init = executor._initialized
     saved_svc = executor._async_callback_service
