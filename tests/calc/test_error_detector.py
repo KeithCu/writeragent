@@ -10,7 +10,7 @@
 
 
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from plugin.calc.error_detector import (
     ERROR_PATTERNS,
@@ -46,4 +46,51 @@ def test_get_error_type():
     cell.getError.return_value = 8888
     res = ErrorDetector.get_error_type(cell)
     assert res["code"] == "Err:8888"
+
+
+def test_explain_error_precedent_probe_fallback():
+    bridge = MagicMock()
+    inspector = MagicMock()
+    cell = MagicMock()
+    cell.getError.return_value = 532  # #DIV/0!
+    cell.getFormula.return_value = "=A1/B1"
+    sheet = MagicMock()
+    sheet.getCellByPosition.return_value = cell
+    bridge.get_active_sheet.return_value = sheet
+    inspector.get_cell_details.return_value = {"formula": "=A1/B1"}
+
+    # A1 succeeds, B1 raises non-disposal Exception (e.g. read error)
+    def fake_read_cell(addr: str) -> dict[str, str]:
+        if addr == "A1":
+            return {"address": "A1", "value": "10", "type": "number"}
+        raise RuntimeError("cannot read cell")
+
+    inspector.read_cell.side_effect = fake_read_cell
+
+    detector = ErrorDetector(bridge, inspector)
+    res = detector.explain_error("C1")
+    assert res["error"]["code"] == "#DIV/0!"
+    precs = {p["address"]: p for p in res["precedents"]}
+    assert precs["A1"]["value"] == "10"
+    assert precs["B1"]["value"] == "UNREADABLE"
+
+
+def test_explain_error_dep_chain_best_effort():
+    bridge = MagicMock()
+    inspector = MagicMock()
+    cell = MagicMock()
+    cell.getError.return_value = 532
+    cell.getFormula.return_value = "=A1"
+    sheet = MagicMock()
+    sheet.getCellByPosition.return_value = cell
+    bridge.get_active_sheet.return_value = sheet
+    inspector.get_cell_details.return_value = {"formula": "=A1"}
+    inspector.read_cell.return_value = {"address": "A1", "value": "0", "type": "number"}
+
+    detector = ErrorDetector(bridge, inspector)
+    with patch("plugin.calc.error_detector.fetch_formula_dep_chain", side_effect=RuntimeError("no dep chain")):
+        res = detector.explain_error("B1")
+        assert "dependency_chain" not in res
+        assert res["error"]["code"] == "#DIV/0!"
+
 

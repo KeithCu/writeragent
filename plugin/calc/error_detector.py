@@ -25,6 +25,8 @@ import re
 from typing import Any
 
 from plugin.calc.address_utils import parse_address
+from plugin.calc.formula_dep_chain import fetch_formula_dep_chain
+from plugin.framework.errors import best_effort, reraise_if_disposed, uno_probe
 
 # Regex for matching cell references (e.g. A1, $B$2)
 CELL_REF_PATTERN = re.compile(r"\$?([A-Z]+)\$?(\d+)")
@@ -191,21 +193,18 @@ class ErrorDetector:
 
         precedent_details = []
         for prec_addr in precedent_addrs:
-            try:
-                prec_info = self.inspector.read_cell(prec_addr)
-                precedent_details.append(prec_info)
-            except Exception:
-                precedent_details.append({"address": prec_addr, "value": "UNREADABLE", "type": "unknown"})
+            prec_info = uno_probe(
+                lambda addr=prec_addr: self.inspector.read_cell(addr),
+                {"address": prec_addr, "value": "UNREADABLE", "type": "unknown"},
+            )
+            precedent_details.append(prec_info)
 
         suggestion = self._generate_suggestion(error_info, precedent_details)
 
-        dependency_chain = None
-        try:
-            from plugin.calc.formula_dep_chain import fetch_formula_dep_chain
-
-            dependency_chain = fetch_formula_dep_chain(self.bridge.doc, self.ctx, address)
-        except Exception as e:
-            log.debug("FormulaDepChain unavailable for %s: %s", address, e)
+        dependency_chain = best_effort(
+            lambda: fetch_formula_dep_chain(self.bridge.doc, self.ctx, address),
+            f"FormulaDepChain unavailable for {address}",
+        )
 
         result = {"address": address.upper(), "formula": cell_details.get("formula", ""), "error": error_info, "precedents": precedent_details, "suggestion": suggestion}
         if dependency_chain:
@@ -231,6 +230,7 @@ class ErrorDetector:
             try:
                 detailed.append(self.explain_error(address))
             except Exception as e:
+                reraise_if_disposed(e)
                 log.warning("Explain errors failed for %s: %s", address, e)
                 detailed.append({"address": address, "formula": item.get("formula", ""), "error": item.get("error"), "precedents": [], "suggestion": "Could not explain error; basic info shown."})
 

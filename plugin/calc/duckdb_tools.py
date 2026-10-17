@@ -14,7 +14,7 @@ from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception
+from plugin.framework.errors import ToolExecutionError, is_disposed_exception, uno_probe
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.venv.duckdb_sql import FLAT_FILE_EXTS, unsupported_flat_type_message
@@ -27,23 +27,6 @@ if TYPE_CHECKING:
 log = logging.getLogger("writeragent.calc.duckdb")
 
 OFFICE_EXTS = (".xlsx", ".xls", ".ods")
-
-
-def _reraise_if_disposed(exc: BaseException) -> None:
-    """Leave disposal alone so ``execute_safe`` can report DOCUMENT_DISPOSED.
-
-    Re-raise disposal. ``execute_safe`` maps ``DisposedException`` and
-    ``DocumentDisposedError`` to ``DOCUMENT_DISPOSED`` and stops the turn.
-    The table-read loop, ``execute``, and the sibling-file reader used to
-    catch ``Exception`` and rewrite it, including disposal, as
-    ``TOOL_EXECUTION_ERROR`` or ``DUCKDB_SQL_ERROR``. Named-range and
-    open-workbook probes swallowed it and continued, so the caller saw a
-    missing name or a failed open. A live-document ``RuntimeException``
-    still fails as a normal tool error because this does not wrap it as
-    ``DocumentDisposedError``.
-    """
-    if is_disposed_exception(exc):
-        raise
 
 
 class QueryFolderSqlTool(ToolCalcPythonSqlBase):
@@ -314,11 +297,7 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
 def _container_element_names(container: Any) -> list[str]:
     if container is None or not hasattr(container, "getElementNames"):
         return []
-    try:
-        return [str(n) for n in container.getElementNames()]
-    except Exception as exc:
-        _reraise_if_disposed(exc)
-        return []
+    return uno_probe(lambda: [str(n) for n in container.getElementNames()], [])
 
 
 def _available_named_sources(doc: Any) -> str:
@@ -351,7 +330,7 @@ def _lookup_named_range_object(doc: Any, name: str) -> Any | None:
         if bare != name and nrs.hasByName(bare):
             return nrs.getByName(bare)
 
-    try:
+    def _active_named_ranges() -> Any:
         controller = doc.getCurrentController()
         if controller is not None and hasattr(controller, "getActiveSheet"):
             sheet = controller.getActiveSheet()
@@ -361,9 +340,9 @@ def _lookup_named_range_object(doc: Any, name: str) -> Any | None:
                     return local.getByName(name)
                 if local.hasByName(bare):
                     return local.getByName(bare)
-    except Exception as exc:
-        _reraise_if_disposed(exc)
-    return None
+        return None
+
+    return uno_probe(_active_named_ranges, None)
 
 
 def _lookup_database_range_object(doc: Any, name: str) -> Any | None:
@@ -396,19 +375,11 @@ def used_range_qualified_a1(sheet: Any) -> str:
 def _named_object_to_qualified_a1(doc: Any, obj: Any, *, label: str) -> str:
     addr = None
     if hasattr(obj, "getReferredCells"):
-        try:
-            cells = obj.getReferredCells()
-        except Exception as exc:
-            _reraise_if_disposed(exc)
-            cells = None
+        cells = uno_probe(obj.getReferredCells, None)
         if cells is not None and hasattr(cells, "getRangeAddress"):
             addr = cells.getRangeAddress()
     if addr is None and hasattr(obj, "getDataArea"):
-        try:
-            addr = obj.getDataArea()
-        except Exception as exc:
-            _reraise_if_disposed(exc)
-            addr = None
+        addr = uno_probe(obj.getDataArea, None)
     if addr is None:
         raise ToolExecutionError(f"{label} does not refer to a cell range", code="DUCKDB_SQL_ERROR")
     return _range_address_to_qualified_a1(doc, addr)
@@ -515,17 +486,12 @@ def _source_is_open_workbook(ctx: Any, full_path: str) -> bool:
     The live workbook must not go through the ODS cache: unsaved edits would
     be skipped, and ``storeToURL`` would export a user-visible document.
     """
-    try:
-        import uno
+    import uno
 
-        from plugin.framework.uno_context import resolve_document_by_url
+    from plugin.framework.uno_context import resolve_document_by_url
 
-        url = uno.systemPathToFileUrl(os.path.normpath(os.path.abspath(full_path)))
-        existing, _typ = resolve_document_by_url(ctx, url)
-        return existing is not None
-    except Exception as exc:
-        _reraise_if_disposed(exc)
-        return False
+    url = uno.systemPathToFileUrl(os.path.normpath(os.path.abspath(full_path)))
+    return uno_probe(lambda: resolve_document_by_url(ctx, url)[0] is not None, False)
 
 
 def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
@@ -658,7 +624,8 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
     except ToolExecutionError:
         raise
     except Exception as exc:
-        _reraise_if_disposed(exc)
+        if is_disposed_exception(exc):
+            raise
         raise _sibling_office_error(full_path, f"failed to read used range: {exc}") from exc
     finally:
         if model is not None and opened_flag:
