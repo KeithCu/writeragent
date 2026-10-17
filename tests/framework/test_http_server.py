@@ -229,3 +229,74 @@ def test_pool_cap_queues_the_overflow() -> None:
 
     assert len(pool._threads) == 1
 
+
+# ---- drain_executor: the compute server's shutdown grace -------------------
+# compute_service/server.py stops with close_sockets() -> drain_executor(30s)
+# -> server_close(). These pin both sides of that contract without the 30s.
+
+
+def _drain_server_with_blocked_handler() -> tuple[DualStackThreadPoolHTTPServer, threading.Event, threading.Event, list[str]]:
+    server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler, max_threads=2)
+    started = threading.Event()
+    release = threading.Event()
+    finished: list[str] = []
+
+    def _in_flight() -> None:
+        started.set()
+        release.wait(timeout=10)
+        finished.append("done")
+
+    server.executor.submit(_in_flight)
+    assert started.wait(timeout=5)
+    server.close_sockets()
+    return server, started, release, finished
+
+
+def test_drain_executor_waits_for_in_flight_handler_released_mid_wait(caplog) -> None:
+    server, _started, release, finished = _drain_server_with_blocked_handler()
+    waiting = threading.Event()
+    real_shutdown = server.executor.shutdown
+
+    def _shutdown_spy(*args: Any, **kwargs: Any) -> Any:
+        # drain's background waiter is now blocked on the in-flight handler.
+        waiting.set()
+        return real_shutdown(*args, **kwargs)
+
+    server.executor.shutdown = _shutdown_spy  # type: ignore[method-assign]
+    drained = threading.Event()
+
+    def _drain() -> None:
+        server.drain_executor(10.0)
+        drained.set()
+
+    caplog.set_level("WARNING", logger="plugin.framework.http_server")
+    drainer = threading.Thread(target=_drain, daemon=True)
+    try:
+        drainer.start()
+        assert waiting.wait(timeout=5)
+        # Still blocked: the handler has not been released yet.
+        assert not drained.wait(timeout=0.05)
+        assert finished == []
+        release.set()
+        assert drained.wait(timeout=5)
+        assert finished == ["done"]
+        assert "abandoning in-flight handlers" not in caplog.text
+    finally:
+        release.set()
+        drainer.join(timeout=5)
+        server.server_close()
+
+
+def test_drain_executor_abandons_after_timeout_and_warns(caplog) -> None:
+    server, _started, release, finished = _drain_server_with_blocked_handler()
+    caplog.set_level("WARNING", logger="plugin.framework.http_server")
+    try:
+        server.drain_executor(0.05)
+        # Returned while the handler is still in flight: it was abandoned.
+        assert finished == []
+        warnings = [r for r in caplog.records if r.levelname == "WARNING" and "abandoning in-flight handlers" in r.getMessage()]
+        assert len(warnings) == 1
+        assert "exceeded 0s" in warnings[0].getMessage()
+    finally:
+        release.set()
+        server.server_close()
