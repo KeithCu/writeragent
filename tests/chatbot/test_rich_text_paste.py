@@ -1110,4 +1110,3 @@ def test_hidden_writer_close_failure_is_logged(caplog):
     for record in close_records:
         assert record.exc_info is not None
         assert record.exc_info[0] is RuntimeError
-
