@@ -13,6 +13,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.excel_py_convert.script_bank import collect_script_bank, formula_for_converted_cell, iter_a1_span, report_safety_warnings, write_script_bank_uno
+from plugin.framework.errors import best_effort
 
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell
@@ -44,13 +45,9 @@ def _clear_spill_uno(sheet: Any, anchor: str, array_ref: str) -> None:
     for coord in cells:
         if coord == anchor:
             continue
-        try:
-            cell = sheet.getCellRangeByName(coord)
-            cell.setFormula("")
-            if hasattr(cell, "setString"):
-                cell.setString("")
-        except Exception:
-            continue
+        cell = sheet.getCellRangeByName(coord)
+        cell.setFormula("")
+        cell.setString("")
 
 
 def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[str]:
@@ -80,10 +77,6 @@ def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[s
             uno_cell.setFormula(_calc_formula_for_cell(cell))
         except Exception as exc:
             errors.append(f"{cell.sheet}!{cell.cell}: {exc}")
-    if not errors:
-        try:
-            if hasattr(doc, "calculateAll"):
-                doc.calculateAll()
-        except Exception:
-            log.debug("calculateAll after Excel PY apply failed", exc_info=True)
+    if not errors and hasattr(doc, "calculateAll"):
+        best_effort(doc.calculateAll, "calculateAll after Excel PY apply")
     return errors

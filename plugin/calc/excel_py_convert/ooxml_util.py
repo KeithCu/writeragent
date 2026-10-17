@@ -72,12 +72,9 @@ def find_child(parent: ET.Element, name: str) -> ET.Element | None:
 def parse_and_extract_namespaces(data: bytes) -> tuple[ET.Element, dict[str, str]]:
     """Parse XML bytes into an ElementTree root, registering and returning all in-scope namespaces."""
     ns_map: dict[str, str] = {}
-    try:
-        for _event, (prefix, uri) in ET.iterparse(io.BytesIO(data), events=["start-ns"]):
-            ns_map[prefix] = uri
-            ET.register_namespace(prefix, uri)
-    except Exception:
-        pass
+    for _event, (prefix, uri) in ET.iterparse(io.BytesIO(data), events=["start-ns"]):
+        ns_map[prefix] = uri
+        ET.register_namespace(prefix, uri)
     root = ET.fromstring(data)
     return root, ns_map
 

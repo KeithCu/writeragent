@@ -573,3 +573,33 @@ def test_maybe_export_msgbox_on_failure(tmp_path: Path):
             assert "boom" in box.call_args[0][2]
     finally:
         reset_package_extension_id_for_tests()
+
+
+def test_convert_uno_doc_to_excel_snapshot():
+    from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
+
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellRangeByName("A1").setFormula('=PY("x = 1")')
+    report = convert_uno_doc_to_excel(doc)
+    assert report.direction == "excel"
+    assert len(report.cells) == 1
+    assert report.cells[0].cell == "A1"
+    assert report.cells[0].sheet == "Sheet1"
+
+
+def test_convert_uno_doc_to_excel_resolves_script_bank():
+    from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
+
+    doc = CalcDocStub()
+    sheets = doc.getSheets()
+    sheets.insertNewByName("py_code_Sheet1", sheets.getCount())
+    bank = sheets.getByName("py_code_Sheet1")
+    bank.getCellRangeByName("B2").setString("long_script_body = 42")
+    sheet = sheets.getByName("Sheet1")
+    sheet.getCellRangeByName("B2").setFormula("=PY(py_code_Sheet1.B2)")
+    report = convert_uno_doc_to_excel(doc)
+    assert report.direction == "excel"
+    assert len(report.cells) == 1
+    assert report.cells[0].cell == "B2"
+    assert "long_script_body = 42" in report.cells[0].converted_code

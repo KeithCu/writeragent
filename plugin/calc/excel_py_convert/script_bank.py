@@ -243,7 +243,7 @@ def collect_safety_warnings(code: str) -> list[str]:
         from plugin.scripting.import_policy import venv_authorized_top_level_modules
 
         authorized = set(venv_authorized_top_level_modules())
-    except Exception:
+    except ImportError:
         authorized = {"numpy", "pandas", "matplotlib", "seaborn", "scipy", "sklearn", "sympy"}
 
     for node in ast.walk(tree):

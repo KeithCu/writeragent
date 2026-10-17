@@ -65,10 +65,7 @@ def non_anchor_spill_cells(anchor: str, array_ref: str) -> list[str]:
 def _clear_spill_range(ws: Any, anchor: str, array_ref: str) -> None:
     """Clear cached/array result cells in *array_ref*, keeping the anchor for rewrite."""
     for coord in non_anchor_spill_cells(anchor, array_ref):
-        try:
-            ws[coord].value = None
-        except Exception:
-            continue
+        ws[coord].value = None
 
 
 def _strip_content_types_python(data: bytes) -> bytes:

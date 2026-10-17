@@ -18,6 +18,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from plugin.framework.errors import best_effort
+
 log = logging.getLogger(__name__)
 
 # Document udprop set after in-place UNO apply so OnViewCreated does not re-run.
@@ -41,12 +43,9 @@ def _geometric_open_job(ctx: Any, doc: Any) -> None:
     # Wire OnUnload here so closing the workbook resets its kernel and
     # geometric state; client-side clear cannot reach soffice.
     if _is_calc_doc(doc):
-        try:
-            from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
+        from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
 
-            ensure_calc_workbook_unload_resets_python(ctx, doc)
-        except Exception:
-            log.debug("excel_py lifecycle: unload listener install failed", exc_info=True)
+        best_effort(lambda: ensure_calc_workbook_unload_resets_python(ctx, doc), "excel_py lifecycle: unload listener install")
 
 
 def _run_geometric_on_open(ctx: Any, doc: Any) -> None:
@@ -119,12 +118,9 @@ def maybe_convert_excel_py_document(ctx: Any, doc: Any) -> bool:
             log.warning("excel_py auto-open: UNO apply failed (leaving formulas as imported) for %s: %s", path, "; ".join(errors))
             return False
         set_document_property(doc, _CONVERTED_PROP, "1")
-        try:
-            from plugin.calc.excel_py_convert.convert import store_dag_meta_on_doc
+        from plugin.calc.excel_py_convert.convert import store_dag_meta_on_doc
 
-            store_dag_meta_on_doc(doc, report)
-        except Exception:
-            log.warning("excel_py auto-open: failed to store ExcelPyDagMeta", exc_info=True)
+        best_effort(lambda: store_dag_meta_on_doc(doc, report), "excel_py auto-open: store ExcelPyDagMeta")
         doc.setModified(True)
         log.info("excel_py auto-open: applied DAG =PY in place for %s (py_code_* sheets)", path)
         return True
@@ -190,13 +186,11 @@ def maybe_export_excel_py_on_save(ctx: Any, doc: Any) -> bool:
         return True
     except Exception as exc:
         log.warning("excel_py auto-save: failed for %s", path, exc_info=True)
-        try:
-            from plugin.chatbot.dialogs import msgbox
-            from plugin.framework.uno_context import product_display_name
+        from plugin.chatbot.dialogs import msgbox
+        from plugin.framework.uno_context import product_display_name
 
-            msgbox(ctx, product_display_name(ctx), _save_fail_message(path, str(exc)), box_type=2)
-        except Exception:
-            pass
+        msg = _save_fail_message(path, str(exc))
+        best_effort(lambda: msgbox(ctx, product_display_name(ctx), msg, box_type=2), "excel_py auto-save error dialog")
         return False
     finally:
         with _lock:

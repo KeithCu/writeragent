@@ -11,7 +11,7 @@ from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_
 from plugin.calc.excel_py_convert.to_excel import convert_dag_cells_to_excel
 from plugin.calc.python.cell_discovery import canonicalize_py_formula_for_parse, is_py_formula_text
 from plugin.calc.python.formula_edit import CALC_PYTHON_FN, escape_code_for_excel_formula, parse_python_formula
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import uno_probe
 
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport
@@ -33,22 +33,11 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
     meta_map = load_dag_meta_from_doc(doc)
     triples: list[tuple[str, str, str, dict[str, Any]]] = []
 
-    try:
-        sheets = doc.getSheets()
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return convert_dag_cells_to_excel([])
-
-    sheet_by_name: dict[str, Any] = {}
-    try:
-        for i in range(sheets.getCount()):
-            sh = sheets.getByIndex(i)
-            sheet_by_name[str(sh.getName())] = sh
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        return convert_dag_cells_to_excel([])
+    sheets = doc.getSheets()
+    sheet_by_name: dict[str, Any] = {
+        str(sheets.getByIndex(i).getName()): sheets.getByIndex(i)
+        for i in range(sheets.getCount())
+    }
 
     def _uno_lookup(sheet_name: str, a1: str) -> str | None:
         bank_sheet = sheet_by_name.get(sheet_name)
@@ -57,14 +46,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
             bank_sheet = lower.get(sheet_name.lower())
         if bank_sheet is None:
             return None
-        try:
-            return str(bank_sheet.getCellRangeByName(a1).getString() or "")
-        except Exception as exc:
-            # Re-raise disposal. A bare except Exception catches
-            # DisposedException and hides a dead document.
-            if is_disposed_exception(exc):
-                raise
-            return None
+        return uno_probe(lambda: str(bank_sheet.getCellRangeByName(a1).getString() or ""), None)
 
     # Higher ceiling than sidebar discovery — export must see every PY cell.
     max_scan = 100_000
@@ -76,12 +58,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
             break
         if sheet_name.startswith(CODE_SHEET_PREFIX):
             continue
-        try:
-            formula_cells = sheet.queryContentCells(CellFlags.FORMULA)
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            continue
+        formula_cells = sheet.queryContentCells(CellFlags.FORMULA)
         if formula_cells is None:
             continue
         count = int(formula_cells.getCount())
@@ -93,14 +70,9 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
                 # keep scanning past max_scan.
                 stop_scanning = True
                 break
-            try:
-                cell_range = formula_cells.getByIndex(i)
-                addr = cell_range.getRangeAddress()
-                formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    raise
-                continue
+            cell_range = formula_cells.getByIndex(i)
+            addr = cell_range.getRangeAddress()
+            formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
             if formula_matrix is None:
                 continue
             for r_idx, row_formulas in enumerate(formula_matrix):

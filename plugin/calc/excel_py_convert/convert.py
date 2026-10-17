@@ -122,14 +122,12 @@ def store_dag_meta_on_doc(doc: Any, report: ConversionReport) -> None:
 def load_dag_meta_from_doc(doc: Any) -> dict[str, Any]:
     """Load ``ExcelPyDagMeta`` JSON map, or ``{}``."""
     from plugin.doc.udprops import get_document_property
+    from plugin.framework.json_utils import safe_json_loads
 
     raw = get_document_property(doc, EXCEL_PY_DAG_META_PROP)
     if not raw:
         return {}
-    try:
-        data = json.loads(str(raw))
-    except (TypeError, json.JSONDecodeError):
-        return {}
+    data = safe_json_loads(raw, default={})
     return data if isinstance(data, dict) else {}
 
 
