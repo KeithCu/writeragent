@@ -562,11 +562,10 @@ def _force_rich_full_reformat(control: Any) -> None:
     then restore.
     """
     ps = control.getPosSize()
-    width = getattr(ps, "Width", None)
-    if not isinstance(width, (int, float)) or width <= 2:
+    if ps.Width <= 2:
         return
-    control.setPosSize(ps.X, ps.Y, int(width) - 1, ps.Height, 4)  # PosSize.WIDTH
-    control.setPosSize(ps.X, ps.Y, int(width), ps.Height, 4)
+    control.setPosSize(ps.X, ps.Y, ps.Width - 1, ps.Height, 4)  # PosSize.WIDTH
+    control.setPosSize(ps.X, ps.Y, ps.Width, ps.Height, 4)
 
 
 def paint_message_items(

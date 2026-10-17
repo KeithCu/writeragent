@@ -712,6 +712,7 @@ class TestRichTextChatWidget:
              patch("plugin.chatbot.rich_text_paste._rollback_rich_insert") as rollback, \
              patch("plugin.chatbot.rich_text_paste._ensure_message_separator"), \
              patch("plugin.chatbot.rich_text_paste.append_rich_messages_via_clipboard") as rich, \
+             patch("plugin.chatbot.rich_text_paste._force_rich_full_reformat"), \
              patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail"), \
              patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=25):
             assert widget.rerender_last_assistant_if_html(session, None) is True
