@@ -6,11 +6,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import tempfile
 import urllib.request
 from typing import Callable
+
+from plugin.framework.errors import best_effort
 
 __all__ = [
     "_download_to",
@@ -122,12 +125,8 @@ def _clear_tts_status(on_status: Callable[[str], None] | None) -> None:
     if on_status is None:
         return
     clear = getattr(on_status, "clear", None)
-    if not callable(clear):
-        return
-    try:
-        clear()
-    except Exception:
-        log.debug("TTS status clear failed", exc_info=True)
+    if callable(clear):
+        best_effort(clear, "TTS status clear failed")
 
 
 def _download_to(
@@ -289,11 +288,8 @@ def _resolve_piper_model_file(
         remember_download_failed(generation, clean_v)
         log.warning("Could not auto-download Piper voice '%s'", clean_v)
         for p in (voice_s, json_s):
-            if os.path.exists(p):
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
+            with contextlib.suppress(OSError):
+                os.remove(p)
 
     default_voice_file, default_json = resolve_piper_voice_paths(PIPER_FALLBACK_VOICE)
     default_voice_s = os.fspath(default_voice_file)
@@ -326,11 +322,8 @@ def _resolve_piper_model_file(
         remember_download_failed(generation, PIPER_FALLBACK_VOICE)
         log.warning("Could not auto-download Piper default voice model")
         for p in (default_voice_s, default_json_s):
-            if os.path.exists(p):
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
+            with contextlib.suppress(OSError):
+                os.remove(p)
 
     failed_name = short if download_failed else voice_short_name(PIPER_FALLBACK_VOICE)
     _notify_tts_status(_("Couldn't download {0}; using OS speech").format(failed_name), on_status, progress=True)

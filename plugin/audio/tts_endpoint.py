@@ -69,12 +69,9 @@ def _pcm_rate_from_content_type(content_type: str) -> int:
     """Extract sample rate from Content-Type parameter, e.g. 'rate=24000'."""
     match = _PCM_RATE_RE.search(content_type or "")
     if match:
-        try:
-            val = int(match.group(1))
-            if 8000 <= val <= 96000:
-                return val
-        except ValueError:
-            pass
+        val = int(match.group(1))
+        if 8000 <= val <= 96000:
+            return val
     return _DEFAULT_PCM_RATE
 
 
@@ -183,8 +180,7 @@ def _post_audio_speech(
         )
         return result.body, result.content_type, int(result.status or 200), ""
     except NetworkError as exc:
-        details = exc.details if isinstance(exc.details, dict) else {}
-        code_raw = details.get("status")
+        code_raw = exc.details.get("status")
         try:
             code = int(code_raw) if code_raw is not None else 0
         except (TypeError, ValueError):
@@ -350,7 +346,7 @@ def _download_endpoint_speech(
     try:
         with open(tmp_file, "wb") as handle:
             handle.write(audio_bytes)
-    except Exception:
+    except OSError:
         log.exception("Could not write TTS audio to %s", tmp_file)
         _release_temp(tmp_file)
         return None

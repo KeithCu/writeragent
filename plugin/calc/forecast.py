@@ -1,12 +1,10 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2026 KeithCu
-#
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc forecasting tool: trusted helpers for time-series tasks."""
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBaseDummy
@@ -15,8 +13,6 @@ from plugin.scripting.forecast import HELPER_NAMES, HELPER_PARAM_HELP
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-
-log = logging.getLogger("writeragent.calc")
 
 _FORECAST_DATA_HELPERS = ", ".join(sorted(HELPER_NAMES))
 _PARAM_TEXT = " ".join(f"{name}: {HELPER_PARAM_HELP[name]}" for name in sorted(HELPER_PARAM_HELP))

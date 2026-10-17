@@ -25,6 +25,7 @@ plugin framework.
 import logging
 from typing import Any
 
+from plugin.framework.errors import uno_read
 from plugin.calc.address_utils import column_to_index, index_to_column, parse_address, parse_range_string, split_sheet_prefix
 
 log = logging.getLogger("writeragent.calc")
@@ -163,16 +164,13 @@ class CalcBridge:
         # Qualified names already hit the named sheet in step 1, so the same
         # logical name resolved differently depending on whether it was written
         # as Total or Sheet1.Total.
-        try:
-            active_sheet = self.get_active_sheet()
-            if hasattr(active_sheet, "NamedRanges") and active_sheet.NamedRanges.hasByName(range_or_address):
-                named_range = active_sheet.NamedRanges.getByName(range_or_address)
-                if hasattr(named_range, "getReferredCells"):
-                    cells = named_range.getReferredCells()
-                    if cells is not None:
-                        return cells
-        except Exception:
-            pass
+        active_sheet = uno_read(self.get_active_sheet, None)
+        if active_sheet is not None and hasattr(active_sheet, "NamedRanges") and active_sheet.NamedRanges.hasByName(range_or_address):
+            named_range = active_sheet.NamedRanges.getByName(range_or_address)
+            if hasattr(named_range, "getReferredCells"):
+                cells = named_range.getReferredCells()
+                if cells is not None:
+                    return cells
 
         # 3. Workbook global NamedRanges (when the active sheet has no local name).
         if hasattr(self.doc, "NamedRanges") and self.doc.NamedRanges.hasByName(range_or_address):
@@ -190,7 +188,7 @@ class CalcBridge:
         try:
             col, row = parse_address(address)
             return self.get_cell(sheet, col, row)
-        except Exception:
+        except ValueError:
             return sheet.getCellRangeByName(address)
 
     @staticmethod

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -49,6 +50,7 @@ from plugin.audio.tts_voices import (
     parse_tts_speed,
 )
 from plugin.framework import config
+from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _, get_active_locale
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.worker_pool import run_in_background
@@ -238,11 +240,8 @@ def _signal_stop_proc(proc: subprocess.Popen[Any] | None) -> None:
     """
     if proc is None:
         return
-    try:
-        if proc.stdin:
-            proc.stdin.close()
-    except Exception:
-        log.debug("stdin close failed", exc_info=True)
+    if proc.stdin:
+        best_effort(proc.stdin.close, "stdin close failed")
     try:
         log.info("Terminating speech process (PID %s)", proc.pid)
         if sys.platform == "win32":
@@ -380,10 +379,7 @@ def stop_speech() -> None:
         _signal_stop_proc(proc)
 
     if cancel_token is not None:
-        try:
-            cancel_kokoro_inflight(cancel_token)
-        except Exception:
-            log.debug("Kokoro cancel failed", exc_info=True)
+        best_effort(lambda: cancel_kokoro_inflight(cancel_token), "Kokoro cancel failed")
 
     def _bg_cleanup() -> None:
         for proc in all_procs:
@@ -521,24 +517,13 @@ def _clear_speech_proc(proc: subprocess.Popen[Any] | None, slot: str) -> None:
             if _play_proc is proc:
                 _play_proc = None
         else:
-            try:
+            with contextlib.suppress(ValueError):
                 _synth_procs.remove(proc)
-            except ValueError:
-                pass
 
 
 def sentence_speak_enabled() -> bool:
     """True when audio.tts_sentence_mode is active."""
     val = get_config("audio.tts_sentence_mode")
-    if isinstance(val, bool):
-        return val
-    if isinstance(val, int):
-        return bool(val)
-    if isinstance(val, str):
-        v = val.strip().lower()
-        if v in ("false", "0", "no", "off"):
-            return False
-        return True
     if val is None:
         return True
     from plugin.framework.config_schema import as_bool
@@ -926,10 +911,7 @@ def _run_synth(
             # communicate does not reap on timeout. Kill so this thread is
             # not stuck on a child that never exits.
             proc.kill()
-            try:
-                proc.wait(timeout=5.0)
-            except Exception:
-                pass
+            best_effort(lambda: proc.wait(timeout=5.0), "synth proc wait failed")
             raise
         code = proc.returncode if proc.returncode is not None else 1
         return code, str(stdout or ""), str(stderr or "")
@@ -1509,10 +1491,7 @@ def speak_text_async(
             log.exception("speak_text_async worker error: %s", exc)
         finally:
             if _end_utterance(generation) and on_complete:
-                try:
-                    on_complete()
-                except Exception:
-                    log.debug("on_complete callback error", exc_info=True)
+                best_effort(on_complete, "on_complete callback error")
 
     try:
         run_in_background(_worker, dedicated=True, name="tts-speak")

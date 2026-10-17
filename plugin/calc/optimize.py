@@ -6,17 +6,13 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBaseDummy
-from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.optimize import HELPER_NAMES, HELPER_PARAM_HELP
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-
-log = logging.getLogger("writeragent.calc")
 
 _OPTIMIZE_DATA_HELPERS = ", ".join(sorted(HELPER_NAMES))
 _PARAM_TEXT = " ".join(f"{name}: {HELPER_PARAM_HELP[name]}" for name in sorted(HELPER_PARAM_HELP))
@@ -90,12 +86,7 @@ class OptimizeDataTool(ToolBaseDummy):
         # and blocks in the optimize client, so execute_on_main_thread would
         # put that IPC on the UI thread and freeze Calc. The helper marshals
         # only the UNO read; the sheet write below stays on the main thread.
-        try:
-            result = run_trusted_optimize(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc), code=getattr(exc, "code", "OPTIMIZE_ERROR"))
-        except Exception as exc:
-            return self._tool_error(f"Failed to run optimization: {exc}")
+        result = run_trusted_optimize(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
 
         if output_range and result.get("status") == "ok":
 

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.draw.base import ToolDrawSlideLayoutBase, ToolDrawSlideTransitionsBase
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.transform_schema import AUTOLAYOUT_ID
+from plugin.framework.errors import uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -139,6 +140,11 @@ def apply_slide_layout(page: Any, name: str) -> str:
     return _canonical_layout_name(name)
 
 
+def _transition_enum_name(value: Any) -> str:
+    """Lowercase a UNO enum `.value`, or `str(value)` when the object has no `.value`."""
+    return value.value.lower() if hasattr(value, "value") else str(value).lower()
+
+
 class GetSlideTransition(ToolDrawSlideTransitionsBase):
     """Read the current transition settings from a slide."""
 
@@ -152,22 +158,16 @@ class GetSlideTransition(ToolDrawSlideTransitionsBase):
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
 
-        # FadeEffect
-        fe = page.getPropertyValue("Effect")
-        effect = fe.value.lower() if hasattr(fe, "value") else str(fe).lower()
-
-        # Speed
-        sp = page.getPropertyValue("Speed")
-        speed = sp.value.lower() if hasattr(sp, "value") else str(sp).lower()
-
-        # Duration (auto-advance)
-        duration = page.getPropertyValue("Duration")
-
-        # TransitionDuration (transition animation time)
-        transition_duration = page.getPropertyValue("TransitionDuration")
-
-        # Change mode: 0=click, 1=auto, 2=semi-auto
-        change = page.getPropertyValue("Change")
+        # Bugfix: 130c136d6 dropped the per-property fallbacks while removing
+        # try/except. A missing Effect/Speed/Duration/TransitionDuration/Change
+        # used to return "none", "medium", 0, None, and Change 0 (advance
+        # "on_click"). Direct getPropertyValue now fails the tool. uno_read
+        # restores each fallback on its own and still raises on a disposed document.
+        effect = uno_read(lambda: _transition_enum_name(page.getPropertyValue("Effect")), "none")
+        speed = uno_read(lambda: _transition_enum_name(page.getPropertyValue("Speed")), "medium")
+        duration = uno_read(lambda: page.getPropertyValue("Duration"), 0)
+        transition_duration = uno_read(lambda: page.getPropertyValue("TransitionDuration"), None)
+        change = uno_read(lambda: page.getPropertyValue("Change"), 0)
 
         return {"status": "ok", "page": page_idx, "effect": effect, "speed": speed, "duration": duration, "transition_duration": transition_duration, "advance": {0: "on_click", 1: "auto", 2: "semi_auto"}.get(change, "on_click")}
 

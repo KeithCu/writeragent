@@ -225,10 +225,12 @@ def _read_col(s: str, i: int) -> tuple[int, int] | None:
     if i == start:
         return None
     letters = s[start:i]
-    try:
-        return i, column_to_index(letters)
-    except Exception:
+    if len(letters) > 3:
         return None
+    col_idx = column_to_index(letters)
+    if col_idx > _MAX_COL:
+        return None
+    return i, col_idx
 
 
 def _read_row(s: str, i: int) -> tuple[int, int] | None:
@@ -366,10 +368,7 @@ def _shift_part(part: _Part, dcol: int, drow: int) -> _Part | None:
 def _format_part(part: _Part) -> str:
     out = ""
     if part.col is not None:
-        try:
-            letters = index_to_column(part.col)
-        except Exception:
-            return ""
+        letters = index_to_column(part.col)
         out += ("$" if part.col_abs else "") + letters
     if part.row is not None:
         out += ("$" if part.row_abs else "") + str(part.row + 1)

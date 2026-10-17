@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception
+from plugin.framework.errors import ToolExecutionError, is_disposed_exception, uno_probe
 from plugin.framework.tool import ToolBaseDummy
 from plugin.calc.address_utils import parse_output_anchor
 from plugin.calc.bridge import CalcBridge
@@ -197,10 +197,7 @@ class SolverTool(ToolBaseDummy):
 
             # 1. User-specified concrete engine (not the generic Solver service name)
             if engine_name and engine_name != "com.sun.star.sheet.Solver":
-                try:
-                    solver = smgr.createInstanceWithContext(engine_name, ctx.ctx)
-                except Exception:
-                    solver = None
+                solver = uno_probe(lambda: smgr.createInstanceWithContext(engine_name, ctx.ctx), None)
                 if solver and _should_reject_solver_for_headless(engine_name, solver):
                     solver = None
                 if solver:
@@ -209,10 +206,7 @@ class SolverTool(ToolBaseDummy):
             # 2. Prefer native / non-dialog solvers when using the default service name
             if not solver:
                 for svc in _PREFERRED_SOLVER_SERVICES:
-                    try:
-                        s = smgr.createInstanceWithContext(svc, ctx.ctx)
-                    except Exception:
-                        s = None
+                    s = uno_probe(lambda: smgr.createInstanceWithContext(svc, ctx.ctx), None)
                     if not s:
                         continue
                     if _should_reject_solver_for_headless(engine_name, s):
@@ -246,29 +240,19 @@ class SolverTool(ToolBaseDummy):
                         impls.sort(key=_priority)
 
                         for el in impls:
-                            try:
-                                impl_name = "unknown"
-                                if hasattr(el, "getImplementationName"):
-                                    impl_name = el.getImplementationName()
-                                if _impl_name_is_java_nlp_headless_unsafe(impl_name):
-                                    continue
-                                s = el.createInstanceWithContext(ctx.ctx)
-                                if not s:
-                                    continue
-                                if _should_reject_solver_for_headless(engine_name, s):
-                                    continue
-                                solver = s
-                                selected_engine_label = f"enumeration:{impl_name}"
-                                break
-                            except Exception:
+                            impl_name = el.getImplementationName() if hasattr(el, "getImplementationName") else "unknown"
+                            if _impl_name_is_java_nlp_headless_unsafe(impl_name):
                                 continue
+                            s = uno_probe(lambda: el.createInstanceWithContext(ctx.ctx), None)
+                            if not s or _should_reject_solver_for_headless(engine_name, s):
+                                continue
+                            solver = s
+                            selected_engine_label = f"enumeration:{impl_name}"
+                            break
 
             # 4. Last ditch fallback to generic name
             if not solver:
-                try:
-                    g = smgr.createInstanceWithContext("com.sun.star.sheet.Solver", ctx.ctx)
-                except Exception:
-                    g = None
+                g = uno_probe(lambda: smgr.createInstanceWithContext("com.sun.star.sheet.Solver", ctx.ctx), None)
                 if g and not _should_reject_solver_for_headless(engine_name, g):
                     solver = g
                     selected_engine_label = "com.sun.star.sheet.Solver"

@@ -6,9 +6,12 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from plugin.calc.calc_addin_data import (
+    _resolve_python_data,
     calc_addin_args_to_python,
     calc_addin_data_to_python,
     check_python_data_size,
@@ -20,6 +23,7 @@ from plugin.calc.calc_addin_data import (
     split_python_addin_data_args,
     values_from_inspector_range,
 )
+from plugin.framework.errors import DocumentDisposedError
 from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
 from plugin.scripting.config_limits import python_max_data_cells_default
 from plugin.scripting.payload_codec import child_unpack_data, is_multi_data, is_split_grid, wire_cell_count
@@ -283,3 +287,14 @@ def test_pack_calc_data_for_wire_flat_list_is_one_row():
     wire = pack_calc_data_for_wire([1, 2, 3])
     assert wire["shape"] == [1, 3]
     assert wire["data"] == [[1, 2, 3]]
+
+
+def test_resolve_python_data_disposal_propagates():
+    class DisposedException(Exception):
+        pass
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    with patch("plugin.calc.bridge.CalcBridge", side_effect=DisposedException("disposed")):
+        with pytest.raises(DocumentDisposedError):
+            _resolve_python_data(ctx, data_range="A1:B1")

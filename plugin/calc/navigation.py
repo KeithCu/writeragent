@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 
 from plugin.calc.calc_utils import query_interface as _query_interface, resolve_sheet_and_cell as _canonical_resolve_sheet_and_cell
+from plugin.framework.errors import best_effort
 
 log = logging.getLogger("writeragent.calc")
 
@@ -226,7 +227,7 @@ def lookup_cell_ref_at_index(control: Any, index: int) -> str | None:
 
 
 def _accessible_text(control: Any) -> Any | None:
-    try:
+    def _lookup() -> Any | None:
         ctx = control.getAccessibleContext()
         if ctx is None:
             return None
@@ -242,23 +243,20 @@ def _accessible_text(control: Any) -> Any | None:
                 ax = _query_interface(child_ctx, _XACCESSIBLE_TEXT)
                 if ax:
                     return ax
-    except Exception:
-        log.debug("cell link: accessible text lookup failed", exc_info=True)
-    return None
+        return None
+
+    return best_effort(_lookup, "cell link: accessible text lookup failed")
 
 
 def _char_index_at_point(control: Any, x: int, y: int) -> int | None:
     axtext = _accessible_text(control)
     if axtext is None:
         return None
-    try:
-        from com.sun.star.awt import Point
+    from com.sun.star.awt import Point
 
-        idx = axtext.getIndexAtPoint(Point(x, y))
-        if isinstance(idx, int) and idx >= 0:
-            return idx
-    except Exception:
-        log.debug("cell link: getIndexAtPoint failed", exc_info=True)
+    idx = best_effort(lambda: axtext.getIndexAtPoint(Point(x, y)), "cell link: getIndexAtPoint failed")
+    if isinstance(idx, int) and idx >= 0:
+        return idx
     return None
 
 

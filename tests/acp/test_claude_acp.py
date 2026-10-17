@@ -9,6 +9,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from plugin.acp.claude_simple import (
     ClaudeBackend,
 )
@@ -69,9 +71,8 @@ class TestClaudeEnvVars:
         mock_key.assert_not_called()
 
     @patch("plugin.acp.claude_simple.get_current_endpoint", side_effect=RuntimeError("bad"))
-    def test_config_error_returns_empty(self, mock_endpoint, caplog):
-        caplog.set_level("ERROR", logger="plugin.acp.claude_simple")
-        assert (ClaudeBackend().get_env_vars()) == ({})
-        assert ("Failed to read API key for Claude ACP") in (caplog.text)
+    def test_config_error_propagates(self, mock_endpoint):
+        with pytest.raises(RuntimeError, match="bad"):
+            ClaudeBackend().get_env_vars()
 
 

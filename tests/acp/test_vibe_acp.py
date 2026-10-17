@@ -10,6 +10,8 @@
 import queue
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.acp.acp_backend import ACPBackend
 from plugin.acp.vibe_simple import VibeBackend
 from plugin.framework.stream_batch import StreamQueueKind
@@ -66,10 +68,9 @@ class TestVibeEnvVars:
         mock_key.assert_not_called()
 
     @patch("plugin.acp.vibe_simple.get_current_endpoint", side_effect=RuntimeError("config broken"))
-    def test_runtime_error_logs_and_returns_empty(self, mock_endpoint, caplog):
-        caplog.set_level("ERROR", logger="plugin.acp.vibe_simple")
-        assert VibeBackend().get_env_vars() == {}
-        assert "Failed to read API key for Vibe ACP" in caplog.text
+    def test_runtime_error_propagates(self, mock_endpoint):
+        with pytest.raises(RuntimeError, match="config broken"):
+            VibeBackend().get_env_vars()
 
 
 class TestVibeUsesBaseSend:

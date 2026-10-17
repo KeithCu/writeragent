@@ -27,7 +27,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
@@ -38,8 +37,6 @@ from plugin.calc.calc_utils import query_interface as _query_interface
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
-
-log = logging.getLogger("writeragent.calc")
 
 
 def _sheet_index_by_name(doc: Any, name: str) -> int:
@@ -288,15 +285,12 @@ class ListPivotTables(ToolCalcPivotBase):
             dp_tables = _get_dp_tables(sheet)
             for pname in dp_tables.getElementNames():
                 entry: dict[str, Any] = {"name": pname, "sheet": sheet.getName()}
-                try:
-                    tbl_any = dp_tables.getByName(pname)
-                    dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
-                    if dpt is not None:
-                        ora = dpt.getOutputRange()
-                        entry["output_sheet_index"] = ora.Sheet
-                        entry["output_range"] = CalcBridge._range_to_str(ora)
-                except Exception:
-                    log.debug("list_pivot_tables extra info lookup failed", exc_info=True)
+                tbl_any = dp_tables.getByName(pname)
+                dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
+                if dpt is not None:
+                    ora = dpt.getOutputRange()
+                    entry["output_sheet_index"] = ora.Sheet
+                    entry["output_range"] = CalcBridge._range_to_str(ora)
                 out.append(entry)
 
         return {"status": "ok", "pivot_tables": out, "count": len(out)}
