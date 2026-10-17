@@ -344,8 +344,6 @@ class IndexesUpdateAll(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        if not hasattr(doc, "getDocumentIndexes"):
-            return self._tool_error("Document does not support indexes")
         indexes = doc.getDocumentIndexes()
         count = indexes.getCount()
         refreshed = []
@@ -428,8 +426,6 @@ def _enum_has_more(enum: Any) -> bool:
 
 def resolve_toc(doc: Any, index: Any) -> tuple[Any | None, str | None]:
     """The single TOC, or the TOC at document-index *index*. Error string otherwise."""
-    if not hasattr(doc, "getDocumentIndexes"):
-        return None, "Document does not support indexes."
     indexes = doc.getDocumentIndexes()
     count = indexes.getCount()
     if index is None:
@@ -441,7 +437,7 @@ def resolve_toc(doc: Any, index: Any) -> tuple[Any | None, str | None]:
         if len(tocs) != 1:
             return None, "index is required when the document does not have exactly one table of contents."
         return tocs[0], None
-    if isinstance(index, bool) or not isinstance(index, int) or index < 0 or index >= count:
+    if index < 0 or index >= count:
         return None, "index must be a document index position from indexes_list."
     idx = indexes.getByIndex(index)
     if index_kind_from_uno(idx) != "toc":
@@ -583,7 +579,7 @@ def _commit_toc_mutation(
 
 
 def _invalid_occurrence(occurrence: Any) -> str | None:
-    if occurrence is not None and (isinstance(occurrence, bool) or not isinstance(occurrence, int) or occurrence < 0):
+    if occurrence is not None and occurrence < 0:
         return "occurrence must be a non-negative integer."
     return None
 
@@ -989,12 +985,10 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        old_content = kwargs.get("old_content")
-        content = kwargs.get("content")
-        if not isinstance(old_content, str) or not str(old_content).strip():
+        old_content: str = kwargs.get("old_content") or ""
+        content: str = kwargs.get("content") or ""
+        if not old_content.strip():
             return self._tool_error("old_content must be a non-empty string.", code="INVALID_PARAM")
-        if not isinstance(content, str):
-            return self._tool_error("content must be plain text.", code="INVALID_PARAM")
         if "\n" in content or "\r" in content:
             content = content.replace("\n", " ").replace("\r", " ")
         from ..format import content_has_markup
@@ -1005,13 +999,13 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         raw_url = kwargs.get("hyperlink_url")
         override = None
         if raw_url is not None:
-            if not isinstance(raw_url, str) or not raw_url.strip():
+            if not raw_url.strip():
                 return self._tool_error("hyperlink_url must be a non-empty string.", code="INVALID_PARAM")
             override = raw_url
             if "\n" in override or "\r" in override:
                 override = override.replace("\n", "").replace("\r", "")
         occurrence = kwargs.get("occurrence")
-        if occurrence is not None and (isinstance(occurrence, bool) or not isinstance(occurrence, int) or occurrence < 0):
+        if occurrence is not None and occurrence < 0:
             return self._tool_error("occurrence must be a non-negative integer.", code="INVALID_PARAM")
         index = kwargs.get("index")
         idx, index_error = self._resolve_toc(doc, index)
@@ -1133,8 +1127,8 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        old_content = kwargs.get("old_content")
-        if not isinstance(old_content, str) or not str(old_content).strip():
+        old_content: str = kwargs.get("old_content") or ""
+        if not old_content.strip():
             return self._tool_error("old_content must be a non-empty string.", code="INVALID_PARAM")
         if _reject_markup(old_content):
             return self._tool_error(
@@ -1217,8 +1211,8 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        content = kwargs.get("content")
-        if not isinstance(content, str) or not content.strip():
+        content: str = kwargs.get("content") or ""
+        if not content.strip():
             return self._tool_error("content must be a non-empty string.", code="INVALID_PARAM")
         content = content.strip()
         if "\n" in content or "\r" in content:
@@ -1354,7 +1348,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
     def _outline_url(self, raw: Any) -> tuple[str | None, str | None]:
         if raw is None:
             return None, None
-        if not isinstance(raw, str) or not raw.strip():
+        if not raw.strip():
             return None, "hyperlink_url must be a non-empty string."
         url = raw.strip()
         # Discussion #1426: a TOC row may jump to a text table. LibreOffice stores
@@ -1370,7 +1364,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
     def _level(self, raw: Any) -> tuple[int | None, str | None]:
         if raw is None:
             return None, None
-        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1 or raw > 10:
+        if raw < 1 or raw > 10:
             return None, "level must be an integer from 1 to 10."
         return raw, None
 
@@ -1412,8 +1406,6 @@ class IndexesList(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        if not hasattr(doc, "getDocumentIndexes"):
-            return self._tool_error("Document does not support indexes")
         indexes = doc.getDocumentIndexes()
         count = indexes.getCount()
         result = []
@@ -1498,8 +1490,6 @@ class IndexesListCites(ToolWriterIndexBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        if not hasattr(doc, "getTextFields"):
-            return self._tool_error("Document does not support text fields")
 
         from ..search import describe_match_location
 

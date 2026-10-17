@@ -280,8 +280,6 @@ class TreeService(ServiceBase):
             resolved = self._doc_svc.resolve_locator(doc, locator)
             heading_para_index = resolved.get("para_index")
         elif heading_bookmark is not None and heading_para_index is None:
-            if not hasattr(doc, "getBookmarks"):
-                raise ToolExecutionError("Document doesn't support bookmarks")
             bm_sup = doc.getBookmarks()
             if not bm_sup.hasByName(heading_bookmark):
                 raise ToolExecutionError("Bookmark '%s' not found" % heading_bookmark)

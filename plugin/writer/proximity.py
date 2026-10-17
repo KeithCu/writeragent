@@ -318,7 +318,7 @@ class ProximityService(ServiceBase):
                 paragraphs.append(entry)
             result["paragraphs"] = paragraphs
 
-        if "images" in include and hasattr(doc, "getGraphicObjects"):
+        if "images" in include:
             images = []
             graphics = doc.getGraphicObjects()
             for name in graphics.getElementNames():
@@ -333,7 +333,7 @@ class ProximityService(ServiceBase):
                     pass
             result["images"] = images
 
-        if "tables" in include and hasattr(doc, "getTextTables"):
+        if "tables" in include:
             tables = []
             text_tables = doc.getTextTables()
             for name in text_tables.getElementNames():
@@ -347,7 +347,7 @@ class ProximityService(ServiceBase):
                     pass
             result["tables"] = tables
 
-        if "frames" in include and hasattr(doc, "getTextFrames"):
+        if "frames" in include:
             frames = []
             text_frames = doc.getTextFrames()
             for fname in text_frames.getElementNames():

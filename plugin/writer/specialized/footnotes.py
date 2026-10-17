@@ -304,9 +304,6 @@ class FootnotesSettingsUpdate(ToolWriterFootnoteBase):
         props_to_update = kwargs.get("properties", {})
         doc = ctx.doc
 
-        if not isinstance(props_to_update, dict):
-            return self._tool_error("Properties must be a dictionary.")
-
         settings = _get_note_settings(doc, note_type)
 
         updated_props = []

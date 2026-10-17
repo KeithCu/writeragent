@@ -259,9 +259,9 @@ class GetDocumentContent(ToolBase):
         try:
             t_tracked = time.perf_counter()
             # collect_tracked_changes swallows its own walk and returns [].
-            # getCount() > 0 is the signal that redlines exist. getCount() is an
-            # int on a live document; a non-int (unit-test MagicMock) is not a failure.
-            redlines = ctx.doc.getRedlines() if hasattr(ctx.doc, "getRedlines") else None
+            # TextDocument always has getRedlines; getCount() > 0 signals
+            # redlines exist, and a non-int count is the unit-test mock.
+            redlines = ctx.doc.getRedlines()
             count = redlines.getCount() if redlines is not None else 0
             if isinstance(count, int) and not isinstance(count, bool) and count > 0:
                 changes = collect_tracked_changes(ctx.doc.getText())
@@ -425,8 +425,6 @@ class ApplyDocumentContent(ToolBase):
         raw = kwargs.get("hyperlink_url")
         if raw is None:
             return None, None
-        if not isinstance(raw, str):
-            return None, "hyperlink_url must be a string."
         if not raw.strip():
             return None, None
         if kwargs.get("all_matches", False):

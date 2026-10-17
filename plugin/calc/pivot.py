@@ -169,7 +169,7 @@ class CreatePivotTable(ToolCalcPivotBase):
             return self._tool_error("name is required.")
 
         data_fields = kwargs.get("data_fields") or []
-        if not isinstance(data_fields, list) or len(data_fields) < 1:
+        if not data_fields:
             return self._tool_error("data_fields must be a non-empty array of header names.")
 
         src_sheet_name = kwargs.get("source_sheet")

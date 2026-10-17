@@ -168,8 +168,6 @@ class BookmarkService(ServiceBase):
         """Return {para_index: bookmark_name} for all _mcp_ bookmarks."""
         result: dict[int, str] = {}
         try:
-            if not hasattr(doc, "getBookmarks"):
-                return result
             bookmarks = doc.getBookmarks()
             names = bookmarks.getElementNames()
             if not names:
@@ -251,8 +249,6 @@ class BookmarkService(ServiceBase):
 
     def _demoted_mcp_names(self, doc: Any, kept: set[str]) -> list[str]:
         """``_mcp_`` names that are not on a current heading."""
-        if not hasattr(doc, "getBookmarks"):
-            return []
         try:
             names = doc.getBookmarks().getElementNames()
         except Exception:
@@ -266,7 +262,7 @@ class BookmarkService(ServiceBase):
 
     def _remove_named_bookmarks(self, doc: Any, names: list[str]) -> None:
         """Remove these bookmarks. Caller holds ``_untracked``."""
-        if not names or not hasattr(doc, "getBookmarks"):
+        if not names:
             return
         bookmarks = doc.getBookmarks()
         text = doc.getText()
@@ -290,8 +286,6 @@ class BookmarkService(ServiceBase):
     def _remove_mcp_bookmarks(self, doc: Any) -> int:
         """Remove all ``_mcp_*`` bookmarks. No undo/modified/cache handling."""
         removed = 0
-        if not hasattr(doc, "getBookmarks"):
-            return removed
         bookmarks = doc.getBookmarks()
         names = bookmarks.getElementNames()
         text = doc.getText()
@@ -318,7 +312,7 @@ class BookmarkService(ServiceBase):
     def _insert_named_bookmark(self, doc: Any, text: Any, name: str, start_range: Any) -> bool:
         """Insert a point bookmark. Skip and log on name collision."""
         try:
-            if hasattr(doc, "getBookmarks") and doc.getBookmarks().hasByName(name):
+            if doc.getBookmarks().hasByName(name):
                 log.info("Heading bookmark %s already exists; skip insert", name)
                 return False
         except Exception:
@@ -447,8 +441,6 @@ class BookmarkList(ToolWriterBookmarkBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        if not hasattr(doc, "getBookmarks"):
-            return {"status": "ok", "bookmarks": [], "count": 0}
         bookmarks = doc.getBookmarks()
         names = bookmarks.getElementNames()
         result = []
@@ -482,9 +474,6 @@ class BookmarkCreate(ToolWriterBookmarkBase):
         name = kwargs.get("name")
         if not name:
             return self._tool_error("Bookmark name is required.")
-
-        if not hasattr(doc, "getBookmarks"):
-            return self._tool_error("Document does not support bookmarks.")
 
         bookmarks = doc.getBookmarks()
         if bookmarks.hasByName(name):
@@ -525,9 +514,6 @@ class BookmarkDelete(ToolWriterBookmarkBase):
         if not name:
             return self._tool_error("Bookmark name is required.")
 
-        if not hasattr(doc, "getBookmarks"):
-            return self._tool_error("Document does not support bookmarks.")
-
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(name):
             return self._tool_error(f"Bookmark '{name}' not found.")
@@ -555,9 +541,6 @@ class BookmarkRename(ToolWriterBookmarkBase):
         if not old_name or not new_name:
             return self._tool_error("Both old_name and new_name are required.")
 
-        if not hasattr(doc, "getBookmarks"):
-            return self._tool_error("Document does not support bookmarks.")
-
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(old_name):
             return self._tool_error(f"Bookmark '{old_name}' not found.")
@@ -581,9 +564,6 @@ class BookmarkGet(ToolWriterBookmarkBase):
         name = kwargs.get("name")
         if not name:
             return self._tool_error("Bookmark name is required.")
-
-        if not hasattr(doc, "getBookmarks"):
-            return self._tool_error("Document does not support bookmarks.")
 
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(name):
@@ -612,9 +592,6 @@ class BookmarkResolve(ToolWriterBookmarkBase):
             return self._tool_error("name is required.")
 
         doc = ctx.doc
-        if not hasattr(doc, "getBookmarks"):
-            return self._tool_error("Document does not support bookmarks.")
-
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(bookmark_name):
             hint = "Bookmark '%s' not found." % bookmark_name

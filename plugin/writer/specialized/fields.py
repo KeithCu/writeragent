@@ -24,8 +24,6 @@ class FieldsUpdateAll(ToolWriterFieldBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        if not hasattr(doc, "getTextFields"):
-            return self._tool_error("Document does not support text fields.")
         fields = doc.getTextFields()
         fields.refresh()
 
@@ -46,8 +44,6 @@ class FieldsList(ToolWriterFieldBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        if not hasattr(doc, "getTextFields"):
-            return self._tool_error("Document does not support text fields.")
 
         # Deferred: plugin.writer.search pulls the UNO document helpers in, and this module is
         # imported wherever the field tools are registered.
@@ -127,8 +123,6 @@ class FieldsDelete(ToolWriterFieldBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         ids = kwargs.get("ids")
         doc = ctx.doc
-        if not hasattr(doc, "getTextFields"):
-            return self._tool_error("Document does not support text fields.")
 
         from ..search import describe_match_location  # deferred, see FieldsList.execute
 

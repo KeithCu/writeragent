@@ -474,8 +474,8 @@ class DelegateToolDomains(ToolBase):
         names, names_err = normalize_domain_list(kwargs.get("domains"))
         if names_err or not names:
             return self._tool_error(names_err or "domains must be a non-empty list of specialized domain names.", code="DOMAINS_REQUIRED")
-        task = kwargs.get("task")
-        if not isinstance(task, str) or not task.strip():
+        task: str = kwargs.get("task") or ""
+        if not task.strip():
             return self._tool_error("task is required.", code="TASK_REQUIRED")
 
         label = agent_label_for_context(ctx)

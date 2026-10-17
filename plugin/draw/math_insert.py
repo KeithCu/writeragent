@@ -180,8 +180,8 @@ class InsertMathDraw(ToolDrawSpecialBase):
         from com.sun.star.awt import Size, Point
 
         formula_type = kwargs.get("formula_type")
-        formula = kwargs.get("formula")
-        if not isinstance(formula, str) or not formula.strip():
+        formula: str = kwargs.get("formula") or ""
+        if not formula.strip():
             return self._tool_error("formula must be a non-empty string.")
 
         uno_ctx = _uno_ctx_from_tool_ctx(ctx)

@@ -201,7 +201,7 @@ class FillDrawFields(ToolDrawShapeBase):
         from plugin.draw.bridge import DrawBridge
 
         fields = kwargs.get("fields") or []
-        if not isinstance(fields, list) or not fields:
+        if not fields:
             return self._tool_error("fields must be a non-empty list of {name|index|label_hint, value}.")
 
         bridge = DrawBridge(ctx.doc)

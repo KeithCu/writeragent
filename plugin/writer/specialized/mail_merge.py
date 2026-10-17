@@ -303,13 +303,12 @@ class InsertField(ToolWriterMailMergeBase):
         master_service_name = "com.sun.star.text.fieldmaster.Database"
         master_id = f"com.sun.star.text.fieldmaster.Database.{data_source_name}.{table_name}.{column_name}"
 
-        if hasattr(doc, "getTextFieldMasters"):
-            masters = doc.getTextFieldMasters()
-            if hasattr(masters, "hasByName") and masters.hasByName(master_id):
-                try:
-                    master = masters.getByName(master_id)
-                except Exception:
-                    master = None
+        masters = doc.getTextFieldMasters()
+        if hasattr(masters, "hasByName") and masters.hasByName(master_id):
+            try:
+                master = masters.getByName(master_id)
+            except Exception:
+                master = None
 
         if master is None:
             master = doc.createInstance(master_service_name)
@@ -360,7 +359,7 @@ class ListFields(ToolWriterMailMergeBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = getattr(ctx, "doc", None)
-        if not doc or not hasattr(doc, "getTextFields"):
+        if not doc:
             return self._tool_error("Document does not support text fields.")
 
         fields_container = doc.getTextFields()
@@ -529,7 +528,7 @@ class RunMerge(ToolWriterMailMergeBase):
         doc_url = ""
         if doc_url_arg:
             doc_url = _to_file_url(doc_url_arg)
-        elif doc and hasattr(doc, "getURL") and doc.getURL():
+        elif doc and doc.getURL():
             doc_url = doc.getURL()
         else:
             return self._tool_error(

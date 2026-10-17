@@ -397,10 +397,6 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         action = kwargs.get("action")
-        if action not in ("accept", "reject", "accept_all", "reject_all"):
-            return self._tool_error(
-                "action must be one of: accept, reject, accept_all, reject_all."
-            )
         if action in ("accept_all", "reject_all"):
             return self._execute_all(ctx, is_accept=(action == "accept_all"))
         index = kwargs.get("index")

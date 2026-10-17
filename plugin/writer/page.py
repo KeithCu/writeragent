@@ -68,7 +68,7 @@ def _page_style_layout_to_int(raw: Any) -> int | None:
 
 def _page_style_layout_to_uno(val: Any) -> Any:
     """Validate int 0..3 and return UNO PageStyleLayout enum constant."""
-    if isinstance(val, bool) or not isinstance(val, int) or val not in (0, 1, 2, 3):
+    if val not in (0, 1, 2, 3):
         raise ValueError("page_style_layout must be 0=ALL, 1=LEFT, 2=RIGHT, or 3=MIRRORED.")
     from com.sun.star.style.PageStyleLayout import ALL, LEFT, RIGHT, MIRRORED
     return (ALL, LEFT, RIGHT, MIRRORED)[val]

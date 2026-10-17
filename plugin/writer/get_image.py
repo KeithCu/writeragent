@@ -219,7 +219,7 @@ class GetImage(ToolBase):
         page = kwargs.get("page")
         try:
             if page is not None:
-                if not isinstance(page, int) or page < 0:
+                if page < 0:
                     return self._tool_error("page must be a non-negative integer (0-based).")
                 raw, reason = _render_page_png(ctx.ctx, doc, int(page))
                 if raw is None:

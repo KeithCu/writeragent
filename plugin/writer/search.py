@@ -719,8 +719,6 @@ def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensiti
 
 
 def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
-    if not hasattr(doc, "getDrawPage"):
-        return
     try:
         draw_page = doc.getDrawPage()
     except Exception:

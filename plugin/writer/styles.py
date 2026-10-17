@@ -503,8 +503,6 @@ def _validate_conditional_rules(rules: Any, style_family: Any) -> str | None:
     """Validate conditional rules for ParagraphStyles before creating the style."""
     if not rules:
         return None
-    if not isinstance(rules, list):
-        return "conditional_rules must be a list."
     for idx, rule in enumerate(rules):
         if not isinstance(rule, dict):
             return f"conditional_rule {idx} must be an object."
@@ -1339,10 +1337,7 @@ class StyleCreate(ToolWriterStyleBase):
 
         family = kwargs.get("family", "ParagraphStyles")
         parent_style = kwargs.get("parent_style")
-        # One object check. The copy above this line was the same test.
         property_updates = kwargs.get("property_updates", {})
-        if not isinstance(property_updates, dict):
-            return self._tool_error("property_updates must be an object.")
         conditional_rules = kwargs.get("conditional_rules")
 
         token_err = _no_character_style_token_error(self, family, style_name)
@@ -1571,8 +1566,8 @@ class StyleImport(ToolWriterStyleBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        file_path = kwargs.get("path")
-        if not isinstance(file_path, str) or not file_path.strip():
+        file_path: str = kwargs.get("path") or ""
+        if not file_path.strip():
             return self._tool_error("path is required.")
         file_path = file_path.strip()
         if not os.path.isabs(file_path):

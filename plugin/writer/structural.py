@@ -63,8 +63,6 @@ class SectionList(ToolWriterStructuralBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        if not hasattr(doc, "getTextSections"):
-            return {"status": "ok", "sections": [], "count": 0}
         supplier = doc.getTextSections()
         names = supplier.getElementNames()
         sections = []
@@ -183,72 +181,68 @@ class GetPageObjects(ToolBase):
 
     def _scan_page(self, ctx: ToolContext, doc: Any, vc: Any, page: Any) -> dict[str, Any]:
         images = []
-        if hasattr(doc, "getGraphicObjects"):
-            for name in doc.getGraphicObjects().getElementNames():
-                try:
-                    g = doc.getGraphicObjects().getByName(name)
-                    if self._content_page(doc, vc, g, retry_if_zero=True) == page:
-                        size = g.getPropertyValue("Size")
-                        images.append({"name": name, "width_mm": size.Width // 100, "height_mm": size.Height // 100, "title": g.getPropertyValue("Title")})
-                except Exception:
-                    pass
+        for name in doc.getGraphicObjects().getElementNames():
+            try:
+                g = doc.getGraphicObjects().getByName(name)
+                if self._content_page(doc, vc, g, retry_if_zero=True) == page:
+                    size = g.getPropertyValue("Size")
+                    images.append({"name": name, "width_mm": size.Width // 100, "height_mm": size.Height // 100, "title": g.getPropertyValue("Title")})
+            except Exception:
+                pass
 
         tables = []
-        if hasattr(doc, "getTextTables"):
-            for name in doc.getTextTables().getElementNames():
-                try:
-                    t = doc.getTextTables().getByName(name)
-                    if self._content_page(doc, vc, t, retry_if_zero=True) == page:
-                        tables.append({"name": name, "rows": t.getRows().getCount(), "cols": t.getColumns().getCount()})
-                except Exception:
-                    pass
+        for name in doc.getTextTables().getElementNames():
+            try:
+                t = doc.getTextTables().getByName(name)
+                if self._content_page(doc, vc, t, retry_if_zero=True) == page:
+                    tables.append({"name": name, "rows": t.getRows().getCount(), "cols": t.getColumns().getCount()})
+            except Exception:
+                pass
 
         frames = []
-        if hasattr(doc, "getTextFrames"):
-            for fname in doc.getTextFrames().getElementNames():
-                try:
-                    fr = doc.getTextFrames().getByName(fname)
-                    if self._content_page(doc, vc, fr, retry_if_zero=True) == page:
-                        size = fr.getPropertyValue("Size")
-                        frames.append({"name": fname, "width_mm": size.Width // 100, "height_mm": size.Height // 100})
-                except Exception:
-                    pass
+        for fname in doc.getTextFrames().getElementNames():
+            try:
+                fr = doc.getTextFrames().getByName(fname)
+                if self._content_page(doc, vc, fr, retry_if_zero=True) == page:
+                    size = fr.getPropertyValue("Size")
+                    frames.append({"name": fname, "width_mm": size.Width // 100, "height_mm": size.Height // 100})
+            except Exception:
+                pass
 
         # Do not jumpToEndOfPage + body createTextCursorByRange: end-of-page often sits in a
         # table/frame, and the body XText then raises RuntimeException ("End of content node
         # doesn't have the proper start node"). Same view-cursor page check as tables/images.
         # AT_PAGE shapes use AnchorPageNo — never _page_at_range (no view hop).
         shapes = []
-        if hasattr(doc, "getDrawPage"):
-            draw_page = doc.getDrawPage()
-            from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AT_CHARACTER, AS_CHARACTER
+        draw_page = doc.getDrawPage()
+        from com.sun.star.text.TextContentAnchorType import AT_PARAGRAPH, AT_CHARACTER, AS_CHARACTER
 
-            for i in range(draw_page.getCount()):
-                shape = draw_page.getByIndex(i)
-                include_shape = False
+        for i in range(draw_page.getCount()):
+            shape = draw_page.getByIndex(i)
+            include_shape = False
+            try:
+                page_no = _at_page_anchor_page(shape)
+                if page_no is not None:
+                    include_shape = page_no == page
+                else:
+                    anchor_type = shape.getPropertyValue("AnchorType")
+                    if anchor_type in (AT_PARAGRAPH, AT_CHARACTER, AS_CHARACTER):
+                        anchor = shape.getAnchor()
+                        if anchor and self._page_at_range(doc, vc, anchor, retry_if_zero=False) == page:
+                            include_shape = True
+            except Exception:
+                pass
+
+            if include_shape:
+                shape_type = shape.getShapeType().replace("com.sun.star.drawing.", "")
+                shape_info = {"type": shape_type, "name": getattr(shape, "Name", ""), "text": shape.getString().strip() if hasattr(shape, "getString") else ""}
                 try:
-                    page_no = _at_page_anchor_page(shape)
-                    if page_no is not None:
-                        include_shape = page_no == page
-                    else:
-                        anchor_type = shape.getPropertyValue("AnchorType")
-                        if anchor_type in (AT_PARAGRAPH, AT_CHARACTER, AS_CHARACTER):
-                            anchor = shape.getAnchor()
-                            if anchor and self._page_at_range(doc, vc, anchor, retry_if_zero=False) == page:
-                                include_shape = True
+                    pos = shape.getPosition()
+                    size = shape.getSize()
+                    shape_info["geometry"] = {"x": pos.X, "y": pos.Y, "width": size.Width, "height": size.Height}
                 except Exception:
                     pass
-
-                if include_shape:
-                    shape_type = shape.getShapeType().replace("com.sun.star.drawing.", "")
-                    shape_info = {"type": shape_type, "name": getattr(shape, "Name", ""), "text": shape.getString().strip() if hasattr(shape, "getString") else ""}
-                    try:
-                        pos = shape.getPosition()
-                        size = shape.getSize()
-                        shape_info["geometry"] = {"x": pos.X, "y": pos.Y, "width": size.Width, "height": size.Height}
-                    except Exception:
-                        pass
-                    shapes.append(shape_info)
+                shapes.append(shape_info)
 
         return {"images": images, "tables": tables, "frames": frames, "shapes": shapes}
 
@@ -268,9 +262,6 @@ class SectionRead(ToolWriterStructuralBase):
             return self._tool_error("section is required.")
 
         doc = ctx.doc
-        if not hasattr(doc, "getTextSections"):
-            return self._tool_error("Document does not support sections.")
-
         sections = doc.getTextSections()
         if not sections.hasByName(section_name):
             available = list(sections.getElementNames())

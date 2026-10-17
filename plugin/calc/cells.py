@@ -801,8 +801,8 @@ class SetCellStyle(ToolBase):
             return self._tool_error(_bc["__error__"])
         border_color: int | None = _bc
 
-        # Present-but-wrong-type args must error (not silently become None): ToolBase.validate
-        # does not check JSON-schema types, and a successful no-op hides the mistake from the model.
+        # Direct execute() skips validate; these type checks stay so
+        # tests/calc/test_cells.py still gets a tool error instead of a silent no-op.
         def _optional_bool(key: str) -> tuple[bool | None, str | None]:
             if key not in kwargs:
                 return None, None
@@ -981,8 +981,6 @@ class SortRange(ToolCalcRangeBase):
         raw_has_header = kwargs.get("has_header")
         if raw_has_header is None:
             has_header = True
-        elif not isinstance(raw_has_header, bool):
-            return self._tool_error(f"has_header must be a boolean (true or false), got {type(raw_has_header).__name__}")
         else:
             has_header = raw_has_header
 
@@ -1023,9 +1021,7 @@ class DeleteStructure(ToolBase):
         # This happened because start and count were passed directly without validating
         # types and ranges. Validating start and count strictly returns tool errors before
         # modifying document structures.
-        structure_type = kwargs.get("structure_type")
-        if structure_type not in ("rows", "columns"):
-            return self._tool_error('structure_type must be "rows" or "columns"')
+        structure_type: str = kwargs.get("structure_type") or ""
 
         count = kwargs.get("count", 1)
         if type(count) is not int or count < 1:
