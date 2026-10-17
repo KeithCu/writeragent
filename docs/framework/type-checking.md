@@ -82,7 +82,7 @@ All three tools share **`types-unopy`**, **`make fix-uno`**, and the same **`plu
 ### Import / branch typing quirks
 
 - **`urllib`**: Importing **`urllib.error`** (or similar) **inside** a function that also uses **`urllib.request`** / **`urllib.parse`** can make Pyright **narrow** the **`urllib`** package incorrectly. Prefer **module-level** imports for **`urllib`** submodules.
-- **`try` / `except ImportError`**: Fallback functions like **`def is_writer(model): return False`** can be inferred as **`-> Literal[False]`** while the imported symbol is **`(Any) -> bool`**, producing **`reportAssignmentType`** when both arms assign into one logical “slot”. **Fix**: explicit **`-> bool`** on the fallbacks (**`testing_runner.py`**).
+- **`try` / `except ImportError`**: Fallback functions like **`def is_writer(model): return False`** can be inferred as **`-> Literal[False]`** while the imported symbol is **`(Any) -> bool`**, producing **`reportAssignmentType`** when both arms assign into one logical “slot”. **Fix**: explicit **`-> bool`** on the fallbacks.
 
 ### Optional modules and guards
 

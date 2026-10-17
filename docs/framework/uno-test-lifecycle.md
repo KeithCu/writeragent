@@ -981,3 +981,5 @@ turn a green Ubuntu `test-uno` into make Error 134 (GHA 35527291175).
 `lo-kill` still reaps soffice. A failing summary still raises
 `SystemExit(1)` so real test failures stay visible. Unit test:
 `test_exit_after_summary_*` in `tests/framework/test_testing_runner.py`.
+
+A `*_uno.py` module that raises on import or exec (such as `ImportError`, `SyntaxError`, or any other `Exception`) is recorded as one suite with `failed: 1`, and `main()` returns 1. `SKIP_NATIVE_RUN_ALL` is still not a failure. Unit test: `test_uno_module_import_error_fails_the_run`.

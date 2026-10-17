@@ -19,6 +19,7 @@
 # cannot fail make test-uno (GHA 35527291175).
 # docs/framework/uno-test-lifecycle.md
 
+import inspect
 import logging
 import json
 import os
@@ -95,12 +96,9 @@ def _arm_native_test_watchdog(_label: str) -> None:
 
 
 def _disarm_native_test_watchdog(_label: str) -> None:
-    try:
-        import faulthandler
+    import faulthandler
 
-        faulthandler.cancel_dump_traceback_later()
-    except Exception:
-        pass
+    faulthandler.cancel_dump_traceback_later()
 
 
 def _soffice_pids_win32() -> str:
@@ -140,26 +138,21 @@ def _soffice_pids() -> str:
     printed ``soffice.bin=-`` while ``lo-kill`` still found PID 18456.
     Windows GHA has no ``pgrep`` — use ``tasklist``.
     """
-    try:
-        import subprocess
+    if sys.platform == "win32":
+        return _soffice_pids_win32()
 
-        if sys.platform == "win32":
-            return _soffice_pids_win32()
-
-        pids: list[str] = []
-        for name in ("soffice.bin", "soffice"):
-            try:
-                out = subprocess.check_output(
-                    ["pgrep", "-x", name],
-                    text=True,
-                    stderr=subprocess.DEVNULL,
-                )
-            except Exception:
-                continue
-            pids.extend(token for token in out.split() if token)
-        return ",".join(dict.fromkeys(pids)) or "-"
-    except Exception:
-        return "-"
+    pids: list[str] = []
+    for name in ("soffice.bin", "soffice"):
+        try:
+            out = subprocess.check_output(
+                ["pgrep", "-x", name],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            continue
+        pids.extend(token for token in out.split() if token)
+    return ",".join(dict.fromkeys(pids)) or "-"
 
 
 def _fail_reason(exc: BaseException) -> str:
@@ -298,10 +291,7 @@ def soffice_exit_code() -> int | None:
     proc = _soffice_proc
     if proc is None:
         return None
-    try:
-        return proc.poll()
-    except Exception:
-        return None
+    return proc.poll()
 
 
 def attach_soffice_proc(proc: Any) -> None:
@@ -1114,18 +1104,12 @@ def _terminate_bootstrap_soffice() -> None:
     proc = _soffice_proc
     if proc is None:
         return
-    try:
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except Exception:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
 
 
 def _same_testing_runner_file(mod: Any) -> bool:
@@ -1133,12 +1117,9 @@ def _same_testing_runner_file(mod: Any) -> bool:
     other = getattr(mod, "__file__", None)
     if not other or not __file__:
         return False
-    try:
-        return os.path.normcase(os.path.realpath(other)) == os.path.normcase(
-            os.path.realpath(__file__)
-        )
-    except Exception:
-        return False
+    return os.path.normcase(os.path.realpath(other)) == os.path.normcase(
+        os.path.realpath(__file__)
+    )
 
 
 def _office_recycle_holders() -> list[Any]:
@@ -1242,26 +1223,38 @@ def _should_rebootstrap_after_recycle(*, more_suites: bool) -> bool:
     return more_suites
 
 
+def _rebootstrap_ctx(ctx: Any) -> None:
+    """Bind config and the extension to a live UNO context.
+
+    Recycle, the initial run_all_tests bootstrap, and _ensure_live_ctx
+    all do this. Each caller keeps its own try/except.
+    """
+    from plugin.framework.uno_context import set_fallback_ctx
+    from plugin.framework.config import init_config
+
+    set_fallback_ctx(ctx)
+    init_config(ctx)
+    if not use_user_profile:
+        from plugin.main import bootstrap
+
+        bootstrap(ctx=ctx)
+
+
 def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
     """Kill the current soffice and bootstrap a fresh one.
 
     Do **not** ``close`` leftover docs first — that is the hung path.
     Do **not** mark URP dead unless the new bootstrap fails.
     """
-    from plugin.framework.uno_context import get_desktop, set_fallback_ctx
+    from plugin.framework.uno_context import get_desktop
 
     _progress_verbose("LIFECYCLE recycle office after impress start")
     _terminate_bootstrap_soffice()
     time.sleep(0.5)
     reset_office_death_signals(clear_proc=True)
-    try:
-        # Same object as plugin.tests.testing_utils (alias on first load).
-        # ty cannot resolve the plugin.tests path hack.
-        from tests.testing_utils import _NATIVE_DOC_POOL
+    from tests.testing_utils import _NATIVE_DOC_POOL
 
-        _NATIVE_DOC_POOL.clear()
-    except Exception:
-        pass
+    _NATIVE_DOC_POOL.clear()
     try:
         _ensure_libreoffice_python_path()
         import officehelper
@@ -1270,15 +1263,9 @@ def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
         new_ctx = _bootstrap_office(officehelper)
         if new_ctx is None:
             raise RuntimeError("recycle bootstrap returned None")
-        set_fallback_ctx(new_ctx)
-        from plugin.framework.config import init_config
-
-        init_config(new_ctx)
+        _rebootstrap_ctx(new_ctx)
         new_keeper = None
         if not use_user_profile:
-            from plugin.main import bootstrap
-
-            bootstrap(ctx=new_ctx)
             hidden_prop = uno.createUnoStruct(
                 "com.sun.star.beans.PropertyValue",
                 Name="Hidden",
@@ -1287,15 +1274,12 @@ def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
             new_keeper = get_desktop(new_ctx).loadComponentFromURL(
                 "private:factory/swriter", "_blank", 0, (hidden_prop,)
             )
-            try:
-                from tests.testing_utils import set_harness_keeper_uid
+            from tests.testing_utils import set_harness_keeper_uid
 
-                set_harness_keeper_uid(
-                    str(getattr(new_keeper, "RuntimeUID", None) or ""),
-                    new_keeper,
-                )
-            except Exception:
-                pass
+            set_harness_keeper_uid(
+                str(getattr(new_keeper, "RuntimeUID", None) or ""),
+                new_keeper,
+            )
         _progress_verbose(
             "LIFECYCLE recycle office after impress done pids=%s"
             % _soffice_pids()
@@ -1459,6 +1443,20 @@ def _mark_urp_dead(exc: BaseException, where: str) -> None:
     _progress("ABORT: URP bridge disposed at %s: %s; remaining suites skipped" % (where, exc))
 
 
+def _takes_positional(fn: Any) -> bool:
+    """True when setup/teardown can be called with the harness ctx.
+
+    These hooks are plain functions. inspect.signature does not raise.
+    """
+    sig = inspect.signature(fn)
+    kinds = (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.VAR_POSITIONAL,
+    )
+    return any(p.kind in kinds for p in sig.parameters.values())
+
+
 def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None) -> tuple[int, int, list[str]]:
     """Monolithic entry point for running a test module (legacy/menu support).
     Returns (passed, failed, log).
@@ -1533,14 +1531,7 @@ def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None) ->
 
     try:
         if setup_func:
-            import inspect
-
-            try:
-                sig = inspect.signature(setup_func)
-                expects_ctx = any(p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL) for p in sig.parameters.values())
-            except Exception:
-                expects_ctx = True
-            if expects_ctx:
+            if _takes_positional(setup_func):
                 setup_func(ctx)
             else:
                 setup_func()
@@ -1559,13 +1550,8 @@ def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None) ->
                 # After suite @setup removal, native tests take ctx (and often doc via
                 # @with_native_doc). Pass ctx when the signature accepts it; no-arg
                 # tests (pure schema checks) stay parameterless.
-                import inspect
-
-                try:
-                    sig = inspect.signature(test_func)
-                    accepts_ctx = "ctx" in sig.parameters
-                except Exception:
-                    accepts_ctx = True
+                sig = inspect.signature(test_func)
+                accepts_ctx = "ctx" in sig.parameters
                 # SalAbort can print after the previous TEST end OK. Fail-closed
                 # here so we do not open another Draw factory on a dying office.
                 gap_death = collect_post_test_death(ctx)
@@ -1647,12 +1633,6 @@ def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None) ->
                 suite_log.append(f"{test_line} — OK (skipped) ({e})")
                 record_test_end(qual, "SKIP")
                 _progress(f"TEST end {qual} SKIP")
-            except AssertionError as e:
-                total_failed += 1
-                suite_log.append(f"{test_line} — FAIL (AssertionError: {e})")
-                suite_log.append(traceback.format_exc())
-                _progress(f"TEST end {qual} FAIL {_fail_reason_with_lifecycle(e)}")
-                record_test_end(qual, "FAIL")
             except Exception as e:
                 total_failed += 1
                 crumb = format_lifecycle_breadcrumb()
@@ -1676,14 +1656,7 @@ def run_module_suite(ctx: Any, module: Any, name: str, doc_model: Any = None) ->
     finally:
         if teardown_func:
             try:
-                import inspect
-
-                try:
-                    sig = inspect.signature(teardown_func)
-                    expects_ctx = any(p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.VAR_POSITIONAL) for p in sig.parameters.values())
-                except Exception:
-                    expects_ctx = True
-                if expects_ctx:
+                if _takes_positional(teardown_func):
                     teardown_func(ctx)
                 else:
                     teardown_func()
@@ -1803,29 +1776,15 @@ def run_all_tests(ctx: Any) -> str:
 
     # Try to reuse an existing active document when it matches the suite type;
     # otherwise the underlying helpers will create their own temporary docs.
-    try:
-        from plugin.framework.uno_context import get_active_document
+    from plugin.framework.uno_context import get_active_document
 
-        model = get_active_document(ctx)
-    except ImportError:
-        model = None
+    model = get_active_document(ctx)
 
-    def _doc_type_never(model: Any) -> bool:
-        return False
+    from plugin.doc.doc_type import is_writer, is_calc, is_draw
 
-    is_writer_fn: Callable[[Any], bool]
-    is_calc_fn: Callable[[Any], bool]
-    is_draw_fn: Callable[[Any], bool]
-    try:
-        from plugin.doc.doc_type import is_writer, is_calc, is_draw
-
-        is_writer_fn, is_calc_fn, is_draw_fn = is_writer, is_calc, is_draw
-    except ImportError:
-        is_writer_fn = is_calc_fn = is_draw_fn = _doc_type_never
-
-    writer_doc = model if (model is not None and is_writer_fn(model)) else None
-    calc_doc = model if (model is not None and is_calc_fn(model)) else None
-    draw_doc = model if (model is not None and is_draw_fn(model)) else None
+    writer_doc = model if (model is not None and is_writer(model)) else None
+    calc_doc = model if (model is not None and is_calc(model)) else None
+    draw_doc = model if (model is not None and is_draw(model)) else None
     keeper_doc = None
 
     try:
@@ -1848,21 +1807,14 @@ def run_all_tests(ctx: Any) -> str:
                 "python_pid=%s soffice=%s" % (os.getpid(), _soffice_pids())
             )
             keeper_doc = get_desktop(ctx).loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))
-            keeper_uid = "-"
-            try:
-                keeper_uid = str(getattr(keeper_doc, "RuntimeUID", None) or "-")
-            except Exception:
-                keeper_uid = "-"
+            keeper_uid = str(getattr(keeper_doc, "RuntimeUID", None) or "-")
             _progress_verbose(
                 "KEEPER load done ok=%s uid=%s python_pid=%s soffice=%s"
                 % (keeper_doc is not None, keeper_uid, os.getpid(), _soffice_pids())
             )
-            try:
-                from tests.testing_utils import set_harness_keeper_uid
+            from tests.testing_utils import set_harness_keeper_uid
 
-                set_harness_keeper_uid(keeper_uid, keeper_doc)
-            except Exception:
-                pass
+            set_harness_keeper_uid(keeper_uid, keeper_doc)
     except Exception as e:
         log.warning("run_all_tests: could not create keeper document: %s", e)
         if _is_uno_bridge_disposed(e):
@@ -1893,18 +1845,7 @@ def run_all_tests(ctx: Any) -> str:
     # edge cases. Extension startup already sets ``_initialized``; this is a
     # no-op then.
     try:
-        from plugin.framework.uno_context import set_fallback_ctx
-
-        set_fallback_ctx(ctx)
-        from plugin.framework.config import init_config
-
-        init_config(ctx)
-        # User-profile soffice already ran extension OnStartApp. Re-bootstrap
-        # over URP has crashed the GUI; skip it for Packet F.
-        if not use_user_profile:
-            from plugin.main import bootstrap
-
-            bootstrap(ctx=ctx)
+        _rebootstrap_ctx(ctx)
     except Exception as e:
         log.warning("run_all_tests: bootstrap failed (in-LO tool tests may fail): %s", e)
 
@@ -1921,16 +1862,7 @@ def run_all_tests(ctx: Any) -> str:
             import officehelper
 
             new_ctx = _bootstrap_office(officehelper)
-            from plugin.framework.uno_context import set_fallback_ctx
-
-            set_fallback_ctx(new_ctx)
-            from plugin.framework.config import init_config
-
-            init_config(new_ctx)
-            if not use_user_profile:
-                from plugin.main import bootstrap
-
-                bootstrap(ctx=new_ctx)
+            _rebootstrap_ctx(new_ctx)
             return new_ctx
         except Exception as e:
             log.warning("run_all_tests: could not refresh disposed UNO context: %s", e)
@@ -2052,10 +1984,25 @@ def run_all_tests(ctx: Any) -> str:
                                 "LIFECYCLE recycle office skipped; no remaining suites"
                             )
                             skip_keeper_close = True
-                except ImportError as e:
-                    print(f"Skipping {filename} due to ImportError: {e}")
                 except Exception as e:
-                    print(f"Error loading {filename}: {e}")
+                    # A *_uno.py that fails to import (renamed symbol or
+                    # syntax error) used to print and continue, so
+                    # total_failed stayed 0 and main() exited 0.
+                    # SKIP_NATIVE_RUN_ALL above is the only skip.
+                    load_name = sys_module_name.replace("plugin.tests.", "")
+                    message = "%s: %s" % (type(e).__name__, e)
+                    print("Error loading %s: %s" % (filename, message), flush=True)
+                    suites.append(
+                        {
+                            "name": load_name,
+                            "failed": 1,
+                            "log": [
+                                "Error loading %s: %s" % (load_name, message),
+                                traceback.format_exc(),
+                            ],
+                        }
+                    )
+                    total_failed += 1
                 finally:
                     # Prevent sys.modules mocking from polluting later native tests.
                     if restore_snapshot is not None:
@@ -2187,10 +2134,7 @@ def main() -> int:
     summary_json = run_all_tests(ctx)
     print(summary_json, flush=True)
 
-    try:
-        summary = json.loads(summary_json)
-    except Exception:
-        summary = {"total_failed": 1}
+    summary = json.loads(summary_json)
 
     # Force-close LibreOffice via the Makefile/caller instead of in-process to avoid hangs.
 

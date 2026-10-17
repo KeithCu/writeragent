@@ -6,8 +6,12 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
+
+import plugin.framework.config as config_mod
+import plugin.testing_runner as tr
 
 from plugin.testing_runner import (
     _APPLICATION_ERROR_MARKER,
@@ -529,3 +533,59 @@ def test_fail_reason_with_lifecycle_keeps_crumb_after_cap() -> None:
     assert "previous=suite.test_ok" in out
     assert "result=OK" in out
     assert "current=suite.test_victim" in out
+
+
+def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) -> None:
+    """A *_uno.py that fails to import must set total_failed so main() exits 1.
+
+    The loader used to print and continue, so the process exited 0.
+    """
+    plugin_dir = tmp_path / "plugin"
+    tests_dir = tmp_path / "tests"
+    plugin_dir.mkdir()
+    tests_dir.mkdir()
+    (tests_dir / "test_r48_import_fail_uno.py").write_text(
+        "from os import no_such_writeragent_pkg_r48a\n",
+        encoding="utf-8",
+    )
+    (tests_dir / "test_r48_syntax_uno.py").write_text("def (\n", encoding="utf-8")
+    (tests_dir / "test_r48_skip_native_uno.py").write_text(
+        "SKIP_NATIVE_RUN_ALL = True\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr, "_parse_cli_args", lambda _argv: [])
+    monkeypatch.setattr(tr, "_bootstrap_office", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("unit test")))
+    monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
+    monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
+    monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
+    monkeypatch.setattr("plugin.main.bootstrap", lambda ctx=None: None)
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx=None: None)
+
+    saved = (config_mod.get_config, config_mod.set_config, config_mod.get_config_dict)
+    leaked = (
+        "plugin.tests.test_r48_import_fail_uno",
+        "plugin.tests.test_r48_syntax_uno",
+        "plugin.tests.test_r48_skip_native_uno",
+    )
+    try:
+        summary = json.loads(tr.run_all_tests(object()))
+    finally:
+        config_mod.get_config, config_mod.set_config, config_mod.get_config_dict = saved
+        for key in leaked:
+            sys.modules.pop(key, None)
+
+    assert int(summary.get("total_failed", 0) or 0) == 2
+    names = {entry["name"] for entry in summary["suites"]}
+    assert "test_r48_import_fail_uno" in names
+    assert "test_r48_syntax_uno" in names
+    assert "test_r48_skip_native_uno" not in names
+    by_name = {entry["name"]: entry for entry in summary["suites"]}
+    assert by_name["test_r48_import_fail_uno"]["failed"] == 1
+    assert any("ImportError" in line for line in by_name["test_r48_import_fail_uno"]["log"])
+    assert by_name["test_r48_syntax_uno"]["failed"] == 1
+    assert any("SyntaxError" in line for line in by_name["test_r48_syntax_uno"]["log"])
+    out = capsys.readouterr().out
+    assert "Skipping" not in out
+

@@ -709,6 +709,7 @@ def test_run_module_suite_prints_fail_reason(capsys) -> None:
     assert passed == 0
     assert failed == 1
     assert any("A1 did not become 2.0" in line for line in suite_log)
+    assert any(line.startswith("LIFECYCLE ") for line in suite_log)
     err = capsys.readouterr().err
     assert "TEST call fake.boom.test_boom" in err
     assert "TEST returned fake.boom.test_boom" not in err
