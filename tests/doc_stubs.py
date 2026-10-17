@@ -597,6 +597,12 @@ class CalcSheetStub:
     def setName(self, name):
         self._name = str(name)
 
+    def getColumns(self):
+        return SimpleNamespace(getCount=lambda: 16384)
+
+    def getRows(self):
+        return SimpleNamespace(getCount=lambda: 1048576)
+
     def getCellByPosition(self, col, row):
         key = (int(col), int(row))
         cell = self._cells.get(key)

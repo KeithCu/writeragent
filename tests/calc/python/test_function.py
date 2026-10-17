@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -1644,8 +1644,8 @@ def test_prepare_auto_spill_with_16384_columns() -> None:
         assert prepared.formula_col == 1020
 
 
-def test_prepare_auto_spill_fallback_columns_are_16384() -> None:
-    from unittest.mock import MagicMock, patch
+def test_prepare_auto_spill_respects_reported_sheet_size() -> None:
+    """The sheet reports its size through getCount(); a neighbor on the last column is #SPILL!."""
 
     class FallbackCellStub:
         def getType(self) -> int:
@@ -1660,6 +1660,12 @@ def test_prepare_auto_spill_fallback_columns_are_16384() -> None:
 
         def getCellByPosition(self, col: int, row: int) -> FallbackCellStub:
             return self._cell
+
+        def getColumns(self):
+            return SimpleNamespace(getCount=lambda: 16384)
+
+        def getRows(self):
+            return SimpleNamespace(getCount=lambda: 1048576)
 
     cell = FallbackCellStub()
     sheet = FallbackSheetStub(cell)
@@ -2903,6 +2909,9 @@ def test_spill_registry_doc_key_uses_runtime_uid_ladder() -> None:
             if name == "RuntimeUID":
                 return "from-prop"
             raise KeyError(name)
+
+        def getURL(self) -> str:
+            return ""
 
     assert python_function._spill_registry_doc_key(MethodVsPropStub()) == "from-method"
 

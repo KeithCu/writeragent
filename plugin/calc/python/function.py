@@ -689,17 +689,13 @@ def _undo_lock(doc: Any) -> Iterator[Any]:
     hides the spill mutations under the formula's undo action so the spill does not
     create a separate undo step. If the undo stack is empty, um.lock() is used.
     """
+    from plugin.framework.thread_guard import _unwrap_uno
+
     um = None
     hidden = False
     locked = False
+    raw_doc = _unwrap_uno(doc)
     try:
-        raw_doc = doc
-        try:
-            from plugin.framework.thread_guard import _unwrap_uno
-
-            raw_doc = _unwrap_uno(doc)
-        except Exception:
-            log.debug("_unwrap_uno failed in _undo_lock", exc_info=True)
         if hasattr(raw_doc, "getUndoManager"):
             um = raw_doc.getUndoManager()
             if um is not None:
@@ -707,17 +703,11 @@ def _undo_lock(doc: Any) -> Iterator[Any]:
                     if um.isUndoPossible():
                         um.enterHiddenUndoContext()
                         hidden = True
-                    elif hasattr(um, "lock"):
+                    else:
                         um.lock()
                         locked = True
                 except Exception:
                     log.debug("enterHiddenUndoContext/lock failed in _undo_lock", exc_info=True)
-                    try:
-                        if hasattr(um, "lock"):
-                            um.lock()
-                            locked = True
-                    except Exception:
-                        log.debug("fallback um.lock failed in _undo_lock", exc_info=True)
     except Exception:
         log.debug("getUndoManager lookup failed in _undo_lock", exc_info=True)
         um = None
@@ -931,21 +921,12 @@ def _spill_registry_doc_key(doc: Any) -> str:
     # How it happened: _spill_registry_doc_key only called getPropertyValue("RuntimeUID") and converted any truthy value via str().
     # Why this change fixes it: Use the shared _read_runtime_uid ladder, which tries method, attribute,
     # then property, and accepts only plain str / int, same as get_runtime_uid.
-    uid = ""
-    try:
-        from plugin.framework.uno_context import _read_runtime_uid
+    from plugin.framework.uno_context import _read_runtime_uid
 
-        uid = _read_runtime_uid(doc)
-    except Exception:
-        log.debug("spill registry: RuntimeUID read failed", exc_info=True)
-        uid = ""
+    uid = _read_runtime_uid(doc)
 
-    url = ""
-    try:
-        url_raw = getattr(doc, "getURL", lambda: "")()
-        url = str(url_raw) if isinstance(url_raw, str) else ""
-    except Exception:
-        url = ""
+    url_raw = doc.getURL()
+    url = str(url_raw) if isinstance(url_raw, str) else ""
 
     if uid:
         key = uid
@@ -1204,11 +1185,8 @@ def perform_deferred_spill(
                 if scheduled != live_key:
                     return
             else:
-                current_url = ""
-                try:
-                    current_url = getattr(doc, "getURL", lambda: "")() or ""
-                except Exception:
-                    current_url = ""
+                current_url_raw = doc.getURL()
+                current_url = current_url_raw if isinstance(current_url_raw, str) else ""
                 if current_url or not live_key:
                     return
             if lifecycle_key:
@@ -1237,19 +1215,13 @@ def perform_deferred_spill(
 
             sheet = target_sheet
             assert sheet is not None
-            try:
-                # If that object is disposed, return as today
-                if hasattr(sheet, "getName"):
-                    sheet.getName()
-            except Exception:
-                return
-
             live_sheet_name = ""
             try:
+                # Disposed sheet: getName raises. Do not write this spill.
                 if hasattr(sheet, "getName"):
                     live_sheet_name = str(sheet.getName() or "")
             except Exception:
-                live_sheet_name = ""
+                return
             if live_sheet_name and live_sheet_name != sheet_name:
                 try:
                     from plugin.calc.python.sheet_modify import migrate_sheet_rename
@@ -1296,15 +1268,9 @@ def perform_deferred_spill(
                     return
 
                 # Extract NullDate for temporal day serial conversion
-                null_dt = datetime.date(1899, 12, 30)
-                try:
-                    settings = doc.getNumberFormatSettings()
-                    if settings is not None:
-                        nd = settings.getPropertyValue("NullDate")
-                        if nd is not None:
-                            null_dt = datetime.date(getattr(nd, "Year", 1899), getattr(nd, "Month", 12), getattr(nd, "Day", 30))
-                except Exception:
-                    pass
+                settings = doc.getNumberFormatSettings()
+                nd = settings.getPropertyValue("NullDate")
+                null_dt = datetime.date(nd.Year, nd.Month, nd.Day)
 
                 # 3. Coerce and pad grid values for rectangular setDataArray block write
                 coerced_grid: list[list[Any]] = []
@@ -1378,36 +1344,19 @@ def perform_deferred_spill(
                 if has_any_temporal:
                     try:
                         formats = doc.getNumberFormats()
-                        try:
-                            locale = doc.getPropertyValue("CharLocale")
-                            if not getattr(locale, "Language", None):
-                                import uno
-
-                                locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
-                        except Exception:
+                        locale = doc.getPropertyValue("CharLocale")
+                        if not getattr(locale, "Language", None):
                             import uno
 
                             locale = uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
 
                         # Standard format keys (2=DATE, 4=TIME, 6=DATETIME, 43=DURATION)
                         standard_keys: dict[str, int] = {}
-                        try:
-                            standard_keys["date"] = int(formats.getStandardFormat(2, locale))
-                        except Exception:
-                            standard_keys["date"] = 36
-                        try:
-                            standard_keys["time"] = int(formats.getStandardFormat(4, locale))
-                        except Exception:
-                            standard_keys["time"] = 40
-                        try:
-                            standard_keys["datetime"] = int(formats.getStandardFormat(6, locale))
-                        except Exception:
-                            standard_keys["datetime"] = 50
-                        try:
-                            dur_key = formats.getFormatIndex(43, locale)
-                            standard_keys["duration"] = int(dur_key) if dur_key != -1 else 43
-                        except Exception:
-                            standard_keys["duration"] = 43
+                        standard_keys["date"] = int(formats.getStandardFormat(2, locale))
+                        standard_keys["time"] = int(formats.getStandardFormat(4, locale))
+                        standard_keys["datetime"] = int(formats.getStandardFormat(6, locale))
+                        dur_key = formats.getFormatIndex(43, locale)
+                        standard_keys["duration"] = int(dur_key) if dur_key != -1 else 43
 
                         category_cache: dict[int, str | None] = {}
                         decisions: list[list[Any]] = []
@@ -1421,16 +1370,12 @@ def perform_deferred_spill(
                                     serial_val = meta["serial"]
                                     target_c = formula_col + c_idx
                                     target_r = formula_row + r_idx
-                                    dest_cat = None
-                                    try:
-                                        cell = sheet.getCellByPosition(target_c, target_r)
-                                        k = int(cell.getPropertyValue("NumberFormat"))
-                                        if k not in category_cache:
-                                            props = formats.getByKey(k)
-                                            category_cache[k] = _format_category_from_type(props.getPropertyValue("Type"))
-                                        dest_cat = category_cache[k]
-                                    except Exception:
-                                        pass
+                                    cell = sheet.getCellByPosition(target_c, target_r)
+                                    k = int(cell.getPropertyValue("NumberFormat"))
+                                    if k not in category_cache:
+                                        props = formats.getByKey(k)
+                                        category_cache[k] = _format_category_from_type(props.getPropertyValue("Type"))
+                                    dest_cat = category_cache[k]
                                     if should_preserve_temporal_format(in_cat, float(serial_val), dest_cat):
                                         row_dec.append(("preserve", None))
                                     else:
@@ -1545,26 +1490,8 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
     except ImportError:
         EMPTY = cast("Any", 0)
 
-    # Bugfix: What was wrong: a sheet that did not expose getColumns()
-    # treated column 1024 and beyond as #SPILL!.
-    # How it happened: the fallback was the pre-7.4 Calc width. Current
-    # sheets have 16384 columns; getCount() already overrides this when
-    # the sheet reports its real width.
-    # Why this change fixes it: the unread-count fallback matches that
-    # width. A reported getCount() still wins, including 1024.
-    max_cols = 16384
-    max_rows = 1048576
-    try:
-        if hasattr(sheet, "getColumns"):
-            cols_obj = sheet.getColumns()
-            if hasattr(cols_obj, "getCount"):
-                max_cols = int(cols_obj.getCount())
-        if hasattr(sheet, "getRows"):
-            rows_obj = sheet.getRows()
-            if hasattr(rows_obj, "getCount"):
-                max_rows = int(rows_obj.getCount())
-    except Exception:
-        pass
+    max_cols = int(sheet.getColumns().getCount())
+    max_rows = int(sheet.getRows().getCount())
 
     for r_idx in range(num_rows):
         for c_idx in range(num_cols):
@@ -1856,10 +1783,7 @@ def _spill_timer_finished(timer: Any) -> bool:
     is_set = getattr(finished, "is_set", None)
     if not callable(is_set):
         return False
-    try:
-        return bool(is_set())
-    except Exception:
-        return False
+    return bool(is_set())
 
 
 def _prune_finished_spill_timers_locked() -> None:
@@ -1919,10 +1843,7 @@ def _register_spill_timer(lifecycle_key: str, timer: threading.Timer, *, token: 
             if existing is timer:
                 continue
             if token and key == lifecycle_key and getattr(existing, "_wa_spill_token", "") == token:
-                try:
-                    existing.cancel()
-                except Exception:
-                    pass
+                existing.cancel()
                 continue
             keep.append((key, existing))
         _PENDING_SPILL_TIMERS[:] = keep
@@ -1955,10 +1876,7 @@ def cancel_pending_spill_timers(lifecycle_key: str) -> None:
             finished = _spill_timer_finished(timer)
             if key == lifecycle_key or finished:
                 if key == lifecycle_key and not finished:
-                    try:
-                        timer.cancel()
-                    except Exception:
-                        pass
+                    timer.cancel()
                 continue
             keep.append((key, timer))
         _PENDING_SPILL_TIMERS[:] = keep
