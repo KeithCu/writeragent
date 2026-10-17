@@ -24,8 +24,9 @@ from plugin.framework.async_stream import defer_until_drain_done, run_async_work
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.errors import (
     AgentParsingError,
-    NetworkError,
+    best_effort,
     format_error_payload,
+    is_disposed_exception,
     safe_json_loads,
     suppress_disposed,
 )
@@ -351,10 +352,7 @@ class SendHandlersMixin:
         finally:
             self._stt_inflight = False
             self._stt_kill = None
-            try:
-                os.remove(wav_path)
-            except Exception:
-                pass
+            best_effort(lambda: os.remove(wav_path), "cleanup audio wav")
             self.audio_wav_path = None
 
     def _run_unified_worker_drain_loop(
@@ -669,10 +667,7 @@ class SendHandlersMixin:
         if held is not None and held_id == backend_id:
             return held
         if held is not None:
-            try:
-                held.shutdown()
-            except Exception:
-                log.exception("ACP shutdown on backend switch failed")
+            best_effort(held.shutdown, "ACP shutdown on backend switch")
             self._acp_backend = None
             self._acp_backend_id = None
         adapter = get_backend(backend_id)
@@ -709,8 +704,6 @@ class SendHandlersMixin:
             turn_session.refresh_document_context(model, self.ctx)
             doc_context = turn_session.document_context
         except Exception as e:
-            from plugin.framework.errors import is_disposed_exception
-
             if is_disposed_exception(e):
                 log.debug("Failed to build document context for agent backend (likely disposed): %s", e)
             else:
@@ -801,10 +794,7 @@ class SendHandlersMixin:
             request_id = item[4] if len(item) > 4 else None
 
             # Option to auto-approve tools from external agents
-            try:
-                prompt_for_permission = as_bool(get_config("agent_backend.prompt_for_permission"))
-            except Exception:
-                prompt_for_permission = True
+            prompt_for_permission = as_bool(get_config("agent_backend.prompt_for_permission"))
 
             if self.stop_requested:
                 approved = False
@@ -818,13 +808,7 @@ class SendHandlersMixin:
                     approved = False
 
             if request_id is not None and hasattr(adapter, "submit_approval"):
-                try:
-                    adapter.submit_approval(request_id, approved)
-                except Exception as e:
-                    if isinstance(e, NetworkError):
-                        log.debug("NetworkError submitting agent backend approval: %s", e)
-                    else:
-                        log.debug("Error submitting agent backend approval: %s", e)
+                best_effort(lambda: adapter.submit_approval(request_id, approved), "submitting agent backend approval")
 
         self._run_unified_worker_drain_loop(drain_q, run_agent, current_state, interpreter, on_approval_callback=on_approval_required)
 

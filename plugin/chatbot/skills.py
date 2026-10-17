@@ -17,7 +17,7 @@ import tempfile
 from typing import Any
 
 from plugin.framework.config import user_config_dir
-from plugin.framework.errors import ConfigError
+from plugin.framework.errors import ConfigError, best_effort
 
 log = logging.getLogger(__name__)
 
@@ -117,10 +117,7 @@ class SkillStore:
                     f.write(content.strip() + "\n")
                 os.replace(tmp_path, path)
             except BaseException:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+                best_effort(lambda: os.unlink(tmp_path), "unlink tmp_path")
                 raise
             return True
         except OSError as e:

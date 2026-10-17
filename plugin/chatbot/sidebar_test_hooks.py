@@ -36,6 +36,7 @@ from plugin.chatbot.panel import (
 )
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
+from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger("writeragent.sidebar_test_hooks")
@@ -667,15 +668,15 @@ def _clear_fake_tts_in_process() -> None:
         if _FAKE_TTS_ORIG is None and _FAKE_TTS_SAVED is None:
             return
 
-        try:
+        def _stop() -> None:
             if _FAKE_TTS_ORIG is not None:
                 _FAKE_TTS_ORIG["stop_speech"]()
             else:
                 import plugin.audio.tts_service as tts_service
 
                 tts_service.stop_speech()
-        except Exception:
-            log.debug("clear_fake_tts: stop_speech failed", exc_info=True)
+
+        best_effort(_stop, "clear_fake_tts: stop_speech failed")
 
         for proc in _FAKE_TTS_PROCS.values():
             if proc.poll() is None:
@@ -1201,11 +1202,7 @@ def _debug_sidebar_query(op: str, uid: str = "") -> str:
 def _doc_frame(doc: Any) -> Any:
     if doc is None:
         return None
-    try:
-        controller = doc.getCurrentController()
-        return controller.getFrame() if controller is not None else None
-    except Exception:
-        return None
+    return uno_probe(lambda: doc.getCurrentController().getFrame() if doc.getCurrentController() is not None else None, None)
 
 
 def execute_debug_sidebar_op(op: str, *, ctx: Any = None) -> dict[str, Any]:
@@ -1220,13 +1217,9 @@ def execute_debug_sidebar_op(op: str, *, ctx: Any = None) -> dict[str, Any]:
     frame = _doc_frame(doc)
     if frame is None:
         raise RuntimeError("debug_sidebar: no frame for executeDispatch")
-    uid = ""
-    try:
-        from plugin.framework.uno_context import get_runtime_uid
+    from plugin.framework.uno_context import get_runtime_uid
 
-        uid = get_runtime_uid(doc) or ""
-    except Exception:
-        uid = ""
+    uid = get_runtime_uid(doc) or ""
     url = "%s:%s?%s" % (EXTENSION_ID_WRITERAGENT, _DEBUG_SIDEBAR_PREFIX, _debug_sidebar_query(op, uid))
     smgr = uno_ctx.getServiceManager()
     helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
@@ -1355,12 +1348,9 @@ def _frames_match(left: Any, right: Any) -> bool:
 
     if not on_main_thread():
         return False
-    try:
-        from plugin.framework.uno_context import uno_same
+    from plugin.framework.uno_context import uno_same
 
-        return bool(uno_same(left, right))
-    except Exception:
-        return False
+    return uno_probe(lambda: bool(uno_same(left, right)), False)
 
 
 def _listener_torn_down(listener: Any) -> bool:
@@ -1393,15 +1383,9 @@ def _current_frame() -> Any:
     leftover Calc after Packet P / E12 (those panels stay alive because
     ``_LIVE_SEND_LISTENERS`` holds a strong ref).
     """
-    try:
-        ctx = _HOOK_CTX
-        if ctx is None:
-            from plugin.framework.uno_context import get_ctx
+    from plugin.framework.uno_context import get_ctx
 
-            ctx = get_ctx()
-        return _doc_frame(current_component(ctx))
-    except Exception:
-        return None
+    return uno_probe(lambda: _doc_frame(current_component(_HOOK_CTX or get_ctx())), None)
 
 
 def sidebar_panel(frame: Any = None, *, uid: str = "") -> Any:
@@ -1459,10 +1443,7 @@ def component_is_calc(doc: Any) -> bool:
     _require_debug()
     if doc is None:
         return False
-    try:
-        return bool(doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"))
-    except Exception:
-        return False
+    return uno_probe(lambda: bool(doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")), False)
 
 
 def iter_desktop_components(ctx: Any) -> list[Any]:
@@ -1498,13 +1479,10 @@ def close_component(doc: Any) -> None:
     _require_debug()
     if doc is None:
         return
-    try:
-        if hasattr(doc, "close"):
-            doc.close(True)
-        elif hasattr(doc, "dispose"):
-            doc.dispose()
-    except Exception:
-        pass
+    if hasattr(doc, "close"):
+        best_effort(lambda: doc.close(True), "close component")
+    elif hasattr(doc, "dispose"):
+        best_effort(doc.dispose, "dispose component")
 
 
 def _load_visible_calc_factory() -> None:
@@ -1631,17 +1609,16 @@ def sidebar_deck_names(ctx: Any, doc: Any) -> list[str]:
     _require_debug()
     if doc is None:
         return []
-    try:
-        controller = doc.getCurrentController()
-        provider = sidebar_provider(controller)
-        if provider is None:
-            return []
-        decks = provider.getDecks()
-        if hasattr(decks, "getElementNames"):
-            return [str(n) for n in decks.getElementNames()]
-    except Exception:
+
+    def _read() -> list[str]:
+        provider = sidebar_provider(doc.getCurrentController())
+        if provider is not None:
+            decks = provider.getDecks()
+            if hasattr(decks, "getElementNames"):
+                return [str(n) for n in decks.getElementNames()]
         return []
-    return []
+
+    return uno_probe(_read, [])
 
 
 def _panel_root_window(panel: Any) -> Any:
@@ -1649,14 +1626,10 @@ def _panel_root_window(panel: Any) -> Any:
         return None
     for attr in ("getDialog", "getWindow"):
         getter = getattr(panel, attr, None)
-        if not callable(getter):
-            continue
-        try:
-            win = getter()
-        except Exception:
-            continue
-        if win is not None:
-            return win
+        if callable(getter):
+            win = uno_probe(getter, None)
+            if win is not None:
+                return win
     return getattr(panel, "Window", None) or getattr(panel, "PanelWindow", None)
 
 
@@ -1751,18 +1724,10 @@ def send_listener(frame: Any = None, *, uid: str = "") -> Any:
 
 def _listener_for_current_doc() -> Any:
     """SendButtonListener for the current component (Packet K inflate)."""
-    try:
-        ctx = _HOOK_CTX
-        if ctx is None:
-            from plugin.framework.uno_context import get_ctx
+    from plugin.framework.uno_context import get_ctx
 
-            ctx = get_ctx()
-        sl = send_listener_for_doc(current_component(ctx))
-        if sl is not None:
-            return sl
-    except Exception:
-        pass
-    return send_listener()
+    sl = uno_probe(lambda: send_listener_for_doc(current_component(_HOOK_CTX or get_ctx())), None)
+    return sl if sl is not None else send_listener()
 
 
 def _listener_with_slash_popup(sl: Any) -> Any:
@@ -1816,7 +1781,8 @@ def _writeragent_deck(provider: Any) -> Any:
     """Return the WriterAgent XDeck from *provider*, or None."""
     if provider is None:
         return None
-    try:
+
+    def _find():
         decks = provider.getDecks()
         if decks is None:
             return None
@@ -1827,20 +1793,16 @@ def _writeragent_deck(provider: Any) -> Any:
         for deck_name in names:
             if "WriterAgent" in str(deck_name):
                 return decks.getByName(deck_name)
-    except Exception:
         return None
-    return None
+
+    return uno_probe(_find, None)
 
 
 def _activate_writeragent_deck(provider: Any) -> None:
     """Switch to WriterAgent via XDeck.activate (no toggle)."""
     deck = _writeragent_deck(provider)
-    if deck is None:
-        return
-    try:
-        deck.activate(True)
-    except Exception:
-        log.debug("activate WriterAgentDeck failed", exc_info=True)
+    if deck is not None:
+        best_effort(lambda: deck.activate(True), "activate WriterAgentDeck failed")
 
 
 def show_writeragent_chat_deck(ctx: Any, doc: Any) -> None:
@@ -1867,34 +1829,22 @@ def show_writeragent_chat_deck(ctx: Any, doc: Any) -> None:
 
     # OpenThenToggleDeck: same-deck second time closes the sidebar — skip when on.
     if already_visible and provider is not None:
-        try:
-            provider.showDecks(True)
-        except Exception:
-            pass
+        best_effort(lambda: provider.showDecks(True), "showDecks failed")
         deck = _writeragent_deck(provider)
         if deck is not None:
             if hasattr(deck, "isActive") and deck.isActive():
                 return
-            try:
-                deck.activate(True)
-            except Exception:
-                log.debug("show_writeragent_chat_deck activate while visible failed", exc_info=True)
+            best_effort(lambda: deck.activate(True), "show_writeragent_chat_deck activate while visible failed")
         return
 
     smgr = ctx.getServiceManager()
     helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-    try:
-        helper.executeDispatch(frame, ".uno:SidebarDeck.WriterAgentDeck", "", 0, ())
-    except Exception:
-        log.debug("show_writeragent_chat_deck dispatch WriterAgentDeck failed", exc_info=True)
+    best_effort(lambda: helper.executeDispatch(frame, ".uno:SidebarDeck.WriterAgentDeck", "", 0, ()), "show_writeragent_chat_deck dispatch WriterAgentDeck failed")
     if provider is None:
         return
     if hasattr(provider, "setVisible"):
         provider.setVisible(True)
-    try:
-        provider.showDecks(True)
-    except Exception:
-        pass
+    best_effort(lambda: provider.showDecks(True), "showDecks failed")
     _activate_writeragent_deck(provider)
 
 
@@ -1929,11 +1879,7 @@ def control_enabled(control: Any) -> bool | None:
     _require_debug()
     if control is None:
         return None
-    try:
-        model = control.getModel()
-        return bool(getattr(model, "Enabled"))
-    except Exception:
-        return None
+    return uno_probe(lambda: bool(getattr(control.getModel(), "Enabled", None)), None)
 
 
 def send_listener_for_doc(doc: Any) -> Any:
@@ -1979,12 +1925,9 @@ def send_listener_for_uid(uid: str) -> Any:
         frame = getattr(sl, "frame", None)
         if frame is None:
             continue
-        try:
-            model = frame.getController().getModel()
-            if str(get_runtime_uid(model) or "") == token:
-                return sl
-        except Exception:
-            continue
+        model = uno_probe(lambda: frame.getController().getModel(), None)
+        if model is not None and str(get_runtime_uid(model) or "") == token:
+            return sl
     return None
 
 
@@ -2133,13 +2076,9 @@ def wait_controls_send_finished(
 
 
 def _control_label(control: Any) -> str:
-    try:
-        model = control.getModel() if control is not None else None
-        if model is not None:
-            return str(model.Label or "")
-    except Exception:
-        log.debug("control label read failed", exc_info=True)
-    return ""
+    if control is None:
+        return ""
+    return best_effort(lambda: str(getattr(control.getModel(), "Label", "") or ""), "control label read failed", default="") or ""
 
 
 def set_query_text(text: str, *, listener: Any = None) -> None:
@@ -2188,19 +2127,13 @@ def _slash_control_near_query(query: Any) -> Any:
         getter = getattr(query, getter_name, None)
         if not callable(getter):
             continue
-        try:
-            cur = getter()
-        except Exception:
-            continue
+        cur = uno_probe(getter, None)
         hops = 0
         while cur is not None and hops < 6:
             hops += 1
             get_control = getattr(cur, "getControl", None)
             if callable(get_control):
-                try:
-                    ctrl = get_control("slash_popup")
-                except Exception:
-                    ctrl = None
+                ctrl = uno_probe(lambda: get_control("slash_popup"), None)
                 if ctrl is not None:
                     return ctrl
             parent = getattr(cur, "getParent", None)
@@ -2226,12 +2159,9 @@ def _attach_slash_popup_on_listener(sl: Any) -> Any:
 
 
 def _slash_lru_names() -> list[str]:
-    try:
-        from plugin.chatbot.slash_commands import load_slash_lru
+    from plugin.chatbot.slash_commands import load_slash_lru
 
-        return list(load_slash_lru())
-    except Exception:
-        return []
+    return best_effort(lambda: list(load_slash_lru()), "load slash lru", default=[]) or []
 
 
 def _slash_state_from_snapshot(data: dict[str, Any]) -> dict[str, Any]:
@@ -2772,10 +2702,7 @@ def pump_until(pred: Callable[[], bool], timeout: float = 30.0, *, ctx: Any = No
         sl = send_listener()
         uno_ctx = getattr(sl, "ctx", None) if sl is not None else None
         if uno_ctx is None:
-            try:
-                uno_ctx = get_ctx()
-            except Exception:
-                uno_ctx = None
+            uno_ctx = uno_probe(get_ctx, None)
     while time.monotonic() <= deadline:
         if pred():
             return True
@@ -2859,20 +2786,20 @@ def list_redlines(doc: Any) -> list[dict[str, Any]]:
         start = rl.getPropertyValue("RedlineStart")
         txt = ""
         if start is not None:
-            try:
+            def _get_range_text() -> str:
                 end = rl.getPropertyValue("RedlineEnd")
                 stext = start.getText()
                 cur = stext.createTextCursorByRange(start)
                 cur.gotoRange(end, True)
-                txt = cur.getString() or ""
-            except Exception:
-                pass
+                return cur.getString() or ""
+
+            txt = uno_probe(_get_range_text, "")
         if not txt:
-            try:
+            def _get_rt_text() -> str:
                 rt = rl.getPropertyValue("RedlineText")
-                txt = (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
-            except Exception:
-                pass
+                return (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
+
+            txt = uno_probe(_get_rt_text, "")
         entry["text"] = txt
         redlines.append(entry)
     return redlines
