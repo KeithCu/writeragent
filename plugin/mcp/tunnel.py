@@ -510,12 +510,11 @@ class TunnelManager:
 
     def _retire_snippet_provider(self, provider: str) -> None:
         """Drop the settings snippet cache for *provider* (no tunnel lock needed)."""
-        try:
-            from plugin.mcp.mcp_ui import clear_tested_provider_tunnel_url
+        # In-memory cache plus a posted snippet refresh. Swallowing a failure
+        # left the settings snippet on a URL this provider no longer serves.
+        from plugin.mcp.mcp_ui import clear_tested_provider_tunnel_url
 
-            clear_tested_provider_tunnel_url(provider)
-        except Exception:
-            log.exception("Failed to clear cached MCP tunnel URL for %s", provider)
+        clear_tested_provider_tunnel_url(provider)
 
     def _retire_snippet_url_if_not_live(self, previous_provider: str, previous_url: Optional[str], previous_status: TunnelStatus) -> None:
         """Retire the snippet URL when this provider is no longer serving it.

@@ -266,20 +266,12 @@ def _is_loopback_origin(origin: str) -> bool:
 def reload_cors_policy_from_config(services: Any) -> None:
     """Refresh CORS caches from mcp config (explicit list + private-origin JSON setting)."""
     # crosshair: off
-    try:
-        cfg = services.config.proxy_for("mcp")
-        raw = cfg.get("cors_allowed_origins")
-        allow_private = cfg.get("cors_allow_private_origins")
-    except Exception as e:
-        # What was wrong: a failed MCP config read set allow_private True, so
-        # private and LAN Origins were allowed when the policy could not be loaded.
-        # How: the except assigned allow_private = True.
-        # Why: fail closed. Empty explicit list and allow_private False refuse
-        # non-loopback Origins until a later successful reload. A successful
-        # read with a missing key still defaults to True on the next line.
-        log.warning("Could not load MCP CORS config: %s", e)
-        raw = []
-        allow_private = False
+    # ConfigService.get returns the caller default on ConfigError. A raise
+    # here is a broken config service. The old except cleared the explicit
+    # origin list and forced allow-private off, so the bug never surfaced.
+    cfg = services.config.proxy_for("mcp")
+    raw = cfg.get("cors_allowed_origins")
+    allow_private = cfg.get("cors_allow_private_origins")
     origins = normalize_origins_list(raw)
     set_extra_allowed_origins(origins)
     set_allow_private_origins(allow_private if allow_private is not None else True)

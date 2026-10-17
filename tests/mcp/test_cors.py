@@ -9,12 +9,15 @@
 import json
 import urllib.error
 import urllib.request
+from unittest.mock import MagicMock
 
 import pytest
 
 import plugin.mcp.mcp_protocol as mcp_protocol
 from plugin.framework.deal_shim import DEAL_MAX_ORIGIN
 from plugin.mcp.cors import (
+    get_allow_private_origins,
+    get_extra_allowed_origins,
     is_private_browser_origin,
     is_safe_host,
     is_safe_origin,
@@ -23,6 +26,7 @@ from plugin.mcp.cors import (
     normalize_origins_list,
     origin_is_forbidden,
     reject_forbidden_host,
+    reload_cors_policy_from_config,
     send_cors_headers,
     set_allow_private_origins,
     set_extra_allowed_origins,
@@ -687,27 +691,18 @@ def test_drain_request_body_reads_up_to_content_length():
     assert handler.rfile.read() == b""
 
 
-def test_reload_cors_config_failure_fails_closed():
-    from unittest.mock import MagicMock
-    from plugin.mcp.cors import (
-        get_allow_private_origins,
-        get_extra_allowed_origins,
-        reload_cors_policy_from_config,
-    )
-
+def test_reload_cors_config_failure_propagates():
     services = MagicMock()
     services.config.proxy_for.side_effect = RuntimeError("config")
     set_allow_private_origins(True)
     set_extra_allowed_origins(["https://evil.example"])
-    reload_cors_policy_from_config(services)
-    assert get_allow_private_origins() is False
-    assert get_extra_allowed_origins() == frozenset()
+    with pytest.raises(RuntimeError, match="config"):
+        reload_cors_policy_from_config(services)
+    assert get_allow_private_origins() is True
+    assert "https://evil.example" in get_extra_allowed_origins()
 
 
 def test_reload_cors_missing_private_key_stays_on():
-    from unittest.mock import MagicMock
-    from plugin.mcp.cors import get_allow_private_origins, reload_cors_policy_from_config
-
     services = MagicMock()
     proxy = MagicMock()
 

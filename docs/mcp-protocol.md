@@ -105,7 +105,7 @@ Browser MCP clients send an `Origin` header (e.g. `https://localai.local`). The 
 
 **Loopback** (`localhost`, `127.0.0.1`, `[::1]`) is always allowed without this setting.
 
-If `reload_cors_policy_from_config` cannot read MCP config, the explicit origin list is cleared and private/LAN origins are turned **off** until a later successful reload (fail closed). A successful read whose `mcp.cors_allow_private_origins` value is missing still defaults to **on**.
+A successful read whose `mcp.cors_allow_private_origins` value is missing still defaults to **on**.
 
 **Optional explicit list** — only for origins **not** covered above (e.g. public `https://app.company.com`). Edit `writeragent.json` (not the Settings dialog):
 

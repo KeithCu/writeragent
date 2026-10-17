@@ -1770,6 +1770,13 @@ def test_notify_url_failure_is_logged(caplog):
     assert mgr.public_url == "https://abc.example.com"
 
 
+def test_retire_snippet_provider_propagates_clear_failure():
+    mgr = TunnelManager()
+    with patch("plugin.mcp.mcp_ui.clear_tested_provider_tunnel_url", side_effect=RuntimeError("cache")):
+        with pytest.raises(RuntimeError, match="cache"):
+            mgr._retire_snippet_provider("cloudflare")
+
+
 def test_post_stop_start_failure_decrements_under_lock(monkeypatch):
     mgr = TunnelManager()
 
