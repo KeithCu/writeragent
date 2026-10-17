@@ -528,6 +528,8 @@ def test_remove_graphic_ambiguous_name_deletes_nothing():
 def test_get_active_draw_page_reraises_disposed() -> None:
     import pytest
 
+    from plugin.framework.errors import DocumentDisposedError
+
     class DisposedException(Exception):
         pass
 
@@ -540,16 +542,16 @@ def test_get_active_draw_page_reraises_disposed() -> None:
             raise DisposedException("closed")
 
     doc = DisposedDoc()
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         visual_helpers.get_active_draw_page(doc, "calc")
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         visual_helpers.get_active_draw_page(doc, "draw")
 
     class DisposedWriterDoc(FakeWriterDoc):
         def getDrawPage(self):
             raise DisposedException("closed")
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         visual_helpers.get_active_draw_page(DisposedWriterDoc({}), "writer")
 
     assert visual_helpers.get_active_draw_page(FakeWriterDoc({}), "writer") is None
@@ -558,6 +560,8 @@ def test_get_active_draw_page_reraises_disposed() -> None:
 def test_list_graphic_objects_reraises_disposed() -> None:
     import pytest
 
+    from plugin.framework.errors import DocumentDisposedError
+
     class DisposedException(Exception):
         pass
 
@@ -565,6 +569,6 @@ def test_list_graphic_objects_reraises_disposed() -> None:
         def getDrawPages(self):
             raise DisposedException("closed")
 
-    with pytest.raises(DisposedException):
+    with pytest.raises(DocumentDisposedError):
         visual_helpers.list_graphic_objects(DisposedDrawDoc(), "draw")
 
