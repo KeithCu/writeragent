@@ -581,7 +581,7 @@ class SettingsDialog:
         on a live control does not raise.
         """
         ctrl = get_optional(self._dlg, name)
-        # Same control as today (line 664): audio__tts_model or the legacy id.
+        # The TTS model control may still use the legacy id.
         if ctrl is None and name == "audio__tts_model":
             ctrl = get_optional(self._dlg, "tts_model")
         if ctrl is None:

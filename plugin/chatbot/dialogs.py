@@ -758,7 +758,7 @@ def translate_dialog(dlg: Any) -> None:
                             translated = tuple(_(item) if item else "" for item in items)
                             ctrl.setStringItemList(translated)
                         used_control = True
-                    if not used_control and model is not None and hasattr(model, "StringItemList"):
+                    if not used_control and model is not None:
                         items = model.StringItemList
                         if items:
                             translated = tuple(_(item) if item else "" for item in items)
