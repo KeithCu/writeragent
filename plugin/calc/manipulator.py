@@ -52,7 +52,7 @@ from plugin.calc.array_formula import MAX_ARRAY_CELLS, result_range, returns_arr
 from plugin.calc.formula_fill import expand_single_formula
 from plugin.calc.datetime_wire import coalesce_temporal_apply_rects, duration_serial_from_iso, is_compatible_temporal_template, match_iso_duration, match_iso_temporal, should_preserve_temporal_format
 from plugin.calc.inspector import _format_category_from_type
-from plugin.framework.errors import safe_json_loads, is_disposed_exception
+from plugin.framework.errors import safe_json_loads, is_disposed_exception, uno_probe
 from plugin.framework.uno_context import get_ctx
 
 
@@ -95,6 +95,11 @@ def _quiet_probe_cleanup(action: Callable[[], None], what: str) -> None:
         if is_disposed_exception(e):
             raise
         log.debug("%s failed during array probe cleanup", what, exc_info=True)
+
+
+def _clear_array_range(rng: Any) -> None:
+    rng.setArrayFormula("")
+    rng.clearContents(23)
 
 
 def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) -> list[Any] | None:
@@ -304,7 +309,8 @@ class CellManipulator:
 
     def _apply_borders(self, obj: Any, color: int) -> None:
         """Apply borders to a cell or range object."""
-        try:
+
+        def borders2() -> bool:
             import uno
             line = uno.createUnoStruct("com.sun.star.table.BorderLine2")
             setattr(line, "Color", color)
@@ -315,11 +321,10 @@ class CellManipulator:
             obj.setPropertyValue("BottomBorder2", line)
             obj.setPropertyValue("LeftBorder2", line)
             obj.setPropertyValue("RightBorder2", line)
+            return True
+
+        if uno_probe(borders2, False):
             return
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            pass
 
         line = BorderLine()
         setattr(line, "Color", color)
@@ -681,29 +686,23 @@ class CellManipulator:
             start_r = scan_start_row - 1
             min_r = max(0, scan_start_row - max_scan)
             for r in range(start_r, min_r - 1, -1):
-                try:
-                    cell = sheet.getCellByPosition(col, r)
-                    key = int(cell.getPropertyValue("NumberFormat"))
-                except Exception as e:
-                    if is_disposed_exception(e):
-                        raise
-                    continue
+                # An unreadable cell reads as key 0 and is skipped like a General cell.
+                key = uno_probe(lambda: int(sheet.getCellByPosition(col, r).getPropertyValue("NumberFormat")), 0)
                 if key == 0:
                     continue
                 if key not in category_cache or key not in format_code_cache:
-                    try:
+
+                    def read_format() -> bool:
                         props = formats.getByKey(key)
                         if key not in category_cache:
                             category_cache[key] = _format_category_from_type(props.getPropertyValue("Type"))
                         if key not in format_code_cache:
                             format_code_cache[key] = props.getPropertyValue("FormatString")
-                    except Exception as e:
-                        if is_disposed_exception(e):
-                            raise
-                        if key not in category_cache:
-                            category_cache[key] = None
-                        if key not in format_code_cache:
-                            format_code_cache[key] = None
+                        return True
+
+                    if not uno_probe(read_format, False):
+                        category_cache.setdefault(key, None)
+                        format_code_cache.setdefault(key, None)
                 cat = category_cache[key]
                 if is_compatible_temporal_template(input_category, cat, format_code_cache.get(key)):
                     column_templates[col] = key
@@ -960,23 +959,12 @@ class CellManipulator:
                     meta = cell_metas[cell_idx]
                     if meta["restore_format"] or (any_temporal and meta["kind"] == "temporal"):
                         cell = sheet.getCellByPosition(col, row)
-                        try:
-                            key = int(cell.getPropertyValue("NumberFormat"))
-                        except Exception as e:
-                            if is_disposed_exception(e):
-                                raise
-                            key = 0
+                        key = uno_probe(lambda: int(cell.getPropertyValue("NumberFormat")), 0)
                         if meta["restore_format"]:
                             s29_snapshots.append((col, row, key))
                         if meta["kind"] == "temporal":
                             if key not in category_cache:
-                                try:
-                                    props = formats.getByKey(key)
-                                    category_cache[key] = _format_category_from_type(props.getPropertyValue("Type"))
-                                except Exception as e:
-                                    if is_disposed_exception(e):
-                                        raise
-                                    category_cache[key] = None
+                                category_cache[key] = uno_probe(lambda: _format_category_from_type(formats.getByKey(key).getPropertyValue("Type")), None)
                             dest_categories[(col, row)] = category_cache[key]
                     cell_idx += 1
 
@@ -1185,31 +1173,21 @@ class CellManipulator:
                 sizes.append(int(round(cell.getValue())))
         finally:
             for row in (row0, row0 + 1):
-                try:
-                    probe = sheet.getCellRangeByPosition(col, row, col, row)
-                    probe.setArrayFormula("")
-                    probe.clearContents(23)
-                except Exception as e:
-                    if is_disposed_exception(e):
-                        raise
-                    pass
+                uno_probe(lambda: _clear_array_range(sheet.getCellRangeByPosition(col, row, col, row)), None)
         return sizes[0], sizes[1]
 
     @staticmethod
     def _array_block(sheet: Any, col: int, row: int) -> Any | None:
         """Range address of the array formula covering (*col*, *row*), or None."""
-        try:
+
+        def block() -> Any | None:
             cursor = sheet.createCursorByRange(sheet.getCellRangeByPosition(col, row, col, row))
             cursor.collapseToCurrentArray()
             addr = cursor.getRangeAddress()
             rng = sheet.getCellRangeByPosition(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)
-            if not rng.getArrayFormula():
-                return None
-            return addr
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return None
+            return addr if rng.getArrayFormula() else None
+
+        return uno_probe(block, None)
 
     def _write_array_formula(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int], measure_only: bool = False, premeasured_array_size: tuple[int, int] | None = None) -> dict[str, Any]:
         """Enter *formula* as an array formula so its whole result shows.
@@ -1281,13 +1259,7 @@ class CellManipulator:
         rng.setArrayFormula(formula)
         anchor = sheet.getCellByPosition(t_c1, t_r1)
         if int(anchor.Error):
-            try:
-                rng.setArrayFormula("")
-                rng.clearContents(23)
-            except Exception as e:
-                if is_disposed_exception(e):
-                    raise
-                pass
+            uno_probe(lambda: _clear_array_range(rng), None)
             raise CalcError("The formula returns an error (%s, code %d)." % (anchor.getString() or "error", int(anchor.Error)))
         preview = [list(r) for r in rng.getDataArray()[:5]]
         payload: dict[str, Any] = {"message": "Array formula entered on %s (%d x %d)." % (block_name(*target), rows, cols), "array_range": block_name(*target), "rows": rows, "cols": cols, "preview": preview}
