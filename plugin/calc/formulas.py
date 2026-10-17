@@ -185,17 +185,11 @@ class EvaluateFormula(ToolCalcErrorBase):
         if not doc:
             raise ToolExecutionError("Document model not available.")
 
-        try:
-            sheets = doc.getSheets()
-        except Exception as e:
-            raise ToolExecutionError(f"Failed to get sheets: {str(e)}") from e
+        sheets = doc.getSheets()
 
         # Resolve the active sheet to copy from
-        try:
-            active_sheet = doc.getCurrentController().getActiveSheet()
-            active_name = active_sheet.getName()
-        except Exception as e:
-            raise ToolExecutionError(f"Failed to get active sheet: {str(e)}") from e
+        active_sheet = doc.getCurrentController().getActiveSheet()
+        active_name = active_sheet.getName()
 
         temp_sheet_name = f"__wa_eval_copy_{int(now_aware().timestamp())}_0__"
 

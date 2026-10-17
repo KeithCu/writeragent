@@ -27,6 +27,12 @@ from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
 
+try:
+    import uno  # noqa: F401
+    from com.sun.star.lang import IllegalArgumentException
+except (ImportError, AttributeError):
+    IllegalArgumentException = cast("Any", type("IllegalArgumentException", (Exception,), {}))
+
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
@@ -135,7 +141,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
                     rules.append(_entry_to_dict(entry, i))
 
             return {"status": "ok", "range": range_str or "(used area)", "rules": rules, "count": len(rules)}
-        except Exception as e:
+        except IllegalArgumentException as e:
             log.exception("List conditional formats failed")
             return self._tool_error(f"Failed to list conditional formats: {str(e)}", code="CONDITIONAL_FORMAT_ERROR")
 
@@ -224,7 +230,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
             count = formats.getCount()
 
             return {"status": "ok", "range": range_str, "rule_count": count}
-        except Exception as e:
+        except IllegalArgumentException as e:
             log.exception("Add conditional format failed")
             return self._tool_error(f"Failed to add conditional format: {str(e)}", code="CONDITIONAL_FORMAT_ERROR")
 
@@ -264,6 +270,6 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
                 cell_range.setPropertyValue("ConditionalFormat", formats)
             return {"status": "ok", "range": range_str, "cleared": True}
 
-        except Exception as e:
+        except IllegalArgumentException as e:
             log.exception("Remove conditional formats failed")
             return self._tool_error(f"Failed to remove conditional formats: {str(e)}", code="CONDITIONAL_FORMAT_ERROR")

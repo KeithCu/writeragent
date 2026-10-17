@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import ToolExecutionError, UnoObjectError
+from plugin.framework.errors import UnoObjectError
 from plugin.framework.prompts import get_sheets_create_completion_instruction
 from plugin.framework.tool import ToolBase
 
@@ -50,14 +50,10 @@ class ListSheets(ToolCalcSheetBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        try:
-            doc = bridge.get_active_document()
-            sheet_names = filter_agent_sheet_names(doc.getSheets().getElementNames())
-            log.info("Sheets listed: %s", sheet_names)
-            return {"status": "ok", "result": sheet_names}
-        except Exception as e:
-            log.exception("Sheet listing failed")
-            raise ToolExecutionError(str(e)) from e
+        doc = bridge.get_active_document()
+        sheet_names = filter_agent_sheet_names(doc.getSheets().getElementNames())
+        log.info("Sheets listed: %s", sheet_names)
+        return {"status": "ok", "result": sheet_names}
 
 
 class SwitchSheet(ToolCalcSheetBase):
@@ -73,20 +69,16 @@ class SwitchSheet(ToolCalcSheetBase):
         bridge = CalcBridge(ctx.doc)
         sheet_name = kwargs["sheet"]
 
-        try:
-            doc = bridge.get_active_document()
-            sheets = doc.getSheets()
-            if not sheets.hasByName(sheet_name):
-                raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
-            sheet = sheets.getByName(sheet_name)
-            controller = doc.getCurrentController()
-            controller.setActiveSheet(sheet)
-            log.info("Switched to sheet: %s", sheet_name)
-            result = f"Switched to sheet '{sheet_name}'."
-            return {"status": "ok", "message": result}
-        except Exception as e:
-            log.exception("Sheet switch failed for %s", sheet_name)
-            raise ToolExecutionError(str(e)) from e
+        doc = bridge.get_active_document()
+        sheets = doc.getSheets()
+        if not sheets.hasByName(sheet_name):
+            raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
+        sheet = sheets.getByName(sheet_name)
+        controller = doc.getCurrentController()
+        controller.setActiveSheet(sheet)
+        log.info("Switched to sheet: %s", sheet_name)
+        result = f"Switched to sheet '{sheet_name}'."
+        return {"status": "ok", "message": result}
 
 
 class CreateSheet(ToolCalcSheetBase):
@@ -107,21 +99,17 @@ class CreateSheet(ToolCalcSheetBase):
         sheet_name = kwargs["sheet"]
         position = kwargs.get("position")
 
-        try:
-            doc = bridge.get_active_document()
-            sheets = doc.getSheets()
-            if position is None:
-                position = sheets.getCount()
-            sheets.insertNewByName(sheet_name, position)
-            log.info("New sheet created: %s (position: %d)", sheet_name, position)
-            result = f"New sheet named '{sheet_name}' created; no cells copied."
-            # Inner-only ok string used to stop here; the outer never saw it.
-            # Same `instruction` field as web research so specialized finish
-            # can forward the create≠populate nudge to the main agent.
-            return {"status": "ok", "message": result, "instruction": get_sheets_create_completion_instruction()}
-        except Exception as e:
-            log.exception("Sheet creation failed for %s", sheet_name)
-            raise ToolExecutionError(str(e)) from e
+        doc = bridge.get_active_document()
+        sheets = doc.getSheets()
+        if position is None:
+            position = sheets.getCount()
+        sheets.insertNewByName(sheet_name, position)
+        log.info("New sheet created: %s (position: %d)", sheet_name, position)
+        result = f"New sheet named '{sheet_name}' created; no cells copied."
+        # Inner-only ok string used to stop here; the outer never saw it.
+        # Same `instruction` field as web research so specialized finish
+        # can forward the create≠populate nudge to the main agent.
+        return {"status": "ok", "message": result, "instruction": get_sheets_create_completion_instruction()}
 
 
 class RenameSheet(ToolCalcSheetBase):
@@ -138,26 +126,22 @@ class RenameSheet(ToolCalcSheetBase):
         old_name = kwargs["old_name"]
         new_name = kwargs["new_name"]
 
+        doc = bridge.get_active_document()
+        sheets = doc.getSheets()
+        if not sheets.hasByName(old_name):
+            raise UnoObjectError(f"No sheet found named '{old_name}'.")
+        if old_name != new_name and sheets.hasByName(new_name):
+            return self._tool_error(f"A sheet named '{new_name}' already exists in the document.")
+        sheet = sheets.getByName(old_name)
+        sheet.setName(new_name)
         try:
-            doc = bridge.get_active_document()
-            sheets = doc.getSheets()
-            if not sheets.hasByName(old_name):
-                raise UnoObjectError(f"No sheet found named '{old_name}'.")
-            if old_name != new_name and sheets.hasByName(new_name):
-                return self._tool_error(f"A sheet named '{new_name}' already exists in the document.")
-            sheet = sheets.getByName(old_name)
-            sheet.setName(new_name)
-            try:
-                from plugin.calc.python.sheet_modify import migrate_sheet_rename
+            from plugin.calc.python.sheet_modify import migrate_sheet_rename
 
-                migrate_sheet_rename(doc, old_name, new_name)
-            except Exception:
-                log.exception("Sheet rename migration failed (%s -> %s)", old_name, new_name)
-            log.info("Sheet renamed from '%s' to '%s'.", old_name, new_name)
-            return {"status": "ok", "message": f"Sheet renamed to '{new_name}'."}
-        except Exception as e:
-            log.exception("Sheet rename failed (%s -> %s)", old_name, new_name)
-            raise ToolExecutionError(str(e)) from e
+            migrate_sheet_rename(doc, old_name, new_name)
+        except Exception:
+            log.exception("Sheet rename migration failed (%s -> %s)", old_name, new_name)
+        log.info("Sheet renamed from '%s' to '%s'.", old_name, new_name)
+        return {"status": "ok", "message": f"Sheet renamed to '{new_name}'."}
 
 
 class DeleteSheet(ToolCalcSheetBase):
@@ -173,19 +157,15 @@ class DeleteSheet(ToolCalcSheetBase):
         bridge = CalcBridge(ctx.doc)
         sheet_name = kwargs["sheet"]
 
-        try:
-            doc = bridge.get_active_document()
-            sheets = doc.getSheets()
-            if not sheets.hasByName(sheet_name):
-                raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
-            if sheets.getCount() <= 1:
-                return self._tool_error("Cannot delete the only sheet in the document.")
-            sheets.removeByName(sheet_name)
-            log.info("Sheet deleted: %s", sheet_name)
-            return {"status": "ok", "message": f"Sheet '{sheet_name}' deleted."}
-        except Exception as e:
-            log.exception("Sheet deletion failed for %s", sheet_name)
-            raise ToolExecutionError(str(e)) from e
+        doc = bridge.get_active_document()
+        sheets = doc.getSheets()
+        if not sheets.hasByName(sheet_name):
+            raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
+        if sheets.getCount() <= 1:
+            return self._tool_error("Cannot delete the only sheet in the document.")
+        sheets.removeByName(sheet_name)
+        log.info("Sheet deleted: %s", sheet_name)
+        return {"status": "ok", "message": f"Sheet '{sheet_name}' deleted."}
 
 
 class ProtectSheet(ToolCalcSheetBase):
@@ -202,28 +182,24 @@ class ProtectSheet(ToolCalcSheetBase):
         sheet_name = kwargs.get("sheet")
         should_protect = kwargs.get("protect", True)
 
-        try:
-            doc = bridge.get_active_document()
-            if sheet_name:
-                sheets = doc.getSheets()
-                if not sheets.hasByName(sheet_name):
-                    raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
-                sheet = sheets.getByName(sheet_name)
-            else:
-                sheet = bridge.get_active_sheet()
+        doc = bridge.get_active_document()
+        if sheet_name:
+            sheets = doc.getSheets()
+            if not sheets.hasByName(sheet_name):
+                raise UnoObjectError(f"No sheet found named '{sheet_name}'.")
+            sheet = sheets.getByName(sheet_name)
+        else:
+            sheet = bridge.get_active_sheet()
 
-            if should_protect:
-                sheet.protect("")
-                msg = f"Sheet '{sheet.getName()}' is now protected."
-            else:
-                sheet.unprotect("")
-                msg = f"Sheet '{sheet.getName()}' is now unprotected."
+        if should_protect:
+            sheet.protect("")
+            msg = f"Sheet '{sheet.getName()}' is now protected."
+        else:
+            sheet.unprotect("")
+            msg = f"Sheet '{sheet.getName()}' is now unprotected."
 
-            log.info(msg)
-            return {"status": "ok", "message": msg}
-        except Exception as e:
-            log.exception("Sheet protection failed")
-            raise ToolExecutionError(str(e)) from e
+        log.info(msg)
+        return {"status": "ok", "message": msg}
 
 
 class GetSheetSummary(ToolBase):

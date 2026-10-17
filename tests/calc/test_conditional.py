@@ -82,7 +82,9 @@ def test_list_conditional_formats_error_handling():
     ctx.doc = doc
 
     bridge = MagicMock()
-    bridge.get_active_sheet.side_effect = Exception("Failed to get sheet")
+    from com.sun.star.lang import IllegalArgumentException
+
+    bridge.get_active_sheet.side_effect = IllegalArgumentException("Failed to get sheet")
 
     tool = ListConditionalFormats()
 

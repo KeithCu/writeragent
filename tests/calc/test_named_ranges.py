@@ -421,7 +421,9 @@ def test_edit_renames_before_other_fields_and_rolls_back():
 
     nr_fail = _nr("TaxRate", "$Sheet1.$A$1")
     ctx_fail = _workbook("Sheet1", [_sheet("Sheet1", {})], {"TaxRate": nr_fail})
-    nr_fail.setContent.side_effect = RuntimeError("content rejected")
+    from com.sun.star.lang import IllegalArgumentException
+
+    nr_fail.setContent.side_effect = IllegalArgumentException("content rejected")
     res_fail = NamedRangeEdit().execute(ctx_fail, name="TaxRate", new_name="TaxRate2", content="$Sheet1.$B$1")
     assert res_fail["status"] == "error"
     assert res_fail["code"] == "NAMED_RANGE_ERROR"

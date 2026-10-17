@@ -25,7 +25,6 @@ import re
 from typing import Any
 
 from plugin.calc.address_utils import parse_address
-from plugin.framework.errors import ToolExecutionError
 
 # Regex for matching cell references (e.g. A1, $B$2)
 CELL_REF_PATTERN = re.compile(r"\$?([A-Z]+)\$?(\d+)")
@@ -141,48 +140,44 @@ class ErrorDetector:
         Returns:
             List of dicts with keys: address, formula, error.
         """
-        try:
-            if range_str:
-                # Honour sheet-qualified ranges (Sheet1.A1:D10) without switching
-                # the active sheet; parse_range_string alone rejects prefixes.
-                sheet, bare = self.bridge.resolve(range_str)
-                start, end = self.bridge.parse_range_string(bare)
-                start_col, start_row = start
-                end_col, end_row = end
-            else:
-                sheet = self.bridge.get_active_sheet()
-                cursor = sheet.createCursor()
-                cursor.gotoStartOfUsedArea(False)
-                cursor.gotoEndOfUsedArea(True)
-                addr = cursor.getRangeAddress()
-                start_col = addr.StartColumn
-                start_row = addr.StartRow
-                end_col = addr.EndColumn
-                end_row = addr.EndRow
+        if range_str:
+            # Honour sheet-qualified ranges (Sheet1.A1:D10) without switching
+            # the active sheet; parse_range_string alone rejects prefixes.
+            sheet, bare = self.bridge.resolve(range_str)
+            start, end = self.bridge.parse_range_string(bare)
+            start_col, start_row = start
+            end_col, end_row = end
+        else:
+            sheet = self.bridge.get_active_sheet()
+            cursor = sheet.createCursor()
+            cursor.gotoStartOfUsedArea(False)
+            cursor.gotoEndOfUsedArea(True)
+            addr = cursor.getRangeAddress()
+            start_col = addr.StartColumn
+            start_row = addr.StartRow
+            end_col = addr.EndColumn
+            end_row = addr.EndRow
 
-            errors = []
-            cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
-            formula_cells = cell_range.queryFormulaCells(RESULT_ERROR)
+        errors = []
+        cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
+        formula_cells = cell_range.queryFormulaCells(RESULT_ERROR)
 
-            if formula_cells:
-                # getCells() returns a collection of cells. We can iterate over them.
-                cells_collection = formula_cells.getCells()
-                if cells_collection:
-                    enum = cells_collection.createEnumeration()
-                    while enum.hasMoreElements():
-                        cell = enum.nextElement()
-                        error_info = self.get_error_type(cell)
-                        if error_info:
-                            addr = cell.getCellAddress()
-                            col_str = self.bridge._index_to_column(addr.Column)
-                            address = f"{col_str}{addr.Row + 1}"
-                            errors.append({"address": address, "formula": cell.getFormula(), "error": error_info})
+        if formula_cells:
+            # getCells() returns a collection of cells. We can iterate over them.
+            cells_collection = formula_cells.getCells()
+            if cells_collection:
+                enum = cells_collection.createEnumeration()
+                while enum.hasMoreElements():
+                    cell = enum.nextElement()
+                    error_info = self.get_error_type(cell)
+                    if error_info:
+                        addr = cell.getCellAddress()
+                        col_str = self.bridge._index_to_column(addr.Column)
+                        address = f"{col_str}{addr.Row + 1}"
+                        errors.append({"address": address, "formula": cell.getFormula(), "error": error_info})
 
-            log.info("%d errors detected (range: %s).", len(errors), range_str or "full sheet")
-            return errors
-        except Exception as e:
-            log.exception("Error detection failed")
-            raise ToolExecutionError(str(e)) from e
+        log.info("%d errors detected (range: %s).", len(errors), range_str or "full sheet")
+        return errors
 
     def explain_error(self, address: str) -> dict[str, Any]:
         """Explain the error in the specified cell in detail.
@@ -193,47 +188,43 @@ class ErrorDetector:
         Returns:
             dict with keys: address, formula, error, precedents, suggestion.
         """
-        try:
-            cell_details = self.inspector.get_cell_details(address)
+        cell_details = self.inspector.get_cell_details(address)
 
-            # Get precedent cells via formula parsing
-            col, row = parse_address(address)
-            sheet = self.bridge.get_active_sheet()
-            cell = sheet.getCellByPosition(col, row)
-            formula = cell.getFormula() or ""
-            refs = CELL_REF_PATTERN.findall(formula.upper())
-            precedent_addrs = list({f"{c}{r}" for c, r in refs})
+        # Get precedent cells via formula parsing
+        col, row = parse_address(address)
+        sheet = self.bridge.get_active_sheet()
+        cell = sheet.getCellByPosition(col, row)
+        formula = cell.getFormula() or ""
+        refs = CELL_REF_PATTERN.findall(formula.upper())
+        precedent_addrs = list({f"{c}{r}" for c, r in refs})
 
-            error_info = self.get_error_type(cell)
+        error_info = self.get_error_type(cell)
 
-            if not error_info:
-                return {"address": address.upper(), "formula": cell_details.get("formula", ""), "error": None, "precedents": [], "suggestion": "No error detected in this cell."}
+        if not error_info:
+            return {"address": address.upper(), "formula": cell_details.get("formula", ""), "error": None, "precedents": [], "suggestion": "No error detected in this cell."}
 
-            precedent_details = []
-            for prec_addr in precedent_addrs:
-                try:
-                    prec_info = self.inspector.read_cell(prec_addr)
-                    precedent_details.append(prec_info)
-                except Exception:
-                    precedent_details.append({"address": prec_addr, "value": "UNREADABLE", "type": "unknown"})
-
-            suggestion = self._generate_suggestion(error_info, precedent_details)
-
-            dependency_chain = None
+        precedent_details = []
+        for prec_addr in precedent_addrs:
             try:
-                from plugin.calc.formula_dep_chain import fetch_formula_dep_chain
+                prec_info = self.inspector.read_cell(prec_addr)
+                precedent_details.append(prec_info)
+            except Exception:
+                precedent_details.append({"address": prec_addr, "value": "UNREADABLE", "type": "unknown"})
 
-                dependency_chain = fetch_formula_dep_chain(self.bridge.doc, self.ctx, address)
-            except Exception as e:
-                log.debug("FormulaDepChain unavailable for %s: %s", address, e)
+        suggestion = self._generate_suggestion(error_info, precedent_details)
 
-            result = {"address": address.upper(), "formula": cell_details.get("formula", ""), "error": error_info, "precedents": precedent_details, "suggestion": suggestion}
-            if dependency_chain:
-                result["dependency_chain"] = dependency_chain
-            return result
+        dependency_chain = None
+        try:
+            from plugin.calc.formula_dep_chain import fetch_formula_dep_chain
+
+            dependency_chain = fetch_formula_dep_chain(self.bridge.doc, self.ctx, address)
         except Exception as e:
-            log.exception("Error explanation failed for %s", address)
-            raise ToolExecutionError(str(e)) from e
+            log.debug("FormulaDepChain unavailable for %s: %s", address, e)
+
+        result = {"address": address.upper(), "formula": cell_details.get("formula", ""), "error": error_info, "precedents": precedent_details, "suggestion": suggestion}
+        if dependency_chain:
+            result["dependency_chain"] = dependency_chain
+        return result
 
     def detect_and_explain(self, range_str: str | None = None) -> dict[str, Any]:
         """Detect formula errors in a range and return them with explanations.

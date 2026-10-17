@@ -206,29 +206,23 @@ class CreatePivotTable(ToolCalcPivotBase):
             where = existing_sheet.getName() if existing_sheet is not None else "another sheet"
             return self._tool_error(f"Pivot table '{pivot_name}' already exists on sheet '{where}'.")
 
-        try:
-            dp_tables = _get_dp_tables(dest_sheet)
-            desc = dp_tables.createDataPilotDescriptor()
-            desc.setSourceRange(_range_address_for_sheet(src_idx, range_str))
-            _set_field_orientations(desc, row_fields, column_fields, data_fields, page_fields)
+        dp_tables = _get_dp_tables(dest_sheet)
+        desc = dp_tables.createDataPilotDescriptor()
+        desc.setSourceRange(_range_address_for_sheet(src_idx, range_str))
+        _set_field_orientations(desc, row_fields, column_fields, data_fields, page_fields)
 
-            dp_tables.insertNewByName(pivot_name, _cell_address(dest_idx, dest_cell), desc)
-            # Safety net if insert still does not yield the requested name.
-            if not dp_tables.hasByName(pivot_name):
-                return self._tool_error(f"Pivot table '{pivot_name}' was not created; that name may already exist in the document.")
+        dp_tables.insertNewByName(pivot_name, _cell_address(dest_idx, dest_cell), desc)
+        # Safety net if insert still does not yield the requested name.
+        if not dp_tables.hasByName(pivot_name):
+            return self._tool_error(f"Pivot table '{pivot_name}' was not created; that name may already exist in the document.")
 
-            # Refresh so output is materialized (avoids #VALUE! in some layouts).
-            tbl_any = dp_tables.getByName(pivot_name)
-            dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
-            if dpt is not None:
-                dpt.refresh()
+        # Refresh so output is materialized (avoids #VALUE! in some layouts).
+        tbl_any = dp_tables.getByName(pivot_name)
+        dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
+        if dpt is not None:
+            dpt.refresh()
 
-            return {"status": "ok", "message": f"Created pivot table '{pivot_name}' at {dest_sheet.getName()}!{dest_cell}.", "name": pivot_name, "destination_sheet": dest_sheet.getName(), "destination_cell": dest_cell}
-        except (ToolExecutionError, UnoObjectError):
-            raise
-        except Exception as e:
-            log.exception("create_pivot_table")
-            raise ToolExecutionError(str(e)) from e
+        return {"status": "ok", "message": f"Created pivot table '{pivot_name}' at {dest_sheet.getName()}!{dest_cell}.", "name": pivot_name, "destination_sheet": dest_sheet.getName(), "destination_cell": dest_cell}
 
 
 class RefreshPivotTable(ToolCalcPivotBase):
@@ -247,32 +241,26 @@ class RefreshPivotTable(ToolCalcPivotBase):
             return self._tool_error("name is required.")
         sheet_name = kwargs.get("sheet")
 
-        try:
-            if sheet_name:
-                sh = doc.getSheets()
-                if not sh.hasByName(sheet_name):
-                    return self._tool_error(f"No sheet named '{sheet_name}'.")
-                sheet = sh.getByName(sheet_name)
-                dp_tables = _get_dp_tables(sheet)
-                if not dp_tables.hasByName(name):
-                    return self._tool_error(f"Pivot table '{name}' not found on sheet '{sheet_name}'.")
-                tbl_any = dp_tables.getByName(name)
-            else:
-                tbl_any, _ = _find_pivot_table_document_wide(doc, name)
-                if tbl_any is None:
-                    return self._tool_error(f"Pivot table '{name}' not found.")
+        if sheet_name:
+            sh = doc.getSheets()
+            if not sh.hasByName(sheet_name):
+                return self._tool_error(f"No sheet named '{sheet_name}'.")
+            sheet = sh.getByName(sheet_name)
+            dp_tables = _get_dp_tables(sheet)
+            if not dp_tables.hasByName(name):
+                return self._tool_error(f"Pivot table '{name}' not found on sheet '{sheet_name}'.")
+            tbl_any = dp_tables.getByName(name)
+        else:
+            tbl_any, _ = _find_pivot_table_document_wide(doc, name)
+            if tbl_any is None:
+                return self._tool_error(f"Pivot table '{name}' not found.")
 
-            dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
-            if dpt is None:
-                return self._tool_error(f"Cannot access DataPilot interface for '{name}'.")
+        dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
+        if dpt is None:
+            return self._tool_error(f"Cannot access DataPilot interface for '{name}'.")
 
-            dpt.refresh()
-            return {"status": "ok", "message": f"Refreshed pivot table '{name}'."}
-        except (ToolExecutionError, UnoObjectError):
-            raise
-        except Exception as e:
-            log.exception("refresh_pivot_table")
-            raise ToolExecutionError(str(e)) from e
+        dpt.refresh()
+        return {"status": "ok", "message": f"Refreshed pivot table '{name}'."}
 
 
 class ListPivotTables(ToolCalcPivotBase):
@@ -288,36 +276,30 @@ class ListPivotTables(ToolCalcPivotBase):
         doc = bridge.get_active_document()
         only_sheet = kwargs.get("sheet")
 
-        try:
-            sh = doc.getSheets()
-            out: list[dict[str, Any]] = []
+        sh = doc.getSheets()
+        out: list[dict[str, Any]] = []
 
-            if only_sheet:
-                if not sh.hasByName(only_sheet):
-                    return self._tool_error(f"No sheet named '{only_sheet}'.")
-                sheet_names = [only_sheet]
-            else:
-                sheet_names = list(sh.getElementNames())
+        if only_sheet:
+            if not sh.hasByName(only_sheet):
+                return self._tool_error(f"No sheet named '{only_sheet}'.")
+            sheet_names = [only_sheet]
+        else:
+            sheet_names = list(sh.getElementNames())
 
-            for sname in sheet_names:
-                sheet = sh.getByName(sname)
-                dp_tables = _get_dp_tables(sheet)
-                for pname in dp_tables.getElementNames():
-                    entry: dict[str, Any] = {"name": pname, "sheet": sheet.getName()}
-                    try:
-                        tbl_any = dp_tables.getByName(pname)
-                        dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
-                        if dpt is not None:
-                            ora = dpt.getOutputRange()
-                            entry["output_sheet_index"] = ora.Sheet
-                            entry["output_range"] = CalcBridge._range_to_str(ora)
-                    except Exception:
-                        log.debug("list_pivot_tables extra info lookup failed", exc_info=True)
-                    out.append(entry)
+        for sname in sheet_names:
+            sheet = sh.getByName(sname)
+            dp_tables = _get_dp_tables(sheet)
+            for pname in dp_tables.getElementNames():
+                entry: dict[str, Any] = {"name": pname, "sheet": sheet.getName()}
+                try:
+                    tbl_any = dp_tables.getByName(pname)
+                    dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
+                    if dpt is not None:
+                        ora = dpt.getOutputRange()
+                        entry["output_sheet_index"] = ora.Sheet
+                        entry["output_range"] = CalcBridge._range_to_str(ora)
+                except Exception:
+                    log.debug("list_pivot_tables extra info lookup failed", exc_info=True)
+                out.append(entry)
 
-            return {"status": "ok", "pivot_tables": out, "count": len(out)}
-        except (ToolExecutionError, UnoObjectError):
-            raise
-        except Exception as e:
-            log.exception("list_pivot_tables")
-            raise ToolExecutionError(str(e)) from e
+        return {"status": "ok", "pivot_tables": out, "count": len(out)}

@@ -108,3 +108,15 @@ def test_create_sheet_description_and_ok_mentions_no_cells_copied():
     assert "no cells copied" in result["message"]
     assert result["instruction"] == get_sheets_create_completion_instruction()
     sheets.insertNewByName.assert_called_once_with("Q1 Actuals", 1)
+
+
+def test_list_sheets_disposal_is_document_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
+    tool = ListSheets()
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_active_document.side_effect = DocumentDisposedError("gone")
+        res = tool.execute_safe(ctx)
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"

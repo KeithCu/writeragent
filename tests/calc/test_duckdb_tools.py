@@ -952,7 +952,7 @@ def test_grid_read_disposal_reports_document_disposed(mock_resolve, mock_read, m
 def test_grid_read_other_errors_stay_generic(mock_resolve, mock_read, mock_run):
     del mock_resolve
     mock_read.side_effect = RuntimeError("boom")
-    res = QueryFolderSqlTool().execute(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
+    res = QueryFolderSqlTool().execute_safe(_mk_ctx(), sql="SELECT 1", tables={"sales": {"sheet": "Sales"}})
     assert res["status"] == "error"
     assert res.get("code") != "DOCUMENT_DISPOSED"
     assert "boom" in res.get("message", "")

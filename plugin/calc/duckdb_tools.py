@@ -153,9 +153,6 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                     preloaded[str(tbl_name)] = {"grid": grid, "headers": bool(parsed["headers"])}
                 except ToolExecutionError as exc:
                     return self._tool_error(f"Failed to read table '{tbl_name}': {exc}", code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
-                except Exception as e:
-                    _reraise_if_disposed(e)
-                    return self._tool_error(f"Failed to read table '{tbl_name}': {e}")
 
             # Separate direct DuckDB-readable files from office files that need LO import.
             # Support "file.xlsx" or "file.xlsx#SheetName" syntax for sheets.
@@ -218,31 +215,17 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
         # thread via execute_on_main_thread and freezes Calc. Callers that
         # are already on main (tests, sync entry) run the preload inline so
         # they do not deadlock the UI thread.
-        try:
-            if on_main_thread():
-                prepared = _load_sql_inputs()
-            else:
-                # execute_on_main_thread is typed Any; _load_sql_inputs returns this dict.
-                prepared = cast("dict[str, Any]", execute_on_main_thread(_load_sql_inputs))
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
-        except Exception as exc:
-            _reraise_if_disposed(exc)
-            log.exception("query_folder_sql execute failed")
-            return self._tool_error(f"Failed to run folder SQL: {exc}")
+        if on_main_thread():
+            prepared = _load_sql_inputs()
+        else:
+            # execute_on_main_thread is typed Any; _load_sql_inputs returns this dict.
+            prepared = cast("dict[str, Any]", execute_on_main_thread(_load_sql_inputs))
 
         if prepared.get("status") == "error":
             return prepared
 
-        try:
-            # Pass flat_files for named direct flat files (Phase C), preloaded for grids (ranges + office)
-            result = run_folder_sql(ctx.ctx, prepared.get("scoped"), sql, None, preloaded=prepared.get("preloaded"), flat_files=prepared.get("flat_files"))
-        except ToolExecutionError as exc:
-            return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
-        except Exception as exc:
-            _reraise_if_disposed(exc)
-            log.exception("query_folder_sql execute failed")
-            return self._tool_error(f"Failed to run folder SQL: {exc}")
+        # Pass flat_files for named direct flat files (Phase C), preloaded for grids (ranges + office)
+        result = run_folder_sql(ctx.ctx, prepared.get("scoped"), sql, None, preloaded=prepared.get("preloaded"), flat_files=prepared.get("flat_files"))
 
         if isinstance(result, dict):
             if task_hint:

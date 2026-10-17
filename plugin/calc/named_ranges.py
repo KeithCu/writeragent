@@ -26,6 +26,13 @@ from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
 from plugin.framework.errors import UnoObjectError, suppress_disposed
 
+try:
+    import uno  # noqa: F401
+    from com.sun.star.lang import IllegalArgumentException
+except (ImportError, AttributeError):
+    from typing import cast
+    IllegalArgumentException = cast("Any", type("IllegalArgumentException", (Exception,), {}))
+
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
@@ -351,7 +358,7 @@ class NamedRangeList(ToolCalcRangeBase):
 
             log.info("Named ranges listed (scope=%s): count=%d", scope_clean, len(result))
             return {"status": "ok", "result": result}
-        except Exception as e:
+        except IllegalArgumentException as e:
             log.exception("List named ranges failed")
             return self._tool_error(f"Failed to list named ranges: {str(e)}", code="NAMED_RANGE_ERROR")
 
@@ -390,7 +397,7 @@ class NamedRangeGetInfo(ToolCalcRangeBase):
                 return self._tool_error(f"No named range found with name '{name}'.", code="NAMED_RANGE_NOT_FOUND")
             _container, effective_scope, _sheet, nr = found
             return {"status": "ok", "result": _extract_range_info(nr, effective_scope, doc)}
-        except Exception as e:
+        except IllegalArgumentException as e:
             log.exception("Get named range info failed for %s", name)
             return self._tool_error(f"Failed to get named range info: {str(e)}", code="NAMED_RANGE_ERROR")
 
@@ -446,7 +453,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
             container.addNewByName(name, content, pos, type_mask)
             log.info("Named range added: [%s] %s -> %s (flags=%d)", effective_scope, name, content, type_mask)
             return {"status": "ok", "message": f"Named range '{name}' added successfully in scope '{effective_scope}' pointing to '{content}'."}
-        except Exception as e:
+        except IllegalArgumentException as e:
             log.exception("Add named range failed for %s", name)
             return self._tool_error(f"Failed to add named range: {str(e)}", code="NAMED_RANGE_ERROR")
 
@@ -540,7 +547,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
 
             log.info("Named range edited: [%s] %s (new_name=%s)", effective_scope, name, new_name)
             return {"status": "ok", "message": f"Named range '{final_name}' updated successfully in scope '{effective_scope}'."}
-        except Exception as e:
+        except IllegalArgumentException as e:
             log.exception("Edit named range failed for %s", name)
             return self._tool_error(f"Failed to edit named range: {str(e)}", code="NAMED_RANGE_ERROR")
 
@@ -569,7 +576,7 @@ class NamedRangeDelete(ToolCalcRangeBase):
             container.removeByName(name)
             log.info("Named range deleted: [%s] %s", effective_scope, name)
             return {"status": "ok", "message": f"Named range '{name}' deleted successfully from scope '{effective_scope}'."}
-        except Exception as e:
+        except IllegalArgumentException as e:
             log.exception("Delete named range failed for %s", name)
             return self._tool_error(f"Failed to delete named range: {str(e)}", code="NAMED_RANGE_ERROR")
 
@@ -631,6 +638,6 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
 
             log.info("Named ranges created from titles: [%s] range=%s border=%s", effective_scope, range_str, border_clean)
             return {"status": "ok", "message": f"Named ranges created from titles along border '{border_str}' for range '{range_str}' in scope '{effective_scope}'."}
-        except Exception as e:
+        except IllegalArgumentException as e:
             log.exception("Create named ranges from titles failed for %s", range_str)
             return self._tool_error(f"Failed to create named ranges from titles: {str(e)}", code="NAMED_RANGE_ERROR")

@@ -7,8 +7,6 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import pytest
-
 from plugin.framework.errors import DocumentDisposedError
 from plugin.writer.specialized.textframes import FrameGetInfo
 
