@@ -32,10 +32,7 @@ _IMPRESS_DOCUMENT = "com.sun.star.presentation.PresentationDocument"
 
 
 def _supports_service(doc: Any, service: str) -> bool:
-    try:
-        return bool(doc.supportsService(service))
-    except Exception:
-        return False
+    return bool(doc.supportsService(service))
 
 
 def _is_draw_family(doc: Any) -> bool:

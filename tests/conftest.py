@@ -307,11 +307,19 @@ class MockXToolPanel: pass
 class MockXUIElement: pass
 class MockXUIElementFactory: pass
 
+
+class MockImageType:
+    SIZE_DEFAULT = 0
+    SIZE_LARGE = 1
+    SIZE_32 = 2
+
+
 ui_mod = _create_mock_module("com.sun.star.ui")
 setattr(ui_mod, "XSidebarPanel", MockXSidebarPanel)
 setattr(ui_mod, "XToolPanel", MockXToolPanel)
 setattr(ui_mod, "XUIElement", MockXUIElement)
 setattr(ui_mod, "XUIElementFactory", MockXUIElementFactory)
+setattr(ui_mod, "ImageType", MockImageType)
 
 
 class MockXActionListener:

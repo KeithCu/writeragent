@@ -72,6 +72,9 @@ class FakeDoc:
     def getText(self):
         return FakeText()
 
+    def supportsService(self, service):
+        return service == "com.sun.star.text.TextDocument"
+
 
 def test_no_view_is_a_clear_error():
     png, reason = _render_page_png(object(), FakeDoc(has_view=False), 0)

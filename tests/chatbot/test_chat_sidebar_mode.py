@@ -16,22 +16,27 @@ from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_DEEP_RESEARCH,
     CHAT_MODE_IMAGE,
     CHAT_MODE_LIBRARIAN,
+    CHAT_MODE_PPT_MASTER,
     CHAT_MODE_WEB_RESEARCH,
     CHAT_MODE_WRITING_PLAN,
+    LIBRARIAN_HISTORY_SESSION_ID,
+    SidebarModeFlags,
+    _modes_for,
     clear_brainstorming_session,
     clear_librarian_session,
     clear_writing_plan_session,
     get_mode_labels,
+    librarian_default_mode,
+    mark_librarian_invoked,
     mode_from_label,
     mode_from_selector,
     populate_mode_selector,
     set_selector_mode,
+    sidebar_mode_flags_for_doc_type,
 )
 
 
 def test_mode_labels_match_modes_for_length_and_order():
-    from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags, _modes_for
-
     for flags in (
         SidebarModeFlags(include_brainstorming=False, include_writing_plan=True, include_ppt_master=False),
         SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=False),
@@ -66,16 +71,12 @@ def test_mode_labels_omit_brainstorming_for_calc():
 
 
 def test_calc_sidebar_omits_writing_plan():
-    from plugin.chatbot.chat_sidebar_mode import sidebar_mode_flags_for_doc_type
-
     flags = sidebar_mode_flags_for_doc_type("calc")
     assert flags.include_writing_plan is False
     assert "Writing Plan" not in get_mode_labels(**flags.__dict__)
 
 
 def test_mode_labels_ppt_master_for_impress():
-    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_PPT_MASTER, sidebar_mode_flags_for_doc_type
-
     flags = sidebar_mode_flags_for_doc_type("impress")
     labels = get_mode_labels(**flags.__dict__)
     assert len(labels) == 6
@@ -119,14 +120,6 @@ def test_set_selector_mode_selects_by_index():
     ctrl.setText.assert_called_once_with(labels[2])
 
 
-def test_set_selector_mode_sets_text_if_select_item_pos_raises():
-    ctrl = MagicMock()
-    labels = get_mode_labels(include_brainstorming=True)
-    ctrl.selectItemPos.side_effect = Exception("disposed")
-    set_selector_mode(ctrl, CHAT_MODE_WEB_RESEARCH, include_brainstorming=True)
-    ctrl.setText.assert_called_once_with(labels[2])
-
-
 def test_populate_mode_selector_sets_string_item_list_on_model():
     ctrl = MagicMock()
     model = MagicMock()
@@ -164,8 +157,6 @@ def test_clear_librarian_session_resets_flag_only():
 
 
 def test_librarian_default_mode_first_then_chat():
-    from plugin.chatbot.chat_sidebar_mode import librarian_default_mode, mark_librarian_invoked
-
     with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
         assert librarian_default_mode() == CHAT_MODE_LIBRARIAN
     with patch("plugin.framework.config.get_config_bool_safe", return_value=True):
@@ -176,8 +167,6 @@ def test_librarian_default_mode_first_then_chat():
 
 
 def test_librarian_default_mode_existing_profile_skips_and_sets_flag():
-    from plugin.chatbot.chat_sidebar_mode import librarian_default_mode
-
     with patch("plugin.framework.config.get_config_bool_safe", return_value=False), patch(
         "plugin.chatbot.memory.user_profile_exists", return_value=True
     ), patch("plugin.chatbot.chat_sidebar_mode.mark_librarian_invoked") as mock_mark:
@@ -186,8 +175,6 @@ def test_librarian_default_mode_existing_profile_skips_and_sets_flag():
 
 
 def test_librarian_history_session_id_is_global():
-    from plugin.chatbot.chat_sidebar_mode import LIBRARIAN_HISTORY_SESSION_ID
-
     assert LIBRARIAN_HISTORY_SESSION_ID == "writeragent_librarian"
     assert "_web" not in LIBRARIAN_HISTORY_SESSION_ID
 

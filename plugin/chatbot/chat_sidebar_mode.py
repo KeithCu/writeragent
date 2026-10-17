@@ -170,24 +170,17 @@ def mode_from_selector(ctrl: Any, *, include_brainstorming: bool = False, includ
         include_ppt_master=include_ppt_master,
     )
     modes = _modes_for(flags)
-    try:
-        if hasattr(ctrl, "getSelectedItemPos"):
-            idx = int(ctrl.getSelectedItemPos())
-            if 0 <= idx < len(modes):
-                return modes[idx]
-    except Exception as e:
-        # Disposed ComboBox / missing UNO method — fall through to getText.
-        log.debug("chat_mode_selector: getSelectedItemPos failed: %s", e)
-    try:
-        if hasattr(ctrl, "getText"):
-            return mode_from_label(
-                ctrl.getText(),
-                include_brainstorming=include_brainstorming,
-                include_writing_plan=include_writing_plan,
-                include_ppt_master=include_ppt_master,
-            )
-    except Exception:
-        pass
+    if hasattr(ctrl, "getSelectedItemPos"):
+        idx = int(ctrl.getSelectedItemPos())
+        if 0 <= idx < len(modes):
+            return modes[idx]
+    if hasattr(ctrl, "getText"):
+        return mode_from_label(
+            ctrl.getText(),
+            include_brainstorming=include_brainstorming,
+            include_writing_plan=include_writing_plan,
+            include_ppt_master=include_ppt_master,
+        )
     return CHAT_MODE_CHAT
 
 
@@ -205,52 +198,34 @@ def _set_combobox_items(ctrl: Any, labels: tuple[str, ...]) -> None:
     # crosshair: off
     model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
     if model is not None and hasattr(model, "StringItemList"):
-        try:
-            model.StringItemList = labels
-        except Exception as e:
-            log.debug("chat_mode_selector: model.StringItemList failed: %s", e)
+        model.StringItemList = labels
 
     if hasattr(ctrl, "setStringItemList"):
-        try:
-            ctrl.setStringItemList(labels)
-        except Exception as e:
-            log.debug("chat_mode_selector: setStringItemList failed: %s", e)
+        ctrl.setStringItemList(labels)
 
-    try:
-        if hasattr(ctrl, "getItemCount") and hasattr(ctrl, "removeItems"):
-            count = ctrl.getItemCount()
-            if count:
-                ctrl.removeItems(0, count)
-    except Exception as e:
-        log.debug("chat_mode_selector: removeItems failed: %s", e)
+    if hasattr(ctrl, "getItemCount") and hasattr(ctrl, "removeItems"):
+        count = ctrl.getItemCount()
+        if count:
+            ctrl.removeItems(0, count)
 
     if hasattr(ctrl, "addItems") and labels:
-        try:
-            ctrl.addItems(labels, 0)
-            return
-        except Exception as e:
-            log.debug("chat_mode_selector: addItems failed: %s", e)
+        ctrl.addItems(labels, 0)
+        return
 
     if hasattr(ctrl, "addItem") and labels:
-        try:
-            for label in reversed(labels):
-                ctrl.addItem(label, 0)
-        except Exception as e:
-            log.debug("chat_mode_selector: addItem failed: %s", e)
+        for label in reversed(labels):
+            ctrl.addItem(label, 0)
 
 
 def _configure_mode_selector_model(ctrl: Any) -> None:
     """Show dropdown arrow; do not set ReadOnly (breaks item list on some LO builds)."""
     if not hasattr(ctrl, "getModel"):
         return
-    try:
-        model = ctrl.getModel()
-        if model is None:
-            return
-        if hasattr(model, "Dropdown"):
-            model.Dropdown = True
-    except Exception as e:
-        log.debug("chat_mode_selector: configure model failed: %s", e)
+    model = ctrl.getModel()
+    if model is None:
+        return
+    if hasattr(model, "Dropdown"):
+        model.Dropdown = True
 
 
 def populate_mode_selector(ctrl: Any, *, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> None:
@@ -292,18 +267,10 @@ def set_selector_mode(ctrl: Any, mode: str, *, include_brainstorming: bool = Fal
     labels = get_mode_labels(**flags.__dict__)
     idx = modes.index(mode)
     label = labels[idx]
-    # Separate tries: a selectItemPos raise must not skip setText, which
-    # unsticks the XDL default Chat label on spin=true ComboBoxes.
     if hasattr(ctrl, "selectItemPos"):
-        try:
-            ctrl.selectItemPos(idx, True)
-        except Exception as e:
-            log.debug("chat_mode_selector: selectItemPos failed: %s", e)
+        ctrl.selectItemPos(idx, True)
     if hasattr(ctrl, "setText"):
-        try:
-            ctrl.setText(label)
-        except Exception as e:
-            log.debug("chat_mode_selector: setText failed: %s", e)
+        ctrl.setText(label)
 
 
 def set_selector_mode_with_flags(ctrl: Any, mode: str, flags: SidebarModeFlags) -> None:

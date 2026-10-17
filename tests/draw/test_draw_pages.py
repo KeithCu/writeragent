@@ -3,6 +3,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.pages import AddSlide, DeleteSlide, DuplicateSlide, ListPages, MoveSlide, RenameSlide, SetActivePage
 
@@ -402,8 +404,6 @@ def test_list_pages_uses_page_name():
 
 
 def test_list_pages_reraises_dispose_from_name():
-    import pytest
-
     class DisposedException(Exception):
         pass
 

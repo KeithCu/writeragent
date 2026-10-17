@@ -968,11 +968,7 @@ class ToolCallingMixin:
             self._tool_loop_interpreter = ToolLoopEffectInterpreter(self)
 
             # Read config once for web research thinking display
-            try:
-                show_search_thinking = as_bool(get_config("chatbot.show_search_thinking"))
-            except (ValueError, TypeError) as e:
-                log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
-                show_search_thinking = False
+            show_search_thinking = as_bool(get_config("chatbot.show_search_thinking"))
 
             # Bugfix: toolkit None used to abort a chat that the event-driven drain does
             # not pump; the first LLM worker used to start before the drain was armed.

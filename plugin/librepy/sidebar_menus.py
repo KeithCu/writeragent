@@ -179,10 +179,7 @@ def add_popup_item(menu: Any, label: str, action: str, pos: int, item_actions: d
     menu.insertItem(n_id, label, 0, pos)
     item_actions[n_id] = action
     if hasattr(menu, "setCommand"):
-        try:
-            menu.setCommand(n_id, command_prefix + action)
-        except Exception:
-            pass
+        menu.setCommand(n_id, command_prefix + action)
     if icon_filename:
         g = load_menu_graphic(ctx, icon_filename)
         if g is not None:

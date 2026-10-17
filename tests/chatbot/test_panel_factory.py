@@ -710,7 +710,7 @@ def test_chat_mode_listener_ignores_refresh():
     el._in_refresh_controls = True
     el._apply_sidebar_mode = MagicMock()
     selector = MagicMock()
-    selector.getSelectedItemPos.side_effect = RuntimeError("disposed during refresh")
+    selector.getSelectedItemPos.return_value = 0
     selector.getText.return_value = "Chat"
     selector.addItemListener = MagicMock()
     flags = SidebarModeFlags()

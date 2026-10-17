@@ -6,12 +6,21 @@
 
 from __future__ import annotations
 
+import sys
+import types
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from plugin.calc.python.editor_context_menu import _looks_like_cell_context_menu
-from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 import pytest
+
+from plugin.calc.python import editor_context_menu as mod
+from plugin.calc.python.editor_context_menu import (
+    _edit_python_cell_url,
+    _looks_like_cell_context_menu,
+    _register_frame,
+)
+from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
+from plugin.framework.uno_context import reset_package_extension_id_for_tests, set_package_extension_id
 
 
 @pytest.mark.parametrize(
@@ -44,10 +53,6 @@ def test_looks_like_cell_context_menu_separator_is_not_a_cell_menu():
 
 
 def test_notify_inserts_entry_when_source_window_has_no_controller():
-    import sys
-    import types
-    from plugin.calc.python import editor_context_menu as mod
-
     ui_mod = types.ModuleType("com.sun.star.ui")
     ui_mod.__path__ = []
 
@@ -191,9 +196,6 @@ def test_register_controller_dedups_uno_identity():
 
 
 def test_register_frame_uses_uno_type_by_name():
-    from plugin.calc.python import editor_context_menu as mod
-    from plugin.calc.python.editor_context_menu import _register_frame
-
     mod._registered_controllers.clear()
 
     frame = MagicMock()
@@ -211,9 +213,6 @@ def test_register_frame_uses_uno_type_by_name():
 
 
 def test_edit_python_cell_url_follows_librepy_extension_id():
-    from plugin.calc.python.editor_context_menu import _edit_python_cell_url
-    from plugin.framework.uno_context import reset_package_extension_id_for_tests, set_package_extension_id
-
     reset_package_extension_id_for_tests()
     set_package_extension_id(EXTENSION_ID_LIBREPY)
     try:
@@ -223,9 +222,6 @@ def test_edit_python_cell_url_follows_librepy_extension_id():
 
 
 def test_edit_python_cell_url_follows_writeragent_extension_id():
-    from plugin.calc.python.editor_context_menu import _edit_python_cell_url
-    from plugin.framework.uno_context import reset_package_extension_id_for_tests, set_package_extension_id
-
     reset_package_extension_id_for_tests()
     set_package_extension_id(EXTENSION_ID_WRITERAGENT)
     try:
@@ -235,8 +231,6 @@ def test_edit_python_cell_url_follows_writeragent_extension_id():
 
 
 def test_install_attaches_global_document_event_listener():
-    from plugin.calc.python import editor_context_menu as mod
-
     mod._registered_controllers.clear()
     ctx = MagicMock()
     smgr = MagicMock()
@@ -249,4 +243,42 @@ def test_install_attaches_global_document_event_listener():
         mod.install_calc_cell_context_menu(ctx)
     smgr.createInstanceWithContext.assert_called_with("com.sun.star.frame.GlobalEventBroadcaster", ctx)
     assert broadcaster.addDocumentEventListener.call_count == 1
+
+
+def test_new_doc_listener_on_document_event():
+    mod._registered_controllers.clear()
+    ctx = MagicMock()
+    smgr = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    smgr.createInstanceWithContext.return_value = broadcaster
+    mod._doc_listener = None
+    with patch("plugin.framework.uno_context.get_desktop", return_value=None):
+        mod.install_calc_cell_context_menu(ctx)
+    listener = mod._doc_listener
+    assert listener is not None
+
+    with patch.object(mod, "_register_controller") as mock_reg:
+        # Irrelevant event is ignored
+        evt = MagicMock()
+        evt.EventName = "OnSave"
+        listener.on_document_event(evt)
+        mock_reg.assert_not_called()
+
+        # Event with ViewController registers it
+        evt = MagicMock()
+        evt.EventName = "OnViewCreated"
+        evt.ViewController = MagicMock()
+        listener.on_document_event(evt)
+        mock_reg.assert_called_once_with(evt.ViewController)
+
+        # Event without ViewController registers Source.getCurrentController()
+        mock_reg.reset_mock()
+        evt2 = MagicMock(spec=["EventName", "Source"])
+        evt2.EventName = "OnLoadFinished"
+        evt2.Source = MagicMock()
+        controller = MagicMock()
+        evt2.Source.getCurrentController.return_value = controller
+        listener.on_document_event(evt2)
+        mock_reg.assert_called_once_with(controller)
 

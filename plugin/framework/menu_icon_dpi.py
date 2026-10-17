@@ -68,14 +68,11 @@ def _ppm_scale(win: Any) -> float | None:
 def _candidate_windows(ctx: Any = None) -> list[Any]:
     """StyleSettings host first, then desktop/frame peers (Wayland/KDE often need these)."""
     wins: list[Any] = []
-    try:
-        from plugin.framework.appearance import get_style_window
+    from plugin.framework.appearance import get_style_window
 
-        w = get_style_window(ctx=ctx)
-        if w is not None:
-            wins.append(w)
-    except Exception:
-        pass
+    w = get_style_window(ctx=ctx)
+    if w is not None:
+        wins.append(w)
     try:
         from plugin.framework.uno_context import desktop_create_is_unsafe, get_ctx, get_desktop
 
@@ -168,22 +165,19 @@ def probe_env_scale() -> float | None:
 
 def probe_menu_font_scale(ctx: Any = None) -> float | None:
     """Fallback: MenuFont/ApplicationFont Height vs AppFont 10."""
-    try:
-        from plugin.framework.appearance import get_style_window
+    from plugin.framework.appearance import get_style_window
 
-        win = get_style_window(ctx=ctx)
-        if win is None or not hasattr(win, "StyleSettings"):
-            return None
-        ss = win.StyleSettings
-        for attr in ("MenuFont", "ApplicationFont", "ToolFont"):
-            fd = getattr(ss, attr, None)
-            if fd is None:
-                continue
-            h = int(getattr(fd, "Height", 0) or 0)
-            if h > 0:
-                return h / 10.0
-    except Exception:
-        log.debug("probe_menu_font_scale failed", exc_info=True)
+    win = get_style_window(ctx=ctx)
+    if win is None or not hasattr(win, "StyleSettings"):
+        return None
+    ss = win.StyleSettings
+    for attr in ("MenuFont", "ApplicationFont", "ToolFont"):
+        fd = getattr(ss, attr, None)
+        if fd is None:
+            continue
+        h = int(getattr(fd, "Height", 0) or 0)
+        if h > 0:
+            return h / 10.0
     return None
 
 
@@ -284,16 +278,13 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
 
 def image_type_for_pixel_size(px: int) -> int:
     """Map pixel size to ``com.sun.star.ui.ImageType`` flags."""
-    try:
-        from com.sun.star.ui import ImageType
+    from com.sun.star.ui import ImageType
 
-        if px >= 32:
-            return int(ImageType.SIZE_32)
-        if px >= 24:
-            return int(ImageType.SIZE_LARGE)
-        return int(ImageType.SIZE_DEFAULT)
-    except Exception:
-        return 0
+    if px >= 32:
+        return int(ImageType.SIZE_32)
+    if px >= 24:
+        return int(ImageType.SIZE_LARGE)
+    return int(ImageType.SIZE_DEFAULT)
 
 
 def menu_icon_filename(prefix: str, px: int | None = None, ctx: Any = None) -> str:

@@ -81,12 +81,9 @@ def supports_text_analytics_manual(doc: Any) -> bool:
     """True when Run Python Script should expose Text Analytics helpers on *doc*."""
     if doc is None:
         return False
-    try:
-        from plugin.doc.doc_type import is_writer
+    from plugin.doc.doc_type import is_writer
 
-        return is_writer(doc)
-    except Exception:
-        return False
+    return is_writer(doc)
 
 
 def resolve_text_analytics_document_inputs(
@@ -268,34 +265,31 @@ def get_doc_language(doc: Any) -> str | None:
 
     Used by the dialog and runner to bias spaCy model selection for better accuracy.
     """
-    try:
-        # Document level
-        for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
-            try:
-                loc = doc.getPropertyValue(prop)
-                if loc and getattr(loc, "Language", None):
-                    lang = str(loc.Language).strip().lower()[:2]
-                    if lang and lang != "zxx":
-                        return lang
-            except Exception:
-                pass
-        # Current paragraph / selection
+    # Document level
+    for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
         try:
-            controller = doc.getCurrentController()
-            sel = controller.getSelection()
-            if sel and hasattr(sel, "getByIndex"):
-                rng = sel.getByIndex(0)
-                for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
-                    try:
-                        loc = rng.getPropertyValue(prop)
-                        if loc and getattr(loc, "Language", None):
-                            lang = str(loc.Language).strip().lower()[:2]
-                            if lang and lang != "zxx":
-                                return lang
-                    except Exception:
-                        pass
+            loc = doc.getPropertyValue(prop)
+            if loc and getattr(loc, "Language", None):
+                lang = str(loc.Language).strip().lower()[:2]
+                if lang and lang != "zxx":
+                    return lang
         except Exception:
             pass
+    # Current paragraph / selection
+    try:
+        controller = doc.getCurrentController()
+        sel = controller.getSelection()
+        if sel and hasattr(sel, "getByIndex"):
+            rng = sel.getByIndex(0)
+            for prop in ("CharLocale", "CharLocaleAsian", "CharLocaleComplex"):
+                try:
+                    loc = rng.getPropertyValue(prop)
+                    if loc and getattr(loc, "Language", None):
+                        lang = str(loc.Language).strip().lower()[:2]
+                        if lang and lang != "zxx":
+                            return lang
+                except Exception:
+                    pass
     except Exception:
         pass
     return None

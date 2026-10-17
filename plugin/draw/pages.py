@@ -27,10 +27,7 @@ _DEFAULT_IMPRESS_LAYOUT = "text"
 
 def _is_impress_doc(doc: Any) -> bool:
     """True for Impress. Draw shares add_slide; PyUNO hasattr is unreliable."""
-    try:
-        return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
-    except Exception:
-        return False
+    return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
 
 
 class AddSlide(ToolBase):
@@ -167,23 +164,13 @@ class ListPages(ToolBase):
         active_idx = ctx.active_page_index
         if active_idx is None:
             active_idx = bridge.get_active_page_index()
-        from plugin.framework.errors import is_real_disposal
-
         labels: list[str] = []
         count = pages.getCount()
         for i in range(count):
             label = f"Page {i}"
-            try:
-                name = pages.getByIndex(i).Name
-            except Exception as exc:
-                # Bugfix: rename_slide writes Name, and this list ignored it, so a
-                # rename was invisible. A closed document must still be
-                # DOCUMENT_DISPOSED; a missing Name stays "Page N".
-                if is_real_disposal(exc):
-                    raise
-            else:
-                if name is not None and str(name).strip():
-                    label = str(name).strip()
+            name = pages.getByIndex(i).Name
+            if name is not None and str(name).strip():
+                label = str(name).strip()
             labels.append(label)
         return {"status": "ok", "pages": labels, "count": count, "active_page_index": active_idx}
 
@@ -218,12 +205,7 @@ class ReadSlideText(ToolBase):
             try:
                 txt = shape.getString()
                 if txt and txt.strip():
-                    entry = {"index": i, "text": txt}
-                    try:
-                        entry["shape_name"] = shape.Name
-                    except Exception as exc:
-                        if is_disposed_exception(exc):
-                            raise
+                    entry = {"index": i, "text": txt, "shape_name": shape.Name}
                     texts.append(entry)
             except Exception as exc:
                 if is_disposed_exception(exc):
@@ -258,27 +240,17 @@ class GetPresentationInfo(ToolBase):
         # Dimensions from first page
         width_mm = 0
         height_mm = 0
-        from plugin.framework.errors import is_disposed_exception
-
         if count > 0:
             p = pages.getByIndex(0)
-            try:
-                width_mm = p.Width // 100
-                height_mm = p.Height // 100
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    raise
+            width_mm = p.Width // 100
+            height_mm = p.Height // 100
 
         # Master pages
         masters = []
-        try:
-            mp = doc.getMasterPages()
-            for i in range(mp.getCount()):
-                m = mp.getByIndex(i)
-                masters.append(m.Name if hasattr(m, "Name") else "Master_%d" % i)
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
+        mp = doc.getMasterPages()
+        for i in range(mp.getCount()):
+            m = mp.getByIndex(i)
+            masters.append(m.Name if hasattr(m, "Name") else "Master_%d" % i)
 
         from plugin.draw.bridge import DrawBridge
 

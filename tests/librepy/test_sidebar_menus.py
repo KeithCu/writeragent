@@ -7,6 +7,7 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.constants import EXTENSION_ID_LIBREPY
+from plugin.framework.uno_context import menu_icon_filesystem_paths
 from plugin.librepy.sidebar_menus import (
     invoke_action_handler,
     librepy_hamburger_actions,
@@ -275,8 +276,6 @@ def test_wire_header_no_search_control():
 
 
 def test_menu_icon_filesystem_paths_include_oxt_and_checkout_layouts():
-    from plugin.framework.uno_context import menu_icon_filesystem_paths
-
     paths = menu_icon_filesystem_paths("python_32.png")
     posix = [p.replace("\\", "/") for p in paths]
     assert posix[0].endswith("assets/python_32.png")

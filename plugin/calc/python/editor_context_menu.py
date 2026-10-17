@@ -168,26 +168,19 @@ def _install_doc_event_listener(ctx: Any) -> None:
 
         class _NewDocListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
             def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
-                try:
-                    name = getattr(Event, "EventName", "") or ""
-                    if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew"):
-                        return
-                    # Prefer the event's own controller: it is guaranteed attached to the view
-                    # shell (OnViewCreated is broadcast after attach), while getCurrentController
-                    # can race and yield a controller whose registration is a silent no-op.
-                    controller = None
-                    try:
-                        controller = getattr(Event, "ViewController", None)
-                    except Exception:
-                        controller = None
-                    if controller is not None:
-                        _register_controller(controller)
-                        return
-                    source = getattr(Event, "Source", None)
-                    if source is not None and hasattr(source, "getCurrentController"):
-                        _register_controller(source.getCurrentController())
-                except Exception:
-                    log.warning("python_editor_context_menu: doc-event handling failed", exc_info=True)
+                name = getattr(Event, "EventName", "") or ""
+                if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew"):
+                    return
+                # Prefer the event's own controller: it is guaranteed attached to the view
+                # shell (OnViewCreated is broadcast after attach), while getCurrentController
+                # can race and yield a controller whose registration is a silent no-op.
+                controller = getattr(Event, "ViewController", None)
+                if controller is not None:
+                    _register_controller(controller)
+                    return
+                source = getattr(Event, "Source", None)
+                if source is not None and hasattr(source, "getCurrentController"):
+                    _register_controller(source.getCurrentController())
 
         smgr = ctx.getServiceManager()
         broadcaster = smgr.createInstanceWithContext("com.sun.star.frame.GlobalEventBroadcaster", ctx)

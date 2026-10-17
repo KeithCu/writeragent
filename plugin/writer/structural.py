@@ -236,12 +236,9 @@ class GetPageObjects(ToolBase):
             if include_shape:
                 shape_type = shape.getShapeType().replace("com.sun.star.drawing.", "")
                 shape_info = {"type": shape_type, "name": getattr(shape, "Name", ""), "text": shape.getString().strip() if hasattr(shape, "getString") else ""}
-                try:
-                    pos = shape.getPosition()
-                    size = shape.getSize()
-                    shape_info["geometry"] = {"x": pos.X, "y": pos.Y, "width": size.Width, "height": size.Height}
-                except Exception:
-                    pass
+                pos = shape.getPosition()
+                size = shape.getSize()
+                shape_info["geometry"] = {"x": pos.X, "y": pos.Y, "width": size.Width, "height": size.Height}
                 shapes.append(shape_info)
 
         return {"images": images, "tables": tables, "frames": frames, "shapes": shapes}
