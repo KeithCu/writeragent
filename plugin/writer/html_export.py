@@ -1164,7 +1164,7 @@ def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
     read-path matrix.
     """
     rows, cols = uno_read(lambda: (int(table.getRows().getCount()), int(table.getColumns().getCount())), (0, 0))
-    names: list[str] = uno_read(lambda: list(table.getCellNames() or ()), [])
+    names: list[str] = uno_read(lambda: list(table.getCellNames() or []), [])
     max_row = max(rows - 1, 0)
     max_col = max(cols - 1, 0)
     for cell_name in names:
