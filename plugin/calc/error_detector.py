@@ -193,8 +193,11 @@ class ErrorDetector:
 
         precedent_details = []
         for prec_addr in precedent_addrs:
+            def _read_prec(addr: str = prec_addr) -> dict[str, Any]:
+                return self.inspector.read_cell(addr)
+
             prec_info = uno_probe(
-                lambda addr=prec_addr: self.inspector.read_cell(addr),
+                _read_prec,
                 {"address": prec_addr, "value": "UNREADABLE", "type": "unknown"},
             )
             precedent_details.append(prec_info)
