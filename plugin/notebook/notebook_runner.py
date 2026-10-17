@@ -907,7 +907,7 @@ def _leading_text_cursor(text: Any, para: Any) -> Any | None:
         if first is None:
             first = portion
         last = portion
-    if first is None:
+    if first is None or last is None:
         return None
     try:
         # Expand from the first portion's start to the last portion's end.
