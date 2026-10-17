@@ -642,8 +642,9 @@ def uno_same(a: Any, b: Any) -> bool:
             return False
         from plugin.framework.thread_guard import _unwrap_uno
 
-        same = is_same(_unwrap_uno(a), _unwrap_uno(b))
-        return same is True or (type(same) is int and same == 1)
+        # ``is True``: mocked ``uno.isSame`` (unit tests) returns a MagicMock,
+        # which is truthy. Real PyUNO returns a bool.
+        return is_same(_unwrap_uno(a), _unwrap_uno(b)) is True
     except Exception:
         return False
 
@@ -654,12 +655,14 @@ _ENUM_CAP = 32
 
 def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bool:
     """True when *has_more* indicates more elements and *seen* is below ``_ENUM_CAP``."""
-    # What was wrong: is not True treated sal integer 1 as the end, so desktop
-    # iteration yielded nothing and session lookup missed open models.
-    # How it happened: is not True rejected non-bool true values.
-    # Why this change: accepts only True and integer 1 so session lookup sees
-    # open models on builds that return 1.
-    if not (has_more is True or (type(has_more) is int and has_more == 1)):
+    # What was wrong: is not True treats SAL integer 1 as the end of the enum,
+    # so _iter_desktop_models yields nothing and session lookup/reset misses
+    # every open model.
+    # How: 8a8e33d42 replaced not has_more, which treated 1 as more, while
+    # stopping MagicMock.
+    # Why: != 1 matches iter_open_models, and a mock still stops because its
+    # inequality is truthy.
+    if has_more is not True and has_more != 1:
         return False
     if seen >= _ENUM_CAP:
         log.error("%s: desktop enum hit cap=%s; stopping", label, _ENUM_CAP)

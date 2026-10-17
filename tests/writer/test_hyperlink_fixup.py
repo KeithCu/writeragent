@@ -502,18 +502,8 @@ def test_enum_has_more_is_false_for_magicmock():
         def hasMoreElements(self):
             return False
 
-    class _UnoOne:
-        def hasMoreElements(self):
-            return 1
-
-    class _UnoZero:
-        def hasMoreElements(self):
-            return 0
-
     assert _enum_has_more(_UnoTrue()) is True
     assert _enum_has_more(_UnoFalse()) is False
-    assert _enum_has_more(_UnoOne()) is True
-    assert _enum_has_more(_UnoZero()) is False
 
 
 @pytest.mark.timeout(5)

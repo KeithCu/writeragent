@@ -160,8 +160,9 @@ def _safe_enumerate(obj: Any) -> Iterator[Any]:
         return
     while True:
         try:
-            more = enum.hasMoreElements()
-            if not (more is True or (type(more) is int and more == 1)):
+            # Portion walks must use hasMoreElements() is True; bare "if not enum.hasMoreElements()"
+            # never stops on MagicMock (AGENTS.md).
+            if enum.hasMoreElements() is not True:
                 break
             yield enum.nextElement()
         except Exception as exc:

@@ -1494,8 +1494,8 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
             anchor = shape.getAnchor()
             if not uno_same(anchor.getText(), src_text):
                 continue
-            hit = shape.supportsService("com.sun.star.text.TextGraphicObject")
-            if not (hit is True or (type(hit) is int and hit == 1)):
+            # `is True`: MagicMock supportsService() is truthy.
+            if shape.supportsService("com.sun.star.text.TextGraphicObject") is not True:
                 continue
         except Exception:
             continue

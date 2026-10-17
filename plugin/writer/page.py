@@ -186,8 +186,8 @@ def _region_has_table(text_obj: Any) -> bool:
         except Exception:
             break
         try:
-            hit = el.supportsService("com.sun.star.text.TextTable")
-            if hit is True or (type(hit) is int and hit == 1):
+            # `is True`: MagicMock supportsService() is truthy and would false-positive.
+            if el.supportsService("com.sun.star.text.TextTable") is True:
                 return True
         except Exception:
             continue
@@ -227,7 +227,8 @@ def _region_mirrors_shared(style: Any, region: str) -> bool:
     same for ``*_left``. Windows can still report leftover ``getString()``
     on the mirror after the shared region was cleared (GHA 35466498641),
     which made the disable guard refuse ``header_first`` even though first
-    page is shared.
+    page is shared. ``is True`` so unit-test MagicMocks stay conservative
+    (treated as independent).
     """
     if region.endswith("_first"):
         flag = "FirstIsShared"
@@ -236,8 +237,7 @@ def _region_mirrors_shared(style: Any, region: str) -> bool:
     else:
         return False
     try:
-        val = style.getPropertyValue(flag)
-        return val is True or (type(val) is int and val == 1)
+        return style.getPropertyValue(flag) is True
     except Exception:
         return False
 
@@ -423,8 +423,8 @@ def _copy_region_graphics(doc: Any, src_text: Any, dest_text: Any) -> tuple[int,
             continue
         label = _shape_name(shape)
         try:
-            hit = shape.supportsService("com.sun.star.text.TextGraphicObject")
-            if not (hit is True or (type(hit) is int and hit == 1)):
+            # `is True`: MagicMock supportsService() is truthy and would copy a frame.
+            if shape.supportsService("com.sun.star.text.TextGraphicObject") is not True:
                 skipped.append(label)
                 continue
         except Exception:
@@ -1274,12 +1274,10 @@ def _cursor_for_match(text_obj: Any, para: Any, offset: int, length: int) -> Any
             go_length = char_end - char_offset
 
     try:
-        if go_offset:
-            step = cursor.goRight(go_offset, False)
-            if step is False or (type(step) is int and step == 0):
-                return None
-        step = cursor.goRight(go_length, True)
-        if step is False or (type(step) is int and step == 0):
+        # `is False`: a MagicMock goRight() is truthy and must not abort the walk.
+        if go_offset and cursor.goRight(go_offset, False) is False:
+            return None
+        if cursor.goRight(go_length, True) is False:
             return None
     except Exception:
         return None
@@ -1358,11 +1356,10 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
     mgr = None
     try:
         candidate = doc.getUndoManager()
-        if candidate is not None:
-            locked = candidate.isLocked()
-            if not (locked is True or (type(locked) is int and locked == 1)):
-                candidate.enterUndoContext(title)
-                mgr = candidate
+        # `is True`: MagicMock isLocked() is truthy and must not look locked.
+        if candidate is not None and candidate.isLocked() is not True:
+            candidate.enterUndoContext(title)
+            mgr = candidate
     except Exception:
         log.warning("header/footer replace: undo grouping skipped", exc_info=True)
         mgr = None

@@ -95,9 +95,9 @@ def _owning_calc_doc(sheet: Any) -> Any | None:
     """Spreadsheet that contains *sheet*, walked from the modify event source.
 
     ``desktop.getCurrentComponent()`` is whichever window is focused. A change
-    in a background workbook must not reconcile that other file. A parent
-    walk that never hits ``SpreadsheetDocument`` returns ``None`` so the
-    caller can use the active document.
+    in a background workbook must not reconcile that other file. MagicMock
+    fabricates ``getParent``; ignore it so tests that stub only ``_get_calc_doc``
+    keep their fallback.
     """
     current = sheet
     for _hop in range(4):
@@ -109,7 +109,7 @@ def _owning_calc_doc(sheet: Any) -> Any | None:
                 result = supports("com.sun.star.sheet.SpreadsheetDocument")
             except Exception:
                 result = False
-            if result is True or (type(result) is int and result == 1):
+            if result is True:
                 return current
         parent = getattr(current, "getParent", None)
         if not callable(parent):

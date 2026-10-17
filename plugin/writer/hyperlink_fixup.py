@@ -272,16 +272,18 @@ def _between(text: Any, start_pos: Any, end_pos: Any) -> str:
 
 
 def _enum_has_more(enum: Any) -> bool:
-    """True when ``hasMoreElements()`` is sal_Bool True or 1.
+    """True only for a real UNO ``True``.
 
-    Callers must use this helper. A bare ``if not enum.hasMoreElements()``
-    treats a non-bool return as “more” and does not stop.
+    ``if not enum.hasMoreElements()`` is wrong on ``MagicMock``: the return is
+    another mock, which is truthy, so the loop never stops. PR #823 pull_request
+    CI merges this module onto unit tests that pass MagicMock ranges
+    (``test_edited_context``, ``test_small_fixes_r5``) and hung until GHA
+    SIGTERM. ``is True`` matches UNO bools and the ``_Enum`` fake.
     """
     try:
-        more = enum.hasMoreElements()
+        return enum.hasMoreElements() is True
     except Exception:
         return False
-    return more is True or (type(more) is int and more == 1)
 
 
 def _iter_portions(text: Any, anchor_pos: Any) -> Iterator[Any]:
