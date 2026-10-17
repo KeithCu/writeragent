@@ -90,6 +90,21 @@ def uno_probe(fn: Callable[[], _T], default: _T) -> _T:
         return default
 
 
+def best_effort(fn: Callable[[], _T], what: str, default: _T | None = None) -> _T | None:
+    """Return ``fn()``, or *default* after a DEBUG log of *what* with the traceback.
+
+    The call form of ``except Exception: log.debug(what, exc_info=True)``. It
+    intentionally swallows every ``Exception``, disposal included: use it only
+    for cosmetic or cleanup steps whose failure must not fail the caller. A
+    UNO read that should report a closed document is :func:`uno_read`.
+    """
+    try:
+        return fn()
+    except Exception:
+        logging.getLogger("writeragent.errors").debug("%s", what, exc_info=True)
+        return default
+
+
 class suppress_disposed(contextlib.ContextDecorator):
     """Context manager and decorator to safely execute UI / UNO lifecycle actions.
 
@@ -762,6 +777,7 @@ __all__ = [
     "WriterAgentException",
     "WriterError",
     "UNO_DISPOSED_EXCEPTIONS",
+    "best_effort",
     "check_disposed",
     "check_not_none",
     "format_error_message",  # The single i18n-friendly mapper (centralized here in 2026 janitor effort)
