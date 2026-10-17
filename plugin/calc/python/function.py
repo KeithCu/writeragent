@@ -1702,9 +1702,13 @@ def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
     from plugin.framework.thread_guard import on_main_thread
 
     if doc is not None and on_main_thread():
-        from plugin.doc.document_research import get_document_directory
+        try:
+            from plugin.doc.document_research import get_document_directory
 
-        folder = best_effort(lambda: get_document_directory(doc), "scoped_dir binding")
+            folder = get_document_directory(doc)
+        except Exception:
+            log.debug("scoped_dir binding failed", exc_info=True)
+            folder = None
         if folder:
             return {"scoped_dir": folder}
     return {"scoped_dir": None}
