@@ -18,6 +18,7 @@ from plugin.notebook.notebook_runner import (
     _find_cell_output_heading_end,
     _gutter_text_cursor,
     _is_next_cell_boundary,
+    _paragraph_has_frame,
     _paragraph_string,
     _execute_and_apply,
     apply_run_result,
@@ -730,8 +731,12 @@ def test_gutter_text_cursor_stops_before_frame_portion():
     frame_portion = MagicMock(name="frame_portion")
     frame_portion.getPropertyValue.return_value = "Frame"
 
+    paragraph = MagicMock(name="paragraph")
+    paragraph.createEnumeration.return_value = _enum_of([text_portion, frame_portion])
+
+    # para is a text cursor. Its enumeration yields the paragraph, not portions.
     para = MagicMock()
-    para.createEnumeration.return_value = _enum_of([text_portion, frame_portion])
+    para.createEnumeration.return_value = _enum_of([paragraph])
 
     text_cursor = MagicMock(name="text_cursor")
     text = MagicMock()
@@ -742,6 +747,7 @@ def test_gutter_text_cursor_stops_before_frame_portion():
     text.createTextCursorByRange.assert_called_once_with(text_portion)
     text_cursor.gotoRange.assert_called_once_with(text_portion, True)
     assert all(call.args[0] is not frame_portion for call in text.createTextCursorByRange.call_args_list)
+    paragraph.getPropertyValue.assert_not_called()
 
 
 def test_update_in_prompt_does_not_setstring_whole_paragraph():
@@ -751,11 +757,14 @@ def test_update_in_prompt_does_not_setstring_whole_paragraph():
     frame_portion = MagicMock(name="frame_portion")
     frame_portion.getPropertyValue.return_value = "Frame"
 
+    paragraph = MagicMock(name="paragraph")
+    paragraph.createEnumeration.return_value = _enum_of([text_portion, frame_portion])
+
     text_cursor = MagicMock(name="text_cursor")
     nav = MagicMock(name="nav")
     nav.gotoPreviousParagraph.return_value = True
     gutter = MagicMock(name="gutter")
-    gutter.createEnumeration.return_value = _enum_of([text_portion, frame_portion])
+    gutter.createEnumeration.return_value = _enum_of([paragraph])
 
     text = MagicMock()
 
@@ -781,6 +790,31 @@ def test_update_in_prompt_does_not_setstring_whole_paragraph():
     text_cursor.setString.assert_called_once_with("In [4]:")
     gutter.setString.assert_not_called()
     text.createEnumeration.assert_not_called()
+
+
+def test_paragraph_has_frame_reads_portion_not_paragraph():
+    """Cursor enumeration yields a paragraph; Frame is on that paragraph's portions."""
+    frame = MagicMock(name="frame")
+    frame.getPropertyValue.return_value = "Frame"
+    paragraph = MagicMock(name="paragraph")
+    paragraph.createEnumeration.return_value = _enum_of([frame])
+
+    para_rng = MagicMock(name="para_rng")
+    para_rng.createEnumeration.return_value = _enum_of([paragraph])
+    text = MagicMock()
+    text.createTextCursorByRange.return_value = para_rng
+    cursor = MagicMock()
+    cursor.getText.return_value = text
+
+    assert _paragraph_has_frame(cursor) is True
+    frame.getPropertyValue.assert_called_with("TextPortionType")
+    paragraph.getPropertyValue.assert_not_called()
+
+    text_only = MagicMock(name="text_portion")
+    text_only.getPropertyValue.return_value = "Text"
+    paragraph.createEnumeration.return_value = _enum_of([text_only])
+    para_rng.createEnumeration.return_value = _enum_of([paragraph])
+    assert _paragraph_has_frame(cursor) is False
 
 
 def test_update_in_prompt_does_not_rewrite_first_gutter_when_shape_missing():

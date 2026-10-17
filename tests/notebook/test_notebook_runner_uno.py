@@ -16,6 +16,10 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
+from plugin.notebook.form_lookup import find_control_shape_by_name
+from plugin.notebook.notebook_runner import _leading_text_cursor, _paragraph_has_frame
+from plugin.notebook.writer_importer import flush_ui_idle, import_ipynb_to_writer
 from plugin.testing_runner import native_test, show_window
 from plugin.tests.testing_utils import with_native_doc
 
@@ -798,4 +802,57 @@ def _tiny_failing_ipynb_path() -> Path:
     with handle as fh:
         json.dump(payload, fh)
     return Path(handle.name)
+
+
+@native_test
+@with_native_doc("writer", hidden=not show_window)
+def test_paragraph_has_frame_true_on_imported_control_paragraphs(ctx, doc):
+    """_paragraph_has_frame must see TextPortionType Frame on ▶ and the code field.
+
+    A text cursor enumerates paragraphs. Reading TextPortionType there raises
+    UnknownPropertyException and the old helper returned False for every cell.
+    """
+    ipynb = _tiny_ipynb_path()
+    try:
+        import_ipynb_to_writer(doc, str(ipynb), ctx=ctx)
+        flush_ui_idle(ctx)
+        state = load_registry(doc)
+        assert state is not None and len(state.code_cells) == 1
+        cell = state.code_cells[0]
+        text = doc.getText()
+
+        def para_cursor(shape_name: str):
+            shape = find_control_shape_by_name(doc, shape_name)
+            assert shape is not None, shape_name
+            cursor = text.createTextCursorByRange(shape.getAnchor())
+            return cursor
+
+        run_name = f"nb_run_{cell_id_to_hex(cell.cell_id)}"
+        gutter = para_cursor(run_name)
+        field = para_cursor(cell.code_field_name)
+        assert _paragraph_has_frame(gutter) is True
+        assert _paragraph_has_frame(field) is True
+
+        heading = None
+        enum = text.createEnumeration()
+        while enum.hasMoreElements():
+            el = enum.nextElement()
+            if "Before code" in str(el.getString() or ""):
+                heading = el
+                break
+        assert heading is not None
+        heading_cursor = text.createTextCursorByRange(heading.getStart())
+        assert _paragraph_has_frame(heading_cursor) is False
+
+        gutter.gotoStartOfParagraph(False)
+        gutter.gotoEndOfParagraph(True)
+        leading = _leading_text_cursor(text, gutter)
+        assert leading is not None
+        assert str(leading.getString() or "").strip().startswith("In [")
+    finally:
+        try:
+            ipynb.unlink()
+        except OSError:
+            pass
+
 

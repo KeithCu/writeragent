@@ -54,6 +54,16 @@ _OUT_PROMPT_RE = re.compile(r"^Out \[[0-9 ]*\]:")
 _LEGACY_CHROME_RE = re.compile(r"^Cell \d+: (Markdown|Raw|Code)\b")
 
 
+def _enum_has_more(enum: Any) -> bool:
+    """``hasMoreElements`` is True or 1 on UNO. Anything else means stop.
+
+    MagicMock returns another MagicMock, which is neither, so unit tests
+    that never configure an enumeration terminate instead of spinning.
+    """
+    more = enum.hasMoreElements()
+    return more is True or more == 1
+
+
 # ---------------------------------------------------------------------------
 # Data Models & Process Execution State
 # ---------------------------------------------------------------------------
@@ -178,11 +188,7 @@ def _paragraph_string(cursor: Any) -> str:
     when the selection is empty. Mocks that already return paragraph text from
     ``getString()`` keep working.
     """
-    selected = ""
-    try:
-        selected = _plain_text(cursor.getString() or "")
-    except Exception:
-        selected = ""
+    selected = _plain_text(cursor.getString() or "")
     if selected.strip():
         return selected
     try:
@@ -199,10 +205,7 @@ def _paragraph_is_empty(cursor: Any) -> bool:
 
 
 def _para_style_name(cursor: Any) -> str:
-    try:
-        return str(cursor.ParaStyleName or "")
-    except Exception:
-        return ""
+    return str(cursor.ParaStyleName or "")
 
 
 def _style_compact(para_style: str) -> str:
@@ -234,68 +237,31 @@ def _same_paragraph(a: Any, b: Any) -> bool:
 
 
 def _paragraph_has_frame(cursor: Any) -> bool:
-    """True when the paragraph contains an in-flow ControlShape / graphic (▶ or field)."""
-    try:
-        text = cursor.getText()
-        para_rng = text.createTextCursorByRange(cursor)
-        para_rng.gotoStartOfParagraph(False)
-        para_rng.gotoEndOfParagraph(True)
-        portions = para_rng.createEnumeration()
-        psteps = 0
-        while psteps < 64:
-            pmore = portions.hasMoreElements()
-            if pmore is not True and pmore != 1:
-                break
-            psteps += 1
-            portion = portions.nextElement()
-            try:
-                ptype = str(portion.getPropertyValue("TextPortionType") or "")
-            except Exception:
-                ptype = str(getattr(portion, "TextPortionType", "") or "")
-            if ptype == "Frame":
-                return True
+    """True when the paragraph contains an in-flow ControlShape / graphic (▶ or field).
+
+    A Writer text cursor enumerates paragraphs, not text portions. The old
+    body called ``createEnumeration`` on that cursor and read ``TextPortionType``
+    on each paragraph. That raises ``UnknownPropertyException``; the catch
+    turned it into ``getattr`` and returned False, so every Run / Run All
+    treated ▶ and code-field paragraphs as frameless. The document-wide
+    portion scan under that ``return`` never ran. Expand to the enclosing
+    paragraph, take that paragraph, then enumerate its portions.
+    """
+    text = cursor.getText()
+    para_rng = text.createTextCursorByRange(cursor)
+    para_rng.gotoStartOfParagraph(False)
+    para_rng.gotoEndOfParagraph(True)
+    paras = para_rng.createEnumeration()
+    if not _enum_has_more(paras):
         return False
-    except Exception:
-        pass
-    # Fallback for mocks or LO objects where range portion enumeration is unavailable
-    try:
-        text = cursor.getText()
-        enum = text.createEnumeration()
-    except Exception:
-        return False
+    para = paras.nextElement()
+    portions = para.createEnumeration()
     steps = 0
-    while steps < _ENUM_SAFETY_CAP:
-        more = enum.hasMoreElements()
-        if more is not True and more != 1:
-            break
+    while steps < 64 and _enum_has_more(portions):
         steps += 1
-        para = enum.nextElement()
-        try:
-            if hasattr(para, "supportsService") and not para.supportsService("com.sun.star.text.Paragraph"):
-                continue
-            start_cmp = text.compareRegionStarts(para.getStart(), cursor)
-            end_cmp = text.compareRegionEnds(cursor, para.getEnd())
-            # compareRegionStarts(A,B) is 1 if A starts before B. Cursor is in *para*
-            # when para starts at/before the cursor and the cursor ends at/before para.
-            if not (start_cmp >= 0 and end_cmp >= 0):
-                continue
-            portions = para.createEnumeration()
-        except Exception:
-            continue
-        psteps = 0
-        while psteps < 64:
-            pmore = portions.hasMoreElements()
-            if pmore is not True and pmore != 1:
-                break
-            psteps += 1
-            portion = portions.nextElement()
-            try:
-                ptype = str(portion.getPropertyValue("TextPortionType") or "")
-            except Exception:
-                ptype = str(getattr(portion, "TextPortionType", "") or "")
-            if ptype == "Frame":
-                return True
-        return False
+        portion = portions.nextElement()
+        if str(portion.getPropertyValue("TextPortionType") or "") == "Frame":
+            return True
     return False
 
 
@@ -340,10 +306,7 @@ def _cursor_after_bookmark(doc: Any, bookmark_name: str) -> Any | None:
 def _bookmark_exists(doc: Any, bookmark_name: str) -> bool:
     if not bookmark_name or not hasattr(doc, "getBookmarks"):
         return False
-    try:
-        return bool(doc.getBookmarks().hasByName(bookmark_name))
-    except Exception:
-        return False
+    return bool(doc.getBookmarks().hasByName(bookmark_name))
 
 
 def _code_field_paragraph_end(doc: Any, cell: NotebookCodeCell) -> Any | None:
@@ -582,10 +545,7 @@ def _collapse_leading_empty_paragraphs(doc: Any, cell: NotebookCodeCell, noteboo
 def _apply_para_style(cursor: Any, style: str | None) -> None:
     if not style:
         return
-    try:
-        cursor.setPropertyValue("ParaStyleName", style)
-    except Exception:
-        log.debug("notebook run: ParaStyleName %r not applied", style)
+    cursor.setPropertyValue("ParaStyleName", style)
 
 
 def _split_if_stdout_mashed_onto_chrome(doc: Any, text: Any, cursor: Any, display: str, output_style: str | None, notebook_in: str | None) -> None:
@@ -597,42 +557,35 @@ def _split_if_stdout_mashed_onto_chrome(doc: Any, text: Any, cursor: Any, displa
     Do **not** insert a trailing break when the rest is empty — that was the
     extra blank under Output.
     """
-    try:
-        cursor.gotoStartOfParagraph(False)
-        n = min(len(display.encode("utf-16-le")) // 2, 32767)
-        rest = text.createTextCursorByRange(cursor)
-        if n:
-            rest.goRight(n, False)
-        rest.gotoEndOfParagraph(True)
-        leftover = _plain_text(rest.getString() or "")
-        leftover_text = leftover.strip()
-        if not leftover_text:
-            _apply_para_style(cursor, output_style)
-            _ensure_one_spacer_before_next_cell(text, cursor, notebook_in)
-            return
-        if n:
-            cursor.goRight(n, False)
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        _enter_paragraph_after_break(cursor)
-    except Exception:
-        log.debug("notebook run: trailing split after stdout failed", exc_info=True)
+    cursor.gotoStartOfParagraph(False)
+    n = min(len(display.encode("utf-16-le")) // 2, 32767)
+    rest = text.createTextCursorByRange(cursor)
+    if n:
+        rest.goRight(n, False)
+    rest.gotoEndOfParagraph(True)
+    leftover = _plain_text(rest.getString() or "")
+    leftover_text = leftover.strip()
+    if not leftover_text:
         _apply_para_style(cursor, output_style)
+        _ensure_one_spacer_before_next_cell(text, cursor, notebook_in)
         return
-    try:
-        # Leftover inherits Preformatted from fill, so _is_next_cell_boundary
-        # would skip (stdout style). Restore markdown/gutter from the text.
-        if _IN_PROMPT_RE.match(leftover_text) or leftover_text.startswith("[In ["):
-            _apply_para_style(cursor, notebook_in)
-        else:
-            heading = _resolve_para_style(doc, _STYLE_MD_H2) or _resolve_para_style(doc, _STYLE_MD_H1)
-            _apply_para_style(cursor, heading)
-        if output_style:
-            prev = text.createTextCursorByRange(cursor)
-            if prev.gotoPreviousParagraph(False):
-                prev.gotoStartOfParagraph(False)
-                _apply_para_style(prev, output_style)
-    except Exception:
-        log.debug("notebook run: stdout/chrome style restore failed", exc_info=True)
+    if n:
+        cursor.goRight(n, False)
+    text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    _enter_paragraph_after_break(cursor)
+
+    # Leftover inherits Preformatted from fill, so _is_next_cell_boundary
+    # would skip (stdout style). Restore markdown/gutter from the text.
+    if _IN_PROMPT_RE.match(leftover_text) or leftover_text.startswith("[In ["):
+        _apply_para_style(cursor, notebook_in)
+    else:
+        heading = _resolve_para_style(doc, _STYLE_MD_H2) or _resolve_para_style(doc, _STYLE_MD_H1)
+        _apply_para_style(cursor, heading)
+    if output_style:
+        prev = text.createTextCursorByRange(cursor)
+        if prev.gotoPreviousParagraph(False):
+            prev.gotoStartOfParagraph(False)
+            _apply_para_style(prev, output_style)
 
 
 def _ensure_one_spacer_before_next_cell(text: Any, cursor: Any, notebook_in: str | None) -> None:
@@ -642,18 +595,15 @@ def _ensure_one_spacer_before_next_cell(text: Any, cursor: Any, notebook_in: str
     insert a trailing blank when there is no following cell (that was the extra
     empty under Output, PR 461).
     """
-    try:
-        nxt = text.createTextCursorByRange(cursor)
-        if not nxt.gotoNextParagraph(False):
-            return
-        nxt_text = _paragraph_string(nxt)
-        if not nxt_text.strip() and not _paragraph_has_frame(nxt):
-            return
-        if not _is_next_cell_boundary(_para_style_name(nxt), nxt_text, notebook_in):
-            return
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-    except Exception:
-        log.debug("notebook run: spacer before next cell failed", exc_info=True)
+    nxt = text.createTextCursorByRange(cursor)
+    if not nxt.gotoNextParagraph(False):
+        return
+    nxt_text = _paragraph_string(nxt)
+    if not nxt_text.strip() and not _paragraph_has_frame(nxt):
+        return
+    if not _is_next_cell_boundary(_para_style_name(nxt), nxt_text, notebook_in):
+        return
+    text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
 
 
 def _enter_paragraph_after_break(cursor: Any) -> None:
@@ -664,15 +614,9 @@ def _enter_paragraph_after_break(cursor: Any) -> None:
     ``goRight(1)``. Without this move, ``insertString`` writes into the Output heading or
     prepends onto the next cell's chrome (``NumPy Version: …Cell 3: Markdown``).
     """
-    try:
-        if cursor.goRight(1, False):
-            return
-    except Exception:
-        log.debug("notebook run: goRight after PARAGRAPH_BREAK failed", exc_info=True)
-    try:
-        cursor.gotoNextParagraph(False)
-    except Exception:
-        log.debug("notebook run: gotoNextParagraph after PARAGRAPH_BREAK failed", exc_info=True)
+    if cursor.goRight(1, False):
+        return
+    cursor.gotoNextParagraph(False)
 
 
 # ---------------------------------------------------------------------------
@@ -826,10 +770,7 @@ def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, disp
     text = doc.getText()
 
     def _fill(target: Any) -> None:
-        try:
-            target.gotoStartOfParagraph(False)
-        except Exception:
-            log.debug("notebook run: gotoStartOfParagraph before stdout failed", exc_info=True)
+        target.gotoStartOfParagraph(False)
         _apply_para_style(target, output_style)
         text.insertString(target, display, False)
         _split_if_stdout_mashed_onto_chrome(doc, text, target, display, output_style, notebook_in)
@@ -848,24 +789,15 @@ def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, disp
     # back so PARAGRAPH_BREAK does not split that heading and prepend stdout.
     field_end = _code_field_paragraph_end(doc, cell)
     if field_end is not None:
-        try:
-            cursor.gotoRange(field_end, False)
-        except Exception:
-            log.debug("notebook run: snap insert cursor to code field failed", exc_info=True)
+        cursor.gotoRange(field_end, False)
     elif _is_next_cell_boundary(_para_style_name(cursor), _paragraph_string(cursor), notebook_in):
-        try:
-            prev = text.createTextCursorByRange(cursor)
-            if prev.gotoPreviousParagraph(False):
-                prev.gotoEndOfParagraph(False)
-                cursor.gotoRange(prev, False)
-        except Exception:
-            log.debug("notebook run: snap insert cursor to previous para failed", exc_info=True)
+        prev = text.createTextCursorByRange(cursor)
+        if prev.gotoPreviousParagraph(False):
+            prev.gotoEndOfParagraph(False)
+            cursor.gotoRange(prev, False)
 
     if _is_output_bookmark_home(cursor, doc, cell):
-        try:
-            cursor.gotoEndOfParagraph(False)
-        except Exception:
-            log.debug("notebook run: snap to end of control paragraph failed", exc_info=True)
+        cursor.gotoEndOfParagraph(False)
         nxt = text.createTextCursorByRange(cursor)
         if nxt.gotoNextParagraph(False):
             nxt_text = _paragraph_string(nxt)
@@ -882,10 +814,7 @@ def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, disp
         # Leftover empty gap (Text Body) or empty Preformatted: fill in place.
         # Never write into a ▶+field paragraph (this cell or the next).
         if _paragraph_has_frame(cursor):
-            try:
-                cursor.gotoEndOfParagraph(False)
-            except Exception:
-                log.debug("notebook run: snap to end of framed paragraph failed", exc_info=True)
+            cursor.gotoEndOfParagraph(False)
             _break_then_fill()
             return
         _fill(cursor)
@@ -948,25 +877,29 @@ def apply_run_result(doc: Any, cell: NotebookCodeCell, result: dict[str, Any], *
 
 
 def _leading_text_cursor(text: Any, para: Any) -> Any | None:
-    """Cursor over leading Text portions of *para*, stopping before in-flow shapes.
+    """Cursor over leading Text portions of paragraph cursor *para*, stopping before in-flow shapes.
 
-    Importer used to put AS_CHARACTER ▶ / code ``TextField`` in the same paragraph as
-    ``[In [n]]``. ``setString`` on ``para.getStart()``–``getEnd()`` then
-    deleted those ``ControlShape``s (TextPortionType ``Frame``). ▶ now sits on the
-    ``In [n]:`` gutter; rewrite leading Text portions only, never the Frame.
+    *para* is a text cursor whose enumeration yields the paragraph; portions are
+    read from that paragraph object. Importer used to put AS_CHARACTER ▶ / code
+    ``TextField`` in the same paragraph as ``[In [n]]``. ``setString`` on
+    ``para.getStart()``–``getEnd()`` then deleted those ``ControlShape``s
+    (TextPortionType ``Frame``). ▶ now sits on the ``In [n]:`` gutter; rewrite
+    leading Text portions only, never the Frame.
     """
-    try:
-        enum = para.createEnumeration()
-    except Exception:
+    # *para* is a text cursor. Its enumeration yields the paragraph;
+    # portions are on that paragraph. Reading TextPortionType on the
+    # cursor's elements raised UnknownPropertyException, the catch hid it,
+    # and this always returned None.
+    paras = para.createEnumeration()
+    if not _enum_has_more(paras):
         return None
+    paragraph = paras.nextElement()
+    enum = paragraph.createEnumeration()
     first = None
     last = None
-    while enum.hasMoreElements():
+    while _enum_has_more(enum):
         portion = enum.nextElement()
-        try:
-            ptype = str(portion.getPropertyValue("TextPortionType") or "")
-        except Exception:
-            ptype = str(getattr(portion, "TextPortionType", "") or "")
+        ptype = str(portion.getPropertyValue("TextPortionType") or "")
         if ptype == "Frame":
             break
         if ptype != "Text":
@@ -1008,11 +941,7 @@ def _gutter_text_cursor(text: Any, para: Any) -> Any | None:
 def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | None) -> None:
     """Update the ``In [n]:`` gutter. Never setString a range that contains ControlShapes."""
     new_line = _format_in_prompt(execution_count)
-    try:
-        text = doc.getText()
-    except Exception:
-        log.debug("notebook run: could not get text for in prompt", exc_info=True)
-        return
+    text = doc.getText()
 
     para = None
     # Walk only the paragraph before this cell's code field. A document-wide
@@ -1186,10 +1115,7 @@ def find_run_from_here_index(doc: Any, state: NotebookDocState) -> int:
     sel = _selection_start_range(doc)
     if sel is None:
         return 0
-    try:
-        text = doc.getText()
-    except Exception:
-        return 0
+    text = doc.getText()
     found_end = False
     for i, cell in enumerate(cells):
         end = _cell_end_range(doc, cell)
