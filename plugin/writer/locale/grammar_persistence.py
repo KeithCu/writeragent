@@ -215,10 +215,7 @@ class _GrammarDocumentEventListener(BaseDocumentEventListener):
         self._outer = outer
 
     def on_document_event(self, Event: Any) -> None:
-        try:
-            name = getattr(Event, "EventName", "") or ""
-        except Exception:
-            return
+        name = getattr(Event, "EventName", "") or ""
         if name in ("OnPrepareSave", "OnSave", "OnSaveAs", "OnSaveTo"):
             self._outer._persist_to_udprops()
         elif name == "OnUnload":
@@ -773,10 +770,7 @@ def apply_language_change(ctx: Any, doc_id: str, sentence_text: str, detected_bc
 
         search_desc = model.createSearchDescriptor()
         search_desc.setSearchString(sentence_text)
-        try:
-            search_desc.setPropertyValue("SearchCaseSensitive", True)
-        except Exception:
-            search_desc.SearchCaseSensitive = True
+        search_desc.SearchCaseSensitive = True
 
         found_range = None
         try:

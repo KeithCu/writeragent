@@ -946,11 +946,7 @@ def run_llm_and_cache_batch(
 
             model_fetcher = importlib.import_module("plugin.framework.client.model_fetcher")
             llm_client = importlib.import_module("plugin.framework.client.llm_client")
-            try:
-                model = model_fetcher.get_grammar_model()
-            except Exception as e:
-                log.warning("[grammar] worker: model resolution: %s", e, exc_info=True)
-                model = ""
+            model = model_fetcher.get_grammar_model()
             client = llm_client.LlmClient(config.get_api_config(), ctx)
 
         batch_size = 1 if local_provider else grammar_proofread_locale.grammar_batch_sentences(ctx)
@@ -978,10 +974,7 @@ def run_llm_and_cache_batch(
 
     except Exception as e:
         log.exception("[grammar] worker batch failed")
-        try:
-            emit_grammar_status("failed", "Batch processing", result=type(e).__name__)
-        except Exception:
-            pass
+        emit_grammar_status("failed", "Batch processing", result=type(e).__name__)
     finally:
         if status_cycle_started:
             gq_to_use.end_status_cycle()

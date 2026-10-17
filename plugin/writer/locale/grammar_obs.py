@@ -64,15 +64,10 @@ def _frame_from_controller(obj: Any) -> Any | None:
 
 def _frame_from_bound_grammar_docs() -> Any | None:
     """Frame from a Writer model already bound by proofreading — no Desktop create."""
-    try:
-        from plugin.writer.locale.grammar_persistence import grammar_registry
-    except Exception:
-        return None
-    try:
-        with grammar_registry.lock:
-            persistences = list(grammar_registry.doc_persistence_instances.values())
-    except Exception:
-        return None
+    from plugin.writer.locale.grammar_persistence import grammar_registry
+
+    with grammar_registry.lock:
+        persistences = list(grammar_registry.doc_persistence_instances.values())
     for persistence in persistences:
         model = getattr(persistence, "_model", None)
         if model is None:
@@ -155,19 +150,21 @@ def update_libreoffice_status_bar(phase: str, text: str, result: str) -> None:
                 except Exception:
                     _last_status_indicator = None
             else:
-                try:
-                    _last_status_indicator.setText(msg)
-                    _last_status_indicator.setValue(50)
-                except Exception:
-                    pass
+                # What was wrong: setText/setValue on a disposed indicator was
+                # swallowed, so _last_status_indicator stayed set. Later
+                # start/request paints hit that dead object and did nothing
+                # until a done phase.
+                # How: the frame that owned the indicator closed during
+                # proofreading; the inner except pass kept the reference.
+                # Why: this raise reaches the outer handler, which clears the
+                # indicator so the next progress paint creates a new one.
+                _last_status_indicator.setText(msg)
+                _last_status_indicator.setValue(50)
         elif phase in ("done", "complete", "failed"):
             if _last_status_indicator is not None:
-                try:
-                    _last_status_indicator.setText(msg)
-                    _last_status_indicator.setValue(100)
-                    _last_status_indicator.end()
-                except Exception:
-                    pass
+                _last_status_indicator.setText(msg)
+                _last_status_indicator.setValue(100)
+                _last_status_indicator.end()
                 _last_status_indicator = None
     except Exception as e:
         log.debug("[grammar] update_libreoffice_status_bar failed: %s", e)

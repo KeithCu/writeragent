@@ -460,13 +460,9 @@ def _log_harper_wait_reenter() -> None:
 
     started, wait_thread = _harper_wait_snapshot()
     wait_age_ms = int((time.monotonic() - started) * 1000) if started is not None else 0
-    provider = "harper"
-    try:
-        from plugin.framework.config import get_grammar_provider
+    from plugin.framework.config import get_grammar_provider
 
-        provider = get_grammar_provider() or "harper"
-    except Exception:
-        pass
+    provider = get_grammar_provider() or "harper"
     thread_name = threading.current_thread().name
     log.warning(
         "[harper] harper_wait_reenter thread=%s wait_thread=%s wait_age_ms=%s provider=%s",
@@ -492,10 +488,7 @@ def shutdown_harper_runtime() -> None:
         _HARPER_CLIENT_CACHE.clear()
         _set_state(HarperRuntimeState.IDLE, failed_at=0.0)
     for client in clients:
-        try:
-            client.close()
-        except Exception:
-            log.debug("[harper] shutdown close failed", exc_info=True)
+        client.close()
 
 
 def _get_or_create_client(harper_bin: str, user_config_dir: str, bcp47: str, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> HarperLSClient:
@@ -583,10 +576,7 @@ def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
                 # drop it, then build a replacement (lock released during Popen,
                 # same as a lint restart). A missing binary still raises into
                 # the handler below and keeps the cooldown.
-                try:
-                    client.close()
-                except Exception:
-                    log.debug("[harper] closing dead cached client failed", exc_info=True)
+                client.close()
                 client = _replace_harper_client(client, bcp47, _on_progress)
             if not client.is_alive():
                 raise RuntimeError("harper-ls process not running after start")
@@ -884,10 +874,7 @@ def _run_lint_off_caller_thread(
         # checked in reader poll loops, not during a blocked write.
         # Closing the client aborts pending I/O and the process.
         if not done.is_set():
-            try:
-                client.close()
-            except Exception:
-                log.debug("[harper] close after cancelled lint timeout failed", exc_info=True)
+            client.close()
     if "exc" in box:
         raise box["exc"]
     result = box.get("result")
@@ -931,10 +918,7 @@ def _replace_harper_client(
         built.close()
         return current
     if current is not None and current is not built:
-        try:
-            current.close()
-        except Exception:
-            log.debug("[harper] closing client replaced during restart failed", exc_info=True)
+        current.close()
     _HARPER_CLIENT_CACHE[binary_path] = built
     return built
 

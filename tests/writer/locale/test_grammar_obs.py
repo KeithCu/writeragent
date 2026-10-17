@@ -343,3 +343,25 @@ def test_update_libreoffice_status_bar_lifecycle() -> None:
         mock_indicator.end.assert_called_once()
         assert go._last_status_indicator is None
 
+
+def test_update_libreoffice_status_bar_drops_dead_indicator() -> None:
+    """A disposed indicator must not stick across later progress paints."""
+    dead = MagicMock()
+    dead.setText.side_effect = RuntimeError("disposed")
+    fresh = MagicMock()
+    frame = MagicMock()
+    frame.createStatusIndicator.return_value = fresh
+    try:
+        with (
+            patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+            patch.object(go, "resolve_status_bar_frame", return_value=frame),
+        ):
+            go._last_status_indicator = dead
+            go.update_libreoffice_status_bar("request", "Text", "Starting harper-ls…")
+            assert go._last_status_indicator is None
+            go.update_libreoffice_status_bar("start", "Text", "Downloading harper-ls v2.7.0…")
+            frame.createStatusIndicator.assert_called_once()
+            assert go._last_status_indicator is fresh
+    finally:
+        go._last_status_indicator = None
+

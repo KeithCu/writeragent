@@ -213,17 +213,10 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
         return None
     if desktop is None:
         return None
-    try:
-        writers = _open_writer_models(desktop)
-    except Exception:
-        log.debug("[grammar] persistence bind: open Writer scan failed", exc_info=True)
-        writers = []
+    writers = _open_writer_models(desktop)
 
     for model in writers:
-        try:
-            uid = get_runtime_uid(model)
-        except Exception:
-            uid = ""
+        uid = get_runtime_uid(model)
         if uid and uid == doc_id:
             return model
 
@@ -309,12 +302,8 @@ def _proofreading_markup_type() -> int:
     """``com.sun.star.text.TextMarkupType.PROOFREADING`` via PyUNO constant lookup."""
     if uno_mod is None:
         return 0
-    try:
-        v: Any = uno_mod.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")
-        return int(cast("int | float | str", v))
-    except Exception as e:
-        log.warning("[grammar] _proofreading_markup_type: falling back to 4: %s", e, exc_info=True)
-        return 4
+    v: Any = uno_mod.getConstantByName("com.sun.star.text.TextMarkupType.PROOFREADING")
+    return int(cast("int | float | str", v))
 
 
 def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...], ctx: Any, doc_id: str) -> tuple[Any, ...]:
@@ -344,11 +333,7 @@ def _cached_errors_to_uno_tuple(cached: tuple[dict[str, Any], ...], ctx: Any, do
 
 
 def _locale_key(loc: Any) -> str:
-    try:
-        return f"{loc.Language}_{loc.Country}_{loc.Variant}"
-    except Exception as e:
-        log.debug("[grammar] _locale_key: %s", e, exc_info=True)
-        return "unknown"
+    return f"{loc.Language}_{loc.Country}_{loc.Variant}"
 
 
 def _locale_tuple() -> tuple[Any, ...]:
@@ -600,11 +585,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         grammar_registry.register_live_proofreader(self)
         self._implementation_name = IMPLEMENTATION_NAME
         self._supported_service_names = (SERVICE_NAME,)
-        try:
-            self._locales = _locale_tuple()
-        except Exception:
-            log.exception("[grammar] WriterAgentAiGrammarProofreader.__init__: _locale_tuple failed")
-            self._locales = ()
+        self._locales = _locale_tuple()
 
     # --- XServiceName / XServiceInfo ---
     def getServiceName(self) -> str:
@@ -634,11 +615,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             return False
 
     def getLocales(self) -> tuple[Any, ...]:
-        try:
-            return self._locales
-        except Exception as e:
-            log.warning("[grammar] getLocales: %s", e, exc_info=True)
-            return ()
+        return self._locales
 
     def _check_enabled_and_locale(self, a_doc_id: str, a_text: str, a_locale: Any, n_start: int, n_suggested_end: int) -> str | None:
         """Return BCP47 locale if grammar checking is enabled and locale is supported, else None."""
@@ -1059,12 +1036,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         n_event = 8  # com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN
         event: Any = None
         if uno_mod is not None:
-            try:
-                event = uno_mod.createUnoStruct("com.sun.star.linguistic2.LinguServiceEvent")
-                setattr(event, "Source", self)
-                setattr(event, "nEvent", n_event)
-            except Exception:
-                event = None
+            event = uno_mod.createUnoStruct("com.sun.star.linguistic2.LinguServiceEvent")
+            setattr(event, "Source", self)
+            setattr(event, "nEvent", n_event)
         if event is None:
             from types import SimpleNamespace
 

@@ -58,12 +58,8 @@ def _is_english_locale_tag(language: str) -> bool:
 
 def normalize_harper_locale_to_bcp47(a_locale: Any) -> str | None:
     """Preserve the regional English dialects understood by Harper."""
-    try:
-        language = str(getattr(a_locale, "Language", "") or "").strip()
-        country = str(getattr(a_locale, "Country", "") or "").strip().upper()
-    except Exception:
-        log.warning("[grammar] LibreHarper locale read failed", exc_info=True)
-        return None
+    language = str(getattr(a_locale, "Language", "") or "").strip()
+    country = str(getattr(a_locale, "Country", "") or "").strip().upper()
 
     raw_language = language
     if "-" in language and not country:
