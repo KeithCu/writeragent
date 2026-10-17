@@ -44,13 +44,10 @@ def _debug_paint_counters_on() -> bool:
     Release OXTs stub ``thread_guard`` (no ``_designated_main_thread``), so the
     paint/stream counters read by the mock-sidebar SNAPSHOT hook stay off there.
     """
-    try:
-        from plugin.framework import thread_guard as tg
+    from plugin.framework import thread_guard as tg
 
-        if hasattr(tg, "_designated_main_thread"):
-            return True
-    except Exception:
-        pass
+    if hasattr(tg, "_designated_main_thread"):
+        return True
     return os.environ.get("WRITERAGENT_TESTING") == "1"
 
 _CONTROL_INIT_STARTED: set[int] = set()
@@ -80,10 +77,7 @@ def log_rich_scroll(phase: str, *, control: Any = None, reason: str | None = Non
     if reason:
         parts.append(f"reason={reason}")
     if control is not None:
-        try:
-            parts.append(f"text_len={get_control_text_length(control)}")
-        except Exception:
-            pass
+        parts.append(f"text_len={get_control_text_length(control)}")
     parts.append(f"main={int(threading.current_thread() is threading.main_thread())}")
     if control is not None:
         parts.append(_rich_scrollbar_snapshot(control))
@@ -521,31 +515,15 @@ def _content_bounds_for_rich_control(root_window: Any, placeholder_ctrl: Any, pl
     )
 
 
-def _apply_rich_control_geometry(rich_control: Any, bx: int, by: int, bw: int, bh: int, *, update_dialog_model: bool = False) -> bool:
-    """Apply bounds to a sidebar RichTextControl view (and optionally its dialog model).
+def _apply_rich_control_geometry(rich_control: Any, bx: int, by: int, bw: int, bh: int) -> bool:
+    """Apply bounds via setPosSize.
 
-    Dialog-embedded controls accept PositionX/Y/Width/Height only at insert time; after
-    ``insertByName`` subsequent model writes return -1 (see writeragent_debug.log). Prefer
-    the peer creation path for controls that must resize; use ``update_dialog_model`` only
-    on first insert.
+    Dialog-embedded controls accept PositionX/Y/Width/Height only at insert time;
+    after ``insertByName`` subsequent model writes return -1 (see writeragent_debug.log).
+    Resize uses this peer path. Insert-time model geometry stays in
+    ``_try_dialog_embedded_rich_control``.
     """
     changed = False
-    if update_dialog_model:
-        try:
-            model = rich_control.getModel()
-            if model is not None:
-                for prop, val in (
-                    ("PositionX", bx),
-                    ("PositionY", by),
-                    ("Width", bw),
-                    ("Height", bh),
-                ):
-                    current = getattr(model, prop, None)
-                    if current is None or int(current) != int(val):
-                        if _set_model_property(model, prop, val):
-                            changed = True
-        except Exception as e:
-            log.debug("_apply_rich_control_geometry model: %s", e)
     try:
         cur = rich_control.getPosSize()
         if int(cur.X) != bx or int(cur.Y) != by or int(cur.Width) != bw or int(cur.Height) != bh:
@@ -557,16 +535,13 @@ def _apply_rich_control_geometry(rich_control: Any, bx: int, by: int, bw: int, b
 
 
 def _rich_control_needs_bounds(rich_control: Any, bx: int, by: int, bw: int, bh: int, tolerance: int = 2) -> bool:
-    try:
-        cur = rich_control.getPosSize()
-        return (
-            abs(int(cur.X) - bx) > tolerance
-            or abs(int(cur.Y) - by) > tolerance
-            or abs(int(cur.Width) - bw) > tolerance
-            or abs(int(cur.Height) - bh) > tolerance
-        )
-    except Exception:
-        return True
+    cur = rich_control.getPosSize()
+    return (
+        abs(int(cur.X) - bx) > tolerance
+        or abs(int(cur.Y) - by) > tolerance
+        or abs(int(cur.Width) - bw) > tolerance
+        or abs(int(cur.Height) - bh) > tolerance
+    )
 
 
 def _reinsert_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None) -> Any | None:
@@ -594,33 +569,22 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
         bx, by, bw, bh = _content_bounds_for_rich_control(
             root_window, placeholder_ctrl, placeholder_rect=placeholder_rect,
         )
-        bounds_changed = _apply_rich_control_geometry(rich_control, bx, by, bw, bh, update_dialog_model=False)
+        bounds_changed = _apply_rich_control_geometry(rich_control, bx, by, bw, bh)
         if bounds_changed:
             log_rich_scroll("sync_bounds", control=rich_control, rect=f"{bx},{by},{bw},{bh}")
             # Stock layoutWindow() SetVisArea(Point()) — every setPosSize jumps
             # to the top. C++ patch keeps old top-left. Stock: Hidden SelectAll, no reveal_caret.
-            try:
-                model = rich_control.getModel()
-                text = getattr(model, "Text", "") or "" if model is not None else ""
-            except Exception:
-                text = ""
+            model = rich_control.getModel()
+            text = getattr(model, "Text", "") or "" if model is not None else ""
             if text:
-                try:
-                    peer = rich_control.getPeer() if hasattr(rich_control, "getPeer") else None
-                    if peer is not None and hasattr(peer, "invalidate"):
-                        peer.invalidate(0)
-                except Exception:
-                    pass
+                peer = rich_control.getPeer() if hasattr(rich_control, "getPeer") else None
+                if peer is not None and hasattr(peer, "invalidate"):
+                    peer.invalidate(0)
                 _scroll_rich_to_tail(rich_control, restore_focus=restore_focus)
         if _rich_control_needs_bounds(rich_control, bx, by, bw, bh):
             # Dialog-embedded: model resize after insert fails (-1); reinsert when transcript empty.
-            try:
-                model = rich_control.getModel()
-                text = getattr(model, "Text", "") or "" if model is not None else ""
-            except Exception:
-                # We treat an unreadable transcript as non-empty, not empty,
-                # because a reinsert would drop text we could not read.
-                text = "?"
+            model = rich_control.getModel()
+            text = getattr(model, "Text", "") or "" if model is not None else ""
             if not text:
                 new_ctrl = _reinsert_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
                 if new_ctrl is not None:
@@ -642,25 +606,15 @@ def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ct
                     bh,
                 )
         if placeholder_rect is not None:
-            try:
-                cur = rich_control.getPosSize()
-                log.info(
-                    "[RICH-CONTROL] sync bounds placeholder_rect=%s -> %dx%d@%d,%d",
-                    placeholder_rect,
-                    int(cur.Width),
-                    int(cur.Height),
-                    int(cur.X),
-                    int(cur.Y),
-                )
-            except Exception:
-                log.info(
-                    "[RICH-CONTROL] sync bounds applied placeholder_rect=%s -> %dx%d@%d,%d",
-                    placeholder_rect,
-                    bw,
-                    bh,
-                    bx,
-                    by,
-                )
+            cur = rich_control.getPosSize()
+            log.info(
+                "[RICH-CONTROL] sync bounds placeholder_rect=%s -> %dx%d@%d,%d",
+                placeholder_rect,
+                int(cur.Width),
+                int(cur.Height),
+                int(cur.X),
+                int(cur.Y),
+            )
         return True
     except Exception as e:
         log.debug("sync_rich_control_bounds failed: %s", e)
@@ -672,21 +626,12 @@ def refresh_rich_control_peer_layout(ctx: Any, rich_control: Any) -> None:
     if rich_control is None:
         return
     log_rich_scroll("peer_refresh", control=rich_control)
-    try:
-        process_events_to_idle(ctx, rounds=2, force=True)
-    except Exception as e:
-        log.debug("refresh_rich_control_peer_layout idle: %s", e)
-    try:
-        cur = rich_control.getPosSize()
-        rich_control.setPosSize(int(cur.X), int(cur.Y), int(cur.Width), int(cur.Height), 15)
-    except Exception as e:
-        log.debug("refresh_rich_control_peer_layout setPosSize: %s", e)
-    try:
-        peer = rich_control.getPeer() if hasattr(rich_control, "getPeer") else None
-        if peer is not None and hasattr(peer, "invalidate"):
-            peer.invalidate(0)
-    except Exception as e:
-        log.debug("refresh_rich_control_peer_layout invalidate: %s", e)
+    process_events_to_idle(ctx, rounds=2, force=True)
+    cur = rich_control.getPosSize()
+    rich_control.setPosSize(int(cur.X), int(cur.Y), int(cur.Width), int(cur.Height), 15)
+    peer = rich_control.getPeer() if hasattr(rich_control, "getPeer") else None
+    if peer is not None and hasattr(peer, "invalidate"):
+        peer.invalidate(0)
 
 
 def _apply_sidebar_para_margins(cursor: Any) -> None:
@@ -727,16 +672,13 @@ def _apply_rich_control_style_defaults_on_model(model: Any, style_window: Any = 
         ("HideInactiveSelection", True),
     ):
         _set_model_property(model, name, val)
-    try:
-        import uno
+    import uno
 
-        fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
-        fd.Name = CHAT_FONT_NAME
-        fd.Height = int(CHAT_FONT_HEIGHT)
-        fd.Weight = int(CHAT_FONT_WEIGHT)
-        _set_model_property(model, "FontDescriptor", fd)
-    except Exception as e:
-        log.debug("_apply_rich_control_style_defaults_on_model FontDescriptor failed: %s", e)
+    fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
+    fd.Name = CHAT_FONT_NAME
+    fd.Height = int(CHAT_FONT_HEIGHT)
+    fd.Weight = int(CHAT_FONT_WEIGHT)
+    _set_model_property(model, "FontDescriptor", fd)
 
 
 def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -> None:
@@ -852,15 +794,6 @@ def _log_scrollish_props(label: str, obj: Any) -> None:
         log.debug("%s prop dump failed: %s", label, e)
 
 
-def _uno_bool_false() -> bool:
-    try:
-        import uno
-        uno_bool = getattr(uno, "Bool", bool)
-        return bool(uno_bool(False))
-    except Exception:
-        return False
-
-
 def _disable_rich_hscroll(control: Any) -> None:
     """Clear WB_HSCROLL on the VCL window so ensureScrollbars disposes m_pHScroll.
 
@@ -870,49 +803,41 @@ def _disable_rich_hscroll(control: Any) -> None:
     """
     if control is None:
         return
-    false = _uno_bool_false()
-    try:
-        model = control.getModel()
-        _log_scrollish_props("rich-model", model)
-        if model is not None and hasattr(model, "setPropertyValue"):
-            for name in ("HScroll", "HardLineBreaks"):
-                try:
-                    model.setPropertyValue(name, false)
-                    log.debug("_disable_rich_hscroll model.%s=False", name)
-                except Exception as e:
-                    log.debug("_disable_rich_hscroll model.%s failed: %s", name, e)
-    except Exception as e:
-        log.debug("_disable_rich_hscroll model: %s", e)
-    try:
-        peer = control.getPeer() if hasattr(control, "getPeer") else None
-        impl = "None"
-        try:
-            if peer is not None and hasattr(peer, "getImplementationName"):
-                impl = peer.getImplementationName()
-            elif peer is not None:
-                impl = type(peer).__name__
-        except Exception:
-            impl = type(peer).__name__ if peer is not None else "None"
-        log.debug("_disable_rich_hscroll peer impl=%s has_setProperty=%s", impl, bool(peer is not None and hasattr(peer, "setProperty")))
-        _log_scrollish_props("rich-peer", peer)
-        if peer is not None and hasattr(peer, "setProperty"):
+    model = control.getModel()
+    _log_scrollish_props("rich-model", model)
+    if model is not None and hasattr(model, "setPropertyValue"):
+        for name in ("HScroll", "HardLineBreaks"):
             try:
-                peer.setProperty("HScroll", false)
-                log.debug("_disable_rich_hscroll peer.setProperty(HScroll, False) ok")
+                model.setPropertyValue(name, False)
+                log.debug("_disable_rich_hscroll model.%s=False", name)
             except Exception as e:
-                log.debug("_disable_rich_hscroll peer.setProperty(HScroll) failed: %s", e)
-    except Exception as e:
-        log.debug("_disable_rich_hscroll peer: %s", e)
+                log.debug("_disable_rich_hscroll model.%s failed: %s", name, e)
+    peer = control.getPeer() if hasattr(control, "getPeer") else None
+    if peer is not None and hasattr(peer, "getImplementationName"):
+        impl = peer.getImplementationName()
+    elif peer is not None:
+        impl = type(peer).__name__
+    else:
+        impl = "None"
+    log.debug(
+        "_disable_rich_hscroll peer impl=%s has_setProperty=%s",
+        impl,
+        bool(peer is not None and hasattr(peer, "setProperty")),
+    )
+    _log_scrollish_props("rich-peer", peer)
+    if peer is not None and hasattr(peer, "setProperty"):
+        try:
+            peer.setProperty("HScroll", False)
+            log.debug("_disable_rich_hscroll peer.setProperty(HScroll, False) ok")
+        except Exception as e:
+            log.debug("_disable_rich_hscroll peer.setProperty(HScroll) failed: %s", e)
 
 
 def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: Any, parent_window: Any) -> Any | None:
     """Create a VCL peer for a form RichText TextField model."""
     parent_peer = None
     if hasattr(parent_window, "getPeer"):
-        try:
-            parent_peer = parent_window.getPeer()
-        except Exception as e:
-            log.debug("create_sidebar_rich_text_control: parent getPeer failed: %s", e)
+        parent_peer = parent_window.getPeer()
 
     peer_attempts: list[tuple[str, tuple[Any, Any]]] = []
     if toolkit is not None and parent_peer is not None:
@@ -1055,10 +980,7 @@ class RichTextControlListener(BaseWindowListener):
             restore_focus=self.restore_focus,
         )
         self.rich_control = out[0]
-        try:
-            refresh_rich_control_peer_layout(self.ctx, self.rich_control)
-        except Exception as e:
-            log.debug("RichTextControlListener._sync_bounds refresh: %s", e)
+        refresh_rich_control_peer_layout(self.ctx, self.rich_control)
 
     def disposing(self, Source: Any) -> None:
         log_rich_control_context(self.ctx, "disposing", initialized=self.initialized, had_control=bool(self.rich_control))
@@ -1128,11 +1050,7 @@ class RichTextControlListener(BaseWindowListener):
     def _root_peer(self) -> Any | None:
         if self.root_window is None or not hasattr(self.root_window, "getPeer"):
             return None
-        try:
-            return self.root_window.getPeer()
-        except Exception as e:
-            log.debug("RichTextControlListener._root_peer failed: %s", e)
-            return None
+        return self.root_window.getPeer()
 
     def _begin_deferred_init(self) -> None:
         if self._disposed or self.initialized:
@@ -1161,25 +1079,19 @@ class RichTextControlListener(BaseWindowListener):
             if not control:
                 log_rich_control_context(self.ctx, "deferred_init", result="control_fail")
                 log.error("RichTextControlListener: failed to create sidebar RichText control")
-                try:
-                    from plugin.chatbot.dialogs import set_control_text
+                from plugin.chatbot.dialogs import set_control_text
 
-                    if self.placeholder_ctrl:
-                        set_control_text(
-                            self.placeholder_ctrl,
-                            "[RichTextControl init failed — see writeragent_debug.log]\n",
-                        )
-                except Exception:
-                    pass
+                if self.placeholder_ctrl:
+                    set_control_text(
+                        self.placeholder_ctrl,
+                        "[RichTextControl init failed — see writeragent_debug.log]\n",
+                    )
                 return
             self.rich_control = control
             self._sync_bounds()
             visible = control.isVisible() if hasattr(control, "isVisible") else "?"
-            try:
-                pos = control.getPosSize()
-                bounds = "%sx%s@%s,%s" % (int(pos.Width), int(pos.Height), int(pos.X), int(pos.Y))
-            except Exception:
-                bounds = "?"
+            pos = control.getPosSize()
+            bounds = "%sx%s@%s,%s" % (int(pos.Width), int(pos.Height), int(pos.X), int(pos.Y))
             log_rich_control_context(
                 self.ctx,
                 "deferred_init",
@@ -1223,11 +1135,7 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
         _set_model_property(field_model, "ReadOnly", not TEMP_RICH_CONTROL_EDITABLE)
         _apply_rich_control_style_defaults_on_model(field_model, root_window)
 
-        rich_flag = None
-        try:
-            rich_flag = field_model.getPropertyValue("RichText") if hasattr(field_model, "getPropertyValue") else None
-        except Exception:
-            pass
+        rich_flag = field_model.getPropertyValue("RichText") if hasattr(field_model, "getPropertyValue") else None
         log.info(
             "create_sidebar_rich_text_control: field model impl=%s RichText=%s",
             impl,
@@ -1246,24 +1154,18 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
             log.error("create_sidebar_rich_text_control: could not create RichText control peer")
             return None
 
-        _apply_rich_control_geometry(control, bx, by, bw, bh, update_dialog_model=False)
+        _apply_rich_control_geometry(control, bx, by, bw, bh)
         control.setVisible(True)
         _apply_rich_control_style_defaults(control, style_window=root_window)
-        try:
-            cur = control.getPosSize()
-            log.info(
-                "create_sidebar_rich_text_control: ready visible=%s bounds=%dx%d@%d,%d",
-                control.isVisible() if hasattr(control, "isVisible") else "?",
-                int(cur.Width),
-                int(cur.Height),
-                int(cur.X),
-                int(cur.Y),
-            )
-        except Exception:
-            log.info(
-                "create_sidebar_rich_text_control: ready control visible=%s",
-                control.isVisible() if hasattr(control, "isVisible") else "?",
-            )
+        cur = control.getPosSize()
+        log.info(
+            "create_sidebar_rich_text_control: ready visible=%s bounds=%dx%d@%d,%d",
+            control.isVisible() if hasattr(control, "isVisible") else "?",
+            int(cur.Width),
+            int(cur.Height),
+            int(cur.X),
+            int(cur.Y),
+        )
         return control
     except Exception:
         log.exception("create_sidebar_rich_text_control failed")
@@ -1315,16 +1217,9 @@ def _insert_string_at_rich_cursor(
     """
     if not text:
         return
-    start = None
-    try:
-        start = cursor.getStart()
-    except Exception:
-        pass
+    start = cursor.getStart()
     if char_color is not None and not _is_automatic_char_color(char_color):
-        try:
-            cursor.CharColor = char_color
-        except Exception:
-            pass
+        cursor.CharColor = char_color
 
     inserted = False
     insert = getattr(model, "insertString", None)
@@ -1338,48 +1233,29 @@ def _insert_string_at_rich_cursor(
             insert_fn(cursor, text, False)
             inserted = True
     if not inserted:
-        try:
-            from com.sun.star.text import XText
+        from com.sun.star.text import XText
 
-            xtext = model.queryInterface(XText)
-            if xtext is not None:
-                xtext.insertString(cursor, text, False)
-                inserted = True
-        except Exception as e:
-            log.debug("_insert_string_at_rich_cursor queryInterface failed: %s", e)
+        xtext = model.queryInterface(XText)
+        if xtext is not None:
+            xtext.insertString(cursor, text, False)
+            inserted = True
     if not inserted:
         raise RuntimeError("RichTextControl model has no insertString")
 
     # Post-insert pass: RichTextControl often ignores pre-insert cursor Char* props.
     if start is not None:
-        end = None
-        try:
-            end = cursor.getStart()
-        except Exception:
-            end = None
+        end = cursor.getStart()
         if char_color is not None and not _is_automatic_char_color(char_color):
-            try:
-                _apply_char_color_to_cursor_range(model, start, end, char_color)
-            except Exception:
-                pass
+            _apply_char_color_to_cursor_range(model, start, end, char_color)
         if bold is not None or underline is not None:
-            try:
-                _apply_char_emphasis_to_cursor_range(model, start, end, bold=bold, underline=underline)
-            except Exception:
-                pass
+            _apply_char_emphasis_to_cursor_range(model, start, end, bold=bold, underline=underline)
     if bold is not None or underline is not None:
-        try:
-            cursor.CharWeight = CHAT_FONT_WEIGHT
-            cursor.CharUnderline = 0
-        except Exception:
-            pass
-    try:
-        cursor.gotoEnd(False)
-    except Exception:
-        pass
+        cursor.CharWeight = CHAT_FONT_WEIGHT
+        cursor.CharUnderline = 0
+    cursor.gotoEnd(False)
 
 
-def _dispatch_rich_uno(control: Any, command: str, ctx: Any = None) -> bool:  # pyright: ignore[reportUnusedFunction]
+def _dispatch_rich_uno(control: Any, command: str, ctx: Any = None) -> bool:
     """queryDispatch *command* on the rich peer, never the Writer frame."""
     try:
         peer = control.getPeer() if hasattr(control, "getPeer") else None
@@ -1479,21 +1355,15 @@ def clear_control(control: Any) -> None:
 
         clear_cell_link_spans(control)
         if hasattr(control, "setText"):
-            try:
-                control.setText("")
-            except Exception:
-                pass
+            control.setText("")
         model = control.getModel()
         if model is not None:
             if hasattr(model, "createTextCursor"):
-                try:
-                    cursor = model.createTextCursor()
-                    cursor.gotoStart(False)
-                    cursor.gotoEnd(True)
-                    if hasattr(cursor, "setString"):
-                        cursor.setString("")
-                except Exception:
-                    pass
+                cursor = model.createTextCursor()
+                cursor.gotoStart(False)
+                cursor.gotoEnd(True)
+                if hasattr(cursor, "setString"):
+                    cursor.setString("")
             model.Text = ""
     except Exception:
         log.exception("clear_control failed")
@@ -1549,17 +1419,12 @@ def truncate_control_from(control: Any, start_len: int | None) -> None:
 
 def _temporarily_allow_focus(control: Any) -> tuple[Any, Any]:
     """ReadOnly form TextFields often ignore setFocus; lift it for GetFocus/ShowCursor."""
-    model = None
+    model = control.getModel() if hasattr(control, "getModel") else None
     was_readonly = None
-    try:
-        model = control.getModel() if hasattr(control, "getModel") else None
-        if model is not None:
-            was_readonly = getattr(model, "ReadOnly", None)
-            if was_readonly:
-                _set_model_property(model, "ReadOnly", False)
-    except Exception as e:
-        log.debug("_temporarily_allow_focus lift: %s", e)
-        was_readonly = None
+    if model is not None:
+        was_readonly = getattr(model, "ReadOnly", None)
+        if was_readonly:
+            _set_model_property(model, "ReadOnly", False)
     return model, was_readonly
 
 
@@ -1584,10 +1449,7 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
             log.exception("reveal_rich_control_caret failed")
         finally:
             if was_readonly and model is not None:
-                try:
-                    _set_model_property(model, "ReadOnly", True)
-                except Exception as e:
-                    log.debug("reveal_rich_control_caret restore ReadOnly: %s", e)
+                _set_model_property(model, "ReadOnly", True)
 
     if _already_focus_preserved:
         _do_reveal()

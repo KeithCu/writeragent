@@ -9,10 +9,12 @@
 
 from contextlib import contextmanager
 import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
 from plugin.chatbot.rich_text_control import (
+    _apply_rich_control_geometry,
     _is_automatic_char_color,
     _set_model_property,
     append_text_chunk,
@@ -96,11 +98,8 @@ class TestRichControlHelpers:
         assert bx == 4 + RICH_CONTROL_EDGE_INSET
         assert bw == 400 - 2 * RICH_CONTROL_EDGE_INSET
 
-    def test_apply_rich_control_geometry_updates_dialog_model(self):
-        from types import SimpleNamespace
-
-        from plugin.chatbot.rich_text_control import _apply_rich_control_geometry
-
+    def test_apply_rich_control_geometry_set_pos_size(self):
+        """View geometry is setPosSize only. Dialog-model Position/Width/Height are insert-time."""
         model = MagicMock()
         model.PositionX = 36
         model.PositionY = 118
@@ -110,11 +109,12 @@ class TestRichControlHelpers:
         rich.getModel.return_value = model
         rich.getPosSize.return_value = SimpleNamespace(X=36, Y=118, Width=1043, Height=94)
 
-        changed = _apply_rich_control_geometry(rich, 36, 118, 1043, 300, update_dialog_model=True)
+        changed = _apply_rich_control_geometry(rich, 36, 118, 1043, 300)
 
         assert changed
-        assert model.Height == 300
         rich.setPosSize.assert_called_once_with(36, 118, 1043, 300, 15)
+        assert model.Height == 94
+        rich.getModel.assert_not_called()
 
     def test_rich_control_model_gets_chat_typography(self):
         from plugin.chatbot.rich_text_control import _apply_rich_control_style_defaults_on_model
