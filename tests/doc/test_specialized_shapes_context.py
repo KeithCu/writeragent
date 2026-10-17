@@ -163,7 +163,7 @@ def test_format_shapes_canvas_context_calc_active_sheet():
             and left._ident == right._ident
         )
 
-    with patch.object(sys.modules["uno"], "isSame", _issame, create=True):
+    with patch.object(sys.modules["uno"], "isSame", _issame):
         s = format_shapes_canvas_context(doc)
     assert "Calc" in s
     assert "Sheet2" in s
