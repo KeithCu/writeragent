@@ -66,6 +66,9 @@ class _ListBox:
     def setVisible(self, visible: bool) -> None:
         self.visible = visible
 
+    def getModel(self):
+        return SimpleNamespace()
+
 
 class _Query:
     def __init__(self) -> None:
@@ -438,6 +441,36 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
     floater.dispose.assert_called_once()
     assert popup.is_open is False
     send._append_response.assert_called_once()
+
+
+def test_query_text_post_timeout_does_not_run_inline(caplog):
+    """TimeoutError from post_to_main_thread must not hide or show on this stack.
+
+    Ask textChanged used to catch the timeout and call hide / _show_matches
+    inline, which deadlocks VCL. _defer_to_next_turn only logs.
+    """
+    popup, box = _controller()
+    popup.hide = MagicMock()
+    popup._show_matches = MagicMock()
+
+    def _timeout(*_args, **_kwargs):
+        raise TimeoutError("marshal post timed out")
+
+    with caplog.at_level(logging.WARNING, logger="writeragent.slash_popup"):
+        with patch(
+            "plugin.framework.queue_executor.post_to_main_thread",
+            side_effect=_timeout,
+        ):
+            popup.on_query_text("hello")  # prefix is None → defer hide
+            popup.on_query_text("/zzz-not-a-command")  # no command starts with zzz → defer hide
+            popup.on_query_text("/")  # matches → defer _show_matches
+    popup.hide.assert_not_called()
+    popup._show_matches.assert_not_called()
+    assert popup.is_open is False
+    assert box.visible is False
+    deferred = [r for r in caplog.records if "could not defer main-thread turn" in r.message]
+    assert len(deferred) == 3
+    assert all(r.levelno == logging.WARNING for r in deferred)
 
 
 def test_recreate_hide_does_not_dispatch_has_text():

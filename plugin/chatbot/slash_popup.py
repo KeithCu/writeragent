@@ -80,52 +80,25 @@ def _ovdiag(obj: Any, label: str) -> None:
         return
     bits = [label, "py=%s" % type(obj).__name__]
     try:
-        impl = obj.getImplementationName()
-        bits.append("impl=%s" % impl)
-    except Exception:
-        pass
-    try:
+        bits.append("impl=%s" % obj.getImplementationName())
         ps = obj.getPosSize()
         bits.append("pos=%sx%s@%s,%s" % (ps.Width, ps.Height, ps.X, ps.Y))
-    except Exception as e:
-        bits.append("pos_err=%s" % e)
-    for name in ("isVisible", "isReallyVisible"):
-        fn = getattr(obj, name, None)
-        if callable(fn):
-            try:
+        for name in ("isVisible", "isReallyVisible"):
+            fn = getattr(obj, name, None)
+            if callable(fn):
                 bits.append("%s=%s" % (name, fn()))
-            except Exception as e:
-                bits.append("%s_err=%s" % (name, e))
-    to_front = getattr(obj, "toFront", None)
-    bits.append("toFront=%s" % callable(to_front))
-    set_vis = getattr(obj, "setVisible", None)
-    bits.append("setVisible=%s" % callable(set_vis))
-    try:
+        bits.append("toFront=%s" % callable(getattr(obj, "toFront", None)))
+        bits.append("setVisible=%s" % callable(getattr(obj, "setVisible", None)))
         bits.append("output=%sx%s" % (obj.getOutputWidth(), obj.getOutputHeight()))
-    except Exception:
-        pass
-    try:
         osz = obj.getOutputSize()
         bits.append("outputSize=%sx%s" % (osz.Width, osz.Height))
-    except Exception:
-        pass
-    try:
         peer = obj.getPeer() if callable(getattr(obj, "getPeer", None)) else None
         if peer is not None and peer is not obj:
-            try:
-                pps = peer.getPosSize()
-                bits.append("peerPos=%sx%s@%s,%s" % (pps.Width, pps.Height, pps.X, pps.Y))
-            except Exception:
-                pass
-            try:
-                bits.append("peerOutput=%sx%s" % (peer.getOutputWidth(), peer.getOutputHeight()))
-            except Exception:
-                pass
-            try:
-                posz = peer.getOutputSize()
-                bits.append("peerOutputSize=%sx%s" % (posz.Width, posz.Height))
-            except Exception:
-                pass
+            pps = peer.getPosSize()
+            bits.append("peerPos=%sx%s@%s,%s" % (pps.Width, pps.Height, pps.X, pps.Y))
+            bits.append("peerOutput=%sx%s" % (peer.getOutputWidth(), peer.getOutputHeight()))
+            posz = peer.getOutputSize()
+            bits.append("peerOutputSize=%sx%s" % (posz.Width, posz.Height))
     except Exception:
         pass
     _ovlog("%s", " ".join(str(b) for b in bits))
@@ -141,10 +114,7 @@ def _resolve_query_label(send_listener: Any, overlay_parent: Any = None) -> Any:
         popup = getattr(send_listener, "slash_popup", None)
         parent = getattr(popup, "_overlay_parent", None) if popup is not None else None
     if parent is not None and hasattr(parent, "getControl"):
-        try:
-            return parent.getControl("query_label")
-        except Exception:
-            return None
+        return parent.getControl("query_label")
     return None
 
 
@@ -180,12 +150,9 @@ _POS_SIZE_FLAGS = 15  # X + Y + WIDTH + HEIGHT
 
 
 def _supported_services(ctrl: Any) -> str:
-    try:
-        model = ctrl.getModel() if ctrl is not None else None
-        if model is not None and hasattr(model, "getSupportedServiceNames"):
-            return " ".join(str(s) for s in model.getSupportedServiceNames())
-    except Exception:
-        return ""
+    model = ctrl.getModel() if ctrl is not None else None
+    if model is not None and hasattr(model, "getSupportedServiceNames"):
+        return " ".join(str(s) for s in model.getSupportedServiceNames())
     return ""
 
 
@@ -236,10 +203,7 @@ def _status_top(send_listener: Any) -> int | None:
     status = _status_control(send_listener)
     if status is None or not hasattr(status, "getPosSize"):
         return None
-    try:
-        return int(status.getPosSize().Y)
-    except Exception:
-        return None
+    return int(status.getPosSize().Y)
 
 
 def _location_on_screen(obj: Any) -> tuple[int, int] | None:
@@ -712,21 +676,17 @@ class SlashPopupController:
         _ovlog("on_query_text prefix=%r text=%r", prefix, (text[:40] if isinstance(text, str) else text))
         if prefix is None:
             _ovlog("on_query_text hide (not a slash prefix)")
-            try:
-                from plugin.framework.queue_executor import post_to_main_thread
-                post_to_main_thread(self.hide)
-            except Exception:
-                self.hide()
+            # Bugfix: post_to_main_thread raises TimeoutError when the pending
+            # list is full before AsyncCallback exists (queue_executor.post).
+            # hide() / _show_matches() on this Ask textChanged stack deadlock
+            # VCL. _defer_to_next_turn logs the failure and does not run them.
+            _defer_to_next_turn(self.hide)
             return
         matches = filter_slash_commands(text, load_slash_lru(), SLASH_COMMANDS)
         _ovlog("on_query_text matches=%s names=%s", len(matches), [c.name for c in matches[:8]])
         if not matches:
             _ovlog("on_query_text hide (no matches)")
-            try:
-                from plugin.framework.queue_executor import post_to_main_thread
-                post_to_main_thread(self.hide)
-            except Exception:
-                self.hide()
+            _defer_to_next_turn(self.hide)
             return
         # Never createWindow/setVisible inside Ask textChanged — returning from that
         # callback after a mapped TOP overlay deadlocks VCL and eats later keystrokes.
@@ -734,13 +694,8 @@ class SlashPopupController:
         if self._open and new_names == [c.name for c in self._matches]:
             _ovlog("on_query_text same matches skip recreate")
             return
-        try:
-            from plugin.framework.queue_executor import post_to_main_thread
-            post_to_main_thread(self._show_matches, matches)
-            _ovlog("on_query_text posted show n=%s", len(matches))
-        except Exception:
-            _ovlog("on_query_text post failed; show inline", exc_info=True)
-            self._show_matches(matches)
+        _defer_to_next_turn(self._show_matches, matches)
+        _ovlog("on_query_text posted show n=%s", len(matches))
 
     def _show_matches(self, matches: list[SlashCommand]) -> None:
         import threading
@@ -976,12 +931,9 @@ class SlashPopupController:
     def _selected_name_from_control(self) -> str | None:
         ctrl = self.control
         if ctrl is not None and hasattr(ctrl, "getSelectedItemPos"):
-            try:
-                pos = int(ctrl.getSelectedItemPos())
-                if 0 <= pos < len(self._matches):
-                    self._selected = pos
-            except Exception:
-                pass
+            pos = int(ctrl.getSelectedItemPos())
+            if 0 <= pos < len(self._matches):
+                self._selected = pos
         return self.selected_name
 
     def _fill_visible_list(self) -> None:
