@@ -2210,4 +2210,68 @@ def test_setup_module_tabs_wiring_error_propagates():
             setup_module_tabs(dlg)
 
 
+def test_open_system_url():
+    from plugin.chatbot.dialog_views import open_system_url
+
+    # Empty URL does nothing
+    ctx = MagicMock()
+    open_system_url(ctx, "")
+    ctx.getServiceManager.assert_not_called()
+
+    # Valid URL calls SystemShellExecute
+    shell = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = shell
+    open_system_url(ctx, "https://example.com")
+    shell.execute.assert_called_once_with("https://example.com", "", 0)
+
+    # Errors during execute are swallowed
+    shell.execute.side_effect = RuntimeError("shell error")
+    open_system_url(ctx, "https://example.com")
+
+
+def test_stt_provider_item_listener_sync_ui():
+    from plugin.chatbot.dialog_views import SttSettingsListener
+
+    # None dialog does nothing
+    listener = SttSettingsListener(None)
+    listener.sync_ui()
+
+    # With dialog
+    dlg = MagicMock()
+    listener = SttSettingsListener(dlg)
+    with patch("plugin.chatbot.dialog_views._apply_stt_model_visibility") as mock_apply:
+        listener.sync_ui()
+        mock_apply.assert_called_once()
+
+    # Exception in visibility application is swallowed by best_effort
+    with patch("plugin.chatbot.dialog_views._apply_stt_model_visibility", side_effect=RuntimeError("boom")):
+        listener.sync_ui()
+
+
+def test_tts_test_progress_box_show_or_update():
+    from plugin.chatbot.dialog_views import _TtsTestProgressBox
+
+    ctx = MagicMock()
+    box = _TtsTestProgressBox(ctx)
+    dlg = MagicMock()
+    msg_ctrl = MagicMock()
+    dlg.getControl.return_value = msg_ctrl
+    box._dlg = dlg
+
+    box.show_or_update("Testing speech...")
+    assert msg_ctrl.getModel().Label == "Testing speech..."
+
+    # When closed, show_or_update is a no-op
+    box._closed = True
+    msg_ctrl.getModel().Label = "Initial"
+    box.show_or_update("Should not apply")
+    assert msg_ctrl.getModel().Label == "Initial"
+
+    # Exceptions during update are swallowed
+    box._closed = False
+    dlg.getControl.side_effect = RuntimeError("control error")
+    box.show_or_update("Error message")
+
+
+
 

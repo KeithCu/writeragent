@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -25,6 +26,8 @@ import tempfile
 import threading
 import time
 from typing import TYPE_CHECKING, Any, Callable
+
+from plugin.framework.errors import best_effort
 
 from plugin.chatbot.audio_recorder_state import (
     AudioRecorderEvent,
@@ -101,10 +104,8 @@ def write_stub_recorder_control(**fields: Any) -> None:
 
 
 def clear_stub_recorder_control() -> None:
-    try:
+    with contextlib.suppress(OSError):
         os.remove(stub_recorder_control_path())
-    except OSError:
-        pass
 
 
 class AudioRecorder:
@@ -175,10 +176,7 @@ class AudioRecorder:
                 return
             callback = self._on_auto_stop
         log.info("audio recorder: notifying auto-stop (path=%s)", path)
-        try:
-            callback()
-        except Exception as exc:
-            log.debug("Failed to dispatch audio auto-stop callback: %s", exc)
+        best_effort(callback, "dispatch audio auto-stop callback")
 
     def _notify_recording_error(self, msg: str) -> None:
         """Stdout-monitor hook. Must not raise (ReportErrorEffect raises).
@@ -190,10 +188,7 @@ class AudioRecorder:
         """
         callback = self._on_recording_error
         if callback is not None:
-            try:
-                callback(msg)
-            except Exception as exc:
-                log.debug("Failed to dispatch audio error callback: %s", exc)
+            best_effort(lambda: callback(msg), "dispatch audio error callback")
             return
         self.apply_stdout_error(msg)
 
@@ -205,12 +200,9 @@ class AudioRecorder:
             log.warning("audio recorder: %s", msg)
 
     def _notify_silence_progress(self, ms: int) -> None:
-        if self._on_silence_progress is None:
-            return
-        try:
-            self._on_silence_progress(ms)
-        except Exception as exc:
-            log.debug("Failed to dispatch silence progress callback: %s", exc)
+        cb = self._on_silence_progress
+        if cb is not None:
+            best_effort(lambda: cb(ms), "dispatch silence progress callback")
 
     def _start_stdout_monitor(self) -> None:
         proc = self._proc
@@ -250,20 +242,11 @@ class AudioRecorder:
         self._auto_stopped_path = None
         self._silence_detector = None
         if self.stream is not None:
-            try:
-                self.stream.stop()
-            except Exception:
-                pass
-            try:
-                self.stream.close()
-            except Exception:
-                pass
+            best_effort(self.stream.stop, "audio stream stop")
+            best_effort(self.stream.close, "audio stream close")
             self.stream = None
         if self.wav_file is not None:
-            try:
-                self.wav_file.close()
-            except Exception:
-                pass
+            best_effort(self.wav_file.close, "wav_file close")
             self.wav_file = None
         self._delete_wav()
 
@@ -474,10 +457,8 @@ class AudioRecorder:
             if self._test_skip_spawn:
                 if self._test_missing_wav:
                     if self.temp_filename:
-                        try:
+                        with contextlib.suppress(OSError):
                             os.remove(self.temp_filename)
-                        except OSError:
-                            pass
                     self.temp_filename = None
                 else:
                     self._write_injected_wav()
@@ -487,14 +468,8 @@ class AudioRecorder:
                 self._silence_detector = None
                 return
             if self.stream is not None:
-                try:
-                    self.stream.stop()
-                except Exception as e:
-                    log.debug("Failed to stop stream on StopRecordingEffect: %s", e)
-                try:
-                    self.stream.close()
-                except Exception as e:
-                    log.debug("Failed to close stream on StopRecordingEffect: %s", e)
+                best_effort(self.stream.stop, "Failed to stop stream on StopRecordingEffect")
+                best_effort(self.stream.close, "Failed to close stream on StopRecordingEffect")
                 self.stream = None
 
             # stream.stop() returns only after the current callback does, and
@@ -576,12 +551,8 @@ class AudioRecorder:
         with self._wav_lock:
             wav = self.wav_file
             self.wav_file = None
-            if wav is None:
-                return
-            try:
-                wav.close()
-            except Exception as e:
-                log.debug("Failed to close wav_file: %s", e)
+            if wav is not None:
+                best_effort(wav.close, "Failed to close wav_file")
 
     def cleanup(self) -> None:
         """Terminate an in-flight recording child (panel teardown)."""
@@ -597,14 +568,8 @@ class AudioRecorder:
                 self._stdout_monitor = None
                 self._stop_handoff = None
                 if self.stream is not None:
-                    try:
-                        self.stream.stop()
-                    except Exception:
-                        pass
-                    try:
-                        self.stream.close()
-                    except Exception:
-                        pass
+                    best_effort(self.stream.stop, "audio stream stop")
+                    best_effort(self.stream.close, "audio stream close")
                     self.stream = None
                 self._close_host_wav()
                 self._silence_detector = None

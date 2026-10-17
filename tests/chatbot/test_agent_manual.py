@@ -81,6 +81,12 @@ def test_doc_type_of_resolution():
     assert doc_type_of(CALC_DOC) == "calc"
     assert doc_type_of(DRAW_DOC) == "draw"
 
+    class BrokenDoc:
+        def supportsService(self, name):
+            raise RuntimeError("bridge disconnected")
+
+    assert doc_type_of(BrokenDoc()) == "writer"
+
 
 def test_calc_topics_are_generic_and_leak_no_writer_advice():
     topics = list_topics("calc")

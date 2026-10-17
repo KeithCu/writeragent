@@ -33,6 +33,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from plugin.framework.errors import best_effort
 from plugin.framework.prompts import (
     CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
     GENERIC_EDIT_CONFIRMATION_RULES,
@@ -172,16 +173,17 @@ def doc_type_of(doc: Any) -> str | None:
     Same resolution every other tool relies on (lazy import of is_calc / is_draw)."""
     if doc is None:
         return None
-    try:
+
+    def _classify() -> str:
         from plugin.doc.doc_type import is_calc, is_draw
 
         if is_calc(doc):
             return "calc"
         if is_draw(doc):
             return "draw"
-    except Exception:
-        log.debug("doc_type_of: could not classify document; defaulting to writer", exc_info=True)
-    return "writer"
+        return "writer"
+
+    return best_effort(_classify, "doc_type_of: could not classify document; defaulting to writer", "writer")
 
 
 def list_topics(doc_type: str | None = "writer") -> list[str]:

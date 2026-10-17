@@ -345,11 +345,9 @@ def librarian_default_mode(ctx: Any = None) -> str:
 def mark_librarian_invoked() -> None:
     """Record that Librarian was shown or used so it is not the default next time."""
     from plugin.framework.config import set_config
+    from plugin.framework.errors import best_effort
 
-    try:
-        set_config("chatbot.librarian_invoked", True)
-    except Exception:
-        log.debug("mark_librarian_invoked: could not persist flag", exc_info=True)
+    best_effort(lambda: set_config("chatbot.librarian_invoked", True), "mark_librarian_invoked: persist flag")
 
 
 def clear_librarian_session(send_listener: Any) -> None:

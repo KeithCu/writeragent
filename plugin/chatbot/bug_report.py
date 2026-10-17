@@ -32,6 +32,8 @@ import sys
 from typing import Any
 from urllib.parse import urlencode
 
+from plugin.framework.errors import best_effort
+
 log = logging.getLogger("writeragent.bugreport")
 
 BUG_REPORT_REPO = "KeithCu/writeragent"
@@ -84,12 +86,13 @@ def _read_config_string(ca: Any, prop: str) -> str | None:
 
 def _get_lo_product_info(ctx: Any) -> dict[str, str]:
     """Read LibreOffice version strings from setup configuration."""
-    out: dict[str, str] = {}
     if not ctx:
-        return out
-    try:
+        return {}
+
+    def _read() -> dict[str, str]:
         import uno
 
+        out: dict[str, str] = {}
         smgr = ctx.getServiceManager()
         config_provider = smgr.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)
         node = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="nodepath", Value="/org.openoffice.Setup/Product")
@@ -103,9 +106,9 @@ def _get_lo_product_info(ctx: Any) -> dict[str, str]:
             val = _read_config_string(ca, prop)
             if val:
                 out[key] = val
-    except Exception:
-        log.debug("bug_report: could not read LO product info", exc_info=True)
-    return out
+        return out
+
+    return best_effort(_read, "bug_report: read LO product info", {})
 
 
 def _format_lo_version(product: dict[str, str]) -> str:
@@ -144,11 +147,8 @@ def collect_environment_block(ctx: Any | None = None) -> str:
     lines.append(f"- LibreOffice: {_format_lo_version(product)}")
     lines.append(f"- OS: {platform.platform()} ({platform.machine()})")
 
-    try:
-        locale = get_lo_locale(ctx) if ctx else get_lo_locale()
-        lines.append(f"- Locale: {locale}")
-    except Exception:
-        lines.append("- Locale: unknown")
+    locale = get_lo_locale(ctx) if ctx else get_lo_locale()
+    lines.append(f"- Locale: {locale}")
 
     lines.append(f"- Python: {sys.version.split()[0]} ({sys.platform})")
 
@@ -167,11 +167,7 @@ def collect_environment_block(ctx: Any | None = None) -> str:
         lines.append(f"- Endpoint: {endpoint}")
         lines.append(f"- Chat model: {model}")
 
-    log_dir = None
-    try:
-        log_dir = user_config_dir()
-    except Exception:
-        log.debug("bug_report: user_config_dir failed", exc_info=True)
+    log_dir = best_effort(user_config_dir, "bug_report: user_config_dir")
     if log_dir:
         log_path = os.path.join(log_dir, "writeragent_debug.log")
         lines.extend(
@@ -260,23 +256,24 @@ def open_url_in_browser(ctx: Any, url: str) -> bool:
         return False
 
     if ctx:
-        try:
+        def _open_shell() -> bool:
             from com.sun.star.system import SystemShellExecuteFlags
 
             smgr = ctx.getServiceManager()
             shell = smgr.createInstanceWithContext("com.sun.star.system.SystemShellExecute", ctx)
             shell.execute(url, "", SystemShellExecuteFlags.URIS_ONLY)
             return True
-        except Exception:
-            log.debug("bug_report: SystemShellExecute failed for %s", url, exc_info=True)
 
-    try:
+        if best_effort(_open_shell, f"bug_report: SystemShellExecute failed for {url}"):
+            return True
+
+    def _open_browser() -> bool:
         import webbrowser
 
-        if webbrowser.open(url):
-            return True
-    except Exception:
-        log.debug("bug_report: webbrowser.open failed for %s", url, exc_info=True)
+        return bool(webbrowser.open(url))
+
+    if best_effort(_open_browser, f"bug_report: webbrowser.open failed for {url}"):
+        return True
 
     log.warning("bug_report: could not open URL in browser: %s", url)
     return False

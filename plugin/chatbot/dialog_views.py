@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from com.sun.star.awt import ItemEvent, TextEvent
 
-from plugin.framework.errors import format_error_payload, UnoObjectError, ConfigValidationError
+from plugin.framework.errors import ConfigValidationError, UnoObjectError, best_effort, format_error_payload
 from plugin.framework.uno_context import get_extension_url, menu_icon_asset_url
 from plugin.framework.i18n import N_, _
 from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int
@@ -619,12 +619,10 @@ def open_system_url(ctx: Any, url_str: str) -> None:
     """Open URL in default browser via UNO SystemShellExecute."""
     if not url_str:
         return
-    try:
-        smgr = ctx.getServiceManager()
-        shell = smgr.createInstanceWithContext("com.sun.star.system.SystemShellExecute", ctx)
-        shell.execute(url_str, "", 0)
-    except Exception as e:
-        log.warning("Failed to open URL %s: %s", url_str, e)
+    best_effort(
+        lambda: ctx.getServiceManager().createInstanceWithContext("com.sun.star.system.SystemShellExecute", ctx).execute(url_str, "", 0),
+        f"open URL {url_str}",
+    )
 
 
 class EditConfigListener(BaseActionListener):
@@ -841,12 +839,13 @@ class SttSettingsListener(BaseListener, XItemListener, XTextListener):
     def sync_ui(self) -> None:
         if not self._dlg:
             return
-        try:
+
+        def _sync() -> None:
             prov_ctrl = get_optional(self._dlg, "audio__stt_provider")
             raw = prov_ctrl.getText() if prov_ctrl is not None and hasattr(prov_ctrl, "getText") else ""
             _apply_stt_model_visibility(self._dlg, raw)
-        except Exception:
-            log.exception("Error syncing STT provider controls")
+
+        best_effort(_sync, "Error syncing STT provider controls")
 
     def itemStateChanged(self, rEvent: ItemEvent) -> None:
         self.sync_ui()
@@ -1007,15 +1006,16 @@ class _TtsTestProgressBox:
     def show_or_update(self, message: str) -> None:
         if self._closed:
             return
-        try:
+
+        def _update() -> None:
             if self._dlg is None:
                 self._open(message)
             else:
                 msg_ctrl = self._dlg.getControl("Msg")
                 if msg_ctrl is not None:
                     msg_ctrl.getModel().Label = message
-        except Exception:
-            log.debug("TTS test progress update failed", exc_info=True)
+
+        best_effort(_update, "TTS test progress update")
 
     def _open(self, message: str) -> None:
         from plugin.framework.uno_listeners import BaseActionListener as _BAL
