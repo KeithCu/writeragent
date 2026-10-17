@@ -903,3 +903,43 @@ def test_idle_rearm_poke_failure_does_not_duplicate_slice(monkeypatch: pytest.Mo
         rearm.close()
 
 
+
+
+def test_blocking_drain_suspends_automatic_gc_and_restores_it() -> None:
+    """The blocking fallback holds SolarMutex between pumps; keep worker GC from freeing PyUNO there."""
+    import gc
+
+    from plugin.framework import async_stream as stream_mod
+    from plugin.framework.async_drain_guard import reset_sentry_state
+
+    reset_sentry_state()
+    was = gc.isenabled()
+    gc.enable()
+    seen: list[bool] = []
+    q: queue.Queue = queue.Queue()
+    q.put((StreamQueueKind.CHUNK, "hello"))
+    q.put((StreamQueueKind.STREAM_DONE, "end"))
+    job_done = [False]
+
+    def on_done(_item):
+        job_done[0] = True
+        return True
+
+    state = stream_mod._DrainState(
+        q=q,
+        apply_chunk_fn=lambda _text, _thinking=False: seen.append(gc.isenabled()),
+        on_stream_done=on_done,
+        on_stopped=lambda: None,
+        on_error=lambda payload: pytest.fail("unexpected drain error: %r" % (payload,)),
+        on_status_fn=None,
+        on_approval_required=None,
+        show_search_thinking=False,
+        job_done=job_done,
+    )
+    try:
+        stream_mod._run_stream_drain_blocking(state, None, None, None)
+        assert seen and not any(seen)
+        assert gc.isenabled()
+    finally:
+        if not was:
+            gc.disable()
