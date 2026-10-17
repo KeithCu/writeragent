@@ -4,9 +4,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for images.py helpers (no LibreOffice required)."""
 import os
+import sys
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+if "com.sun.star.text" in sys.modules and not hasattr(sys.modules["com.sun.star.text"], "GraphicCrop"):
+    setattr(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock)
 
 from plugin.tests.testing_utils import TestingFactory
 
@@ -16,6 +20,7 @@ from plugin.doc.visual_helpers import anchor_type_index
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.tool import ToolContext, ToolRegistry
 from plugin.writer.images.images import (
+    ImageCropAndHighlight,
     ImageDelete,
     ImageDownload,
     ImageGenerate,
@@ -545,7 +550,7 @@ def test_image_replace_one_side_scales():
     )
 
 
-def test_image_replace_size_read_failure_is_tool_error():
+def test_image_replace_size_read_failure_is_tool_execution_error():
     ctx = TestingFactory.create_context(doc_type="writer")
     graphic = MagicMock()
     with (
@@ -554,9 +559,11 @@ def test_image_replace_size_read_failure_is_tool_error():
         patch("plugin.writer.images.images._object_size", side_effect=RuntimeError("cannot read size")),
         patch("plugin.writer.images.images.replace_graphic_source") as mock_replace,
     ):
-        res = ImageReplace().execute(ctx, name="Graphic1", path="/tmp/new.png", width_mm=40)
+        res = ImageReplace().execute_safe(ctx, name="Graphic1", path="/tmp/new.png", width_mm=40)
     assert res["status"] != "ok"
-    assert res.get("code") == "SIZE_UNAVAILABLE"
+    assert res.get("code") == "TOOL_EXECUTION_ERROR"
+    assert "cannot read size" in res.get("message", "")
+    assert res.get("code") != "SIZE_UNAVAILABLE"
     mock_replace.assert_not_called()
 
 
@@ -618,7 +625,7 @@ def test_image_download_failure_is_tool_error():
     assert res.get("message", "").startswith("Could not download image:")
 
 
-def test_image_generate_export_failure_is_selection_read_error():
+def test_image_generate_export_failure_is_tool_execution_error():
     ctx = TestingFactory.create_context(doc_type="writer")
 
     def _run(fn, *args, timeout=60.0, bound_scope=None, **kwargs):
@@ -628,10 +635,11 @@ def test_image_generate_export_failure_is_selection_read_error():
         patch("plugin.writer.images.images._run_on_main", side_effect=_run),
         patch("plugin.writer.images.images.get_selected_image_base64", side_effect=RuntimeError("export")),
     ):
-        res = ImageGenerate().execute(ctx, prompt="make it purple", source_image="selection")
-    assert res["status"] != "ok"
-    assert res.get("code") == "SELECTION_READ_ERROR"
-    assert res.get("message") == "Could not export the selected image."
+        res = ImageGenerate().execute_safe(ctx, prompt="make it purple", source_image="selection")
+    assert res["status"] == "error"
+    assert res.get("code") == "TOOL_EXECUTION_ERROR"
+    assert "export" in res.get("message", "")
+    assert res.get("code") != "SELECTION_READ_ERROR"
 
 
 def test_image_delete_draw_ambiguous_name():
@@ -1056,6 +1064,58 @@ def test_image_generate_export_disposal_propagates():
     ):
         with pytest.raises(DocumentDisposedError):
             ImageGenerate().execute(ctx, prompt="make it purple", source_image="selection")
+
+
+def test_image_set_properties_size_read_failure_is_tool_execution_error():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    graphic = MagicMock()
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=graphic),
+        patch("plugin.writer.images.images._object_size", side_effect=RuntimeError("cannot read size")),
+    ):
+        res = ImageSetProperties().execute_safe(ctx, name="G", width_mm=10)
+    assert res["status"] != "ok"
+    assert res.get("code") == "TOOL_EXECUTION_ERROR"
+    assert "cannot read size" in res.get("message", "")
+    assert res.get("code") != "SIZE_UNAVAILABLE"
+    graphic.setPropertyValue.assert_not_called()
+
+
+def test_image_insert_header_failure_is_tool_execution_error():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    with (
+        patch("os.path.isfile", return_value=True),
+        patch("plugin.writer.images.images.insert_image_into_header_footer", side_effect=RuntimeError("header insert")),
+    ):
+        res = ImageInsert().execute_safe(ctx, path="/tmp/logo.png", target="header")
+    assert res["status"] != "ok"
+    assert res.get("code") == "TOOL_EXECUTION_ERROR"
+    assert "header insert" in res.get("message", "")
+    assert res.get("code") != "INSERT_FAILED"
+
+
+def test_image_crop_bake_failure_is_tool_execution_error():
+    if "com.sun.star.text" in sys.modules and not hasattr(sys.modules["com.sun.star.text"], "GraphicCrop"):
+        setattr(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock)
+    ctx = TestingFactory.create_context(doc_type="writer")
+    obj = MagicMock()
+    size_mock = MagicMock()
+    size_mock.Width = 1000
+    size_mock.Height = 500
+    with (
+        patch("plugin.writer.images.images._get_graphic_object", return_value=obj),
+        patch("plugin.writer.images.images.visual_helpers.graphic_from_object", return_value=MagicMock()),
+        patch("plugin.writer.images.images.image_mark.pixel_size", return_value=(100, 80)),
+        patch("plugin.writer.images.images.image_mark.bake", side_effect=RuntimeError("bake failed")),
+        patch("plugin.writer.images.images._object_size", return_value=size_mock),
+    ):
+        res = ImageCropAndHighlight().execute_safe(ctx, name="Pic", crop_box=[0, 0, 10, 10])
+    assert res["status"] != "ok"
+    assert res.get("code") == "TOOL_EXECUTION_ERROR"
+    assert "bake failed" in res.get("message", "")
+    assert res.get("code") != "IMAGE_MARK_FAILED"
+    obj.setPropertyValue.assert_not_called()
+
 
 
 

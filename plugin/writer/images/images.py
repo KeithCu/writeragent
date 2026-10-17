@@ -178,12 +178,10 @@ class ImageGenerate(ToolWriterImageBase):
         if explicit_edit or source_image is None:
 
             def _read_selection_for_edit() -> tuple[str, tuple[str, int, int | None, int | None, int | None] | None]:
-                try:
-                    b64 = get_selected_image_base64(ctx.doc, ctx.ctx)
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    log.exception("image_generate: selected image export failed")
-                    return ("export_failed", None)
+                # Export failures propagate. execute_safe logs once and maps them
+                # to TOOL_EXECUTION_ERROR, or DOCUMENT_DISPOSED. An empty export
+                # is "no selection", not a failed read.
+                b64 = get_selected_image_base64(ctx.doc, ctx.ctx)
                 if not b64:
                     return ("no_selection", None)
 
@@ -202,8 +200,6 @@ class ImageGenerate(ToolWriterImageBase):
                 return ("ok", (b64, nw, nh, dw, dh))
 
             tag, payload = _run_on_main(_read_selection_for_edit, timeout=mt_timeout)
-            if tag == "export_failed":
-                return self._tool_error("Could not export the selected image.", code="SELECTION_READ_ERROR")
             selection_available = tag == "ok"
             is_edit = resolve_image_generate_is_edit(source_image, selection_available=selection_available)
             if explicit_edit and not selection_available:
@@ -675,13 +671,10 @@ class ImageSetProperties(ToolWriterImageBase):
         if width_mm is not None or height_mm is not None:
             from com.sun.star.awt import Size
 
-            try:
-                current = _object_size(graphic)
-                curr_w, curr_h = current.Width, current.Height
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                log.exception("image_set_properties: could not read size")
-                return self._tool_error("Could not read the image size.", code="SIZE_UNAVAILABLE", image_name=image_name)
+            # A live graphic has Size or getSize(). execute_safe reports a failure,
+            # including disposal, before Size is written.
+            current = _object_size(graphic)
+            curr_w, curr_h = current.Width, current.Height
 
             new_size = Size()
             new_size.Width = visual_helpers.mm_to_unit(width_mm) if width_mm is not None else curr_w
@@ -837,12 +830,9 @@ class ImageCropAndHighlight(ToolWriterImageBase):
         width_100mm = int(round(width_mm * 100)) if width_mm else int(size.Width)
         region_w, region_h = region[2], region[3]
         height_100mm = max(1, int(round(width_100mm * region_h / region_w)))
-        try:
-            baked = image_mark.bake(ctx.ctx, source, region, marks, image_mark.stroke_px(region_w, width_100mm / 100.0))
-        except Exception as exc:
-            reraise_if_disposed(exc)
-            log.exception("image_crop_and_highlight: baking failed")
-            return self._tool_error("Could not mark the picture: %s" % exc, code="IMAGE_MARK_FAILED", image_name=image_name)
+        # Bake failures propagate. The picture is not written until bake returns.
+        # execute_safe logs once and maps the error, including disposal.
+        baked = image_mark.bake(ctx.ctx, source, region, marks, image_mark.stroke_px(region_w, width_100mm / 100.0))
 
         with WriterCompoundUndo(ctx.doc, "WriterAgent: Crop and highlight image"):
             obj.setPropertyValue("Graphic", baked)
@@ -991,20 +981,18 @@ class ImageInsert(ToolWriterImageBase):
                         "target='%s' is only supported for Writer documents." % target,
                         code="UNSUPPORTED_DOC_TYPE",
                     )
-                try:
-                    placed = insert_image_into_header_footer(
-                        doc,
-                        image_path,
-                        target,
-                        width_mm=width_mm,
-                        height_mm=height_mm,
-                        style_name=style_name,
-                        auto_height=kwargs.get("auto_height", True),
-                        ctx=ctx.ctx,
-                    )
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    return self._tool_error(str(exc), code="INSERT_FAILED", path=image_path)
+                # Insert failures propagate. execute_safe reports them, including disposal.
+                # A None graphic is a failed insert that did not raise.
+                placed = insert_image_into_header_footer(
+                    doc,
+                    image_path,
+                    target,
+                    width_mm=width_mm,
+                    height_mm=height_mm,
+                    style_name=style_name,
+                    auto_height=kwargs.get("auto_height", True),
+                    ctx=ctx.ctx,
+                )
                 graphic = placed["graphic"]
                 if graphic is None:
                     return self._tool_error("Failed to insert image.", code="INSERT_FAILED", path=image_path)
@@ -1155,13 +1143,10 @@ class ImageReplace(ToolWriterImageBase):
             height_mm = kwargs.get("height_mm")
             width_units = height_units = None
             if width_mm is not None or height_mm is not None:
-                try:
-                    current = _object_size(graphic)
-                    current_width, current_height = current.Width, current.Height
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    log.exception("image_replace: could not read size")
-                    return self._tool_error("Could not read the image size.", code="SIZE_UNAVAILABLE", image_name=image_name)
+                # Same as image_set_properties: a size-read failure must not become
+                # SIZE_UNAVAILABLE. execute_safe reports it before the replace.
+                current = _object_size(graphic)
+                current_width, current_height = current.Width, current.Height
                 width_units, height_units = _replacement_size_units(current_width, current_height, width_mm, height_mm)
 
             if not replace_graphic_source(ctx.ctx, ctx.doc, graphic, new_image_path, width_units=width_units, height_units=height_units):
