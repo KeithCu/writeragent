@@ -53,14 +53,13 @@ class ListNearbyFiles(ToolBase):
 
         # Execute off main thread because listing directory scans can take time.
         # list_nearby_files handles marshaling UNO requests to the main thread internally.
-        stop_checker = getattr(ctx, "stop_checker", None)
         try:
             return list_nearby_files(
                 ctx.ctx,
                 ctx.doc,
                 filter=filt,
                 file_kind=file_kind,
-                stop_checker=stop_checker,
+                stop_checker=ctx.stop_checker,
             )
         except InterruptedError:
             return self._tool_error("Document read stopped by user.", code="USER_STOPPED")
@@ -141,7 +140,7 @@ class GetGuidance(ToolBase):
         # open, serve the neutral index / the always-available generic topics.
         from plugin.mcp.mcp_protocol import _format_mcp_clock_context
 
-        doc_type = doc_type_of(getattr(ctx, "doc", None))
+        doc_type = doc_type_of(ctx.doc)
         raw = (kwargs.get("topic") or "").strip()
         clock = _format_mcp_clock_context()
         if not raw:

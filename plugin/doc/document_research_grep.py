@@ -139,25 +139,15 @@ def _grep_text_in_writer(
     for para in para_ranges:
         if stop_checker and stop_checker():
             break
-        try:
-            if para.supportsService("com.sun.star.text.Paragraph"):
-                para_texts.append(get_string_without_tracked_deletions(para))
-            elif para.supportsService("com.sun.star.text.TextTable"):
-                cell_texts = []
-                names = para.getCellNames() or ()
-                for name in names:
-                    try:
-                        cell = para.getCellByName(name)
-                        cell_texts.append(get_string_without_tracked_deletions(cell))
-                    except Exception:
-                        continue
-                if cell_texts:
-                    para_texts.append(" ".join(cell_texts))
-                else:
-                    para_texts.append("")
-            else:
-                para_texts.append("")
-        except Exception:
+        if para.supportsService("com.sun.star.text.Paragraph"):
+            para_texts.append(get_string_without_tracked_deletions(para))
+        elif para.supportsService("com.sun.star.text.TextTable"):
+            cell_texts = [
+                get_string_without_tracked_deletions(para.getCellByName(name))
+                for name in (para.getCellNames() or ())
+            ]
+            para_texts.append(" ".join(c for c in cell_texts if c))
+        else:
             para_texts.append("")
 
     # Bugfix: Stop was ignored for the whole Writer extract and for the
@@ -331,25 +321,22 @@ def _grep_shapes_on_page(
 
         shape_type = shape.getShapeType()
         if "GroupShape" in str(shape_type):
-            try:
-                group_matches, shapes_visited, group_partial = _grep_shapes_on_page(
-                    shape,
-                    page_index,
-                    pattern,
-                    regex=regex,
-                    case_sensitive=case_sensitive,
-                    compiled=compiled,
-                    max_results=max_results - len(matches),
-                    shapes_visited=shapes_visited,
-                    shape_cap=shape_cap,
-                    path_prefix=f"{shape_path}.",
-                    stop_checker=stop_checker,
-                )
-                matches.extend(group_matches)
-                if group_partial:
-                    partial = True
-            except Exception:
-                log.debug("grep group shape failed", exc_info=True)
+            group_matches, shapes_visited, group_partial = _grep_shapes_on_page(
+                shape,
+                page_index,
+                pattern,
+                regex=regex,
+                case_sensitive=case_sensitive,
+                compiled=compiled,
+                max_results=max_results - len(matches),
+                shapes_visited=shapes_visited,
+                shape_cap=shape_cap,
+                path_prefix=f"{shape_path}.",
+                stop_checker=stop_checker,
+            )
+            matches.extend(group_matches)
+            if group_partial:
+                partial = True
 
     return matches, shapes_visited, partial
 

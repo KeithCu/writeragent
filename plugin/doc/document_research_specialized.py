@@ -113,8 +113,6 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         stop_message="Document read stopped by user.",
         error_prefix="Document research read agent failed",
     )
-    if isinstance(final_ans, dict) and final_ans.get("status") == "error":
-        return final_ans
     return final_ans
 
 

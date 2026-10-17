@@ -16,9 +16,10 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, Callable
 
 import uno
 
-from plugin.doc.doc_type import DocumentType, doc_type_label_for_enum, get_document_type
+from plugin.doc.doc_type import doc_type_label_for_enum, get_document_type
 from plugin.doc.text_helpers import get_document_path, normalize_file_url
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.uno_context import resolve_document_by_url
 from plugin.framework.url_utils import path_to_file_url
 
@@ -176,11 +177,7 @@ def _system_path_from_url(url: str) -> str | None:
     url = normalize_file_url(str(url))
     if not url.startswith("file://"):
         return None
-    try:
-        return _normalize_path(str(uno.fileUrlToSystemPath(url)))
-    except Exception:
-        log.debug("fileUrlToSystemPath failed for %s", url, exc_info=True)
-        return None
+    return best_effort(lambda: _normalize_path(str(uno.fileUrlToSystemPath(url))), f"fileUrlToSystemPath failed for {url}")
 
 
 def _should_skip_filename(name: str) -> bool:
@@ -214,10 +211,7 @@ def _substitute_lo_path_variables(ctx: Any, raw: str) -> str:
     if ctx is not None and hasattr(ctx, "getValueByName"):
         subst = ctx.getValueByName("/singletons/com.sun.star.util.thePathSubstitution")
         if subst is not None and hasattr(subst, "substituteVariables"):
-            try:
-                return str(subst.substituteVariables(text, True)).strip()
-            except Exception:
-                log.debug("_substitute_lo_path_variables failed", exc_info=True)
+            return best_effort(lambda: str(subst.substituteVariables(text, True)).strip(), "_substitute_lo_path_variables failed", text)
     return text
 
 
@@ -736,10 +730,7 @@ def _is_same_document(model: Any, active_model: Any) -> bool:
 def _is_modified(model: Any) -> bool:
     """doc.isModified() (XModifiable), best-effort. Lets an agent SEE unsaved changes so it can
     tell the user to save. The agent never saves itself (user owns persistence)."""
-    try:
-        return bool(model.isModified())
-    except Exception:
-        return False
+    return uno_read(lambda: bool(model.isModified()), False)
 
 
 def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str, Any]]:
@@ -799,24 +790,17 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             continue
         # Same filter as MCP's _real_active_document: the Start Center is a live component but
         # not an OfficeDocument, so skip it — listing it would confuse multi-document targeting.
-        try:
-            if not model.supportsService("com.sun.star.document.OfficeDocument"):
-                continue
-        except Exception:
-            pass  # can't introspect -> keep it (don't drop a real document)
+        if not uno_read(lambda: model.supportsService("com.sun.star.document.OfficeDocument"), True):
+            continue
         url = model.getURL()
         if not url:
             # An untitled doc has no URL, so its uid is the ONLY handle a caller can target it by.
             # Never drop it on a type-lookup failure -- list it with doc_type "unknown" instead.
-            try:
-                doc_type_enum = get_document_type(model)
-                doc_type = "writer"
-                if doc_type_enum == DocumentType.CALC:
-                    doc_type = "calc"
-                elif doc_type_enum in (DocumentType.DRAW, DocumentType.IMPRESS):
-                    doc_type = "draw"
-            except Exception:
-                doc_type = "unknown"
+            doc_type = uno_read(
+                lambda: doc_type_label_for_enum(get_document_type(model), impress_as_draw=True),
+                "unknown",
+            )
+            if doc_type == "unknown":
                 log.debug("get_open_documents: doc type lookup failed for an untitled doc", exc_info=True)
             docs.append({
                 "name": "Untitled",
@@ -832,16 +816,10 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
         path = _system_path_from_url(str(url)) or ""
         doc_type_guess = guess_doc_type_from_path(path) if path else "unknown"
         if doc_type_guess == "unknown":
-            try:
-                doc_type_enum = get_document_type(model)
-                if doc_type_enum == DocumentType.WRITER:
-                    doc_type_guess = "writer"
-                elif doc_type_enum == DocumentType.CALC:
-                    doc_type_guess = "calc"
-                elif doc_type_enum in (DocumentType.DRAW, DocumentType.IMPRESS):
-                    doc_type_guess = "draw"
-            except Exception:
-                pass
+            doc_type_guess = uno_read(
+                lambda: doc_type_label_for_enum(get_document_type(model), impress_as_draw=True),
+                "unknown",
+            )
         
         name = os.path.basename(path) if path else "Untitled"
         docs.append({

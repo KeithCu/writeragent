@@ -79,17 +79,11 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer", ctx:
             return ("run_venv_python_script: in Calc, pass `data_range` (an A1 address) to inject "
                     "cell values as `data`; in Writer or Draw/Impress it does not inject "
                     "spreadsheet data -- use document tools for content.")
-        try:
-            from plugin.framework.prompts import python_specialized_sub_agent_hint
-            return (python_specialized_sub_agent_hint(agent_label) or "").strip()
-        except Exception:
-            return ""
+        from plugin.framework.prompts import python_specialized_sub_agent_hint
+        return (python_specialized_sub_agent_hint(agent_label) or "").strip()
     if domain == "document_research":
-        try:
-            from plugin.doc.document_research import get_document_research_workflow_hint
-            return (get_document_research_workflow_hint(getattr(ctx, "ctx", None)) or "").strip()
-        except Exception:
-            return ""
+        from plugin.doc.document_research import get_document_research_workflow_hint
+        return (get_document_research_workflow_hint(getattr(ctx, "ctx", None)) or "").strip()
     return ""
 
 

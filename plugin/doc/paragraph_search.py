@@ -13,7 +13,7 @@ import logging
 import re as re_mod
 from typing import Any
 
-from plugin.framework.errors import UnoObjectError, safe_call
+from plugin.framework.errors import reraise_if_disposed, uno_probe
 
 
 def build_paragraph_match(text: str, para_idx: int, ctx_paras: int, para_count: int, para_texts: list[str]) -> dict[str, Any]:
@@ -121,7 +121,8 @@ def _anchor_contains_point(text_obj: Any, match_start: Any, element: Any) -> boo
     get_anchor = getattr(element, "getAnchor", None)
     if not callable(get_anchor):
         return False
-    try:
+
+    def _check() -> bool:
         anchor = get_anchor()
         # getattr: the anchor is an untyped UNO object. Direct getStart/getEnd
         # access is an unknown attribute to the type checker.
@@ -134,9 +135,9 @@ def _anchor_contains_point(text_obj: Any, match_start: Any, element: Any) -> boo
         if cmp_start > 0:
             return False
         cmp_end = text_obj.compareRegionStarts(match_start, get_end())
-    except Exception:
-        return False
-    return cmp_end >= 0
+        return cmp_end >= 0
+
+    return uno_probe(_check, False)
 
 
 def _index_outside_paragraphs(
@@ -182,8 +183,8 @@ def find_paragraph_for_range(match_range: Any, para_ranges: list[Any], text_obj:
     """
     try:
         if text_obj is None:
-            text_obj = safe_call(match_range.getText, "Get text object")
-        match_start = safe_call(match_range.getStart, "Get match start")
+            text_obj = match_range.getText()
+        match_start = match_range.getStart()
         entries = [(idx, para) for idx, para in enumerate(para_ranges) if _is_text_paragraph(para)]
         low = 0
         high = len(entries) - 1
@@ -192,24 +193,20 @@ def find_paragraph_for_range(match_range: Any, para_ranges: list[Any], text_obj:
             mid = (low + high) // 2
             idx, para = entries[mid]
             # compareRegionStarts: -1 if first is after second, 1 if before, 0 if equal
-            para_start = safe_call(para.getStart, "Get para start")
-            cmp_start = safe_call(text_obj.compareRegionStarts, "compareRegionStarts start", match_start, para_start)
+            cmp_start = text_obj.compareRegionStarts(match_start, para.getStart())
             if cmp_start > 0:
                 high = mid - 1
             else:
-                para_end = safe_call(para.getEnd, "Get para end")
-                cmp_end = safe_call(text_obj.compareRegionStarts, "compareRegionStarts end", match_start, para_end)
+                cmp_end = text_obj.compareRegionStarts(match_start, para.getEnd())
                 if cmp_end < 0:
                     low = mid + 1
                 else:
                     return idx
         return _index_outside_paragraphs(text_obj, match_start, para_ranges, entries, low)
-    except UnoObjectError:
+    except Exception as exc:
+        reraise_if_disposed(exc)
         logging.getLogger(__name__).exception("find_paragraph_for_range error")
-    # Callers that only need a best-effort index (images, comments) still get 0.
-    # Bookmark locators must not: 0 is also the first paragraph. They call
-    # confirm_paragraph_index before navigating or mutating.
-    return 0
+        return 0
 
 
 def confirm_paragraph_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: Any) -> int | None:
@@ -248,12 +245,12 @@ def _anchor_is_at_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para
     get_start = getattr(anchor, "getStart", None)
     if not callable(get_start):
         return False
-    try:
-        match_start = get_start()
-    except Exception:
+    match_start = uno_probe(get_start, None)
+    if match_start is None:
         return False
     element = para_ranges[para_idx]
-    try:
+
+    def _test() -> bool:
         if _is_text_paragraph(element):
             compare = getattr(text_obj, "compareRegionStarts", None)
             if not callable(compare):
@@ -271,5 +268,5 @@ def _anchor_is_at_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para
                 return False
             return cmp_end >= 0
         return _anchor_contains_point(text_obj, match_start, element)
-    except Exception:
-        return False
+
+    return uno_probe(_test, False)

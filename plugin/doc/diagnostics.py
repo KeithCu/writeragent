@@ -7,12 +7,10 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
+from plugin.framework.errors import uno_read
 from plugin.framework.tool import ToolBaseDummy, ToolContext
-
-log = logging.getLogger(__name__)
 
 
 class DocumentHealthCheck(ToolBaseDummy):
@@ -35,13 +33,8 @@ class DocumentHealthCheck(ToolBaseDummy):
         total_headings = 0
 
         for i, para in enumerate(para_ranges):
-            text = ""
-            outline_level = 0
-            try:
-                text = para.getString()
-                outline_level = para.getPropertyValue("OutlineLevel")
-            except Exception:
-                pass
+            text = para.getString()
+            outline_level = para.getPropertyValue("OutlineLevel")
 
             if outline_level > 0:
                 total_headings += 1
@@ -113,19 +106,12 @@ class DocumentHealthCheck(ToolBaseDummy):
                 # each one as broken. An empty string with a start position is a
                 # point bookmark. Broken means no anchor, or an anchor whose text
                 # and start both cannot be read.
-                try:
-                    anchor_text = anchor.getString()
-                except Exception:
-                    anchor_text = None
+                anchor_text = uno_read(anchor.getString, None)
                 if anchor_text:
                     continue
                 get_start = getattr(anchor, "getStart", None)
-                if callable(get_start):
-                    try:
-                        if get_start() is not None:
-                            continue
-                    except Exception:
-                        pass
+                if callable(get_start) and uno_read(get_start, None) is not None:
+                    continue
                 issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
             except Exception:
                 issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' could not be read." % name), "detail": ("Bookmark '%s' could not be read." % name)})
@@ -136,20 +122,11 @@ class DocumentHealthCheck(ToolBaseDummy):
         for name in names:
             try:
                 obj = graphics.getByName(name)
-                graphic_url = ""
-                try:
-                    graphic_url = obj.getPropertyValue("GraphicURL")
-                except Exception:
-                    pass
+                graphic_url = uno_read(lambda: obj.getPropertyValue("GraphicURL"), "")
                 if not graphic_url:
                     # Also check the Graphic property (LO 7.1+).
-                    has_graphic = False
-                    try:
-                        g = obj.getPropertyValue("Graphic")
-                        has_graphic = g is not None
-                    except Exception:
-                        pass
-                    if not has_graphic:
+                    g = uno_read(lambda: obj.getPropertyValue("Graphic"), None)
+                    if g is None:
                         issues.append({"type": "orphan_image", "severity": "warning", "paragraph_index": -1, "message": ("Graphic object '%s' has no image data." % name), "detail": ("Graphic object '%s' has no image data." % name)})
             except Exception:
                 pass
@@ -179,20 +156,17 @@ class SetDocumentProtection(ToolBaseDummy):
 
         for i in range(count):
             section = sections.getByIndex(i)
-            try:
-                section.setPropertyValue("IsProtected", enabled)
-                if password and enabled:
-                    # setProtectionPassword expects a sequence of bytes
-                    # encoded from the password string.
-                    try:
-                        section.setProtectionPassword(password)
-                    except AttributeError:
-                        # Older LO versions may not support per-section
-                        # passwords via setProtectionPassword.
-                        # It requires byte arrays for ProtectionKey instead.
-                        import hashlib
-                        section.setPropertyValue("ProtectionKey", tuple(hashlib.sha256(password.encode('utf-8')).digest()))
-            except Exception as exc:
-                log.warning("Could not set protection on section %d: %s", i, exc)
+            section.setPropertyValue("IsProtected", enabled)
+            if password and enabled:
+                # setProtectionPassword expects a sequence of bytes
+                # encoded from the password string.
+                try:
+                    section.setProtectionPassword(password)
+                except AttributeError:
+                    # Older LO versions may not support per-section
+                    # passwords via setProtectionPassword.
+                    # It requires byte arrays for ProtectionKey instead.
+                    import hashlib
+                    section.setPropertyValue("ProtectionKey", tuple(hashlib.sha256(password.encode('utf-8')).digest()))
 
         return {"status": "ok", "protected": enabled, "sections_count": count}

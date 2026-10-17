@@ -64,12 +64,9 @@ def uno_services_for_document(model: Any, doc_type: str | None) -> frozenset[str
     from plugin.framework.thread_guard import on_main_thread
 
     if model is not None and on_main_thread():
-        try:
-            services = get_document_uno_services(model)
-            if services:
-                return services
-        except Exception:
-            pass
+        services = get_document_uno_services(model)
+        if services:
+            return services
     return uno_services_for_doc_type_label(doc_type)
 
 
