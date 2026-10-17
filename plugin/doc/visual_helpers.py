@@ -340,10 +340,7 @@ def safe_try_method(obj: Any, method_name: str, *args: Any) -> bool:
 
 
 def safe_get_property(obj: Any, name: str, default: Any = None) -> Any:
-    try:
-        return obj.getPropertyValue(name)
-    except Exception:
-        return default
+    return uno_read(lambda: obj.getPropertyValue(name), default)
 
 
 def is_graphic_object(obj: Any) -> bool:
@@ -366,29 +363,20 @@ def is_graphic_object(obj: Any) -> bool:
 
 
 def _controller_selection(model: Any) -> Any | None:
-    # Callers catch Exception. The inner tries already cover getCurrentController and getSelection.
-    controller = None
-    try:
-        controller = model.getCurrentController()
-    except Exception:
+    # Callers catch Exception. uno_read covers getCurrentController and getSelection.
+    controller = uno_read(lambda: model.getCurrentController(), _FAILED)
+    if controller is _FAILED:
         controller = getattr(model, "CurrentController", None)
     if controller is None:
         return None
-    selection = None
-    try:
-        selection = controller.getSelection()
-    except Exception:
-        selection = None
+    selection = uno_read(lambda: controller.getSelection(), None)
     if selection is None:
         selection = getattr(controller, "Selection", None)
     return selection if selection else None
 
 
 def _graphic_object_name(obj: Any) -> str:
-    try:
-        return str(obj.getName() or "").strip()
-    except Exception:
-        return ""
+    return uno_read(lambda: str(obj.getName() or "").strip(), "")
 
 
 def selected_graphic_object(model: Any) -> Any | None:
@@ -409,15 +397,13 @@ def selected_graphic_object(model: Any) -> Any | None:
 
 
 def _anchor_start(graphic: Any) -> Any | None:
-    try:
+    def start() -> Any:
         anchor = graphic.getAnchor()
-        if anchor is None:
-            return None
-        if hasattr(anchor, "getStart"):
+        if anchor is not None and hasattr(anchor, "getStart"):
             return anchor.getStart()
         return anchor
-    except Exception:
-        return None
+
+    return uno_read(start, None)
 
 
 def _sort_graphics_by_anchor(text: Any, pairs: list[tuple[str, Any]]) -> list[tuple[str, Any]]:
@@ -430,11 +416,8 @@ def _sort_graphics_by_anchor(text: Any, pairs: list[tuple[str, Any]]) -> list[tu
         b_start = _anchor_start(b[1])
         if a_start is None or b_start is None:
             return 0
-        try:
-            # compareRegionStarts(A,B): 1 if A before B → A should sort first → negative cmp.
-            return -int(text.compareRegionStarts(a_start, b_start))
-        except Exception:
-            return 0
+        # compareRegionStarts(A,B): 1 if A before B → A should sort first → negative cmp.
+        return uno_read(lambda: -int(text.compareRegionStarts(a_start, b_start)), 0)
 
     from functools import cmp_to_key
 
@@ -443,12 +426,10 @@ def _sort_graphics_by_anchor(text: Any, pairs: list[tuple[str, Any]]) -> list[tu
 
 def _graphics_in_text_range(doc: Any, range_obj: Any) -> list[tuple[str, Any]]:
     """Named graphics whose anchors fall inside *range_obj* (intervening text ignored)."""
-    try:
-        text = range_obj.getText()
-        sel_start = range_obj.getStart()
-        sel_end = range_obj.getEnd()
-    except Exception:
+    bounds = uno_read(lambda: (range_obj.getText(), range_obj.getStart(), range_obj.getEnd()), None)
+    if bounds is None:
         return []
+    text, sel_start, sel_end = bounds
     if text is None or sel_start is None or sel_end is None:
         return []
 
@@ -500,13 +481,12 @@ def graphic_objects_in_selection(doc: Any) -> list[tuple[str, Any]]:
                 if name:
                     graphics_from_sel.append((name, obj))
             if graphics_from_sel:
-                text = None
-                try:
+
+                def first_anchor_text() -> Any:
                     anchor = graphics_from_sel[0][1].getAnchor()
-                    text = anchor.getText() if anchor is not None else None
-                except Exception:
-                    text = None
-                return _sort_graphics_by_anchor(text, graphics_from_sel)
+                    return anchor.getText() if anchor is not None else None
+
+                return _sort_graphics_by_anchor(uno_read(first_anchor_text, None), graphics_from_sel)
 
             if selection.getCount() > 0:
                 range_obj = selection.getByIndex(0)
