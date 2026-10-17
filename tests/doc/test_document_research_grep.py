@@ -9,7 +9,11 @@ from pathlib import Path
 import tempfile
 from unittest.mock import MagicMock, patch
 
-from plugin.doc.document_research_grep import grep_nearby_files, resolve_grep_candidates
+from plugin.doc.document_research_grep import (
+    _grep_text_in_writer,
+    grep_nearby_files,
+    resolve_grep_candidates,
+)
 from plugin.framework.url_utils import path_to_file_url
 
 
@@ -338,8 +342,6 @@ def test_grep_text_in_draw_extra_shape_read_no_match_partial_false():
     assert page0.getByIndex.call_count == 2
 
 def test_grep_text_in_writer_includes_table_text():
-    from plugin.doc.document_research_grep import _grep_text_in_writer
-
     model = MagicMock()
     services = MagicMock()
 
@@ -347,6 +349,7 @@ def test_grep_text_in_writer_includes_table_text():
     para1 = MagicMock()
     para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para1.getString.return_value = "Normal text before table."
+    para1.createEnumeration.side_effect = RuntimeError("no enum")
 
     table = MagicMock()
     table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
@@ -354,8 +357,10 @@ def test_grep_text_in_writer_includes_table_text():
 
     cellA1 = MagicMock()
     cellA1.getString.return_value = "Cell one text."
+    cellA1.createEnumeration.side_effect = RuntimeError("no enum")
     cellB1 = MagicMock()
     cellB1.getString.return_value = "target keyword cell."
+    cellB1.createEnumeration.side_effect = RuntimeError("no enum")
 
     def get_cell_by_name(name):
         if name == "A1": return cellA1
@@ -378,18 +383,18 @@ def test_grep_text_in_writer_includes_table_text():
 
 
 def test_grep_text_in_writer_caps_match_count_and_sets_partial():
-    from plugin.doc.document_research_grep import _grep_text_in_writer
-
     model = MagicMock()
     services = MagicMock()
 
     para1 = MagicMock()
     para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para1.getString.return_value = "first keyword paragraph"
+    para1.createEnumeration.side_effect = RuntimeError("no enum")
 
     para2 = MagicMock()
     para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para2.getString.return_value = "second keyword paragraph"
+    para2.createEnumeration.side_effect = RuntimeError("no enum")
 
     services.document.get_paragraph_ranges.return_value = [para1, para2]
 
@@ -406,22 +411,23 @@ def test_grep_text_in_writer_caps_match_count_and_sets_partial():
 
 
 def test_grep_text_in_writer_stop_checker_skips_later_paragraphs():
-    from plugin.doc.document_research_grep import _grep_text_in_writer
-
     model = MagicMock()
     services = MagicMock()
 
     para1 = MagicMock()
     para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para1.getString.return_value = "first"
+    para1.createEnumeration.side_effect = RuntimeError("no enum")
 
     para2 = MagicMock()
     para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para2.getString.return_value = "second"
+    para2.createEnumeration.side_effect = RuntimeError("no enum")
 
     para3 = MagicMock()
     para3.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
     para3.getString.return_value = "third"
+    para3.createEnumeration.side_effect = RuntimeError("no enum")
 
     services.document.get_paragraph_ranges.return_value = [para1, para2, para3]
 
@@ -441,7 +447,6 @@ def test_grep_text_in_writer_stop_checker_skips_later_paragraphs():
 
 
 def test_grep_text_in_writer_uses_visible_text():
-    from plugin.doc.document_research_grep import _grep_text_in_writer
 
     model = MagicMock()
     services = MagicMock()
