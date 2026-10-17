@@ -64,10 +64,7 @@ def python_session_mode(ctx: Any) -> str:
 
 def _doc_url(raw_doc: Any) -> str:
     """Return the stripped URL string of *raw_doc*, or empty string."""
-    try:
-        return (getattr(raw_doc, "getURL", lambda: "")() or "").strip()
-    except Exception:
-        return ""
+    return (raw_doc.getURL() or "").strip()
 
 
 def _iter_desktop_models(ctx: Any, *, label: str = "session_manager") -> Generator[Any, None, None]:
@@ -303,13 +300,9 @@ def workbook_session_id(ctx: Any, doc: Any | None = None) -> str | None:
 
         return calc_workbook_base_session_id(guard_uno(doc))
     except Exception:
+        # No second call on the raw doc: that skipped guard_uno and read getURL off-main.
         log.debug("workbook_session_id: guarded calc session id lookup failed", exc_info=True)
-
-    try:
-        return calc_workbook_base_session_id(doc)
-    except Exception:
-        log.debug("workbook_session_id: fallback session id lookup failed", exc_info=True)
-    return None
+        return None
 
 
 def rps_session_id(ctx: Any, doc: Any | None = None) -> str | None:
@@ -474,13 +467,9 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     res = _call_reset_python_session(ctx, session_id)
     # Also reset the persistent :init session so worker state from previous init script is cleared
     res_init = _call_reset_python_session(ctx, f"{session_id}:init")
-    try:
-        from plugin.calc.python.function import clear_python_addin_cache
+    from plugin.calc.python.function import clear_python_addin_cache
 
-        clear_python_addin_cache()
-    except Exception:
-        # A failed clear used to leave cached =PY() scalars with no traceback.
-        log.debug("session_manager: clear_python_addin_cache failed", exc_info=True)
+    clear_python_addin_cache()
     if res.get("status") != "ok":
         msg = res.get("message") or _("Could not reset Python session.")
         _msgbox(ctx, _("Error: {0}").format(msg))

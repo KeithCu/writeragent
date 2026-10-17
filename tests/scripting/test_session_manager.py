@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import plugin.scripting.session_manager as session_manager
 
@@ -373,10 +374,8 @@ def test_reset_calc_reports_init_session_failure() -> None:
     ]
 
 
-def test_workbook_session_id_resilient_when_is_calc_fails() -> None:
-    """If is_calc throws, workbook_session_id falls back to doc URL directly."""
-    from unittest.mock import MagicMock, patch
-
+def test_workbook_session_id_is_calc_failure_returns_none() -> None:
+    """is_calc raising must not mint a session id from the raw document."""
     ctx = MagicMock()
     mock_doc = MagicMock()
     mock_doc.getURL.return_value = "file:///fallback_sheet.ods"
@@ -384,9 +383,27 @@ def test_workbook_session_id_resilient_when_is_calc_fails() -> None:
     with (
         patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
         patch("plugin.scripting.session_manager.is_calc", side_effect=RuntimeError("UNO thread error")),
+        patch("plugin.scripting.session_manager.calc_workbook_base_session_id") as mint,
     ):
         sid = session_manager.workbook_session_id(ctx, doc=mock_doc)
-        assert sid == "calc:file:///fallback_sheet.ods"
+    assert sid is None
+    mint.assert_not_called()
+
+
+def test_workbook_session_id_guarded_failure_does_not_retry() -> None:
+    """One guarded lookup. A second call would be calc_workbook_base_session_id(doc) with no guard_uno."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+        patch("plugin.scripting.session_manager.is_calc", return_value=True),
+        patch(
+            "plugin.scripting.session_manager.calc_workbook_base_session_id",
+            side_effect=RuntimeError("UNO thread violation"),
+        ) as mint,
+    ):
+        assert session_manager.workbook_session_id(ctx, doc=doc) is None
+    assert mint.call_count == 1
 
 
 def test_workbook_session_id_non_calc_does_not_record() -> None:

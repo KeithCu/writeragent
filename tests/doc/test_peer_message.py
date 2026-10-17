@@ -26,6 +26,7 @@ from plugin.doc.peer_message import (
     identity_from_doc,
     is_v1_peer_model,
     kick_pending_peer_starts,
+    list_v1_peers,
     listener_queue_len,
     peer_send_caller_allowed,
     reset_peer_queues,
@@ -1354,4 +1355,53 @@ def test_identity_from_doc_reraises_main_thread_runtimeerror():
     with patch("plugin.doc.text_helpers.get_document_path", side_effect=RuntimeError("UNO thread violation")):
         with pytest.raises(RuntimeError, match="UNO thread violation"):
             identity_from_doc(doc)
+
+
+def test_identity_from_doc_reraises_get_runtime_uid():
+    """Off-main RuntimeError from get_runtime_uid must not fall through to getTitle."""
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///tmp/Mine.odt"
+    doc.getTitle.return_value = "Mine.odt"
+    with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=RuntimeError("UNO thread violation")):
+        with patch("plugin.doc.text_helpers.get_document_path") as get_path:
+            with pytest.raises(RuntimeError, match="UNO thread violation"):
+                identity_from_doc(doc)
+    get_path.assert_not_called()
+    doc.getTitle.assert_not_called()
+
+
+def test_list_v1_peers_reraises_get_runtime_uid():
+    self_doc = MagicMock()
+    with patch("plugin.framework.thread_guard.assert_main_thread"):
+        with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=RuntimeError("UNO thread violation")):
+            with patch("plugin.doc.document_research.get_open_documents") as catalog:
+                with pytest.raises(RuntimeError, match="UNO thread violation"):
+                    list_v1_peers(object(), self_doc)
+    catalog.assert_not_called()
+
+
+def test_resolve_peer_target_reraises_self_uid():
+    self_doc = MagicMock()
+    with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=RuntimeError("UNO thread violation")):
+        with patch("plugin.framework.uno_context.resolve_document_by_url") as resolve:
+            with pytest.raises(RuntimeError, match="UNO thread violation"):
+                resolve_peer_target(object(), self_doc, "file:///tmp/x.odt")
+    resolve.assert_not_called()
+
+
+def test_resolve_peer_target_reraises_peer_uid():
+    self_doc = MagicMock()
+    peer = MagicMock()
+    peer.supportsService.return_value = True
+
+    def _uid(model):
+        if model is self_doc:
+            return "self-uid"
+        raise RuntimeError("UNO thread violation")
+
+    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(peer, "writer")):
+        with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=_uid):
+            with pytest.raises(RuntimeError, match="UNO thread violation"):
+                resolve_peer_target(object(), self_doc, "peer-uid")
+
 

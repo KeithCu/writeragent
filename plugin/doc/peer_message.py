@@ -156,38 +156,23 @@ def identity_from_doc(doc: Any) -> dict[str, str]:
     resolved_name = False
     if doc is None:
         return {"name": "Untitled", "uid": uid, "url": url}
-    try:
-        uid = get_runtime_uid(doc) or ""
-    except Exception:
-        uid = ""
-    try:
-        raw_url = doc.getURL() if hasattr(doc, "getURL") else ""
-        url = str(raw_url or "")
-    except Exception:
-        url = ""
+    # Do not catch. get_runtime_uid and get_document_path are @main_thread_only;
+    # an off-main RuntimeError must propagate and must not fall through to getTitle().
+    # get_document_path already catches Exception in its body and returns None.
+    uid = get_runtime_uid(doc) or ""
+    url = str(doc.getURL() or "")
     if url:
-        try:
-            from plugin.doc.text_helpers import get_document_path
+        from plugin.doc.text_helpers import get_document_path
 
-            path = get_document_path(doc) or ""
-            base = os.path.basename(path) if path else ""
-            if base:
-                name = base
-                resolved_name = True
-        except RuntimeError:
-            # get_document_path is @main_thread_only. The wrapper raises RuntimeError
-            # before the body; the body catches Exception and returns None. Re-raise
-            # so an off-main call does not fall through to getTitle().
-            raise
-        except Exception:
-            pass
+        path = get_document_path(doc) or ""
+        base = os.path.basename(path) if path else ""
+        if base:
+            name = base
+            resolved_name = True
     if not resolved_name:
-        try:
-            title = doc.getTitle() if hasattr(doc, "getTitle") else None
-            if title:
-                name = str(title)
-        except Exception:
-            pass
+        title = doc.getTitle()
+        if title:
+            name = str(title)
     if not name:
         name = "Untitled"
     return {"name": name, "uid": uid, "url": url}
@@ -257,10 +242,7 @@ def list_v1_peers(uno_ctx: Any, self_doc: Any) -> list[dict[str, str]]:
     assert_main_thread("peer_message.list_v1_peers")
     self_uid = ""
     if self_doc is not None:
-        try:
-            self_uid = get_runtime_uid(self_doc) or ""
-        except Exception:
-            self_uid = ""
+        self_uid = get_runtime_uid(self_doc) or ""
     peers: list[dict[str, str]] = []
     try:
         catalog = get_open_documents(uno_ctx, self_doc)
@@ -317,10 +299,7 @@ def resolve_peer_target(
 
     self_uid = ""
     if self_doc is not None:
-        try:
-            self_uid = get_runtime_uid(self_doc) or ""
-        except Exception:
-            self_uid = ""
+        self_uid = get_runtime_uid(self_doc) or ""
 
     model = None
     try:
@@ -353,11 +332,7 @@ def resolve_peer_target(
             return None, "PEER_SELF", "Cannot send a peer message to the same document."
         return None, "PEER_NOT_FOUND", f"No open Writer, Calc, Draw, or Impress peer matches {target!r}."
 
-    peer_uid = ""
-    try:
-        peer_uid = get_runtime_uid(model) or ""
-    except Exception:
-        peer_uid = ""
+    peer_uid = get_runtime_uid(model) or ""
     if self_uid and peer_uid and self_uid == peer_uid:
         return None, "PEER_SELF", "Cannot send a peer message to the same document."
     if self_doc is not None and (not self_uid or not peer_uid) and uno_same(self_doc, model):

@@ -120,12 +120,9 @@ _SHARED_WORKER_RESTART_HINT = " Shared Python process restarted (all workbooks).
 
 def _clear_host_state_after_worker_death() -> None:
     """IPC is desynced after a kill; drop add-in scalar cache so the next turn is cold."""
-    try:
-        from plugin.calc.python.function import clear_python_addin_cache
+    from plugin.calc.python.function import clear_python_addin_cache
 
-        clear_python_addin_cache()
-    except Exception:
-        log.debug("venv_worker: clear_python_addin_cache after death failed", exc_info=True)
+    clear_python_addin_cache()
 
 
 def _worker_error_message(exc: BaseException) -> str:
