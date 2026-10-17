@@ -219,7 +219,11 @@ def test_writer_graphic_object_get_size_uno(ctx, doc):
     names = [n for n in doc.getGraphicObjects().getElementNames() if n not in before]
     assert names, "expected an inserted graphic"
     graphic = doc.getGraphicObjects().getByName(names[0])
-    size = graphic.getSize()
-    assert size.Width > 0
-    assert size.Height > 0
+    try:
+        size = graphic.getSize()
+        assert size.Width > 0
+        assert size.Height > 0
+    finally:
+        # Pooled doc: do not leave the image for later tests.
+        graphic.dispose()
 

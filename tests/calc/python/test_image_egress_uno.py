@@ -19,9 +19,14 @@ def test_calc_page_anchored_shape_anchor_read_uno(ctx, doc):
     draw_page = sheet.getDrawPage()
     shape = doc.createInstance("com.sun.star.drawing.GraphicObjectShape")
     draw_page.add(shape)
-    anchor = shape.getPropertyValue("Anchor")
-    assert anchor is not None
-    # A page-anchored shape's Anchor in Calc is the sheet itself, which has getRangeAddress().
-    key = _cell_address_key(anchor)
-    assert key is not None
-    assert key[0] == 0  # Sheet index 0
+    # The calc doc is pooled: a leftover shape grows sheet 0's used area and
+    # breaks later used-range tests (calc.test_duckdb_tools_uno).
+    try:
+        anchor = shape.getPropertyValue("Anchor")
+        assert anchor is not None
+        # A page-anchored shape's Anchor in Calc is the sheet itself, which has getRangeAddress().
+        key = _cell_address_key(anchor)
+        assert key is not None
+        assert key[0] == 0  # Sheet index 0
+    finally:
+        draw_page.remove(shape)
