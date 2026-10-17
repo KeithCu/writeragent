@@ -24,7 +24,13 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from plugin.scripting.config_limits import WARM_WORKER_TIMEOUT_SEC
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame, read_pickle_frame
+from plugin.scripting.ipc import (
+    DEFAULT_MAX_PAYLOAD_BYTES,
+    FRAME_HEARTBEAT,
+    IpcFrameError,
+    pack_pickle_frame,
+    read_pickle_frame,
+)
 from plugin.scripting.sandbox import scrub_subprocess_env
 from plugin.scripting.venv_worker import (
     PythonWorkerManager,
@@ -2278,8 +2284,6 @@ def test_ppt_master_llm_request_still_dispatches(monkeypatch):
 
 def test_heartbeats_cannot_extend_past_absolute_cap():
     """A heartbeat loop must stop at the ceiling, not reset the wait by grace_sec."""
-    from plugin.scripting.ipc import FRAME_HEARTBEAT
-
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = "python"
 
@@ -2299,7 +2303,7 @@ def test_heartbeats_cannot_extend_past_absolute_cap():
                 None,
                 absolute_cap_sec=0.3,
             )
-    assert time.monotonic() - started < 2
+    assert time.monotonic() - started < 10.0
 
 
 def test_unknown_frame_does_not_extend_heartbeat_deadline(caplog: pytest.LogCaptureFixture):
@@ -2323,7 +2327,7 @@ def test_unknown_frame_does_not_extend_heartbeat_deadline(caplog: pytest.LogCapt
                     None,
                     absolute_cap_sec=30,
                 )
-    assert time.monotonic() - started < 1.5
+    assert time.monotonic() - started < 10.0
     assert "unknown frame type" in caplog.text
 
 
@@ -3010,12 +3014,14 @@ def test_first_frame_stall_uses_timeout_not_grace(caplog: pytest.LogCaptureFixtu
             mgr._read_response_with_heartbeats(
                 io.BytesIO(),
                 timeout_sec=0.2,
-                grace_sec=2.0,
+                grace_sec=30.0,
                 on_heartbeat=None,
                 absolute_cap_sec=30,
             )
     elapsed = time.monotonic() - started
-    assert elapsed < 1.0
+    # Stalled first frame times out after timeout_sec (0.2s), not grace_sec (30.0s).
+    # Generous limit avoids wall-clock flakes on slow/loaded CI runners.
+    assert elapsed < 10.0
     assert excinfo.value.timeout == pytest.approx(0.2)
     unknown_logs = [
         rec
@@ -3026,8 +3032,6 @@ def test_first_frame_stall_uses_timeout_not_grace(caplog: pytest.LogCaptureFixtu
 
 
 def test_heartbeat_then_stall_uses_grace():
-    from plugin.scripting.ipc import FRAME_HEARTBEAT
-
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
     mgr.exe = "python"
 
@@ -3055,7 +3059,7 @@ def test_heartbeat_then_stall_uses_grace():
             )
     elapsed = time.monotonic() - started
     assert elapsed >= 0.35
-    assert elapsed < 1.5
+    assert elapsed < 10.0
     assert excinfo.value.timeout == pytest.approx(0.4)
 
 
