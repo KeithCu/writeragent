@@ -811,10 +811,6 @@ class DocumentService(ServiceBase):
         """Yield to the UI event loop (no-op here)."""
         pass
 
-    def annotate_pages(self, children: Any, doc: Any) -> None:
-        """Annotate tree children with page numbers (no-op here)."""
-        pass
-
     def find_paragraph_element(self, doc: Any, para_index: int) -> tuple[Any, None]:
         """Return (paragraph_element, None) for the given index, or (None, None) if out of range."""
         ranges = _get_paragraph_ranges(doc)

@@ -262,7 +262,6 @@ class TreeService(ServiceBase):
             enum.nextElement()
             total += 1
 
-
         page_count = self._doc_svc.get_page_count(doc)
 
         return {"status": "ok", "content_strategy": content_strategy, "depth": depth, "children": children, "body_before_first_heading": tree["body_paragraphs"], "total_paragraphs": total, "page_count": page_count}
