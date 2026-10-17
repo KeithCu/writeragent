@@ -33,7 +33,7 @@ from plugin.framework.tool import ToolBase
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.doc.text_helpers import get_string_without_tracked_deletions
+from plugin.doc.text_helpers import build_heading_tree, get_string_without_tracked_deletions
 
 log = logging.getLogger("writeragent.writer")
 
@@ -95,45 +95,20 @@ def _count_headings(nodes: Any) -> int:
 
 def collect_document_stats(doc: Any, doc_svc: Any) -> dict[str, Any]:
     """Character/word/paragraph/page/heading counts for a Writer document."""
-    from plugin.doc.text_helpers import build_heading_tree
+    text_obj = doc.getText()
+    cursor = text_obj.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEnd(True)
+    full_text = get_string_without_tracked_deletions(cursor)
+    char_count = len(full_text)
+    word_count = len(full_text.split())
 
-    try:
-        text_obj = doc.getText()
-        cursor = text_obj.createTextCursor()
-        cursor.gotoStart(False)
-        cursor.gotoEnd(True)
-        full_text = get_string_without_tracked_deletions(cursor)
-        char_count = len(full_text)
-        word_count = len(full_text.split())
-    except Exception:
-        char_count = doc_svc.get_document_length(doc)
-        word_count = 0
+    para_count = len(doc_svc.get_paragraph_ranges(doc))
 
-    try:
-        para_ranges = doc_svc.get_paragraph_ranges(doc)
-        para_count = len(para_ranges)
-    except Exception:
-        para_count = 0
+    tree = build_heading_tree(doc)
+    heading_count = _count_headings(tree.get("children", []))
 
-    try:
-        tree = build_heading_tree(doc)
-        heading_count = _count_headings(tree.get("children", []))
-    except Exception as exc:
-        from plugin.framework.errors import reraise_if_disposed
-        # A closed document is not a document with zero headings.
-        reraise_if_disposed(exc, object_type="Document")
-        heading_count = 0
-
-    page_count = 0
-    try:
-        page_count = doc_svc.get_page_count(doc)
-    except Exception:
-        try:
-            vc = doc.getCurrentController().getViewCursor()
-            vc.jumpToLastPage()
-            page_count = vc.getPage()
-        except Exception:
-            pass
+    page_count = doc_svc.get_page_count(doc)
 
     return {
         "character_count": char_count,

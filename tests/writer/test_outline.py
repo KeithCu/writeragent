@@ -4,8 +4,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.errors import DocumentDisposedError
 import plugin.writer.outline as outline
-from plugin.writer.outline import GetDocumentTree
+from plugin.writer.outline import GetDocumentTree, collect_document_stats
 
 
 def test_model_facing_docstring_uses_strategy_parameter():
@@ -46,17 +47,15 @@ class TestGetDocumentTreeMergedStats:
 
 
 def test_collect_document_stats_disposal_is_not_zero_headings():
-    from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer.outline import collect_document_stats
-
     doc = MagicMock()
-    doc.getText.return_value.createTextCursor.return_value.gotoEnd.side_effect = RuntimeError("skip chars")
+    doc.getText.return_value.createTextCursor.return_value.getString.return_value = ""
     doc_svc = MagicMock()
-    doc_svc.get_document_length.return_value = 1
     doc_svc.get_paragraph_ranges.return_value = []
     doc_svc.get_page_count.return_value = 1
-    with patch("plugin.writer.outline.get_string_without_tracked_deletions", side_effect=RuntimeError("no text")), \
-         patch("plugin.doc.text_helpers.build_heading_tree", side_effect=DocumentDisposedError("closed", object_type="Document")):
+    with patch(
+        "plugin.writer.outline.build_heading_tree",
+        side_effect=DocumentDisposedError("closed", object_type="Document"),
+    ):
         with pytest.raises(DocumentDisposedError):
             collect_document_stats(doc, doc_svc)
 
