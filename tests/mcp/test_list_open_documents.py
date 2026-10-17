@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock, patch
+from plugin.doc.document_research import get_open_documents
 from plugin.doc.document_research_tools import ListOpenDocuments
 from plugin.framework.tool import ToolRegistry
 
@@ -97,19 +98,38 @@ def test_list_open_documents_execute():
 
 def test_get_open_documents_magicmock_enum_does_not_hang():
     """Default MagicMock.hasMoreElements() is always truthy; must not spin."""
-    from plugin.doc.document_research import get_open_documents
-
     desktop = MagicMock()
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         docs = get_open_documents(MagicMock(), active_model=None)
     assert docs == []
 
 
+def test_get_open_documents_sal_bool_one_is_listed():
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///home/user/doc.odt"
+    doc.getController.return_value = None
+    doc.RuntimeUID = "uid-1"
+    doc.isModified.return_value = False
+    doc.supportsService.return_value = True
+
+    desktop = MagicMock()
+    enum = MagicMock()
+    calls = [1, False]
+    enum.hasMoreElements.side_effect = lambda: calls.pop(0)
+    enum.nextElement.return_value = doc
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+
+    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop), \
+         patch("plugin.doc.document_research._system_path_from_url", return_value="/home/user/doc.odt"):
+        docs = get_open_documents(MagicMock(), active_model=None)
+
+    assert len(docs) == 1
+    assert docs[0]["url"] == "file:///home/user/doc.odt"
+
+
 def test_get_open_documents_lists_untitled_even_when_type_lookup_fails():
     """D5: an untitled doc (no URL) must never be dropped from the listing on a type-lookup error --
     its uid is the only handle a caller can target it by. It's listed with doc_type 'unknown'."""
-    from plugin.doc.document_research import get_open_documents
-
     untitled = MagicMock()
     untitled.getURL.return_value = ""
     untitled.getController.return_value = None
@@ -135,8 +155,6 @@ def test_get_open_documents_lists_untitled_even_when_type_lookup_fails():
 def test_get_open_documents_skips_non_office_document_components():
     """The Start Center (and similar) are live components but not OfficeDocuments — same filter as
     MCP's _real_active_document so list_open_documents never advertises untargetable entries."""
-    from plugin.doc.document_research import get_open_documents
-
     real_doc = MagicMock()
     real_doc.getURL.return_value = "file:///home/user/doc.odt"
     real_doc.getController.return_value = None

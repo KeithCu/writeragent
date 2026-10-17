@@ -591,8 +591,8 @@ class ApplyDocumentContent(ToolBase):
             undo_title = next_agent_edit_undo_title()
             try:
                 undo = doc.getUndoManager()
-                # `is True`: MagicMock isLocked() is truthy and must not look locked.
-                if undo is None or undo.isLocked() is True:
+                locked = undo.isLocked() if undo is not None else None
+                if undo is None or (locked is True or (type(locked) is int and locked == 1)):
                     raise RuntimeError("undo manager is locked")
                 undo.enterUndoContext(undo_title)
             except Exception as exc:

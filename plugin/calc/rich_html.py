@@ -76,11 +76,11 @@ def _desktop_writer_uids(desktop: Any) -> list[str]:
         enum = desktop.getComponents().createEnumeration()
     except Exception:
         return uids
-    # ``is True``: MagicMock.hasMoreElements() is truthy and would loop.
     n = 0
     while n < 64:
         try:
-            if enum.hasMoreElements() is not True:
+            more = enum.hasMoreElements()
+            if not (more is True or (type(more) is int and more == 1)):
                 break
             component = enum.nextElement()
         except Exception:

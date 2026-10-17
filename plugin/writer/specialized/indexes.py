@@ -413,15 +413,12 @@ def _paragraph_string(cursor: Any) -> str:
 
 
 def _enum_has_more(enum: Any) -> bool:
-    """True only when ``hasMoreElements()`` is True.
-
-    ``if not enum.hasMoreElements()`` never stops on pytest MagicMock (the
-    return is another mock). Same rule as ``hyperlink_fixup._enum_has_more``.
-    """
+    """True when ``hasMoreElements()`` is sal_Bool True or 1."""
     try:
-        return enum.hasMoreElements() is True
+        more = enum.hasMoreElements()
     except Exception:
         return False
+    return more is True or (type(more) is int and more == 1)
 
 
 def resolve_toc(doc: Any, index: Any) -> tuple[Any | None, str | None]:

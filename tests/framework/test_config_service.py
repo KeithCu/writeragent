@@ -1,5 +1,15 @@
+import ast
+import inspect
+from typing import Any
 import pytest
-from plugin.framework.config_service import ConfigService, ConfigAccessError
+import plugin.framework.client.model_fetcher as model_fetcher_mod
+import plugin.framework.config_service as config_service_mod
+from plugin.framework.config_service import (
+    ConfigAccessError,
+    ConfigService,
+    _dummy_impl,
+    _uno_service_implementation_decorator,
+)
 from plugin.framework.event_bus import EventBus
 
 @pytest.fixture
@@ -447,13 +457,33 @@ def test_ai_request_timeout_and_mcp_port_share_one_file(config_svc, config_dir, 
 
 
 def test_model_fetcher_is_not_a_top_level_import() -> None:
-    import ast
-    import inspect
-
-    import plugin.framework.config_service as config_service_mod
-    import plugin.framework.client.model_fetcher as model_fetcher_mod
-
     tree = ast.parse(inspect.getsource(config_service_mod))
     top_level = [node for node in tree.body if isinstance(node, ast.ImportFrom) and node.module and "model_fetcher" in node.module]
     assert top_level == []
     assert "config_service" not in inspect.getsource(model_fetcher_mod)
+
+
+def test_uno_service_implementation_decorator(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeUnohelperMissing:
+        pass
+
+    monkeypatch.setattr("plugin.framework.config_service.unohelper", _FakeUnohelperMissing())
+    assert _uno_service_implementation_decorator() is _dummy_impl
+
+    def fake_impl(name: str, services: Any = ()) -> Any:
+        def deco(cls: Any) -> Any:
+            return cls
+        return deco
+
+    class _FakeUnohelperReal:
+        implementation = staticmethod(fake_impl)
+
+    monkeypatch.setattr("plugin.framework.config_service.unohelper", _FakeUnohelperReal())
+    fn = _uno_service_implementation_decorator()
+    assert fn is fake_impl
+
+    class _Target:
+        pass
+
+    assert fn("foo")(_Target) is _Target
+    assert _dummy_impl("foo")(_Target) is _Target

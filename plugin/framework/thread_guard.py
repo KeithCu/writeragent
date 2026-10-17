@@ -287,15 +287,11 @@ def _is_pyuno(obj: Any) -> bool:
     """Heuristic: is this a real PyUNO object we should guard?"""
     if obj is None:
         return False
-    # Existing test-mock fast-paths used elsewhere in the tree
-    t = type(obj)
-    tname = t.__name__
-    if tname in ("Mock", "MagicMock") or hasattr(obj, "_mock_return_value"):
-        return False
     # Structs (PropertyValue, etc.) are pass-by-value; wrapping them breaks
     # TypeDetection / loadComponentFromURL which require real structs in tuples.
     if hasattr(obj, "__pyunostruct__"):
         return False
+    t = type(obj)
     # Bugfix: do not treat PyUNO_callable as a guardable UNO object.
     # What was wrong: returning True for tp_name "PyUNO_callable"
     # (pyuno/source/module/pyuno_callable.cxx, module builtins, no
@@ -319,8 +315,9 @@ def _is_pyuno(obj: Any) -> bool:
     if "pyuno" in mod:
         return True
     # Many UNO objects support XInterface.queryInterface
-    if hasattr(obj, "queryInterface"):
-        return True
+    for cls in t.__mro__:
+        if "queryInterface" in cls.__dict__:
+            return True
     return False
 
 

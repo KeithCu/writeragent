@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.doc.text_helpers import collect_tracked_changes
+from plugin.framework.errors import DocumentDisposedError
 
 
 def _enum(items):
@@ -26,7 +27,7 @@ def _enum(items):
     return e
 
 
-class _Range:  # not a Mock, so the helper's mock-guard doesn't short-circuit
+class _Range:  # small fake with a finite enum
     def __init__(self, paras):
         self._paras = paras
 
@@ -123,8 +124,6 @@ def test_table_cell_tracked_change_is_listed():
 
 
 def test_collect_tracked_changes_propagates_disposal():
-    from plugin.framework.errors import DocumentDisposedError
-
     class DisposedException(Exception):
         pass
 

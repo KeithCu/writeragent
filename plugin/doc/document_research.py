@@ -322,14 +322,14 @@ def _collect_open_file_urls(
         if not comps:
             return out
         enum = comps.createEnumeration()
-        # Same MagicMock / leftover-component guard as get_open_documents:
-        # a truthy mock or one broken paste Writer must not abort the walk.
+        # Stop unless hasMoreElements() is sal_Bool True or 1.
+        # A non-bool is the end, not another element.
         while enum is not None:
             try:
                 more = enum.hasMoreElements()
             except Exception:
                 break
-            if more is not True and more != 1:
+            if not (more is True or (type(more) is int and more == 1)):
                 break
             try:
                 elem = enum.nextElement()
@@ -799,10 +799,8 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     except Exception as exc:
         reraise_listener_boundary(exc)
     docs = []
-    # Real UNO hasMoreElements() is bool. unittest MagicMock is always truthy
-    # and never becomes False, so `while enum.hasMoreElements()` spun forever.
-    # That wedged unit pytest at ~99% after peer send tools started calling
-    # this from list_v1_peers / chat prompts with ctx=MagicMock().
+    # Stop unless hasMoreElements() is sal_Bool True or 1.
+    # A non-bool is the end, not another element.
     while enum is not None:
         more = False
         try:
@@ -812,7 +810,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
             # enumeration as the documents collected so far, often ``[]``.
             # A runtime error took that path too. Empty is ``more`` false.
             reraise_listener_boundary(exc)
-        if more is not True and more != 1:
+        if not (more is True or (type(more) is int and more == 1)):
             break
         try:
             elem = enum.nextElement()

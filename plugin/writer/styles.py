@@ -1044,9 +1044,10 @@ class ApplyStyle(FrameworkToolBase):
                 mgr = None
                 try:
                     candidate = ctx.doc.getUndoManager()
-                    # `is True`: MagicMock isLocked() is truthy and must not look locked.
-                    if candidate is not None and candidate.isLocked() is not True:
-                        mgr = candidate
+                    if candidate is not None:
+                        locked = candidate.isLocked()
+                        if not (locked is True or (type(locked) is int and locked == 1)):
+                            mgr = candidate
                 except Exception as e:
                     if is_disposed_exception(e):
                         raise

@@ -50,6 +50,20 @@ def _make_pyuno_like():
     return obj
 
 
+def test_is_pyuno():
+    mock_obj = MagicMock()
+    assert tg._is_pyuno(mock_obj) is False
+    mock_obj.queryInterface = MagicMock()
+    assert tg._is_pyuno(mock_obj) is False
+
+    class _WithQueryInterface:
+        def queryInterface(self, type_obj):
+            return self
+
+    assert tg._is_pyuno(_WithQueryInterface()) is True
+    assert tg._is_pyuno(_make_pyuno_like()) is True
+
+
 def test_on_main_thread_detects(monkeypatch):
     # Force current == main
     monkeypatch.setattr(threading, "current_thread", lambda: threading.main_thread())

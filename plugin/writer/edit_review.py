@@ -1138,9 +1138,9 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
 
     A text cursor enumerates paragraphs; a paragraph enumerates portions. Portions
     are leaves — calling ``createEnumeration`` on them is not part of this walk.
-    ``hasMoreElements() is True`` so a MagicMock enum cannot spin. When the walk
-    starts and then fails, the result is True: ``setString`` must not run on a
-    range we could not prove is free of Insert/Delete redlines.
+    The walk continues only while ``hasMoreElements()`` is sal_Bool ``True`` or
+    ``1``. When the walk starts and then fails, the result is True: ``setString``
+    must not run on a range we could not prove is free of Insert/Delete redlines.
     """
     top = _open_enum(text_range)
     if top is None:
@@ -1151,7 +1151,10 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
             "refusing so setString cannot accept an unseen redline")
         return True
     try:
-        while top.hasMoreElements() is True:
+        while True:
+            more = top.hasMoreElements()
+            if not (more is True or (type(more) is int and more == 1)):
+                break
             node = top.nextElement()
             if _is_blocking_redline(node):
                 return True
@@ -1167,7 +1170,10 @@ def range_has_tracked_insert_or_delete(text_range: Any) -> bool:
                 return True
             if sub is None:
                 continue
-            while sub.hasMoreElements() is True:
+            while True:
+                sub_more = sub.hasMoreElements()
+                if not (sub_more is True or (type(sub_more) is int and sub_more == 1)):
+                    break
                 if _is_blocking_redline(sub.nextElement()):
                     return True
     except Exception:

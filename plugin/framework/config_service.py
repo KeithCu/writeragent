@@ -61,25 +61,12 @@ def _dummy_impl(name: str, services: Any = ()) -> Any:
 
 
 def _uno_service_implementation_decorator() -> Callable[..., Any]:
-    """Return UNO's ``unohelper.implementation`` or a no-op when unohelper is mocked.
-
-    Headless pytest loads ``conftest`` before ``plugin.framework.config``; ``unohelper``
-    may be a ``MagicMock``. That exposes a fake ``implementation`` callable, which is
-    not LibreOffice's registration helper and breaks ``ConfigService()`` if used as a
-    class decorator (tests would get nested mocks instead of the real class).
-    """
+    """Return UNO's ``unohelper.implementation`` when it is a real callable, otherwise ``_dummy_impl``."""
     if not unohelper:
         return _dummy_impl
     impl = getattr(unohelper, "implementation", None)
     if impl is None:
         return _dummy_impl
-    try:
-        from unittest.mock import Mock
-
-        if isinstance(impl, Mock):
-            return _dummy_impl
-    except ImportError:
-        pass
     if not callable(impl):
         return _dummy_impl
     return cast("Callable[..., Any]", impl)

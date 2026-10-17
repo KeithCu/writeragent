@@ -960,19 +960,12 @@ def insert_html_at_cursor(
 
 
 def _uno_service_true(obj: Any, service: str) -> bool:
-    """``supportsService`` may return True/1; ignore MagicMock without a side_effect."""
+    """``supportsService`` is true only for sal_Bool True or integer 1."""
     try:
         val = obj.supportsService(service)
     except Exception:
         return False
-    if val is True or val == 1:
-        return True
-    if val is False or val == 0 or val is None:
-        return False
-    # unittest.mock.MagicMock is truthy but not a real UNO answer
-    if type(val).__module__.startswith("unittest.mock"):
-        return False
-    return bool(val)
+    return val is True or (type(val) is int and val == 1)
 
 
 def _selection_is_draw_shape(obj: Any) -> bool:

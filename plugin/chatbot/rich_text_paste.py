@@ -115,8 +115,8 @@ def create_hidden_html_writer(ctx: Any) -> Any | None:
 def _is_writer_text_table(element: Any) -> bool:
     """True for a Writer XTextTable in body enumeration (not a paragraph)."""
     try:
-        # ``is True``: MagicMock.supportsService() is truthy but not the bool True.
-        return element.supportsService("com.sun.star.text.TextTable") is True
+        val = element.supportsService("com.sun.star.text.TextTable")
+        return val is True or (type(val) is int and val == 1)
     except Exception:
         return False
 

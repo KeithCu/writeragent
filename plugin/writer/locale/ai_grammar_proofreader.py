@@ -124,18 +124,15 @@ _TEXT_DOCUMENT_SERVICE = "com.sun.star.text.TextDocument"
 
 
 def _is_text_document(model: Any) -> bool:
-    """True only when UNO reports a Writer model.
-
-    ``supportsService`` on a ``MagicMock`` is truthy but not ``True``. Treating
-    that as a document would bind a fake model during unit tests.
-    """
+    """True only when supportsService is sal_Bool true."""
     if model is None:
         return False
     try:
         supports = getattr(model, "supportsService", None)
         if not callable(supports):
             return False
-        return supports(_TEXT_DOCUMENT_SERVICE) is True
+        val = supports(_TEXT_DOCUMENT_SERVICE)
+        return val is True or (type(val) is int and val == 1)
     except Exception:
         return False
 
@@ -170,15 +167,14 @@ def _open_writer_models(desktop: Any) -> list[Any]:
         return writers
     if enum is None:
         return writers
-    # Real ``hasMoreElements()`` is bool (or 1). A MagicMock stays truthy forever
-    # and would spin the main thread, same guard as ``resolve_document_by_url``.
+    # Stop unless hasMoreElements() is sal_Bool True or 1; cap 64.
     seen = 0
     while seen < 64:
         try:
             more = enum.hasMoreElements()
         except Exception:
             break
-        if more is not True and more != 1:
+        if not (more is True or (type(more) is int and more == 1)):
             break
         seen += 1
         try:
