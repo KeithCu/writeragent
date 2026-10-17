@@ -501,7 +501,7 @@ def test_writer_smol_adapter_marshals_sync_footnotes_tool():
 
     with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
-        result = adapter.forward()
+        result = adapter.forward(note="footnote")
 
     assert result["status"] == "ok"
     mock_main.assert_called_once()

@@ -28,6 +28,7 @@ from plugin.contrib.smolagents.tools import Tool as SmolTool
 from plugin.framework.config import get_api_config, get_config_int
 from plugin.framework.errors import ToolExecutionError, format_error_payload, make_tool_error
 from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.tool import prepare_tool_call
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -123,42 +124,38 @@ class SmolToolAdapter(SmolTool):
         tool = self._inner_tool
         ctx = self._inner_tctx
 
+        # Same schema filter, coercion, validate() and VALIDATION_ERROR payload as
+        # ToolRegistry.execute. forward used to skip them, so a bad enum value
+        # (e.g. position='start') ran the tool instead of returning the valid-value error.
+        prepared = prepare_tool_call(tool, ctx, tool.name or self.name, kwargs)
+        if prepared.error is not None:
+            return prepared.error
+        kwargs = prepared.kwargs
+
         # Refuse before dispatch with the same flag, detects_mutation(), and
         # READ_ONLY_TARGET payload as ToolRegistry.execute. forward used to
         # call ToolBase.execute and skip that check, so a mutating tool ran
         # on a read_only_target context. The field is a bool, so only an
         # explicit True counts.
         if getattr(ctx, "read_only_target", False) is True and tool.detects_mutation():
-            tool_name = tool.name or self.name
-            common_details: dict[str, Any] = {"tool_name": tool_name}
-            caller = getattr(ctx, "caller", None)
-            if caller:
-                common_details["caller"] = caller
-            doc_type = getattr(ctx, "doc_type", None)
-            if doc_type:
-                common_details["doc_type"] = doc_type
-            return make_tool_error(
-                "This document is open for read-only document_research access; writes are not allowed.",
-                code="READ_ONLY_TARGET",
-                **common_details,
-            )
+            return make_tool_error("This document is open for read-only document_research access; writes are not allowed.", code="READ_ONLY_TARGET", **prepared.details)
 
         is_async = getattr(tool, "is_async", lambda: False)()
         if is_async:
             _spec_log.debug("SmolToolAdapter executing async tool '%s' on worker", self.name)
-            if not self._safe:
-                return tool.execute(ctx, **kwargs)
-            return tool.execute_safe(ctx, **kwargs)
+            result = (tool.execute_safe if self._safe else tool.execute)(ctx, **kwargs)
+        else:
+            from plugin.framework.queue_executor import execute_on_main_thread
 
-        from plugin.framework.queue_executor import execute_on_main_thread
-
-        # Note: Even tools that do not strictly require UNO (like Librarian's MemoryTool
-        # or StickyReplyToUserTool) are marshalled to the main thread here if they are sync.
-        # This sync-default policy is intentional and the extra hop is acceptable.
-        _spec_log.debug("SmolToolAdapter executing sync tool '%s' on main thread", self.name)
-        if not self._safe:
-            return execute_on_main_thread(tool.execute, ctx, **kwargs)
-        return execute_on_main_thread(tool.execute_safe, ctx, **kwargs)
+            # Note: Even tools that do not strictly require UNO (like Librarian's MemoryTool
+            # or StickyReplyToUserTool) are marshalled to the main thread here if they are sync.
+            # This sync-default policy is intentional and the extra hop is acceptable.
+            _spec_log.debug("SmolToolAdapter executing sync tool '%s' on main thread", self.name)
+            result = execute_on_main_thread(tool.execute_safe if self._safe else tool.execute, ctx, **kwargs)
+        # Like ToolRegistry.execute: say which arguments were dropped instead of ignoring them silently.
+        if prepared.ignored and isinstance(result, dict):
+            result.setdefault("ignored_parameters", prepared.ignored)
+        return result
 
 
 class WriterAgentSmolModel(Model):
