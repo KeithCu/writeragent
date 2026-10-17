@@ -26,12 +26,7 @@ from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
 from plugin.framework.errors import UnoObjectError, suppress_disposed
 
-try:
-    import uno  # noqa: F401
-    from com.sun.star.lang import IllegalArgumentException
-except (ImportError, AttributeError):
-    from typing import cast
-    IllegalArgumentException = cast("Any", type("IllegalArgumentException", (Exception,), {}))
+from com.sun.star.lang import IllegalArgumentException
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext

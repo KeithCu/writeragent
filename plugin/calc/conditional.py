@@ -27,11 +27,7 @@ from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
 
-try:
-    import uno  # noqa: F401
-    from com.sun.star.lang import IllegalArgumentException
-except (ImportError, AttributeError):
-    IllegalArgumentException = cast("Any", type("IllegalArgumentException", (Exception,), {}))
+from com.sun.star.lang import IllegalArgumentException
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext

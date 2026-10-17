@@ -11,6 +11,7 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.errors import DocumentDisposedError
 from plugin.calc.bridge import filter_agent_sheet_names, is_agent_visible_sheet
 from plugin.calc.sheets import GetSheetSummary, ListSheets
 
@@ -111,8 +112,6 @@ def test_create_sheet_description_and_ok_mentions_no_cells_copied():
 
 
 def test_list_sheets_disposal_is_document_disposed():
-    from plugin.framework.errors import DocumentDisposedError
-
     tool = ListSheets()
     ctx = SimpleNamespace(doc=MagicMock())
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
