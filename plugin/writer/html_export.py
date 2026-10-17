@@ -27,12 +27,14 @@ from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     _visible_portions as _shared_visible_portions,
 )
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import new_blank_writer, uno_same
 from . import xhtml_style_postprocess as xhtml_post
 from . import format as format_mod
 
 log = logging.getLogger("writeragent.writer")
+# uno_read default where None is a real UNO result.
+_FAILED: Any = object()
 
 
 class _RubySpan:
@@ -217,9 +219,8 @@ def inject_ruby_into_html(html: str, spans: list[Any]) -> str:
 
 def _iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
     """Yield paragraphs under *text_obj*, descending into table cells."""
-    try:
-        enum = text_obj.createEnumeration()
-    except Exception:
+    enum = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
+    if enum is _FAILED:
         return
     while enum.hasMoreElements() is True:
         try:
@@ -250,9 +251,8 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
     ``Text`` run; the end mark is empty. ``getString()`` on the paragraph is
     base only — reading is not a text field.
     """
-    try:
-        portion_enum = para.createEnumeration()
-    except Exception:
+    portion_enum = uno_read(lambda: para.createEnumeration(), _FAILED)
+    if portion_enum is _FAILED:
         return
     in_delete = False
     in_ruby = False
@@ -277,10 +277,7 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
             continue
         if kind == "Ruby":
             if not in_ruby:
-                try:
-                    reading = str(portion.getPropertyValue("RubyText") or "")
-                except Exception:
-                    reading = ""
+                reading = uno_read(lambda: str(portion.getPropertyValue("RubyText") or ""), "")
                 in_ruby = True
                 base_parts = []
                 base_start = offset
@@ -292,10 +289,7 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
                 reading = ""
                 base_parts = []
             continue
-        try:
-            chunk = portion.getString() or ""
-        except Exception:
-            chunk = ""
+        chunk = uno_read(lambda: portion.getString() or "", "")
         if not chunk:
             continue
         if in_ruby:
@@ -473,10 +467,7 @@ def _source_style(model: Any, style_name: str, cache: dict[str, Any]) -> Any:
         return cache[style_name]
     style = None
     if style_name:
-        try:
-            style = model.getStyleFamilies().getByName("ParagraphStyles").getByName(style_name)
-        except Exception:
-            style = None
+        style = uno_read(lambda: model.getStyleFamilies().getByName("ParagraphStyles").getByName(style_name), None)
     cache[style_name] = style
     return style
 
@@ -571,10 +562,7 @@ def _hyperlink_urls(portions: list[tuple[Any, str]], trim_start: int, trim_end: 
         offset = chunk_end
         if max(chunk_start, trim_start) >= min(chunk_end, trim_end):
             continue
-        try:
-            url = str(portion.getPropertyValue("HyperLinkURL") or "")
-        except Exception:
-            url = ""
+        url = uno_read(lambda: str(portion.getPropertyValue("HyperLinkURL") or ""), "")
         if not url:
             previous = None
             continue
@@ -604,10 +592,7 @@ def _restore_anchor_hrefs(content: str, urls: list[str]) -> str:
 
 def _starts_before(text: Any, left: Any, right: Any) -> bool:
     """True when *left* is strictly before *right* (``compareRegionStarts`` == 1)."""
-    try:
-        return int(text.compareRegionStarts(left, right)) == 1
-    except Exception:
-        return False
+    return uno_read(lambda: int(text.compareRegionStarts(left, right)) == 1, False)
 
 
 def _starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
@@ -620,10 +605,7 @@ def _starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
 
 def _ends_after(text: Any, left: Any, right: Any) -> bool:
     """True when *left* ends strictly after *right* (``compareRegionEnds`` == -1)."""
-    try:
-        return int(text.compareRegionEnds(left, right)) == -1
-    except Exception:
-        return False
+    return uno_read(lambda: int(text.compareRegionEnds(left, right)) == -1, False)
 
 
 def _element_overlaps(text: Any, element: Any, source: Any) -> bool:
@@ -1023,19 +1005,13 @@ def _raise_if_empty_export(model: Any, content: str, why: str) -> None:
     """Raise when an export produced nothing although the document has text."""
     if content and content.strip():
         return
-    try:
-        has_text = bool(model.getText().getString().strip())
-    except Exception:
-        has_text = True
+    has_text = uno_read(lambda: bool(model.getText().getString().strip()), True)
     if has_text:
         raise ToolExecutionError(why)
 
 
 def _supports_service(obj: Any, name: str) -> bool:
-    try:
-        return bool(obj.supportsService(name))
-    except Exception:
-        return False
+    return uno_read(lambda: bool(obj.supportsService(name)), False)
 
 
 def _goto_doc_end(doc: Any) -> None:
@@ -1047,20 +1023,14 @@ def _goto_doc_end(doc: Any) -> None:
 
 def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any) -> bool:
     """Recreate *src_field* in *dest_doc* (used for table-cell fields)."""
-    services = []
-    try:
-        services = [
-            s for s in src_field.getSupportedServiceNames()
-            if str(s).startswith("com.sun.star.text.textfield.")
-        ]
-    except Exception:
+    services = uno_read(lambda: [s for s in src_field.getSupportedServiceNames() if str(s).startswith("com.sun.star.text.textfield.")], _FAILED)
+    if services is _FAILED:
         return False
     if not services:
         return False
     svc = sorted(services, key=len)[-1]
-    try:
-        new_field = dest_doc.createInstance(svc)
-    except Exception:
+    new_field = uno_read(lambda: dest_doc.createInstance(svc), _FAILED)
+    if new_field is _FAILED:
         return False
     # Page-style clone copies header/footer fields through this helper
     # (test_copy_page_style_clones_next_page_number_and_roman). The old XHTML
@@ -1133,10 +1103,7 @@ def _copy_cell_xtext(src_doc: Any, src_cell: Any, dest_doc: Any, dest_cell: Any)
                     continue
                 _copy_field_into(dest_doc, dest_text, dest_cursor, field)
             else:
-                try:
-                    chunk = portion.getString()
-                except Exception:
-                    chunk = ""
+                chunk = uno_read(lambda: portion.getString(), "")
                 if chunk:
                     dest_text.insertString(dest_cursor, chunk, False)
 
@@ -1198,16 +1165,8 @@ def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
     and must not inflate dest size. The parser is not used to rebuild a
     read-path matrix.
     """
-    try:
-        rows = int(table.getRows().getCount())
-        cols = int(table.getColumns().getCount())
-    except Exception:
-        rows, cols = 0, 0
-    names: list[str]
-    try:
-        names = list(table.getCellNames() or ())
-    except Exception:
-        names = []
+    rows, cols = uno_read(lambda: (int(table.getRows().getCount()), int(table.getColumns().getCount())), (0, 0))
+    names: list[str] = uno_read(lambda: list(table.getCellNames() or ()), [])
     max_row = max(rows - 1, 0)
     max_col = max(cols - 1, 0)
     for cell_name in names:
@@ -1317,10 +1276,7 @@ def _copy_xtext_by_portions(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
                     continue
                 _copy_field_into(dest_doc, dest_text, dest_cursor, field)
             elif kind == "Text":
-                try:
-                    chunk = portion.getString()
-                except Exception:
-                    chunk = ""
+                chunk = uno_read(lambda: portion.getString(), "")
                 if not chunk:
                     continue
                 start = dest_cursor.getStart()
@@ -1330,10 +1286,7 @@ def _copy_xtext_by_portions(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
                 _copy_properties(portion, run, _COPIED_CHAR_PROPERTIES)
                 dest_cursor.gotoRange(run.getEnd(), False)
             else:
-                try:
-                    chunk = portion.getString()
-                except Exception:
-                    chunk = ""
+                chunk = uno_read(lambda: portion.getString(), "")
                 if chunk:
                     dest_text.insertString(dest_cursor, chunk, False)
         para_cursor = dest_text.createTextCursor()
@@ -1433,10 +1386,7 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
                     fields_copied += 1
                 cursor.gotoEnd(False)
             elif kind == "Text":
-                try:
-                    chunk = portion.getString()
-                except Exception:
-                    chunk = ""
+                chunk = uno_read(lambda: portion.getString(), "")
                 if not chunk:
                     continue
                 start = cursor.getStart()
@@ -1465,6 +1415,14 @@ _ANCHORED_GRAPHIC_PROPS = (
     "VertOrient", "VertOrientPosition", "VertOrientRelation",
     "HyperLinkURL", "HyperLinkTarget", "Title", "Description",
 )
+
+
+def _anchor_offset(src_text: Any, anchor: Any) -> int:
+    """Visible-text offset of *anchor* in *src_text*."""
+    measure = src_text.createTextCursor()
+    measure.gotoStart(False)
+    measure.gotoRange(anchor.getStart(), True)
+    return len(measure.getString() or "")
 
 
 def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
@@ -1510,16 +1468,9 @@ def _copy_anchored_graphics(src_doc: Any, src_text: Any, dest_doc: Any) -> None:
                     log.debug("_copy_anchored_graphics: skip %s", prop)
             cursor = dest_text.createTextCursor()
             cursor.gotoStart(False)
-            offset = 0
-            try:
-                measure = src_text.createTextCursor()
-                measure.gotoStart(False)
-                measure.gotoRange(anchor.getStart(), True)
-                offset = len(measure.getString() or "")
-            except Exception:
-                # A bad anchor still inserts the logo at the start. Dropping
-                # it here would hide the letterhead.
-                offset = 0
+            # A bad anchor still inserts the logo at the start. Dropping
+            # it here would hide the letterhead.
+            offset = uno_read(lambda: _anchor_offset(src_text, anchor), 0)
             if offset:
                 cursor.goRight(offset, False)
             dest_text.insertTextContent(cursor, clone, False)

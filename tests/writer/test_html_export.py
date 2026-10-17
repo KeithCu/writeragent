@@ -696,3 +696,35 @@ def test_copy_xtext_into_doc_does_not_select_and_clones_graphic():
     dest_text.insertTextContent.assert_called()
 
 
+
+
+def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.html_export import _raise_if_empty_export, _supports_service, _writer_table_copy_layout
+
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    closed = MagicMock()
+    closed.supportsService.side_effect = DisposedException("closed")
+    with pytest.raises(DocumentDisposedError):
+        _supports_service(closed, "com.sun.star.text.TextTable")
+
+    odd = MagicMock()
+    odd.supportsService.side_effect = RuntimeException("uno")
+    assert _supports_service(odd, "com.sun.star.text.TextTable") is False
+
+    # A failed text read still counts as "has text" and the export error is raised.
+    model = MagicMock()
+    model.getText.side_effect = RuntimeException("uno")
+    with pytest.raises(Exception, match="empty"):
+        _raise_if_empty_export(model, "", "empty")
+
+    table = MagicMock()
+    table.getRows.side_effect = RuntimeException("uno")
+    table.getCellNames.return_value = ()
+    rows, cols, names = _writer_table_copy_layout(table)
+    assert (rows, cols, names) == (1, 1, [])
