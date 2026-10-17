@@ -316,10 +316,9 @@ class TestSendDispose:
         posted: list[Any] = []
         get_tools = MagicMock(return_value=tools)
         with (
-            patch("plugin.main._initialized", False),
             patch("plugin.main.get_tools", get_tools),
-            patch("plugin.framework.thread_guard.on_python_main_thread", return_value=False),
-            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: posted.append(fn)),
+            patch.object(SendButtonListener, "_mcp_subscribe_must_defer", return_value=True),
+            patch.object(SendButtonListener, "_post_to_main_thread", side_effect=posted.append),
             patch("plugin.framework.event_bus.global_event_bus", grammar_bus),
         ):
             listener = _make_send_listener()
@@ -334,14 +333,26 @@ class TestSendDispose:
             listener.disposing(None)
             assert not _live_bus_callbacks(local_bus, "mcp:request")
 
+    @pytest.mark.parametrize(
+        ("initialized", "py_main", "expected"),
+        [(True, False, False), (False, True, False), (False, False, True)],
+    )
+    def test_mcp_subscribe_must_defer_decision(self, initialized: bool, py_main: bool, expected: bool) -> None:
+        fake_main = MagicMock()
+        fake_main._initialized = initialized
+        with (
+            patch.dict(sys.modules, {"plugin.main": fake_main}),
+            patch("plugin.framework.thread_guard.on_python_main_thread", return_value=py_main),
+        ):
+            assert SendButtonListener._mcp_subscribe_must_defer() is expected
+
     def test_deferred_mcp_subscribe_skipped_after_teardown(self) -> None:
         posted: list[Any] = []
         get_tools = MagicMock()
         with (
-            patch("plugin.main._initialized", False),
             patch("plugin.main.get_tools", get_tools),
-            patch("plugin.framework.thread_guard.on_python_main_thread", return_value=False),
-            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: posted.append(fn)),
+            patch.object(SendButtonListener, "_mcp_subscribe_must_defer", return_value=True),
+            patch.object(SendButtonListener, "_post_to_main_thread", side_effect=posted.append),
         ):
             listener = _make_send_listener()
             listener.disposing(None)

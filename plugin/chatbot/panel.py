@@ -689,22 +689,38 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Subscribe to MCP/tool bus events
         try:
             from plugin.framework.event_bus import global_event_bus
-            from plugin.framework.queue_executor import post_to_main_thread
-            from plugin.framework.thread_guard import on_python_main_thread
-            import plugin.main as _main
 
             # get_tools() may have to bootstrap, and bootstrap only runs on the
             # Python main thread. A Chat deck opened by an outside URP dispatch
             # builds this listener on a PyUNO Dummy thread before bootstrap has
             # run, and get_tools() raised BOOTSTRAP_OFF_THREAD here. Defer the
             # MCP subscription to the main thread in that case.
-            if _main._initialized or on_python_main_thread():
-                self._subscribe_mcp_events()
+            if self._mcp_subscribe_must_defer():
+                self._post_to_main_thread(self._subscribe_mcp_events)
             else:
-                post_to_main_thread(self._subscribe_mcp_events)
+                self._subscribe_mcp_events()
             global_event_bus.subscribe("grammar:status", self._on_grammar_status, weak=True)
         except Exception:
             log.exception("SendButtonListener event subscribe error")
+
+    @staticmethod
+    def _mcp_subscribe_must_defer() -> bool:
+        """True when get_tools() could need bootstrap and this is not the Python main thread."""
+        import sys
+
+        from plugin.framework.thread_guard import on_python_main_thread
+
+        # Read the same module object that ``from plugin.main import get_tools`` resolves.
+        main_mod = sys.modules.get("plugin.main")
+        if main_mod is not None and getattr(main_mod, "_initialized", False) is True:
+            return False
+        return not on_python_main_thread()
+
+    @staticmethod
+    def _post_to_main_thread(fn: Any) -> None:
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        post_to_main_thread(fn)
 
     def _subscribe_mcp_events(self) -> None:
         """Join services.events for mcp:request / mcp:result (may bootstrap; main thread)."""
