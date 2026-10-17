@@ -1,8 +1,14 @@
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 import pytest
 
-from unittest.mock import MagicMock
-from plugin.writer.tree import TreeService
+from plugin.doc.document_helpers import UNKNOWN_DOC_KEY
+from plugin.framework.errors import ToolExecutionError
+from plugin.framework.service import ServiceRegistry
 from plugin.tests.testing_utils import ElementStub, WriterDocStub
+from plugin.writer.structural import _ensure_writer_tree
+from plugin.writer.tree import TreeService, _heading_tree_fingerprint
 
 class TestTreeServiceSearch:
     def setup_method(self):
@@ -121,8 +127,6 @@ class TestTreeServiceSearch:
         assert (self.tree_svc._tree_cache) == ({})
 
     def test_unknown_key_is_not_stored(self):
-        from plugin.doc.document_helpers import UNKNOWN_DOC_KEY
-
         self.doc_svc.doc_key.return_value = UNKNOWN_DOC_KEY
         root = self.tree_svc.build_heading_tree(self.doc)
         assert (root["children"][0]["text"]) == ("Introduction")
@@ -148,8 +152,6 @@ class TestTreeServiceSearch:
                 if name == "ListLabelString":
                     return self._list_label
                 return super().getPropertyValue(name)
-
-        from plugin.framework.errors import ToolExecutionError
 
         elements = [
             _Labeled("DOCUMENT 7", 1, "3"),
@@ -263,9 +265,6 @@ def test_ensure_writer_tree_loads_onto_bare_native_context():
     That used to return "writer_nav module not loaded" instead of attaching
     writer_bookmarks and writer_tree, which TreeService's constructor needs.
     """
-    from plugin.framework.service import ServiceRegistry
-    from plugin.writer.structural import _ensure_writer_tree
-
     services = ServiceRegistry()
     services.register("document", MagicMock())
     services.register("events", MagicMock())
@@ -282,3 +281,10 @@ def test_ensure_writer_tree_loads_onto_bare_native_context():
     ctx_missing = MagicMock()
     ctx_missing.services = missing_events
     assert _ensure_writer_tree(ctx_missing) is None
+
+
+def test_heading_tree_fingerprint():
+    doc = SimpleNamespace(CharacterCount=42)
+    assert _heading_tree_fingerprint(doc) == 42
+    doc_none = SimpleNamespace()
+    assert _heading_tree_fingerprint(doc_none) is None

@@ -14,7 +14,13 @@ from com.sun.star.awt import XActionListener
 
 from plugin.framework.uno_context import get_desktop
 from plugin.framework.config import get_config, get_config_str, set_config
-from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, msgbox_with_report
+from plugin.chatbot.dialogs import (
+    get_checkbox_state,
+    get_control_text,
+    load_writeragent_dialog,
+    msgbox,
+    msgbox_with_report,
+)
 from plugin.framework.i18n import _
 from plugin.doc.doc_type import is_writer
 from plugin.writer.math.math_mml_convert import (
@@ -61,18 +67,8 @@ def show_latex_input_dialog(
         class _InsertListener(unohelper.Base, XActionListener):
             def actionPerformed(self, rEvent: Any) -> None:
                 nonlocal _outcome
-                try:
-                    ec = dlg.getControl("LatexEdit")
-                    t = (ec.getModel().Text or "").strip()
-                except Exception:
-                    t = ""
-
-                try:
-                    cb = dlg.getControl("DisplayBlockCheck")
-                    db = (cb.getModel().State == 1)
-                except Exception:
-                    db = False
-
+                t = get_control_text(dlg.getControl("LatexEdit")).strip()
+                db = get_checkbox_state(dlg.getControl("DisplayBlockCheck")) == 1
                 _outcome = [(t, db)]
                 dlg.endDialog(1)
 
@@ -90,10 +86,7 @@ def show_latex_input_dialog(
 
         btn_insert = dlg.getControl("BtnInsert")
         if btn_insert is not None:
-            try:
-                btn_insert.getModel().Label = _("Update") if update else _("Insert")
-            except Exception:
-                log.debug("LatexInputDialog: could not set BtnInsert label", exc_info=True)
+            btn_insert.getModel().Label = _("Update") if update else _("Insert")
             btn_insert.addActionListener(_InsertListener())
         btn_cancel = dlg.getControl("BtnCancel")
         if btn_cancel is not None:
@@ -273,14 +266,11 @@ def insert_latex_math_dialog(ctx: Any) -> None:
 
     except Exception:
         log.exception("insert_latex_math_dialog failed")
-        try:
-            msgbox_with_report(
-                ctx,
-                _("Error"),
-                _("An unexpected error occurred during LaTeX insertion."),
-                box_type=3,
-                reportable=True,
-                report_title="LaTeX insertion failed",
-            )
-        except Exception:
-            pass
+        msgbox_with_report(
+            ctx,
+            _("Error"),
+            _("An unexpected error occurred during LaTeX insertion."),
+            box_type=3,
+            reportable=True,
+            report_title="LaTeX insertion failed",
+        )

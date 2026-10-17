@@ -104,17 +104,11 @@ def _control_value_fields(model: Any) -> dict[str, Any]:
     if hasattr(model, "Text"):
         info["text"] = model.Text
     if hasattr(model, "State"):
-        try:
-            info["state"] = int(model.State)
-        except Exception:
-            pass
+        info["state"] = int(model.State)
     if hasattr(model, "StringItemList"):
         info["items"] = list(model.StringItemList)
     if hasattr(model, "SelectedItems"):
-        try:
-            info["selected"] = list(model.SelectedItems)
-        except Exception:
-            pass
+        info["selected"] = list(model.SelectedItems)
     return info
 
 
@@ -174,13 +168,10 @@ def _next_stacked_position_on_draw_page(dp: Any, default_width: int, default_hei
     gap = 400
     max_bottom = 800
     for i in range(dp.getCount()):
-        try:
-            s = dp.getByIndex(i)
-            pos = s.getPosition()
-            sz = s.getSize()
-            max_bottom = max(max_bottom, pos.Y + sz.Height)
-        except Exception:
-            continue
+        s = dp.getByIndex(i)
+        pos = s.getPosition()
+        sz = s.getSize()
+        max_bottom = max(max_bottom, pos.Y + sz.Height)
     return Point(margin_x, max_bottom + gap)
 
 
@@ -197,10 +188,7 @@ def _calc_cell_content_kind(cell: Any) -> str:
     double can stub the same check. Anything else is unknown: callers must not
     guess, because ``setString`` would replace whatever is really in the cell.
     """
-    try:
-        content_type = cell.getType()
-    except Exception:
-        return ""
+    content_type = cell.getType()
     if content_type is None:
         return ""
     raw = getattr(content_type, "value", None)
@@ -255,10 +243,7 @@ def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
         return
     prev = ""
     if kind == "TEXT":
-        try:
-            prev = cell.getString() or ""
-        except Exception:
-            return
+        prev = cell.getString() or ""
     cell.setString(prev + (text or ""))
 
 

@@ -57,12 +57,9 @@ def _heading_tree_fingerprint(doc: Any) -> int | None:
     ``CharacterCount`` still moves. ``None`` means no signal — keep
     listener-only caching (WriterDocStub / missing property).
     """
-    try:
-        count = getattr(doc, "CharacterCount", None)
-        if count is not None:
-            return int(count)
-    except Exception:
-        pass
+    count = getattr(doc, "CharacterCount", None)
+    if count is not None:
+        return int(count)
     return None
 
 
@@ -265,10 +262,6 @@ class TreeService(ServiceBase):
             enum.nextElement()
             total += 1
 
-        try:
-            self._doc_svc.annotate_pages(children, doc)
-        except Exception:
-            pass
 
         page_count = self._doc_svc.get_page_count(doc)
 

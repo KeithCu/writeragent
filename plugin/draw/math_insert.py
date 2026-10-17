@@ -63,10 +63,9 @@ def _visual_size_to_hundredth_mm(sz: Any, map_unit: int) -> tuple[int, int] | No
 
 
 def _positive_awt_size(sz: Any) -> tuple[int, int] | None:
-    try:
-        w, h = int(sz.Width), int(sz.Height)
-    except Exception:
+    if sz is None:
         return None
+    w, h = sz.Width, sz.Height
     if w <= 0 or h <= 0:
         return None
     return w, h

@@ -8,14 +8,17 @@
 
 """Unit tests for Calc conditional formatting tools (failure modes and error harmonization)."""
 
+import types
 from unittest.mock import MagicMock, patch
 
+import uno
 from com.sun.star.lang import IllegalArgumentException
 
 from plugin.calc.conditional import (
     AddConditionalFormat,
     ListConditionalFormats,
     RemoveConditionalFormats,
+    _entry_to_dict,
     condition_operator_code_to_name,
 )
 
@@ -96,9 +99,6 @@ def test_list_conditional_formats_error_handling():
 
 
 def test_add_conditional_format_operator_path():
-    import types
-    import uno
-
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc
@@ -133,24 +133,21 @@ def test_add_conditional_format_operator_path():
             assert prop_dict_dup["Operator"] == 10
 
 
-def test_entry_to_dict_logs_exceptions(caplog):
-    import logging
-    from plugin.calc.conditional import _entry_to_dict
-
+def test_entry_to_dict():
     entry = MagicMock()
-    entry.queryInterface.side_effect = RuntimeError("boom qi")
-    entry.getOperator.side_effect = RuntimeError("boom op")
-    entry.getFormula1.side_effect = RuntimeError("boom f1")
-    entry.getFormula2.side_effect = RuntimeError("boom f2")
-    entry.getStyleName.side_effect = RuntimeError("boom sn")
+    entry.queryInterface.return_value = None
+    op = MagicMock()
+    op.value = "GREATER"
+    entry.getOperator.return_value = op
+    entry.getFormula1.return_value = "5"
+    entry.getFormula2.return_value = "0"
+    entry.getStyleName.return_value = "Result"
 
-    with caplog.at_level(logging.DEBUG, logger="writeragent.calc"):
-        d = _entry_to_dict(entry, 0)
-    assert d == {"index": 0}
-    # Release strips log.debug; the empty dict above is the behavior that must survive.
-    from plugin.calc import conditional as conditional_mod
-    from tests.harness.strip_bundle import module_source_contains
-
-    if module_source_contains(conditional_mod, "Failed getting operator"):
-        assert any("Failed getting operator" in record.message for record in caplog.records)
+    d = _entry_to_dict(entry, 0)
+    assert d == {
+        "index": 0,
+        "operator": "GREATER",
+        "formula1": "5",
+        "style": "Result",
+    }
 

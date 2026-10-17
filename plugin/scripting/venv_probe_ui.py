@@ -118,10 +118,7 @@ class VenvProbeProgressDialog:
             raise RuntimeError("Failed to load PythonTestProgressDialog")
         self._dlg = dlg
         if title:
-            try:
-                dlg.getModel().Title = _(title)
-            except Exception:
-                log.debug("Failed to set venv probe progress title", exc_info=True)
+            dlg.getModel().Title = _(title)
         btn_close = dlg.getControl("BtnClose")
         if btn_close is not None:
             # Bugfix: Close was clickable during the probe, so execute() returned and

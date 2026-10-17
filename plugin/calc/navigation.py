@@ -134,18 +134,9 @@ def portion_cell_href(portion: Any) -> str | None:
     if portion is None:
         return None
     for prop in ("HyperLinkURL", "HyperlinkURL", "HYPERLINK"):
-        try:
-            url = getattr(portion, prop, None)
-        except Exception:
-            url = None
+        url = getattr(portion, prop, None)
         if isinstance(url, str) and url and ("cell://" in url.lower() or WRITERAGENT_CELL_URL_PREFIX in url.lower()):
             return url
-    try:
-        url = portion.getPropertyValue("HyperLinkURL")
-        if isinstance(url, str) and url and ("cell://" in url.lower() or WRITERAGENT_CELL_URL_PREFIX in url.lower()):
-            return url
-    except Exception:
-        pass
     return None
 
 
@@ -153,11 +144,7 @@ def portion_looks_like_cell_link(portion: Any, text: str) -> bool:
     """True when *text* is a cell address and the portion is underlined like a hyperlink."""
     if not text or normalize_cell_address(text.strip()) is None:
         return False
-    try:
-        underline = int(getattr(portion, "CharUnderline", 0) or 0)
-        return underline != 0
-    except (TypeError, ValueError):
-        return False
+    return int(getattr(portion, "CharUnderline", 0) or 0) != 0
 
 
 def register_cell_link_span(control: Any, start: int, end: int, address: str) -> None:
@@ -280,12 +267,9 @@ def _click_text_index(control: Any, x: int, y: int) -> int | None:
     model = control.getModel() if control is not None and hasattr(control, "getModel") else None
     if model is not None:
         for prop in ("SelectionStart", "Selection"):
-            try:
-                idx = getattr(model, prop, None)
-                if isinstance(idx, int) and idx >= 0:
-                    return idx
-            except Exception:
-                pass
+            idx = getattr(model, prop, None)
+            if isinstance(idx, int) and idx >= 0:
+                return idx
     return _char_index_at_point(control, x, y)
 
 

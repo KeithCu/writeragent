@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for Calc formula evaluation messages (no soffice)."""
 
-from plugin.calc.formulas import FORMULA, EvaluateFormula, formula_evaluation_error_message
+from plugin.calc.formulas import FORMULA, VALUE, EvaluateFormula, formula_evaluation_error_message
 from plugin.framework.tool import ToolContext
 
 
@@ -44,8 +44,6 @@ class _EvalCell:
         self.formulas.append(formula)
 
     def getType(self):
-        from plugin.calc.formulas import VALUE
-
         return VALUE if self.kind is None else self.kind
 
     def getValue(self):

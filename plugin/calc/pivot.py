@@ -126,15 +126,12 @@ def _cell_address(sheet_idx: int, cell_str: str) -> Any:
 
 def _find_pivot_table_document_wide(doc: Any, pivot_name: str) -> tuple[Any | None, Any | None]:
     """Find a pivot table object and its containing sheet across all sheets in a Calc document."""
-    try:
-        sheets = doc.getSheets()
-        for name in sheets.getElementNames():
-            sheet = sheets.getByName(name)
-            dp_tables = _get_dp_tables(sheet)
-            if dp_tables.hasByName(pivot_name):
-                return dp_tables.getByName(pivot_name), sheet
-    except Exception:
-        pass
+    sheets = doc.getSheets()
+    for name in sheets.getElementNames():
+        sheet = sheets.getByName(name)
+        dp_tables = _get_dp_tables(sheet)
+        if dp_tables.hasByName(pivot_name):
+            return dp_tables.getByName(pivot_name), sheet
     return None, None
 
 

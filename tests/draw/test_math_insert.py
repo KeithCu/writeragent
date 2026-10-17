@@ -4,7 +4,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from types import SimpleNamespace
 
-from plugin.draw.math_insert import _try_ole_shape_content_size_hmm, _uno_ctx_from_tool_ctx
+from plugin.draw.math_insert import (
+    _positive_awt_size,
+    _try_ole_shape_content_size_hmm,
+    _uno_ctx_from_tool_ctx,
+)
 
 
 def test_uno_ctx_from_tool_ctx_uses_inner_ctx() -> None:
@@ -68,3 +72,11 @@ def test_content_size_is_none_without_draw_size_properties() -> None:
             return None
 
     assert _try_ole_shape_content_size_hmm(Shape()) is None
+
+
+def test_positive_awt_size() -> None:
+    assert _positive_awt_size(None) is None
+    assert _positive_awt_size(_AwtSize(0, 10)) is None
+    assert _positive_awt_size(_AwtSize(10, 0)) is None
+    assert _positive_awt_size(_AwtSize(-5, 10)) is None
+    assert _positive_awt_size(_AwtSize(100, 200)) == (100, 200)

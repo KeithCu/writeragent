@@ -50,41 +50,26 @@ def _entry_to_dict(entry: Any, idx: int) -> dict[str, Any]:
     result: dict[str, Any] = {"index": idx}
     op_name: str | None = None
     op_code: int | None = None
-    try:
-        xc2 = _query_interface(entry, "com.sun.star.sheet.XSheetCondition2")
-        if xc2 is not None:
-            op_code = int(xc2.getConditionOperator())
-            op_name = condition_operator_code_to_name(op_code)
-    except Exception:
-        log.debug("Failed querying XSheetCondition2 on conditional entry %s", idx, exc_info=True)
+    xc2 = _query_interface(entry, "com.sun.star.sheet.XSheetCondition2")
+    if xc2 is not None:
+        op_code = int(xc2.getConditionOperator())
+        op_name = condition_operator_code_to_name(op_code)
     if op_name is None:
-        try:
-            op = entry.getOperator()
-            op_name = str(op.value) if hasattr(op, "value") else str(op)
-        except Exception:
-            log.debug("Failed getting operator on conditional entry %s", idx, exc_info=True)
+        op = entry.getOperator()
+        op_name = str(op.value) if hasattr(op, "value") else str(op)
     if op_name:
         result["operator"] = op_name
     if op_code is not None:
         result["operator_code"] = op_code
-    try:
-        f1 = entry.getFormula1()
-        if f1:
-            result["formula1"] = f1
-    except Exception:
-        log.debug("Failed getting formula1 on conditional entry %s", idx, exc_info=True)
-    try:
-        f2 = entry.getFormula2()
-        if f2 and f2 != "0":
-            result["formula2"] = f2
-    except Exception:
-        log.debug("Failed getting formula2 on conditional entry %s", idx, exc_info=True)
-    try:
-        sn = entry.getStyleName()
-        if sn:
-            result["style"] = sn
-    except Exception:
-        log.debug("Failed getting style name on conditional entry %s", idx, exc_info=True)
+    f1 = entry.getFormula1()
+    if f1:
+        result["formula1"] = f1
+    f2 = entry.getFormula2()
+    if f2 and f2 != "0":
+        result["formula2"] = f2
+    sn = entry.getStyleName()
+    if sn:
+        result["style"] = sn
 
     return result
 

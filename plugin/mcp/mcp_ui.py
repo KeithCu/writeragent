@@ -93,18 +93,12 @@ class CopyMcpConfigListener(BaseActionListener):
             port_ctrl = get_optional(self._dlg, "mcp__mcp_port")
             port_val = None
             if port_ctrl and hasattr(port_ctrl, "getValue"):
-                try:
-                    port_val = int(port_ctrl.getValue())
-                except Exception:
-                    pass
+                port_val = int(port_ctrl.getValue())
             text = build_mcp_config_snippet(port=port_val)
         if copy_to_clipboard(self._ctx, text):
             copy_btn = get_optional(self._dlg, "mcp__copy_config")
             if copy_btn:
-                try:
-                    copy_btn.getModel().Label = _("✓ Copied!")
-                except Exception:
-                    pass
+                copy_btn.getModel().Label = _("✓ Copied!")
 
 
 def _refresh_active_snippet() -> None:
@@ -225,10 +219,7 @@ def sync_mcp_config_snippet(
     port_val = None
     if port_ctrl:
         if hasattr(port_ctrl, "getValue"):
-            try:
-                port_val = int(port_ctrl.getValue())
-            except Exception:
-                pass
+            port_val = int(port_ctrl.getValue())
         if port_val is None and hasattr(port_ctrl, "getText"):
             try:
                 port_val = int(str(port_ctrl.getText() or "").strip())
@@ -343,10 +334,7 @@ class TestTunnelListener(BaseActionListener):
         port = 18765
         if port_ctrl:
             if hasattr(port_ctrl, "getValue"):
-                try:
-                    port = int(port_ctrl.getValue())
-                except Exception:
-                    pass
+                port = int(port_ctrl.getValue())
             elif hasattr(port_ctrl, "getText"):
                 try:
                     port = int(str(port_ctrl.getText() or "").strip())
@@ -355,11 +343,8 @@ class TestTunnelListener(BaseActionListener):
 
         btn = get_optional(self._dlg, "mcp__test_tunnel")
         if btn:
-            try:
-                btn.getModel().Label = _("Testing…")
-                btn.getModel().Enabled = False
-            except Exception:
-                pass
+            btn.getModel().Label = _("Testing…")
+            btn.getModel().Enabled = False
 
         def _worker() -> None:
             _ok, msg, pub_url = test_tunnel_connectivity(provider=provider, port=port)

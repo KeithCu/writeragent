@@ -3,11 +3,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 from plugin.writer.math.latex_dialog import show_latex_input_dialog  # noqa: E402
-import pytest
 
 
 @pytest.mark.parametrize(
@@ -27,8 +28,6 @@ def test_show_latex_input_dialog_sets_update_label(update, expected) -> None:
 
 def test_latex_dialog_uno_skips_windows_leftover_hidden_mml() -> None:
     """GHA 34675151298: leftover writer reuse then Hidden _blank .mml hung 30s."""
-    from pathlib import Path
-
     src = Path(__file__).with_name("test_latex_dialog_uno.py").read_text(encoding="utf-8")
     assert "skip_windows_leftover_hidden_load" in src
     assert "latex dialog Hidden _blank .mml" in src

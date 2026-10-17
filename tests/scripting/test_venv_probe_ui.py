@@ -6,9 +6,11 @@
 
 from unittest.mock import MagicMock, call, patch
 
+from plugin.framework.i18n import _
 from plugin.scripting.venv_probe_ui import (
     ScriptingVenvTestListener,
     VenvProbeProgressDialog,
+    _dialog_parent_for_child,
 )
 
 
@@ -207,8 +209,6 @@ def test_run_modal_probe_keeps_opening_title_and_appends_log() -> None:
     ):
         progress.run_modal_probe(probe, title="Audio Library Download", append_log=True)
 
-    from plugin.framework.i18n import _
-
     assert model.Title == _("Audio Library Download")
     assert model.Title != "Venv OK"
     assert log_area_texts[-1] == "Target directory: /tmp\nDownloading pack.so\n"
@@ -351,8 +351,6 @@ def test_create_peer_failure_still_returns_dialog() -> None:
 
 
 def test_dialog_parent_for_child_prefers_settings_peer() -> None:
-    from plugin.scripting.venv_probe_ui import _dialog_parent_for_child
-
     parent = MagicMock()
     parent.getPeer.return_value = "settings-peer"
     assert _dialog_parent_for_child(MagicMock(), parent) == "settings-peer"
@@ -360,8 +358,6 @@ def test_dialog_parent_for_child_prefers_settings_peer() -> None:
 
 
 def test_dialog_parent_for_child_falls_back_to_frame() -> None:
-    from plugin.scripting.venv_probe_ui import _dialog_parent_for_child
-
     fake_desktop = MagicMock()
     fake_frame = MagicMock()
     fake_frame.getContainerWindow.return_value = "frame-win"

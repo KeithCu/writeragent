@@ -10,12 +10,16 @@ PyUNO's ``CellContentType`` enum exposes.
 """
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from plugin.writer.specialized.forms import (
     FormCreate,
+    FormCreateControl,
     FormGenerate,
     _append_text_to_calc_active_area,
+    _resolve_form_page,
 )
 
 
@@ -191,14 +195,12 @@ def test_form_generate_ok_when_fields_succeed(monkeypatch):
     assert inserted == ["Hello ", " tail"]
 
 def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
-    from plugin.writer.specialized.forms import FormGenerate
     tool = FormGenerate()
     assert tool.is_async() is True
 
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
 
     ctx = MagicMock()
-    from unittest.mock import patch
 
     with patch("plugin.framework.config.get_api_config"), \
          patch("plugin.framework.client.llm_client.LlmClient"):
@@ -209,9 +211,6 @@ def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
 
 
 def test_resolve_form_page_reraises_disposed(monkeypatch):
-    import pytest
-    from plugin.writer.specialized.forms import _resolve_form_page
-
     class DisposedException(Exception):
         pass
 
@@ -249,8 +248,6 @@ def test_append_text_multi_range_selection_uses_first_range():
 
 
 def test_form_control_create_writer_inserts_on_anchor_host():
-    from plugin.writer.specialized.forms import FormCreateControl
-
     doc = MagicMock()
     body_text = MagicMock(name="body_text")
     doc.getText.return_value = body_text

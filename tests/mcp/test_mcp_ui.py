@@ -8,12 +8,17 @@ import threading
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+from plugin.mcp import mcp_ui
 from plugin.mcp.mcp_ui import (
     CopyMcpConfigListener,
     build_mcp_config_snippet,
     clear_active_settings_dialog,
+    clear_tested_provider_tunnel_url,
+    remember_tested_tunnel_url,
     set_active_settings_dialog,
+    sync_mcp_config_snippet,
 )
+from plugin.mcp.tunnel import TunnelManager
 
 
 class TestMcpUi:
@@ -57,7 +62,6 @@ class TestMcpUi:
     def test_active_settings_dialog_tracking(self):
         dlg = MagicMock()
         set_active_settings_dialog(dlg)
-        from plugin.mcp import mcp_ui
 
         assert (mcp_ui._active_settings_dialog_ref) is (dlg)
 
@@ -91,8 +95,6 @@ def _snippet_url(snippet: MagicMock) -> str:
 
 
 def _reset_tunnel_url_cache() -> None:
-    from plugin.mcp import mcp_ui
-
     mcp_ui._tested_provider_tunnel_urls.clear()
     mcp_ui._retired_provider_tunnel_urls.clear()
     mcp_ui._active_settings_dialog_ref = None
@@ -100,8 +102,6 @@ def _reset_tunnel_url_cache() -> None:
 
 def test_sync_drops_retired_tunnel_url_and_accepts_a_fresh_test() -> None:
     """A stopped/failed provider must not keep its public URL in the snippet."""
-    from plugin.mcp.mcp_ui import clear_tested_provider_tunnel_url, remember_tested_tunnel_url, sync_mcp_config_snippet
-
     _reset_tunnel_url_cache()
     try:
         dlg, snippet = _snippet_dialog()
@@ -121,10 +121,6 @@ def test_sync_drops_retired_tunnel_url_and_accepts_a_fresh_test() -> None:
 
 def test_tunnel_stop_and_failure_clear_snippet_cache(monkeypatch) -> None:
     """Stop, unexpected exit, and a failed start retire the cached public URL."""
-    from plugin.mcp.mcp_ui import sync_mcp_config_snippet
-    from plugin.mcp import mcp_ui
-    from plugin.mcp.tunnel import TunnelManager
-
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     _reset_tunnel_url_cache()
     dlg, snippet = _snippet_dialog()
@@ -189,10 +185,6 @@ def test_tunnel_stop_and_failure_clear_snippet_cache(monkeypatch) -> None:
 
 def test_idle_stop_keeps_a_fresh_test_url(monkeypatch) -> None:
     """stop() on a tunnel that never started must not wipe a Settings Test URL."""
-    from plugin.mcp import mcp_ui
-    from plugin.mcp.mcp_ui import sync_mcp_config_snippet
-    from plugin.mcp.tunnel import TunnelManager
-
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     _reset_tunnel_url_cache()
     try:
@@ -208,8 +200,6 @@ def test_idle_stop_keeps_a_fresh_test_url(monkeypatch) -> None:
 
 def test_refresh_rechecks_dialog_before_applying_snippet() -> None:
     """A dialog closed before the posted lambda runs must not be updated."""
-    from plugin.mcp import mcp_ui
-
     dlg, snippet = _snippet_dialog(tunnel_on=False)
     posted: list = []
 
@@ -238,8 +228,6 @@ def test_refresh_rechecks_dialog_before_applying_snippet() -> None:
 
 def test_snippet_refresh_uses_a_dedicated_thread() -> None:
     """The URL poll must not occupy a shared background-pool worker."""
-    from plugin.mcp import mcp_ui
-
     mcp_ui._mcp_snippet_refresh_scheduled = False
     dlg, _snippet = _snippet_dialog()
     try:
@@ -275,9 +263,6 @@ class _CountingLock:
 
 
 def test_remember_holds_the_cache_lock_across_both_updates() -> None:
-    from plugin.mcp import mcp_ui
-    from plugin.mcp.mcp_ui import remember_tested_tunnel_url
-
     orig_tested = mcp_ui._tested_provider_tunnel_urls
     orig_retired = mcp_ui._retired_provider_tunnel_urls
     orig_lock = mcp_ui._active_settings_dialog_lock
@@ -324,9 +309,6 @@ def test_remember_holds_the_cache_lock_across_both_updates() -> None:
 
 
 def test_clear_refreshes_after_the_cache_lock_is_released(monkeypatch: Any) -> None:
-    from plugin.mcp import mcp_ui
-    from plugin.mcp.mcp_ui import clear_tested_provider_tunnel_url
-
     orig_tested = mcp_ui._tested_provider_tunnel_urls
     orig_retired = mcp_ui._retired_provider_tunnel_urls
     orig_lock = mcp_ui._active_settings_dialog_lock
@@ -367,9 +349,6 @@ def test_clear_refreshes_after_the_cache_lock_is_released(monkeypatch: Any) -> N
 
 
 def test_sync_pops_a_retired_url_under_the_cache_lock(monkeypatch: Any) -> None:
-    from plugin.mcp import mcp_ui
-    from plugin.mcp.mcp_ui import sync_mcp_config_snippet
-
     orig_tested = mcp_ui._tested_provider_tunnel_urls
     orig_retired = mcp_ui._retired_provider_tunnel_urls
     orig_lock = mcp_ui._active_settings_dialog_lock

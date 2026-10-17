@@ -31,13 +31,10 @@ CELL_REF_PATTERN = re.compile(r"\$?([A-Z]+)\$?(\d+)")
 
 try:
     from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR  # type: ignore
-
-    UNO_AVAILABLE = True
 except ImportError:
-    from typing import Any, cast
+    from typing import cast
 
     RESULT_ERROR = cast("Any", 4)
-    UNO_AVAILABLE = False
 
 log = logging.getLogger("writeragent.calc")
 
@@ -112,23 +109,12 @@ class ErrorDetector:
         Returns:
             Error info dict, or empty dict when there is no error.
         """
-        try:
-            error_code = cell.getError()
-            if error_code == 0:
-                return {}
-            if error_code in ERROR_TYPES:
-                return ERROR_TYPES[error_code].copy()
-            return {"code": f"Err:{error_code}", "name": "Unknown error", "description": f"Unknown error code: {error_code}"}
-        except Exception as e:
-            log.debug("Explain error getError exception: %s", e)
-            try:
-                text = cell.getString()
-                for pattern in ERROR_PATTERNS:
-                    if pattern in text:
-                        return {"code": pattern, "name": "Formula error", "description": f"'{pattern}' error detected in the cell."}
-            except Exception as e2:
-                log.debug("Explain error getString exception: %s", e2)
+        error_code = cell.getError()
+        if error_code == 0:
             return {}
+        if error_code in ERROR_TYPES:
+            return ERROR_TYPES[error_code].copy()
+        return {"code": f"Err:{error_code}", "name": "Unknown error", "description": f"Unknown error code: {error_code}"}
 
     def detect_errors(self, range_str: str | None = None) -> list[dict[str, Any]]:
         """Detect errors in the specified range or the entire sheet.
