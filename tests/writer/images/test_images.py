@@ -9,9 +9,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-if "com.sun.star.text" in sys.modules and not hasattr(sys.modules["com.sun.star.text"], "GraphicCrop"):
-    setattr(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock)
-
 from plugin.tests.testing_utils import TestingFactory
 
 from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
@@ -563,7 +560,6 @@ def test_image_replace_size_read_failure_is_tool_execution_error():
     assert res["status"] != "ok"
     assert res.get("code") == "TOOL_EXECUTION_ERROR"
     assert "cannot read size" in res.get("message", "")
-    assert res.get("code") != "SIZE_UNAVAILABLE"
     mock_replace.assert_not_called()
 
 
@@ -639,7 +635,6 @@ def test_image_generate_export_failure_is_tool_execution_error():
     assert res["status"] == "error"
     assert res.get("code") == "TOOL_EXECUTION_ERROR"
     assert "export" in res.get("message", "")
-    assert res.get("code") != "SELECTION_READ_ERROR"
 
 
 def test_image_delete_draw_ambiguous_name():
@@ -1077,7 +1072,6 @@ def test_image_set_properties_size_read_failure_is_tool_execution_error():
     assert res["status"] != "ok"
     assert res.get("code") == "TOOL_EXECUTION_ERROR"
     assert "cannot read size" in res.get("message", "")
-    assert res.get("code") != "SIZE_UNAVAILABLE"
     graphic.setPropertyValue.assert_not_called()
 
 
@@ -1091,12 +1085,9 @@ def test_image_insert_header_failure_is_tool_execution_error():
     assert res["status"] != "ok"
     assert res.get("code") == "TOOL_EXECUTION_ERROR"
     assert "header insert" in res.get("message", "")
-    assert res.get("code") != "INSERT_FAILED"
 
 
 def test_image_crop_bake_failure_is_tool_execution_error():
-    if "com.sun.star.text" in sys.modules and not hasattr(sys.modules["com.sun.star.text"], "GraphicCrop"):
-        setattr(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock)
     ctx = TestingFactory.create_context(doc_type="writer")
     obj = MagicMock()
     size_mock = MagicMock()
@@ -1108,14 +1099,10 @@ def test_image_crop_bake_failure_is_tool_execution_error():
         patch("plugin.writer.images.images.image_mark.pixel_size", return_value=(100, 80)),
         patch("plugin.writer.images.images.image_mark.bake", side_effect=RuntimeError("bake failed")),
         patch("plugin.writer.images.images._object_size", return_value=size_mock),
+        patch.object(sys.modules["com.sun.star.text"], "GraphicCrop", MagicMock, create=True),
     ):
         res = ImageCropAndHighlight().execute_safe(ctx, name="Pic", crop_box=[0, 0, 10, 10])
     assert res["status"] != "ok"
     assert res.get("code") == "TOOL_EXECUTION_ERROR"
     assert "bake failed" in res.get("message", "")
-    assert res.get("code") != "IMAGE_MARK_FAILED"
     obj.setPropertyValue.assert_not_called()
-
-
-
-
