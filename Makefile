@@ -377,15 +377,20 @@ release: clean
 	@echo "Building stripped bundle for verification in a temp dir..."
 	@set -e; \
 	RELEASE_TMP=$$("$(PYTHON)" -c "import tempfile; print(tempfile.mkdtemp(prefix='writeragent-release-'))"); \
-	trap '$(MAKE) -C "$(PROJECT_ROOT)" lo-kill || true; rm -rf "$$RELEASE_TMP"' EXIT; \
+	RELEASE_SEED="$$RELEASE_TMP.seed"; \
+	trap '$(MAKE) -C "$(PROJECT_ROOT)" lo-kill || true; rm -rf "$$RELEASE_TMP" "$$RELEASE_SEED"' EXIT; \
 	echo "Stripped verification tree: $$RELEASE_TMP"; \
 	"$(PYTHON)" $(SCRIPTS)/build_oxt.py --strip --bundle-dir "$$RELEASE_TMP" --skip-zip; \
+	echo "Registering the stripped bundle into scratch HOME $$RELEASE_SEED/home (test-uno seeds its throwaway profile from it; the user profile is untouched)..."; \
+	mkdir -p "$$RELEASE_SEED/home"; \
+	"$(PYTHON)" $(SCRIPTS)/build_oxt.py --repack --bundle-dir "$$RELEASE_TMP" --output "$$RELEASE_SEED/$(EXTENSION_NAME).oxt"; \
+	HOME="$$RELEASE_SEED/home" $(UNOPKG) add -f "$$RELEASE_SEED/$(EXTENSION_NAME).oxt"; \
 	"$(PYTHON)" -m compileall -j 0 -q "$$RELEASE_TMP/plugin" "$$RELEASE_TMP/tests"; \
 	cp pyproject.toml "$$RELEASE_TMP/pyproject.toml"; \
 	echo "Running tests against stripped bundle..."; \
 	echo "  (grammar_obs call-site tests self-skip via _grammar_obs_call_sites_present; whole modules ignored below)"; \
 	cd "$$RELEASE_TMP" && PYTHONPATH=. "$(abspath $(PYTHON))" -m pytest --ignore=tests/scripts --ignore=tests/compute_service --ignore=tests/librepy/test_main_core.py --ignore=tests/scripts/test_merge_module_yaml_into_pot.py --ignore=tests/framework/test_logging.py --ignore=tests/writer/locale/test_grammar_linguistic_xcu.py --ignore=tests/scripting/test_generate_tool_proxies.py --ignore=tests/framework/test_thread_guard.py --ignore=tests/framework/test_thread_affinity.py --ignore=tests/doc/test_specialized_delegation_threading.py --ignore=tests/writer/locale/test_grammar_obs.py --ignore=tests/writer/locale/test_libreharper_oxt.py --ignore=tests/chatbot/test_sidebar_test_hooks.py -k "not test_sync_tool_marshaled_from_background and not test_execute_on_main_thread_timeout and not test_execute_python_addin_from_background_thread" tests; \
-	cd "$$RELEASE_TMP" && PYTHONPATH=. $(MAKE) -f "$(PROJECT_ROOT)/Makefile" test-uno; \
+	cd "$$RELEASE_TMP" && PYTHONPATH=. HOME="$$RELEASE_SEED/home" $(MAKE) -f "$(PROJECT_ROOT)/Makefile" test-uno; \
 	$(MAKE) -C "$(PROJECT_ROOT)" release-build; \
 	$(MAKE) -C "$(PROJECT_ROOT)" register-built-oxt
 
