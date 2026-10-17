@@ -686,6 +686,54 @@ def test_set_style_properties_allows_header_off_when_empty():
     style.setPropertyValue.assert_any_call("HeaderIsOn", False)
 
 
+@pytest.mark.parametrize("broken", ["getString", "createEnumeration", "drawPage"])
+def test_set_style_properties_refuses_header_off_when_read_fails(broken):
+    """A failed read is not "no content": the guard fails closed."""
+    text_obj = _empty_text_obj()
+    doc, style = _page_style_doc(text_obj)
+    if broken == "getString":
+        text_obj.getString.side_effect = RuntimeError("bridge hiccup")
+    elif broken == "createEnumeration":
+        text_obj.createEnumeration.side_effect = RuntimeError("bridge hiccup")
+    else:
+        doc.getDrawPage.side_effect = RuntimeError("bridge hiccup")
+
+    res = PageSetStyleProperties().execute(
+        TestingFactory.create_context(doc=doc, doc_type="writer"),
+        style="Standard", header_is_on=False)
+
+    assert res["status"] == "error"
+    assert "Cannot turn the header off" in res["message"]
+    assert "bridge hiccup" in res["message"]
+    style.setPropertyValue.assert_not_called()
+
+
+def test_disable_guard_refuses_when_region_text_unreadable():
+    doc, style = _page_style_doc(_empty_text_obj())
+    style.getPropertyValue.side_effect = RuntimeError("no HeaderText")
+    msg = _disable_blocked_by_content(doc, style, {"footer_is_on": False})
+    assert msg is not None and "Cannot turn the footer off" in msg
+
+
+def test_disable_guard_propagates_disposal():
+    class DisposedException(Exception):
+        pass
+
+    text_obj = _empty_text_obj()
+    text_obj.getString.side_effect = DisposedException("gone")
+    doc, style = _page_style_doc(text_obj)
+    with pytest.raises(DisposedException):
+        _disable_blocked_by_content(doc, style, {"header_is_on": False})
+
+
+def test_disable_guard_skips_page_anchored_shape():
+    """A page-anchored shape has no anchor text; it must not block an empty header."""
+    shape = MagicMock()
+    shape.getAnchor.return_value = None
+    doc, style = _page_style_doc(_empty_text_obj(), shapes=[shape])
+    assert _disable_blocked_by_content(doc, style, {"header_is_on": False}) is None
+
+
 def test_set_style_properties_allows_enable_while_content_remains():
     text_obj = _empty_text_obj()
     text_obj.getString.return_value = "Already there"
