@@ -253,11 +253,8 @@ def _grep_text_in_draw(
     shapes_visited = 0
     partial = False
 
-    try:
-        pages = model.getDrawPages()
-        page_count = pages.getCount()
-    except Exception:
-        return matches, 0, partial
+    pages = model.getDrawPages()
+    page_count = pages.getCount()
 
     scan_limit = max_results + 1
     for page_idx in range(page_count):
@@ -266,10 +263,7 @@ def _grep_text_in_draw(
             break
         if len(matches) >= scan_limit or shapes_visited >= shape_cap:
             break
-        try:
-            page = pages.getByIndex(page_idx)
-        except Exception:
-            continue
+        page = pages.getByIndex(page_idx)
         # match_count must not exceed the matches returned. Searching
         # each page with the full max_results lets a later page add
         # another full batch; slicing the list while counting the
@@ -315,10 +309,7 @@ def _grep_shapes_on_page(
     matches: list[dict[str, Any]] = []
     partial = False
 
-    try:
-        count = xshapes.getCount()
-    except Exception:
-        return matches, shapes_visited, partial
+    count = xshapes.getCount()
 
     for i in range(count):
         if stop_checker and stop_checker():
@@ -328,26 +319,17 @@ def _grep_shapes_on_page(
             partial = shapes_visited >= shape_cap
             break
         shapes_visited += 1
-        try:
-            shape = xshapes.getByIndex(i)
-        except Exception:
-            continue
+        shape = xshapes.getByIndex(i)
 
         shape_path = f"{path_prefix}{i}" if path_prefix else str(i)
 
         if hasattr(shape, "getString"):
-            try:
-                text = str(shape.getString() or "").strip()
-            except Exception:
-                text = ""
+            text = str(shape.getString() or "").strip()
             if text and _shape_text_matches_pattern(text, pattern, regex=regex, case_sensitive=case_sensitive, compiled=compiled):
                 snippet = text if len(text) <= 200 else text[:200] + "…"
                 matches.append({"page_index": page_index, "shape_index": shape_path, "text": snippet})
 
-        try:
-            shape_type = shape.getShapeType()
-        except Exception:
-            shape_type = ""
+        shape_type = shape.getShapeType()
         if "GroupShape" in str(shape_type):
             try:
                 group_matches, shapes_visited, group_partial = _grep_shapes_on_page(

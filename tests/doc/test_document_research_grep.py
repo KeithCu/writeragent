@@ -10,7 +10,10 @@ import tempfile
 from unittest.mock import MagicMock, patch
 
 from plugin.doc.document_research_grep import (
+    _grep_text_in_calc,
+    _grep_text_in_draw,
     _grep_text_in_writer,
+    _search_opened_document,
     grep_nearby_files,
     resolve_grep_candidates,
 )
@@ -280,8 +283,6 @@ def _draw_page(shapes: list[MagicMock]) -> MagicMock:
 
 def test_grep_text_in_draw_match_count_uses_remaining_page_budget():
     """A later page must not search with the original max_results."""
-    from plugin.doc.document_research_grep import _grep_text_in_draw
-
     page0 = _draw_page([_draw_text_shape("alpha one"), _draw_text_shape("alpha two"), _draw_text_shape("nope")])
     page1 = _draw_page(
         [_draw_text_shape("alpha three"), _draw_text_shape("alpha four"), _draw_text_shape("alpha five")]
@@ -302,8 +303,6 @@ def test_grep_text_in_draw_match_count_uses_remaining_page_budget():
 
 
 def test_grep_text_in_draw_count_matches_sliced_return_when_page_overshoots():
-    from plugin.doc.document_research_grep import _grep_text_in_draw
-
     def overshoot(*args: object, **kwargs: object) -> tuple[list[dict[str, str]], int, bool]:
         assert kwargs["max_results"] == 3
         return (
@@ -325,8 +324,6 @@ def test_grep_text_in_draw_count_matches_sliced_return_when_page_overshoots():
 
 
 def test_grep_text_in_draw_extra_shape_read_no_match_partial_false():
-    from plugin.doc.document_research_grep import _grep_text_in_draw
-
     page0 = _draw_page([_draw_text_shape("alpha"), _draw_text_shape("nope")])
     pages = MagicMock()
     pages.getCount.return_value = 1
@@ -510,8 +507,6 @@ def test_grep_text_in_writer_uses_visible_text():
 
 
 def test_grep_text_in_calc_partial_when_more_hits_exist():
-    from plugin.doc.document_research_grep import _grep_text_in_calc
-
     hits = [
         {"sheet": "Sheet1", "cell": "A1", "value": "val1"},
         {"sheet": "Sheet1", "cell": "A2", "value": "val2"},
@@ -527,8 +522,6 @@ def test_grep_text_in_calc_partial_when_more_hits_exist():
 
 
 def test_grep_text_in_calc_not_partial_when_results_fit():
-    from plugin.doc.document_research_grep import _grep_text_in_calc
-
     hits = [{"sheet": "Sheet1", "cell": "A1", "value": "val1"}]
     with patch("plugin.doc.document_research_grep.search_spreadsheet_cells") as mock_search:
         mock_search.return_value = hits
@@ -541,8 +534,6 @@ def test_grep_text_in_calc_not_partial_when_results_fit():
 
 
 def test_search_opened_document_calc_forwards_partial():
-    from plugin.doc.document_research_grep import _search_opened_document
-
     hits = [
         {"sheet": "Sheet1", "cell": "A1", "value": "val1"},
         {"sheet": "Sheet1", "cell": "A2", "value": "val2"},

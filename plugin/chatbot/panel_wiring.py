@@ -305,20 +305,14 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
 
         # Lightweight layout sanity log (always emitted at DEBUG after first wiring).
         # Helps catch cases where child controls would overflow the allocated panel width.
-        try:
-            rw = root_window.getPosSize().Width
-            max_right = 0
-            for nm in ("clear", "send", "stop", "model_selector", "query", "response"):
-                c = controls.get(nm)
-                if c:
-                    try:
-                        pr = c.getPosSize()
-                        max_right = max(max_right, pr.X + pr.Width)
-                    except Exception:
-                        pass
-            log.info("[LAYOUT] layout_sanity root_w=%d max_child_right=%d overflow=%s" % (rw, max_right, "YES" if max_right > rw - 2 else "no"))
-        except Exception:
-            pass
+        rw = root_window.getPosSize().Width
+        max_right = 0
+        for nm in ("clear", "send", "stop", "model_selector", "query", "response"):
+            c = controls.get(nm)
+            if c:
+                pr = c.getPosSize()
+                max_right = max(max_right, pr.X + pr.Width)
+        log.info("[LAYOUT] layout_sanity root_w=%d max_child_right=%d overflow=%s" % (rw, max_right, "YES" if max_right > rw - 2 else "no"))
     except Exception:
         log.exception("Resize listener setup failed")
 
@@ -404,29 +398,19 @@ def _wireControls(self: Any, root_window: Any, has_recording: bool, ensure_exten
                     attach_calc_cell_link_listener(self.ctx, rich_control, _calc_doc_from_panel)
                 except Exception as e:
                     log.debug("calc cell link listener attach failed: %s", e)
-                hide_plain_ok = True
                 hide_response = False
-                try:
-                    from plugin.chatbot.dialogs import set_control_visible
-
-                    if controls.get("response"):
-                        set_control_visible(controls["response"], False)
-                        hide_response = True
-                except Exception as e:
-                    hide_plain_ok = False
-                    log.warning("[RICH-CONTROL] phase=hide_plain ok=0 error=%s", e)
+                if controls.get("response"):
+                    set_control_visible(controls["response"], False)
+                    hide_response = True
                 log_rich_control_context(
                     self.ctx,
                     "hide_plain",
-                    ok=int(hide_plain_ok),
+                    ok=1,
                     response=int(hide_response),
                 )
                 if hasattr(self, "_panel_resize_listener") and self._panel_resize_listener:
-                    try:
-                        log_rich_scroll("on_ready_step", control=rich_control, step="relayout")
-                        self._panel_resize_listener.relayout_now(root_window)
-                    except Exception as e:
-                        log.debug("on_rich_control_ready relayout_now: %s", e)
+                    log_rich_scroll("on_ready_step", control=rich_control, step="relayout")
+                    self._panel_resize_listener.relayout_now(root_window)
                 try:
                     log_rich_scroll("on_ready_step", control=rich_control, step="history")
                     rich_greeting = self._greeting_for_sidebar_mode(initial_mode, model)

@@ -52,13 +52,9 @@ def _same_frame(left: Any, right: Any) -> bool:
 
     if not on_main_thread():
         return False
-    try:
-        from plugin.framework.uno_context import uno_same
+    from plugin.framework.uno_context import uno_same
 
-        return bool(uno_same(left, right))
-    except Exception:
-        log.debug("frame identity", exc_info=True)
-        return False
+    return bool(uno_same(left, right))
 
 
 def document_id_for_frame(frame: Any) -> str:
@@ -69,20 +65,16 @@ def document_id_for_frame(frame: Any) -> str:
     """
     if frame is None:
         return ""
-    try:
-        from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.thread_guard import on_main_thread
 
-        if not on_main_thread():
-            return ""
-        from plugin.framework.uno_context import get_document_from_frame, get_runtime_uid
-
-        model = get_document_from_frame(frame)
-        if model is None:
-            return ""
-        return get_runtime_uid(model)
-    except Exception:
-        log.debug("document id for frame", exc_info=True)
+    if not on_main_thread():
         return ""
+    from plugin.framework.uno_context import get_document_from_frame, get_runtime_uid
+
+    model = get_document_from_frame(frame)
+    if model is None:
+        return ""
+    return get_runtime_uid(model)
 
 
 def session_for_frame(frame: Any) -> FrameSession | None:

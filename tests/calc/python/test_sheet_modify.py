@@ -9,12 +9,25 @@ from types import SimpleNamespace
 
 import pytest
 
-from plugin.calc.python.function import SHEET_MODIFY_LISTENERS, clear_in_memory_spill_state
+import plugin.calc.python.function as python_function
+from plugin.calc.python.function import (
+    SHEET_MODIFY_LISTENERS,
+    SPILL_REGISTRY,
+    SpillCell,
+    SpillRecord,
+    clear_in_memory_spill_state,
+    perform_deferred_spill,
+)
 from plugin.calc.python.sheet_modify import (
     SheetModifyDispatcher,
     _PENDING_TIMERS,
+    cancel_pending_sheet_timers,
+    dispatch_sheet_modified,
     ensure_sheet_modify_listener,
+    flush_sheet_modify_pass_for_tests,
+    migrate_sheet_rename,
     reset_sheet_modify_runtime_for_tests,
+    schedule_sheet_modify_pass,
 )
 from plugin.tests.testing_utils import CalcDocStub
 
@@ -34,8 +47,6 @@ class _FakeTimer:
 
 @pytest.fixture(autouse=True)
 def _reset_sheet_listeners():
-    import plugin.calc.python.function as python_function
-
     reset_sheet_modify_runtime_for_tests()
     SHEET_MODIFY_LISTENERS.clear()
     with python_function._PENDING_SPILL_LOCK:
@@ -126,7 +137,6 @@ def test_modify_uses_stored_document_when_source_has_no_parent(monkeypatch):
 
 def test_debounce_keys_differ_for_unsaved_workbooks(monkeypatch):
     monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _FakeTimer)
-    from plugin.calc.python.sheet_modify import schedule_sheet_modify_pass
 
     doc_a = CalcDocStub(url="", props={"RuntimeUID": "uid-timer-a"})
     doc_b = CalcDocStub(url="", props={"RuntimeUID": "uid-timer-b"})
@@ -147,9 +157,6 @@ def test_unload_drops_lifecycle_keyed_listener():
 
 
 def test_rename_migrates_spill_registry_and_listener(monkeypatch):
-    from plugin.calc.python.function import SPILL_REGISTRY
-    from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
-
     doc = CalcDocStub(url="file:///rename.ods", props={"RuntimeUID": "uid-rename"})
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getParent = lambda: doc
@@ -160,7 +167,6 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
     cell_formula.setFormula('=PY("result = [1, 2]")')
     cell_neighbor = sheet.getCellByPosition(1, 0)
     cell_neighbor.setValue(2.0)
-    from plugin.calc.python.function import SpillCell, SpillRecord
 
     SPILL_REGISTRY[("uid-rename", "Sheet1", 0, 0)] = SpillRecord(
         code='result = [1, 2]',
@@ -192,9 +198,6 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
 
 
 def test_rename_without_identity_does_not_touch_other_workbooks():
-    from plugin.calc.python.function import SPILL_REGISTRY, SpillCell, SpillRecord
-    from plugin.calc.python.sheet_modify import migrate_sheet_rename
-
     SPILL_REGISTRY[("uid-other", "Sheet1", 0, 0)] = SpillRecord(
         code="result = 1",
         cells=[SpillCell(0, 1, "n", 1.0)],
@@ -209,9 +212,6 @@ def test_rename_without_identity_does_not_touch_other_workbooks():
 
 def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
     """While perform_deferred_spill runs, is_sheet_modify_dispatching() is true so no modify pass is scheduled."""
-    from plugin.calc.python.function import perform_deferred_spill
-    from plugin.calc.python.sheet_modify import dispatch_sheet_modified
-
     doc = CalcDocStub(url="file:///spill_dispatch.ods", props={"RuntimeUID": "uid-spill-dispatch"})
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getParent = lambda: doc
@@ -252,8 +252,6 @@ def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
 
 def test_schedule_timer_callback_clears_pending_timer(monkeypatch):
     """Timer callback removes itself from _PENDING_TIMERS on fire."""
-    from plugin.calc.python.sheet_modify import schedule_sheet_modify_pass
-
     captured_callbacks: list = []
 
     class _CaptureTimer:
@@ -290,8 +288,6 @@ def test_schedule_timer_callback_clears_pending_timer(monkeypatch):
 
 def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) -> None:
     """Rekeyed pending timer is dropped on fire and posts pass for new sheet name."""
-    from plugin.calc.python.sheet_modify import migrate_sheet_rename, schedule_sheet_modify_pass
-
     captured_callbacks: list = []
     posted_callables: list = []
 
@@ -347,8 +343,6 @@ def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_unload_drops_pending_sheet_timer(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.calc.python.sheet_modify import cancel_pending_sheet_timers, schedule_sheet_modify_pass
-
     monkeypatch.setattr("threading.Timer", _FakeTimer)
     monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _FakeTimer)
 

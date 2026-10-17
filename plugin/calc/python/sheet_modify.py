@@ -59,10 +59,7 @@ def reset_sheet_modify_runtime_for_tests() -> None:
     global _DISPATCH_DEPTH
     with _PENDING_LOCK:
         for timer in list(_PENDING_TIMERS.values()):
-            try:
-                timer.cancel()
-            except Exception:
-                pass
+            timer.cancel()
         _PENDING_TIMERS.clear()
     _DISPATCH_DEPTH = 0
 
@@ -122,17 +119,11 @@ def _owning_calc_doc(sheet: Any) -> Any | None:
 
 
 def _doc_url_of(doc: Any) -> str:
-    try:
-        return str(getattr(doc, "getURL", lambda: "")() or "")
-    except Exception:
-        return ""
+    return str(getattr(doc, "getURL", lambda: "")() or "")
 
 
 def _sheet_name_of(sheet: Any) -> str:
-    try:
-        return str(sheet.getName() or "") or "Sheet1"
-    except Exception:
-        return "Sheet1"
+    return str(sheet.getName() or "") or "Sheet1"
 
 
 def _lookup_sheet(doc: Any, sheet_name: str) -> Any | None:
@@ -148,10 +139,7 @@ def _cancel_pending(key: tuple[str, str]) -> None:
     with _PENDING_LOCK:
         timer = _PENDING_TIMERS.pop(key, None)
     if timer is not None:
-        try:
-            timer.cancel()
-        except Exception:
-            pass
+        timer.cancel()
 
 
 def cancel_pending_sheet_timers(identity: str) -> None:
@@ -175,10 +163,7 @@ def cancel_pending_sheet_timers(identity: str) -> None:
                 if timer is not None:
                     cancelled.append(timer)
     for timer in cancelled:
-        try:
-            timer.cancel()
-        except Exception:
-            pass
+        timer.cancel()
 
 
 

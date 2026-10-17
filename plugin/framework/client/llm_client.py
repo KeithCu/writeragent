@@ -65,6 +65,7 @@ from .response_normalizers import prepare_chat_messages, strip_leaked_chat_templ
 # accumulate_delta merges streaming deltas into message_snapshot; coalesce_split_tool_calls repairs OpenRouter empty-name split tool_calls.
 from plugin.framework.stream_delta import accumulate_delta, coalesce_split_tool_calls
 from plugin.framework.constants import USER_AGENT
+from plugin.framework.queue_executor import get_current_send_cancellation
 
 from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers
@@ -379,12 +380,7 @@ class LlmClient:
         self._stopped = False
         scope = cancellation_scope
         if scope is None and register_with_send:
-            try:
-                from plugin.framework.queue_executor import get_current_send_cancellation
-
-                scope = get_current_send_cancellation()
-            except Exception:
-                log.debug("LlmClient: could not resolve send cancellation scope", exc_info=True)
+            scope = get_current_send_cancellation()
         if scope is not None and register_with_send:
             scope.register_client(self)
 

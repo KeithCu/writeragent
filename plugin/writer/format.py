@@ -279,10 +279,7 @@ def enum_hit_walk_cap(seen: int, limit: int, enum: Any) -> bool:
     """True when a walk stopped because of *limit*, not because *enum* was exhausted."""
     if seen < limit or enum is None:
         return False
-    try:
-        return enum.hasMoreElements() is True
-    except Exception:
-        return False
+    return enum.hasMoreElements() is True
 
 
 def walk_cap_warning(kind: str, seen: int, limit: int) -> str:
@@ -394,33 +391,16 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
 
     def _capture_direct_char_overrides(capture_cursor: Any) -> list[Any]:
         overrides: list[Any] = []
-        try:
-            para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
-        except Exception:
-            para_styles = None
-        try:
-            READONLY = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.READONLY")
-        except Exception:
-            READONLY = 0
-        try:
-            para_enum = capture_cursor.createEnumeration()
-        except Exception:
-            return overrides
+        para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+        READONLY = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.READONLY")
+        para_enum = capture_cursor.createEnumeration()
         _paras = 0
         while para_enum.hasMoreElements() is True and _paras < _CAPTURE_PARA_LIMIT:
             _paras += 1
-            try:
-                para = para_enum.nextElement()
-            except Exception:
-                break
+            para = para_enum.nextElement()
             if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
                 continue
-            old_style = None
-            if para_styles is not None:
-                try:
-                    old_style = para_styles.getByName(para.getPropertyValue("ParaStyleName"))
-                except Exception:
-                    old_style = None
+            old_style = para_styles.getByName(para.getPropertyValue("ParaStyleName"))
             if old_style is None:
                 continue
             try:
