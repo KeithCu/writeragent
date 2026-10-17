@@ -309,11 +309,7 @@ class ProximityService(ServiceBase):
                 el = para_ranges[i]
                 if not el.supportsService("com.sun.star.text.Paragraph"):
                     continue
-                level = 0
-                try:
-                    level = el.getPropertyValue("OutlineLevel")
-                except Exception:
-                    pass
+                level = el.getPropertyValue("OutlineLevel")
                 text = el.getString()
                 entry = {"para_index": i, "text": text[:200] if len(text) > 200 else text, "outline_level": level}
                 bm = bookmark_map.get(i)
@@ -375,10 +371,7 @@ class ProximityService(ServiceBase):
                     field = enum.nextElement()
                     if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                         continue
-                    try:
-                        author = field.getPropertyValue("Author")
-                    except Exception:
-                        author = ""
+                    author = field.getPropertyValue("Author")
                     anchor = field.getAnchor()
                     pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
                     if start_idx <= pi <= end_idx:

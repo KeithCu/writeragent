@@ -148,11 +148,8 @@ def _point_after(text: Any, left: Any, right: Any) -> bool:
 
 def _ranges_overlap(text: Any, portion: Any, match: Any) -> bool:
     """True when *portion* and *match* share a character (touching at an edge does not)."""
-    try:
-        p0, p1 = portion.getStart(), portion.getEnd()
-        m0, m1 = match.getStart(), match.getEnd()
-    except Exception:
-        return False
+    p0, p1 = portion.getStart(), portion.getEnd()
+    m0, m1 = match.getStart(), match.getEnd()
     return _point_before(text, p0, m1) and _point_after(text, p1, m0)
 
 
@@ -271,10 +268,7 @@ def _paragraph_edges(text: Any, text_range: Any) -> tuple[Any, Any, bool]:
 def _between(text: Any, start_pos: Any, end_pos: Any) -> str:
     cursor = _cursor_at(text, start_pos)
     cursor.gotoRange(end_pos, True)
-    try:
-        return str(cursor.getString() or "")
-    except Exception:
-        return ""
+    return str(cursor.getString() or "")
 
 
 def _enum_has_more(enum: Any) -> bool:
@@ -326,12 +320,8 @@ def _iter_portions(text: Any, anchor_pos: Any) -> Iterator[Any]:
 
 def capture_outline_hyperlinks(text_range: Any) -> OutlineSnapshot:
     """Read ``|outline`` links that overlap *text_range*, and the paragraph text around it."""
-    try:
-        text = text_range.getText()
-        matched = str(text_range.getString() or "")
-    except Exception:
-        log.debug("capture_outline_hyperlinks: match range unreadable", exc_info=True)
-        return empty_snapshot()
+    text = text_range.getText()
+    matched = str(text_range.getString() or "")
 
     try:
         start_cur, end_cur, single = _paragraph_edges(text, text_range)
@@ -374,15 +364,11 @@ def measured_replacement(anchor: Any, snapshot: OutlineSnapshot) -> str | None:
     """
     if anchor is None or not snapshot.single_paragraph:
         return None
-    try:
-        text = anchor.getText()
-        cursor = _cursor_at(text, anchor.getStart())
-        cursor.gotoStartOfParagraph(False)
-        cursor.gotoEndOfParagraph(True)
-        para = str(cursor.getString() or "")
-    except Exception:
-        log.debug("measured_replacement: paragraph read failed", exc_info=True)
-        return None
+    text = anchor.getText()
+    cursor = _cursor_at(text, anchor.getStart())
+    cursor.gotoStartOfParagraph(False)
+    cursor.gotoEndOfParagraph(True)
+    para = str(cursor.getString() or "")
     prefix, suffix = snapshot.prefix, snapshot.suffix
     if not para.startswith(prefix):
         return None
@@ -498,15 +484,9 @@ def _snapshot_char_look(text: Any, anchor: Any) -> list[tuple[int, int, dict[str
     """
     runs: list[tuple[int, int, dict[str, Any]]] = []
     offset = 0
-    try:
-        start = anchor.getStart()
-    except Exception:
-        return runs
+    start = anchor.getStart()
     for portion in _iter_portions(text, start):
-        try:
-            chunk = str(portion.getString() or "")
-        except Exception:
-            chunk = ""
+        chunk = str(portion.getString() or "")
         if chunk:
             props = _read_char_look(portion)
             if props:
@@ -626,15 +606,11 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
             # cursor — the order that returns one black run.
             restored = False
             if snapshot.look and snapshot.links and snapshot.single_paragraph:
-                try:
-                    cursor = _cursor_at(text, anchor.getStart())
-                    cursor.gotoStartOfParagraph(False)
-                    cursor.gotoEndOfParagraph(True)
-                    para = str(cursor.getString() or "")
-                except Exception:
-                    para = ""
-                    cursor = None
-                if cursor is not None and para == snapshot.prefix + new_plain + snapshot.suffix:
+                cursor = _cursor_at(text, anchor.getStart())
+                cursor.gotoStartOfParagraph(False)
+                cursor.gotoEndOfParagraph(True)
+                para = str(cursor.getString() or "")
+                if para == snapshot.prefix + new_plain + snapshot.suffix:
                     _set_prop(cursor, _URL, put_back)
                     _write_char_look(cursor, snapshot.look)
                     restored = True

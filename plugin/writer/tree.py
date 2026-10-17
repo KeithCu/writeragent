@@ -134,11 +134,7 @@ class TreeService(ServiceBase):
             is_table = element.supportsService("com.sun.star.text.TextTable")
 
             if is_para:
-                outline_level = 0
-                try:
-                    outline_level = element.getPropertyValue("OutlineLevel")
-                except Exception:
-                    pass
+                outline_level = element.getPropertyValue("OutlineLevel")
                 if outline_level > 0:
                     while len(stack) > 1 and stack[-1]["level"] >= outline_level:
                         stack.pop()
@@ -194,11 +190,7 @@ class TreeService(ServiceBase):
                 idx += 1
                 continue
             if found_heading and is_para:
-                outline_level = 0
-                try:
-                    outline_level = element.getPropertyValue("OutlineLevel")
-                except Exception:
-                    pass
+                outline_level = element.getPropertyValue("OutlineLevel")
                 if outline_level > 0:
                     break
                 para_text = get_string_without_tracked_deletions(element).strip()
@@ -229,11 +221,7 @@ class TreeService(ServiceBase):
                 idx += 1
                 continue
             if found_heading and is_para:
-                outline_level = 0
-                try:
-                    outline_level = element.getPropertyValue("OutlineLevel")
-                except Exception:
-                    pass
+                outline_level = element.getPropertyValue("OutlineLevel")
                 if outline_level > 0:
                     break
                 parts.append(get_string_without_tracked_deletions(element))
@@ -324,11 +312,7 @@ class TreeService(ServiceBase):
                 idx += 1
                 continue
             if found_heading and is_para:
-                outline_level = 0
-                try:
-                    outline_level = element.getPropertyValue("OutlineLevel")
-                except Exception:
-                    pass
+                outline_level = element.getPropertyValue("OutlineLevel")
                 if outline_level > 0 and outline_level <= parent_level:
                     break
                 if outline_level > 0:
