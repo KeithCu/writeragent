@@ -23,6 +23,7 @@ import re as re_mod
 from typing import TYPE_CHECKING, Any, Iterator, Literal, overload
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions, normalize_linebreaks, with_view_cursor_left_body_locked
+from plugin.framework.errors import uno_read
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.uno_context import uno_same
 from plugin.framework.worker_pool import run_in_background
@@ -32,6 +33,8 @@ if TYPE_CHECKING:
 
 
 log = logging.getLogger("writeragent.writer")
+# uno_read default where None is a real UNO result.
+_FAILED: Any = object()
 
 MAX_SEARCH_REPLACEMENTS = 200
 DEFAULT_SEARCH_RESULTS = 20
@@ -152,9 +155,7 @@ def document_has_tracked_deletions(doc: Any) -> bool:
             raise RedlineScanAbort()
         return True
 
-    try:
-        scan_redlines(doc, on_item)
-    except Exception:
+    if uno_read(lambda: scan_redlines(doc, on_item), _FAILED) is _FAILED:
         return False
     return bool(found)
 
@@ -491,22 +492,17 @@ def find_all_ranges(doc: Any, search_string: str) -> list[Any]:
 def _safe_name(obj: Any) -> str:
     if obj is None:
         return ""
-    try:
-        return obj.getName()
-    except Exception:
-        try:
-            return getattr(obj, "Name", "") or ""
-        except Exception:
-            return ""
+    name = uno_read(lambda: obj.getName(), _FAILED)
+    if name is not _FAILED:
+        return name
+    return uno_read(lambda: getattr(obj, "Name", "") or "", "")
 
 
 def _prop(obj: Any, name: str) -> Any:
     if obj is None:
         return None
-    try:
-        return obj.getPropertyValue(name)
-    except Exception:
-        return getattr(obj, name, None)
+    value = uno_read(lambda: obj.getPropertyValue(name), _FAILED)
+    return getattr(obj, name, None) if value is _FAILED else value
 
 
 def _cell_name(cur: Any, text: Any) -> str:
@@ -523,10 +519,7 @@ def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, 
     is its own XText and there is no header/footer service to query. Body, cells, and frames use
     other implementation names.
     """
-    try:
-        if getattr(text_obj, "ImplementationName", "") != "SwXHeadFootText":
-            return None
-    except Exception:
+    if uno_read(lambda: getattr(text_obj, "ImplementationName", "") != "SwXHeadFootText", True):
         return None
     if label_cache is not None:
         key = id(text_obj)
@@ -567,26 +560,25 @@ def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, 
     return result
 
 
+def _text_and_cursor(found: Any) -> tuple[Any, Any]:
+    """*found*'s XText and a cursor at its start."""
+    text = found.getText()
+    return text, text.createTextCursorByRange(found.getStart())
+
+
 def describe_match_location(found: Any, doc: Any = None, label_cache: dict[int, str] | None = None) -> str:
-    try:
-        text = found.getText()
-        cur = text.createTextCursorByRange(found.getStart())
-    except Exception:
+    got = uno_read(lambda: _text_and_cursor(found), None)
+    if got is None:
         return "body"
-    try:
-        tt = cur.getPropertyValue("TextTable")
-    except Exception:
-        tt = None
+    text, cur = got
+    tt = uno_read(lambda: cur.getPropertyValue("TextTable"), None)
     if tt is not None:
         tname = _safe_name(tt)
         cname = _cell_name(cur, text)
         if tname and cname:
             return "table '%s' cell %s" % (tname, cname)
         return "table '%s'" % tname if tname else "a table"
-    try:
-        tf = cur.getPropertyValue("TextFrame")
-    except Exception:
-        tf = None
+    tf = uno_read(lambda: cur.getPropertyValue("TextFrame"), None)
     if tf is not None:
         name = _safe_name(tf)
         return "text box '%s'" % name if name else "a text box"
@@ -597,33 +589,28 @@ def describe_match_location(found: Any, doc: Any = None, label_cache: dict[int, 
 
 
 def enclosing_paragraph_text(found: Any) -> str:
-    try:
-        text = found.getText()
-        cur = text.createTextCursorByRange(found.getStart())
+    def paragraph() -> str:
+        _text, cur = _text_and_cursor(found)
         cur.gotoStartOfParagraph(False)
         cur.gotoEndOfParagraph(True)
         return get_string_without_tracked_deletions(cur)
-    except Exception:
-        try:
-            return found.getString()
-        except Exception:
-            return ""
+
+    para = uno_read(paragraph, _FAILED)
+    if para is not _FAILED:
+        return para
+    return uno_read(lambda: found.getString(), "")
 
 
 def iter_draw_shapes(container: Any) -> Iterator[Any]:
-    try:
-        n = int(container.getCount())
-    except Exception:
+    n = uno_read(lambda: int(container.getCount()), _FAILED)
+    if n is _FAILED:
         return
     for i in range(n):
         try:
             shape = container.getByIndex(i)
         except Exception:
             continue
-        try:
-            is_group = shape.supportsService("com.sun.star.drawing.GroupShape")
-        except Exception:
-            is_group = False
+        is_group = uno_read(lambda: shape.supportsService("com.sun.star.drawing.GroupShape"), False)
         if is_group:
             yield from iter_draw_shapes(shape)
         else:
@@ -631,18 +618,15 @@ def iter_draw_shapes(container: Any) -> Iterator[Any]:
 
 
 def shape_is_as_character(shape: Any) -> bool:
-    try:
+    def anchored() -> bool:
         from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
         return shape.getPropertyValue("AnchorType") == AS_CHARACTER
-    except Exception:
-        return False
+
+    return uno_read(anchored, False)
 
 
 def shape_is_text_box(shape: Any) -> bool:
-    try:
-        return bool(shape.getPropertyValue("TextBox"))
-    except Exception:
-        return False
+    return uno_read(lambda: bool(shape.getPropertyValue("TextBox")), False)
 
 
 def _lower_with_origins(text: str) -> tuple[str, list[int]]:
@@ -735,9 +719,8 @@ def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
 
 
 def comment_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[Any, str, str]]:
-    try:
-        fields = doc.getTextFields().createEnumeration()
-    except Exception:
+    fields = uno_read(lambda: doc.getTextFields().createEnumeration(), _FAILED)
+    if fields is _FAILED:
         return
     while True:
         try:
@@ -821,10 +804,7 @@ def sweep_draw_shape_preview_matches(doc: Any, pattern: str, use_regex: bool, ca
         hits = shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
         if not hits:
             continue
-        try:
-            sname = (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
-        except Exception:
-            sname = "(unnamed shape)"
+        sname = uno_read(lambda: (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)", "(unnamed shape)")
         for hit in hits:
             matches.append({
                 "text": hit,
@@ -965,10 +945,7 @@ class SearchInDocument(ToolBase):
             hits = shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
             if not hits:
                 continue
-            try:
-                sname = (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
-            except Exception:
-                sname = "(unnamed shape)"
+            sname = uno_read(lambda: (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)", "(unnamed shape)")
             shape_broken = False
             for hit in hits:
                 if total_count >= MAX_SEARCH_HITS:

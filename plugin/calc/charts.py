@@ -1131,35 +1131,29 @@ class UpsertChart(ToolBaseDummy):
 
         # 2. Create and configure TextEmbeddedObject
         name = f"Chart_{len(doc.getEmbeddedObjects())}"
+        # We use plain createInstance for Writer; createInstanceWithArguments can be flaky for OLE
+        chart_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+        if not chart_obj:
+            return self._tool_error("Failed to create TextEmbeddedObject instance.")
+
         try:
-            # We use plain createInstance for Writer; createInstanceWithArguments can be flaky for OLE
-            chart_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
-            if not chart_obj:
-                return self._tool_error("Failed to create TextEmbeddedObject instance.")
+            log.debug("TextEmbeddedObject Implementation: %s", chart_obj.getImplementationName())
+        except Exception:
+            pass
 
-            try:
-                log.debug("TextEmbeddedObject Implementation: %s", chart_obj.getImplementationName())
-            except Exception:
-                pass
+        # CRITICAL: Match proven working pattern from plugin/writer/math/math_mml_convert.py
+        chart_obj.CLSID = CHART_CLSID_DRAW_OLE.upper()
+        from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-            # CRITICAL: Match proven working pattern from plugin/writer/math/math_mml_convert.py
-            chart_obj.CLSID = CHART_CLSID_DRAW_OLE.upper()
-            from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+        chart_obj.AnchorType = AS_CHARACTER
 
-            chart_obj.AnchorType = AS_CHARACTER
+        # Try to set name before insertion
+        try:
+            chart_obj.Name = name
+        except Exception:
+            pass
 
-            # Try to set name before insertion
-            try:
-                chart_obj.Name = name
-            except Exception:
-                pass
-
-            log.info("Created and configured TextEmbeddedObject with CLSID: %s", chart_obj.CLSID)
-        except Exception as e:
-            if is_real_disposal(e):
-                raise
-            log.debug("Creation/config failed: %s", e)
-            return self._tool_error(f"Failed to configure chart object: {e}")
+        log.info("Created and configured TextEmbeddedObject with CLSID: %s", chart_obj.CLSID)
 
         # 3. Insert into document
         try:
@@ -1189,15 +1183,9 @@ class UpsertChart(ToolBaseDummy):
                     raise
                 # Fallback 2: Try CHART_CLSID_DRAW_OLE
                 log.debug("Second insertion attempt failed. Trying DRAW_OLE CLSID...")
-                try:
-                    chart_obj.CLSID = CHART_CLSID_DRAW_OLE.upper()
-                    text.insertTextContent(cursor, chart_obj, False)
-                    log.info("Successfully inserted chart object with DRAW_OLE CLSID.")
-                except Exception as e3:
-                    if is_real_disposal(e3):
-                        raise
-                    log.exception("All insertion attempts failed for chart object")
-                    return self._tool_error(f"Failed to insert chart into document: {e3}")
+                chart_obj.CLSID = CHART_CLSID_DRAW_OLE.upper()
+                text.insertTextContent(cursor, chart_obj, False)
+                log.info("Successfully inserted chart object with DRAW_OLE CLSID.")
 
         # 4. Configure properties after insertion
         # Try to set name again if it failed before

@@ -50,7 +50,7 @@ import time
 import uuid
 from typing import Any, Callable, ClassVar, Iterator
 
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.i18n import _
 from plugin.writer import review_scan as _review_scan
 
@@ -58,6 +58,8 @@ log = logging.getLogger(__name__)
 
 _BOOKMARK_PREFIX = "wa_review_"
 _PREVIEW_MAX_CHARS = 300
+# uno_read default where None is a real UNO result.
+_FAILED: Any = object()
 
 
 def _preview(text: str) -> str:
@@ -210,16 +212,15 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
     ``skip_type="Insert"`` yields the text as if everything were REJECTED. Mirrors
     ``text_helpers.get_string_without_tracked_deletions`` but parameterized.
     """
-    try:
-        para_enum = text_range.createEnumeration()
-    except Exception as exc:
-        # The raw string is the fail-closed result when the walk cannot start.
-        # A closed document must not come back as "".
-        reraise_if_disposed(exc)
+    # The raw string is the fail-closed result when the walk cannot start.
+    # A closed document must not come back as "".
+    para_enum = uno_read(lambda: text_range.createEnumeration(), _FAILED)
+    if para_enum is _FAILED:
         return text_range.getString()
 
     parts: list[str] = []
-    try:
+
+    def walk() -> bool:
         first = True
         while para_enum.hasMoreElements():
             para = para_enum.nextElement()
@@ -247,8 +248,9 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
                 chunk = portion.getString()
                 if chunk:
                     parts.append(chunk)
-    except Exception as exc:
-        reraise_if_disposed(exc)
+        return True
+
+    if not uno_read(walk, False):
         return text_range.getString()
     return "".join(parts)
 
@@ -821,17 +823,16 @@ def next_agent_edit_undo_title() -> str:
 
 
 def _try_enter_undo_context(doc: Any, title: str) -> Any | None:
-    try:
+    def enter() -> Any:
         mgr = doc.getUndoManager()
         if mgr.isLocked():
             raise RuntimeError("undo manager is locked; enterUndoContext would be a no-op")
         mgr.enterUndoContext(title)
         return mgr
-    except Exception as exc:
-        # None means "no usable undo", and callers then refuse or edit directly.
-        # A closed document is not that case.
-        reraise_if_disposed(exc)
-        return None
+
+    # None means "no usable undo", and callers then refuse or edit directly.
+    # A closed document is not that case.
+    return uno_read(enter, None)
 
 
 def close_surgical_context(undo_mgr: Any, session: EditReviewSession, changes_before: int,
@@ -922,26 +923,24 @@ _EDITED_CONTEXT_MAX_CHARS = 700
 
 def collapsed_anchor(text_range: Any) -> Any | None:
     """A collapsed model cursor at *text_range*'s start."""
-    try:
-        return text_range.getText().createTextCursorByRange(text_range.getStart())
-    except Exception:
-        return None
+    return uno_read(lambda: text_range.getText().createTextCursorByRange(text_range.getStart()), None)
 
 
 def selection_anchor(doc: Any) -> Any | None:
     """Collapsed anchor at the view cursor's start (the selection insert site)."""
-    try:
+    def anchor() -> Any:
         vc = doc.getCurrentController().getViewCursor()
         return vc.getText().createTextCursorByRange(vc.getStart())
-    except Exception:
-        return None
+
+    return uno_read(anchor, None)
 
 
 def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_MAX_CHARS) -> str | None:
     """Plain text of the paragraph around *anchor* plus one neighbor each side, read AFTER the edit."""
     if anchor is None:
         return None
-    try:
+
+    def window() -> str:
         text = anchor.getText()
         start = text.createTextCursorByRange(anchor.getStart())
         start.gotoStartOfParagraph(False)
@@ -953,9 +952,9 @@ def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_M
         end.gotoEndOfParagraph(False)
         span = text.createTextCursorByRange(start.getStart())
         span.gotoRange(end.getEnd(), True)
-        s = span.getString()
-    except Exception:
-        return None
+        return span.getString()
+
+    s = uno_read(window, None)
     if not s or not s.strip():
         return None
     if len(s) > max_chars:
@@ -1090,13 +1089,9 @@ class TrackedChangesInSelection(Exception):
 
 
 def _portion_type(node: Any) -> str | None:
-    try:
-        portion_type = node.getPropertyValue("TextPortionType")
-    except Exception as exc:
-        # .TextPortionType is the same getPropertyValue. A missing property
-        # means this node is a container. A closed document is not.
-        reraise_if_disposed(exc)
-        return None
+    # .TextPortionType is the same getPropertyValue. A missing property
+    # means this node is a container. A closed document is not.
+    portion_type = uno_read(lambda: node.getPropertyValue("TextPortionType"), None)
     if portion_type is None:
         return None
     return str(portion_type)
@@ -1111,10 +1106,7 @@ def _open_enum(owner: Any) -> Any:
     create = getattr(owner, "createEnumeration", None)
     if not callable(create):
         return None
-    try:
-        return create()
-    except Exception:
-        return _WALK_FAILED
+    return uno_read(create, _WALK_FAILED)
 
 
 def _is_blocking_redline(node: Any) -> bool:
@@ -1126,9 +1118,8 @@ def _is_blocking_redline(node: Any) -> bool:
     """
     if _portion_type(node) != "Redline":
         return False
-    try:
-        kind = str(node.getPropertyValue("RedlineType"))
-    except Exception:
+    kind = uno_read(lambda: str(node.getPropertyValue("RedlineType")), _FAILED)
+    if kind is _FAILED:
         return True
     return kind in _BLOCKING_REDLINE_TYPES
 

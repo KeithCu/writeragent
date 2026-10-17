@@ -684,3 +684,33 @@ def test_trailing_paragraph_disposal_is_not_success():
     with patch("plugin.writer.html_import.insert_html_fragment_at_cursor"):
         with pytest.raises(DocumentDisposedError):
             replace_xtext_with_html(_Text(), "<p>New</p>")
+
+
+def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.html_import import _cursor_paragraph_has_visible_text, _resolve_paragraph_style_token, _uno_service_true
+
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    closed = MagicMock()
+    closed.supportsService.side_effect = DisposedException("closed")
+    with pytest.raises(DocumentDisposedError):
+        _uno_service_true(closed, "com.sun.star.drawing.Shape")
+
+    odd = MagicMock()
+    odd.supportsService.side_effect = RuntimeException("uno")
+    assert _uno_service_true(odd, "com.sun.star.drawing.Shape") is False
+
+    # Fail safe: an unreadable paragraph still counts as non-empty.
+    cursor = MagicMock()
+    cursor.getText.side_effect = RuntimeException("uno")
+    assert _cursor_paragraph_has_visible_text(cursor) is True
+
+    fam = MagicMock()
+    fam.getElementNames.return_value = ("Heading 1", "Heading 1", "Text Body")
+    fam.hasByName.return_value = True
+    assert _resolve_paragraph_style_token(MagicMock(), fam, "Heading1") == "Heading 1"

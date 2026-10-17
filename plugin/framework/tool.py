@@ -37,7 +37,7 @@ from __future__ import annotations
 import logging
 import queue
 from abc import ABC, abstractmethod
-from typing import Any, Callable, ClassVar, cast
+from typing import Any, Callable, ClassVar, NamedTuple, cast
 
 from plugin.framework.errors import (
     WriterAgentException,
@@ -350,7 +350,7 @@ class ToolBase(_ToolErrorMixin, ABC):
                 continue
             enum = prop.get("enum")
             if isinstance(enum, list) and enum and value not in enum:
-                return False, f"Invalid value for {key}: {value!r}"
+                return False, f"Invalid value for {key}: {value!r}. Valid options: {', '.join(str(v) for v in enum)}"
             if not _tool_arg_matches_type(value, prop.get("type")):
                 return False, f"Invalid type for {key}: expected {prop.get('type')}, got {type(value).__name__}"
         return True, None
@@ -522,6 +522,76 @@ def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services
             return False
 
     return False
+
+
+class PreparedToolCall(NamedTuple):
+    """Arguments after :func:`prepare_tool_call`; ``error`` is the VALIDATION_ERROR payload or None."""
+
+    kwargs: dict[str, Any]
+    ignored: list[str]
+    details: dict[str, Any]
+    error: dict[str, Any] | None
+
+
+def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dict[str, Any]) -> PreparedToolCall:
+    """Schema filter, optional-null drop, coercion and ``validate()`` before a tool runs.
+
+    ToolRegistry.execute and SmolToolAdapter.forward both call this, so a
+    specialized sub-agent gets the same VALIDATION_ERROR (and enum options)
+    as the main chat path instead of executing with unchecked arguments.
+    """
+    # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
+    # from API/LLM) do not cause "Unknown parameter" validation errors.
+    # scripting_only_parameters (e.g. set_style number_format) are only kept
+    # for scripting callers — chat/MCP models must not apply hidden parameters
+    # from training memory when the property was removed from the schema
+    # (see docs/calc/date-time-handling.md S26).
+    kwargs = dict(tool_kwargs)
+    had_ctx_arg = "ctx" in kwargs
+    kwargs.pop("ctx", None)
+    doc_type = getattr(ctx, "doc_type", None)
+    caller = getattr(ctx, "caller", None)
+
+    schema = tool.get_parameters(doc_type) or {}
+    props = call_properties(schema) or {}
+    extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if caller == "script" else frozenset()
+    # One allow-list (including properties {}). The outbound check
+    # uses the same helper before any provider shim.
+    kept = without_unknown_kwargs(schema, kwargs, extra_ok)
+    # Keep the names that were dropped: they are reported back as ignored_parameters.
+    ignored: list[str] = sorted(k for k in kwargs if k not in kept)
+    if had_ctx_arg and "ctx" not in ignored:
+        ignored.append("ctx")
+        ignored.sort()
+    kwargs = kept
+
+    required = schema.get("required") or []
+    required_names = set(required) if isinstance(required, list) else set()
+    if any(v is None and k not in required_names for k, v in kwargs.items()):
+        # Advertised schemas allow JSON null on optional scalars. Models
+        # send null for an omitted optional, and validate() uses the
+        # source schema, which rejects None. Drop those keys so the
+        # tool sees the argument as omitted. A required null still
+        # fails validation.
+        kwargs = {k: v for k, v in kwargs.items() if v is not None or k in required_names}
+
+    kwargs = coerce_call_args(tool.name, props, kwargs)
+
+    # Common context for all error details
+    common_details: dict[str, Any] = {"tool_name": tool_name}
+    if caller:
+        common_details["caller"] = caller
+    if doc_type:
+        common_details["doc_type"] = doc_type
+
+    # Validate parameters
+    ok, err = tool.validate(doc_type=doc_type, **kwargs)
+    if not ok:
+        # "Missing required parameter: index" is exactly when the agent sent the value
+        # under another name (paragraph_index): show which names were dropped.
+        extra = {"ignored_parameters": ignored} if ignored else {}
+        return PreparedToolCall(kwargs, ignored, common_details, make_tool_error(err, code="VALIDATION_ERROR", **common_details, **extra))
+    return PreparedToolCall(kwargs, ignored, common_details, None)
 
 
 class ToolRegistry:
@@ -953,54 +1023,10 @@ class ToolRegistry:
                     tool_name=tool_name,
                 )
 
-            # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
-            # from API/LLM) do not cause "Unknown parameter" validation errors.
-            # scripting_only_parameters (e.g. set_style number_format) are only kept
-            # for scripting callers — chat/MCP models must not apply hidden parameters
-            # from training memory when the property was removed from the schema
-            # (see docs/calc/date-time-handling.md S26).
-            had_ctx_arg = "ctx" in kwargs
-            kwargs.pop("ctx", None)
-
-            schema = tool.get_parameters(ctx.doc_type) or {}
-            props = call_properties(schema) or {}
-            extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if ctx.caller == "script" else frozenset()
-            # One allow-list (including properties {}). The outbound check
-            # uses the same helper before any provider shim.
-            kept = without_unknown_kwargs(schema, kwargs, extra_ok)
-            # Keep the names that were dropped: they are reported back as ignored_parameters.
-            ignored: list[str] = sorted(k for k in kwargs if k not in kept)
-            if had_ctx_arg and "ctx" not in ignored:
-                ignored.append("ctx")
-                ignored.sort()
-            kwargs = kept
-
-            required = schema.get("required") or []
-            required_names = set(required) if isinstance(required, list) else set()
-            if any(v is None and k not in required_names for k, v in kwargs.items()):
-                # Advertised schemas allow JSON null on optional scalars. Models
-                # send null for an omitted optional, and validate() uses the
-                # source schema, which rejects None. Drop those keys so the
-                # tool sees the argument as omitted. A required null still
-                # fails validation.
-                kwargs = {k: v for k, v in kwargs.items() if v is not None or k in required_names}
-
-            kwargs = coerce_call_args(tool.name, props, kwargs)
-
-            # Common context for all error details
-            common_details = {"tool_name": tool_name}
-            if ctx.caller:
-                common_details["caller"] = ctx.caller
-            if ctx.doc_type:
-                common_details["doc_type"] = ctx.doc_type
-
-            # Validate parameters
-            ok, err = tool.validate(doc_type=ctx.doc_type, **kwargs)
-            if not ok:
-                # "Missing required parameter: index" is exactly when the agent sent the value
-                # under another name (paragraph_index): show which names were dropped.
-                extra = {"ignored_parameters": ignored} if ignored else {}
-                return make_tool_error(err, code="VALIDATION_ERROR", **common_details, **extra)
+            prepared = prepare_tool_call(tool, ctx, tool_name, kwargs)
+            if prepared.error is not None:
+                return prepared.error
+            kwargs, ignored, common_details = prepared.kwargs, prepared.ignored, prepared.details
 
             if getattr(ctx, "read_only_target", False) and tool.detects_mutation():
                 # Use the central factory (all tool errors now go through make_tool_error).

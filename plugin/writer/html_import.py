@@ -27,8 +27,9 @@ from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+from plugin.framework.errors import best_effort
 from plugin.doc.text_helpers import normalize_linebreaks as _normalize
-from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
+from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import new_blank_writer, uno_same
 from . import xhtml_style_postprocess as xhtml_post
 from . import format as format_mod
@@ -36,6 +37,8 @@ from .math.html_math_segment import html_fragment_contains_mixed_math, segment_h
 from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
 
 log = logging.getLogger("writeragent.writer")
+# uno_read default where None is a real UNO result.
+_FAILED: Any = object()
 
 _MARKUP_PATTERNS = [
     # Markdown
@@ -178,14 +181,16 @@ def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> N
     """
     if not spans or text_obj is None:
         return
-    try:
+    def read_imported() -> tuple[Any, str]:
         origin = text_obj.getStart()
         hay = text_obj.createTextCursorByRange(origin)
         hay.gotoEnd(True)
-        haystack = hay.getString() or ""
-    except Exception:
-        log.debug("_apply_ruby_spans: could not read imported text", exc_info=True)
+        return origin, hay.getString() or ""
+
+    got = best_effort(read_imported, "_apply_ruby_spans: could not read imported text")
+    if got is None:
         return
+    origin, haystack = got
     # skip_chars is the imported suffix. Offsets from extract_and_strip_ruby
     # are relative to that suffix, not to earlier document text.
     anchor = skip_chars if skip_chars > 0 else 0
@@ -366,9 +371,8 @@ def _count_preceding_paras(text_obj: Any, target: Any) -> int:
     Computed BEFORE the import so we know where the inserted block paragraphs begin (a saved
     cursor would drift to the end of the inserted content)."""
     idx = 0
-    try:
-        e = text_obj.createEnumeration()
-    except Exception:
+    e = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
+    if e is _FAILED:
         return 0
     guard = 0
     while e.hasMoreElements() and guard < 200000:
@@ -401,14 +405,8 @@ def _resolve_paragraph_style_token(model: Any, fam: Any, token: str) -> str:
     then ``Standard``. The ambiguity gate runs BEFORE any exact-name shortcut so a colliding
     token can never silently land on the wrong style (per docs/writer/html-style-model-plan.md)."""
     if fam is not None:
-        candidates = []
-        try:
-            for name in fam.getElementNames():
-                if name == token or xhtml_post.compact_lo_style_name(name) == token:
-                    if name not in candidates:
-                        candidates.append(name)
-        except Exception:
-            candidates = []
+        # dict.fromkeys keeps first-seen order and drops duplicates.
+        candidates: list[str] = uno_read(lambda: list(dict.fromkeys(n for n in fam.getElementNames() if n == token or xhtml_post.compact_lo_style_name(n) == token)), [])
         if len(candidates) == 1:
             return candidates[0]
         if len(candidates) > 1:
@@ -428,15 +426,11 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: li
     named style is applied first and the import's inline char overrides survive on top.
     Compact tokens (``Heading1``) are resolved to UNO names; unknown styles fall back to
     'Standard' (per the style-model plan)."""
-    try:
-        fam = model.getStyleFamilies().getByName("ParagraphStyles")
-    except Exception:
-        fam = None
+    fam = uno_read(lambda: model.getStyleFamilies().getByName("ParagraphStyles"), None)
     # Collect the target paragraphs (from start_idx, at most len(styles)) before mutating.
     paras: list[Any] = []
-    try:
-        e = text_obj.createEnumeration()
-    except Exception:
+    e = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
+    if e is _FAILED:
         return
     i = 0
     guard = 0
@@ -648,20 +642,14 @@ def _swap_image_placeholders(model: Any, content: str) -> tuple[str, list[_KeptI
     """
     if not content or 'src=""' not in content:
         return content, []
-    try:
-        graphics = model.getGraphicObjects()
-    except Exception:
-        graphics = None
+    graphics = uno_read(lambda: model.getGraphicObjects(), None)
     kept: list[_KeptImage] = []
     missing: list[str] = []
     nonce = uuid.uuid4().hex[:8]
 
     def _swap(match: re.Match[str]) -> str:
         name = html_mod.unescape(match.group(2))
-        try:
-            obj = graphics.getByName(name) if graphics is not None and graphics.hasByName(name) else None
-        except Exception:
-            obj = None
+        obj = uno_read(lambda: graphics.getByName(name) if graphics is not None and graphics.hasByName(name) else None, None)
         if obj is None:
             missing.append(name)
             return match.group(0)
@@ -961,9 +949,8 @@ def insert_html_at_cursor(
 
 def _uno_service_true(obj: Any, service: str) -> bool:
     """``supportsService`` is true only for sal_Bool True or integer 1."""
-    try:
-        val = obj.supportsService(service)
-    except Exception:
+    val = uno_read(lambda: obj.supportsService(service), _FAILED)
+    if val is _FAILED:
         return False
     return val is True or (type(val) is int and val == 1)
 
@@ -995,15 +982,15 @@ def _selection_is_draw_shape(obj: Any) -> bool:
 
 def _cursor_paragraph_has_visible_text(cursor: Any) -> bool:
     """True if the paragraph containing *cursor* has non-whitespace text."""
-    try:
+    def visible() -> bool:
         text_obj = cursor.getText()
         para = text_obj.createTextCursorByRange(cursor.getStart())
         para.gotoStartOfParagraph(False)
         para.gotoEndOfParagraph(True)
         return bool((para.getString() or "").strip())
-    except Exception:
-        # Fail safe: treat as non-empty so end-path prep still runs.
-        return True
+
+    # Fail safe: treat as non-empty so end-path prep still runs.
+    return uno_read(visible, True)
 
 
 def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str) -> Any:
@@ -1105,23 +1092,15 @@ def _insert_content_at_position(model: Any, ctx: Any, content: str, position: st
             c.gotoEnd(False)
             return c
 
-        controller = None
-        try:
-            controller = model.getCurrentController()
-        except Exception:
-            controller = None
+        controller = uno_read(lambda: model.getCurrentController(), None)
 
-        rng = None
-        try:
+        def _first_selected() -> Any:
             sel = controller.getSelection() if controller else None
-            if sel and hasattr(sel, "getCount"):
-                try:
-                    if int(sel.getCount()) > 0:
-                        rng = sel.getByIndex(0)
-                except Exception:
-                    rng = None
-        except Exception:
-            rng = None
+            if sel and hasattr(sel, "getCount") and int(sel.getCount()) > 0:
+                return sel.getByIndex(0)
+            return None
+
+        rng = uno_read(_first_selected, None)
 
         if rng is not None and _selection_is_draw_shape(rng):
             log.debug(
@@ -1131,12 +1110,9 @@ def _insert_content_at_position(model: Any, ctx: Any, content: str, position: st
             rng = None
 
         if rng is None and controller is not None:
-            try:
-                vc = controller.getViewCursor()
-                if vc is not None and not _selection_is_draw_shape(vc):
-                    rng = vc
-            except Exception:
-                rng = None
+            vc = uno_read(lambda: controller.getViewCursor(), None)
+            if vc is not None and not _selection_is_draw_shape(vc):
+                rng = vc
 
         if rng is None:
             cursor = _doc_end_cursor()
@@ -1245,11 +1221,7 @@ def _replace_single_range_with_content(
     # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).
     # Block/rich HTML import into a cell's nested XText can raise an empty RuntimeException (see the
     # FOLLOW-UP above); we use this to turn that opaque failure into a clear, actionable message.
-    in_table_cell = False
-    try:
-        in_table_cell = text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("TextTable") is not None
-    except Exception:
-        in_table_cell = False
+    in_table_cell = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("TextTable") is not None, False)
 
     # Preserve the target paragraph style for INLINE replacements. The StarWriter
     # HTML import resets the paragraph to a default body style, silently demoting
@@ -1259,11 +1231,7 @@ def _replace_single_range_with_content(
     inline_preserve = not _content_has_block_markup(prepared) and not html_fragment_contains_mixed_math(prepared)
     saved_style = None
     if inline_preserve:
-        try:
-            saved_style = text_obj.createTextCursorByRange(
-                text_range.getStart()).getPropertyValue("ParaStyleName")
-        except Exception:
-            saved_style = None
+        saved_style = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("ParaStyleName"), None)
 
     cursor = text_obj.createTextCursorByRange(text_range)
     from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
@@ -1290,12 +1258,12 @@ def _replace_single_range_with_content(
         # accepting the change would keep BOTH the old and new text. The inline import does not
         # demote the style here, so skipping the restore keeps a clean Delete + Insert pair.
         if not _is_recording_changes(model):
-            try:
+            def restore_style() -> None:
                 restore = text_obj.createTextCursorByRange(anchor.getStart())
                 restore.gotoRange(cursor.getEnd(), True)
                 format_mod.apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
-            except Exception:
-                log.debug("replace_single_range_with_content: could not restore ParaStyleName", exc_info=True)
+
+            best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
     else:
         # apply_styles=False: a search/replace splits the matched paragraph, so applying a
         # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
@@ -1508,6 +1476,19 @@ def _insert_restored_field(model: Any, text_range: Any, title: str, props: dict[
         raise ToolExecutionError("Could not restore the %s field." % title) from e
 
 
+def _cursor_over(text_obj: Any, offset: int, needle: str) -> Any | None:
+    """Cursor selecting *needle* at cursor step *offset* of *text_obj*, or None."""
+    cursor = text_obj.createTextCursor()
+    cursor.gotoStart(False)
+    if offset and cursor.goRight(offset, False) is False:
+        return None
+    if cursor.goRight(len(needle), True) is False:
+        return None
+    if cursor.getString() != needle:
+        return None
+    return cursor
+
+
 def _select_placeholder(text_obj: Any, needle: str) -> Any | None:
     """Cursor covering the first plain-text *needle* in *text_obj*.
 
@@ -1517,9 +1498,8 @@ def _select_placeholder(text_obj: Any, needle: str) -> Any | None:
     field counts as one cursor step (probe A'); ``getString()`` expands it,
     so the index has to come from the portion walk, not from ``getString()``.
     """
-    try:
-        enum = text_obj.createEnumeration()
-    except Exception:
+    enum = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
+    if enum is _FAILED:
         return None
     steps = 0
     paras = 0
@@ -1547,29 +1527,14 @@ def _select_placeholder(text_obj: Any, needle: str) -> Any | None:
             if kind == "TextField":
                 steps += 1
                 continue
-            try:
-                chunk = portion.getString() or ""
-            except Exception:
-                chunk = ""
+            chunk = uno_read(lambda: portion.getString() or "", "")
             if not isinstance(chunk, str):
                 chunk = str(chunk)
             pos = chunk.find(needle)
             if pos < 0:
                 steps += len(chunk)
                 continue
-            try:
-                cursor = text_obj.createTextCursor()
-                cursor.gotoStart(False)
-                offset = steps + pos
-                if offset and cursor.goRight(offset, False) is False:
-                    return None
-                if cursor.goRight(len(needle), True) is False:
-                    return None
-                if cursor.getString() != needle:
-                    return None
-                return cursor
-            except Exception:
-                return None
+            return uno_read(lambda: _cursor_over(text_obj, steps + pos, needle), None)
     return None
 
 
@@ -1628,9 +1593,8 @@ def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
     if text_obj is not None:
         walked = _restore_fields_by_cursor(model, text_obj)
         if walked:
-            try:
-                plain = text_obj.getString() or ""
-            except Exception:
+            plain = uno_read(lambda: text_obj.getString() or "", _FAILED)
+            if plain is _FAILED:
                 return walked
             if "[[WA-FIELD:" not in plain:
                 return walked
@@ -1716,10 +1680,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
     cursor = text_obj.createTextCursor()
     cursor.gotoStart(False)
     cursor.gotoEnd(True)
-    try:
-        original = cursor.getString()
-    except Exception:
-        original = None
+    original = uno_read(lambda: cursor.getString(), None)
     cleared = False
     try:
         cursor.setString("")

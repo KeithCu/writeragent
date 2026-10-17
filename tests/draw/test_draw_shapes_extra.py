@@ -270,3 +270,17 @@ def test_create_diagram_cleanup_continues_past_live_runtime_exception():
             )
     assert out["status"] == "error"
     assert [c.args[0] for c in page.remove.call_args_list] == list(reversed(shapes))
+
+
+def test_connect_shapes_failure_removes_connector_and_raises():
+    """A failed connect removes the connector, then lets execute_safe report the error."""
+    from plugin.draw.shapes import ConnectShapes
+
+    page = MagicMock()
+    connector = MagicMock()
+    connector.setPropertyValue.side_effect = ValueError("bad end shape")
+    with patch("plugin.draw.shapes._mutation_page", return_value=page), patch("plugin.draw.shapes.DrawShapes") as ds_cls:
+        ds_cls.return_value.safe_create_shape.return_value = (connector, False, None)
+        with pytest.raises(ValueError, match="bad end shape"):
+            ConnectShapes().execute(MagicMock(), start=0, end=1)
+    page.remove.assert_called_once_with(connector)

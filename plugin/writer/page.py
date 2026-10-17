@@ -25,7 +25,7 @@ import logging
 from collections import deque
 from typing import TYPE_CHECKING, Any, cast
 
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception, is_real_disposal, make_tool_error, resolve_exception_message
+from plugin.framework.errors import is_disposed_exception, is_real_disposal, make_tool_error, resolve_exception_message
 from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
 from .format import PAGE_NUMBER_NUMBERING_TYPE_NAMES, record_walk_cap
@@ -674,61 +674,52 @@ def get_page_style_properties(doc: Any, style_name: str = "Standard") -> dict[st
         style, style_name = resolve_page_style(doc, style_name)
     except ValueError as e:
         return make_tool_error(str(e))
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
-        return make_tool_error(f"Error accessing page style '{style_name}': {e}")
 
+    props = {
+        "style_name": style_name,
+        "width_mm": _mm(style, "Width"),
+        "height_mm": _mm(style, "Height"),
+        "is_landscape": style.getPropertyValue("IsLandscape"),
+        "left_margin_mm": _mm(style, "LeftMargin"),
+        "right_margin_mm": _mm(style, "RightMargin"),
+        "top_margin_mm": _mm(style, "TopMargin"),
+        "bottom_margin_mm": _mm(style, "BottomMargin"),
+        "gutter_margin_mm": _mm(style, "GutterMargin"),
+        "header_is_on": style.getPropertyValue("HeaderIsOn"),
+        "footer_is_on": style.getPropertyValue("FooterIsOn"),
+        "header_is_shared": style.getPropertyValue("HeaderIsShared"),
+        "footer_is_shared": style.getPropertyValue("FooterIsShared"),
+        "header_height_mm": _mm(style, "HeaderHeight"),
+        "footer_height_mm": _mm(style, "FooterHeight"),
+        "header_body_distance_mm": _mm(style, "HeaderBodyDistance"),
+        "footer_body_distance_mm": _mm(style, "FooterBodyDistance"),
+        "back_color": style.getPropertyValue("BackColor"),
+        "back_transparent": style.getPropertyValue("BackTransparent"),
+        "numbering_type": style.getPropertyValue("NumberingType"),
+        "footnote_height_mm": _mm(style, "FootnoteHeight"),
+    }
+    # RegisterParagraphStyle is optional and missing in some page styles; isolate it
+    # so one missing property doesn't fail the read.
     try:
-        props = {
-            "style_name": style_name,
-            "width_mm": _mm(style, "Width"),
-            "height_mm": _mm(style, "Height"),
-            "is_landscape": style.getPropertyValue("IsLandscape"),
-            "left_margin_mm": _mm(style, "LeftMargin"),
-            "right_margin_mm": _mm(style, "RightMargin"),
-            "top_margin_mm": _mm(style, "TopMargin"),
-            "bottom_margin_mm": _mm(style, "BottomMargin"),
-            "gutter_margin_mm": _mm(style, "GutterMargin"),
-            "header_is_on": style.getPropertyValue("HeaderIsOn"),
-            "footer_is_on": style.getPropertyValue("FooterIsOn"),
-            "header_is_shared": style.getPropertyValue("HeaderIsShared"),
-            "footer_is_shared": style.getPropertyValue("FooterIsShared"),
-            "header_height_mm": _mm(style, "HeaderHeight"),
-            "footer_height_mm": _mm(style, "FooterHeight"),
-            "header_body_distance_mm": _mm(style, "HeaderBodyDistance"),
-            "footer_body_distance_mm": _mm(style, "FooterBodyDistance"),
-            "back_color": style.getPropertyValue("BackColor"),
-            "back_transparent": style.getPropertyValue("BackTransparent"),
-            "numbering_type": style.getPropertyValue("NumberingType"),
-            "footnote_height_mm": _mm(style, "FootnoteHeight"),
-        }
-        # RegisterParagraphStyle is optional and missing in some page styles; isolate it
-        # so one missing property doesn't fail the read.
-        try:
-            props["register_paragraph_style"] = style.getPropertyValue("RegisterParagraphStyle")
-        except Exception:
-            pass
-        # False means the first page has its OWN header/footer — the usual setup for a
-        # letterhead — reachable only through the header_first / footer_first regions. Fetched
-        # separately: not every page style offers it, and one missing property must not sink
-        # the whole read.
-        try:
-            props["first_is_shared"] = style.getPropertyValue("FirstIsShared")
-        except Exception:
-            pass
-        # PageStyleLayout enum or int -> int 0=ALL, 1=LEFT, 2=RIGHT, 3=MIRRORED
-        try:
-            psl = _page_style_layout_to_int(style.getPropertyValue("PageStyleLayout"))
-            if psl is not None:
-                props["page_style_layout"] = psl
-        except Exception:
-            pass
-        return {"status": "ok", "properties": props}
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
-        return make_tool_error(f"Error reading properties from page style '{style_name}': {e}")
+        props["register_paragraph_style"] = style.getPropertyValue("RegisterParagraphStyle")
+    except Exception:
+        pass
+    # False means the first page has its OWN header/footer — the usual setup for a
+    # letterhead — reachable only through the header_first / footer_first regions. Fetched
+    # separately: not every page style offers it, and one missing property must not sink
+    # the whole read.
+    try:
+        props["first_is_shared"] = style.getPropertyValue("FirstIsShared")
+    except Exception:
+        pass
+    # PageStyleLayout enum or int -> int 0=ALL, 1=LEFT, 2=RIGHT, 3=MIRRORED
+    try:
+        psl = _page_style_layout_to_int(style.getPropertyValue("PageStyleLayout"))
+        if psl is not None:
+            props["page_style_layout"] = psl
+    except Exception:
+        pass
+    return {"status": "ok", "properties": props}
 
 
 # ------------------------------------------------------------------
@@ -822,10 +813,6 @@ class PageSetStyleProperties(ToolWriterPageBase):
             style, style_name = resolve_page_style(doc, style_name)
         except ValueError as e:
             return self._tool_error(str(e))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error(f"Error accessing page style '{style_name}': {e}")
 
         # F5: HeaderIsOn/FooterIsOn=false *clears* content. Refuse while
         # content remains so we don't silently wipe (same idea as LO's
@@ -959,58 +946,47 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
             style, style_name = resolve_page_style(ctx.doc, style_name)
         except ValueError as e:
             return self._tool_error(str(e))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error(f"Error accessing page style '{style_name}': {e}")
 
+        is_on_prop, text_prop = _REGION_PROPS[region]
+        is_on = bool(style.getPropertyValue(is_on_prop))
+        # F5: disabling the region *clears* HeaderText — typically None
+        # while off. Still export if a text object is present.
+        text_obj = None
         try:
-            is_on_prop, text_prop = _REGION_PROPS[region]
-            is_on = bool(style.getPropertyValue(is_on_prop))
-            # F5: disabling the region *clears* HeaderText — typically None
-            # while off. Still export if a text object is present.
+            text_obj = style.getPropertyValue(text_prop)
+        except Exception:
             text_obj = None
-            try:
-                text_obj = style.getPropertyValue(text_prop)
-            except Exception:
-                text_obj = None
-            content = ""
-            if text_obj is not None:
-                content = xtext_to_content(
-                    text_obj, ctx.doc, ctx.ctx, getattr(ctx, "services", None),
-                    include_images=include_images,
-                )
-            result: dict[str, Any] = {
-                "status": "ok",
-                "style_name": style_name,
-                "region": region,
-                "content": content,
-                "is_on": is_on,
-                "format": "html",
-            }
-            if text_obj is not None:
-                # Machine-readable extras; HTML already has the structure. Not a write refuse gate.
-                scan = _scan_region_content(ctx.doc, text_obj)
-                result["paragraph_count"] = scan["paragraph_count"]
-                if scan["fields"]:
-                    result["fields"] = scan["fields"]
-                if scan["images"]:
-                    result["images"] = scan["images"]
-                if scan.get("warning"):
-                    result["warning"] = scan["warning"]
-            dyn_prop, _unused_spacing, height_prop = _height_props(region)
-            try:
-                result["auto_height"] = bool(style.getPropertyValue(dyn_prop))
-                result["height_mm"] = round(style.getPropertyValue(height_prop) / 100.0, 1)
-            except Exception:
-                pass
-            return result
-        except Exception as e:
-            # xtext_to_content used to return "". It now raises. Re-raise so
-            # execute_safe keeps DOCUMENT_DISPOSED and the named export error.
-            if is_disposed_exception(e) or isinstance(e, ToolExecutionError):
-                raise
-            return self._tool_error(f"Error reading {region} text from page style '{style_name}': {e}")
+        content = ""
+        if text_obj is not None:
+            content = xtext_to_content(
+                text_obj, ctx.doc, ctx.ctx, getattr(ctx, "services", None),
+                include_images=include_images,
+            )
+        result: dict[str, Any] = {
+            "status": "ok",
+            "style_name": style_name,
+            "region": region,
+            "content": content,
+            "is_on": is_on,
+            "format": "html",
+        }
+        if text_obj is not None:
+            # Machine-readable extras; HTML already has the structure. Not a write refuse gate.
+            scan = _scan_region_content(ctx.doc, text_obj)
+            result["paragraph_count"] = scan["paragraph_count"]
+            if scan["fields"]:
+                result["fields"] = scan["fields"]
+            if scan["images"]:
+                result["images"] = scan["images"]
+            if scan.get("warning"):
+                result["warning"] = scan["warning"]
+        dyn_prop, _unused_spacing, height_prop = _height_props(region)
+        try:
+            result["auto_height"] = bool(style.getPropertyValue(dyn_prop))
+            result["height_mm"] = round(style.getPropertyValue(height_prop) / 100.0, 1)
+        except Exception:
+            pass
+        return result
 
 
 # ------------------------------------------------------------------
@@ -1079,10 +1055,6 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             style, style_name = resolve_page_style(ctx.doc, style_name)
         except ValueError as e:
             return self._tool_error(str(e))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error(f"Error accessing page style '{style_name}': {e}")
 
         # Mirrors cannot be set independently without turning sharing off first.
         if _region_mirrors_shared(style, region):
@@ -1510,10 +1482,6 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             style, style_name = resolve_page_style(ctx.doc, style_name)
         except ValueError as e:
             return self._tool_error(str(e))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error("Error accessing page style '%s': %s" % (style_name, e))
 
         # A shared mirror is the same text as header/footer. Editing it would
         # surprise the caller who asked for the first or left page only.
@@ -1623,31 +1591,24 @@ class PageGetColumns(ToolWriterPageBase):
             style, style_name = resolve_page_style(doc, style_name)
         except ValueError as e:
             return self._tool_error(str(e))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error(f"Error accessing page style '{style_name}': {e}")
 
-        try:
-            text_columns = style.getPropertyValue("TextColumns")
-            if not text_columns:
-                return self._tool_error(f"TextColumns property not found on style '{style_name}'.")
+        text_columns = style.getPropertyValue("TextColumns")
+        if not text_columns:
+            return self._tool_error(f"TextColumns property not found on style '{style_name}'.")
 
-            column_count = text_columns.getColumnCount()
-            cols = text_columns.getColumns()
+        column_count = text_columns.getColumnCount()
+        cols = text_columns.getColumns()
 
-            columns_data = []
-            for col in cols:
-                columns_data.append({
-                    "width": col.Width,
-                    "width_unit": "relative",
-                    "left_margin_mm": col.LeftMargin / 100.0,
-                    "right_margin_mm": col.RightMargin / 100.0,
-                })
+        columns_data = []
+        for col in cols:
+            columns_data.append({
+                "width": col.Width,
+                "width_unit": "relative",
+                "left_margin_mm": col.LeftMargin / 100.0,
+                "right_margin_mm": col.RightMargin / 100.0,
+            })
 
-            return {"status": "ok", "style": style_name, "style_name": style_name, "column_count": column_count, "columns": columns_data}
-        except Exception as e:
-            return self._tool_error(f"Error reading columns from page style '{style_name}': {e}")
+        return {"status": "ok", "style": style_name, "style_name": style_name, "column_count": column_count, "columns": columns_data}
 
 
 # ------------------------------------------------------------------
@@ -1688,44 +1649,35 @@ class PageSetColumns(ToolWriterPageBase):
             style, style_name = resolve_page_style(doc, style_name)
         except ValueError as e:
             return self._tool_error(str(e))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error(f"Error accessing page style '{style_name}': {e}")
 
-        try:
-            text_columns = style.getPropertyValue("TextColumns")
-            if not text_columns:
-                return self._tool_error(f"TextColumns property not found on style '{style_name}'.")
+        text_columns = style.getPropertyValue("TextColumns")
+        if not text_columns:
+            return self._tool_error(f"TextColumns property not found on style '{style_name}'.")
 
-            text_columns.setColumnCount(column_count)
-            cols = list(text_columns.getColumns())
+        text_columns.setColumnCount(column_count)
+        cols = list(text_columns.getColumns())
 
-            # Divide spacing between adjacent columns
-            # Column 1 right margin gets half spacing, Column 2 left margin gets half, etc.
-            # What was wrong: when spacing was 0, the inner margins were skipped leaving old spacing intact.
-            # Why this change fixes it: always update inner margins for column_count > 1, setting them to 0 if spacing is 0.
-            if column_count > 1:
-                half_spacing = spacing_hmm // 2
-                for i in range(column_count - 1):
-                    cols[i].RightMargin = half_spacing
-                    cols[i + 1].LeftMargin = half_spacing
+        # Divide spacing between adjacent columns
+        # Column 1 right margin gets half spacing, Column 2 left margin gets half, etc.
+        # What was wrong: when spacing was 0, the inner margins were skipped leaving old spacing intact.
+        # Why this change fixes it: always update inner margins for column_count > 1, setting them to 0 if spacing is 0.
+        if column_count > 1:
+            half_spacing = spacing_hmm // 2
+            for i in range(column_count - 1):
+                cols[i].RightMargin = half_spacing
+                cols[i + 1].LeftMargin = half_spacing
 
-            text_columns.setColumns(tuple(cols))
-            style.setPropertyValue("TextColumns", text_columns)
+        text_columns.setColumns(tuple(cols))
+        style.setPropertyValue("TextColumns", text_columns)
 
-            result: dict[str, Any] = {
-                "status": "ok",
-                "style_name": style_name,
-                "column_count": column_count,
-                "spacing_mm": spacing_raw,
-            }
-            flag_style_unreviewed(getattr(ctx, "ctx", None), result)
-            return result
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error(f"Error setting columns on page style '{style_name}': {e}")
+        result: dict[str, Any] = {
+            "status": "ok",
+            "style_name": style_name,
+            "column_count": column_count,
+            "spacing_mm": spacing_raw,
+        }
+        flag_style_unreviewed(getattr(ctx, "ctx", None), result)
+        return result
 
 
 def _page_break_style_request(doc: Any, kwargs: dict[str, Any]) -> tuple[str | None, int | None]:
@@ -1838,67 +1790,56 @@ class PageInsertBreak(ToolWriterPageBase):
             page_style, restart = _page_break_style_request(doc, kwargs)
         except ValueError as e:
             return self._tool_error(str(e))
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error(
-                "Error accessing page style '%s': %s" % (kwargs.get("page_style"), e)
-            )
 
-        try:
-            if before_text or after_text:
-                anchor = str(before_text or after_text)
-                # type/enum checks are done by the tool schema in ToolRegistry
-                occurrence = kwargs.get("occurrence", 0)
-                if occurrence < 0:
-                    return self._tool_error("occurrence must be non-negative.")
-                sd = doc.createSearchDescriptor()
-                sd.SearchString = anchor
-                sd.SearchRegularExpression = False
-                sd.SearchCaseSensitive = bool(kwargs.get("case_sensitive", True))
-                found = doc.findFirst(sd)
-                for _unused in range(occurrence):
-                    if found is None:
-                        break
-                    found = doc.findNext(found.getEnd(), sd)
+        if before_text or after_text:
+            anchor = str(before_text or after_text)
+            # type/enum checks are done by the tool schema in ToolRegistry
+            occurrence = kwargs.get("occurrence", 0)
+            if occurrence < 0:
+                return self._tool_error("occurrence must be non-negative.")
+            sd = doc.createSearchDescriptor()
+            sd.SearchString = anchor
+            sd.SearchRegularExpression = False
+            sd.SearchCaseSensitive = bool(kwargs.get("case_sensitive", True))
+            found = doc.findFirst(sd)
+            for _unused in range(occurrence):
                 if found is None:
-                    return self._tool_error("Anchor text '%s' not found%s." % (anchor, (" at occurrence %d" % occurrence) if occurrence else ""))
-                text = found.getText()
-                # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
-                # after_text -> the paragraph that FOLLOWS the match.
-                para = text.createTextCursorByRange(found.getStart() if before_text else found.getEnd())
-                if after_text and not para.gotoNextParagraph(False):
-                    # At the LAST paragraph there is nothing after the anchor; silently breaking
-                    # on the anchor's own paragraph would push the anchor itself to a new page
-                    # (the opposite of what was asked) while reporting ok.
-                    return self._tool_error(
-                        "The anchor is in the document's last paragraph; there is nothing after it "
-                        "to start a new page with. Use before_text, or append content first.")
-                # What was wrong: setting BreakType inside a table cell corrupted table layout or had no effect.
-                # Why this change fixes it: refuse to set BreakType if the cursor is inside a text table.
-                if _in_text_table(para):
-                    return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
-                _apply_page_break(para, page_style, restart)
-                return _page_break_ok("Page break inserted %s the anchor." % ("before" if before_text else "after"), page_style, restart)
-
-            view_cursor = doc.getCurrentController().getViewCursor()
-            if not view_cursor:
-                return self._tool_error("Could not obtain view cursor.")
-
-            # BreakType is a paragraph property. A collapsed model cursor at the
-            # view start applies it to the paragraph that contains the selection.
-            # SwXTextViewCursor is not an XParagraphCursor (no gotoEndOfParagraph)
-            # and this path must not move that selection. insertControlCharacter
-            # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
-            # text; do not put that back.
-            text = view_cursor.getText()
-            cursor = text.createTextCursorByRange(view_cursor.getStart())
-            if _in_text_table(cursor):
+                    break
+                found = doc.findNext(found.getEnd(), sd)
+            if found is None:
+                return self._tool_error("Anchor text '%s' not found%s." % (anchor, (" at occurrence %d" % occurrence) if occurrence else ""))
+            text = found.getText()
+            # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
+            # after_text -> the paragraph that FOLLOWS the match.
+            para = text.createTextCursorByRange(found.getStart() if before_text else found.getEnd())
+            if after_text and not para.gotoNextParagraph(False):
+                # At the LAST paragraph there is nothing after the anchor; silently breaking
+                # on the anchor's own paragraph would push the anchor itself to a new page
+                # (the opposite of what was asked) while reporting ok.
+                return self._tool_error(
+                    "The anchor is in the document's last paragraph; there is nothing after it "
+                    "to start a new page with. Use before_text, or append content first.")
+            # What was wrong: setting BreakType inside a table cell corrupted table layout or had no effect.
+            # Why this change fixes it: refuse to set BreakType if the cursor is inside a text table.
+            if _in_text_table(para):
                 return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
-            _apply_page_break(cursor, page_style, restart)
-            return _page_break_ok("Page break inserted.", page_style, restart)
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return self._tool_error(f"Error inserting page break: {e}")
+            _apply_page_break(para, page_style, restart)
+            return _page_break_ok("Page break inserted %s the anchor." % ("before" if before_text else "after"), page_style, restart)
+
+        view_cursor = doc.getCurrentController().getViewCursor()
+        if not view_cursor:
+            return self._tool_error("Could not obtain view cursor.")
+
+        # BreakType is a paragraph property. A collapsed model cursor at the
+        # view start applies it to the paragraph that contains the selection.
+        # SwXTextViewCursor is not an XParagraphCursor (no gotoEndOfParagraph)
+        # and this path must not move that selection. insertControlCharacter
+        # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
+        # text; do not put that back.
+        text = view_cursor.getText()
+        cursor = text.createTextCursorByRange(view_cursor.getStart())
+        if _in_text_table(cursor):
+            return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
+        _apply_page_break(cursor, page_style, restart)
+        return _page_break_ok("Page break inserted.", page_style, restart)
 
