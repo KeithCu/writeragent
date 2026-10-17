@@ -189,3 +189,13 @@ def test_fields_delete_says_what_it_removed_and_from_where(mock_ctx, monkeypatch
     assert res["deleted_count"] == 1
     assert res["deleted"] == [{"content": "Page Number", "location": "footer (page style 'Standard')"}]
     anchor.setString.assert_called_with("")
+
+
+def test_fields_disposal_is_document_disposed(mock_ctx):
+    from plugin.framework.errors import DocumentDisposedError
+
+    mock_ctx.doc.getTextFields.side_effect = DocumentDisposedError("gone")
+    res = FieldsList().execute_safe(mock_ctx)
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+

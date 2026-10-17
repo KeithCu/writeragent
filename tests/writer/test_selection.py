@@ -226,3 +226,14 @@ def test_apply_document_content_selection_failure_not_silent():
         result = ApplyDocumentContent().execute(ctx, content="x", target="selection")
     assert result["status"] == "error"
     assert "selection" in result.get("message", "")
+
+
+def test_set_selection_disposal_is_document_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
+    ctx, doc, _ = _selection_ctx()
+    doc.getCurrentController.side_effect = DocumentDisposedError("gone")
+    res = SetSelection().execute_safe(ctx, search_text="test")
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+

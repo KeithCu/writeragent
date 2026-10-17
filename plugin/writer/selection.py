@@ -62,12 +62,9 @@ class SetSelection(ToolBase):
         char_start = kwargs.get("char_start")
         char_end = kwargs.get("char_end")
 
-        try:
-            controller = doc.getCurrentController()
-            if controller is None:
-                return self._tool_error("No document view is available to hold a selection.")
-        except Exception as e:
-            return self._tool_error("No document view available: %s" % e)
+        controller = doc.getCurrentController()
+        if controller is None:
+            return self._tool_error("No document view is available to hold a selection.")
 
         # --- resolve the range to select ---
         if search_text:
@@ -78,18 +75,15 @@ class SetSelection(ToolBase):
             if occurrence < 0:
                 return self._tool_error("occurrence must be non-negative.")
             case_sensitive = bool(kwargs.get("case_sensitive", True))
-            try:
-                sd = doc.createSearchDescriptor()
-                sd.SearchString = str(search_text)
-                sd.SearchRegularExpression = False
-                sd.SearchCaseSensitive = case_sensitive
-                found = doc.findFirst(sd)
-                for _unused in range(occurrence):
-                    if found is None:
-                        break
-                    found = doc.findNext(found.getEnd(), sd)
-            except Exception as e:
-                return self._tool_error("Search failed: %s" % e)
+            sd = doc.createSearchDescriptor()
+            sd.SearchString = str(search_text)
+            sd.SearchRegularExpression = False
+            sd.SearchCaseSensitive = case_sensitive
+            found = doc.findFirst(sd)
+            for _unused in range(occurrence):
+                if found is None:
+                    break
+                found = doc.findNext(found.getEnd(), sd)
             if found is None:
                 return self._tool_error(
                     "No match for search_text '%s'%s." % (search_text, (" at occurrence %d" % occurrence) if occurrence else ""))
@@ -106,10 +100,7 @@ class SetSelection(ToolBase):
             return self._tool_error("Provide search_text or char_start/char_end.")
 
         # --- apply the selection in the view ---
-        try:
-            controller.select(target_range)
-        except Exception as e:
-            return self._tool_error("Could not set the selection: %s" % e)
+        controller.select(target_range)
 
         selected = ""
         try:

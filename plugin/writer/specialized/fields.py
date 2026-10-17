@@ -150,24 +150,21 @@ class FieldsDelete(ToolWriterFieldBase):
         deleted_count = 0
         deleted = []
         for field in fields_to_delete:
+            # Text fields can be deleted by removing their anchor content
+            anchor = field.getAnchor()
+            # Report the region before the anchor is emptied: a page number removed from a
+            # footer and one removed from the body read identically afterwards.
             try:
-                # Text fields can be deleted by removing their anchor content
-                anchor = field.getAnchor()
-                # Report the region before the anchor is emptied: a page number removed from a
-                # footer and one removed from the body read identically afterwards.
-                try:
-                    where = describe_match_location(anchor, doc, hf_labels)
-                except Exception:
-                    where = "unknown"
-                try:
-                    what = field.getPresentation(True)  # the field's identity, not its rendering
-                except Exception:
-                    what = ""
-                anchor.setString("")
-                deleted_count += 1
-                deleted.append({"content": what, "location": where})
-            except Exception as e:
-                return self._tool_error(f"Failed to delete field: {str(e)}")
+                where = describe_match_location(anchor, doc, hf_labels)
+            except Exception:
+                where = "unknown"
+            try:
+                what = field.getPresentation(True)  # the field's identity, not its rendering
+            except Exception:
+                what = ""
+            anchor.setString("")
+            deleted_count += 1
+            deleted.append({"content": what, "location": where})
 
         return {"status": "ok", "message": f"Successfully deleted {deleted_count} field(s).",
                 "deleted_count": deleted_count, "deleted": deleted}
@@ -219,28 +216,19 @@ class FieldsInsert(ToolWriterFieldBase):
         properties = properties or {}
         full_service_name = f"com.sun.star.text.textfield.{field_type}"
 
-        try:
-            field = doc.createInstance(full_service_name)
-            if not field:
-                return self._tool_error(f"Failed to create field of type '{field_type}'.")
-        except Exception as e:
-            return self._tool_error(f"Error creating field '{field_type}': {str(e)}")
+        field = doc.createInstance(full_service_name)
+        if not field:
+            return self._tool_error(f"Failed to create field of type '{field_type}'.")
 
         # Apply properties
         for key, value in properties.items():
-            try:
-                field.setPropertyValue(key, value)
-            except Exception as e:
-                return self._tool_error(f"Failed to set property '{key}' to '{value}': {str(e)}")
+            field.setPropertyValue(key, value)
 
         if target == "search" and old_content:
             cursor.setString("")
 
         # Insert at resolved cursor
-        try:
-            text = cursor.getText()
-            text.insertTextContent(cursor, field, False)
-        except Exception as e:
-            return self._tool_error(f"Failed to insert field into document: {str(e)}")
+        text = cursor.getText()
+        text.insertTextContent(cursor, field, False)
 
         return {"status": "ok", "message": f"Successfully inserted {field_type} field.", "applied_properties": properties}

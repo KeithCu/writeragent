@@ -449,17 +449,14 @@ class BookmarkList(ToolWriterBookmarkBase):
         doc = ctx.doc
         if not hasattr(doc, "getBookmarks"):
             return {"status": "ok", "bookmarks": [], "count": 0}
-        try:
-            bookmarks = doc.getBookmarks()
-            names = bookmarks.getElementNames()
-            result = []
-            for name in names:
-                bm = bookmarks.getByName(name)
-                anchor_text = bm.getAnchor().getString()
-                result.append({"name": name, "text": anchor_text[:100] if anchor_text else ""})
-            return {"status": "ok", "bookmarks": result, "count": len(result)}
-        except Exception as e:
-            return self._tool_error(f"Failed to list bookmarks: {str(e)}")
+        bookmarks = doc.getBookmarks()
+        names = bookmarks.getElementNames()
+        result = []
+        for name in names:
+            bm = bookmarks.getByName(name)
+            anchor_text = bm.getAnchor().getString()
+            result.append({"name": name, "text": anchor_text[:100] if anchor_text else ""})
+        return {"status": "ok", "bookmarks": result, "count": len(result)}
 
 
 class BookmarkCleanup(ToolWriterBookmarkBase):
@@ -486,37 +483,34 @@ class BookmarkCreate(ToolWriterBookmarkBase):
         if not name:
             return self._tool_error("Bookmark name is required.")
 
-        try:
-            if not hasattr(doc, "getBookmarks"):
-                return self._tool_error("Document does not support bookmarks.")
+        if not hasattr(doc, "getBookmarks"):
+            return self._tool_error("Document does not support bookmarks.")
 
-            bookmarks = doc.getBookmarks()
-            if bookmarks.hasByName(name):
-                return self._tool_error(f"A bookmark named '{name}' already exists.")
+        bookmarks = doc.getBookmarks()
+        if bookmarks.hasByName(name):
+            return self._tool_error(f"A bookmark named '{name}' already exists.")
 
-            ctrl = doc.getCurrentController()
-            if not ctrl:
-                return self._tool_error("No current controller found.")
+        ctrl = doc.getCurrentController()
+        if not ctrl:
+            return self._tool_error("No current controller found.")
 
-            view_cursor = ctrl.getViewCursor()
-            if not view_cursor:
-                return self._tool_error("No view cursor found.")
+        view_cursor = ctrl.getViewCursor()
+        if not view_cursor:
+            return self._tool_error("No view cursor found.")
 
-            text = view_cursor.getText()
-            if not text:
-                return self._tool_error("Cannot get text from current cursor position.")
+        text = view_cursor.getText()
+        if not text:
+            return self._tool_error("Cannot get text from current cursor position.")
 
-            bookmark = doc.createInstance("com.sun.star.text.Bookmark")
-            bookmark.Name = name
+        bookmark = doc.createInstance("com.sun.star.text.Bookmark")
+        bookmark.Name = name
 
-            # insertTextContent signature: (XTextRange xRange, XTextContent xContent, boolean bAbsorb)
-            # If bAbsorb is True, the text content replaces or spans the current selection.
-            # If False, it's inserted as a point. We'll use True so if there's a selection, it's spanned.
-            text.insertTextContent(view_cursor, bookmark, True)
+        # insertTextContent signature: (XTextRange xRange, XTextContent xContent, boolean bAbsorb)
+        # If bAbsorb is True, the text content replaces or spans the current selection.
+        # If False, it's inserted as a point. We'll use True so if there's a selection, it's spanned.
+        text.insertTextContent(view_cursor, bookmark, True)
 
-            return {"status": "ok", "message": f"Bookmark '{name}' created."}
-        except Exception as e:
-            return self._tool_error(f"Failed to create bookmark: {str(e)}")
+        return {"status": "ok", "message": f"Bookmark '{name}' created."}
 
 
 class BookmarkDelete(ToolWriterBookmarkBase):
@@ -531,23 +525,20 @@ class BookmarkDelete(ToolWriterBookmarkBase):
         if not name:
             return self._tool_error("Bookmark name is required.")
 
-        try:
-            if not hasattr(doc, "getBookmarks"):
-                return self._tool_error("Document does not support bookmarks.")
+        if not hasattr(doc, "getBookmarks"):
+            return self._tool_error("Document does not support bookmarks.")
 
-            bookmarks = doc.getBookmarks()
-            if not bookmarks.hasByName(name):
-                return self._tool_error(f"Bookmark '{name}' not found.")
+        bookmarks = doc.getBookmarks()
+        if not bookmarks.hasByName(name):
+            return self._tool_error(f"Bookmark '{name}' not found.")
 
-            bm = bookmarks.getByName(name)
-            anchor = bm.getAnchor()
-            text = anchor.getText()
+        bm = bookmarks.getByName(name)
+        anchor = bm.getAnchor()
+        text = anchor.getText()
 
-            text.removeTextContent(bm)
+        text.removeTextContent(bm)
 
-            return {"status": "ok", "message": f"Bookmark '{name}' deleted."}
-        except Exception as e:
-            return self._tool_error(f"Failed to delete bookmark: {str(e)}")
+        return {"status": "ok", "message": f"Bookmark '{name}' deleted."}
 
 
 class BookmarkRename(ToolWriterBookmarkBase):
@@ -564,23 +555,20 @@ class BookmarkRename(ToolWriterBookmarkBase):
         if not old_name or not new_name:
             return self._tool_error("Both old_name and new_name are required.")
 
-        try:
-            if not hasattr(doc, "getBookmarks"):
-                return self._tool_error("Document does not support bookmarks.")
+        if not hasattr(doc, "getBookmarks"):
+            return self._tool_error("Document does not support bookmarks.")
 
-            bookmarks = doc.getBookmarks()
-            if not bookmarks.hasByName(old_name):
-                return self._tool_error(f"Bookmark '{old_name}' not found.")
+        bookmarks = doc.getBookmarks()
+        if not bookmarks.hasByName(old_name):
+            return self._tool_error(f"Bookmark '{old_name}' not found.")
 
-            if bookmarks.hasByName(new_name):
-                return self._tool_error(f"A bookmark named '{new_name}' already exists.")
+        if bookmarks.hasByName(new_name):
+            return self._tool_error(f"A bookmark named '{new_name}' already exists.")
 
-            bm = bookmarks.getByName(old_name)
-            bm.setName(new_name)
+        bm = bookmarks.getByName(old_name)
+        bm.setName(new_name)
 
-            return {"status": "ok", "message": f"Bookmark renamed from '{old_name}' to '{new_name}'."}
-        except Exception as e:
-            return self._tool_error(f"Failed to rename bookmark: {str(e)}")
+        return {"status": "ok", "message": f"Bookmark renamed from '{old_name}' to '{new_name}'."}
 
 
 class BookmarkGet(ToolWriterBookmarkBase):
@@ -594,21 +582,18 @@ class BookmarkGet(ToolWriterBookmarkBase):
         if not name:
             return self._tool_error("Bookmark name is required.")
 
-        try:
-            if not hasattr(doc, "getBookmarks"):
-                return self._tool_error("Document does not support bookmarks.")
+        if not hasattr(doc, "getBookmarks"):
+            return self._tool_error("Document does not support bookmarks.")
 
-            bookmarks = doc.getBookmarks()
-            if not bookmarks.hasByName(name):
-                return self._tool_error(f"Bookmark '{name}' not found.")
+        bookmarks = doc.getBookmarks()
+        if not bookmarks.hasByName(name):
+            return self._tool_error(f"Bookmark '{name}' not found.")
 
-            bm = bookmarks.getByName(name)
-            anchor = bm.getAnchor()
-            text_content = anchor.getString()
+        bm = bookmarks.getByName(name)
+        anchor = bm.getAnchor()
+        text_content = anchor.getString()
 
-            return {"status": "ok", "bookmark": {"name": name, "text": text_content}}
-        except Exception as e:
-            return self._tool_error(f"Failed to get bookmark details: {str(e)}")
+        return {"status": "ok", "bookmark": {"name": name, "text": text_content}}
 
 
 class BookmarkResolve(ToolWriterBookmarkBase):

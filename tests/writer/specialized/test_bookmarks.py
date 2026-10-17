@@ -166,9 +166,19 @@ def test_list_bookmarks(mock_ctx):
 
 def test_list_bookmarks_error(mock_ctx):
     mock_ctx.doc.getBookmarks.side_effect = RuntimeError("boom")
-    res = BookmarkList().execute(mock_ctx)
+    res = BookmarkList().execute_safe(mock_ctx)
     assert res["status"] == "error"
-    assert "Failed to list bookmarks" in res["message"]
+    assert "boom" in res["message"]
+
+
+def test_bookmarks_disposal_is_document_disposed(mock_ctx):
+    from plugin.framework.errors import DocumentDisposedError
+
+    tool = BookmarkList()
+    mock_ctx.doc.getBookmarks.side_effect = DocumentDisposedError("gone")
+    res = tool.execute_safe(mock_ctx)
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
 
 
 def test_untracked_restores_modified_and_unlocks_on_error():

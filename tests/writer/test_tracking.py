@@ -884,3 +884,14 @@ def test_accept_all_writer_errors_when_count_unchanged():
     assert res["message"] == "Failed to resolve all tracked changes."
     ctx.doc.getUndoManager().undo.assert_not_called()
 
+
+def test_tracking_disposal_is_document_disposed():
+    from plugin.framework.errors import DocumentDisposedError
+
+    tool = TrackChangesList()
+    ctx, _, _, _ = _create_mock_ctx()
+    ctx.doc.getRedlines.side_effect = DocumentDisposedError("gone")
+    res = tool.execute_safe(ctx)
+    assert res["status"] == "error"
+    assert res["code"] == "DOCUMENT_DISPOSED"
+
