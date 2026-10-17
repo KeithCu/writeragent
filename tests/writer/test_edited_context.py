@@ -166,3 +166,31 @@ def test_apply_document_content_edited_context_on_success():
         res = ApplyDocumentContent().execute(
             ctx, content="new", target="search", old_content="old")
     assert res["status"] == "ok" and res.get("edited_context") == "echo"
+
+
+def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.writer.edit_review import _is_blocking_redline, collapsed_anchor, paragraph_window_text
+
+    class DisposedException(Exception):
+        pass
+
+    class RuntimeException(Exception):
+        pass
+
+    closed = MagicMock()
+    closed.getText.side_effect = DisposedException("closed")
+    with pytest.raises(DocumentDisposedError):
+        collapsed_anchor(closed)
+    with pytest.raises(DocumentDisposedError):
+        paragraph_window_text(closed)
+
+    odd = MagicMock()
+    odd.getText.side_effect = RuntimeException("uno")
+    assert collapsed_anchor(odd) is None
+    assert paragraph_window_text(odd) is None
+
+    # An unreadable RedlineType on a redline portion still fails closed.
+    node = MagicMock()
+    node.getPropertyValue.side_effect = lambda name: "Redline" if name == "TextPortionType" else (_ for _ in ()).throw(RuntimeException("uno"))
+    assert _is_blocking_redline(node) is True

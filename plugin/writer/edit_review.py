@@ -923,26 +923,24 @@ _EDITED_CONTEXT_MAX_CHARS = 700
 
 def collapsed_anchor(text_range: Any) -> Any | None:
     """A collapsed model cursor at *text_range*'s start."""
-    try:
-        return text_range.getText().createTextCursorByRange(text_range.getStart())
-    except Exception:
-        return None
+    return uno_read(lambda: text_range.getText().createTextCursorByRange(text_range.getStart()), None)
 
 
 def selection_anchor(doc: Any) -> Any | None:
     """Collapsed anchor at the view cursor's start (the selection insert site)."""
-    try:
+    def anchor() -> Any:
         vc = doc.getCurrentController().getViewCursor()
         return vc.getText().createTextCursorByRange(vc.getStart())
-    except Exception:
-        return None
+
+    return uno_read(anchor, None)
 
 
 def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_MAX_CHARS) -> str | None:
     """Plain text of the paragraph around *anchor* plus one neighbor each side, read AFTER the edit."""
     if anchor is None:
         return None
-    try:
+
+    def window() -> str:
         text = anchor.getText()
         start = text.createTextCursorByRange(anchor.getStart())
         start.gotoStartOfParagraph(False)
@@ -954,9 +952,9 @@ def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_M
         end.gotoEndOfParagraph(False)
         span = text.createTextCursorByRange(start.getStart())
         span.gotoRange(end.getEnd(), True)
-        s = span.getString()
-    except Exception:
-        return None
+        return span.getString()
+
+    s = uno_read(window, None)
     if not s or not s.strip():
         return None
     if len(s) > max_chars:
@@ -1108,10 +1106,7 @@ def _open_enum(owner: Any) -> Any:
     create = getattr(owner, "createEnumeration", None)
     if not callable(create):
         return None
-    try:
-        return create()
-    except Exception:
-        return _WALK_FAILED
+    return uno_read(create, _WALK_FAILED)
 
 
 def _is_blocking_redline(node: Any) -> bool:
@@ -1123,9 +1118,8 @@ def _is_blocking_redline(node: Any) -> bool:
     """
     if _portion_type(node) != "Redline":
         return False
-    try:
-        kind = str(node.getPropertyValue("RedlineType"))
-    except Exception:
+    kind = uno_read(lambda: str(node.getPropertyValue("RedlineType")), _FAILED)
+    if kind is _FAILED:
         return True
     return kind in _BLOCKING_REDLINE_TYPES
 
