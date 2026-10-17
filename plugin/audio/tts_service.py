@@ -24,6 +24,8 @@ from plugin.audio.kokoro_g2p import (
     kokoro_lang_uses_misaki,
 )
 from plugin.audio.kokoro_pool import (
+    cancel_kokoro_inflight,
+    get_kokoro_inflight_token,
     get_kokoro_pool,
     resolve_kokoro_python,
 )
@@ -47,7 +49,7 @@ from plugin.audio.tts_voices import (
     parse_tts_speed,
 )
 from plugin.framework import config
-from plugin.framework.i18n import _
+from plugin.framework.i18n import _, get_active_locale
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.worker_pool import run_in_background
 
@@ -369,13 +371,7 @@ def stop_speech() -> None:
         _reply_misaki_ready.clear()
         clear_generation_downloads(_speech_generation - 1)
 
-    cancel_token: object | None = None
-    try:
-        from plugin.audio.kokoro_pool import get_kokoro_inflight_token
-
-        cancel_token = get_kokoro_inflight_token()
-    except Exception:
-        log.debug("Kokoro token lookup failed", exc_info=True)
+    cancel_token = get_kokoro_inflight_token()
 
     # Non-blocking signal/kill on current thread
     stop_spd = _proc_running(play) and _is_spd_say(play)
@@ -385,8 +381,6 @@ def stop_speech() -> None:
 
     if cancel_token is not None:
         try:
-            from plugin.audio.kokoro_pool import cancel_kokoro_inflight
-
             cancel_kokoro_inflight(cancel_token)
         except Exception:
             log.debug("Kokoro cancel failed", exc_info=True)
@@ -559,12 +553,7 @@ def uses_sentence_by_sentence(provider: str) -> bool:
 
 def _speech_locale_key() -> str:
     """BCP-47 tag for the grammar sentence splitter (en_US -> en-US)."""
-    try:
-        from plugin.framework.i18n import get_active_locale
-
-        loc = get_active_locale() or "en_US"
-    except Exception:
-        loc = "en_US"
+    loc = get_active_locale() or "en_US"
     return loc.replace("_", "-")
 
 

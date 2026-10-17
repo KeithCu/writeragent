@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from plugin.embeddings.venv import embeddings_folder_maintain
+from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
 
 
 def _write_min_odt(path: Path, text: str = "Hello") -> None:
@@ -231,11 +234,10 @@ def test_incremental_refresh_handles_empty_text_files(tmp_path: Path):
     assert info["chunk_count"] == 0
 
     conn.close()
+
+
 def test_zvec_incremental_maintain_skips_matching_mtime_doc(tmp_path: Path):
     """Zvec Doc with .field('file_mtime') matching file mtime skips re-embedding."""
-    from unittest.mock import MagicMock, patch
-    from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
-
     meta_dir = tmp_path / "writeragent_embeddings"
     meta_dir.mkdir(parents=True)
     meta_path = meta_dir / "corpus_meta.json"
@@ -270,9 +272,6 @@ def test_zvec_incremental_maintain_skips_matching_mtime_doc(tmp_path: Path):
 
 
 def test_zvec_incremental_maintain_does_not_skip_with_existing_meta(tmp_path: Path):
-    from unittest.mock import MagicMock, patch
-    from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
-
     meta_dir = tmp_path / "writeragent_embeddings"
     meta_dir.mkdir(parents=True)
     meta_path = meta_dir / "corpus_meta.json"
@@ -291,4 +290,56 @@ def test_zvec_incremental_maintain_does_not_skip_with_existing_meta(tmp_path: Pa
         res = maintain_folder_zvec(str(tmp_path), "m", mode="incremental")
         assert res["mode"] == "zvec"
         mock_coll.query.assert_called()
+
+
+def test_zvec_incremental_maintain_delete_failure_skips_file_and_logs(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    """Bug B1: failed delete before re-ingest logs a warning and skips the file so it is retried."""
+    meta_dir = tmp_path / "writeragent_embeddings"
+    meta_dir.mkdir(parents=True)
+    meta_path = meta_dir / "corpus_meta.json"
+    meta_path.write_text('{"schema_version":"6","embedding_model":"m","chunk_count":5}', encoding="utf-8")
+
+    doc = tmp_path / "test.odt"
+    _write_min_odt(doc, "content")
+
+    mock_coll = MagicMock()
+    mock_coll.query.return_value = []
+    mock_coll.__len__ = MagicMock(return_value=5)
+    mock_coll.delete_by_filter.side_effect = RuntimeError("disk locked")
+
+    with patch("plugin.embeddings.venv.embeddings_zvec.HAS_ZVEC", True), \
+         patch("plugin.embeddings.venv.embeddings_zvec.zvec", MagicMock()), \
+         patch("plugin.embeddings.venv.embeddings_zvec._COLL_CACHE", {str(meta_dir / "zvec_collection"): mock_coll}), \
+         patch("plugin.embeddings.embeddings_cache.zvec_collection_path", return_value=meta_dir / "zvec_collection"), \
+         patch("plugin.embeddings.venv.embeddings_zvec.zvec_ingest_rows") as mock_ingest:
+        res = maintain_folder_zvec(str(tmp_path), "m", mode="incremental")
+        assert res["mode"] == "zvec"
+        assert res["indexed_paragraphs"] == 0
+        assert res["upserted"] == 0
+        mock_coll.delete_by_filter.assert_called_once()
+        mock_ingest.assert_not_called()
+        assert "zvec delete failed for test.odt: disk locked" in caplog.text
+
+
+def test_zvec_maintain_stale_purge_failed_delete_skips_sqlite_removal(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    """Bug B1: failed delete during stale purge logs warning and skips removing from sqlite index."""
+    meta_dir = tmp_path / "writeragent_embeddings"
+    meta_dir.mkdir(parents=True)
+    meta_path = meta_dir / "corpus_meta.json"
+    meta_path.write_text('{"schema_version":"6","embedding_model":"m","chunk_count":0}', encoding="utf-8")
+
+    mock_coll = MagicMock()
+    mock_coll.delete_by_filter.side_effect = RuntimeError("purge I/O error")
+
+    with patch("plugin.embeddings.venv.embeddings_zvec.HAS_ZVEC", True), \
+         patch("plugin.embeddings.venv.embeddings_zvec.zvec", MagicMock()), \
+         patch("plugin.embeddings.venv.embeddings_zvec._COLL_CACHE", {str(meta_dir / "zvec_collection"): mock_coll}), \
+         patch("plugin.embeddings.embeddings_cache.zvec_collection_path", return_value=meta_dir / "zvec_collection"), \
+         patch("plugin.embeddings.embeddings_cache.get_all_indexed_urls", return_value=["file:///tmp/removed.odt"]), \
+         patch("plugin.embeddings.embeddings_cache.remove_file_from_index") as mock_remove:
+        res = maintain_folder_zvec(str(tmp_path), "m", mode="incremental")
+        assert res["mode"] == "zvec"
+        mock_coll.delete_by_filter.assert_called_once()
+        mock_remove.assert_not_called()
+        assert "zvec delete failed for stale file:///tmp/removed.odt: purge I/O error" in caplog.text
 

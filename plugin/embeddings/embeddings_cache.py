@@ -71,18 +71,22 @@ def zvec_collection_path(listing_root: str, *, create_parent: bool = True) -> Pa
     return base / "zvec"
 
 
+def _store_dir_populated(path: Path) -> bool:
+    """Host-safe (no backend import) heuristic: dir exists and has any entries."""
+    try:
+        p = Path(path)
+        if not p.exists() or not p.is_dir():
+            return False
+        return any(p.iterdir())
+    except OSError:
+        return False
+
+
 def zvec_collection_looks_populated(collection_path: Path) -> bool:
     """Host-safe (no zvec import) heuristic: dir exists and has any entries.
     Used for early 'empty index' checks in tools before kicking off background maintain.
     """
-    try:
-        p = Path(collection_path)
-        if not p.exists() or not p.is_dir():
-            return False
-        # Any file or subdir is a signal that create_and_open has written something.
-        return any(p.iterdir())
-    except Exception:
-        return False
+    return _store_dir_populated(collection_path)
 
 
 def lancedb_collection_path(listing_root: str, *, create_parent: bool = True) -> Path:
@@ -96,13 +100,7 @@ def lancedb_collection_path(listing_root: str, *, create_parent: bool = True) ->
 
 def lancedb_collection_looks_populated(collection_path: Path) -> bool:
     """Host-safe (no lancedb import) heuristic: dir exists and has any entries."""
-    try:
-        p = Path(collection_path)
-        if not p.exists() or not p.is_dir():
-            return False
-        return any(p.iterdir())
-    except Exception:
-        return False
+    return _store_dir_populated(collection_path)
 
 
 def corpus_meta_path(listing_root: str, *, create_parent: bool = True) -> Path:

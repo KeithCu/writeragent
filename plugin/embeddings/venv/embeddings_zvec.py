@@ -137,6 +137,15 @@ def _open_for_search(coll_path: str) -> Any:
     return coll
 
 
+def _doc_count(coll: Any, default: int = 0) -> int:
+    st = getattr(coll, "stats", None)
+    if callable(st):
+        st = st()
+    if st is None:
+        return default
+    return int(getattr(st, "doc_count", 0) or 0)
+
+
 def zvec_ingest_rows(collection_path: str, meta_path: str, model_name: str, rows: list[dict[str, Any]], *, build_fts: bool = True, build_vectors: bool = True, heartbeat_fn: Any | None = None) -> dict[str, Any]:
     """Ingest/upsert paragraph rows into a zvec collection.
 
@@ -184,13 +193,7 @@ def zvec_ingest_rows(collection_path: str, meta_path: str, model_name: str, rows
     upserted = len([s for s in (statuses if isinstance(statuses, list) else [statuses]) if getattr(s, "ok", True)])
 
     # Best-effort meta update (chunk count via stats if available, else len(docs) delta).
-    try:
-        st = getattr(coll, "stats", None)
-        count = int(getattr(st, "doc_count", 0) or 0) if st is not None else 0
-    except Exception:
-        count = 0
-    if count == 0:
-        count = len(docs)
+    count = _doc_count(coll) or len(docs)
 
     # Write/refresh the shared corpus_meta.json so host empty checks and UI see progress.
     from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta
@@ -202,8 +205,8 @@ def zvec_ingest_rows(collection_path: str, meta_path: str, model_name: str, rows
 
     try:
         coll.flush()
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("zvec flush failed: %s", e)
 
     return {"indexed": len(docs), "upserted": upserted, "dim": dim, "storage_backend": "zvec"}
 
@@ -214,19 +217,15 @@ def zvec_delete_keys(collection_path: str, keys: list[dict[str, Any]]) -> int:
         return 0
     if not HAS_ZVEC or zvec is None:
         return 0
-    if collection_path in _COLL_CACHE:
-        coll = _COLL_CACHE[collection_path]
-    else:
-        coll = zvec.open(str(collection_path))  # type: ignore[attr-defined]
-        _COLL_CACHE[collection_path] = coll
+    coll = _open_for_search(collection_path)
     ids = [_stable_doc_id(k) for k in keys]
 
     # zvec delete accepts str or list[str]
     res = coll.delete(ids)
     try:
         coll.flush()
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("zvec flush failed: %s", e)
     if isinstance(res, list):
         return sum(1 for r in res if getattr(r, "ok", True))
     return 1 if getattr(res, "ok", True) else 0
@@ -260,11 +259,13 @@ def zvec_knn_search(collection_path: str, query_text: str, k: int, *, model_name
     q = zvec.Query(field_name="embedding", vector=qvec)  # type: ignore[attr-defined]
     # output_fields restricts what comes back in Doc.fields
     out_fields = ["doc_url", "body", "para_index", "content_hash"]
-    try:
-        docs = coll.query(queries=[q], topk=int(k or 5), include_vector=False, output_fields=out_fields, filter=f'doc_url == "{doc_url_filter}"' if doc_url_filter else None)
-    except Exception:
-        # Some zvec builds may be strict on filter syntax or empty filter; retry without.
-        docs = coll.query(queries=[q], topk=int(k or 5), include_vector=False, output_fields=out_fields)
+    docs = coll.query(
+        queries=[q],
+        topk=int(k or 5),
+        include_vector=False,
+        output_fields=out_fields,
+        filter=f'doc_url == "{doc_url_filter}"' if doc_url_filter else None,
+    )
 
     hits = [_shape_hit(d) for d in (docs or [])]
     # Optional client-side MMR or rerank could be applied here using rerank_model, but native zvec
@@ -294,12 +295,7 @@ def zvec_hybrid_search(collection_path: str, query_text: str, k: int, *, model_n
 
     reranker = None
     try:
-        # Prefer built-in RRF for hybrid when no custom rerank_model requested.
-        if rerank_model:
-            # Could load a cross-encoder via zvec rerank extensions or fall back; for v1 use RRF anyway.
-            reranker = zvec.extension.RrfReRanker(rank_constant=60)  # type: ignore[attr-defined]
-        else:
-            reranker = zvec.extension.RrfReRanker(rank_constant=60)  # type: ignore[attr-defined]
+        reranker = zvec.extension.RrfReRanker(rank_constant=60)  # type: ignore[attr-defined]
     except Exception:
         reranker = None
 
@@ -381,14 +377,11 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
     indexed_urls = get_all_indexed_urls(Path(db_path))
 
     coll = None
-    try:
-        if coll_path in _COLL_CACHE:
-            coll = _COLL_CACHE[coll_path]
-        else:
-            coll = zvec.open(coll_path)  # type: ignore[attr-defined]
-            _COLL_CACHE[coll_path] = coll
-    except Exception:
-        pass
+    if coll_path in _COLL_CACHE or Path(coll_path).exists():
+        try:
+            coll = _open_for_search(coll_path)
+        except Exception as e:
+            log.warning("zvec open failed for stale purge: %s", e)
 
     for url in indexed_urls:
         if url in current_urls:
@@ -396,19 +389,16 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
         if coll is not None:
             try:
                 coll.delete_by_filter(f'doc_url == "{url}"')
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("zvec delete failed for stale %s: %s", url, e)
+                continue
         remove_file_from_index(Path(db_path), url)
 
     for idx, entry in enumerate(files):
         _hb.force({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode})
 
         try:
-            if coll_path in _COLL_CACHE:
-                coll = _COLL_CACHE[coll_path]
-            else:
-                coll = zvec.open(coll_path)  # type: ignore[attr-defined]
-                _COLL_CACHE[coll_path] = coll
+            coll = _open_for_search(coll_path)
             file_docs = coll.query(filter=f'doc_url == "{entry.url}"', include_vector=False, topk=1)
             if file_docs:
                 d = file_docs[0]
@@ -436,16 +426,15 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
         _hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "zvec"})
 
         # For clean per-file refresh, remove any previous docs for this doc_url.
-        try:
-            if coll_path in _COLL_CACHE:
-                coll = _COLL_CACHE[coll_path]
-            else:
-                coll = zvec.open(coll_path)  # type: ignore[attr-defined]
-                _COLL_CACHE[coll_path] = coll
-            coll.delete_by_filter(f'doc_url == "{entry.url}"')
-        except Exception:
-            # Collection may not exist yet; the upsert below will create on open/create path.
-            pass
+        if coll_path in _COLL_CACHE or Path(coll_path).exists():
+            try:
+                coll = _open_for_search(coll_path)
+                coll.delete_by_filter(f'doc_url == "{entry.url}"')
+            except Exception as e:
+                # Bug B1: failed delete leaves stale/duplicate chunks if re-ingested.
+                # Skip re-ingest for this file so next run can retry.
+                log.warning("zvec delete failed for %s: %s", entry.name, e)
+                continue
 
         if not rows:
             # Nothing to index for this file; still "touch" it in meta sense by ensuring collection exists.
@@ -460,20 +449,12 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
 
     # Final meta + flush
     try:
-        if coll_path in _COLL_CACHE:
-            coll = _COLL_CACHE[coll_path]
-        else:
-            coll = zvec.open(coll_path)  # type: ignore[attr-defined]
-            _COLL_CACHE[coll_path] = coll
+        coll = _open_for_search(coll_path)
         try:
             coll.flush()
-        except Exception:
-            pass
-        try:
-            st = getattr(coll, "stats", None)
-            final_count = int(getattr(st, "doc_count", 0) or 0) if st is not None else indexed
-        except Exception:
-            final_count = indexed
+        except Exception as e:
+            log.warning("zvec flush failed: %s", e)
+        final_count = _doc_count(coll, indexed)
     except Exception:
         final_count = indexed
 

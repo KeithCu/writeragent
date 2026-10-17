@@ -107,14 +107,8 @@ class SearchDialog:
         self._dlg = None
         if dlg is None:
             return
-        try:
-            dlg.setVisible(False)
-        except Exception:
-            log.exception("Failed to hide search dialog")
-        try:
-            dlg.dispose()
-        except Exception:
-            log.exception("Failed to dispose search dialog")
+        dlg.setVisible(False)
+        dlg.dispose()
 
     def _open(self) -> None:
         ctx = self._ctx
@@ -282,10 +276,7 @@ class SearchDialog:
                 except Exception as e:
                     return _("Cache Status: Error ({0})").format(str(e))
 
-            try:
-                status_lbl.getModel().Label = _get_status()
-            except Exception:
-                pass
+            status_lbl.getModel().Label = _get_status()
 
         execute_on_main_thread(_apply_cache_status)
 

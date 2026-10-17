@@ -15,9 +15,17 @@ is "zvec".
 
 from __future__ import annotations
 
+import json
+import re
+
 import pytest
 
 from plugin.embeddings.venv import embeddings_zvec as zv
+from plugin.embeddings.venv.embeddings_zvec import (
+    _COLL_CACHE,
+    maintain_folder_zvec,
+    zvec_clear_cache,
+)
 
 
 def test_has_zvec_is_boolean():
@@ -31,8 +39,6 @@ def test_stable_doc_id_shape():
     row = {"doc_url": "file:///tmp/Writing/foo.odt", "para_index": 3, "char_start": 10, "char_end": 42, "content_hash": "deadbeef12345678", "text": "hello world", "file_mtime": 1710000000.0}
     doc_id = zv._stable_doc_id(row)  # type: ignore[attr-defined]
     assert isinstance(doc_id, str) and len(doc_id) == 64
-    import re
-
     assert re.match(r"^[a-f0-9]{64}$", doc_id) is not None
 
 
@@ -65,14 +71,8 @@ def test_hit_shape_helper_does_not_crash_on_minimal_doc():
     assert abs(h["score"] - 0.91) < 1e-6
 
 
-import plugin.embeddings.venv.embeddings_zvec as zv
-
-
 @pytest.mark.skipif(not zv.HAS_ZVEC, reason="zvec not installed")
 def test_maintain_zvec_incremental_does_not_clear(tmp_path):
-    from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
-    import json
-
     listing_root = str(tmp_path)
     meta_dir = tmp_path / "writeragent_embeddings"
     meta_dir.mkdir()
@@ -89,8 +89,6 @@ def test_maintain_zvec_incremental_does_not_clear(tmp_path):
 
 
 def test_maintain_zvec_cold_proceeds(tmp_path):
-    from plugin.embeddings.venv.embeddings_zvec import maintain_folder_zvec
-
     listing_root = str(tmp_path)
     try:
         out = maintain_folder_zvec(listing_root, "test-model", mode="cold")
@@ -101,8 +99,6 @@ def test_maintain_zvec_cold_proceeds(tmp_path):
 
 def test_zvec_clear_cache_invalidates():
     """Verify zvec_clear_cache pops an item from _COLL_CACHE."""
-    from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache, _COLL_CACHE
-
     test_path = "/tmp/fake_collection"
     _COLL_CACHE[test_path] = "fake_collection_obj"
 
