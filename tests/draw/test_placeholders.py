@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from plugin.draw.placeholders import (
+    GetPlaceholderText,
+    ListPlaceholders,
     SetPlaceholderText,
     _EMPTY_PLACEHOLDER_HINT,
     _find_placeholder,
@@ -177,7 +179,6 @@ def test_get_placeholder_text_by_role_returns_index():
     ])
 
     with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page):
-        from plugin.draw.placeholders import GetPlaceholderText
         res = GetPlaceholderText().execute(SimpleNamespace(doc=object()), role="body")
 
     assert res["status"] == "ok"
@@ -218,7 +219,6 @@ def test_placeholder_tool_descriptions_steer_list_then_layout():
     assert "list_placeholders" in SetPlaceholderText.description
     assert "index" in SetPlaceholderText.description
     assert "layout" in SetPlaceholderText.description
-    from plugin.draw.placeholders import ListPlaceholders
 
     assert "before set_placeholder_text" in ListPlaceholders.description
     assert "slide_layouts" in ListPlaceholders.description

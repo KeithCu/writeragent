@@ -36,13 +36,9 @@ def _annotation_date(dt: Any) -> str:
     """
     if isinstance(dt, str):
         return dt
-    try:
-        return "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
-    except Exception:
-        try:
-            return "%04d-%02d-%02d" % (dt.Year, dt.Month, dt.Day)
-        except Exception:
-            return ""
+    if not dt:
+        return ""
+    return "%04d-%02d-%02d %02d:%02d" % (dt.Year, dt.Month, dt.Day, dt.Hours, dt.Minutes)
 
 
 def _parse_cell_ref(cell_ref: str) -> tuple[int, int]:
@@ -74,19 +70,12 @@ def _annotation_text(sheet: Any, col: int, row: int) -> tuple[Any, str]:
     action.
     """
     cell_ann = sheet.getCellByPosition(col, row).getAnnotation()
-    text = ""
-    try:
-        text = cell_ann.getString()
-    except Exception:
-        pass
+    text = cell_ann.getString()
     if text:
         return cell_ann, text
-    try:
-        shape = cell_ann.getAnnotationShape()
-        if shape is not None:
-            text = shape.getString() or ""
-    except Exception:
-        pass  # optional interface — older builds may not offer it
+    shape = cell_ann.getAnnotationShape()
+    if shape is not None:
+        text = shape.getString() or ""
     return cell_ann, text
 
 

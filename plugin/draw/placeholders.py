@@ -60,19 +60,13 @@ def _shape_class_name(shape: Any) -> str:
     # misses both and set_placeholder_text reports index 0 and 1
     # with no role. ShapeType / getShapeType() is the service name
     # on this build.
-    try:
-        if hasattr(shape, "getShapeType"):
-            shape_type = shape.getShapeType()
-            if shape_type:
-                return str(shape_type)
-    except Exception:
-        pass
-    try:
-        shape_type = getattr(shape, "ShapeType", "")
+    if hasattr(shape, "getShapeType"):
+        shape_type = shape.getShapeType()
         if shape_type:
             return str(shape_type)
-    except Exception:
-        pass
+    shape_type = getattr(shape, "ShapeType", "")
+    if shape_type:
+        return str(shape_type)
     return ""
 
 
@@ -91,21 +85,15 @@ def _find_placeholder(page: Any, role: str) -> tuple[Any | None, int | None]:
     # Strategy 1: class → role (deterministic; not substring-any / shape-order)
     for i in range(page.getCount()):
         shape = page.getByIndex(i)
-        try:
-            if _role_from_label(_shape_class_name(shape)) == role_lower:
-                return shape, i
-        except Exception:
-            pass
+        if _role_from_label(_shape_class_name(shape)) == role_lower:
+            return shape, i
 
     # Strategy 2: match by shape Name using the same map
     for i in range(page.getCount()):
         shape = page.getByIndex(i)
-        try:
-            name = shape.Name if hasattr(shape, "Name") else ""
-            if name and _role_from_label(name) == role_lower:
-                return shape, i
-        except Exception:
-            pass
+        name = shape.Name if hasattr(shape, "Name") else ""
+        if name and _role_from_label(name) == role_lower:
+            return shape, i
 
     return None, None
 
@@ -118,11 +106,8 @@ def _list_placeholders(page: Any) -> list[dict[str, Any]]:
         if not hasattr(shape, "getString"):
             continue
         entry = {"index": i, "text": shape.getString()}
-        try:
-            if hasattr(shape, "Name") and shape.Name:
-                entry["name"] = shape.Name
-        except Exception:
-            pass
+        if hasattr(shape, "Name") and shape.Name:
+            entry["name"] = shape.Name
         class_name = _shape_class_name(shape)
         if class_name:
             entry["class"] = class_name
@@ -161,11 +146,8 @@ def _fallback_text_shape_indices(page: Any) -> list[dict[str, Any]]:
             continue
         class_name = _shape_class_name(shape)
         name = ""
-        try:
-            if hasattr(shape, "Name") and shape.Name:
-                name = str(shape.Name)
-        except Exception:
-            pass
+        if hasattr(shape, "Name") and shape.Name:
+            name = str(shape.Name)
         if not class_name and not name:
             continue
         entry: dict[str, Any] = {"index": i}

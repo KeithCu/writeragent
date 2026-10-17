@@ -35,10 +35,7 @@ def _writer_page_style_name_at_cursor(doc: Any) -> str | None:
         for prop in ("PageDescName", "PageStyleName"):
             if not psi.hasPropertyByName(prop):
                 continue
-            try:
-                v = cur.getPropertyValue(prop)
-            except Exception:
-                continue
+            v = cur.getPropertyValue(prop)
             if v is None:
                 continue
             s = str(v).strip()
@@ -154,18 +151,11 @@ def _format_calc_canvas(doc: Any) -> str:
         from plugin.framework.uno_context import uno_same
 
         for i in range(n_sheets):
-            try:
-                if uno_same(sheets.getByIndex(i), sheet):
-                    sheet_idx = i
-                    break
-            except Exception:
-                pass
+            if uno_same(sheets.getByIndex(i), sheet):
+                sheet_idx = i
+                break
 
-        sheet_name = ""
-        try:
-            sheet_name = str(getattr(sheet, "Name", "") or "").strip()
-        except Exception:
-            pass
+        sheet_name = str(getattr(sheet, "Name", "") or "").strip()
         name_part = f", name '{sheet_name}'" if sheet_name else ""
 
         return f" Document canvas (Calc): active sheet index {sheet_idx} (0-based){name_part}, draw-page size {w_mm:.1f} x {h_mm:.1f} mm; {n_sheets} sheet(s). Shape x/y/width/height use 1/100 mm."

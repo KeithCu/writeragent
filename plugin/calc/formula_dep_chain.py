@@ -27,10 +27,7 @@ def _sheet_name(sheet: Any) -> str:
     getter = getattr(sheet, "getName", None)
     if not callable(getter):
         return ""
-    try:
-        name = getter()
-    except Exception:
-        return ""
+    name = getter()
     return name if isinstance(name, str) else ""
 
 
@@ -59,11 +56,7 @@ def _sheet_for_precedent(doc: Any, fallback: Any, sheet_index: Any) -> Any:
     """
     if doc is None or sheet_index is None:
         return fallback
-    try:
-        return doc.getSheets().getByIndex(int(sheet_index))
-    except Exception:
-        log.debug("Could not resolve precedent sheet %s", sheet_index, exc_info=True)
-        return fallback
+    return doc.getSheets().getByIndex(int(sheet_index))
 
 
 def _cell_snapshot(sheet: Any, col: int, row: int) -> dict[str, Any]:
@@ -75,22 +68,16 @@ def _cell_snapshot(sheet: Any, col: int, row: int) -> dict[str, Any]:
     addr = _address_on_sheet(sheet, col, row)
     snapshot: dict[str, Any] = {"address": addr, "type": type_name}
 
-    try:
-        err = cell.getError()
-        if err:
-            snapshot["error_code"] = err
-    except Exception:
-        pass
-    try:
-        if ctype == CellContentType.FORMULA:
-            snapshot["formula"] = cell.getFormula()
-            snapshot["value"] = cell.getValue()
-        elif ctype == CellContentType.VALUE:
-            snapshot["value"] = cell.getValue()
-        else:
-            snapshot["value"] = cell.getString()
-    except Exception:
-        pass
+    err = cell.getError()
+    if err:
+        snapshot["error_code"] = err
+    if ctype == CellContentType.FORMULA:
+        snapshot["formula"] = cell.getFormula()
+        snapshot["value"] = cell.getValue()
+    elif ctype == CellContentType.VALUE:
+        snapshot["value"] = cell.getValue()
+    else:
+        snapshot["value"] = cell.getString()
     return snapshot
 
 

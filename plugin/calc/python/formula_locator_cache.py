@@ -256,10 +256,7 @@ def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str) -> tuple[Any, 
     seen: set[tuple[str, int, int]] = set()
 
     def _add(sheet: Any, cell: Any, row: int, col: int) -> None:
-        try:
-            name = sheet.getName() if hasattr(sheet, "getName") else ""
-        except Exception:
-            name = ""
+        name = sheet.getName() if hasattr(sheet, "getName") else ""
         key = (name, row, col)
         if key in seen:
             return

@@ -6,6 +6,7 @@
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 
@@ -178,8 +179,6 @@ def test_format_shapes_canvas_context_none_doc():
 
 
 def test_format_shapes_canvas_context_reraises_disposed():
-    import pytest
-
     class DisposedException(Exception):
         pass
 

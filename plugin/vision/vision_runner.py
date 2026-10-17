@@ -28,10 +28,7 @@ def supports_vision_manual(doc: Any) -> bool:
     """True when Run Python Script should expose Vision Helpers for *doc*."""
     if doc is None:
         return False
-    try:
-        return is_writer(doc) or is_calc(doc)
-    except Exception:
-        return False
+    return is_writer(doc) or is_calc(doc)
 
 
 def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:

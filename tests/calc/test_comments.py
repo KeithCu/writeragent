@@ -5,9 +5,10 @@
 
 """Unit tests for Calc cell-comment read helpers (xlsx caption fallback)."""
 
+import json
 from unittest.mock import MagicMock
 
-from plugin.calc.comments import _annotation_date, _annotation_text, _split_cell_sheet
+from plugin.calc.comments import ListCellComments, _annotation_date, _annotation_text, _split_cell_sheet
 
 
 def test_annotation_text_uses_get_string_when_present():
@@ -61,9 +62,6 @@ def test_split_cell_sheet_conflict_raises():
 
 def _list_one_comment(date_value):
     """Run list_cell_comments against one mocked annotation."""
-    import json
-    from plugin.calc.comments import ListCellComments
-
     ctx = MagicMock()
     doc = MagicMock()
     ctx.doc = doc
@@ -134,13 +132,14 @@ def test_list_cell_comments_formats_datetime_struct_fallback():
 
 
 def test_annotation_date_string_struct_and_empty():
-    class DateOnly:
+    class DummyDateTime:
         Year = 2023
         Month = 1
         Day = 2
+        Hours = 14
+        Minutes = 5
 
     assert _annotation_date("2023-10-24 12:30") == "2023-10-24 12:30"
     assert _annotation_date("") == ""
-    assert _annotation_date(DateOnly()) == "2023-01-02"
+    assert _annotation_date(DummyDateTime()) == "2023-01-02 14:05"
     assert _annotation_date(None) == ""
-    assert _annotation_date(object()) == ""

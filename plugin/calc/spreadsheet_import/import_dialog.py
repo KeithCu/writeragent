@@ -25,23 +25,17 @@ log = logging.getLogger("writeragent.calc.import_dialog")
 def get_radio_state(ctrl: Any) -> bool:
     if not ctrl:
         return False
-    try:
-        if hasattr(ctrl, "getState"):
-            return ctrl.getState() == 1
-        return ctrl.getModel().State == 1
-    except Exception:
-        return False
+    if hasattr(ctrl, "getState"):
+        return ctrl.getState() == 1
+    return ctrl.getModel().State == 1
 
 
 def get_checkbox_state(ctrl: Any) -> bool:
     if not ctrl:
         return False
-    try:
-        if hasattr(ctrl, "getState"):
-            return ctrl.getState() == 1
-        return ctrl.getModel().State == 1
-    except Exception:
-        return False
+    if hasattr(ctrl, "getState"):
+        return ctrl.getState() == 1
+    return ctrl.getModel().State == 1
 
 
 def fetch_actual_values(sheet: Any, addresses: list[str]) -> dict[str, Any]:
@@ -73,15 +67,12 @@ def fetch_actual_values(sheet: Any, addresses: list[str]) -> dict[str, Any]:
                     if "Code execution failed" in display or display.strip().startswith("Error:"):
                         actual_values[addr] = display
                     else:
-                        try:
-                            v = cell.getValue()
-                            # Text results (e.g. TEXT/MONTH) keep getValue()==0; use display.
-                            if v == 0.0 and display and display.strip() not in ("", "0", "0.0", "0.00") and not any(ch.isdigit() for ch in display):
-                                actual_values[addr] = display.strip()
-                            else:
-                                actual_values[addr] = v
-                        except Exception:
-                            actual_values[addr] = display
+                        v = cell.getValue()
+                        # Text results (e.g. TEXT/MONTH) keep getValue()==0; use display.
+                        if v == 0.0 and display and display.strip() not in ("", "0", "0.0", "0.00") and not any(ch.isdigit() for ch in display):
+                            actual_values[addr] = display.strip()
+                        else:
+                            actual_values[addr] = v
             else:
                 actual_values[addr] = cell.getValue()
         except Exception as e:
