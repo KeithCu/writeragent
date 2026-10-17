@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from plugin.calc.navigation import (
     WRITERAGENT_CELL_URL_PREFIX,
     _accessible_text,
+    _char_index_at_point,
     _click_text_index,
     cell_link_registry,
     cell_ref_at_index,
@@ -133,4 +134,24 @@ def test_click_text_index():
     ctrl = MagicMock()
     ctrl.getModel.return_value = model
     assert _click_text_index(ctrl, 10, 20) == 5
+
+
+def test_accessible_text_returns_none_on_exception():
+    control = MagicMock()
+    control.getAccessibleContext.side_effect = RuntimeError("accessibility error")
+    assert _accessible_text(control) is None
+
+
+def test_char_index_at_point_returns_none_on_exception():
+    control = MagicMock()
+    ctx = MagicMock()
+    axtext = MagicMock()
+    control.getAccessibleContext.return_value = ctx
+    type_mock = MagicMock()
+    with patch("plugin.calc.calc_utils.uno") as mock_uno:
+        mock_uno.getTypeByName.return_value = type_mock
+        ctx.queryInterface.return_value = axtext
+        axtext.getIndexAtPoint.side_effect = RuntimeError("point error")
+        assert _char_index_at_point(control, 10, 20) is None
+
 
