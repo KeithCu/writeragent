@@ -25,7 +25,7 @@ import logging
 from collections import deque
 from typing import TYPE_CHECKING, Any, cast
 
-from plugin.framework.errors import is_disposed_exception, make_tool_error
+from plugin.framework.errors import is_disposed_exception, is_real_disposal, make_tool_error, resolve_exception_message
 from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
 from .format import PAGE_NUMBER_NUMBERING_TYPE_NAMES, record_walk_cap
@@ -172,11 +172,16 @@ def _empty_scan() -> dict[str, Any]:
     return {"fields": [], "images": [], "paragraph_count": 0}
 
 
-def _region_has_table(text_obj: Any) -> bool:
-    """True when the region's enumeration includes a text table (letterhead grid)."""
+def _region_has_table(text_obj: Any, *, strict: bool = False) -> bool:
+    """True when the region's enumeration includes a text table (letterhead grid).
+
+    ``strict`` re-raises read failures instead of reading them as "no table".
+    """
     try:
         enum = text_obj.createEnumeration()
     except Exception:
+        if strict:
+            raise
         return False
     seen = 0
     while enum.hasMoreElements() is True and seen < _SCAN_PARA_LIMIT:
@@ -184,12 +189,16 @@ def _region_has_table(text_obj: Any) -> bool:
         try:
             el = enum.nextElement()
         except Exception:
+            if strict:
+                raise
             break
         try:
             # `is True`: MagicMock supportsService() is truthy and would false-positive.
             if el.supportsService("com.sun.star.text.TextTable") is True:
                 return True
         except Exception:
+            if strict:
+                raise
             continue
     return False
 
@@ -203,20 +212,18 @@ def _region_holds_content(doc: Any, text_obj: Any | None) -> bool:
     idea as LibreOffice's delete-header prompt. Clear via ``page_set`` first,
     then turn off.
     ``getString()`` misses logos and can hide tables; the #638 region scan plus a
-    table walk covers those.
+    table walk covers those. Every read is strict: a failed read raises rather
+    than passing for "no content", so the guard fails closed.
     """
     if text_obj is None:
         return False
-    try:
-        plain = text_obj.getString()
-    except Exception:
-        plain = ""
+    plain = text_obj.getString()
     if isinstance(plain, str) and plain.strip():
         return True
-    scan = _scan_region_content(doc, text_obj)
+    scan = _scan_region_content(doc, text_obj, strict=True)
     if scan["fields"] or scan["images"]:
         return True
-    return _region_has_table(text_obj)
+    return _region_has_table(text_obj, strict=True)
 
 
 def _region_mirrors_shared(style: Any, region: str) -> bool:
@@ -254,7 +261,8 @@ def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) ->
     Turning one off drops every variant of that kind, so independent matching
     regions are scanned. Shared-mirror first/left variants are skipped — they
     are the same XText when the matching ``*IsShared`` flag is on. Enabling
-    (``true``) is never blocked. No force-off flag.
+    (``true``) is never blocked. No force-off flag. A region that cannot be
+    read refuses too: an unreadable region is not an empty one. Disposal raises.
     """
     for kw, kind in (("header_is_on", "header"), ("footer_is_on", "footer")):
         if kw not in kwargs or kwargs[kw]:
@@ -267,10 +275,17 @@ def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) ->
                 continue
             try:
                 text_obj = style.getPropertyValue(text_prop)
-            except Exception:
-                continue
-            if _region_holds_content(doc, text_obj):
-                held.append(region)
+                if _region_holds_content(doc, text_obj):
+                    held.append(region)
+            except Exception as e:
+                if is_real_disposal(e):
+                    raise
+                log.warning("page: cannot read %s to check it is empty", region, exc_info=True)
+                return (
+                    "Cannot turn the %s off: reading %s failed (%s), so it may still have "
+                    "content that turning it off would delete. Nothing was changed."
+                    % (kind, region, resolve_exception_message(e))
+                )
         if not held:
             continue
         clears = "; ".join(
@@ -285,17 +300,20 @@ def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) ->
     return None
 
 
-def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
+def _scan_region_content(doc: Any, text_obj: Any, *, strict: bool = False) -> dict[str, Any]:
     """Report fields and anchored images in a header/footer as get-side extras.
 
     HTML ``content`` already carries structure; these lists are machine-readable so a
     caller can see logos and live fields without parsing the markup. Returns
-    ``{"fields": [...], "images": [...], "paragraph_count": int}``.
+    ``{"fields": [...], "images": [...], "paragraph_count": int}``. ``strict``
+    (the disable guard) re-raises read failures instead of skipping them.
     """
     out = _empty_scan()
     try:
         para_enum = text_obj.createEnumeration()
     except Exception:
+        if strict:
+            raise
         return out
     notes: list[str] = []
     # `is True` and the hard caps match the enumeration walk in format.py: a UNO enumeration that
@@ -304,11 +322,15 @@ def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
         try:
             para = para_enum.nextElement()
         except Exception:
+            if strict:
+                raise
             break
         out["paragraph_count"] += 1
         try:
             portions = para.createEnumeration()
         except Exception:
+            if strict:
+                raise
             continue
         seen_portions = 0
         while portions.hasMoreElements() is True and seen_portions < _SCAN_PORTION_LIMIT:
@@ -319,6 +341,8 @@ def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
                     continue
                 field = portion.getPropertyValue("TextField")
             except Exception:
+                if strict:
+                    raise
                 break
             try:
                 # Same argument sense as fields_list: presentation is what the reader sees
@@ -343,16 +367,21 @@ def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
                 # ``!=`` skip the logo (false miss). uno_same is the identity
                 # ladder; a miss here is still wrong for get/metadata (and was
                 # the disaster when wipe used this scan as a refuse gate).
-                if not uno_same(shape.getAnchor().getText(), text_obj):
+                # A page-anchored shape has no anchor text range.
+                anchor = shape.getAnchor()
+                if anchor is None or not uno_same(anchor.getText(), text_obj):
                     continue
             except Exception:
+                if strict:
+                    raise
                 continue
             try:
                 out["images"].append(str(shape.getName()) or "unnamed")
             except Exception:
                 out["images"].append("unnamed")
     except Exception:
-        pass
+        if strict:
+            raise
     return out
 
 

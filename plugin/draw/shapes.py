@@ -22,7 +22,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
-from plugin.framework.errors import WriterAgentException, is_disposed_exception
+from plugin.framework.errors import WriterAgentException, is_disposed_exception, is_real_disposal
 from .base import ToolDrawShapeBase
 
 if TYPE_CHECKING:
@@ -1183,12 +1183,13 @@ class CreateDiagram(ToolDrawShapeBase):
         def cleanup_shapes() -> None:
             # No outer try: reversed() and the list itself do not raise.
             # The per-shape try is the cleanup. A closed document must not
-            # be swallowed as a failed cleanup.
+            # be swallowed as a failed cleanup, but a live-document
+            # RuntimeException must not strand the remaining shapes.
             for shape in reversed(tracked):
                 try:
                     page.remove(shape)
                 except Exception as exc:
-                    if is_disposed_exception(exc):
+                    if is_real_disposal(exc):
                         raise
 
         for node, box in zip(nodes, boxes):

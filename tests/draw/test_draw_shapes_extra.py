@@ -240,3 +240,33 @@ def test_create_diagram_cleanup_reraises_disposed():
                     ctx,
                     nodes=[{"id": "a", "text": "A"}, {"id": "b", "text": "B"}],
                 )
+
+
+def test_create_diagram_cleanup_continues_past_live_runtime_exception():
+    """A live-document RuntimeException on one remove must not strand the rest."""
+
+    class RuntimeException(Exception):
+        pass
+
+    ctx = MagicMock()
+    ctx.active_page_index = 0
+    page = MagicMock()
+    page.Width = 28000
+    page.Height = 15750
+    shapes = [MagicMock(), MagicMock()]
+    page.getByIndex.side_effect = shapes
+    page.remove.side_effect = [RuntimeException("busy"), None]
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        with patch("plugin.draw.shapes.UpsertShape") as upsert_cls:
+            upsert_cls.return_value.execute.side_effect = [
+                {"status": "ok", "index": 0},
+                {"status": "ok", "index": 1},
+                {"status": "error", "message": "third node failed"},
+            ]
+            out = CreateDiagram().execute(
+                ctx,
+                nodes=[{"id": "a", "text": "A"}, {"id": "b", "text": "B"}, {"id": "c", "text": "C"}],
+            )
+    assert out["status"] == "error"
+    assert [c.args[0] for c in page.remove.call_args_list] == list(reversed(shapes))
