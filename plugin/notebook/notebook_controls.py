@@ -110,37 +110,39 @@ def _resolve_para_style(doc: Any, style_name: str | None) -> str | None:
     """Map English style label to a name that exists in this document (locale-safe)."""
     if not style_name:
         return None
-    try:
-        para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
-        if para_styles.hasByName(style_name):
-            return style_name
-        lower = style_name.lower()
-        for name in para_styles.getElementNames():
-            if name.lower() == lower:
-                return name
-    except Exception:
-        log.debug("notebook controls: could not enumerate ParagraphStyles for %r", style_name)
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    if para_styles.hasByName(style_name):
+        return style_name
+    lower = style_name.lower()
+    for name in para_styles.getElementNames():
+        if name.lower() == lower:
+            return name
     return None
 
 
 def _page_style(doc: Any | None) -> Any | None:
-    """Current page style, or Standard/Default fallback. None if unavailable."""
+    """Page style of the first body paragraph, else Standard/Default.
+
+    What was wrong: ``doc.getPropertyValue("PageDescName")`` always raised.
+    PageDescName is a paragraph property (writer/page.py ``_apply_page_break``);
+    the text document model does not have it. The inner except left ``name``
+    empty, so code fields were always sized from Standard/Default.
+    How: a cursor at the start of the body text carries the first paragraph's
+    PageDescName. File Open has no view yet, so this is not the view cursor.
+    Why: ``_text_area_width_units`` / ``_max_field_height_units`` then follow
+    the page style actually applied to the body.
+    """
     if doc is None:
         return None
-    try:
-        families = doc.getStyleFamilies().getByName("PageStyles")
-        name = ""
-        try:
-            name = str(doc.getPropertyValue("PageDescName") or "")
-        except Exception:
-            name = ""
-        if name and families.hasByName(name):
-            return families.getByName(name)
-        for candidate in ("Standard", "Default", "Default Page Style"):
-            if families.hasByName(candidate):
-                return families.getByName(candidate)
-    except Exception:
-        log.debug("notebook controls could not read page style", exc_info=True)
+    families = doc.getStyleFamilies().getByName("PageStyles")
+    cursor = doc.getText().createTextCursor()
+    cursor.gotoStart(False)
+    name = str(cursor.getPropertyValue("PageDescName") or "")
+    if name and families.hasByName(name):
+        return families.getByName(name)
+    for candidate in ("Standard", "Default", "Default Page Style"):
+        if families.hasByName(candidate):
+            return families.getByName(candidate)
     return None
 
 
@@ -149,14 +151,10 @@ def _text_area_width_units(doc: Any | None) -> int:
     style = _page_style(doc)
     if style is None:
         return _DEFAULT_WIDTH
-    try:
-        page_w = int(style.getPropertyValue("Width"))
-        left = int(style.getPropertyValue("LeftMargin"))
-        right = int(style.getPropertyValue("RightMargin"))
-        return max(6000, page_w - left - right)
-    except Exception:
-        log.debug("notebook controls could not read page text-area width", exc_info=True)
-        return _DEFAULT_WIDTH
+    page_w = int(style.getPropertyValue("Width"))
+    left = int(style.getPropertyValue("LeftMargin"))
+    right = int(style.getPropertyValue("RightMargin"))
+    return max(6000, page_w - left - right)
 
 
 def _max_field_height_units(doc: Any | None) -> int:
@@ -164,15 +162,11 @@ def _max_field_height_units(doc: Any | None) -> int:
     style = _page_style(doc)
     if style is None:
         return _MAX_FIELD_HEIGHT
-    try:
-        page_h = int(style.getPropertyValue("Height"))
-        top = int(style.getPropertyValue("TopMargin"))
-        bottom = int(style.getPropertyValue("BottomMargin"))
-        # Leave room for the In [n]: gutter on the same page when possible.
-        return max(_MIN_FIELD_HEIGHT, page_h - top - bottom - 1500)
-    except Exception:
-        log.debug("notebook controls could not read page text-area height", exc_info=True)
-        return _MAX_FIELD_HEIGHT
+    page_h = int(style.getPropertyValue("Height"))
+    top = int(style.getPropertyValue("TopMargin"))
+    bottom = int(style.getPropertyValue("BottomMargin"))
+    # Leave room for the In [n]: gutter on the same page when possible.
+    return max(_MIN_FIELD_HEIGHT, page_h - top - bottom - 1500)
 
 
 def _height_for_text(text: str, doc: Any | None = None) -> int:
@@ -194,24 +188,13 @@ def _height_for_text(text: str, doc: Any | None = None) -> int:
 def _anchor_control_as_character(shape: Any) -> None:
     """In-flow control: AS_CHARACTER, top-aligned, no wrap beside the next shape."""
     shape.setPropertyValue("AnchorType", AS_CHARACTER)
-    try:
-        shape.setPropertyValue("VertOrient", 1)
-    except Exception:
-        log.debug("notebook controls VertOrient not applied", exc_info=True)
-    try:
-        shape.setPropertyValue("TextWrap", 0)
-    except Exception:
-        log.debug("notebook controls TextWrap not applied", exc_info=True)
+    shape.setPropertyValue("VertOrient", 1)
+    shape.setPropertyValue("TextWrap", 0)
 
 
 def _set_model_prop(model: Any, name: str, value: Any) -> None:
     try:
         model.setPropertyValue(name, value)
-        return
-    except Exception:
-        pass
-    try:
-        setattr(model, name, value)
     except Exception:
         log.debug("notebook controls could not set model %s", name, exc_info=True)
 
@@ -411,10 +394,7 @@ def _doc_key(doc: Any) -> str:
     uid = _read_runtime_uid(doc)
     if uid:
         return f"uid:{uid}"
-    try:
-        url = doc.getURL()
-    except Exception:
-        url = None
+    url = doc.getURL()
     if isinstance(url, str) and url:
         return f"url:{url}"
     return f"id:{id(doc)}"
@@ -433,16 +413,10 @@ def _control_name(obj: Any) -> str:
     model = obj
     get_model = getattr(obj, "getModel", None)
     if callable(get_model):
-        try:
-            maybe = get_model()
-            if maybe is not None:
-                model = maybe
-        except Exception:
-            pass
-    try:
-        return str(getattr(model, "Name", "") or "")
-    except Exception:
-        return ""
+        maybe = get_model()
+        if maybe is not None:
+            model = maybe
+    return str(getattr(model, "Name", "") or "")
 
 
 def _hex_id_from_event(rEvent: Any) -> str | None:
@@ -577,10 +551,7 @@ class NotebookRunButtonListener(BaseActionListener):
         self._hex_id = hex_id
         self._form_level = False
         self._doc_key_val = _doc_key(doc)
-        try:
-            self._doc_url = str(doc.getURL() or "")
-        except Exception:
-            self._doc_url = ""
+        self._doc_url = str(doc.getURL() or "")
         from plugin.framework.uno_context import _read_runtime_uid
 
         # Untitled Writer docs have an empty URL. Hidden native tests (and a
@@ -695,11 +666,7 @@ def _attach_action_listener(control: Any, listener: NotebookFormRunListener) -> 
     if name in listener._attached_names:
         return True
     try:
-        btn = None
-        try:
-            btn = _query_interface(control, "com.sun.star.awt.XButton")
-        except Exception:
-            btn = None
+        btn = _query_interface(control, "com.sun.star.awt.XButton")
         if btn is not None:
             btn.addActionListener(listener)
         elif hasattr(control, "addActionListener"):
@@ -721,10 +688,7 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
             return None, None
         forms = None
         if hasattr(doc, "getDrawPage"):
-            try:
-                forms = doc.getDrawPage().getForms()
-            except Exception:
-                forms = None
+            forms = doc.getDrawPage().getForms()
         if forms is None:
             return None, None
         count = getattr(forms, "getCount", lambda: 0)()
@@ -848,14 +812,8 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     with _lock:
         for lis in _listener_refs:
             if isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key:
-                try:
-                    # uno_same takes 2 arguments: (a, b). Passing ctx caused TypeError which was
-                    # caught by except Exception and erroneously marked already_wired=True.
-                    if uno_same(lis._container, container):
-                        already_wired = True
-                        break
-                except Exception:
-                    already_wired = True  # fallback to just assuming it's the same if uno_same fails
+                if uno_same(lis._container, container):
+                    already_wired = True
                     break
 
     if already_wired:
@@ -890,11 +848,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         already_wired = False
         for lis in _listener_refs:
             if isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == doc_key:
-                try:
-                    if uno_same(lis._container, container):
-                        already_wired = True
-                        break
-                except Exception:
+                if uno_same(lis._container, container):
                     already_wired = True
                     break
         if not already_wired:

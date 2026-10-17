@@ -30,17 +30,11 @@ def _unwrap_form_model(obj: Any) -> Any | None:
 
 
 def _model_from_text_portion(portion: Any) -> Any | None:
-    try:
-        ptype = portion.getPropertyValue("TextPortionType")
-    except Exception:
-        ptype = getattr(portion, "TextPortionType", None)
+    ptype = portion.getPropertyValue("TextPortionType")
     if ptype != "Frame":
         return None
     for attr in ("TextField", "TextContent", "TextEmbeddedObject"):
-        try:
-            embedded = getattr(portion, attr, None)
-        except Exception:
-            embedded = None
+        embedded = getattr(portion, attr, None)
         model = _unwrap_form_model(embedded)
         if model is not None:
             return model
@@ -51,26 +45,16 @@ def _iter_control_shapes(doc: Any) -> Iterator[tuple[str, Any, Any]]:
     """Yield ``(name, model, shape)`` for in-flow ``ControlShape`` objects on the draw page."""
     if not hasattr(doc, "getDrawPage"):
         return
-    try:
-        dp = doc.getDrawPage()
-        count = dp.getCount()
-    except Exception:
-        log.debug("notebook form lookup: draw page unavailable", exc_info=True)
-        return
+    dp = doc.getDrawPage()
+    count = dp.getCount()
     for i in range(count):
-        try:
-            shape = dp.getByIndex(i)
-            if shape.getShapeType() != _CONTROL_SHAPE_TYPE:
-                continue
-            model = shape.Control
-        except Exception:
+        shape = dp.getByIndex(i)
+        if shape.getShapeType() != _CONTROL_SHAPE_TYPE:
             continue
+        model = shape.Control
         if model is None:
             continue
-        try:
-            name = str(getattr(model, "Name", "") or "")
-        except Exception:
-            name = ""
+        name = str(getattr(model, "Name", "") or "")
         if name:
             yield name, model, shape
 
@@ -84,26 +68,21 @@ def _collect_models_from_draw_page(doc: Any, by_name: dict[str, Any]) -> None:
 
 def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
     """Fallback for tests and LO builds that expose controls only via text portions."""
-    try:
-        text = doc.getText()
-        enum = text.createEnumeration()
-    except Exception:
-        return
+    text = doc.getText()
+    enum = text.createEnumeration()
     while enum.hasMoreElements():
         block = enum.nextElement()
         try:
             portion_enum = block.createEnumeration()
         except Exception:
+            # TextTable blocks have no portion enumeration. Skip the block.
             continue
         while portion_enum.hasMoreElements():
             portion = portion_enum.nextElement()
             model = _model_from_text_portion(portion)
             if model is None:
                 continue
-            try:
-                name = getattr(model, "Name", "") or ""
-            except Exception:
-                name = ""
+            name = str(getattr(model, "Name", "") or "")
             if name and name not in by_name:
                 by_name[name] = model
 

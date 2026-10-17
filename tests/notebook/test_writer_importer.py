@@ -462,14 +462,56 @@ def test_page_style_shared_by_width_and_height():
     families = MagicMock()
     families.hasByName.side_effect = lambda name: name == "Standard"
     families.getByName.return_value = style
+    cursor = MagicMock()
+    cursor.getPropertyValue.side_effect = lambda name: "" if name == "PageDescName" else ""
     doc = MagicMock()
     doc.getStyleFamilies.return_value.getByName.return_value = families
-    doc.getPropertyValue.return_value = ""
+    doc.getText.return_value.createTextCursor.return_value = cursor
+    doc.getPropertyValue.side_effect = AssertionError("PageDescName is not a document property")
 
     assert _page_style(doc) is style
     assert _text_area_width_units(doc) == 17000
     assert _max_field_height_units(doc) == max(_MIN_FIELD_HEIGHT, 29700 - 2000 - 2000 - 1500)
     assert _max_field_height_units(None) == _MAX_FIELD_HEIGHT
+
+
+def test_page_style_reads_page_desc_name_from_first_paragraph():
+    """Custom body page style wins. The document model has no PageDescName."""
+    landscape = MagicMock(name="landscape")
+    landscape.getPropertyValue.side_effect = lambda name: {
+        "Width": 29700,
+        "LeftMargin": 1000,
+        "RightMargin": 1000,
+        "Height": 21000,
+        "TopMargin": 1000,
+        "BottomMargin": 1000,
+    }[name]
+    standard = MagicMock(name="standard")
+    families = MagicMock()
+
+    def _has(name: str) -> bool:
+        return name in ("Landscape", "Standard")
+
+    def _get(name: str):
+        if name == "Landscape":
+            return landscape
+        if name == "Standard":
+            return standard
+        raise KeyError(name)
+
+    families.hasByName.side_effect = _has
+    families.getByName.side_effect = _get
+    cursor = MagicMock()
+    cursor.getPropertyValue.side_effect = lambda name: "Landscape" if name == "PageDescName" else ""
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = families
+    doc.getText.return_value.createTextCursor.return_value = cursor
+    doc.getPropertyValue.side_effect = RuntimeError("PageDescName is not a document property")
+
+    assert _page_style(doc) is landscape
+    cursor.gotoStart.assert_called_once_with(False)
+    assert _text_area_width_units(doc) == 27700
+    assert _max_field_height_units(doc) == max(_MIN_FIELD_HEIGHT, 21000 - 1000 - 1000 - 1500)
 
 
 def test_unglue_last_paragraph_clears_keep_with_next():

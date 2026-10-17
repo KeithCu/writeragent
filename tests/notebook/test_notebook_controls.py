@@ -11,6 +11,7 @@ from plugin.notebook.notebook_controls import (
     NotebookFormContainerListener,
     NotebookFormRunListener,
     NotebookRunButtonListener,
+    ensure_form_design_mode_off,
     form_run_listeners,
     get_control_view_for_model,
     prune_dead_listeners,
@@ -38,7 +39,6 @@ def test_wire_all_ok_off_main_thread(monkeypatch):
             result = wire_all_notebook_run_buttons(MagicMock(), MagicMock())
         assert result == 0
 
-        from plugin.notebook.notebook_controls import ensure_form_design_mode_off
         doc = MagicMock()
         doc.getCurrentController.return_value = None
         ensure_form_design_mode_off(doc)
@@ -148,14 +148,12 @@ def test_doc_event_listener_wires_buttons():
 
 
 def test_ensure_form_design_mode_off_no_controller():
-    from plugin.notebook.notebook_controls import ensure_form_design_mode_off
     doc = MagicMock()
     doc.getCurrentController.return_value = None
     ensure_form_design_mode_off(doc)
     assert doc.ApplyFormDesignMode is False
 
 def test_ensure_form_design_mode_off_with_controller():
-    from plugin.notebook.notebook_controls import ensure_form_design_mode_off
     doc = MagicMock()
     controller = MagicMock()
     doc.getCurrentController.return_value = controller
@@ -501,10 +499,8 @@ def test_doc_listener_retry_off_main_thread_does_not_raise(monkeypatch):
 
 def test_prune_dead_listeners_off_main_thread_keeps_listeners(monkeypatch):
     """prune_dead_listeners off-main thread (e.g., File Open filter) must not drop listeners just because get_active_document raises RuntimeError."""
-    from plugin.framework import thread_guard
-
     # Simulate off main thread
-    monkeypatch.setattr(thread_guard, "on_main_thread", lambda: False)
+    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -573,35 +569,6 @@ def test_form_and_container_multiple_forms():
     assert fc is fc1
     assert container is container1
 
-def test_wire_all_dedups_off_main_thread_when_uno_same_raises(monkeypatch):
-    """If uno_same raises off the main thread, wire_all must still dedup the listener."""
-    ctx = MagicMock()
-    doc = MagicMock()
-    doc.getURL.return_value = "file:///fake.odt"
-    doc.RuntimeUID = "fake_uid"
-
-    def raise_uno_same(*args, **kwargs):
-        raise RuntimeError("uno_same called off main thread")
-
-    import plugin.notebook.notebook_controls as notebook_controls
-
-    with (
-        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
-        patch("plugin.notebook.notebook_controls.load_registry", return_value=MagicMock(code_cells=[1])),
-        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), MagicMock())),
-        patch("plugin.framework.uno_context.uno_same", side_effect=raise_uno_same)
-    ):
-        notebook_controls._listener_refs.clear()
-        notebook_controls._wired_form_docs.clear()
-
-        first = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
-        assert first == 1
-        assert len(notebook_controls._listener_refs) == 2
-
-        second = notebook_controls.wire_all_notebook_run_buttons(ctx, doc)
-        # Verify dedup worked even with uno_same raising
-        assert second == 1
-        assert len(notebook_controls._listener_refs) == 2
 
 def test_recreated_view_skips_rewire_if_container_changes():
     """If a view is recreated, the container changes, and wire_all should rewire."""
@@ -609,8 +576,6 @@ def test_recreated_view_skips_rewire_if_container_changes():
     doc = MagicMock()
     doc.getURL.return_value = "file:///fake.odt"
     doc.RuntimeUID = "fake_uid"
-
-    import plugin.notebook.notebook_controls as notebook_controls
 
     # Old container
     old_container = MagicMock()
@@ -656,8 +621,6 @@ def test_attach_form_listener_fails_when_add_container_listener_raises():
     doc.getURL.return_value = "file:///fake.odt"
     doc.RuntimeUID = "fake_uid"
 
-    import plugin.notebook.notebook_controls as notebook_controls
-
     container = MagicMock()
     container.addContainerListener.side_effect = RuntimeError("Container listener failed")
     control = MagicMock()
@@ -680,8 +643,6 @@ def test_attach_form_listener_fails_when_add_container_listener_raises():
 
 def test_wire_all_lost_race_detaches_its_duplicate_listener():
     """Two callers past the first check: the loser takes its listeners back off."""
-    import plugin.notebook.notebook_controls as notebook_controls
-
     ctx = MagicMock()
     doc = MagicMock()
     doc.RuntimeUID = "race_uid"

@@ -54,8 +54,11 @@ def test_find_form_control_model_by_name_text_fallback():
     para = MagicMock()
     para.createEnumeration.return_value = _enum_of([portion])
 
+    dp = MagicMock()
+    dp.getCount.return_value = 0
+
     doc = MagicMock()
-    doc.getDrawPage.side_effect = AttributeError("no draw page")
+    doc.getDrawPage.return_value = dp
     doc.getText.return_value.createEnumeration.return_value = _enum_of([para])
 
     assert find_form_control_model_by_name(doc, "nb_cell_0_code") is field_model
