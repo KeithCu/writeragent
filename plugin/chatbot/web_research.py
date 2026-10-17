@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from plugin.contrib.smolagents.memory import ToolCall
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
-from plugin.framework.errors import format_error_payload, ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, format_error_payload, safe_json_loads
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 
 log = logging.getLogger("writeragent.web_research")
@@ -943,14 +943,9 @@ def _web_search_query_from_arguments(arguments: Any) -> str:
     if isinstance(arguments, dict):
         return str(arguments.get("query", ""))
     if isinstance(arguments, str):
-        try:
-            from plugin.framework.errors import safe_json_loads
-
-            data = safe_json_loads(arguments)
-            if isinstance(data, dict):
-                return str(data.get("query", ""))
-        except Exception:
-            pass
+        data = safe_json_loads(arguments)
+        if isinstance(data, dict):
+            return str(data.get("query", ""))
     return ""
 
 
@@ -959,16 +954,11 @@ def _apply_web_search_query_override(step: Any, query_override: str) -> bool:
         step.arguments["query"] = query_override
         return False
     if isinstance(step.arguments, str):
-        try:
-            from plugin.framework.errors import safe_json_loads
-
-            data = safe_json_loads(step.arguments)
-            if isinstance(data, dict):
-                data["query"] = query_override
-                step.arguments = data
-                return True
-        except Exception:
-            pass
+        data = safe_json_loads(step.arguments)
+        if isinstance(data, dict):
+            data["query"] = query_override
+            step.arguments = data
+            return True
     step.arguments = {"query": query_override}
     return True
 

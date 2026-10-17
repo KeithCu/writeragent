@@ -795,6 +795,12 @@ class CalcDocStub:
     def setPropertyValue(self, name, value):
         self._props[name] = value
 
+    def setModified(self, modified):
+        self._modified = bool(modified)
+
+    def isModified(self):
+        return getattr(self, "_modified", False)
+
     def addDocumentEventListener(self, listener):
         self._document_event_listeners.append(listener)
 

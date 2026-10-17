@@ -125,11 +125,7 @@ def maybe_convert_excel_py_document(ctx: Any, doc: Any) -> bool:
             store_dag_meta_on_doc(doc, report)
         except Exception:
             log.warning("excel_py auto-open: failed to store ExcelPyDagMeta", exc_info=True)
-        try:
-            if hasattr(doc, "setModified"):
-                doc.setModified(True)
-        except Exception:
-            pass
+        doc.setModified(True)
         log.info("excel_py auto-open: applied DAG =PY in place for %s (py_code_* sheets)", path)
         return True
     except Exception:
@@ -246,43 +242,40 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
 
         class _ExcelPyLifecycleListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
             def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
-                try:
-                    name = getattr(Event, "EventName", "") or ""
-                    doc = _doc_from_event(Event)
-                    # Hidden factory OnNew/OnCreate often has Source the Writer
-                    # keeper (leftover scalc is not focused), so the geometric
-                    # open hook still runs when ``doc is None``.
-                    if name in _GEOMETRIC_OPEN_EVENTS:
-                        try:
-                            log.info("excel_py lifecycle: geometric on_open event=%s has_doc=%s", name, doc is not None)
-                            _run_geometric_on_open(ctx, doc)
-                        except Exception:
-                            log.warning("geometric recalc on open failed", exc_info=True)
-                    if doc is None:
-                        return
-                    if name == "OnLoadFinished":
-                        maybe_convert_excel_py_document(ctx, doc)
-                        from plugin.framework.queue_executor import execute_on_main_thread
+                name = getattr(Event, "EventName", "") or ""
+                doc = _doc_from_event(Event)
+                # Hidden factory OnNew/OnCreate often has Source the Writer
+                # keeper (leftover scalc is not focused), so the geometric
+                # open hook still runs when ``doc is None``.
+                if name in _GEOMETRIC_OPEN_EVENTS:
+                    try:
+                        log.info("excel_py lifecycle: geometric on_open event=%s has_doc=%s", name, doc is not None)
+                        _run_geometric_on_open(ctx, doc)
+                    except Exception:
+                        log.warning("geometric recalc on open failed", exc_info=True)
+                if doc is None:
+                    return
+                if name == "OnLoadFinished":
+                    maybe_convert_excel_py_document(ctx, doc)
+                    from plugin.framework.queue_executor import execute_on_main_thread
 
-                        try:
-                            from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
+                    try:
+                        from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
 
-                            # First arg is the callable; passing ctx here made
-                            # execute_on_main_thread treat the UNO context as fn
-                            # (TypeError: 'pyuno' object is not callable on every
-                            # Calc OnLoadFinished, rewrite never ran).
-                            execute_on_main_thread(maybe_rewrite_collabora_py_formulas, doc)
-                        except Exception:
-                            # FIXME: this swallows marshal/rewrite failures (e.g. TypeError
-                            # from a mis-wired execute_on_main_thread) so UNO tests still
-                            # pass; only the log shows it. Narrow or re-raise after the
-                            # listener is proven not to abort OnLoadFinished.
-                            log.warning("collabora PY rewrite on open failed", exc_info=True)
-                        return
-                    if name in _SAVE_DONE_EVENTS:
-                        maybe_export_excel_py_on_save(ctx, doc)
-                except Exception:
-                    log.warning("excel_py lifecycle: doc-event handling failed", exc_info=True)
+                        # First arg is the callable; passing ctx here made
+                        # execute_on_main_thread treat the UNO context as fn
+                        # (TypeError: 'pyuno' object is not callable on every
+                        # Calc OnLoadFinished, rewrite never ran).
+                        execute_on_main_thread(maybe_rewrite_collabora_py_formulas, doc)
+                    except Exception:
+                        # FIXME: this swallows marshal/rewrite failures (e.g. TypeError
+                        # from a mis-wired execute_on_main_thread) so UNO tests still
+                        # pass; only the log shows it. Narrow or re-raise after the
+                        # listener is proven not to abort OnLoadFinished.
+                        log.warning("collabora PY rewrite on open failed", exc_info=True)
+                    return
+                if name in _SAVE_DONE_EVENTS:
+                    maybe_export_excel_py_on_save(ctx, doc)
 
         smgr = ctx.getServiceManager()
         broadcaster = smgr.createInstanceWithContext("com.sun.star.frame.GlobalEventBroadcaster", ctx)

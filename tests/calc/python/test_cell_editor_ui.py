@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import plugin.calc.python.cell_editor_ui as ui
+from plugin.calc.python.editor import format_cell_a1
 import pytest
 
 
@@ -335,8 +336,6 @@ def test_monaco_cell_open_delegates_unsaved_guard_to_launch():
 
 
 def test_format_cell_a1():
-    from plugin.calc.python.editor import format_cell_a1
-
     cell = MagicMock()
     cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0)
     assert format_cell_a1(cell) == "A1"

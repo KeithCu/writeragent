@@ -250,7 +250,32 @@ class MockCellFlags:
 
 setattr(sheet, "CellFlags", MockCellFlags)
 
+border = _create_mock_module("com.sun.star.sheet.Border")
+for b in ("TOP", "BOTTOM", "LEFT", "RIGHT"):
+    setattr(border, b, b)
+setattr(sheet, "Border", border)
+
 table = _create_mock_module("com.sun.star.table")
+
+
+class MockCellAddress:
+    def __init__(self, Sheet: int = 0, Column: int = 0, Row: int = 0) -> None:
+        self.Sheet = Sheet
+        self.Column = Column
+        self.Row = Row
+
+
+setattr(table, "CellAddress", MockCellAddress)
+
+
+class MockCellContentType:
+    EMPTY = 0
+    VALUE = 1
+    TEXT = 2
+    FORMULA = 3
+
+
+setattr(table, "CellContentType", MockCellContentType)
 
 lang = _create_mock_module("com.sun.star.lang")
 

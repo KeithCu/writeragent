@@ -253,14 +253,9 @@ def _parse_base_address(doc: Any, base_cell: str | None, default_sheet_idx: int 
         # This will raise ValueError if invalid, instead of silently returning 0,0 (A1)
         col_idx, row_idx = parse_address(address)
 
-    try:
-        from com.sun.star.table import CellAddress
+    from com.sun.star.table import CellAddress
 
-        return CellAddress(Sheet=sheet_idx, Column=col_idx, Row=row_idx)
-    except Exception:
-        from types import SimpleNamespace
-
-        return SimpleNamespace(Sheet=sheet_idx, Column=col_idx, Row=row_idx)
+    return CellAddress(Sheet=sheet_idx, Column=col_idx, Row=row_idx)
 
 
 def _extract_range_info(nr: Any, scope: str, doc: Any = None) -> dict[str, Any]:
@@ -272,14 +267,11 @@ def _extract_range_info(nr: Any, scope: str, doc: Any = None) -> dict[str, Any]:
 
     base_info: dict[str, Any] = {"sheet_index": 0, "column": 0, "row": 0, "address": "A1"}
     if hasattr(nr, "getReferencePosition"):
-        try:
-            pos = nr.getReferencePosition()
-            s_idx = getattr(pos, "Sheet", 0)
-            c_idx = getattr(pos, "Column", 0)
-            r_idx = getattr(pos, "Row", 0)
-            base_info = {"sheet_index": s_idx, "column": c_idx, "row": r_idx, "address": f"{index_to_column(c_idx)}{r_idx + 1}"}
-        except Exception:
-            pass
+        pos = nr.getReferencePosition()
+        s_idx = getattr(pos, "Sheet", 0)
+        c_idx = getattr(pos, "Column", 0)
+        r_idx = getattr(pos, "Row", 0)
+        base_info = {"sheet_index": s_idx, "column": c_idx, "row": r_idx, "address": f"{index_to_column(c_idx)}{r_idx + 1}"}
 
     info: dict[str, Any] = {"name": name, "scope": scope, "content": content, "type_code": type_code, "flags": flags, "base_position": base_info}
 
@@ -291,10 +283,7 @@ def _extract_range_info(nr: Any, scope: str, doc: Any = None) -> dict[str, Any]:
                 addr = cells.getRangeAddress()
                 sheet_name = ""
                 if doc is not None and hasattr(doc, "getSheets"):
-                    try:
-                        sheet_name = doc.getSheets().getByIndex(addr.Sheet).getName()
-                    except Exception:
-                        pass
+                    sheet_name = doc.getSheets().getByIndex(addr.Sheet).getName()
                 start_str = f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}"
                 end_str = f"{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
                 range_str = f"{start_str}:{end_str}" if (addr.StartColumn != addr.EndColumn or addr.StartRow != addr.EndRow) else start_str
@@ -594,8 +583,6 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        import uno
-
         bridge = CalcBridge(ctx.doc)
         range_arr = kwargs.get("range", [])
         if not range_arr:
@@ -607,17 +594,9 @@ class NamedRangeCreateFromTitles(ToolCalcRangeBase):
         border_clean = str(border_str).strip().upper()
         scope = kwargs.get("scope")
 
-        try:
-            from com.sun.star.sheet.Border import BOTTOM, LEFT, RIGHT, TOP
+        from com.sun.star.sheet.Border import BOTTOM, LEFT, RIGHT, TOP
 
-            border_map: dict[str, Any] = {"TOP": TOP, "BOTTOM": BOTTOM, "LEFT": LEFT, "RIGHT": RIGHT}
-        except Exception:
-            try:
-                import uno
-
-                border_map = {"TOP": uno.Enum("com.sun.star.sheet.Border", "TOP"), "BOTTOM": uno.Enum("com.sun.star.sheet.Border", "BOTTOM"), "LEFT": uno.Enum("com.sun.star.sheet.Border", "LEFT"), "RIGHT": uno.Enum("com.sun.star.sheet.Border", "RIGHT")}
-            except Exception:
-                border_map = {"TOP": 0, "BOTTOM": 1, "LEFT": 2, "RIGHT": 3}
+        border_map: dict[str, Any] = {"TOP": TOP, "BOTTOM": BOTTOM, "LEFT": LEFT, "RIGHT": RIGHT}
 
         if border_clean not in border_map:
             return self._tool_error(f"Invalid border '{border_str}'. Supported borders: 'top', 'bottom', 'left', 'right'.", code="INVALID_BORDER")

@@ -48,21 +48,15 @@ log = logging.getLogger("writeragent.scripting")
 def _cell_formula_content(cell: Any) -> bool | None:
     if not hasattr(cell, "getType"):
         return None
-    try:
-        kind = cell.getType()
-    except Exception:
-        return None
+    kind = cell.getType()
     if kind == 3:
         return True
-    try:
-        from com.sun.star.table import CellContentType
+    from com.sun.star.table import CellContentType
 
-        if kind == CellContentType.FORMULA:
-            return True
-        if kind in (CellContentType.EMPTY, CellContentType.VALUE, CellContentType.TEXT):
-            return False
-    except Exception:
-        pass
+    if kind == CellContentType.FORMULA:
+        return True
+    if kind in (CellContentType.EMPTY, CellContentType.VALUE, CellContentType.TEXT):
+        return False
     if isinstance(kind, int):
         return False
     return None
@@ -81,12 +75,9 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     if content is False:
         return []
     out: list[str] = []
-    try:
-        f = cell.getFormula()
-        if f:
-            out.append(str(f))
-    except Exception:
-        pass
+    f = cell.getFormula()
+    if f:
+        out.append(str(f))
     for prop in ("FormulaLocal", "Formula"):
         try:
             val = cell.getPropertyValue(prop)
@@ -112,12 +103,9 @@ def _parse_cell_python_formula(cell: Any, formulas: list[str] | None = None) -> 
 def _same_calc_cell(left: Any, right: Any) -> bool:
     if left is right:
         return True
-    try:
-        a = left.getCellAddress()
-        b = right.getCellAddress()
-        return int(a.Column) == int(b.Column) and int(a.Row) == int(b.Row) and int(a.Sheet) == int(b.Sheet)
-    except Exception:
-        return False
+    a = left.getCellAddress()
+    b = right.getCellAddress()
+    return int(a.Column) == int(b.Column) and int(a.Row) == int(b.Row) and int(a.Sheet) == int(b.Sheet)
 
 
 def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
@@ -148,12 +136,9 @@ def _load_cell_editor_code(cell: Any, formulas: list[str] | None = None) -> tupl
         return code, parts, source
     if _cell_has_unparsed_python(cell, formulas=formulas):
         return "", None, None
-    try:
-        plain = cell.getString()
-        if plain:
-            return str(plain), None, None
-    except Exception:
-        log.debug("python_editor: getString failed", exc_info=True)
+    plain = cell.getString()
+    if plain:
+        return str(plain), None, None
     return "", None, None
 
 
@@ -179,15 +164,11 @@ def _cell_has_unparsed_python(cell: Any, formulas: list[str] | None = None) -> b
 
 
 def format_cell_a1(cell: Any) -> str:
-    """Active-sheet A1 label (``A1``, ``AA100``). Empty on failure."""
-    try:
-        addr = cell.getCellAddress()
-        from plugin.calc.address_utils import index_to_column
+    """Active-sheet A1 label (``A1``, ``AA100``)."""
+    addr = cell.getCellAddress()
+    from plugin.calc.address_utils import index_to_column
 
-        return f"{index_to_column(int(addr.Column))}{int(addr.Row) + 1}"
-    except Exception:
-        log.debug("format_cell_a1 failed", exc_info=True)
-        return ""
+    return f"{index_to_column(int(addr.Column))}{int(addr.Row) + 1}"
 
 
 @main_thread_only
@@ -459,11 +440,7 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
             msgbox(ctx, product_display_name(ctx), _("Could not open the code cell {0}.").format(parsed_parts.code))
             return
         if not _same_calc_cell(followed, cell):
-            try:
-                initial_code = str(followed.getString() or "")
-            except Exception:
-                log.debug("python_editor: code-cell getString failed", exc_info=True)
-                initial_code = ""
+            initial_code = str(followed.getString() or "")
             code_cell = followed
             code_ref = parsed_parts.code
 
