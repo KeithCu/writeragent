@@ -281,4 +281,3 @@ def test_new_doc_listener_on_document_event():
         evt2.Source.getCurrentController.return_value = controller
         listener.on_document_event(evt2)
         mock_reg.assert_called_once_with(controller)
-
