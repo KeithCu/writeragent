@@ -4,24 +4,27 @@ import types
 from unittest.mock import MagicMock, patch
 
 # Mock UNO and related modules before importing the plugin modules
-mock_uno = MagicMock()
-sys.modules["uno"] = mock_uno
-sys.modules["unohelper"] = mock_uno
-sys.modules["snowballstemmer"] = MagicMock()
+if "uno" not in sys.modules:
+    sys.modules["uno"] = MagicMock()
+if "unohelper" not in sys.modules:
+    sys.modules["unohelper"] = MagicMock()
+sys.modules.setdefault("snowballstemmer", MagicMock())
 
-# Create mock for com.sun.star and its submodules
-com_mock = types.ModuleType("com")
+# Create mock for com.sun.star and its submodules if not already present
+com_mock = sys.modules.get("com") or types.ModuleType("com")
 sys.modules["com"] = com_mock
-css = types.ModuleType("com.sun.star")
-setattr(com_mock, "sun", types.ModuleType("sun"))
+css = sys.modules.get("com.sun.star") or types.ModuleType("com.sun.star")
+if not hasattr(com_mock, "sun"):
+    setattr(com_mock, "sun", types.ModuleType("sun"))
 setattr(com_mock.sun, "star", css)
 sys.modules["com.sun.star"] = css
 
 # Add submodules as needed
 for sub in ["text", "beans", "container", "lang"]:
-    mod = types.ModuleType(sub)
+    full_name = f"com.sun.star.{sub}"
+    mod = sys.modules.get(full_name) or types.ModuleType(sub)
     setattr(css, sub, mod)
-    sys.modules[f"com.sun.star.{sub}"] = mod
+    sys.modules[full_name] = mod
 
 from plugin.writer.locale.linguistic_index import _DocIndex, IndexService
 
@@ -111,6 +114,9 @@ def test_index_service_search_boolean_near_integration(mock_services):
         para2.supportsService.return_value = True
         para2.getString.return_value = "The pie is delicious."
 
+        for p in (para0, para1, para2):
+            p.createEnumeration.side_effect = RuntimeError("no enum")
+
         def make_enum():
             e = MagicMock()
             e.hasMoreElements.side_effect = [True, True, True, False]
@@ -155,6 +161,9 @@ def test_index_service_search_boolean_near_too_far(mock_services):
         para4.supportsService.return_value = True
         para4.getString.return_value = "pie"
         paras.append(para4)
+
+        for p in paras:
+            p.createEnumeration.side_effect = RuntimeError("no enum")
 
         def make_enum_far():
             e = MagicMock()
