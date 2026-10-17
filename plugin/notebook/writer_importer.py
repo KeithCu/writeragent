@@ -43,11 +43,11 @@ from typing import Any, Iterator, final
 
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
+from plugin.framework.errors import best_effort
 from plugin.contrib.nbformat import read_ipynb
 from plugin.notebook.cell_registry import NotebookDocState, _cell_heading, _coerce_notebook_text, _prepare_display_text, init_registry_execution_counter, insert_output_start_bookmark, new_code_cell_entry, save_notebook_source_path, save_registry
 from plugin.notebook.notebook_controls import _CODE_FONT_NAME, _insert_code_input_in_flow, _insert_run_button_in_flow, _log_shape_add, _resolve_para_style, _style_control_paragraph, _text_area_width_units
 from plugin.framework.errors import reraise_if_disposed
-from plugin.framework.errors import best_effort
 from plugin.writer.images.image_tools import _apply_graphic_properties, _create_embedded_graphic, _file_url_for_path, _mm_to_units, insert_image_at_locator
 
 log = logging.getLogger("writeragent.notebook")
