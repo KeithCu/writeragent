@@ -39,20 +39,16 @@ class HermesBackend(ACPBackend):
 
     def get_env_vars(self) -> Dict[str, str]:
         """Return environment variables to pass to subprocess."""
-        env: Dict[str, str] = {}
-        try:
-            endpoint = str(get_current_endpoint() or "")
-            provider = get_provider_from_endpoint(endpoint)
-            if provider not in ("openrouter", "openai"):
-                return env
-            key = get_api_key_for_endpoint(endpoint)
-            if key:
-                if provider == "openrouter":
-                    env["OPENROUTER_API_KEY"] = key
-                    log.info("Using OPENROUTER_API_KEY from general settings")
-                elif provider == "openai":
-                    env["OPENAI_API_KEY"] = key
-                    log.info("Using OPENAI_API_KEY from general settings")
-        except Exception:
-            log.exception("Failed to read API key for Hermes ACP")
-        return env
+        endpoint = get_current_endpoint()
+        provider = get_provider_from_endpoint(endpoint)
+        if provider not in ("openrouter", "openai"):
+            return {}
+        key = get_api_key_for_endpoint(endpoint)
+        if key:
+            if provider == "openrouter":
+                log.info("Using OPENROUTER_API_KEY from general settings")
+                return {"OPENROUTER_API_KEY": key}
+            if provider == "openai":
+                log.info("Using OPENAI_API_KEY from general settings")
+                return {"OPENAI_API_KEY": key}
+        return {}

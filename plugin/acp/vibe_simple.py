@@ -42,15 +42,11 @@ class VibeBackend(ACPBackend):
 
     def get_env_vars(self) -> Dict[str, str]:
         """Return environment variables to pass to subprocess."""
-        env: Dict[str, str] = {}
-        try:
-            endpoint = str(get_current_endpoint() or "")
-            if get_provider_from_endpoint(endpoint) != "mistral":
-                return env
-            key = get_api_key_for_endpoint(endpoint)
-            if key:
-                env["MISTRAL_API_KEY"] = key
-                log.info("Using MISTRAL_API_KEY from general settings")
-        except Exception:
-            log.exception("Failed to read API key for Vibe ACP")
-        return env
+        endpoint = get_current_endpoint()
+        if get_provider_from_endpoint(endpoint) != "mistral":
+            return {}
+        key = get_api_key_for_endpoint(endpoint)
+        if key:
+            log.info("Using MISTRAL_API_KEY from general settings")
+            return {"MISTRAL_API_KEY": key}
+        return {}

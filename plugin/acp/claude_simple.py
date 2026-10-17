@@ -38,18 +38,14 @@ class ClaudeBackend(ACPBackend):
 
     def get_env_vars(self) -> Dict[str, str]:
         """Return environment variables to pass to subprocess."""
-        env: Dict[str, str] = {}
-        try:
-            endpoint = str(get_current_endpoint() or "")
-            # What was wrong: any configured endpoint's key was exported as
-            # ANTHROPIC_API_KEY, including an OpenAI or other-provider key.
-            # Why: only an Anthropic endpoint's key belongs in that variable.
-            if get_provider_from_endpoint(endpoint) != "anthropic":
-                return env
-            key = get_api_key_for_endpoint(endpoint)
-            if key:
-                env["ANTHROPIC_API_KEY"] = key
-                log.info("Using ANTHROPIC_API_KEY from general settings")
-        except Exception:
-            log.exception("Failed to read API key for Claude ACP")
-        return env
+        endpoint = get_current_endpoint()
+        # What was wrong: any configured endpoint's key was exported as
+        # ANTHROPIC_API_KEY, including an OpenAI or other-provider key.
+        # Why: only an Anthropic endpoint's key belongs in that variable.
+        if get_provider_from_endpoint(endpoint) != "anthropic":
+            return {}
+        key = get_api_key_for_endpoint(endpoint)
+        if key:
+            log.info("Using ANTHROPIC_API_KEY from general settings")
+            return {"ANTHROPIC_API_KEY": key}
+        return {}
