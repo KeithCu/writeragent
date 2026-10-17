@@ -389,12 +389,9 @@ class QueryKeyListener(BaseKeyListener):
                 return
         if not query_enter_triggers_primary_send(e.KeyCode, e.Modifiers):
             return
-        try:
-            from plugin.framework.config import get_config_bool
+        from plugin.framework.config import get_config_bool
 
-            if not get_config_bool(_DOC_CHAT_ENTER_SENDS):
-                return
-        except Exception:
+        if not get_config_bool(_DOC_CHAT_ENTER_SENDS):
             return
         sc = self.send_listener.send_control
         if not sc or not sc.getModel():
@@ -473,10 +470,7 @@ def _get_mcp_turn_lock(listener: Any) -> threading.Lock:
     lock = getattr(listener, "_mcp_turn_lock", None)
     if lock is None:
         lock = threading.Lock()
-        try:
-            listener._mcp_turn_lock = lock
-        except Exception:
-            pass
+        listener._mcp_turn_lock = lock
     return lock
 
 
@@ -563,12 +557,17 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     def clear_pending_audio_wav(self) -> None:
         """Clear and delete any un-sent audio recording."""
         if hasattr(self, "audio_wav_path") and self.audio_wav_path:
-            try:
-                import os
+            import os
 
+            try:
                 os.remove(self.audio_wav_path)
-            except Exception:
-                pass
+            except OSError as exc:
+                # What was wrong: except Exception: pass hid a failed delete.
+                # How it happened: on Windows the recorder subprocess still
+                # holds the WAV, so os.remove raises PermissionError.
+                # Why this fixes it: OSError is logged and the path is still
+                # dropped. Any other exception propagates.
+                log.debug("clear_pending_audio_wav: failed to remove %s: %s", self.audio_wav_path, exc)
             self.audio_wav_path = None
 
     def __init__(
@@ -970,14 +969,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     _relabel_button(self.clear_control, b["clear_label"], self._mnemonic_cache())
             if self.status_control and "status_text" in b:
                 self.status_control.setText(b["status_text"])
-        try:
-            ev.approved = approved
-            ev.query_override = query_override if approved else None
-            if approved and query_override is not None:
-                log.debug("_finish_inline_web_approval: approved with query_override len=%d", len(query_override))
-            ev.set()
-        except Exception:
-            log.exception("_finish_inline_web_approval threading event error")
+        ev.approved = approved
+        ev.query_override = query_override if approved else None
+        if approved and query_override is not None:
+            log.debug("_finish_inline_web_approval: approved with query_override len=%d", len(query_override))
+        ev.set()
 
     def _set_status(self, text: str) -> None:
         """Update the status field in the sidebar (read-only TextField).
@@ -1243,25 +1239,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         # Each request is stored on _last_mcp_turn[rid]; one shared last id
         # would drop the earlier of two concurrent MCP requests.
-        try:
-            from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+        from plugin.chatbot.tool_loop_actions import TurnController, current_turn
 
-            rid = str(kwargs.get("req_id", ""))
-            with _get_mcp_turn_lock(self):
-                last_turn = self._last_mcp_turn.pop(rid, None)
-            if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
-                return
-        except Exception:
+        rid = str(kwargs.get("req_id", ""))
+        with _get_mcp_turn_lock(self):
+            last_turn = self._last_mcp_turn.pop(rid, None)
+        if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
             return
 
         def _update_ui() -> None:
             if getattr(self, "_panel_teardown", False) or getattr(self, "ctx", None) is None:
                 return
-            try:
-                from plugin.chatbot.tool_loop_actions import TurnController, current_turn
-                if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
-                    return
-            except Exception:
+            from plugin.chatbot.tool_loop_actions import TurnController, current_turn
+            if not isinstance(last_turn, TurnController) or current_turn(self) is not last_turn or not last_turn.alive:
                 return
             try:
                 from plugin.framework.logging import format_tool_result_for_display
@@ -1670,14 +1660,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             case StopSendEffect():
                 log.info("Stop clicked (cancel in-flight send)")
-                try:
-                    session = getattr(self, "frame_session", None)
-                    if session is not None:
-                        session.note_user_wants_query()
-                        if hasattr(session, "restore_focus"):
-                            session.restore_focus()
-                except Exception as e:
-                    log.debug("query setFocus on Stop: %s", e)
+                session = getattr(self, "frame_session", None)
+                if session is not None:
+                    session.note_user_wants_query()
+                    if hasattr(session, "restore_focus"):
+                        session.restore_focus()
                 from plugin.chatbot.tool_loop_actions import abort_turn
 
                 # Drop later worker callbacks. The drain still closes this
@@ -1748,13 +1735,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         ctrl = getattr(self, "query_control", None)
         if ctrl is None:
             return
-        try:
-            from plugin.chatbot.dialogs import get_control_text
+        from plugin.chatbot.dialogs import get_control_text
 
-            text = get_control_text(ctrl) or ""
-        except Exception:
-            log.debug("has_text sync skipped", exc_info=True)
-            return
+        text = get_control_text(ctrl) or ""
         self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(str(text).strip())}))
 
     def _run_send_drain(self) -> None:
@@ -2050,14 +2033,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             set_control_text(self.query_control, "")
             # Send button click leaves focus on Send; keep the query field
             # ready for the next question (reveal/scroll must not win later).
-            try:
-                session = getattr(self, "frame_session", None)
-                if session is not None:
-                    session.note_user_wants_query()
-                if hasattr(self.query_control, "setFocus"):
-                    self.query_control.setFocus()
-            except Exception as e:
-                log.debug("query setFocus after send: %s", e)
+            session = getattr(self, "frame_session", None)
+            if session is not None:
+                session.note_user_wants_query()
+            if hasattr(self.query_control, "setFocus"):
+                self.query_control.setFocus()
 
         try:
 
@@ -2798,25 +2778,33 @@ class ClearButtonListener(BaseActionListener):
         if not greeting:
             # Nothing sets .doc on the listener. Use a real doc source.
             model = self.send_listener._get_document_model() if self.send_listener else None
+            from plugin.framework.errors import DocumentDisposedError
+            from plugin.framework.prompts import get_greeting_for_document
+
             try:
-                from plugin.framework.prompts import get_greeting_for_document, DEFAULT_WRITER_GREETING
-                greeting = get_greeting_for_document(model) or DEFAULT_WRITER_GREETING
-            except Exception:
-                greeting = "AI: I can edit or translate this document, or help you outline ideas. What would you like to work on?"
+                greeting = get_greeting_for_document(model)
+            except DocumentDisposedError:
+                # What was wrong: any exception became a hard-coded English
+                # sentence that matches none of the prompts.py greetings and
+                # skips _(), so JA/ES Clear showed English.
+                # How it happened: Clear runs while the sidebar is still up
+                # after the document closes. supportsService on that model
+                # raises DocumentDisposedError (doc_type.get_document_type →
+                # errors.safe_call; safe_uno_call re-raises it).
+                # Why this fixes it: None skips supportsService and returns
+                # the same translated Writer greeting as an unknown doc.
+                greeting = get_greeting_for_document(None)
 
         if self.send_listener and self.send_listener.rich_text_widget:
             try:
                 self.send_listener.rich_text_widget.clear_and_greeting(greeting)
             except Exception:
                 log.exception("Error clearing RichTextControl sidebar")
-                try:
-                    ctrl = getattr(self.send_listener.rich_text_widget, "control", None)
-                    if ctrl is not None:
-                        from plugin.chatbot.dialogs import set_control_text
+                ctrl = getattr(self.send_listener.rich_text_widget, "control", None)
+                if ctrl is not None:
+                    from plugin.chatbot.dialogs import set_control_text
 
-                        set_control_text(ctrl, greeting + "\n")
-                except Exception:
-                    pass
+                    set_control_text(ctrl, greeting + "\n")
             if self.status_control:
                 self.status_control.setText("")
             return

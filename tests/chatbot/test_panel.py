@@ -30,6 +30,7 @@ from plugin.chatbot.record_gesture import HANDS_FREE_STATUS, RecordGesture, hand
 from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
+from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.queue_executor import SendCancellation
 
 
@@ -1434,6 +1435,20 @@ class TestStopPreservesAudioWavPath:
         assert listener.audio_wav_path is None
         mock_remove.assert_called_once_with("/tmp/fake.wav")
 
+    def test_clear_pending_audio_wav_logs_permission_error(self, caplog: pytest.LogCaptureFixture) -> None:
+        listener = _make_send_listener()
+        listener.audio_wav_path = "/tmp/held.wav"
+        with (
+            patch("os.remove", side_effect=PermissionError(13, "used by another process")),
+            caplog.at_level(logging.DEBUG, logger="plugin.chatbot.panel"),
+        ):
+            listener.clear_pending_audio_wav()
+        assert listener.audio_wav_path is None
+        assert any(
+            "clear_pending_audio_wav: failed to remove /tmp/held.wav" in record.message
+            for record in caplog.records
+        )
+
 class TestStoppedTTS:
     def test_do_send_stopped_stt_does_not_invoke_tts(self) -> None:
         listener = _make_send_listener()
@@ -1562,6 +1577,36 @@ class TestClearButtonAndPeerDrain:
                     send_listener._get_document_model.assert_called_once()
                     mock_get_greeting.assert_called_once_with(mock_doc)
                     send_listener.rich_text_widget.clear_and_greeting.assert_called_once_with("Doc Greeting")
+
+    def test_clear_greeting_disposed_document_uses_writer_fallback(self) -> None:
+        session = MagicMock()
+        send_listener = MagicMock()
+        mock_doc = MagicMock()
+        send_listener._get_document_model.return_value = mock_doc
+        send_listener.sidebar_state = MagicMock()
+        send_listener.sidebar_state.send = MagicMock()
+        send_listener.sidebar_state.send.is_busy = False
+        send_listener._approval_event = None
+
+        listener = ClearButtonListener(session, MagicMock(), MagicMock(), "", send_listener)
+
+        def _get_greeting(model: Any) -> str:
+            if model is mock_doc:
+                raise DocumentDisposedError("disposed", object_type="document")
+            return "WRITER_FALLBACK"
+
+        with (
+            patch("plugin.audio.tts_service.stop_speech"),
+            patch("plugin.chatbot.tool_loop_actions.abort_turn"),
+            patch("plugin.framework.prompts.get_greeting_for_document", side_effect=_get_greeting) as mock_get_greeting,
+        ):
+            listener.on_action_performed(MagicMock())
+
+            send_listener._get_document_model.assert_called_once()
+            assert mock_get_greeting.call_args_list == [((mock_doc,),), ((None,),)]
+            send_listener.rich_text_widget.clear_and_greeting.assert_called_once_with("WRITER_FALLBACK")
+            args, _ = send_listener.rich_text_widget.clear_and_greeting.call_args
+            assert "help you outline ideas" not in args[0]
 
     def test_extracted_peer_drain_finally_runs(self) -> None:
         listener = _make_send_listener()
