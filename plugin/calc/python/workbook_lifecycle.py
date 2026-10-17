@@ -23,6 +23,7 @@ import time
 import weakref
 from typing import Any
 
+from plugin.framework.errors import best_effort
 from plugin.framework.thread_guard import _unwrap_uno
 from plugin.framework.uno_listeners import _HAVE_UNO as _HAVE_UNO_DOC_EVENTS
 from plugin.framework.uno_listeners import BaseDocumentEventListener
@@ -250,46 +251,46 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         for sid in session_ids:
             if not sid:
                 continue
-            try:
-                res = reset_python_session(self._ctx, sid)
+
+            def _do_reset(s: str = sid) -> None:
+                res = reset_python_session(self._ctx, s)
                 if isinstance(res, dict) and res.get("status") == "error" and res.get("code") == "WORKER_REENTRY":
                     from plugin.framework.worker_pool import run_in_background
 
                     # A sleeping background job uses dedicated=True (AGENTS.md).
                     run_in_background(
-                        lambda s=sid: self._retry_reset(s),
+                        lambda: self._retry_reset(s),
                         name="reset_python_session_retry",
                         dedicated=True,
                     )
                 elif isinstance(res, dict) and res.get("status") != "ok":
-                    log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
-            except Exception:
-                log.debug("python_workbook_lifecycle: reset on unload raised", exc_info=True)
+                    log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", s, res.get("message"))
+
+            best_effort(_do_reset, "python_workbook_lifecycle: reset on unload")
 
     def _release_calc_state(self, session_ids: tuple[str, ...], doc_urls: tuple[str, ...], lifecycle_key: str, *, reset_sessions: bool) -> None:
         """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
         if self._calc_cleanup:
-            try:
-                from plugin.calc.python.function import clear_in_memory_spill_state
+            from plugin.calc.python.function import clear_in_memory_spill_state
 
-                # Deduplicate doc URLs and skip empty strings. Unsaved workbooks
-                # have doc_url="", so clear using lifecycle_key when no URLs exist.
-                # Note: clear_in_memory_spill_state already ends with clear_python_addin_cache().
-                clean_urls = {u for u in doc_urls if u}
+            clean_urls = {u for u in doc_urls if u}
+
+            def _clear_spill() -> None:
                 if clean_urls:
                     for url in clean_urls:
                         clear_in_memory_spill_state(doc_url=url, lifecycle_key=lifecycle_key)
                 elif lifecycle_key:
                     clear_in_memory_spill_state(doc_url="", lifecycle_key=lifecycle_key)
-            except Exception:
-                log.debug("python_workbook_lifecycle: spill state clear failed", exc_info=True)
-            try:
-                from plugin.calc.python.geometric_recalc import clear_in_memory_geometric_state
 
+            best_effort(_clear_spill, "python_workbook_lifecycle: spill state clear")
+
+            from plugin.calc.python.geometric_recalc import clear_in_memory_geometric_state
+
+            def _clear_geo() -> None:
                 for sid in session_ids:
                     clear_in_memory_geometric_state(workbook_key=sid)
-            except Exception:
-                log.debug("python_workbook_lifecycle: geometric state clear failed", exc_info=True)
+
+            best_effort(_clear_geo, "python_workbook_lifecycle: geometric state clear")
         if reset_sessions:
             self._reset_sessions(session_ids)
 

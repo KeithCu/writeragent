@@ -11,8 +11,14 @@ from typing import Any
 
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.framework.config import get_config
+from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
-from plugin.scripting.document_scripts import get_calc_document_from_ctx, get_calc_init_script, set_calc_init_script
+from plugin.scripting.document_scripts import (
+    document_scripts_identity,
+    get_calc_document_from_ctx,
+    get_calc_init_script,
+    set_calc_init_script,
+)
 from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available, probe_webview_import, resolve_editor_python
 from plugin.scripting.editor_errors import failure_message
 from plugin.scripting.session_manager import reset_workbook_python_session
@@ -64,17 +70,8 @@ def open_init_script_editor(ctx: Any = None) -> bool:
         if err:
             return {"type": "error", "message": err}
         # Init script hash change should re-seed; reset so next =PY() picks up new INIT.
-        try:
-            reset_workbook_python_session(uno_ctx)
-        except Exception:
-            log.debug("init_script_editor: reset after save failed", exc_info=True)
+        best_effort(lambda: reset_workbook_python_session(uno_ctx), "init_script_editor: reset after save")
         return {"type": "saved", "ok": True, "status_ok_text": _("Initialization script saved.")}
 
-    load_msg: dict[str, Any] = {"type": "load", "mode": "init_script", "language": "python", "code": initial, "title": _("Edit Initialization Script"), "save_as_plain": True, "plain_text_label": _("Save initialization script"), "resource": "init", "doc_url": "", "show_data_binding": False}
-    try:
-        from plugin.scripting.document_scripts import document_scripts_identity
-
-        load_msg["doc_url"] = document_scripts_identity(doc)
-    except Exception:
-        log.debug("init_script_editor: doc_url for session target failed", exc_info=True)
+    load_msg: dict[str, Any] = {"type": "load", "mode": "init_script", "language": "python", "code": initial, "title": _("Edit Initialization Script"), "save_as_plain": True, "plain_text_label": _("Save initialization script"), "resource": "init", "doc_url": document_scripts_identity(doc), "show_data_binding": False}
     return bool(launch_monaco_editor(uno_ctx, exe=exe, load_message=load_msg, on_save=on_save))

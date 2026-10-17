@@ -15,6 +15,7 @@ import re
 import struct
 from typing import Any, NoReturn
 
+from plugin.framework.errors import best_effort
 from plugin.scripting.payload_codec import write_image_payload_to_temp
 
 log = logging.getLogger(__name__)
@@ -159,10 +160,7 @@ def _drop_extra_plot_slots(draw_page: Any, target_cell: Any, image_count: int) -
             if slot_idx is not None and slot_idx >= image_count:
                 to_remove.append(shape)
         for s in to_remove:
-            try:
-                draw_page.remove(s)
-            except Exception:
-                log.debug("_drop_extra_plot_slots: remove shape failed", exc_info=True)
+            best_effort(lambda s=s: draw_page.remove(s), "_drop_extra_plot_slots: remove shape")
     except Exception:
         log.debug("_drop_extra_plot_slots scan failed", exc_info=True)
 
@@ -172,7 +170,7 @@ def _read_image_bytes(payload: dict[str, Any] | None, tmp_path: str | None) -> b
         try:
             with open(tmp_path, "rb") as f:
                 return f.read()
-        except Exception:
+        except OSError:
             pass
     if payload and isinstance(payload, dict):
         data = payload.get("data")
@@ -601,10 +599,7 @@ def _insert_image_result_on_sheet_impl(
             # setter is what embeds the bitmap. If embedding fails on a shape we
             # just created, remove it so we do not leave an empty blank shape behind.
             if created_shape and hasattr(draw_page, "remove"):
-                try:
-                    draw_page.remove(shape)
-                except Exception:
-                    log.debug("insert_image_result_on_sheet: failed to remove failed shape", exc_info=True)
+                best_effort(lambda: draw_page.remove(shape), "insert_image_result_on_sheet: failed to remove failed shape")
             raise
 
         if target_cell is not None:
@@ -638,10 +633,7 @@ def _insert_image_result_on_sheet_impl(
                 # Why this change fixes it: For shapes created in this call, we remove the shape from the draw page and raise ImageEgressError; reused shapes keep their existing position and only log a warning.
                 if created_shape:
                     if hasattr(draw_page, "remove"):
-                        try:
-                            draw_page.remove(shape)
-                        except Exception:
-                            log.debug("insert_image_result_on_sheet: failed to remove failed shape", exc_info=True)
+                        best_effort(lambda: draw_page.remove(shape), "insert_image_result_on_sheet: failed to remove failed shape")
                     raise ImageEgressError("could not anchor plot to the formula cell")
                 log.warning("insert_image_result_on_sheet: could not anchor to cell", exc_info=True)
     except ImageEgressError:

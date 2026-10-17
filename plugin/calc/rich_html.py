@@ -23,8 +23,8 @@ import logging
 import sys
 from typing import Any
 
-from plugin.framework.errors import ToolExecutionError
-from plugin.framework.uno_context import clear_writer_body, get_desktop
+from plugin.framework.errors import ToolExecutionError, best_effort, uno_probe
+from plugin.framework.uno_context import _read_runtime_uid, clear_writer_body, get_desktop
 from plugin.calc.address_utils import parse_address
 from plugin.calc.bridge import CalcBridge
 import plugin.writer.format as format_support
@@ -50,13 +50,7 @@ def _step(msg: str) -> None:
 
 def _writer_runtime_uid(doc: Any) -> str:
     """Best-effort RuntimeUID so we can say keeper vs new frame without changing load."""
-    try:
-        uid = getattr(doc, "RuntimeUID", None)
-        if uid:
-            return str(uid)
-    except Exception:
-        pass
-    return "-"
+    return _read_runtime_uid(doc) or "-"
 
 
 def _desktop_writer_uids(desktop: Any) -> list[str]:
@@ -72,9 +66,8 @@ def _desktop_writer_uids(desktop: Any) -> list[str]:
     instead of closing on success.
     """
     uids: list[str] = []
-    try:
-        enum = desktop.getComponents().createEnumeration()
-    except Exception:
+    enum = uno_probe(lambda: desktop.getComponents().createEnumeration(), None)
+    if enum is None:
         return uids
     # ``is True``: MagicMock.hasMoreElements() is truthy and would loop.
     n = 0
@@ -86,11 +79,8 @@ def _desktop_writer_uids(desktop: Any) -> list[str]:
         except Exception:
             break
         n += 1
-        try:
-            if component.supportsService("com.sun.star.text.TextDocument"):
-                uids.append(_writer_runtime_uid(component))
-        except Exception:
-            continue
+        if uno_probe(lambda comp=component: comp.supportsService("com.sun.star.text.TextDocument"), False):
+            uids.append(_writer_runtime_uid(component))
     return uids
 
 
@@ -101,15 +91,15 @@ def _controller_get_transferable(controller: Any) -> Any:
     t = getattr(controller, "getTransferable", None)
     if callable(t):
         return t()
-    try:
-        from plugin.calc.calc_utils import query_interface
+    from plugin.calc.calc_utils import query_interface
 
-        # pyuno needs a UNO type here; the imported IDL class raises "Couldn't convert".
-        xs = query_interface(controller, "com.sun.star.datatransfer.XTransferableSupplier")
-        if xs is not None:
-            return xs.getTransferable()
-    except Exception:
-        log.debug("getTransferable via queryInterface failed", exc_info=True)
+    # pyuno needs a UNO type here; the imported IDL class raises "Couldn't convert".
+    xs = best_effort(
+        lambda: query_interface(controller, "com.sun.star.datatransfer.XTransferableSupplier"),
+        "getTransferable via queryInterface failed",
+    )
+    if xs is not None:
+        return xs.getTransferable()
     raise ToolExecutionError("Writer controller does not support getTransferable; cannot paste HTML into cell.")
 
 
@@ -137,10 +127,7 @@ def _system_clipboard(uno_ctx: Any) -> Any:
     smgr = _service_manager(uno_ctx)
     if smgr is None:
         return None
-    try:
-        return smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx)
-    except Exception:
-        return None
+    return uno_probe(lambda: smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx), None)
 
 
 def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> str:
@@ -162,10 +149,7 @@ def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> str:
         if contents is None:
             return "empty"
         same = contents is transferable
-        try:
-            equal = contents == transferable
-        except Exception:
-            equal = False
+        equal = uno_probe(lambda: contents == transferable, False)
         if not (same or equal):
             return "not_ours contents_id=%s xfer_id=%s" % (id(contents), id(transferable))
         # None, None drops the previous owner (lostOwnership) without a new OLE source.
@@ -284,11 +268,8 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
         # _wa_calc_html (CREATE|GLOBAL) and clear the body on the next call.
         # Keep #572: release SystemClipboard only when it owns our transferable.
         if temp_doc is not None and close_temp and not pasted:
-            try:
-                _step("insert_cell_html_rich: close start")
-                temp_doc.close(True)
-                _step("insert_cell_html_rich: close done")
-            except Exception:
-                log.debug("temp Writer close failed", exc_info=True)
+            _step("insert_cell_html_rich: close start")
+            best_effort(lambda: temp_doc.close(True), "temp Writer close failed")
+            _step("insert_cell_html_rich: close done")
         elif temp_doc is not None:
             _step("insert_cell_html_rich: close skipped pasted=%s reused_existing=%s" % (pasted, not close_temp))

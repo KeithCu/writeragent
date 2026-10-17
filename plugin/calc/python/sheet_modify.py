@@ -32,6 +32,8 @@ from typing import Any, Iterator
 import unohelper
 from com.sun.star.util import XModifyListener
 
+from plugin.framework.errors import uno_probe
+
 log = logging.getLogger(__name__)
 
 # Debounce one pass per sheet. Keyed by (lifecycle id, sheet_name).
@@ -77,14 +79,11 @@ def _doc_identity(doc: Any) -> str:
     """Stable per-document id. URL collides for unsaved books and moves on Save-As."""
     if doc is None:
         return ""
-    try:
-        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+    from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-        key = _lifecycle_key(doc)
-        if key:
-            return str(key)
-    except Exception:
-        log.debug("sheet_modify: lifecycle key failed", exc_info=True)
+    key = uno_probe(lambda: _lifecycle_key(doc), "")
+    if key:
+        return str(key)
     return _doc_url_of(doc)
 
 
@@ -101,20 +100,12 @@ def _owning_calc_doc(sheet: Any) -> Any | None:
         if current is None:
             return None
         supports = getattr(current, "supportsService", None)
-        if callable(supports):
-            try:
-                result = supports("com.sun.star.sheet.SpreadsheetDocument")
-            except Exception:
-                result = False
-            if result is True:
-                return current
+        if callable(supports) and uno_probe(lambda: supports("com.sun.star.sheet.SpreadsheetDocument"), False) is True:
+            return current
         parent = getattr(current, "getParent", None)
         if not callable(parent):
             return None
-        try:
-            current = parent()
-        except Exception:
-            return None
+        current = uno_probe(parent, None)
     return None
 
 
@@ -129,10 +120,7 @@ def _sheet_name_of(sheet: Any) -> str:
 def _lookup_sheet(doc: Any, sheet_name: str) -> Any | None:
     if doc is None:
         return None
-    try:
-        return doc.getSheets().getByName(sheet_name)
-    except Exception:
-        return None
+    return uno_probe(lambda: doc.getSheets().getByName(sheet_name), None)
 
 
 def _cancel_pending(key: tuple[str, str]) -> None:
@@ -179,12 +167,9 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
     name = sheet_name or _sheet_name_of(sheet)
     lifecycle_key = ""
     if doc is not None:
-        try:
-            from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-            lifecycle_key = str(_lifecycle_key(doc) or "")
-        except Exception:
-            log.debug("sheet_modify: lifecycle key failed", exc_info=True)
+        lifecycle_key = str(uno_probe(lambda: _lifecycle_key(doc), "") or "")
     identity = lifecycle_key or url
     key = _sheet_key(identity, name)
     _cancel_pending(key)
@@ -347,28 +332,25 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
     url = doc_url or _doc_url_of(doc)
     name = sheet_name or _sheet_name_of(sheet)
     with sheet_modify_scope():
+        from plugin.calc.python.function import CalcSpillModifyListener, _spill_registry_doc_key
+
+        # Job 1 — spill orphan cleanup. Walks SPILL_REGISTRY only.
+        # Pass the lifecycle id the spill registry uses. The URL is empty
+        # for every unsaved book, so matching on it hits the wrong book.
         try:
-            from plugin.calc.python.function import CalcSpillModifyListener, _spill_registry_doc_key
-
-            # Job 1 — spill orphan cleanup. Walks SPILL_REGISTRY only.
-            # Pass the lifecycle id the spill registry uses. The URL is empty
-            # for every unsaved book, so matching on it hits the wrong book.
-            try:
-                registry_id = _spill_registry_doc_key(doc) if doc is not None else url
-                CalcSpillModifyListener(ctx, registry_id, name).modified(SimpleNamespace(Source=sheet))
-            except Exception:
-                log.exception("Error in spill orphan cleanup (%s)", name)
-
-            # Job 2 — geometric list-diff. Own discovery; skip when flag is off.
-            try:
-                from plugin.calc.python.geometric_recalc import geometric_flag_enabled, reconcile_geometric_sheet
-
-                if geometric_flag_enabled() and doc is not None:
-                    reconcile_geometric_sheet(ctx, doc, sheet)
-            except Exception:
-                log.exception("Error in geometric sheet modify pass (%s)", name)
+            registry_id = _spill_registry_doc_key(doc) if doc is not None else url
+            CalcSpillModifyListener(ctx, registry_id, name).modified(SimpleNamespace(Source=sheet))
         except Exception:
-            log.exception("Error in sheet modify pass (%s)", name)
+            log.exception("Error in spill orphan cleanup (%s)", name)
+
+        # Job 2 — geometric list-diff. Own discovery; skip when flag is off.
+        try:
+            from plugin.calc.python.geometric_recalc import geometric_flag_enabled, reconcile_geometric_sheet
+
+            if geometric_flag_enabled() and doc is not None:
+                reconcile_geometric_sheet(ctx, doc, sheet)
+        except Exception:
+            log.exception("Error in geometric sheet modify pass (%s)", name)
 
 
 
