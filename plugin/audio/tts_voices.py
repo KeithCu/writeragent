@@ -530,12 +530,9 @@ def get_scoped_tts_voice(
         provider = str(get_config("audio.tts_provider") or "system")
     prov_clean = clean_provider_name(provider)
     if model is None and prov_clean == "endpoint":
-        try:
-            from plugin.framework.client.model_fetcher import get_tts_model
+        from plugin.framework.client.model_fetcher import get_tts_model
 
-            model = get_tts_model()
-        except ImportError:
-            model = None
+        model = get_tts_model()
 
     family = get_voice_family(prov_clean, model, endpoint)
     scoped_key = f"audio.tts_voice_{family}"
