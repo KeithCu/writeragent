@@ -84,12 +84,7 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
             continue
         if formula_cells is None:
             continue
-        try:
-            count = int(formula_cells.getCount())
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            continue
+        count = int(formula_cells.getCount())
 
         for i in range(count):
             if total_scanned >= max_scan:

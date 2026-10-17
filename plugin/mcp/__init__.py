@@ -600,10 +600,7 @@ class McpModule(ModuleBase):
             else:
                 for ctrl in (tunnel_lbl, tunnel_url_ctrl, tunnel_status_ctrl):
                     if ctrl is not None:
-                        try:
-                            ctrl.getModel().Visible = False
-                        except Exception:
-                            pass
+                        ctrl.getModel().Visible = False
 
             copy_btn = dlg.getControl("CopyBtn")
             if copy_btn is not None:
@@ -620,10 +617,7 @@ class McpModule(ModuleBase):
 
                     def on_action_performed(self, rEvent: Any) -> None:
                         if copy_to_clipboard(self._ctx, self._text):
-                            try:
-                                self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
-                            except Exception:
-                                pass
+                            self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
 
                 copy_btn.addActionListener(_CopyListener(dlg, ctx, active_url))
 

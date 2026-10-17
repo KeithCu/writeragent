@@ -91,10 +91,7 @@ def get_cell_geometry(sheet: Any, cell: Any) -> Tuple[Any, Any]:
     the merge and asks for the full merged area's geometry instead.
     """
     geometry_target = get_cell_geometry_target(sheet, cell)
-    try:
-        return geometry_target.Position, geometry_target.Size
-    except Exception:
-        return cell.Position, cell.Size
+    return geometry_target.Position, geometry_target.Size
 
 
 def get_cell_geometry_target(sheet: Any, cell: Any) -> Any:
@@ -103,13 +100,10 @@ def get_cell_geometry_target(sheet: Any, cell: Any) -> Any:
     For merged cells this is a collapsed cursor/range over the full merged area;
     otherwise this is the original cell.
     """
-    try:
-        if getattr(cell, "IsMerged", False):
-            cursor = sheet.createCursorByRange(cell)
-            cursor.collapseToMergedArea()
-            return cursor
-    except Exception:
-        pass
+    if getattr(cell, "IsMerged", False):
+        cursor = sheet.createCursorByRange(cell)
+        cursor.collapseToMergedArea()
+        return cursor
     return cell
 
 

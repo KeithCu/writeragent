@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Any, cast, Type, ClassVar
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_real_disposal, safe_json_loads
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.constants import USE_SUB_AGENT
 from plugin.framework.prompts import (
@@ -97,14 +97,9 @@ def _field_from_tool_arguments(arguments: Any, field: str) -> Any:
     if isinstance(arguments, dict):
         return arguments.get(field)
     if isinstance(arguments, str):
-        try:
-            from plugin.framework.errors import safe_json_loads
-
-            data = safe_json_loads(arguments)
-            if isinstance(data, dict):
-                return data.get(field)
-        except Exception:
-            pass
+        data = safe_json_loads(arguments)
+        if isinstance(data, dict):
+            return data.get(field)
     return None
 
 

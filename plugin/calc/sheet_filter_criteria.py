@@ -128,14 +128,11 @@ def resolve_filter_operator_code(operator: str) -> int:
     code = filter_operator2_name_to_code(operator)
     if code is not None:
         return code
-    try:
-        from com.sun.star.sheet import FilterOperator2 as FO2
+    from com.sun.star.sheet import FilterOperator2 as FO2
 
-        op_u = operator.strip().upper().replace("-", "_")
-        if hasattr(FO2, op_u):
-            return int(getattr(FO2, op_u))
-    except Exception:
-        pass
+    op_u = operator.strip().upper().replace("-", "_")
+    if hasattr(FO2, op_u):
+        return int(getattr(FO2, op_u))
     raise UnoObjectError(f"Unknown filter operator: {operator!r}")
 
 

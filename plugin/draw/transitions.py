@@ -153,41 +153,21 @@ class GetSlideTransition(ToolDrawSlideTransitionsBase):
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
 
         # FadeEffect
-        effect = "none"
-        try:
-            fe = page.getPropertyValue("Effect")
-            effect = fe.value.lower() if hasattr(fe, "value") else str(fe).lower()
-        except Exception:
-            pass
+        fe = page.getPropertyValue("Effect")
+        effect = fe.value.lower() if hasattr(fe, "value") else str(fe).lower()
 
         # Speed
-        speed = "medium"
-        try:
-            sp = page.getPropertyValue("Speed")
-            speed = sp.value.lower() if hasattr(sp, "value") else str(sp).lower()
-        except Exception:
-            pass
+        sp = page.getPropertyValue("Speed")
+        speed = sp.value.lower() if hasattr(sp, "value") else str(sp).lower()
 
         # Duration (auto-advance)
-        duration = 0
-        try:
-            duration = page.getPropertyValue("Duration")
-        except Exception:
-            pass
+        duration = page.getPropertyValue("Duration")
 
         # TransitionDuration (transition animation time)
-        transition_duration = None
-        try:
-            transition_duration = page.getPropertyValue("TransitionDuration")
-        except Exception:
-            pass
+        transition_duration = page.getPropertyValue("TransitionDuration")
 
         # Change mode: 0=click, 1=auto, 2=semi-auto
-        change = 0
-        try:
-            change = page.getPropertyValue("Change")
-        except Exception:
-            pass
+        change = page.getPropertyValue("Change")
 
         return {"status": "ok", "page": page_idx, "effect": effect, "speed": speed, "duration": duration, "transition_duration": transition_duration, "advance": {0: "on_click", 1: "auto", 2: "semi_auto"}.get(change, "on_click")}
 

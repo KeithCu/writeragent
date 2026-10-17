@@ -927,7 +927,7 @@ def test_serialize_stubs_tool_bodies_over_200_and_formats_tool_calls():
 # --- 19. Temporal anchoring ----------------------------------------------------
 
 
-def test_temporal_anchoring_present_and_omitted_on_clock_failure(monkeypatch):
+def test_temporal_anchoring_present(monkeypatch):
     session = DummySession(_history_3x1000())
     client = DummyClient()
 
@@ -941,19 +941,6 @@ def test_temporal_anchoring_present_and_omitted_on_clock_failure(monkeypatch):
     body = client.calls[0]["messages"][1]["content"]
     assert "TEMPORAL ANCHORING" in body
     assert "2026-09-10" in body
-
-    class _BadDate:
-        @staticmethod
-        def today():
-            raise OSError("clock")
-
-    session2 = DummySession(_history_3x1000())
-    client2 = DummyClient()
-    monkeypatch.setattr(C.datetime, "date", _BadDate)
-    result = C.compact_session(session2, client2, window=4096, enabled=True)
-    assert result.compacted is True
-    body2 = client2.calls[0]["messages"][1]["content"]
-    assert "TEMPORAL ANCHORING" not in body2
 
 
 # --- 20. Negative 85% on 4k ----------------------------------------------------

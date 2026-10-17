@@ -301,10 +301,7 @@ def ensure_code_sheet_uno(doc: Any, code_sheet: str) -> Any:
     else:
         sheets.insertNewByName(code_sheet, sheets.getCount())
         sheet = sheets.getByName(code_sheet)
-    try:
-        sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL).setString(CODE_SHEET_NOTE)
-    except Exception:
-        log.debug("excel_py script bank: could not write discoverability note", exc_info=True)
+    sheet.getCellRangeByName(CODE_SHEET_NOTE_CELL).setString(CODE_SHEET_NOTE)
     return sheet
 
 

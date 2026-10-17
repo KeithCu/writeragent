@@ -242,6 +242,7 @@ setattr(beans, "PropertyValue", MockPropertyValue) # Repeat for safety in case o
 sheet = _create_mock_module("com.sun.star.sheet")
 setattr(sheet, "ConditionOperator", MockBase)
 setattr(sheet, "ConditionOperator2", MockBase)
+setattr(sheet, "FilterOperator2", MockBase)
 
 
 class MockCellFlags:

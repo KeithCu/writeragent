@@ -79,10 +79,7 @@ def show_new_script_dialog(
                         else _("Attach to this document (this document is read-only)")
                     )
                     set_control_text(chk, reason)
-                    try:
-                        chk.getModel().HelpText = reason
-                    except Exception:
-                        log.debug("show_new_script_dialog: HelpText failed", exc_info=True)
+                    chk.getModel().HelpText = reason
                 set_checkbox_state(chk, 1 if initial_attach else 0)
                 set_control_enabled(chk, bool(can_attach))
 

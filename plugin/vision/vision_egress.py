@@ -114,11 +114,7 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     if resolved is None:
         raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
 
-    graphic_name = ""
-    try:
-        graphic_name = str(resolved.getName() or "")
-    except Exception as ex:
-        reraise_if_disposed(ex)
+    graphic_name = str(resolved.getName() or "")
     if name and not graphic_name:
         graphic_name = name
     graphics_before = len(list_graphic_objects(doc))

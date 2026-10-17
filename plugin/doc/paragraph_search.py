@@ -92,10 +92,7 @@ def _is_text_paragraph(element: Any) -> bool:
     """
     supports = getattr(element, "supportsService", None)
     if callable(supports):
-        try:
-            return bool(supports(_PARAGRAPH_SERVICE))
-        except Exception:
-            return callable(getattr(element, "getStart", None))
+        return bool(supports(_PARAGRAPH_SERVICE))
     return callable(getattr(element, "getStart", None))
 
 

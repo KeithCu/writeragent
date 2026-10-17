@@ -88,10 +88,7 @@ def _configure_librepy_settings_chrome(dlg: Any) -> None:
 
     scripting_tab = get_optional(dlg, "btn_tab_scripting")
     if scripting_tab is not None:
-        try:
-            scripting_tab.getModel().PositionX = 5
-        except Exception:
-            log.debug("Could not reposition Python settings tab", exc_info=True)
+        scripting_tab.getModel().PositionX = 5
         scripting_tab.addActionListener(TabListener(dlg, _SCRIPTING_TAB_PAGE))
 
     _hide_settings_controls(dlg, _LIBREPY_HIDDEN_SCRIPTING_CONTROLS)
@@ -168,10 +165,7 @@ def open_librepy_settings(ctx: Any) -> None:
                 raise
 
         translate_dialog(dlg)
-        try:
-            dlg.getModel().Title = _("Python Settings")
-        except Exception:
-            pass
+        dlg.getModel().Title = _("Python Settings")
 
         test_btn = get_optional(dlg, "scripting__test_venv")
         if test_btn is not None:
@@ -195,15 +189,9 @@ def open_librepy_settings(ctx: Any) -> None:
         # Do not return from finally: that would swallow a load or populate error.
         if dlg is not None:
             if test_btn is not None and test_listener is not None:
-                try:
-                    test_btn.removeActionListener(test_listener)
-                except Exception:
-                    pass
+                test_btn.removeActionListener(test_listener)
             if download_btn is not None and download_listener is not None:
-                try:
-                    download_btn.removeActionListener(download_listener)
-                except Exception:
-                    pass
+                download_btn.removeActionListener(download_listener)
             try:
                 dlg.dispose()
             except Exception:

@@ -53,13 +53,6 @@ def report_action_failure(command: str, exc: BaseException) -> None:
         )
     except Exception:
         log.exception("msgbox_with_report failed")
-        try:
-            from plugin.chatbot.dialogs import msgbox
-            from plugin.framework.i18n import _
-
-            msgbox(get_ctx(), _("Error"), detail, box_type=3)
-        except Exception:
-            log.exception("msgbox failed")
 
 
 def open_dialog_safely(dialog_func: Callable[..., Any], error_msg: str, *args: Any, **kwargs: Any) -> None:
@@ -89,13 +82,6 @@ def open_dialog_safely(dialog_func: Callable[..., Any], error_msg: str, *args: A
             msgbox_with_report(get_ctx(), _("Error"), detail, box_type=3, reportable=True, report_title=error_msg, report_extra=str(e))
         except Exception:
             log.exception("msgbox_with_report failed")
-            try:
-                from plugin.chatbot.dialogs import msgbox
-                from plugin.framework.i18n import _
-
-                msgbox(get_ctx(), _("Error"), detail, box_type=3)
-            except Exception:
-                log.exception("msgbox failed")
 
 
 def register_common_handlers() -> None:

@@ -514,10 +514,7 @@ class PickerWiring:
 
 
 def _picker_calc_only(doc: Any) -> bool:
-    try:
-        return doc is not None and is_calc(doc)
-    except Exception:
-        return False
+    return doc is not None and is_calc(doc)
 
 
 def _picker_supports_fn(supports: str) -> Callable[[Any], bool]:

@@ -200,12 +200,7 @@ def get_default_voice_for_locale(family: str, locale: str | None = None) -> str:
     """Return the default voice for a family and the LibreOffice UI locale."""
     fam = _normalize_voice_family(family)
     if locale is None:
-        try:
-            from plugin.framework.i18n import get_active_locale
-
-            locale = get_active_locale()
-        except Exception:
-            locale = "en_US"
+        locale = i18n.get_active_locale()
     stem = _locale_language_stem(locale)
     if fam == "piper":
         return _piper_default_for_stem(stem)
@@ -225,12 +220,7 @@ def get_voice_catalog(family: str, locale: str | None = None) -> list[dict[str, 
         return VOICE_CATALOGS.get(fam, [])
 
     if locale is None:
-        try:
-            from plugin.framework.i18n import get_active_locale
-
-            locale = get_active_locale()
-        except Exception:
-            locale = "en_US"
+        locale = i18n.get_active_locale()
 
     stem = _locale_language_stem(locale)
 

@@ -9,8 +9,17 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
 
-from plugin.calc.calc_utils import get_cell_geometry, get_cell_geometry_target
+from plugin.calc.calc_utils import (
+    get_cell_geometry,
+    get_cell_geometry_target,
+    query_interface,
+    resolve_cell_address,
+    resolve_sheet,
+    resolve_sheet_and_cell,
+)
+from plugin.framework.errors import UnoObjectError
 
 
 class TestGetCellGeometry:
@@ -51,14 +60,13 @@ class TestGetCellGeometry:
         sheet.createCursorByRange.assert_called_once_with(cell)
         cursor.collapseToMergedArea.assert_called_once()
 
-    def test_merged_cell_falls_back_on_exception(self):
+    def test_merged_cell_propagates_exception(self):
         cell = SimpleNamespace(IsMerged=True, Position=(5, 10), Size=(80, 40))
         sheet = MagicMock()
         sheet.createCursorByRange.side_effect = RuntimeError("UNO error")
 
-        pos, size = get_cell_geometry(sheet, cell)
-        assert pos == (5, 10)
-        assert size == (80, 40)
+        with pytest.raises(RuntimeError):
+            get_cell_geometry(sheet, cell)
 
     def test_cell_without_ismerged_attribute(self):
         cell = SimpleNamespace(Position=(1, 2), Size=(10, 20))
@@ -67,33 +75,26 @@ class TestGetCellGeometry:
         assert pos == (1, 2)
         assert size == (10, 20)
 
-    def test_geometry_target_falls_back_to_cell_when_cursor_fails(self):
+    def test_geometry_target_propagates_cursor_failure(self):
         cell = SimpleNamespace(IsMerged=True, Position=(5, 6), Size=(70, 30))
         sheet = MagicMock()
         sheet.createCursorByRange.side_effect = RuntimeError("UNO error")
 
-        target = get_cell_geometry_target(sheet, cell)
-
-        assert target is cell
+        with pytest.raises(RuntimeError):
+            get_cell_geometry_target(sheet, cell)
 
 
 class TestSheetAndCellResolution:
     """Tests for resolve_sheet, query_interface, resolve_sheet_and_cell, and resolve_cell_address."""
 
     def test_query_interface_none_object(self):
-        from plugin.calc.calc_utils import query_interface
-
         assert query_interface(None, "com.sun.star.sheet.XSheetCondition") is None
 
     def test_query_interface_object_without_method(self):
-        from plugin.calc.calc_utils import query_interface
-
         obj = object()
         assert query_interface(obj, "com.sun.star.sheet.XSheetCondition") is None
 
     def test_resolve_sheet_by_name_success(self):
-        from plugin.calc.calc_utils import resolve_sheet
-
         mock_sheet = MagicMock()
         mock_sheets = MagicMock()
         mock_sheets.hasByName.return_value = True
@@ -106,10 +107,6 @@ class TestSheetAndCellResolution:
         mock_sheets.getByName.assert_called_once_with("Sheet2")
 
     def test_resolve_sheet_by_name_not_found(self):
-        import pytest
-        from plugin.calc.calc_utils import resolve_sheet
-        from plugin.framework.errors import UnoObjectError
-
         mock_sheets = MagicMock()
         mock_sheets.hasByName.return_value = False
 
@@ -120,8 +117,6 @@ class TestSheetAndCellResolution:
             resolve_sheet(doc, "NonExistent")
 
     def test_resolve_sheet_and_cell_valid(self):
-        from plugin.calc.calc_utils import resolve_sheet_and_cell
-
         mock_sheet = MagicMock()
         doc = MagicMock()
         controller = MagicMock()
@@ -132,8 +127,6 @@ class TestSheetAndCellResolution:
         assert resolved == (mock_sheet, 1, 4)
 
     def test_resolve_sheet_and_cell_with_prefix(self):
-        from plugin.calc.calc_utils import resolve_sheet_and_cell
-
         mock_sheet = MagicMock()
         mock_sheets = MagicMock()
         mock_sheets.hasByName.return_value = True
@@ -146,16 +139,12 @@ class TestSheetAndCellResolution:
         assert resolved == (mock_sheet, 2, 9)
 
     def test_resolve_sheet_and_cell_invalid_address(self):
-        from plugin.calc.calc_utils import resolve_sheet_and_cell
-
         doc = MagicMock()
         assert resolve_sheet_and_cell(doc, "") is None
         assert resolve_sheet_and_cell(doc, "InvalidAddress") is None
         assert resolve_sheet_and_cell(None, "A1") is None
 
     def test_resolve_cell_address_valid(self):
-        from plugin.calc.calc_utils import resolve_cell_address
-
         mock_cell = MagicMock()
         mock_cell_addr = MagicMock()
         mock_cell.getCellAddress.return_value = mock_cell_addr
@@ -172,10 +161,6 @@ class TestSheetAndCellResolution:
         mock_sheet.getCellByPosition.assert_called_once_with(0, 0)
 
     def test_resolve_cell_address_invalid_raises(self):
-        import pytest
-        from plugin.calc.calc_utils import resolve_cell_address
-        from plugin.framework.errors import UnoObjectError
-
         doc = MagicMock()
         with pytest.raises(UnoObjectError, match="Cannot resolve cell address"):
             resolve_cell_address(doc, "BadRef")

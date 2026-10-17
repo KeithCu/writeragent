@@ -376,11 +376,7 @@ class ProximityService(ServiceBase):
                     pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
                     if start_idx <= pi <= end_idx:
                         content = field.getPropertyValue("Content")
-                        resolved_flag = False
-                        try:
-                            resolved_flag = field.getPropertyValue("Resolved")
-                        except Exception:
-                            pass
+                        resolved_flag = field.getPropertyValue("Resolved")
                         comments.append({"author": author, "content": content[:200], "paragraph_index": pi, "resolved": resolved_flag})
             except Exception:
                 pass

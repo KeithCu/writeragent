@@ -106,10 +106,7 @@ def discover_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None)
         return PythonSheetDiscovery([], False)
     name = sheet_name
     if not name:
-        try:
-            name = str(sheet.getName() or "")
-        except Exception:
-            name = ""
+        name = str(sheet.getName() or "")
     if not name:
         name = "Sheet"
 
@@ -124,10 +121,7 @@ def discover_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None)
     if formula_cells is None:
         return PythonSheetDiscovery([], False)
 
-    try:
-        count = int(formula_cells.getCount())
-    except Exception:
-        return PythonSheetDiscovery([], False)
+    count = int(formula_cells.getCount())
 
     scanned_count = 0
 
@@ -149,12 +143,9 @@ def discover_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None)
             if scanned_count >= _MAX_CELLS_TO_SCAN:
                 truncated = True
             break
-        try:
-            cell_range = formula_cells.getByIndex(i)
-            addr = cell_range.getRangeAddress()
-            formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
-        except Exception:
-            continue
+        cell_range = formula_cells.getByIndex(i)
+        addr = cell_range.getRangeAddress()
+        formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
 
         if formula_matrix is not None and len(formula_matrix) > 0:
             stop = False
@@ -186,11 +177,8 @@ def discover_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None)
                         truncated = True
                         stop = True
                         break
-                    try:
-                        cell = sheet.getCellByPosition(col, row)
-                        formula = str(cell.getFormula() or "")
-                    except Exception:
-                        continue
+                    cell = sheet.getCellByPosition(col, row)
+                    formula = str(cell.getFormula() or "")
                     if not _consider(formula, row, col):
                         stop = True
                         break

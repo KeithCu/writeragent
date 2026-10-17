@@ -792,17 +792,14 @@ def should_retry_overflow(attempts: int, compact_reason: str | None, tokens_befo
 
 
 def _today_for_prompt() -> str:
-    """YYYY-MM-DD; '' on clock failure.
+    """YYYY-MM-DD.
 
     Same idea as Hermes ``_today_for_prompt``
     (``context_compressor.py:1584-1594``). Hermes uses ``hermes_time``;
     WA uses ``datetime.date.today()``.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L1584-L1594
     """
-    try:
-        return datetime.date.today().isoformat()
-    except Exception:
-        return ""
+    return datetime.date.today().isoformat()
 
 
 def _temporal_anchoring_rule() -> str:
