@@ -30,11 +30,14 @@ from plugin.framework.errors import (
     check_disposed,
     reraise_if_disposed,
     safe_call,
+    uno_read,
 )
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import uno_same
 
 _PARAGRAPH_SERVICE = "com.sun.star.text.Paragraph"
+# uno_read default where None is a real UNO result.
+_FAILED: Any = object()
 
 
 def normalize_linebreaks(text: str | None) -> str:
@@ -262,12 +265,8 @@ def find_heading_by_chapter_number(tree: Mapping[str, Any], label: str) -> Mappi
 
 
 def _portion_type(portion: Any) -> str | None:
-    try:
-        return portion.getPropertyValue("TextPortionType")
-    except Exception as exc:
-        # PyUNO attribute access is the same property call; a second read cannot succeed.
-        reraise_if_disposed(exc, object_type="TextPortion")
-        return None
+    # PyUNO attribute access is the same property call; a second read cannot succeed.
+    return uno_read(lambda: portion.getPropertyValue("TextPortionType"), None, object_type="TextPortion")
 
 
 def _range_is_paragraph(text_range: Any) -> bool:
@@ -277,19 +276,14 @@ def _range_is_paragraph(text_range: Any) -> bool:
     On a paragraph ``XTextRange`` it yields text portions (bold runs, redlines).
     Treating those portions as paragraphs used to inject a ``\\n`` between runs.
     """
-    try:
-        if text_range.supportsService(_PARAGRAPH_SERVICE) is True:
-            return True
-    except Exception as exc:
-        reraise_if_disposed(exc, object_type="TextRange")
-    try:
+    if uno_read(lambda: text_range.supportsService(_PARAGRAPH_SERVICE) is True, False, object_type="TextRange"):
+        return True
+
+    def first_is_portion() -> bool:
         enum = text_range.createEnumeration()
-        if enum.hasMoreElements() is not True:
-            return False
-        return _portion_type(enum.nextElement()) is not None
-    except Exception as exc:
-        reraise_if_disposed(exc, object_type="TextRange")
-        return False
+        return enum.hasMoreElements() is True and _portion_type(enum.nextElement()) is not None
+
+    return uno_read(first_is_portion, False, object_type="TextRange")
 
 
 def _visible_portions(
@@ -510,10 +504,8 @@ def collect_tracked_changes(text_range: Any, max_per_change: int = 300, max_chan
     TextTable cells are walked; headers and frames are not in the body XText this
     function is given (content.py passes ``getText()``)."""
     out: list[dict[str, str]] = []
-    try:
-        para_enum = text_range.createEnumeration()
-    except Exception as exc:
-        reraise_if_disposed(exc, object_type="TextRange")
+    para_enum = uno_read(lambda: text_range.createEnumeration(), _FAILED, object_type="TextRange")
+    if para_enum is _FAILED:
         return out
 
     # Insert/Delete redlines can continue across paragraph and cell boundaries,
@@ -529,11 +521,7 @@ def collect_tracked_changes(text_range: Any, max_per_change: int = 300, max_chan
         buf.clear()
 
     def _is_text_table(el: Any) -> bool:
-        try:
-            return el.supportsService("com.sun.star.text.TextTable") is True
-        except Exception as exc:
-            reraise_if_disposed(exc, object_type="TextTable")
-            return False
+        return uno_read(lambda: el.supportsService("com.sun.star.text.TextTable") is True, False, object_type="TextTable")
 
     def _walk_portions(portion_enum: Any) -> None:
         nonlocal in_delete, in_insert
@@ -543,11 +531,7 @@ def collect_tracked_changes(text_range: Any, max_per_change: int = 300, max_chan
             if ptype is None:
                 continue
             if ptype == "Redline":
-                try:
-                    rtype = str(portion.getPropertyValue("RedlineType"))
-                except Exception as exc:
-                    reraise_if_disposed(exc, object_type="TextPortion")
-                    rtype = ""
+                rtype = uno_read(lambda: str(portion.getPropertyValue("RedlineType")), "", object_type="TextPortion")
                 if rtype == "Delete":
                     if in_delete:
                         _flush(del_buf, "deletion")
@@ -557,11 +541,7 @@ def collect_tracked_changes(text_range: Any, max_per_change: int = 300, max_chan
                         _flush(ins_buf, "insertion")
                     in_insert = not in_insert
                 continue
-            try:
-                chunk = portion.getString()
-            except Exception as exc:
-                reraise_if_disposed(exc, object_type="TextPortion")
-                chunk = ""
+            chunk = uno_read(lambda: portion.getString(), "", object_type="TextPortion")
             if not chunk:
                 continue
             if in_delete:
@@ -575,27 +555,16 @@ def collect_tracked_changes(text_range: Any, max_per_change: int = 300, max_chan
             if _is_text_table(el):
                 # A table's createEnumeration does not yield portions, so the old
                 # `continue` skipped every tracked change that lived only in a cell.
-                try:
-                    names = el.getCellNames() or ()
-                except Exception as exc:
-                    reraise_if_disposed(exc, object_type="TextTable")
-                    continue
+                # Unreadable names walk nothing; one unreadable cell is skipped.
+                names: Any = uno_read(lambda: el.getCellNames() or (), (), object_type="TextTable")
                 for name in names:
                     if len(out) >= max_changes:
                         return
-                    try:
-                        cell = el.getCellByName(name)
-                        _walk_elements(cell.createEnumeration())
-                    except Exception as exc:
-                        reraise_if_disposed(exc, object_type="TextTable")
-                        continue
+                    uno_read(lambda: _walk_elements(el.getCellByName(name).createEnumeration()), None, object_type="TextTable")
                 continue
-            try:
-                portion_enum = el.createEnumeration()
-            except Exception as exc:
-                reraise_if_disposed(exc, object_type="TextRange")
-                continue
-            _walk_portions(portion_enum)
+            portion_enum = uno_read(lambda: el.createEnumeration(), _FAILED, object_type="TextRange")
+            if portion_enum is not _FAILED:
+                _walk_portions(portion_enum)
 
     # No outer except: content.py already logs a failed walk. That outer except
     # returned the partial list for every error, including a closed document.

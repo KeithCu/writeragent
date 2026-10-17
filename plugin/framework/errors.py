@@ -636,19 +636,20 @@ def reraise_if_disposed(
         raise DocumentDisposedError(message, object_type=object_type) from exc
 
 
-def uno_read(fn: Callable[[], _T], default: _T) -> _T:
+def uno_read(fn: Callable[[], _T], default: _T, *, object_type: str = "document") -> _T:
     """Return ``fn()``, or *default* when it raises an ordinary ``Exception``.
 
     The call form of ``except Exception as e: reraise_if_disposed(e); return
     default``: only real disposal (:func:`is_real_disposal`) leaves, wrapped
     as ``DocumentDisposedError`` exactly as :func:`reraise_if_disposed` does.
     A bare UNO ``RuntimeException`` returns *default*, as in
-    :func:`safe_uno_call`. :func:`uno_probe` is the broad-predicate variant.
+    :func:`safe_uno_call`. *object_type* is passed to ``reraise_if_disposed``.
+    :func:`uno_probe` is the broad-predicate variant.
     """
     try:
         return fn()
     except Exception as exc:
-        reraise_if_disposed(exc)
+        reraise_if_disposed(exc, object_type=object_type)
         return default
 
 
