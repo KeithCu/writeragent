@@ -476,3 +476,22 @@ def test_upsert_edit_disposal_is_not_chart_edit_error():
         res = UpsertChart().execute(ctx, action="edit", name="Chart_1", chart_type="bar")
         assert res["status"] == "error"
         assert res.get("code") == "CHART_EDIT_ERROR"
+
+
+def test_writer_chart_insert_failure_reports_chart_create_error():
+    """Every Writer insert fallback failing reaches the create arm (CHART_CREATE_ERROR)."""
+    from plugin.calc.charts import UpsertChart
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    doc.getEmbeddedObjects.return_value = []
+    text = doc.getText.return_value
+    text.getString.return_value = "body"
+    text.insertTextContent.side_effect = RuntimeError("insert rejected")
+    ctx = SimpleNamespace(doc=doc, ctx=MagicMock())
+    with patch("plugin.calc.charts.uno.createUnoStruct", side_effect=_empty_uno_struct):
+        res = UpsertChart().execute(ctx, action="create", chart_type="bar", headers=["a", "b"], rows=[["x", 1]])
+    assert res["status"] == "error"
+    assert res.get("code") == "CHART_CREATE_ERROR"
+    assert "insert rejected" in res["message"]
+    assert text.insertTextContent.call_count == 3
