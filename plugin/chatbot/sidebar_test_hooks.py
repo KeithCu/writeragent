@@ -1939,9 +1939,12 @@ def control_enabled(control: Any) -> bool | None:
 def send_listener_for_doc(doc: Any) -> Any:
     """``send_listener`` bound to *doc*'s frame (dual-deck Packet P)."""
     _require_debug()
-    if doc is None:
+    frame = _doc_frame(doc)
+    if frame is None:
+        # A closing doc has no frame. send_listener(None) would fall back to
+        # another window's listener.
         return None
-    return send_listener(_doc_frame(doc))
+    return send_listener(frame)
 
 
 def send_listener_for_uid(uid: str) -> Any:
