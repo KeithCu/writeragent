@@ -7,6 +7,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.errors import DocumentDisposedError
+from plugin.writer.content import ApplyDocumentContent
+
 def _edit_ctx():
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
@@ -925,5 +928,97 @@ def test_emptied_table_delete_reraises_disposed():
             ApplyDocumentContent().execute(
                 ctx, target="search", old_content="x", content="")
     assert "DisposedException" in type(exc_info.value).__name__
+
+
+@pytest.mark.timeout(5)
+def test_dry_run_outline_capture_failure_is_not_a_missing_link():
+    ctx = _edit_ctx()
+    found = MagicMock()
+    with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
+         patch("plugin.writer.search.describe_match_location", return_value="body"), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.content.capture_outline_hyperlinks", side_effect=RuntimeError("boom")):
+        res = ApplyDocumentContent().execute(
+            ctx, content="bar", target="search", old_content="clause", dry_run=True)
+        assert res["status"] == "error"
+        assert res["code"] == "HYPERLINK_UPDATE_FAILED"
+        assert "Could not read the outline hyperlink" in res["message"]
+        assert res.get("dry_run") is not True
+
+        res_override = ApplyDocumentContent().execute(
+            ctx, content="bar", target="search", old_content="clause",
+            hyperlink_url="#1.Title|outline", dry_run=True)
+        assert res_override["status"] == "error"
+        assert res_override["code"] == "HYPERLINK_UPDATE_FAILED"
+        assert "Could not read the outline hyperlink" in res_override["message"]
+
+    disposed_exc = type("DisposedException", (Exception,), {})("gone")
+    with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
+         patch("plugin.writer.search.describe_match_location", return_value="body"), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.content.capture_outline_hyperlinks", side_effect=disposed_exc):
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent().execute(
+                ctx, content="bar", target="search", old_content="clause", dry_run=True)
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent().execute(
+                ctx, content="bar", target="search", old_content="clause",
+                hyperlink_url="#1.Title|outline", dry_run=True)
+
+
+def test_edit_outline_capture_failure_does_not_change_text():
+    ctx = _edit_ctx()
+    found = MagicMock()
+    found.getString.return_value = "clause"
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.content.capture_outline_hyperlinks", side_effect=RuntimeError("boom")), \
+         patch("plugin.writer.content.record_preserve_replace") as preserve:
+        res = ApplyDocumentContent().execute(
+            ctx, content="bar", target="search", old_content="clause")
+        assert res["status"] == "error"
+        assert res["code"] == "HYPERLINK_UPDATE_FAILED"
+        assert "Could not read the outline hyperlink" in res["message"]
+        preserve.assert_not_called()
+
+        res_override = ApplyDocumentContent().execute(
+            ctx, content="bar", target="search", old_content="clause",
+            hyperlink_url="#1.Title|outline")
+        assert res_override["status"] == "error"
+        assert res_override["code"] == "HYPERLINK_UPDATE_FAILED"
+        assert "Could not read the outline hyperlink" in res_override["message"]
+        preserve.assert_not_called()
+
+    disposed_exc = type("DisposedException", (Exception,), {})("gone")
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.content.capture_outline_hyperlinks", side_effect=disposed_exc), \
+         patch("plugin.writer.content.record_preserve_replace") as preserve:
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent().execute(
+                ctx, content="bar", target="search", old_content="clause")
+        preserve.assert_not_called()
+
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent().execute(
+                ctx, content="bar", target="search", old_content="clause",
+                hyperlink_url="#1.Title|outline")
+        preserve.assert_not_called()
+
+    # all_matches: patch find_all_ranges to [found]
+    with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
+         patch("plugin.writer.content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.content.capture_outline_hyperlinks", side_effect=RuntimeError("boom")), \
+         patch("plugin.writer.content.record_preserve_replace") as preserve:
+        res_all = ApplyDocumentContent().execute(
+            ctx, all_matches=True, content="bar", target="search", old_content="clause")
+        assert res_all["code"] == "HYPERLINK_UPDATE_FAILED"
+        assert res_all["partial_failure"] is True
+        assert res_all["replaced_count"] == 0
+        assert "rolled back" in res_all["message"]
+        preserve.assert_not_called()
+
 
 

@@ -83,6 +83,9 @@ class MockRange:
     def getString(self) -> str:
         return "foo"
 
+    def getText(self):
+        return MagicMock()
+
 
 def test_search_no_match_returns_error_zero(monkeypatch):
     monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)

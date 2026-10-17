@@ -58,7 +58,6 @@ from plugin.framework.errors import (
 from plugin.writer import search as search_mod
 from plugin.writer.hyperlink_fixup import (
     capture_outline_hyperlinks,
-    empty_snapshot,
     plan_outline_updates,
     public_hyperlink_reports,
     restore_outline_hyperlinks,
@@ -459,25 +458,35 @@ class ApplyDocumentContent(ToolBase):
             return len(many) != 1
         return not fields.get("hyperlink_url")
 
-    def _outline_match_fields(self, found: Any, plain_fn: Any, override: str | None) -> dict[str, Any]:
-        """dry_run fields for one match. Empty when the match has no outline link.
+    def _outline_match_fields(self, found: Any, plain_fn: Any, override: str | None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """dry_run fields for one match. Empty fields when the match has no outline link.
 
+        A failed outline read is returned as the error tuple, not empty fields.
         *plain_fn* is called only when a preview is actually needed, so a markup dry_run
         that does not touch an outline link does not open a hidden document. An override
         on a non-outline match is not previewed as a new link; the caller rejects it.
         """
         try:
             snapshot = capture_outline_hyperlinks(found)
-        except Exception:
-            log.debug("apply_document_content: outline hyperlink preview failed", exc_info=True)
-            return {}
+        except Exception as exc:
+            # What was wrong: a failed outline read looked like "no outline link".
+            # dry_run omitted the link, and hyperlink_url became INVALID_PARAM
+            # ("overlaps exactly one") instead of a read failure. Disposal was swallowed.
+            # How it happened: the except logged at debug and returned {}.
+            # Why this fixes it: disposal propagates; any other failure is
+            # HYPERLINK_UPDATE_FAILED and is not merged into the match row.
+            reraise_if_disposed(exc)
+            log.exception("apply_document_content: outline hyperlink preview failed")
+            return {}, self._tool_error(
+                "Could not read the outline hyperlink on this match.",
+                code="HYPERLINK_UPDATE_FAILED")
         if not snapshot.links:
-            return {}
+            return {}, None
         plain = plain_fn()
         plans = plan_outline_updates(snapshot.links, snapshot.matched, plain, override)
         reports = public_hyperlink_reports(plans)
         if not reports:
-            return {}
+            return {}, None
         fields = {
             "hyperlink_url": reports[0]["hyperlink_url"],
             "hyperlink_url_after": reports[0]["hyperlink_url_after"],
@@ -485,7 +494,7 @@ class ApplyDocumentContent(ToolBase):
         }
         if len(reports) > 1:
             fields["hyperlinks"] = reports
-        return fields
+        return fields, None
 
     def _attach_hyperlink_reports(self, resp: Any, reports: list[dict[str, Any]]) -> dict[str, Any]:
         if not reports:
@@ -644,13 +653,18 @@ class ApplyDocumentContent(ToolBase):
         anchor = collapsed_anchor(found)
         try:
             snapshot = capture_outline_hyperlinks(found)
-        except Exception:
+        except Exception as exc:
+            # What was wrong: a failed capture with no hyperlink_url still replaced
+            # the text on an empty snapshot, so the outline URL was not restored.
+            # With hyperlink_url, a closed document was HYPERLINK_UPDATE_FAILED.
+            # How it happened: the except used empty_snapshot() unless override was set.
+            # Why this fixes it: disposal propagates before the text change; any
+            # other failure refuses the edit with HYPERLINK_UPDATE_FAILED.
+            reraise_if_disposed(exc)
             log.exception("apply_document_content: outline hyperlink capture failed")
-            if override:
-                return None, self._tool_error(
-                    "Could not read the outline hyperlink on this match.",
-                    code="HYPERLINK_UPDATE_FAILED")
-            snapshot = empty_snapshot()
+            return None, self._tool_error(
+                "Could not read the outline hyperlink on this match.",
+                code="HYPERLINK_UPDATE_FAILED")
         if override and len(snapshot.links) != 1:
             # Before the text edit. One override on two outline links would stamp
             # both with the same target. Zero links would paint a bookmark or plain text.
@@ -868,7 +882,9 @@ class ApplyDocumentContent(ToolBase):
                 # The override is one destination for the match execute would edit.
                 # Other rows show automatic substitution only.
                 row_override = override if idx == edit_idx else None
-                fields = self._outline_match_fields(found, _plain, row_override)
+                fields, outline_err = self._outline_match_fields(found, _plain, row_override)
+                if outline_err:
+                    return outline_err
                 if row_override and self._override_span_rejected(fields):
                     return self._outline_override_error()
                 row.update(fields)
@@ -891,7 +907,9 @@ class ApplyDocumentContent(ToolBase):
         # still the one execute would edit, so the override has to be checked there too.
         if (rewrites_outline and override and ranges and edit_idx < len(ranges)
                 and edit_idx >= 20):
-            later = self._outline_match_fields(ranges[edit_idx], _plain, override)
+            later, outline_err = self._outline_match_fields(ranges[edit_idx], _plain, override)
+            if outline_err:
+                return outline_err
             if self._override_span_rejected(later):
                 return self._outline_override_error()
         result: dict[str, object] = {
@@ -922,7 +940,10 @@ class ApplyDocumentContent(ToolBase):
                 "text": selected_text[:160],
             }
             if rewrites_outline:
-                selected_match.update(self._outline_match_fields(selected, _plain, override))
+                fields, outline_err = self._outline_match_fields(selected, _plain, override)
+                if outline_err:
+                    return outline_err
+                selected_match.update(fields)
             result["selected_match"] = selected_match
         return result
 
