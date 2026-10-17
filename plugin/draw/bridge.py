@@ -25,6 +25,8 @@ from plugin.doc import text_helpers as _text_helpers
 from plugin.framework.errors import ToolExecutionError, DocumentDisposedError, UnoObjectError, check_disposed, is_disposed_exception, is_real_disposal, safe_call
 from plugin.framework.thread_guard import main_thread_only
 
+from plugin.framework.errors import uno_read
+
 log = logging.getLogger(__name__)
 
 
@@ -54,32 +56,23 @@ def _draw_page_container(doc: Any) -> Any | None:
     if hasattr(doc, "getDrawPages"):
         return doc.getDrawPages()
     if hasattr(doc, "getDrawPage"):
-        try:
-            page = doc.getDrawPage()
-        except Exception as exc:
-            # Bugfix: a closed document raises DisposedException from getDrawPage(),
-            # and this except turned that into a missing page / not-found result.
-            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-            # Any other failure stays on the existing missing-page path.
-            if is_real_disposal(exc):
-                raise
-            page = None
+        # Bugfix: a closed document raises DisposedException from getDrawPage(),
+        # and the old except turned that into a missing page / not-found result.
+        # Real disposal leaves as DocumentDisposedError (execute_safe reports
+        # DOCUMENT_DISPOSED); any other failure stays on the missing-page path.
+        page = uno_read(lambda: doc.getDrawPage(), None)
         if page is not None:
             return _SingleDrawPageContainer(page)
     if hasattr(doc, "getSheets"):
-        try:
+
+        def sheet_page() -> Any:
             from plugin.calc.bridge import CalcBridge
 
             sheet = CalcBridge(doc).get_active_sheet()
-            page = sheet.getDrawPage() if sheet is not None and hasattr(sheet, "getDrawPage") else None
-        except Exception as exc:
-            # Bugfix: a closed document raises DisposedException from the active sheet draw page,
-            # and this except turned that into a missing page / not-found result.
-            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-            # Any other failure stays on the existing missing-page path.
-            if is_real_disposal(exc):
-                raise
-            page = None
+            return sheet.getDrawPage() if sheet is not None and hasattr(sheet, "getDrawPage") else None
+
+        # Same bugfix as above, for the active sheet's draw page.
+        page = uno_read(sheet_page, None)
         if page is not None:
             return _SingleDrawPageContainer(page)
     return None
