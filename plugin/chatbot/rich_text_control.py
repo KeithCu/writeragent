@@ -940,8 +940,6 @@ def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: An
                         except Exception as add_err:
                             log.debug("create_sidebar_rich_text_control: addControl failed: %s", add_err)
                     log.info("create_sidebar_rich_text_control: peer via %s (%s)", service, label)
-                    h = field_model.getPropertyValue("HScroll")
-                    log.debug("create_sidebar_rich_text_control: model.HScroll at createPeer=%r", h)
                     _disable_rich_hscroll(control)
                     return control
                 except Exception as e:
