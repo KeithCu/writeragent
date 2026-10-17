@@ -193,6 +193,10 @@ def _anchor_control_as_character(shape: Any) -> None:
 
 
 def _set_model_prop(model: Any, name: str, value: Any) -> None:
+    """Best-effort style set. Skip names this model lacks (form CommandButton has no
+    ``Border``, the form TextField no ``AutoVScroll``) instead of logging a traceback."""
+    if not model.getPropertySetInfo().hasPropertyByName(name):
+        return
     try:
         model.setPropertyValue(name, value)
     except Exception:
@@ -234,7 +238,6 @@ def _style_control_paragraph(doc: Any) -> None:
         cursor.setPropertyValue("ParaTopMargin", 0)
         cursor.setPropertyValue("ParaBottomMargin", 150)
         cursor.setPropertyValue("ParaKeepTogether", False)
-        cursor.setPropertyValue("ParaKeepWithNext", False)
     except Exception:
         log.debug("notebook controls paragraph style failed", exc_info=True)
 

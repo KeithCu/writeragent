@@ -295,12 +295,14 @@ def install_review_toolbar(ctx: Any) -> None:
                     except Exception:
                         model = None
                 if model is None:
+                    # DocumentEvent.Source is the document model. A non-Writer
+                    # model's own controller only leads back to that model, and on
+                    # an Impress close getCurrentController() raises "DrawController
+                    # object has already been disposed" (logged as ERROR). So
+                    # ignore non-Writer sources instead of asking their controller.
                     source = getattr(Event, "Source", None)
                     if _is_writer(source):
                         model = source
-                    elif source is not None and hasattr(source, "getCurrentController"):
-                        c = source.getCurrentController()
-                        model = c.getModel() if c is not None else None
                 if not _is_writer(model):
                     return
                 if name == "OnUnload":

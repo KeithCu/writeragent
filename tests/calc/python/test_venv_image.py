@@ -272,6 +272,21 @@ def test_shape_anchor_matches_by_address_not_identity():
     assert not _shape_anchor_matches_cell(shape, cell_other)
 
 
+def test_page_anchored_shape_matches_no_cell():
+    """A page-anchored shape's Anchor is the sheet; its range starts at 0,0 but it is not A1."""
+
+    class _SheetAnchor:
+        def supportsService(self, name):
+            return name == "com.sun.star.sheet.Spreadsheet"
+
+        def getRangeAddress(self):
+            return MagicMock(Sheet=None, StartColumn=0, StartRow=0)
+
+    shape = MagicMock()
+    shape.getPropertyValue.return_value = _SheetAnchor()
+    assert not _shape_anchor_matches_cell(shape, CalcCellStub(col=0, row=0))
+
+
 class _AnchoredShape:
     """Minimal draw shape for reuse checks (service + name + anchor)."""
 

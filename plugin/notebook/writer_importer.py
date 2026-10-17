@@ -324,12 +324,12 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
         "ParaLeftMargin": -1270,  # Out-dented by 1/2 inch (12.7 mm)
         "ParaTopMargin": _NOTEBOOK_IN_MARGIN_TOP,
         "ParaBottomMargin": _NOTEBOOK_IN_MARGIN_BOTTOM,
-        # KeepTogether + KeepWithNext glued In [n]: onto the tall unsplittable
+        # ParaKeepTogether is Writer's "keep with next paragraph" (there is no
+        # ParaKeepWithNext). It glued In [n]: onto the tall unsplittable
         # AS_CHARACTER field; Writer then jumped the whole cell and left a
         # half-empty page (Out [n] alone on the next page). Prefer a possible
         # In-line / field page split over a page hole. ▶ stays on the In row.
         "ParaKeepTogether": False,
-        "ParaKeepWithNext": False,
         "CharHeight": _NOTEBOOK_IN_CHAR_HEIGHT,
         "CharWeight": 150,
         "CharColor": _NOTEBOOK_IN_CHAR_COLOR,
@@ -345,7 +345,6 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
         if para_styles.hasByName(_STYLE_NOTEBOOK_IN):
             existing = para_styles.getByName(_STYLE_NOTEBOOK_IN)
             existing.setPropertyValue("ParaKeepTogether", False)
-            existing.setPropertyValue("ParaKeepWithNext", False)
     except Exception:
         log.debug("notebook import could not update In keep properties", exc_info=True)
     return _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
@@ -420,14 +419,15 @@ def _unglue_last_paragraph(doc: Any) -> None:
     Built-in Heading 2 (and some HTML list styles) keep-with-next. That glues the
     last markdown paragraph onto the following code cell's unsplittable
     AS_CHARACTER field, so Writer moves the whole block and leaves a page hole.
-    Call this immediately before inserting a code cell. In-gutter KeepWithNext
-    is also off so In+field is not one unsplittable brick.
+    Call this immediately before inserting a code cell. In-gutter keep-with-next
+    is also off so In+field is not one unsplittable brick. The UNO name for
+    keep-with-next is ``ParaKeepTogether``; the old ``ParaKeepWithNext`` set
+    ran first, raised UnknownPropertyException and skipped the real unglue.
     """
     try:
         text = doc.getText()
         cursor = text.createTextCursor()
         cursor.gotoEnd(False)
-        cursor.setPropertyValue("ParaKeepWithNext", False)
         cursor.setPropertyValue("ParaKeepTogether", False)
     except Exception:
         log.debug("notebook import unglue last paragraph failed", exc_info=True)
@@ -1746,13 +1746,12 @@ def _import_cells(
                 _unglue_last_paragraph(doc)
                 title = _cell_heading(idx, cell_type, ec)
                 _append_body_paragraph(doc, title, notebook_in, lead_break=lead)
-                # Style-level KeepWithNext is missing on some LO builds; pin the
-                # gutter paragraph so In+field is not one unsplittable brick.
+                # Pin keep-with-next (ParaKeepTogether) off on the gutter
+                # paragraph too so In+field is not one unsplittable brick.
                 try:
                     gutter = doc.getText().createTextCursor()
                     gutter.gotoEnd(False)
                     gutter.setPropertyValue("ParaKeepTogether", False)
-                    gutter.setPropertyValue("ParaKeepWithNext", False)
                 except Exception:
                     log.debug("notebook import In gutter keep flags not applied", exc_info=True)
                 field_name = f"nb_cell_{idx}_code"

@@ -993,10 +993,8 @@ def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
     assert para_styles.hasByName(_STYLE_NOTEBOOK_IN)
     in_style = para_styles.getByName(_STYLE_NOTEBOOK_IN)
     info = in_style.getPropertySetInfo()
-    if info.hasPropertyByName("ParaKeepTogether"):
-        assert in_style.getPropertyValue("ParaKeepTogether") is False
-    if info.hasPropertyByName("ParaKeepWithNext"):
-        assert in_style.getPropertyValue("ParaKeepWithNext") is False
+    assert info.hasPropertyByName("ParaKeepTogether")
+    assert in_style.getPropertyValue("ParaKeepTogether") is False
 
 
 @native_test

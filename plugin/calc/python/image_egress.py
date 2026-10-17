@@ -300,11 +300,30 @@ def _cell_address_key(cell: Any) -> tuple[Any, int, int] | None:
     return None
 
 
+def _is_sheet_anchor(anchor: Any) -> bool:
+    """True when *anchor* is the sheet itself (a page-anchored shape), not a cell.
+
+    Only a real ``True`` / ``1`` from ``supportsService`` counts, as in
+    ``_supports_draw_graphic``.
+    """
+    supports = getattr(anchor, "supportsService", None)
+    if not callable(supports):
+        return False
+    hit = supports("com.sun.star.sheet.Spreadsheet")
+    return hit is True or (type(hit) is int and hit == 1)
+
+
 def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
-    """True when the shape is already anchored to the same grid cell (not UNO identity)."""
+    """True when the shape is already anchored to the same grid cell (not UNO identity).
+
+    A page-anchored shape's Anchor is the sheet, whose range address starts at
+    0,0, so it used to "match" A1. It matches no cell.
+    """
     if not hasattr(shape, "getPropertyValue"):
         return False
     anchor = shape.getPropertyValue("Anchor")
+    if _is_sheet_anchor(anchor):
+        return False
     left = _cell_address_key(anchor)
     right = _cell_address_key(target_cell)
     return left is not None and left == right

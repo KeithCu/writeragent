@@ -515,10 +515,11 @@ def test_page_style_reads_page_desc_name_from_first_paragraph():
 
 
 def test_unglue_last_paragraph_clears_keep_with_next():
+    """Keep-with-next is ParaKeepTogether in UNO; ParaKeepWithNext does not exist."""
     doc, _body_text, body_cursor = _writer_doc_mock()
     _unglue_last_paragraph(doc)
-    body_cursor.setPropertyValue.assert_any_call("ParaKeepWithNext", False)
     body_cursor.setPropertyValue.assert_any_call("ParaKeepTogether", False)
+    assert all(call.args[0] != "ParaKeepWithNext" for call in body_cursor.setPropertyValue.call_args_list)
 
 
 def test_cell_heading_is_in_prompt_only():
@@ -552,7 +553,7 @@ def test_ensure_notebook_import_styles_creates_and_resolves():
     assert para_styles.insertByName.call_count == 1
     assert in_style == _STYLE_NOTEBOOK_IN
     new_style.setPropertyValue.assert_any_call("ParaKeepTogether", False)
-    new_style.setPropertyValue.assert_any_call("ParaKeepWithNext", False)
+    assert all(call.args[0] != "ParaKeepWithNext" for call in new_style.setPropertyValue.call_args_list)
 
 
 def test_output_para_style_prefers_preformatted_text():

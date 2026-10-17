@@ -910,9 +910,11 @@ def _leading_text_cursor(text: Any, para: Any) -> Any | None:
     if first is None:
         return None
     try:
-        cursor = text.createTextCursorByRange(first)
-        if last is not None:
-            cursor.gotoRange(last, True)
+        # Expand from the first portion's start to the last portion's end.
+        # Starting on the portion itself and calling gotoRange(portion, True)
+        # raises RuntimeException on a real gutter, so this always fell back.
+        cursor = text.createTextCursorByRange(first.getStart())
+        cursor.gotoRange(last.getEnd(), True)
         return cursor
     except Exception:
         log.debug("notebook run: could not build leading text cursor", exc_info=True)

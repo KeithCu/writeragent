@@ -217,3 +217,22 @@ def test_a_failed_queue_does_not_block_later_recounts():
     with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=RuntimeError("no AsyncCallback")):
         rt._schedule_refresh(model, "uid-fail")
     assert "uid-fail" not in rt._pending_refresh, "a failed post must not leave the doc marked as queued"
+
+
+def test_non_writer_unload_does_not_ask_disposed_controller():
+    # Impress close: Event.Source is the Impress model and its DrawController is already
+    # disposed. The listener used to call getCurrentController() and log an ERROR.
+    broadcaster = MagicMock()
+    ctx = MagicMock()
+    ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
+    with patch.object(rt, "_doc_listener", None), patch("plugin.framework.uno_context.get_desktop", return_value=None):
+        rt.install_review_toolbar(ctx)
+        listener = broadcaster.addDocumentEventListener.call_args.args[0]
+    impress = MagicMock()
+    impress.supportsService.return_value = False
+    impress.getCurrentController.side_effect = RuntimeError("DrawController object has already been disposed")
+    event = MagicMock(EventName="OnUnload", ViewController=None, Source=impress)
+    with patch.object(rt, "_unregister_modify_listener") as unreg:
+        listener.on_document_event(event)
+    impress.getCurrentController.assert_not_called()
+    unreg.assert_not_called()

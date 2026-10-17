@@ -744,8 +744,8 @@ def test_gutter_text_cursor_stops_before_frame_portion():
 
     cursor = _gutter_text_cursor(text, para)
     assert cursor is text_cursor
-    text.createTextCursorByRange.assert_called_once_with(text_portion)
-    text_cursor.gotoRange.assert_called_once_with(text_portion, True)
+    text.createTextCursorByRange.assert_called_once_with(text_portion.getStart.return_value)
+    text_cursor.gotoRange.assert_called_once_with(text_portion.getEnd.return_value, True)
     assert all(call.args[0] is not frame_portion for call in text.createTextCursorByRange.call_args_list)
     paragraph.getPropertyValue.assert_not_called()
 
@@ -773,7 +773,7 @@ def test_update_in_prompt_does_not_setstring_whole_paragraph():
             return nav
         if rng is nav:
             return gutter
-        if rng is text_portion:
+        if rng is text_portion.getStart.return_value:
             return text_cursor
         raise AssertionError(rng)
 

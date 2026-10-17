@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
 from plugin.notebook.form_lookup import find_control_shape_by_name
-from plugin.notebook.notebook_runner import _paragraph_has_frame
+from plugin.notebook.notebook_runner import _leading_text_cursor, _paragraph_has_frame
 from plugin.notebook.writer_importer import flush_ui_idle, import_ipynb_to_writer
 from plugin.testing_runner import native_test, show_window
 from plugin.tests.testing_utils import with_native_doc
@@ -843,6 +843,12 @@ def test_paragraph_has_frame_true_on_imported_control_paragraphs(ctx, doc):
         assert heading is not None
         heading_cursor = text.createTextCursorByRange(heading.getStart())
         assert _paragraph_has_frame(heading_cursor) is False
+
+        gutter.gotoStartOfParagraph(False)
+        gutter.gotoEndOfParagraph(True)
+        leading = _leading_text_cursor(text, gutter)
+        assert leading is not None
+        assert str(leading.getString() or "").strip().startswith("In [")
     finally:
         try:
             ipynb.unlink()

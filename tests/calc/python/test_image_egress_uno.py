@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from plugin.calc.python.image_egress import _cell_address_key
+from plugin.calc.python.image_egress import _cell_address_key, _shape_anchor_matches_cell
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 
@@ -28,5 +28,7 @@ def test_calc_page_anchored_shape_anchor_read_uno(ctx, doc):
         key = _cell_address_key(anchor)
         assert key is not None
         assert key[0] == 0  # Sheet index 0
+        # The sheet range starts at 0,0, but a page-anchored shape is not on A1.
+        assert _shape_anchor_matches_cell(shape, sheet.getCellByPosition(0, 0)) is False
     finally:
         draw_page.remove(shape)
