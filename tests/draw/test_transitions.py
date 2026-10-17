@@ -8,6 +8,7 @@ import pytest
 from plugin.draw.transform_schema import AUTOLAYOUT_BY_NAME, AUTOLAYOUT_ID
 from plugin.draw.transitions import (
     GetSlideLayout,
+    GetSlideTransition,
     SetSlideLayout,
     _LAYOUTS,
     apply_slide_layout,
@@ -111,3 +112,55 @@ def test_get_slide_layout_labels_autolayout_not_powerpoint_ids():
     assert "blank" in blank["available_layouts"]
     assert "none" in blank["available_layouts"]
     assert "title_only" in blank["available_layouts"]
+
+
+def test_get_slide_transition_defaults_when_properties_missing():
+    ctx = MagicMock()
+    page = MagicMock()
+    page.getPropertyValue.side_effect = Exception("Property missing")
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+        out = GetSlideTransition().execute(ctx, page=0)
+    assert out == {
+        "status": "ok",
+        "page": 0,
+        "effect": "none",
+        "speed": "medium",
+        "duration": 0,
+        "transition_duration": None,
+        "advance": "on_click",
+    }
+
+
+def test_get_slide_transition_defaults_only_the_failed_property():
+    ctx = MagicMock()
+    page = MagicMock()
+    effect_val = MagicMock()
+    effect_val.value = "DISSOLVE"
+    speed_val = MagicMock()
+    speed_val.value = "SLOW"
+
+    def get_property(name: str):
+        if name == "Effect":
+            return effect_val
+        if name == "Speed":
+            return speed_val
+        if name == "Duration":
+            return 3
+        if name == "TransitionDuration":
+            raise Exception("TransitionDuration missing")
+        if name == "Change":
+            return 2
+        raise Exception(f"Unexpected {name}")
+
+    page.getPropertyValue.side_effect = get_property
+    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+        out = GetSlideTransition().execute(ctx, page=1)
+    assert out == {
+        "status": "ok",
+        "page": 1,
+        "effect": "dissolve",
+        "speed": "slow",
+        "duration": 3,
+        "transition_duration": None,
+        "advance": "semi_auto",
+    }
