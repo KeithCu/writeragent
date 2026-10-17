@@ -47,6 +47,14 @@ class MockTextCursor:
     def goLeft(self, count, select):
         pass
 
+    def getString(self):
+        return ""
+
+    def createEnumeration(self):
+        enum = MagicMock()
+        enum.hasMoreElements.return_value = False
+        return enum
+
 
 class MockText:
     """Minimal mock for XText."""

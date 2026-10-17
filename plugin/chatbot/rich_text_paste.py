@@ -114,11 +114,7 @@ def create_hidden_html_writer(ctx: Any) -> Any | None:
 
 def _is_writer_text_table(element: Any) -> bool:
     """True for a Writer XTextTable in body enumeration (not a paragraph)."""
-    try:
-        # ``is True``: MagicMock.supportsService() is truthy but not the bool True.
-        return element.supportsService("com.sun.star.text.TextTable") is True
-    except Exception:
-        return False
+    return bool(element.supportsService("com.sun.star.text.TextTable"))
 
 
 def _text_table_cell_rows(table: Any) -> list[list[str]]:
@@ -270,20 +266,17 @@ def _resolve_portion_char_color(src_portion: Any, txt: str, user_color: int, ass
 
 def _normalize_portion_font(portion: Any) -> None:
     """Clamp hidden-doc portions to sidebar sans 10pt (HTML import often uses serif headings)."""
-    try:
-        font = getattr(portion, "CharFontName", "") or ""
-        if not font or any(marker in font.lower() for marker in _SERIF_FONT_MARKERS):
-            portion.CharFontName = CHAT_FONT_NAME
-            portion.CharFontNameAsian = CHAT_FONT_NAME
-            portion.CharFontNameComplex = CHAT_FONT_NAME
-        height = getattr(portion, "CharHeight", 0.0) or 0.0
-        if height <= 0 or height > CHAT_FONT_HEIGHT + 1.0:
-            portion.CharHeight = CHAT_FONT_HEIGHT
-        weight = getattr(portion, "CharWeight", 0.0) or 0.0
-        if weight <= 0:
-            portion.CharWeight = CHAT_FONT_WEIGHT
-    except Exception:
-        pass
+    font = getattr(portion, "CharFontName", "") or ""
+    if not font or any(marker in font.lower() for marker in _SERIF_FONT_MARKERS):
+        portion.CharFontName = CHAT_FONT_NAME
+        portion.CharFontNameAsian = CHAT_FONT_NAME
+        portion.CharFontNameComplex = CHAT_FONT_NAME
+    height = getattr(portion, "CharHeight", 0.0) or 0.0
+    if height <= 0 or height > CHAT_FONT_HEIGHT + 1.0:
+        portion.CharHeight = CHAT_FONT_HEIGHT
+    weight = getattr(portion, "CharWeight", 0.0) or 0.0
+    if weight <= 0:
+        portion.CharWeight = CHAT_FONT_WEIGHT
 
 
 
@@ -308,57 +301,36 @@ def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str
     We read NumberingRules from the hidden Writer doc and emit literal prefix strings
     (e.g. ``• `` or ``1. ``) before each list paragraph's portions.
     """
-    try:
-        is_number = bool(para.getPropertyValue("NumberingIsNumber"))
-    except Exception:
-        is_number = False
+    is_number = bool(para.getPropertyValue("NumberingIsNumber"))
 
     if not is_number:
-        try:
-            left = int(para.getPropertyValue("ParaLeftMargin") or 0)
-            if left > 300:
-                return "\u2022 "
-        except Exception:
-            pass
+        left = int(para.getPropertyValue("ParaLeftMargin") or 0)
+        if left > 300:
+            return "\u2022 "
         return ""
 
-    try:
-        level = int(para.getPropertyValue("NumberingLevel") or 0)
-        list_id = para.getPropertyValue("ListId")
-    except Exception:
-        level = 0
-        list_id = None
+    level = int(para.getPropertyValue("NumberingLevel") or 0)
+    list_id = para.getPropertyValue("ListId")
     key = (list_id, level)
     indent = "  " * max(0, level)
 
     bullet_char = "\u2022"
     num_type = None
-    try:
-        rules = para.getPropertyValue("NumberingRules")
-        if rules is not None:
-            props = list(rules.getByIndex(level))
-            for p in props:
-                if p.Name == "BulletChar" and p.Value:
-                    ch = p.Value
-                    bullet_char = ch if isinstance(ch, str) else str(ch)
-                if p.Name == "NumberingType":
-                    num_type = p.Value
-    except Exception:
-        pass
-    if num_type is None:
-        try:
-            num_type = para.getPropertyValue("NumberingType")
-        except Exception:
-            pass
+    rules = para.getPropertyValue("NumberingRules")
+    if rules is not None:
+        props = list(rules.getByIndex(level))
+        for p in props:
+            if p.Name == "BulletChar" and p.Value:
+                ch = p.Value
+                bullet_char = ch if isinstance(ch, str) else str(ch)
+            if p.Name == "NumberingType":
+                num_type = p.Value
 
     if _is_ordered_numbering_type(num_type):
         order_counters[key] = order_counters.get(key, 0) + 1
         # Writer's own label honors <ol start="11"> and letter/roman types;
         # the counter always started at 1.
-        try:
-            label = para.getPropertyValue("ListLabelString")
-        except Exception:
-            label = None
+        label = para.getPropertyValue("ListLabelString")
         if isinstance(label, str) and label.strip():
             return "%s%s " % (indent, label.strip())
         return "%s%d. " % (indent, order_counters[key])
@@ -374,13 +346,6 @@ def _rich_control_bg_color(model: Any, style_window: Any = None) -> int:
     bg = getattr(model, "BackgroundColor", None)
     if isinstance(bg, int):
         return bg
-    try:
-        if hasattr(model, "getPropertyValue"):
-            bg = model.getPropertyValue("BackgroundColor")
-            if isinstance(bg, int):
-                return bg
-    except Exception:
-        pass
 
     theme = ChatTheme.resolve(style_window=style_window)
     return theme.bg_color
@@ -406,15 +371,9 @@ def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: Any
         if not _is_automatic_char_color(raw):
             resolved = raw
     if resolved is not None and not _is_automatic_char_color(resolved):
-        try:
-            dest_cursor.CharColor = resolved
-        except Exception:
-            pass
+        dest_cursor.CharColor = resolved
     if bg_color is not None:
-        try:
-            dest_cursor.CharBackColor = bg_color
-        except Exception:
-            pass
+        dest_cursor.CharBackColor = bg_color
 
 
 def iter_history_message_batches(items: Any, batch_chars: int = HISTORY_RENDER_BATCH_CHARS) -> Iterator[list[tuple[str, str]]]:
@@ -570,14 +529,6 @@ def _append_stop_banner(items: list[tuple[str, str]], text: str) -> None:
     items.append(("assistant", text.strip()))
 
 
-def _hidden_doc_text(doc: Any) -> str:
-    try:
-        return doc.getText().getString() or ""
-    except Exception:
-        log.debug("paint: could not read hidden doc", exc_info=True)
-        return ""
-
-
 def _replace_control_with_plain(
     control: Any,
     items: Any,
@@ -610,14 +561,12 @@ def _force_rich_full_reformat(control: Any) -> None:
     reformats the whole document when the width changes. Narrow by 1px,
     then restore.
     """
-    try:
-        ps = control.getPosSize()
-        if ps.Width <= 2:
-            return
-        control.setPosSize(ps.X, ps.Y, ps.Width - 1, ps.Height, 4)  # PosSize.WIDTH
-        control.setPosSize(ps.X, ps.Y, ps.Width, ps.Height, 4)
-    except Exception:
-        log.debug("_force_rich_full_reformat failed", exc_info=True)
+    ps = control.getPosSize()
+    width = getattr(ps, "Width", None)
+    if not isinstance(width, (int, float)) or width <= 2:
+        return
+    control.setPosSize(ps.X, ps.Y, int(width) - 1, ps.Height, 4)  # PosSize.WIDTH
+    control.setPosSize(ps.X, ps.Y, int(width), ps.Height, 4)
 
 
 def paint_message_items(
@@ -651,7 +600,7 @@ def paint_message_items(
             return True
         configure_hidden_writer_for_chat(doc)
         render_messages_to_hidden_doc(doc, rows, style_window=style_window)
-        if contains_html_tag(_hidden_doc_text(doc)):
+        if contains_html_tag(doc.getText().getString() or ""):
             # render_messages_to_hidden_doc already reverts a bad element.
             # If a tag is still in the body, do not copy that document.
             log.warning("paint_message_items: hidden doc still has tags; plain paint")

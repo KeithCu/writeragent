@@ -219,7 +219,7 @@ class TestAppendRichTextViaClipboard:
         good = _body_paragraph("kept")
         bad = MagicMock()
         bad.supportsService.return_value = False
-        bad.getPropertyValue.side_effect = Exception("not a list")
+        bad.getPropertyValue.return_value = None
         bad.createEnumeration.side_effect = RuntimeError("portion enum failed")
         doc.getText.return_value.createEnumeration.return_value = _uno_enum([good, bad])
         theme = MagicMock(user_color=1, assistant_color=2)
@@ -506,51 +506,58 @@ class TestHistoryMessageBatching:
 
 
 class TestListPrefix:
-    def test_bullet_list_gets_bullet_prefix(self):
-        para = MagicMock()
-        para.getPropertyValue.side_effect = lambda name: {
-            "NumberingIsNumber": True,
-            "NumberingLevel": 0,
-            "ListId": "L1",
-            "NumberingRules": MagicMock(),
-        }[name]
-        rule_prop = MagicMock()
-        rule_prop.Name = "BulletChar"
-        rule_prop.Value = "\u2022"
-        para.getPropertyValue("NumberingRules").getByIndex.return_value = [rule_prop]
+    def _prop(self, name, value):
+        prop = MagicMock()
+        prop.Name = name
+        prop.Value = value
+        return prop
 
+    def _para(self, mapping, rules):
+        para = MagicMock()
+        store = dict(mapping)
+        store["NumberingRules"] = rules
+        para.getPropertyValue.side_effect = lambda name: store[name]
+        return para
+
+    def test_bullet_list_gets_bullet_prefix(self):
+        rules = MagicMock()
+        rules.getByIndex.return_value = [self._prop("BulletChar", "\u2022")]
+        para = self._para(
+            {"NumberingIsNumber": True, "NumberingLevel": 0, "ListId": "L1"},
+            rules,
+        )
         assert _list_prefix_for_paragraph(para, {}) == "\u2022 "
 
     def test_ordered_list_gets_number_prefix(self):
-        para = MagicMock()
-        para.getPropertyValue.side_effect = lambda name: {
-            "NumberingIsNumber": True,
-            "NumberingLevel": 0,
-            "ListId": "L1",
-            "NumberingType": 4,
-            "NumberingRules": MagicMock(),
-        }[name]
-        rule_prop = MagicMock()
-        rule_prop.Name = "NumberingType"
-        rule_prop.Value = 4
-        para.getPropertyValue("NumberingRules").getByIndex.return_value = [rule_prop]
-
+        rules = MagicMock()
+        rules.getByIndex.return_value = [self._prop("NumberingType", 4)]
+        para = self._para(
+            {
+                "NumberingIsNumber": True,
+                "NumberingLevel": 0,
+                "ListId": "L1",
+                "ListLabelString": None,
+            },
+            rules,
+        )
         counters: dict = {}
         assert _list_prefix_for_paragraph(para, counters) == "1. "
         assert _list_prefix_for_paragraph(para, counters) == "2. "
 
     def test_ordered_list_uses_writer_label_for_start_value(self):
         """<ol start="11"> was drawn from 1: the counter ignored the start value."""
+        rules = MagicMock()
+        rules.getByIndex.return_value = [self._prop("NumberingType", 4)]
         for label, expected in (("11.", "11. "), ("iv.", "iv. "), ("", "1. ")):
-            para = MagicMock()
-            para.getPropertyValue.side_effect = lambda name, label=label: {
-                "NumberingIsNumber": True,
-                "NumberingLevel": 0,
-                "ListId": "L1",
-                "NumberingType": 4,
-                "NumberingRules": None,
-                "ListLabelString": label,
-            }[name]
+            para = self._para(
+                {
+                    "NumberingIsNumber": True,
+                    "NumberingLevel": 0,
+                    "ListId": "L1",
+                    "ListLabelString": label,
+                },
+                rules,
+            )
             assert _list_prefix_for_paragraph(para, {}) == expected
 
 
@@ -696,6 +703,9 @@ class TestPaintMessageItems:
         model.createTextCursor.return_value = MagicMock()
         control.getModel.return_value = model
         ctx = MagicMock()
+        pos = MagicMock()
+        pos.Width = 1
+        control.getPosSize.return_value = pos
         doc = MagicMock()
         doc.getText.return_value.getString.return_value = "Assistant: List<String> <user@example.com>"
 
@@ -762,10 +772,15 @@ def _uno_enum(items):
 def _body_paragraph(text: str):
     para = MagicMock()
     para.supportsService.return_value = False
-    para.getPropertyValue.side_effect = Exception("not a list")
+    # Non-list paragraphs: NumberingIsNumber is void, not an exception.
+    para.getPropertyValue.return_value = None
     portion = MagicMock()
     portion.getString.return_value = text
     portion.CharColor = -1
+    # Compared with <= after _normalize_portion_font lost its try.
+    portion.CharFontName = ""
+    portion.CharHeight = 10.0
+    portion.CharWeight = 100.0
     para.createEnumeration.return_value = _uno_enum([portion])
     return para
 
@@ -789,15 +804,13 @@ def _body_table(cells: list[list[str]]):
 
 
 class TestFlattenTextTableCopy:
-    def test_is_writer_text_table_requires_bool_true(self):
+    def test_is_writer_text_table(self):
         table = MagicMock()
         table.supportsService.return_value = True
         assert _is_writer_text_table(table) is True
         para = MagicMock()
         para.supportsService.return_value = False
         assert _is_writer_text_table(para) is False
-        # Unconfigured MagicMock must not look like a table (``is True``).
-        assert _is_writer_text_table(MagicMock()) is False
 
     def test_flatten_tab_separated_rows(self):
         table = _body_table([["a", "b"], ["c", "d"]])

@@ -87,19 +87,12 @@ def _body_starts_with_list(html: str) -> bool:
 
 
 def _drop_list_sentinel(text_obj: Any, body_anchor: Any) -> None:
-    """Delete the sentinel character the import left right after the prefix.
-
-    Best effort: a sentinel left behind is an invisible character, not a
-    reason to drop the formatted message.
-    """
-    try:
-        probe = text_obj.createTextCursorByRange(body_anchor.getStart())
-        probe.goRight(1, False)
-        probe.goRight(1, True)
-        if probe.getString() == _LIST_SENTINEL:
-            probe.setString("")
-    except Exception:
-        log.debug("list sentinel not removed", exc_info=True)
+    """Delete the sentinel character the import left right after the prefix."""
+    probe = text_obj.createTextCursorByRange(body_anchor.getStart())
+    probe.goRight(1, False)
+    probe.goRight(1, True)
+    if probe.getString() == _LIST_SENTINEL:
+        probe.setString("")
 
 CHAT_FONT_NAME = "Liberation Sans"
 CHAT_FONT_HEIGHT = 10.0
@@ -144,33 +137,30 @@ def apply_rich_control_para_margins(cursor: Any) -> None:
 
 def configure_hidden_writer_for_chat(doc: Any) -> None:
     """Apply sidebar chat defaults on a hidden Writer doc (font, zero margins, no spellcheck)."""
-    try:
-        import uno
+    import uno
 
-        style_families = doc.getStyleFamilies()
-        if style_families.hasByName("ParagraphStyles"):
-            para_styles = style_families.getByName("ParagraphStyles")
-            if para_styles.hasByName("Standard"):
-                std_para = para_styles.getByName("Standard")
-                std_para.ParaLeftMargin = 0
-                std_para.ParaRightMargin = 0
-                std_para.ParaFirstLineIndent = 0
-                std_para.ParaTopMargin = 0
-                std_para.ParaBottomMargin = 200
-                apply_chat_char_props(std_para)
-                no_lang = cast("Any", uno.createUnoStruct("com.sun.star.lang.Locale"))
-                no_lang.Language = "zxx"
-                no_lang.Country = ""
-                std_para.CharLocale = no_lang
-                std_para.CharLocaleAsian = no_lang
-                std_para.CharLocaleComplex = no_lang
-        text = doc.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoStart(False)
-        cursor.gotoEnd(True)
-        cursor.CharHeight = CHAT_FONT_HEIGHT
-    except Exception as e:
-        log.debug("configure_hidden_writer_for_chat failed: %s", e)
+    style_families = doc.getStyleFamilies()
+    if style_families.hasByName("ParagraphStyles"):
+        para_styles = style_families.getByName("ParagraphStyles")
+        if para_styles.hasByName("Standard"):
+            std_para = para_styles.getByName("Standard")
+            std_para.ParaLeftMargin = 0
+            std_para.ParaRightMargin = 0
+            std_para.ParaFirstLineIndent = 0
+            std_para.ParaTopMargin = 0
+            std_para.ParaBottomMargin = 200
+            apply_chat_char_props(std_para)
+            no_lang = cast("Any", uno.createUnoStruct("com.sun.star.lang.Locale"))
+            no_lang.Language = "zxx"
+            no_lang.Country = ""
+            std_para.CharLocale = no_lang
+            std_para.CharLocaleAsian = no_lang
+            std_para.CharLocaleComplex = no_lang
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoStart(False)
+    cursor.gotoEnd(True)
+    cursor.CharHeight = CHAT_FONT_HEIGHT
 
 
 def strip_legacy_ai_label(text: str) -> str:
@@ -229,11 +219,8 @@ def _tighten_list_indent(body_range: Any) -> None:
     narrow sidebar.
     """
     import uno
-    try:
-        enum = body_range.createEnumeration()
-    except Exception as e:
-        log.debug("_tighten_list_indent: createEnumeration failed: %s", e)
-        return
+
+    enum = body_range.createEnumeration()
 
     para_count = 0
     tightened = 0
@@ -247,11 +234,8 @@ def _tighten_list_indent(body_range: Any) -> None:
         except Exception:
             continue
 
-        try:
-            level = para.getPropertyValue("NumberingLevel")
-            list_id = para.getPropertyValue("ListId")
-        except Exception:
-            continue
+        level = para.getPropertyValue("NumberingLevel")
+        list_id = para.getPropertyValue("ListId")
 
         key = (list_id, level)
         if key in processed_levels:
@@ -303,25 +287,10 @@ def contains_html_tag(text: str) -> bool:
 def restore_writer_text(text_obj: Any, previous: str) -> None:
     """Put a hidden Writer body back to *previous*.
 
-    A failed insert must not stay in the document. ``setString`` replaces the
-    body in one write. The cursor fallback covers a text object that only
-    implements the cursor API (the unit-test double has ``setString``).
+    A failed insert must not stay in the document. ``XText`` is an
+    ``XTextRange``, so ``setString`` replaces the body in one write.
     """
-    try:
-        setter = getattr(text_obj, "setString", None)
-        if callable(setter):
-            setter(previous)
-            if (text_obj.getString() or "") == previous:
-                return
-    except Exception:
-        log.debug("restore_writer_text setString failed", exc_info=True)
-    try:
-        cursor = text_obj.createTextCursor()
-        cursor.gotoStart(False)
-        cursor.gotoEnd(True)
-        cursor.setString(previous)
-    except Exception:
-        log.exception("restore_writer_text failed")
+    text_obj.setString(previous)
 
 
 def _writer_suffix(text_obj: Any, previous: str) -> str:
