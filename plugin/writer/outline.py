@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -94,21 +95,48 @@ def _count_headings(nodes: Any) -> int:
 
 
 def collect_document_stats(doc: Any, doc_svc: Any) -> dict[str, Any]:
-    """Character/word/paragraph/page/heading counts for a Writer document."""
-    text_obj = doc.getText()
-    cursor = text_obj.createTextCursor()
-    cursor.gotoStart(False)
-    cursor.gotoEnd(True)
-    full_text = get_string_without_tracked_deletions(cursor)
-    char_count = len(full_text)
-    word_count = len(full_text.split())
+    """Character/word/paragraph/page/heading counts for a Writer document.
 
-    para_count = len(doc_svc.get_paragraph_ranges(doc))
+    What was wrong: one failing count aborted the whole stats dict, so
+    get_document_tree lost every count.
+    How: 6012fd3ec dropped the per-piece handlers and let the first
+    exception escape.
+    Why: the counts are independent. Each piece is one errors helper.
+    Headings use uno_read so a disposed document still raises;
+    best_effort would swallow that and look like zero headings.
+    """
 
-    tree = build_heading_tree(doc)
-    heading_count = _count_headings(tree.get("children", []))
+    def _visible_counts() -> tuple[int, int]:
+        text_obj = doc.getText()
+        cursor = text_obj.createTextCursor()
+        cursor.gotoStart(False)
+        cursor.gotoEnd(True)
+        full_text = get_string_without_tracked_deletions(cursor)
+        return len(full_text), len(full_text.split())
 
-    page_count = doc_svc.get_page_count(doc)
+    # None means the read failed. (0, 0) is a real empty document.
+    # get_document_length runs only then, and is not itself best_effort,
+    # so a failure of the fallback still propagates.
+    counted = best_effort(_visible_counts, "character and word counts")
+    if counted is None:
+        char_count = doc_svc.get_document_length(doc)
+        word_count = 0
+    else:
+        char_count, word_count = counted
+
+    para_count = best_effort(
+        lambda: len(doc_svc.get_paragraph_ranges(doc)),
+        "paragraph count",
+        0,
+    )
+
+    heading_count = uno_read(
+        lambda: _count_headings(build_heading_tree(doc).get("children", [])),
+        0,
+        object_type="Document",
+    )
+
+    page_count = best_effort(lambda: doc_svc.get_page_count(doc), "page count", 0)
 
     return {
         "character_count": char_count,
