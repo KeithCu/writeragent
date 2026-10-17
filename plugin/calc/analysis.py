@@ -35,12 +35,6 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
     from com.sun.star.table import CellAddress
 
-try:
-    __import__("com.sun.star.table", fromlist=["CellAddress"])
-    UNO_AVAILABLE = True
-except ImportError:
-    UNO_AVAILABLE = False
-
 log = logging.getLogger("writeragent.calc")
 
 
@@ -59,10 +53,7 @@ _PREFERRED_SOLVER_SERVICES: tuple[str, ...] = ("com.sun.star.sheet.SolverLinear"
 
 def _solver_impl_name(solver_obj: Any) -> str:
     if solver_obj is not None and hasattr(solver_obj, "getImplementationName"):
-        try:
-            return str(solver_obj.getImplementationName())
-        except Exception:
-            pass
+        return str(solver_obj.getImplementationName())
     return "unknown"
 
 
@@ -90,8 +81,6 @@ def _should_reject_solver_for_headless(engine_name: str | None, solver: Any) -> 
 
 def _get_cell_address(doc: Any, address_str: str) -> CellAddress:
     """Convert a cell address string (e.g. 'A1' or 'Sheet1.A1') to a CellAddress struct."""
-    if not UNO_AVAILABLE:
-        raise RuntimeError("UNO not available")
     return resolve_cell_address(doc, address_str)
 
 
@@ -113,9 +102,6 @@ class GoalSeekTool(ToolBaseDummy):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if not UNO_AVAILABLE:
-            return self._tool_error("UNO not available")
-
         formula_str = kwargs["formula_cell"]
         variable_str = kwargs["variable_cell"]
         target_value = float(kwargs["target_value"])
@@ -189,9 +175,6 @@ class SolverTool(ToolBaseDummy):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if not UNO_AVAILABLE:
-            return self._tool_error("UNO not available")
-
         from com.sun.star.sheet import SolverConstraint
         from com.sun.star.sheet.SolverConstraintOperator import EQUAL, GREATER_EQUAL, LESS_EQUAL
 

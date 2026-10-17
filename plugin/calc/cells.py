@@ -116,16 +116,10 @@ def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
         return f"{token}{sep}"
 
     if hasattr(resolved, "getSpreadsheet"):
-        try:
-            sp = resolved.getSpreadsheet()
-            name = sp.getName() if hasattr(sp, "getName") else None
-            if isinstance(name, str) and name:
-                return _sheet_token(name) + "."
-            return ""
-        except Exception as e:
-            if is_disposed_exception(e):
-                raise
-            return ""
+        sp = resolved.getSpreadsheet()
+        name = sp.getName() if hasattr(sp, "getName") else None
+        if isinstance(name, str) and name:
+            return _sheet_token(name) + "."
     return ""
 
 

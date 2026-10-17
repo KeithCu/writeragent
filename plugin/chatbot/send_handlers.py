@@ -62,12 +62,7 @@ def _direct_image_source_arg(model: Any) -> str | None:
     The old worker always omitted that arg, so an edit prompt with a
     selected image still text-to-image inserted a new graphic.
     """
-    try:
-        if selected_graphic_object(model) is not None:
-            return "selection"
-    except Exception:
-        log.debug("Direct image: selection probe failed", exc_info=True)
-    return None
+    return "selection" if selected_graphic_object(model) is not None else None
 
 
 class _SendWorkerQueue:
@@ -984,13 +979,7 @@ class SendHandlersMixin:
 
         drain_q, q = _send_worker_queues(self)
         # Read show_thinking before spawning the thread so apply_chunk can use it
-        try:
-
-
-            show_thinking = as_bool(get_config("chatbot.show_search_thinking"))
-        except (ValueError, TypeError) as e:
-            log.debug("Failed to read 'chatbot.show_search_thinking' from config: %s", e)
-            show_thinking = False
+        show_thinking = as_bool(get_config("chatbot.show_search_thinking"))
 
 
 
@@ -1287,14 +1276,10 @@ class SendHandlersMixin:
 
     def _get_mcp_url(self: SendHandlerHost) -> str | None:
         """Construct the local MCP streamable-HTTP endpoint URL from config."""
-        try:
-            if not as_bool(get_config("mcp.mcp_enabled")):
-                return None
-            from plugin.mcp.server import mcp_endpoint_url
-
-            port = get_config_int_safe("mcp.mcp_port")
-            # MCP binds localhost only (mcp/module.yaml); host/ssl are not user settings.
-            return mcp_endpoint_url("localhost", port, False)
-        except (ValueError, TypeError) as e:
-            log.debug("Failed to read MCP config: %s", e)
+        if not as_bool(get_config("mcp.mcp_enabled")):
             return None
+        from plugin.mcp.server import mcp_endpoint_url
+
+        port = get_config_int_safe("mcp.mcp_port")
+        # MCP binds localhost only (mcp/module.yaml); host/ssl are not user settings.
+        return mcp_endpoint_url("localhost", port, False)

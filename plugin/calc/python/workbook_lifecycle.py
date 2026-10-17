@@ -50,10 +50,7 @@ _DOC_IDS_BY_LIFECYCLE_KEY: dict[str, set[int]] = {}
 def _doc_objects(doc: Any) -> list[Any]:
     """*doc* and its unwrapped UNO target, without calling UNO methods."""
     objects = [doc]
-    try:
-        raw = _unwrap_uno(doc)
-    except Exception:
-        raw = doc
+    raw = _unwrap_uno(doc)
     if raw is not None and raw is not doc:
         objects.append(raw)
     return objects
@@ -134,13 +131,9 @@ def _runtime_uid(doc: Any) -> str:
     # How it happened: Direct call to getPropertyValue("RuntimeUID") without the full ladder or type validation.
     # Why this change fixes it: Use the shared _read_runtime_uid ladder, which tries method, attribute,
     # then property, and only accepts plain str or int without a thread check.
-    try:
-        from plugin.framework.uno_context import _read_runtime_uid
+    from plugin.framework.uno_context import _read_runtime_uid
 
-        return _read_runtime_uid(doc)
-    except Exception:
-        log.debug("python_workbook_lifecycle: RuntimeUID read failed", exc_info=True)
-        return ""
+    return _read_runtime_uid(doc)
 
 
 
@@ -228,10 +221,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 self._doc_url = doc_url
 
     def on_document_event(self, Event: Any) -> None:
-        try:
-            name = getattr(Event, "EventName", "") or ""
-        except Exception:
-            return
+        name = getattr(Event, "EventName", "") or ""
         if name == "OnUnload":
             self._teardown()
 
@@ -328,11 +318,7 @@ def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any) -> None:
         return
     key = _lifecycle_key(doc)
     session_id = calc_workbook_base_session_id(doc)
-    doc_url = ""
-    try:
-        doc_url = getattr(doc, "getURL", lambda: "")() or ""
-    except Exception:
-        doc_url = ""
+    doc_url = doc.getURL() or ""
     with _LOCK:
         existing = _LISTENERS.get(key)
         if existing is not None:

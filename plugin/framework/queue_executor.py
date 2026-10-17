@@ -350,10 +350,7 @@ def _marshal_thread_tag(executor: "QueueExecutor | None" = None) -> str:
     cur_ident = getattr(cur, "ident", "?")
     py_main = cur is main
     ex = executor or default_executor
-    try:
-        qdepth = ex.pending_work_count()
-    except Exception:
-        qdepth = -1
+    qdepth = ex.pending_work_count()
     return "thread=%r ident=%s py_main=%s logical_main=%s bg_task=%r agent_active=%s queue_depth=%s" % (cur_name, cur_ident, py_main, on_main_thread(), get_background_task_name(), is_agent_active(), qdepth)
 
 

@@ -125,12 +125,9 @@ def _service_manager(uno_ctx: Any) -> Any:
     """ServiceManager from a UNO context. Best-effort; never raises."""
     getter = getattr(uno_ctx, "getServiceManager", None)
     if callable(getter):
-        try:
-            smgr = getter()
-            if smgr is not None:
-                return smgr
-        except Exception:
-            pass
+        smgr = getter()
+        if smgr is not None:
+            return smgr
     return getattr(uno_ctx, "ServiceManager", None)
 
 
@@ -277,10 +274,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
         raise ToolExecutionError(f"Failed to insert HTML into cell: {e}") from e
     finally:
         if transferable is not None:
-            try:
-                _release_clipboard_if_holds(uno_ctx, transferable)
-            except Exception:
-                pass
+            _release_clipboard_if_holds(uno_ctx, transferable)
             transferable = None
         # Windows (GHA 33771766524, 33772063173): after a live paste,
         # temp_doc.close() returns and an immediate writers_after_close enum

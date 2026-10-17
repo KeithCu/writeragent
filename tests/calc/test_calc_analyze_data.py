@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import sys
+import types
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -67,7 +69,6 @@ def _disposed():
 def test_goal_seek_reraises_disposed(calc_ctx):
     boom = _disposed()
     with (
-        patch("plugin.calc.analysis.UNO_AVAILABLE", True),
         patch("plugin.calc.analysis.CalcBridge", side_effect=boom),
         pytest.raises(type(boom), match="URP"),
     ):
@@ -76,7 +77,6 @@ def test_goal_seek_reraises_disposed(calc_ctx):
 
 def test_goal_seek_wraps_other_errors(calc_ctx):
     with (
-        patch("plugin.calc.analysis.UNO_AVAILABLE", True),
         patch("plugin.calc.analysis.CalcBridge", side_effect=ValueError("seek failed")),
         pytest.raises(ToolExecutionError, match="seek failed"),
     ):
@@ -84,9 +84,6 @@ def test_goal_seek_wraps_other_errors(calc_ctx):
 
 
 def test_solver_reraises_disposed(calc_ctx):
-    import sys
-    import types
-
     # Solver imports sheet UNO types before its execution. Unit tests have no live
     # office, so install stubs and fail inside CalcBridge.
     star = types.ModuleType("com.sun.star")
@@ -104,7 +101,6 @@ def test_solver_reraises_disposed(calc_ctx):
     boom = _disposed()
     with (
         patch.dict(sys.modules, modules),
-        patch("plugin.calc.analysis.UNO_AVAILABLE", True),
         patch("plugin.calc.analysis.CalcBridge", side_effect=boom),
         pytest.raises(type(boom), match="URP"),
     ):

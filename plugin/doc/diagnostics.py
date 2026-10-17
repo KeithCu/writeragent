@@ -93,72 +93,66 @@ class DocumentHealthCheck(ToolBaseDummy):
             )
 
         # --- Broken bookmarks ---
-        try:
-            bookmarks = doc.getBookmarks()
-            names = bookmarks.getElementNames()
-            for name in names:
+        bookmarks = doc.getBookmarks()
+        names = bookmarks.getElementNames()
+        for name in names:
+            try:
+                bm = bookmarks.getByName(name)
                 try:
-                    bm = bookmarks.getByName(name)
-                    try:
-                        anchor = bm.getAnchor()
-                    except Exception:
-                        # getAnchor can throw on a collapsed mark. The name
-                        # still exists; do not call that broken.
-                        continue
-                    if anchor is None:
-                        issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
-                        continue
-                    # `not anchor.getString()` flags every point bookmark. Heading
-                    # `_mcp_` marks are inserted as a collapsed cursor, so their
-                    # anchor string is empty and document_health_check would report
-                    # each one as broken. An empty string with a start position is a
-                    # point bookmark. Broken means no anchor, or an anchor whose text
-                    # and start both cannot be read.
-                    try:
-                        anchor_text = anchor.getString()
-                    except Exception:
-                        anchor_text = None
-                    if anchor_text:
-                        continue
-                    get_start = getattr(anchor, "getStart", None)
-                    if callable(get_start):
-                        try:
-                            if get_start() is not None:
-                                continue
-                        except Exception:
-                            pass
-                    issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
+                    anchor = bm.getAnchor()
                 except Exception:
-                    issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' could not be read." % name), "detail": ("Bookmark '%s' could not be read." % name)})
-        except Exception:
-            pass
-
-        # --- Orphan images (graphic objects without a URL) ---
-        try:
-            graphics = doc.getGraphicObjects()
-            names = graphics.getElementNames()
-            for name in names:
+                    # getAnchor can throw on a collapsed mark. The name
+                    # still exists; do not call that broken.
+                    continue
+                if anchor is None:
+                    issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
+                    continue
+                # `not anchor.getString()` flags every point bookmark. Heading
+                # `_mcp_` marks are inserted as a collapsed cursor, so their
+                # anchor string is empty and document_health_check would report
+                # each one as broken. An empty string with a start position is a
+                # point bookmark. Broken means no anchor, or an anchor whose text
+                # and start both cannot be read.
                 try:
-                    obj = graphics.getByName(name)
-                    graphic_url = ""
+                    anchor_text = anchor.getString()
+                except Exception:
+                    anchor_text = None
+                if anchor_text:
+                    continue
+                get_start = getattr(anchor, "getStart", None)
+                if callable(get_start):
                     try:
-                        graphic_url = obj.getPropertyValue("GraphicURL")
+                        if get_start() is not None:
+                            continue
                     except Exception:
                         pass
-                    if not graphic_url:
-                        # Also check the Graphic property (LO 7.1+).
-                        has_graphic = False
-                        try:
-                            g = obj.getPropertyValue("Graphic")
-                            has_graphic = g is not None
-                        except Exception:
-                            pass
-                        if not has_graphic:
-                            issues.append({"type": "orphan_image", "severity": "warning", "paragraph_index": -1, "message": ("Graphic object '%s' has no image data." % name), "detail": ("Graphic object '%s' has no image data." % name)})
+                issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' has an empty anchor." % name), "detail": ("Bookmark '%s' has an empty anchor." % name)})
+            except Exception:
+                issues.append({"type": "broken_bookmark", "severity": "warning", "paragraph_index": -1, "message": ("Bookmark '%s' could not be read." % name), "detail": ("Bookmark '%s' could not be read." % name)})
+
+        # --- Orphan images (graphic objects without a URL) ---
+        graphics = doc.getGraphicObjects()
+        names = graphics.getElementNames()
+        for name in names:
+            try:
+                obj = graphics.getByName(name)
+                graphic_url = ""
+                try:
+                    graphic_url = obj.getPropertyValue("GraphicURL")
                 except Exception:
                     pass
-        except Exception:
-            pass
+                if not graphic_url:
+                    # Also check the Graphic property (LO 7.1+).
+                    has_graphic = False
+                    try:
+                        g = obj.getPropertyValue("Graphic")
+                        has_graphic = g is not None
+                    except Exception:
+                        pass
+                    if not has_graphic:
+                        issues.append({"type": "orphan_image", "severity": "warning", "paragraph_index": -1, "message": ("Graphic object '%s' has no image data." % name), "detail": ("Graphic object '%s' has no image data." % name)})
+            except Exception:
+                pass
 
         return {"status": "ok", "issues": issues, "issue_count": len(issues), "paragraph_count": len(para_ranges), "total_headings": total_headings}
 
@@ -178,11 +172,7 @@ class SetDocumentProtection(ToolBaseDummy):
         password = kwargs.get("password")
         doc = ctx.doc
 
-        try:
-            sections = doc.getTextSections()
-        except Exception as exc:
-            return self._tool_error(str(exc))
-
+        sections = doc.getTextSections()
         count = sections.getCount()
         if count == 0:
             return {"status": "ok", "protected": enabled, "sections_count": 0, "message": "No text sections found in document."}

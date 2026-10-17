@@ -40,7 +40,10 @@ class _Bookmarks:
 
 
 def _issues(marks):
-    doc = SimpleNamespace(getBookmarks=lambda: _Bookmarks(marks))
+    doc = SimpleNamespace(
+        getBookmarks=lambda: _Bookmarks(marks),
+        getGraphicObjects=lambda: _Bookmarks({}),
+    )
     ctx = SimpleNamespace(
         doc=doc,
         services=SimpleNamespace(document=SimpleNamespace(get_paragraph_ranges=lambda _doc: [])),

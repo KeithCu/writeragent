@@ -10,10 +10,24 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import plugin.calc.python.function as python_function
+import plugin.calc.python.workbook_lifecycle as lifecycle
+from plugin.calc.python.geometric_recalc import (
+    EvalIndexKey,
+    GeometricRecord,
+    _RUNTIME,
+    clear_in_memory_geometric_state,
+    current_geometric_strip_safe,
+    replace_geometric_strip_safe,
+    reset_geometric_runtime_for_tests,
+)
 from plugin.calc.python.workbook_lifecycle import (
     _CalcPythonUnloadListener,
+    _forget_doc_lifecycle_key,
     _lifecycle_key,
+    _remember_doc_lifecycle_key,
     ensure_calc_workbook_unload_resets_python,
+    ensure_python_session_cleared_on_unload,
     lifecycle_key_if_known,
 )
 from plugin.tests.testing_utils import CalcDocStub
@@ -21,7 +35,6 @@ from plugin.tests.testing_utils import CalcDocStub
 
 @pytest.fixture(autouse=True)
 def _reset_lifecycle_registry():
-    import plugin.calc.python.workbook_lifecycle as lifecycle
 
     lifecycle._LISTENERS.clear()
     lifecycle._LIFECYCLE_KEYS.clear()
@@ -43,8 +56,6 @@ def test_lifecycle_key_prefers_runtime_uid():
 
 def test_unload_forgets_cached_lifecycle_key():
     """Off-main spill lookup must not keep a closed workbook's id."""
-    from plugin.calc.python.workbook_lifecycle import lifecycle_key_if_known
-
     doc = CalcDocStub(props={"RuntimeUID": "uid-forget"})
     assert _lifecycle_key(doc) == "uid-forget"
     assert lifecycle_key_if_known(doc) == "uid-forget"
@@ -72,7 +83,6 @@ def test_non_calc_unload_resets_rps_and_notebook_sessions(monkeypatch: pytest.Mo
     ctx = MagicMock()
     doc = MagicMock()
     doc.getPropertyValue.return_value = "writer-uid"
-    from plugin.calc.python.workbook_lifecycle import ensure_python_session_cleared_on_unload
 
     ensure_python_session_cleared_on_unload(ctx, doc, "rps:file:///a.odt")
     ensure_python_session_cleared_on_unload(ctx, doc, "notebook:file:///a.odt")
@@ -89,8 +99,6 @@ def test_non_calc_unload_resets_rps_and_notebook_sessions(monkeypatch: pytest.Mo
 
 
 def test_unload_clears_in_memory_spill_state():
-    import plugin.calc.python.function as python_function
-
     python_function.SPILL_REGISTRY[("file:///gone.ods", "Sheet1", 0, 0)] = [(0, 1)]
     python_function.LOADED_DOCUMENTS.add("file:///gone.ods")
     ctx = MagicMock()
@@ -103,16 +111,6 @@ def test_unload_clears_in_memory_spill_state():
 
 
 def test_unload_clears_in_memory_geometric_state():
-    from plugin.calc.python.geometric_recalc import (
-        EvalIndexKey,
-        GeometricRecord,
-        _RUNTIME,
-        clear_in_memory_geometric_state,
-        current_geometric_strip_safe,
-        replace_geometric_strip_safe,
-        reset_geometric_runtime_for_tests,
-    )
-
     reset_geometric_runtime_for_tests()
     key = "calc:file:///gone-geo.ods"
     _RUNTIME.records[(key, "Sheet1", "A2")] = GeometricRecord(predecessor="A1")
@@ -138,8 +136,6 @@ def test_ensure_registers_listener_once():
 
 def test_unload_clears_registration_so_reopen_can_reregister():
     """After OnUnload the same RuntimeUID can register again (close then reopen)."""
-    import plugin.calc.python.workbook_lifecycle as lifecycle
-
     ctx = MagicMock()
     doc = CalcDocStub(props={"RuntimeUID": "uid-reopen"})
     with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
@@ -158,8 +154,6 @@ def test_unload_clears_registration_so_reopen_can_reregister():
 
 def test_save_notes_new_session_id_reset_on_unload():
     """After Save the listener must reset both the uuid kernel and the file-URL kernel."""
-    import plugin.calc.python.workbook_lifecycle as lifecycle
-
     ctx = MagicMock()
     doc = CalcDocStub(props={"RuntimeUID": "uid-save"}, url="")
     with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
@@ -177,8 +171,6 @@ def test_save_notes_new_session_id_reset_on_unload():
 
 
 def test_unload_resets_worker_when_busy():
-    from unittest.mock import MagicMock, patch
-    from plugin.calc.python.workbook_lifecycle import _CalcPythonUnloadListener
     ctx = MagicMock()
     listener = _CalcPythonUnloadListener(ctx, "calc:wb-1", "key-busy", doc_url="")
 
@@ -205,8 +197,6 @@ def test_unload_resets_worker_when_busy():
 
 
 def test_retry_reset_logs_warning_on_timeout():
-    from unittest.mock import MagicMock, patch
-    from plugin.calc.python.workbook_lifecycle import _CalcPythonUnloadListener
     ctx = MagicMock()
     listener = _CalcPythonUnloadListener(ctx, "calc:wb-timeout", "key-timeout")
     with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "error", "code": "WORKER_REENTRY"}):
@@ -219,9 +209,6 @@ def test_retry_reset_logs_warning_on_timeout():
 
 def test_remember_doc_lifecycle_key_keeps_strong_reference():
     """Objects rejecting weakref must be held strongly in id map until unload."""
-    import plugin.calc.python.workbook_lifecycle as lifecycle
-    from plugin.calc.python.workbook_lifecycle import _forget_doc_lifecycle_key, _remember_doc_lifecycle_key, lifecycle_key_if_known
-
     class NoWeakRefDoc:
         __slots__ = ()
 
@@ -241,9 +228,6 @@ def test_remember_doc_lifecycle_key_keeps_strong_reference():
 
 def test_release_calc_state_dedupes_doc_urls():
     """_release_calc_state dedupes URLs and skips empty strings."""
-    from unittest.mock import MagicMock, patch
-    from plugin.calc.python.workbook_lifecycle import _CalcPythonUnloadListener
-
     ctx = MagicMock()
     listener = _CalcPythonUnloadListener(ctx, "calc:wb-dedupe", "key-dedupe")
     with patch("plugin.calc.python.function.clear_in_memory_spill_state") as mock_spill:

@@ -28,7 +28,14 @@ if TYPE_CHECKING:
     from com.sun.star.awt import ActionEvent, ItemEvent, TextEvent
     from com.sun.star.lang import EventObject
 
-from plugin.chatbot.dialogs import get_checkbox_state, load_writeragent_dialog_detail, set_checkbox_state, set_control_text
+from plugin.chatbot.dialogs import (
+    get_checkbox_state,
+    get_control_text,
+    load_writeragent_dialog_detail,
+    set_checkbox_state,
+    set_control_enabled,
+    set_control_text,
+)
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.scripting")
@@ -132,14 +139,7 @@ class NativePythonCellEditorDialog:
         if ctrl is None:
             return
         addr = format_cell_a1(self._code_cell if self._following_ref() else self._cell)
-        try:
-            if hasattr(ctrl, "setText"):
-                ctrl.setText(addr)
-            model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-            if model is not None and hasattr(model, "Label"):
-                model.Label = addr
-        except Exception:
-            log.debug("native cell editor: CellAddr failed", exc_info=True)
+        set_control_text(ctrl, addr)
 
     def _following_ref(self) -> bool:
         from plugin.calc.python.editor import _same_calc_cell
@@ -170,10 +170,7 @@ class NativePythonCellEditorDialog:
         self._loading = False
         self._dirty = False
         if code_ctrl is not None:
-            try:
-                code_ctrl.setFocus()
-            except Exception:
-                pass
+            code_ctrl.setFocus()
 
     def _sync_data_enabled(self) -> None:
         # Twin of editor.js updateDataBindingEnabled: Data: is off when Save
@@ -183,51 +180,23 @@ class NativePythonCellEditorDialog:
             ctrl = self._ctrl(name)
             if ctrl is None:
                 continue
-            try:
-                if hasattr(ctrl, "setEnable"):
-                    ctrl.setEnable(not disabled)
-                model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-                if model is not None and hasattr(model, "Enabled"):
-                    model.Enabled = not disabled
-            except Exception:
-                log.debug("native cell editor: enable %s failed", name, exc_info=True)
+            set_control_enabled(ctrl, not disabled)
         data_ctrl = self._ctrl("DataEdit")
         if data_ctrl is None:
             return
         title = _("Data ranges apply only when saving as a =PY() formula.") if disabled else _("Calc injects `data` and `ranges` from these range(s) at runtime.")
-        try:
-            model = data_ctrl.getModel()
-            if model is not None and hasattr(model, "HelpText"):
-                model.HelpText = title
-        except Exception:
-            log.debug("native cell editor: DataEdit tooltip failed", exc_info=True)
+        model = data_ctrl.getModel()
+        if model is not None and hasattr(model, "HelpText"):
+            model.HelpText = title
 
     def _set_status(self, body: str) -> None:
         set_control_text(self._ctrl("StatusEdit"), _status_text(body))
 
     def _code_text(self) -> str:
-        ctrl = self._ctrl("CodeEdit")
-        if ctrl is None:
-            return ""
-        try:
-            if hasattr(ctrl, "getText"):
-                return str(ctrl.getText() or "")
-            model = ctrl.getModel()
-            return str(getattr(model, "Text", "") or "")
-        except Exception:
-            return ""
+        return str(get_control_text(self._ctrl("CodeEdit")) or "")
 
     def _data_text(self) -> str:
-        ctrl = self._ctrl("DataEdit")
-        if ctrl is None:
-            return ""
-        try:
-            if hasattr(ctrl, "getText"):
-                return str(ctrl.getText() or "").strip()
-            model = ctrl.getModel()
-            return str(getattr(model, "Text", "") or "").strip()
-        except Exception:
-            return ""
+        return get_control_text(self._ctrl("DataEdit")).strip()
 
     def _save(self) -> None:
         from plugin.calc.python.editor import _apply_cell_save
@@ -347,10 +316,7 @@ class NativePythonCellEditorDialog:
         for name in ("CodeEdit", "DataEdit"):
             ctrl = dlg.getControl(name)
             if ctrl is not None and hasattr(ctrl, "addTextListener"):
-                try:
-                    ctrl.addTextListener(dirty_listener)
-                except Exception:
-                    log.debug("native cell editor: addTextListener %s failed", name, exc_info=True)
+                ctrl.addTextListener(dirty_listener)
 
 
 def show_native_python_cell_editor(ctx: Any, *, doc: Any, cell: Any, initial_code: str, parsed_parts: Any, code_cell: Any | None = None, code_ref: str | None = None) -> tuple[bool, str | None]:
@@ -380,8 +346,5 @@ def reset_native_cell_editor_for_tests() -> None:
     """Drop the singleton (unit tests)."""
     global _active
     if _active is not None:
-        try:
-            _active.close()
-        except Exception:
-            pass
+        _active.close()
     _active = None

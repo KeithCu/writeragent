@@ -282,35 +282,32 @@ def install_review_toolbar(ctx: Any) -> None:
 
         class _ToolbarVisibilityListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
             def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
-                try:
-                    name = getattr(Event, "EventName", "") or ""
-                    if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew", "OnUnload"):
-                        return
-                    # Resolve the document model. For OnUnload the ViewController is usually gone and
-                    # Event.Source IS the model; for load events it's the view's model.
-                    controller = getattr(Event, "ViewController", None)
-                    model = None
-                    if controller is not None:
-                        try:
-                            model = controller.getModel()
-                        except Exception:
-                            model = None
-                    if model is None:
-                        source = getattr(Event, "Source", None)
-                        if _is_writer(source):
-                            model = source
-                        elif source is not None and hasattr(source, "getCurrentController"):
-                            c = source.getCurrentController()
-                            model = c.getModel() if c is not None else None
-                    if not _is_writer(model):
-                        return
-                    if name == "OnUnload":
-                        _unregister_modify_listener(model)
-                    else:
-                        _register_modify_listener(model)
-                        refresh_review_toolbar(model)
-                except Exception:
-                    log.debug("review_toolbar: doc-event handling failed", exc_info=True)
+                name = getattr(Event, "EventName", "") or ""
+                if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew", "OnUnload"):
+                    return
+                # Resolve the document model. For OnUnload the ViewController is usually gone and
+                # Event.Source IS the model; for load events it's the view's model.
+                controller = getattr(Event, "ViewController", None)
+                model = None
+                if controller is not None:
+                    try:
+                        model = controller.getModel()
+                    except Exception:
+                        model = None
+                if model is None:
+                    source = getattr(Event, "Source", None)
+                    if _is_writer(source):
+                        model = source
+                    elif source is not None and hasattr(source, "getCurrentController"):
+                        c = source.getCurrentController()
+                        model = c.getModel() if c is not None else None
+                if not _is_writer(model):
+                    return
+                if name == "OnUnload":
+                    _unregister_modify_listener(model)
+                else:
+                    _register_modify_listener(model)
+                    refresh_review_toolbar(model)
 
         smgr = ctx.getServiceManager()
         broadcaster = smgr.createInstanceWithContext("com.sun.star.frame.GlobalEventBroadcaster", ctx)
