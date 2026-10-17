@@ -9,9 +9,10 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from plugin.calc.spreadsheet_import.ingest import ingest_from_arrays
-from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
+from plugin.calc.spreadsheet_import.models import CellRecord, OutputCell, OutputSheetModel, SheetModel
 from plugin.calc.spreadsheet_import.preserve import (
     _safe_number_format,
+    apply_output_to_sheet,
     build_output_model,
     enrich_number_formats,
 )
@@ -115,3 +116,42 @@ def test_enrich_number_formats_updates_constants():
     enrich_number_formats(sheet, model)
     assert model.cells["A1"].number_format == 4
     assert model.cells["B1"].number_format is None
+
+
+def test_apply_output_to_sheet():
+    sheet = MagicMock()
+    cells: dict[tuple[int, int], MagicMock] = {}
+
+    def get_cell(c: int, r: int) -> MagicMock:
+        if (c, r) not in cells:
+            cells[(c, r)] = MagicMock()
+        return cells[(c, r)]
+
+    sheet.getCellByPosition.side_effect = get_cell
+
+    output = OutputSheetModel(
+        sheet_name="S",
+        used_range="A1:E1",
+        cells={
+            "A1": OutputCell(address="A1", value=None, formula="=SUM(1, 2)", number_format=None),
+            "B1": OutputCell(address="B1", value=None, formula="{=A1:A2}", number_format=None),
+            "C1": OutputCell(address="C1", value=None, formula=None, number_format=None),
+            "D1": OutputCell(address="D1", value=42.5, formula=None, number_format=5),
+            "E1": OutputCell(address="E1", value="hello", formula=None, number_format=None),
+        },
+        array_formulas={"A1:B1": "=SUM(A1:B1)"},
+    )
+
+    range_mock = MagicMock()
+    sheet.getCellRangeByName.return_value = range_mock
+
+    apply_output_to_sheet(sheet, output)
+
+    cells[(0, 0)].setFormula.assert_called_once_with("=SUM(1, 2)")
+    cells[(1, 0)].setFormula.assert_called_once_with("{=A1:A2}")
+    cells[(2, 0)].setString.assert_called_once_with("")
+    cells[(3, 0)].setValue.assert_called_once_with(42.5)
+    cells[(3, 0)].setPropertyValue.assert_called_once_with("NumberFormat", 5)
+    cells[(4, 0)].setString.assert_called_once_with("hello")
+    range_mock.setArrayFormula.assert_called_once_with("=SUM(A1:B1)")
+

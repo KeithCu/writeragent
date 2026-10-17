@@ -11,6 +11,7 @@ from typing import Any
 import unohelper
 from com.sun.star.awt import XActionListener
 
+from plugin.framework.errors import best_effort
 from plugin.framework.uno_context import get_desktop
 from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox
 from plugin.calc.address_utils import parse_range_string, parse_address
@@ -46,38 +47,34 @@ def fetch_actual_values(sheet: Any, addresses: list[str]) -> dict[str, Any]:
 
     actual_values: dict[str, Any] = {}
     for addr in addresses:
-        try:
-            col, row = parse_address(addr)
-            cell = sheet.getCellByPosition(col, row)
-            t = cell.getType()
-            log.debug("fetch_actual_values cell %s: type=%s, formula=%r, value=%r", addr, t, cell.getFormula(), cell.getValue())
+        col, row = parse_address(addr)
+        cell = sheet.getCellByPosition(col, row)
+        t = cell.getType()
+        log.debug("fetch_actual_values cell %s: type=%s, formula=%r, value=%r", addr, t, cell.getFormula(), cell.getValue())
 
-            if t == EMPTY:
-                actual_values[addr] = None
-            elif t == VALUE:
-                actual_values[addr] = cell.getValue()
-            elif t == TEXT:
-                actual_values[addr] = cell.getString()
-            elif t == FORMULA:
-                err = cell.getError()
-                if err != 0:
-                    actual_values[addr] = f"Err:{err}"
-                else:
-                    display = cell.getString()
-                    if "Code execution failed" in display or display.strip().startswith("Error:"):
-                        actual_values[addr] = display
-                    else:
-                        v = cell.getValue()
-                        # Text results (e.g. TEXT/MONTH) keep getValue()==0; use display.
-                        if v == 0.0 and display and display.strip() not in ("", "0", "0.0", "0.00") and not any(ch.isdigit() for ch in display):
-                            actual_values[addr] = display.strip()
-                        else:
-                            actual_values[addr] = v
-            else:
-                actual_values[addr] = cell.getValue()
-        except Exception as e:
-            log.exception("Exception in fetch_actual_values for address %s: %s", addr, e)
+        if t == EMPTY:
             actual_values[addr] = None
+        elif t == VALUE:
+            actual_values[addr] = cell.getValue()
+        elif t == TEXT:
+            actual_values[addr] = cell.getString()
+        elif t == FORMULA:
+            err = cell.getError()
+            if err != 0:
+                actual_values[addr] = f"Err:{err}"
+            else:
+                display = cell.getString()
+                if "Code execution failed" in display or display.strip().startswith("Error:"):
+                    actual_values[addr] = display
+                else:
+                    v = cell.getValue()
+                    # Text results (e.g. TEXT/MONTH) keep getValue()==0; use display.
+                    if v == 0.0 and display and display.strip() not in ("", "0", "0.0", "0.00") and not any(ch.isdigit() for ch in display):
+                        actual_values[addr] = display.strip()
+                    else:
+                        actual_values[addr] = v
+        else:
+            actual_values[addr] = cell.getValue()
     return actual_values
 
 
@@ -97,7 +94,8 @@ def run_sheet_conversion(ctx: Any, doc: Any, source_sheet: Any, *, scope: str = 
     enrich_number_formats(source_sheet, model)
 
     sheet_bounds: dict[str, tuple[int, int]] = {}
-    try:
+
+    def _collect_bounds() -> None:
         from plugin.calc.spreadsheet_import.ingest import _used_range_address
 
         sheets = doc.getSheets()
@@ -105,8 +103,8 @@ def run_sheet_conversion(ctx: Any, doc: Any, source_sheet: Any, *, scope: str = 
             sh = sheets.getByIndex(i)
             addr = _used_range_address(sh)
             sheet_bounds[sh.getName().upper()] = (addr.EndColumn, addr.EndRow)
-    except Exception:
-        log.exception("Failed to collect workbook sheet bounds for range clipping")
+
+    best_effort(_collect_bounds, "collect workbook sheet bounds")
 
     # 2. Translate and Build Converted Output Model
     output, report = build_converted_output_model(model, vectorize=vectorize, sheet_bounds=sheet_bounds or None)

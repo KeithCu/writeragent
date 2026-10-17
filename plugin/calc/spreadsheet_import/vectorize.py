@@ -132,14 +132,10 @@ def detect_vectorized_columns(model: SheetModel) -> dict[str, list[str]]:
     """
     # Group cells by column
     col_cells: dict[int, list[str]] = {}
-    for addr in model.cells:
-        record = model.cells[addr]
+    for addr, record in model.cells.items():
         if record.type in ("formula", "error") and record.formula:
-            try:
-                col, row = parse_address(addr)
-                col_cells.setdefault(col, []).append(addr)
-            except ValueError:
-                continue
+            col, _unused = parse_address(addr)
+            col_cells.setdefault(col, []).append(addr)
 
     vector_groups: dict[str, list[str]] = {}
 

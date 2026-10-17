@@ -6,13 +6,10 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from plugin.framework.tool import ToolBaseDummy
 from plugin.calc.spreadsheet_import.import_dialog import run_sheet_conversion
-
-log = logging.getLogger("writeragent.calc.import_tool")
 
 
 # Hidden from LLM/MCP tool lists (ToolBaseDummy). Menu path still uses run_sheet_conversion
@@ -51,9 +48,5 @@ class ConvertSpreadsheetToPython(ToolBaseDummy):
         vectorize = kwargs.get("vectorize", True)
         verify = kwargs.get("verify", True)
 
-        try:
-            res = run_sheet_conversion(ctx.ctx, doc, source_sheet, scope=scope, output_mode=output_mode, vectorize=vectorize, verify=verify)
-            return {"status": "ok", **res}
-        except Exception as e:
-            log.exception("Chat tool convert_spreadsheet_to_python execution failed")
-            return self._tool_error(f"Failed to convert spreadsheet: {e}")
+        res = run_sheet_conversion(ctx.ctx, doc, source_sheet, scope=scope, output_mode=output_mode, vectorize=vectorize, verify=verify)
+        return {"status": "ok", **res}

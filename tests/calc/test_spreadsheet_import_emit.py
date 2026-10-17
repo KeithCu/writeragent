@@ -7,8 +7,9 @@
 from __future__ import annotations
 
 from plugin.calc.python.formula_edit import inline_py_code_has_lexer_collisions
-from plugin.calc.spreadsheet_import.emit import emit_py_formula
+from plugin.calc.spreadsheet_import.emit import build_converted_output_model, emit_py_formula
 from plugin.calc.spreadsheet_import.extract import py_formula_semantics
+from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
 from plugin.calc.spreadsheet_import.translate import translate_formula
 
 
@@ -43,9 +44,6 @@ def test_emit_round_trip_semantics():
 
 
 def test_emit_vectorized_column():
-    from plugin.calc.spreadsheet_import.models import CellRecord, SheetModel
-    from plugin.calc.spreadsheet_import.emit import build_converted_output_model
-
     cells = {
         "A1": CellRecord(address="A1", type="constant", value=10, formula=None, number_format=None),
         "A2": CellRecord(address="A2", type="constant", value=20, formula=None, number_format=None),
@@ -64,4 +62,17 @@ def test_emit_vectorized_column():
     assert output.cells["B3"].formula is not None
     assert "2" in output.cells["B3"].formula and "A1:A3" in output.cells["B3"].formula
     assert len(report.converted) == 3
+
+
+def test_emit_unparseable_formula_handled_gracefully():
+    cells = {
+        "A1": CellRecord(address="A1", type="formula", value=0, formula="=INVALID(++", number_format=None),
+    }
+    model = SheetModel(sheet_name="Sheet1", used_range="A1", cells=cells)
+    output, report = build_converted_output_model(model, vectorize=True)
+
+    assert output.cells["A1"].formula == "=INVALID(++"
+    assert "A1" in report.pass_through
+    assert any(todo.address == "A1" for todo in report.skipped)
+
 

@@ -10,6 +10,7 @@ import logging
 import re
 from typing import Any
 
+from plugin.framework.errors import best_effort
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
 from plugin.calc.spreadsheet_import.models import ConversionReport, OutputCell, OutputSheetModel, SheetModel, TodoCell
@@ -59,12 +60,8 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
         first_record = model.cells[first_addr]
         if not first_record.formula:
             continue
-        try:
-            ast = parse_formula(normalize_lo_formula_for_parse(first_record.formula))
-            if not _has_function_node(ast):
-                continue
-        except Exception:
-            log.debug("build_converted_output_model: vector parse_formula failed on %s formula=%r", first_addr, first_record.formula)
+        ast = best_effort(lambda: parse_formula(normalize_lo_formula_for_parse(first_record.formula)), "vector parse formula")
+        if ast is None or not _has_function_node(ast):
             continue
         translation = translate_formula(first_record.formula, cell_addr=first_addr)
         if translation.ok and translation.code and translation.data_ranges is not None and not translation_has_cross_sheet_ranges(translation.data_ranges) and "calc.fmt(" not in translation.code:
@@ -130,17 +127,11 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             cells[addr] = _output_cell_from_record(record, py_by_addr)
             continue
 
-        try:
-            ast = parse_formula(normalize_lo_formula_for_parse(record.formula))
-            has_func = _has_function_node(ast)
-            log.debug("build_converted_output_model cell %s formula=%r type=%s has_func=%s", addr, record.formula, type(ast).__name__, has_func)
-            if not has_func:
-                report.pass_through.append(addr)
-                cells[addr] = _output_cell_from_record(record, py_by_addr)
-                continue
-        except Exception:
-            log.exception("build_converted_output_model exception parsing %s formula=%r", addr, record.formula)
-            pass
+        ast = best_effort(lambda: parse_formula(normalize_lo_formula_for_parse(record.formula)), "parse formula")
+        if ast is not None and not _has_function_node(ast):
+            report.pass_through.append(addr)
+            cells[addr] = _output_cell_from_record(record, py_by_addr)
+            continue
 
         translation = translate_formula(record.formula, cell_addr=addr)
         log.debug("build_converted_output_model translate cell %s formula=%r translation.ok=%s reason=%s code=%r", addr, record.formula, translation.ok, translation.reason, translation.code)

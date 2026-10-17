@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.framework.errors import best_effort
 from plugin.calc.address_utils import format_address, parse_address, parse_range_string
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
@@ -82,31 +83,23 @@ def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
     for r, row_entries in enumerate(formula_rows):
         for c, entry in enumerate(row_entries):
             cell = target_sheet.getCellByPosition(start_col + c, start_row + r)
-            if isinstance(entry, str) and entry and (entry.startswith("=") or entry.startswith("{")):
+            if entry.startswith("=") or entry.startswith("{"):
                 cell.setFormula(entry)
-            elif entry == "" or entry is None:
+            elif not entry:
                 cell.setString("")
             else:
                 try:
-                    val = float(entry) if isinstance(entry, str) else entry
-                    cell.setValue(val)
-                except Exception:
-                    cell.setString(str(entry))
+                    cell.setValue(float(entry))
+                except ValueError:
+                    cell.setString(entry)
 
     for col, row, fmt_id in format_cells:
         target_sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", fmt_id)
 
     # Write array/vectorized formulas
-    if hasattr(output, "array_formulas") and output.array_formulas:
+    if output.array_formulas:
         for range_str, formula in output.array_formulas.items():
-            try:
-                cell_range = target_sheet.getCellRangeByName(range_str)
-                cell_range.setArrayFormula(formula)
-            except Exception as e:
-                # Fallback to writing individually if setArrayFormula fails
-                import logging
-
-                logging.getLogger("writeragent.calc").error("Failed to set array formula %s on %s: %s", formula, range_str, e)
+            best_effort(lambda: target_sheet.getCellRangeByName(range_str).setArrayFormula(formula), f"set array formula {formula} on {range_str}")
 
 
 def preserve_sheet_to_new_sheet(doc: Any, source_sheet: Any, *, target_name: str = "PythonImport") -> OutputSheetModel:
