@@ -2627,7 +2627,7 @@ def _send_button_label(send_listener: Any) -> str:
         return ""
     if model is None:
         return ""
-    return str(getattr(model, "Label", "") or "")
+    return str(model.Label or "")
 
 
 def notify_record_mouse_pressed(send_listener: Any) -> None:

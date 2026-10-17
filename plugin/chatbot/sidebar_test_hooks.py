@@ -2280,7 +2280,7 @@ def _control_label(control: Any) -> str:
     try:
         model = control.getModel() if control is not None else None
         if model is not None:
-            return str(getattr(model, "Label", "") or "")
+            return str(model.Label or "")
     except Exception:
         log.debug("control label read failed", exc_info=True)
     return ""

@@ -100,10 +100,7 @@ def apply_provider_button_icon(ctrl: Any, ctx: Any, stem: str) -> None:
             return
         model = ctrl.getModel()
         model.ImageURL = menu_icon_asset_url(ext_url, filename)
-        try:
-            model.ImagePosition = _IMAGE_POSITION_LEFT_CENTER
-        except Exception:
-            pass
+        model.ImagePosition = _IMAGE_POSITION_LEFT_CENTER
     except Exception:
         log.debug("Provider button icon %s failed", filename, exc_info=True)
 
@@ -249,10 +246,7 @@ class SettingsDialog:
             self._apply_sqlite_restrictions()
             
             translate_dialog(self._dlg)
-            try:
-                self._dlg.getModel().Title = _("Settings")
-            except Exception:
-                pass
+            self._dlg.getModel().Title = _("Settings")
 
             self._dlg.getControl("endpoint").setFocus()
 
@@ -1007,8 +1001,8 @@ class TtsSettingsListener(BaseListener, XItemListener, XTextListener):
                 labels = tuple(opt["label"] for opt in catalog)
 
                 model = voice_ctrl.getModel()
-                if hasattr(model, "StringItemList"):
-                    current_items = getattr(model, "StringItemList", ())
+                if model is not None:
+                    current_items = model.StringItemList
                     # UNO returns a tuple. A missing list is not one — assigning
                     # is what fills the dropdown. Do not iterate arbitrary objects.
                     if not isinstance(current_items, (tuple, list)) or tuple(current_items) != labels:
@@ -1129,22 +1123,13 @@ class _TtsTestProgressBox:
             # Last resort: blocking box (cannot auto-close). Prefer logging only.
             log.info("TTS test progress (no dialog): %s", message)
             return
-        try:
-            dlg.getModel().Title = _("Speech")
-        except Exception:
-            log.debug("TTS test progress title failed", exc_info=True)
+        dlg.getModel().Title = _("Speech")
         msg_ctrl = dlg.getControl("Msg")
         if msg_ctrl is not None:
             msg_ctrl.getModel().Label = message
         copy_btn = dlg.getControl("CopyBtn")
         if copy_btn is not None:
-            try:
-                if hasattr(copy_btn, "setVisible"):
-                    copy_btn.setVisible(False)
-                else:
-                    copy_btn.getModel().Visible = False
-            except Exception:
-                log.debug("TTS test progress hide Copy failed", exc_info=True)
+            copy_btn.setVisible(False)
 
         owner = self
 

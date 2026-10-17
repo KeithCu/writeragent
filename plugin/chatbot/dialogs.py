@@ -782,14 +782,11 @@ def translate_dialog(dlg: Any) -> None:
                                 used_control = True
                         except Exception:
                             pass
-                        if not used_control and model is not None and hasattr(model, "StringItemList"):
-                            try:
-                                items = model.StringItemList
-                                if items:
-                                    translated = tuple(_(item) if item else "" for item in items)
-                                    model.StringItemList = translated
-                            except Exception as e:
-                                log.debug("Failed to translate %s.%s: %s", name, prop, e)
+                        if not used_control and model is not None:
+                            items = model.StringItemList
+                            if items:
+                                translated = tuple(_(item) if item else "" for item in items)
+                                model.StringItemList = translated
                     else:
                         model = ctrl.getModel()
                         if hasattr(model, prop):
