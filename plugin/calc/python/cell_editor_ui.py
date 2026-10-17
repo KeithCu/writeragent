@@ -36,6 +36,7 @@ from plugin.chatbot.dialogs import (
     set_control_enabled,
     set_control_text,
 )
+from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.scripting")
@@ -107,20 +108,11 @@ class NativePythonCellEditorDialog:
             return
         if toolkit_teardown:
             log.debug("native cell editor: windowClosing (no dispose)")
-            try:
-                dlg.setVisible(False)
-            except Exception:
-                log.debug("native cell editor: hide after windowClosing failed", exc_info=True)
+            best_effort(lambda: dlg.setVisible(False), "native cell editor: hide after windowClosing failed")
             return
         log.debug("native cell editor: close dispose")
-        try:
-            dlg.setVisible(False)
-        except Exception:
-            log.exception("Failed to hide native Python cell editor")
-        try:
-            dlg.dispose()
-        except Exception:
-            log.exception("Failed to dispose native Python cell editor")
+        best_effort(lambda: dlg.setVisible(False), "Failed to hide native Python cell editor")
+        best_effort(dlg.dispose, "Failed to dispose native Python cell editor")
 
     def _ctrl(self, name: str) -> Any:
         dlg = self._dlg

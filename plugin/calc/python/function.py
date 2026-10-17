@@ -27,7 +27,7 @@ from plugin.calc.datetime_wire import coalesce_temporal_apply_rects, duration_se
 from plugin.calc.inspector import _format_category_from_type
 from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc
 from plugin.calc.python.image_egress import insert_image_result_on_sheet
-from plugin.framework.errors import format_error_message
+from plugin.framework.errors import best_effort, format_error_message, uno_probe
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch
 
@@ -478,20 +478,20 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
 
 
 def _get_calc_doc(ctx: Any) -> Any | None:
-    try:
-        from plugin.framework.thread_guard import guard_uno, on_main_thread
+    from plugin.framework.thread_guard import guard_uno, on_main_thread
 
-        if not on_main_thread():
-            return None
-        from plugin.framework.uno_context import get_desktop
+    if not on_main_thread():
+        return None
+    from plugin.framework.uno_context import get_desktop
 
+    def _probe() -> Any | None:
         desktop = get_desktop(ctx)
-        doc = desktop.getCurrentComponent()
+        doc = desktop.getCurrentComponent() if desktop is not None else None
         if doc is not None and hasattr(doc, "getSheets"):
             return guard_uno(doc)
-    except Exception:
-        log.debug("_get_calc_doc lookup failed", exc_info=True)
-    return None
+        return None
+
+    return uno_probe(_probe, None)
 
 
 def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
@@ -695,36 +695,26 @@ def _undo_lock(doc: Any) -> Iterator[Any]:
     hidden = False
     locked = False
     raw_doc = _unwrap_uno(doc)
-    try:
-        if hasattr(raw_doc, "getUndoManager"):
-            um = raw_doc.getUndoManager()
-            if um is not None:
-                try:
-                    if um.isUndoPossible():
-                        um.enterHiddenUndoContext()
-                        hidden = True
-                    else:
-                        um.lock()
-                        locked = True
-                except Exception:
-                    log.debug("enterHiddenUndoContext/lock failed in _undo_lock", exc_info=True)
-    except Exception:
-        log.debug("getUndoManager lookup failed in _undo_lock", exc_info=True)
-        um = None
+    if hasattr(raw_doc, "getUndoManager"):
+        um = uno_probe(raw_doc.getUndoManager, None)
+        if um is not None:
+            def _lock_um() -> None:
+                nonlocal hidden, locked
+                if um.isUndoPossible():
+                    um.enterHiddenUndoContext()
+                    hidden = True
+                else:
+                    um.lock()
+                    locked = True
+            best_effort(_lock_um, "enterHiddenUndoContext/lock failed in _undo_lock")
     try:
         yield um
     finally:
         if um is not None:
             if hidden:
-                try:
-                    um.leaveUndoContext()
-                except Exception:
-                    log.debug("leaveUndoContext failed", exc_info=True)
+                best_effort(um.leaveUndoContext, "leaveUndoContext failed")
             elif locked:
-                try:
-                    um.unlock()
-                except Exception:
-                    log.debug("UndoManager.unlock failed", exc_info=True)
+                best_effort(um.unlock, "UndoManager.unlock failed")
 
 
 def _cell_matches_stored_value(sheet: Any, row: int, col: int, cell_rec: SpillCell) -> bool:
@@ -775,13 +765,12 @@ def _cell_matches_stored_value(sheet: Any, row: int, col: int, cell_rec: SpillCe
 
 def _cell_is_formula(cell: Any) -> bool:
     """True if cell contains a formula (getType() == 3 or starts with '=')."""
-    try:
-        if cell.getType() == 3:
-            return True
-        formula = str(cell.getFormula() or "")
-        return formula.startswith("=")
-    except Exception:
-        return False
+    return bool(
+        uno_probe(
+            lambda: cell.getType() == 3 or str(cell.getFormula() or "").startswith("="),
+            False,
+        )
+    )
 
 
 class CalcSpillModifyListener(unohelper.Base, XModifyListener):
@@ -1409,16 +1398,16 @@ def _result_as_spill_grid(result: list[Any] | tuple[Any, ...]) -> list[list[Any]
 
 def _cell_is_matrix(sheet: Any, cell: Any) -> bool:
     """True when the located formula cell is part of a multi-cell array formula block."""
-    try:
+    def _probe() -> bool:
         if hasattr(sheet, "createCursorByRange") and cell is not None:
             cursor = sheet.createCursorByRange(cell)
             if hasattr(cursor, "collapseToCurrentArray"):
                 cursor.collapseToCurrentArray()
                 addr = cursor.getRangeAddress()
                 return (addr.EndColumn > addr.StartColumn) or (addr.EndRow > addr.StartRow)
-    except Exception:
-        log.debug("_cell_is_matrix check failed", exc_info=True)
-    return False
+        return False
+
+    return bool(uno_probe(_probe, False))
 
 
 def _selection_is_multi_cell(target_doc: Any) -> bool:
@@ -1713,13 +1702,9 @@ def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
     from plugin.framework.thread_guard import on_main_thread
 
     if doc is not None and on_main_thread():
-        try:
-            from plugin.doc.document_research import get_document_directory
+        from plugin.doc.document_research import get_document_directory
 
-            folder = get_document_directory(doc)
-        except Exception:
-            log.debug("scoped_dir binding failed", exc_info=True)
-            folder = None
+        folder = best_effort(lambda: get_document_directory(doc), "scoped_dir binding")
         if folder:
             return {"scoped_dir": folder}
     return {"scoped_dir": None}
@@ -1731,24 +1716,16 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
     Off-main the doc is only passed through (its document scripts are UNO),
     and with no doc there is nothing to read: both return ``{}``.
     """
-    try:
-        from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.thread_guard import on_main_thread
 
-        if doc is None or not on_main_thread():
-            return {}
+    if doc is None or not on_main_thread():
+        return {}
 
-        from plugin.scripting.document_scripts import build_python_eval_init_kwargs
+    from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
+    from plugin.scripting.document_scripts import build_python_eval_init_kwargs
 
-        try:
-            from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
-
-            ensure_calc_workbook_unload_resets_python(ctx, doc)
-        except Exception:
-            log.debug("python workbook unload listener install failed", exc_info=True)
-        return build_python_eval_init_kwargs(doc)
-    except Exception:
-        log.debug("get_python_init_kwargs failed", exc_info=True)
-    return {}
+    best_effort(lambda: ensure_calc_workbook_unload_resets_python(ctx, doc), "python workbook unload listener install")
+    return best_effort(lambda: build_python_eval_init_kwargs(doc), "get_python_init_kwargs", {}) or {}
 
 
 def _py_timing_code_label(code: str) -> str:
@@ -1827,10 +1804,9 @@ def _off_main_spill_lifecycle_key(doc: Any | None) -> str:
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key, lifecycle_key_if_known
 
     if doc is not None and on_main_thread():
-        try:
-            return _lifecycle_key(doc) or ""
-        except Exception:
-            log.debug("off-main spill lifecycle key failed", exc_info=True)
+        key = best_effort(lambda: _lifecycle_key(doc), "off-main spill lifecycle key")
+        if key:
+            return key
     return lifecycle_key_if_known(doc)
 
 
@@ -2104,19 +2080,13 @@ def _diagnostics_workbook_key(ctx: Any, doc: Any | None = None) -> str:
     Uses the calling document only, and only reads an existing session id
     (``existing_calc_session_id`` does not mint a UDProp).
     """
-    try:
-        from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.thread_guard import on_main_thread
 
-        if doc is None or not on_main_thread():
-            return "unknown"
-        from plugin.scripting.session_manager import existing_calc_session_id
+    if doc is None or not on_main_thread():
+        return "unknown"
+    from plugin.scripting.session_manager import existing_calc_session_id
 
-        existing = existing_calc_session_id(doc)
-        if existing:
-            return existing
-    except Exception:
-        log.debug("diagnostics workbook key failed", exc_info=True)
-    return "unknown"
+    return best_effort(lambda: existing_calc_session_id(doc), "diagnostics workbook key", "unknown") or "unknown"
 
 
 def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, status: str, message: str = "", traceback: str = "", doc: Any | None = None) -> None:
@@ -2124,22 +2094,28 @@ def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, st
 
     Skips successful evaluations with empty stdout so the log stays actionable.
     """
-    try:
-        from plugin.calc.python.diagnostics import record_python_eval
+    from plugin.calc.python.diagnostics import record_python_eval
 
-        stdout = ""
-        tb = traceback
-        msg = message
-        if isinstance(res, dict):
-            stdout = str(res.get("stdout") or "")
-            if not msg:
-                msg = str(res.get("message") or res.get("error") or "")
-            if not tb:
-                raw_tb = res.get("traceback")
-                tb = str(raw_tb) if raw_tb else ""
-        if status == "ok" and not (stdout or "").strip():
-            return
-        record_python_eval(workbook_key=_diagnostics_workbook_key(ctx, doc=doc), code=code or "", status=status, message=msg, stdout=stdout, traceback=tb)
-    except Exception:
-        # Never break formula evaluation for diagnostics UI.
-        log.debug("record_python_eval failed", exc_info=True)
+    stdout = ""
+    tb = traceback
+    msg = message
+    if isinstance(res, dict):
+        stdout = str(res.get("stdout") or "")
+        if not msg:
+            msg = str(res.get("message") or res.get("error") or "")
+        if not tb:
+            raw_tb = res.get("traceback")
+            tb = str(raw_tb) if raw_tb else ""
+    if status == "ok" and not (stdout or "").strip():
+        return
+    best_effort(
+        lambda: record_python_eval(
+            workbook_key=_diagnostics_workbook_key(ctx, doc=doc),
+            code=code or "",
+            status=status,
+            message=msg,
+            stdout=stdout,
+            traceback=tb,
+        ),
+        "record_python_eval",
+    )

@@ -35,11 +35,12 @@ from plugin.calc.python.formula_edit import (
 )
 from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
+from plugin.framework.config import get_config
+from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name
 from plugin.scripting.editor_host import get_active_session, launch_monaco_editor, monaco_editor_available, set_active_session
-from plugin.framework.config import get_config
 from plugin.scripting.editor_errors import exception_traceback, failure_message
 
 log = logging.getLogger("writeragent.scripting")
@@ -79,12 +80,9 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     if f:
         out.append(str(f))
     for prop in ("FormulaLocal", "Formula"):
-        try:
-            val = cell.getPropertyValue(prop)
-            if val and str(val) not in out:
-                out.append(str(val))
-        except Exception:
-            pass
+        val = uno_probe(lambda p=prop: cell.getPropertyValue(p), None)
+        if val and str(val) not in out:
+            out.append(str(val))
     if content is None:
         out = [s for s in out if s.lstrip().startswith(("=", "{"))]
     return out
@@ -238,16 +236,12 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
     # get_active_sheet() when getByIndex failed read a different sheet at
     # the same column and row. Refuse; the caller already explains that
     # no cell was selected.
-    try:
-        sheet_idx = int(addr.Sheet)
-        sheets = model.getSheets()
-        if sheets is None or not (0 <= sheet_idx < int(sheets.getCount())):
-            log.warning("python_editor: selection sheet index %s out of range", sheet_idx)
-            return None
-        sheet = sheets.getByIndex(sheet_idx)
-    except Exception:
-        log.warning("python_editor: could not resolve selection sheet", exc_info=True)
+    sheet_idx = int(addr.Sheet)
+    sheets = model.getSheets()
+    if sheets is None or not (0 <= sheet_idx < int(sheets.getCount())):
+        log.warning("python_editor: selection sheet index %s out of range", sheet_idx)
         return None
+    sheet = uno_probe(lambda: sheets.getByIndex(sheet_idx), None)
     if sheet is None:
         log.warning("python_editor: selection sheet missing")
         return None
@@ -259,11 +253,7 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any, str] | None:
 
 
 def _recalculate_after_save(doc: Any) -> None:
-    try:
-        # Switching to calculate() needs a live UNO probe confirming edited =PY() is recalculated (not done).
-        doc.calculateAll()
-    except Exception:
-        log.debug("calculateAll after editor save failed", exc_info=True)
+    best_effort(doc.calculateAll, "calculateAll after editor save")
 
 
 def _existing_data_args_for_xl_rewrite(data_binding_text: str | None, parsed_parts: PythonFormulaParts | None) -> list[str]:
@@ -280,7 +270,8 @@ def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None,
 
     Returns ``(code, data_binding_text)`` or an error dict for the Monaco save path.
     """
-    if not get_config("scripting.xl_static_rewrite"):
+    enabled = best_effort(lambda: bool(get_config("scripting.xl_static_rewrite")), "xl_static_rewrite config read", False)
+    if not enabled:
         return new_code, data_binding_text
     existing = _existing_data_args_for_xl_rewrite(data_binding_text, parsed_parts)
     result = apply_xl_static_rewrite(new_code, existing)
@@ -389,12 +380,8 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
         "doc_url": "",
         "resource": format_cell_a1(display_cell),
     }
-    try:
-        from plugin.scripting.document_scripts import document_scripts_identity
-
-        load_msg["doc_url"] = document_scripts_identity(doc)
-    except Exception:
-        log.debug("python_editor: doc_url for session target failed", exc_info=True)
+    from plugin.scripting.document_scripts import document_scripts_identity
+    load_msg["doc_url"] = best_effort(lambda: document_scripts_identity(doc), "doc_url for session target", "")
     # Unsaved calc-cell, Run Script, init-script, and LaTeX buffers are
     # confirmed or flushed inside launch_monaco_editor before this load
     # replaces the window. A calc-only check here dropped the other modes.

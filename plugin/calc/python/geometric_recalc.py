@@ -39,7 +39,7 @@ from plugin.calc.python.geometric_recalc_core import (
     resolved_code_for_formula,
     should_strip_eval_args,
 )
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import best_effort, is_disposed_exception, uno_probe
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -79,12 +79,9 @@ def is_geometric_repairing() -> bool:
 def reset_geometric_runtime_for_tests() -> None:
     """Drop in-memory maps. Tests only."""
     _RUNTIME.reset()
-    try:
-        from plugin.calc.python.sheet_modify import reset_sheet_modify_runtime_for_tests
+    from plugin.calc.python.sheet_modify import reset_sheet_modify_runtime_for_tests
 
-        reset_sheet_modify_runtime_for_tests()
-    except Exception:
-        log.debug("reset_sheet_modify_runtime_for_tests failed", exc_info=True)
+    best_effort(reset_sheet_modify_runtime_for_tests, "reset_sheet_modify_runtime_for_tests")
 
 
 def geometric_flag_enabled() -> bool:
@@ -103,10 +100,7 @@ def geometric_workbook_key(doc: Any) -> str:
         cached = getattr(doc, "_geometric_unsaved_key", None)
         if not cached:
             cached = f"unsaved:{uuid.uuid4()}"
-            try:
-                setattr(doc, "_geometric_unsaved_key", cached)
-            except Exception:
-                pass
+            best_effort(lambda: setattr(doc, "_geometric_unsaved_key", cached), "set unsaved key")
         key = cached
     return f"calc:{key}"
 
@@ -305,12 +299,7 @@ def geometric_cells_on_sheet(doc: Any, sheet: Any) -> tuple[list[GeometricCell],
     ``len >= 100``.
     """
     discovery = discover_python_cells_on_sheet(sheet)
-    try:
-        name = str(sheet.getName() or "") or "Sheet"
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        name = "Sheet"
+    name = uno_probe(lambda: str(sheet.getName() or "") or "Sheet", "Sheet")
     cells = [
         GeometricCell(
             address=local_a1(info.address),
@@ -337,22 +326,12 @@ def _iter_sheets(doc: Any) -> list[Any]:
 
 def _sheet_of_cell(cell: Any, doc: Any) -> Any | None:
     if cell is not None and hasattr(cell, "getSpreadsheet"):
-        try:
-            sheet = cell.getSpreadsheet()
-            if sheet is not None:
-                return sheet
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            log.debug("geometric_recalc: cell.getSpreadsheet failed", exc_info=True)
-    try:
-        ctrl = doc.getCurrentController()
-        if ctrl is not None:
-            return ctrl.getActiveSheet()
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        log.debug("geometric_recalc: doc.getCurrentController failed", exc_info=True)
+        sheet = uno_probe(cell.getSpreadsheet, None)
+        if sheet is not None:
+            return sheet
+    ctrl = uno_probe(doc.getCurrentController, None) if doc is not None else None
+    if ctrl is not None:
+        return uno_probe(ctrl.getActiveSheet, None)
     return None
 
 
@@ -362,12 +341,9 @@ def _cell_on_sheet(sheet: Any, address: str) -> Any | None:
         return None
     try:
         col, row = parse_address(local)
-        return sheet.getCellByPosition(col, row)
-    except Exception as exc:
-        if is_disposed_exception(exc):
-            raise
-        log.warning("geometric_recalc: getCellByPosition failed at %s", address, exc_info=True)
+    except (TypeError, ValueError):
         return None
+    return uno_probe(lambda: sheet.getCellByPosition(col, row), None)
 
 
 def _apply_patches_to_sheet(sheet: Any, patches: tuple[GeometricPatch, ...]) -> set[str]:
@@ -410,12 +386,7 @@ def _rebuild_strip_safe_from_doc(
     all_records: dict[str, GeometricRecord] = {}
     known = known_sheets or {}
     for sheet in _iter_sheets(doc):
-        try:
-            sheet_name = str(sheet.getName() or "") or "Sheet"
-        except Exception as exc:
-            if is_disposed_exception(exc):
-                raise
-            sheet_name = "Sheet"
+        sheet_name = uno_probe(lambda: str(sheet.getName() or "") or "Sheet", "Sheet")
         if sheet_name in known:
             cells = known[sheet_name]
         else:
@@ -550,14 +521,11 @@ def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
     if not geometric_flag_enabled() or doc is None:
         return
     if ctx is None:
-        try:
-            from plugin.framework.thread_guard import on_main_thread
-            from plugin.framework.uno_context import get_ctx
+        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.uno_context import get_ctx
 
-            if on_main_thread():
-                ctx = get_ctx()
-        except Exception:
-            ctx = None
+        if on_main_thread():
+            ctx = uno_probe(get_ctx, None)
     sheet = _sheet_of_cell(cell, doc)
     if sheet is None:
         return
@@ -566,12 +534,7 @@ def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
 
 def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
     """Load UDProp; reconcile when the flag is on. Always record Isolated session."""
-    if doc is None:
-        return
-    try:
-        if not doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
-            return
-    except Exception:
+    if doc is None or not uno_probe(lambda: doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False):
         return
     load_geometric_registry_for_doc(doc)
     if geometric_flag_enabled():

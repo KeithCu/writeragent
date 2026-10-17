@@ -649,10 +649,7 @@ def py_code_arg_is_cell_ref(code: str) -> bool:
         return False
     try:
         parse_address(bare)
-    except ValueError:
-        return False
     except Exception:
-        # Live deal.PreContractError if length slipped past the guard; treat as not-a-ref.
         return False
     return True
 

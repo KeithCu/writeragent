@@ -112,12 +112,7 @@ def discover_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None)
 
     found: list[PythonCellInfo] = []
     truncated = False
-    try:
-        formula_cells = sheet.queryContentCells(_CELL_FLAG_FORMULA)
-    except Exception:
-        log.debug("list_python_cells_on_sheet: queryContentCells failed", exc_info=True)
-        return PythonSheetDiscovery([], False)
-
+    formula_cells = sheet.queryContentCells(_CELL_FLAG_FORMULA)
     if formula_cells is None:
         return PythonSheetDiscovery([], False)
 
@@ -195,24 +190,17 @@ def list_python_cells_in_doc(doc: Any, *, active_sheet_only: bool = True) -> lis
     """Enumerate Python cells in *doc* (active sheet by default)."""
     if doc is None:
         return []
-    try:
+    if active_sheet_only:
         controller = doc.getCurrentController()
-        if active_sheet_only and controller is not None:
+        if controller is not None:
             sheet = controller.getActiveSheet()
             if sheet is not None:
                 return list_python_cells_on_sheet(sheet)
-    except Exception:
-        log.debug("list_python_cells_in_doc: active sheet path failed", exc_info=True)
-
-    if active_sheet_only:
         return []
 
     out: list[PythonCellInfo] = []
-    try:
-        sheets = doc.getSheets()
-        for i in range(sheets.getCount()):
-            sheet = sheets.getByIndex(i)
-            out.extend(list_python_cells_on_sheet(sheet))
-    except Exception:
-        log.debug("list_python_cells_in_doc: all-sheets path failed", exc_info=True)
+    sheets = doc.getSheets()
+    for i in range(sheets.getCount()):
+        sheet = sheets.getByIndex(i)
+        out.extend(list_python_cells_on_sheet(sheet))
     return out

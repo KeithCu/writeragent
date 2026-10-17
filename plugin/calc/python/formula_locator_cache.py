@@ -12,7 +12,7 @@ import logging
 import re
 from typing import Any, Iterator
 
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import uno_probe
 
 log = logging.getLogger(__name__)
 
@@ -77,9 +77,8 @@ def _resolve_ref_cell(sheet: Any, doc: Any | None, code_ref: str) -> Any | None:
                 if hasattr(sheets, "hasByName") and sheets.hasByName(sheet_prefix):
                     target_sheet = sheets.getByName(sheet_prefix)
                 elif hasattr(sheets, "getByName"):
-                    try:
-                        target_sheet = sheets.getByName(sheet_prefix)
-                    except Exception:
+                    target_sheet = uno_probe(lambda: sheets.getByName(sheet_prefix), None)
+                    if target_sheet is None:
                         return None
                 else:
                     return None
@@ -101,18 +100,15 @@ def is_matching_py_formula(formula: str, code_str: str, *, sheet: Any | None = N
     if extracted is not None:
         return _code_strings_match(extracted, code_str)
     if sheet is not None:
-        try:
-            from plugin.calc.python.formula_edit import parse_python_formula, py_formula_has_unquoted_code_ref
+        from plugin.calc.python.formula_edit import parse_python_formula, py_formula_has_unquoted_code_ref
 
-            if py_formula_has_unquoted_code_ref(formula):
-                parts = parse_python_formula(formula)
-                if parts is not None and parts.code:
-                    ref_cell = _resolve_ref_cell(sheet, doc, parts.code)
-                    if ref_cell is not None:
-                        cell_text = getattr(ref_cell, "getString", lambda: "")()
-                        return _code_strings_match(cell_text, code_str)
-        except Exception:
-            pass
+        if py_formula_has_unquoted_code_ref(formula):
+            parts = parse_python_formula(formula)
+            if parts is not None and parts.code:
+                ref_cell = _resolve_ref_cell(sheet, doc, parts.code)
+                if ref_cell is not None:
+                    cell_text = uno_probe(ref_cell.getString, "") if hasattr(ref_cell, "getString") else ""
+                    return _code_strings_match(cell_text, code_str)
     return False
 
 
@@ -124,7 +120,7 @@ def _array_block_origin(sheet: Any, col: int, row: int) -> tuple[int, int] | Non
     (End == Start); the getArrayFormula() check is what stops a fill-down
     from being treated as an array formula.
     """
-    try:
+    def _probe() -> tuple[int, int] | None:
         if not hasattr(sheet, "createCursorByRange") or not hasattr(sheet, "getCellRangeByPosition"):
             return None
         cursor = sheet.createCursorByRange(sheet.getCellRangeByPosition(col, row, col, row))
@@ -145,10 +141,8 @@ def _array_block_origin(sheet: Any, col: int, row: int) -> tuple[int, int] | Non
         if not get_arr or not get_arr():
             return None
         return (start_row, start_col)
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
-        return None
+
+    return uno_probe(_probe, None)
 
 
 def _matching_cells_in_range(sheet: Any, cell_range: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
@@ -156,12 +150,7 @@ def _matching_cells_in_range(sheet: Any, cell_range: Any, code_str: str, doc: An
     addr = cell_range.getRangeAddress()
     raw_hits: list[tuple[Any, int, int]] = []
 
-    formula_array: Any = None
-    if hasattr(cell_range, "getFormulaArray"):
-        try:
-            formula_array = cell_range.getFormulaArray()
-        except Exception:
-            formula_array = None
+    formula_array: Any = uno_probe(cell_range.getFormulaArray, None) if hasattr(cell_range, "getFormulaArray") else None
 
     if formula_array is not None and isinstance(formula_array, (list, tuple)):
         for r_offset, row_formulas in enumerate(formula_array):
@@ -224,17 +213,14 @@ def search_sheet_for_formula(sheet: Any, code_str: str, doc: Any | None = None) 
 def collect_matching_formula_origins(sheet: Any, code_str: str, doc: Any | None = None) -> list[tuple[Any, int, int]]:
     """All matching formula origins on *sheet* (one per queryContentCells range)."""
     found: list[tuple[Any, int, int]] = []
-    try:
-        # com.sun.star.sheet.CellFlags.FORMULA = 16
-        formula_cells = sheet.queryContentCells(16)
-        if formula_cells is None:
-            return found
-        count = formula_cells.getCount() if hasattr(formula_cells, "getCount") else 0
-        for i in range(count):
-            cell_range = formula_cells.getByIndex(i)
-            found.extend(_matching_cells_in_range(sheet, cell_range, code_str, doc=doc))
-    except Exception:
-        log.debug("search_sheet_for_formula failed on sheet", exc_info=True)
+    # com.sun.star.sheet.CellFlags.FORMULA = 16
+    formula_cells = sheet.queryContentCells(16)
+    if formula_cells is None:
+        return found
+    count = formula_cells.getCount() if hasattr(formula_cells, "getCount") else 0
+    for i in range(count):
+        cell_range = formula_cells.getByIndex(i)
+        found.extend(_matching_cells_in_range(sheet, cell_range, code_str, doc=doc))
     return found
 
 
@@ -264,23 +250,17 @@ def locate_formula_cell_in_doc(ctx: Any, doc: Any, code_str: str) -> tuple[Any, 
         collected.append((sheet, cell, (row, col)))
 
     res: tuple[Any, Any, tuple[int, int]] | None = None
-    try:
-        sheets = doc.getSheets() if hasattr(doc, "getSheets") else None
-        if sheets is not None:
-            count = sheets.getCount() if hasattr(sheets, "getCount") else 0
-            for i in range(count):
-                sheet = sheets.getByIndex(i)
-                for cell, r, c in collect_matching_formula_origins(sheet, code_str, doc=doc):
-                    _add(sheet, cell, r, c)
-                    if len(collected) > 1:
-                        if memo is not None and cache_key is not None:
-                            memo[cache_key] = None
-                        return None
-    except Exception:
-        log.debug("locate_formula_cell_in_doc failed across sheets", exc_info=True)
-        if memo is not None and cache_key is not None:
-            memo[cache_key] = None
-        return None
+    sheets = doc.getSheets() if hasattr(doc, "getSheets") else None
+    if sheets is not None:
+        count = sheets.getCount() if hasattr(sheets, "getCount") else 0
+        for i in range(count):
+            sheet = sheets.getByIndex(i)
+            for cell, r, c in collect_matching_formula_origins(sheet, code_str, doc=doc):
+                _add(sheet, cell, r, c)
+                if len(collected) > 1:
+                    if memo is not None and cache_key is not None:
+                        memo[cache_key] = None
+                    return None
 
     if len(collected) == 1:
         res = collected[0]

@@ -12,6 +12,7 @@ from typing import Any, cast
 
 import unohelper
 
+from plugin.framework.errors import best_effort, uno_probe
 from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger(__name__)
@@ -32,45 +33,35 @@ def _edit_python_cell_url() -> str:
 
 
 def _is_calc_controller(controller: Any) -> bool:
-    try:
-        if controller is None:
-            return False
-        model = controller.getModel()
-        if model is None:
-            return False
-        return bool(model.supportsService("com.sun.star.sheet.SpreadsheetDocument"))
-    except Exception:
-        log.debug("python_editor_context_menu: could not resolve controller model", exc_info=True)
+    if controller is None:
         return False
+    return bool(
+        uno_probe(
+            lambda: bool(controller.getModel() and controller.getModel().supportsService("com.sun.star.sheet.SpreadsheetDocument")),
+            False,
+        )
+    )
 
 
 def _looks_like_cell_context_menu(container: Any) -> bool:
     # .uno:Cut is the first item of sc/uiconfig/scalc/popupmenu/cell.xml.
     # Several other Calc popups share that first item (column/row headers, etc.).
-    # A separator or any other first command returns false because getPropertyValue("CommandURL")
-    # fails or does not match .uno:Cut.
-    try:
-        if container is None or container.getCount() == 0:
-            return False
-        first = container.getByIndex(0)
-        if first is None:
-            return False
-        cmd = first.getPropertyValue("CommandURL")
-        return str(cmd) == _CELL_MENU_FIRST_COMMAND
-    except Exception:
+    if container is None or container.getCount() == 0:
         return False
+    return bool(
+        uno_probe(
+            lambda: str(container.getByIndex(0).getPropertyValue("CommandURL")) == _CELL_MENU_FIRST_COMMAND,
+            False,
+        )
+    )
 
 
 def _prune_disposed_controllers() -> None:
     """Prune disposed controllers from _registered_controllers (must hold _lock)."""
-    alive: list[Any] = []
-    for ctrl in _registered_controllers:
-        try:
-            if ctrl.getModel() is not None:
-                alive.append(ctrl)
-        except Exception:
-            continue
-    _registered_controllers[:] = alive
+    _registered_controllers[:] = [
+        ctrl for ctrl in _registered_controllers
+        if uno_probe(lambda: ctrl.getModel() is not None, False)
+    ]
 
 
 def _get_interceptor() -> Any:
@@ -150,10 +141,7 @@ def _register_controller(controller: Any) -> None:
 
 
 def _register_frame(frame: Any) -> None:
-    try:
-        controller = frame.getController() if frame is not None else None
-    except Exception:
-        return
+    controller = uno_probe(frame.getController, None) if frame is not None else None
     _register_controller(controller)
 
 
@@ -204,12 +192,9 @@ def install_calc_cell_context_menu(ctx: Any) -> None:
             frames = desktop.getFrames()
             if frames is not None:
                 for i in range(frames.getCount()):
-                    try:
-                        frame = frames.getByIndex(i)
-                        if frame is not None:
-                            _register_frame(frame)
-                    except Exception:
-                        log.debug("python_editor_context_menu: frame %s skipped", i, exc_info=True)
+                    frame = best_effort(lambda idx=i: frames.getByIndex(idx), "get frame")
+                    if frame is not None:
+                        _register_frame(frame)
         _install_doc_event_listener(ctx)
     except Exception:
         log.debug("python_editor_context_menu: install failed", exc_info=True)

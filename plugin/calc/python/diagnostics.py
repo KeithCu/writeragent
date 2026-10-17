@@ -16,6 +16,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from plugin.framework.errors import best_effort
+
 DiagnosticFilter = Literal["all", "errors", "output"]
 
 _MAX_ENTRIES_PER_WORKBOOK = 200
@@ -87,10 +89,7 @@ class PythonDiagnosticsStore:
             bucket.append(entry)
             listeners = list(self._listeners)
         for cb in listeners:
-            try:
-                cb(entry)
-            except Exception:
-                pass
+            best_effort(lambda: cb(entry), "diagnostic listener failed")
         return entry
 
     def list_entries(self, workbook_key: str, *, filt: DiagnosticFilter = "all", newest_first: bool = True) -> list[DiagnosticEntry]:
@@ -125,10 +124,8 @@ class PythonDiagnosticsStore:
 
     def remove_listener(self, callback: Any) -> None:
         with self._lock:
-            try:
+            if callback in self._listeners:
                 self._listeners.remove(callback)
-            except ValueError:
-                pass
 
 
 _STORE = PythonDiagnosticsStore()
