@@ -629,33 +629,17 @@ def build_tool_execute_fn(
         call_args = safe_args
         if "bypass_thread_guard" in call_args or "ctx" in call_args or "tool_name" in call_args:
             call_args = {key: value for key, value in call_args.items() if key not in ("bypass_thread_guard", "ctx", "tool_name")}
-        try:
-            res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
-            # execute_safe turns a disposed document into a DOCUMENT_DISPOSED
-            # dict. Returning that JSON queues TOOL_DONE and the loop keeps
-            # going on a dead document. Raise instead. The raise below is
-            # classified with this same ``doc`` (the document passed in at
-            # spawn) in ``_queue_tool_failure``.
-            if isinstance(res, dict) and res.get("code") == "DOCUMENT_DISPOSED":
-                message = res.get("message")
-                text = message.strip() if isinstance(message, str) and message.strip() else "Document was closed or disposed by LibreOffice"
-                raise DocumentDisposedError(text)
-            return json.dumps(res, default=str) if isinstance(res, dict) else str(res)
-        except (ToolExecutionError, UnoObjectError) as e:
-            if is_tool_document_disposed(e, doc):
-                raise
-            log.exception("Tool execution failed")
-            agent_log("tool_loop.py:execute_fn", "Tool execution failed", data={"type": type(e).__name__, "message": str(e)})
-            err_payload = format_error_payload(e)
-            if "details" not in err_payload:
-                err_payload["details"] = {}
-            return json.dumps(err_payload, default=str)
-        except Exception as e:
-            if is_tool_document_disposed(e, doc):
-                raise
-            log.exception("Unexpected tool error")
-            wrapped_error = ToolExecutionError("Unexpected error executing tool '%s'" % name, code="TOOL_UNEXPECTED_ERROR", details={"tool_name": name, "original_error": str(e), "type": type(e).__name__})
-            return json.dumps(format_error_payload(wrapped_error), default=str)
+        res = _get_tools().execute(name, tctx, bypass_thread_guard=False, **call_args)
+        # execute_safe turns a disposed document into a DOCUMENT_DISPOSED
+        # dict. Returning that JSON queues TOOL_DONE and the loop keeps
+        # going on a dead document. Raise instead. The raise below is
+        # classified with this same ``doc`` (the document passed in at
+        # spawn) in ``_queue_tool_failure``.
+        if isinstance(res, dict) and res.get("code") == "DOCUMENT_DISPOSED":
+            message = res.get("message")
+            text = message.strip() if isinstance(message, str) and message.strip() else "Document was closed or disposed by LibreOffice"
+            raise DocumentDisposedError(text)
+        return json.dumps(res, default=str) if isinstance(res, dict) else str(res)
 
     return execute_fn
 

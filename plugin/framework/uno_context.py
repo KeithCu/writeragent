@@ -51,7 +51,6 @@ from plugin.framework.constants import (
 )
 from plugin.framework.errors import (
     DocumentDisposedError,
-    UnoObjectError,
     check_disposed,
     is_real_disposal,
     safe_call,
@@ -216,13 +215,10 @@ def resolve_package_extension_id(ctx: Any | None = None) -> str:
     pip = get_package_info(ctx)
     if pip is not None:
         for extension_id in _KNOWN_EXTENSION_IDS:
-            try:
-                location = pip.getPackageLocation(extension_id)
-                if location:
-                    _package_extension_id = extension_id
-                    return extension_id
-            except Exception:
-                log.debug("getPackageLocation(%s) failed", extension_id, exc_info=True)
+            location = pip.getPackageLocation(extension_id)
+            if location:
+                _package_extension_id = extension_id
+                return extension_id
 
     # Last resort: preserve WriterAgent default for older call sites.
     return EXTENSION_ID_WRITERAGENT
@@ -379,9 +375,6 @@ def get_active_document(ctx: Any | None = None) -> Any:
         # stays the answer when get_desktop() is None or the component itself
         # is missing.
         raise
-    except UnoObjectError:
-        log.warning("get_active_document UnoObjectError", exc_info=True)
-        return None
     except Exception as e:
         # DisposedException from get_desktop() is a plain Exception, so a
         # dying desktop looks like nothing open. safe_call already re-raises
@@ -410,23 +403,19 @@ def get_package_info(ctx: Any | None = None) -> Any:
 def get_extension_url(ctx: Any | None = None, extension_id: str | None = None) -> str:
     """Return the base URL of the extension package, or "" on failure.
 
-    Return "" on every failure path and log it. An exception or an empty
-    location is the same outcome as get_package_info being None, not a
+    Return "" when there is no provider or the location is empty, not a
     synthetic ``vnd.sun.star.extension://<id>`` URL.
     """
     if extension_id is None:
         extension_id = resolve_package_extension_id(ctx)
-    try:
-        pip = get_package_info(ctx)
-        if pip is None:
-            log.debug("get_extension_url(%s) failed: no PackageInformationProvider", extension_id)
-            return ""
-        location = pip.getPackageLocation(extension_id)
-        if location:
-            return location
-        log.debug("get_extension_url(%s) failed: empty package location", extension_id)
-    except Exception:
-        log.debug("get_extension_url(%s) failed", extension_id, exc_info=True)
+    pip = get_package_info(ctx)
+    if pip is None:
+        log.debug("get_extension_url(%s) failed: no PackageInformationProvider", extension_id)
+        return ""
+    location = pip.getPackageLocation(extension_id)
+    if location:
+        return location
+    log.debug("get_extension_url(%s) failed: empty package location", extension_id)
     return ""
 
 
@@ -476,21 +465,17 @@ def get_extension_path(ctx: Any | None = None, extension_id: str | None = None) 
 
 @main_thread_only
 def get_toolkit(ctx: Any | None = None) -> Any:
-    """Safely retrieve the com.sun.star.awt.Toolkit service."""
+    """Return the ``com.sun.star.awt.Toolkit`` service, or None when ctx or ServiceManager is missing."""
     if ctx is None:
         ctx = get_ctx()
     if ctx is None:
         return None
-    try:
-        ctx_any = cast("Any", ctx)
-        smgr = get_service_manager(ctx_any)
-        if smgr is None:
-            return None
-        tk = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.Toolkit", ctx_any)
-        return _guard_returned_uno(tk)
-    except Exception:
-        log.exception("Failed to create toolkit")
+    ctx_any = cast("Any", ctx)
+    smgr = get_service_manager(ctx_any)
+    if smgr is None:
         return None
+    tk = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.Toolkit", ctx_any)
+    return _guard_returned_uno(tk)
 
 
 def clear_writer_body(doc: Any) -> bool:
@@ -670,7 +655,7 @@ def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bo
     return True
 
 
-def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]
+def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by document_scripts.py and session_manager.py
     """False when *enum* is exhausted or past ``_ENUM_CAP``.
 
     Swallows ``hasMoreElements`` errors and returns False. Callers that need
@@ -695,50 +680,36 @@ def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
         return
     try:
         comps = desktop.getComponents()
-    except Exception as e:
-        _reraise_document_disposed(e, "Desktop")
-        return
-    if comps is None:
-        return
-    try:
+        if comps is None:
+            return
         enum = comps.createEnumeration()
+        if enum is None:
+            return
+        seen = 0
+        while True:
+            more = enum.hasMoreElements()
+            if not _desktop_enum_value_continues(more, seen, label="iter_open_models"):
+                break
+            seen += 1
+            elem = enum.nextElement()
+            try:
+                model = None
+                if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
+                    model = elem
+                elif hasattr(elem, "getController") and callable(getattr(elem, "getController")):
+                    # Desktop enumeration can yield frames, not models. Frames
+                    # expose the document via getController().getModel().
+                    controller = elem.getController()
+                    if controller is not None and hasattr(controller, "getModel"):
+                        model = controller.getModel()
+                if model is not None:
+                    yield model
+            except Exception as e:
+                log.debug("iter_open_models element error: %s", type(e).__name__)
+                continue
     except Exception as e:
         _reraise_document_disposed(e, "Desktop")
         return
-    if enum is None:
-        return
-
-    seen = 0
-    while True:
-        try:
-            more = enum.hasMoreElements()
-        except Exception as e:
-            _reraise_document_disposed(e, "Desktop")
-            break
-        if not _desktop_enum_value_continues(more, seen, label="iter_open_models"):
-            break
-        seen += 1
-        try:
-            elem = enum.nextElement()
-        except Exception as e:
-            _reraise_document_disposed(e, "Desktop")
-            log.debug("iter_open_models nextElement error: %s", type(e).__name__)
-            break
-        try:
-            model = None
-            if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
-                model = elem
-            elif hasattr(elem, "getController") and callable(getattr(elem, "getController")):
-                # Desktop enumeration can yield frames, not models. Frames
-                # expose the document via getController().getModel().
-                controller = elem.getController()
-                if controller is not None and hasattr(controller, "getModel"):
-                    model = controller.getModel()
-            if model is not None:
-                yield model
-        except Exception as e:
-            log.debug("iter_open_models element error: %s", type(e).__name__)
-            continue
 
 
 @main_thread_only
@@ -772,8 +743,6 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
                 # One dead window must not hide the rest of the desktop.
                 log.debug("resolve_document_by_url element error: %s", type(e).__name__)
                 continue
-    except DocumentDisposedError:
-        raise
     except Exception as e:
         _reraise_document_disposed(e, "Desktop")
         log.exception("resolve_document_by_url enumeration error")

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.uno_context import set_fallback_ctx, get_ctx
+from plugin.framework.uno_context import get_ctx, get_extension_url, set_fallback_ctx
 _test_doc1 = None
 _test_doc2 = None
 _test_ctx = None
@@ -1205,8 +1205,6 @@ def test_menu_icon_filesystem_paths_removes_leading_assets_prefix_only():
 
 
 def test_get_extension_url_returns_empty_on_all_failures():
-    from plugin.framework.uno_context import get_extension_url
-
     # 1. No PIP
     with patch("plugin.framework.uno_context.get_package_info", return_value=None):
         assert get_extension_url(extension_id="test.id") == ""
@@ -1217,13 +1215,7 @@ def test_get_extension_url_returns_empty_on_all_failures():
     with patch("plugin.framework.uno_context.get_package_info", return_value=mock_pip):
         assert get_extension_url(extension_id="test.id") == ""
 
-    # 3. Exception raised by PIP
-    mock_pip.getPackageLocation.side_effect = RuntimeError("Package lookup failed")
-    with patch("plugin.framework.uno_context.get_package_info", return_value=mock_pip):
-        assert get_extension_url(extension_id="test.id") == ""
-
-    # 4. Success path
-    mock_pip.getPackageLocation.side_effect = None
+    # 3. Success path
     mock_pip.getPackageLocation.return_value = "file:///path/to/ext"
     with patch("plugin.framework.uno_context.get_package_info", return_value=mock_pip):
         assert get_extension_url(extension_id="test.id") == "file:///path/to/ext"

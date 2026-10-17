@@ -6,23 +6,27 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.config_schema import _get_schema_default, as_bool
+from plugin.framework.errors import ConfigError
 from plugin.framework.prompts import (
     CALC_CORE_DIRECTIVES,
+    CHAT_RESPONSE_FORMAT,
     DEFAULT_CALC_GREETING,
     DEFAULT_DRAW_GREETING,
     DEFAULT_WRITER_GREETING,
+    DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
     DELEGATION_USER_FILE_DATA_HINT,
     DRAW_CORE_DIRECTIVES,
+    RICH_CHAT_SIDEBAR_INSTRUCTIONS,
     SIDEBAR_VS_DOCUMENT,
+    SPECIALIZED_TASK_RULES,
     WRITER_CORE_DIRECTIVES,
+    WRITER_IMAGES_RULES,
     WRITER_SPECIALIZED_DELEGATION_TEMPLATE,
     get_chat_system_prompt_for_document,
     get_core_directives_for_type,
     get_greeting_for_document,
     get_specialized_delegation_for_model,
-    DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
-    SPECIALIZED_TASK_RULES,
-    WRITER_IMAGES_RULES,
     images_specialized_sub_agent_hint,
     python_specialized_sub_agent_hint,
 )
@@ -99,13 +103,11 @@ def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
 def test_get_chat_system_prompt_allows_html_by_default_fallback():
     model = MagicMock()
     model.supportsService.return_value = False
-    from plugin.framework.config_schema import _get_schema_default, as_bool
-    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
     rich_default = as_bool(_get_schema_default("rich_text_control_sidebar"))
 
     # When get_config_bool fails, get_config_bool_safe must fall back to the module.yaml default.
-    with patch("plugin.framework.config.get_config_bool", side_effect=Exception("Missing key")):
+    with patch("plugin.framework.config.get_config_bool", side_effect=ConfigError("Invalid stored value", "CONFIG_TYPE_ERROR")):
         prompt = get_chat_system_prompt_for_document(model, ctx=MagicMock())
 
     if rich_default:

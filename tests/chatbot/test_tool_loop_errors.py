@@ -3,9 +3,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 
-from plugin.framework.errors import (
-    ToolExecutionError,
-)
+
 
 from plugin.chatbot.tool_loop_actions import build_tool_execute_fn
 from plugin.chatbot.tool_loop import ToolCallingMixin
@@ -102,36 +100,39 @@ def test_instance():
         yield instance
 
 def test_tool_execution_error_handling(test_instance, mock_get_tools):
-    # Setup mock to simulate a tool throwing an error when execute_fn is called
+    # Setup mock to simulate a tool returning error dicts when execute is called
     registry = mock_get_tools
     registry.get_schemas.return_value = [{"name": "test_tool"}]
     execute_fn = build_tool_execute_fn(test_instance, "writer", None, None, MagicMock())
 
     with patch("plugin.chatbot.tool_loop_actions.agent_log") as mock_agent_log:
-        # Test 1: ToolExecutionError
-        registry.execute.side_effect = ToolExecutionError("Specific tool error")
-
-        # Execute it and verify the exception handling
-        res = execute_fn("test_tool", {"arg": "val"}, None, test_instance.ctx)
-
-        # It should return a json encoded format_error_payload
-        parsed_res = json.loads(res)
-        assert parsed_res["status"] == "error"
-        assert parsed_res["code"] == "TOOL_EXECUTION_ERROR"
-        assert parsed_res["message"] == "Specific tool error"
-        mock_agent_log.assert_called()
-
-        # Test 2: Unexpected error
-        mock_agent_log.reset_mock()
-        registry.execute.side_effect = ValueError("Something unexpected")
+        # Test 1: Tool execution error payload
+        err_payload = {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Specific tool error"}
+        registry.execute.return_value = err_payload
 
         res = execute_fn("test_tool", {"arg": "val"}, None, test_instance.ctx)
+
+        parsed_res = json.loads(res)
+        assert parsed_res == err_payload
+        mock_agent_log.assert_not_called()
+
+        # Test 2: Registry error payload
+        reg_payload = {
+            "status": "error",
+            "code": "TOOL_REGISTRY_ERROR",
+            "message": "Failed to execute tool 'test_tool'",
+            "details": {"tool_name": "test_tool", "error": "Something unexpected", "type": "ValueError"},
+        }
+        registry.execute.return_value = reg_payload
+
+        res = execute_fn("test_tool", {"arg": "val"}, None, test_instance.ctx)
         parsed_res = json.loads(res)
 
         assert parsed_res["status"] == "error"
-        assert parsed_res["code"] == "TOOL_UNEXPECTED_ERROR"
-        assert "Unexpected error executing tool" in parsed_res["message"]
-        assert parsed_res["details"]["original_error"] == "Something unexpected"
+        assert parsed_res["code"] == "TOOL_REGISTRY_ERROR"
+        assert parsed_res["code"] != "TOOL_UNEXPECTED_ERROR"
+        assert parsed_res["details"]["tool_name"] == "test_tool"
+        mock_agent_log.assert_not_called()
 
 def test_document_context_error_handling(test_instance, mock_get_tools):
     """Send fails closed when refreshing the live document snapshot fails.

@@ -148,6 +148,7 @@ _DUAL_READ_DOTTED_KEYS_KEEP_FLAT = frozenset({"audio.stt_model"})
 
 _resolved_config_path = None
 _config_uninitialized_warned: bool = False
+_unknown_config_keys_logged: set[str] = set()
 # RLock: set_config holds this while loading; GET-path persist helpers take it
 # too. Same-thread get_config during a nested call must not deadlock.
 _config_write_lock = threading.RLock()
@@ -155,29 +156,23 @@ _config_write_lock = threading.RLock()
 
 def _resolve_config_path_from_ctx(ctx: Any) -> str:
     """Resolve writeragent.json path from a UNO component context."""
-    try:
-        sm = safe_call(ctx.getServiceManager, "Get ServiceManager")
-        path_settings = safe_call(sm.createInstanceWithContext, "Create PathSettings", "com.sun.star.util.PathSettings", ctx)
-        user_config_path = getattr(path_settings, "UserConfig", "")
-        if uno and user_config_path and str(user_config_path).startswith("file://"):
-            user_config_path = str(uno.fileUrlToSystemPath(user_config_path))
-        if not isinstance(user_config_path, str) or not user_config_path.strip():
-            raise ConfigError("Invalid or missing UserConfig path setting", "CONFIG_PATH_ERROR")
-        return os.path.join(user_config_path, CONFIG_FILENAME)
-    except Exception as e:
-        raise ConfigError(f"Failed to resolve config path: {e}", "CONFIG_PATH_ERROR") from e
+    sm = safe_call(ctx.getServiceManager, "Get ServiceManager")
+    path_settings = safe_call(sm.createInstanceWithContext, "Create PathSettings", "com.sun.star.util.PathSettings", ctx)
+    user_config_path = getattr(path_settings, "UserConfig", "")
+    if uno and user_config_path and str(user_config_path).startswith("file://"):
+        user_config_path = str(uno.fileUrlToSystemPath(user_config_path))
+    if not isinstance(user_config_path, str) or not user_config_path.strip():
+        raise ConfigError("Invalid or missing UserConfig path setting", "CONFIG_PATH_ERROR")
+    return os.path.join(user_config_path, CONFIG_FILENAME)
 
 
 def init_config(ctx: Any | None = None) -> str:
     """Resolve and cache writeragent.json path. Idempotent; call once at bootstrap."""
     global _resolved_config_path
     if ctx is not None:
-        try:
-            from plugin.framework.queue_executor import default_executor
+        from plugin.framework.queue_executor import default_executor
 
-            default_executor.set_context(ctx)
-        except Exception:
-            log.exception("init_config: default_executor.set_context failed")
+        default_executor.set_context(ctx)
     if _resolved_config_path is not None:
         return _resolved_config_path
     if ctx is None:
@@ -199,6 +194,7 @@ def reset_config_for_tests() -> None:
     global _resolved_config_path, _config_uninitialized_warned
     _resolved_config_path = None
     _config_uninitialized_warned = False
+    _unknown_config_keys_logged.clear()
     _invalidate_config_cache()
 
 
@@ -211,22 +207,16 @@ def _config_path() -> str:
 
 def _emit_config_changed_ctx() -> Any:
     """Return UNO ctx for config:changed listeners when on the main thread."""
-    try:
-        from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework.uno_context import get_ctx
+    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.uno_context import get_ctx
 
-        return get_ctx() if on_main_thread() else None
-    except Exception:
-        return None
+    return get_ctx() if on_main_thread() else None
 
 
 def user_config_dir() -> str | None:
     """Return LibreOffice user config directory."""
-    try:
-        p = _config_path()
-        return os.path.dirname(p) if p else None
-    except Exception as e:
-        raise ConfigError(f"Failed to resolve config dir: {e}", "CONFIG_DIR_ERROR") from e
+    p = _config_path()
+    return os.path.dirname(p) if p else None
 
 
 def _config_backup_path(config_file_path: str) -> str:
@@ -596,25 +586,58 @@ def get_config_bool(key: str) -> bool:
     return _config_schema.as_bool(v)
 
 
+def _log_unknown_config_key_once(key: str) -> None:
+    """Warn once per process for a key that is not in the schema.
+
+    What was wrong: get_config_bool_safe / get_config_int_safe caught Exception
+    around the read and around _resolve_default, so a typo'd key
+    (CONFIG_KEY_NOT_FOUND) read as False or 0 with no log.
+    How it happened: the inner except was for a missing default, and it also
+    swallowed that unknown-key ConfigError.
+    Why this change fixes it: unknown keys log once and still return False/0.
+    A bad stored value (CONFIG_TYPE_ERROR) still uses the schema default.
+    Anything other than ConfigError propagates.
+    """
+    if key in _unknown_config_keys_logged:
+        return
+    _unknown_config_keys_logged.add(key)
+    log.warning("Unknown config key %r (CONFIG_KEY_NOT_FOUND); using fallback", key)
+
+
 def get_config_bool_safe(key: str) -> bool:
-    """Safely read a boolean config value. Unlike get_config_bool, this returns the schema default (or False) rather than raising an exception if the key is missing or invalid."""
+    """Boolean config, or the schema default when the stored value is a ConfigError.
+
+    Unknown keys log once and return False. Other exceptions propagate.
+    """
     try:
         return get_config_bool(key)
-    except Exception:
+    except ConfigError as exc:
+        if exc.code == "CONFIG_KEY_NOT_FOUND":
+            _log_unknown_config_key_once(key)
+            return False
         try:
             return _config_schema.as_bool(_config_schema._resolve_default(key))
-        except Exception:
+        except ConfigError:
+            _log_unknown_config_key_once(key)
             return False
 
 
 def get_config_int_safe(key: str) -> int:
-    """Safely read an integer config value. Unlike get_config_int, this returns the schema default (or 0) rather than raising an exception if the key is missing or the value is invalid."""
+    """Integer config, or the schema default when the stored value is a ConfigError.
+
+    Unknown keys log once and return 0. A non-integer stored value uses the
+    schema default. Other exceptions propagate.
+    """
     try:
         return get_config_int(key)
-    except Exception:
+    except ConfigError as exc:
+        if exc.code == "CONFIG_KEY_NOT_FOUND":
+            _log_unknown_config_key_once(key)
+            return 0
         try:
             return _config_schema.parse_int_robust(_config_schema._resolve_default(key))
-        except Exception:
+        except ConfigError:
+            _log_unknown_config_key_once(key)
             return 0
 
 
@@ -957,9 +980,6 @@ class ConfigStore:
                 cfg = _validated_config_for_write(remaining, key)
             except ConfigValidationError as e:
                 log.warning("remove_config skipped write: remaining config is invalid: %s", e)
-                return False
-            except Exception:
-                log.exception("remove_config validation failed; not writing unvalidated dict")
                 return False
             to_write = _repaired_file_dict(loaded, cfg)
             to_write.pop(key, None)

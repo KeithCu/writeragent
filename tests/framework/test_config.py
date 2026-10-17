@@ -10,13 +10,16 @@ from plugin.framework.config import (
     CONFIG_BACKUP_SUFFIX,
     CONFIG_SCHEMA_COMMENT,
     CONFIG_SCHEMA_DOC_URL,
+    _resolve_config_path_from_ctx,
     get_api_key_for_endpoint,
     set_api_key_for_endpoint,
     get_config,
-    get_config_dict,
     get_config_bool,
+    get_config_bool_safe,
+    get_config_dict,
     get_config_float,
     get_config_int,
+    get_config_int_safe,
     parse_config_json_text,
     reset_config_for_tests,
     set_config,
@@ -1552,13 +1555,11 @@ def test_second_config_backup_keeps_the_first_copy(tmp_path):
 
 
 def test_resolve_config_path_from_ctx_rejects_mock_and_invalid_user_config():
-    from plugin.framework.config import _resolve_config_path_from_ctx
-
     # 1. Raw MagicMock context creates MagicMock UserConfig
     with pytest.raises(ConfigError) as exc1:
         _resolve_config_path_from_ctx(MagicMock())
+    assert str(exc1.value) == "Invalid or missing UserConfig path setting"
     assert exc1.value.code == "CONFIG_PATH_ERROR"
-    assert "Invalid or missing UserConfig" in str(exc1.value)
 
     # 2. Context returning empty string for UserConfig
     ctx_empty = MagicMock()
@@ -1576,3 +1577,48 @@ def test_resolve_config_path_from_ctx_rejects_mock_and_invalid_user_config():
     ctx_valid.getServiceManager.return_value.createInstanceWithContext.return_value = ps_valid
     path = _resolve_config_path_from_ctx(ctx_valid)
     assert path == os.path.join("/home/user/.config/libreoffice/4/user", "writeragent.json")
+
+
+def test_get_config_int_safe_unknown_key_logs_once_and_returns_zero(caplog):
+    reset_config_for_tests()
+    with caplog.at_level(logging.WARNING, logger="plugin.framework.config"):
+        val1 = get_config_int_safe("not.a.real.key")
+        val2 = get_config_int_safe("not.a.real.key")
+    assert val1 == 0
+    assert val2 == 0
+    records = [r for r in caplog.records if "not.a.real.key" in r.message]
+    assert len(records) == 1
+
+
+def test_get_config_bool_safe_unknown_key_logs_once_and_returns_false(caplog):
+    reset_config_for_tests()
+    with caplog.at_level(logging.WARNING, logger="plugin.framework.config"):
+        val1 = get_config_bool_safe("not.a.real.key")
+        val2 = get_config_bool_safe("not.a.real.key")
+    assert val1 is False
+    assert val2 is False
+    records = [r for r in caplog.records if "not.a.real.key" in r.message]
+    assert len(records) == 1
+
+
+def test_get_config_int_safe_type_error_uses_schema_default(caplog):
+    reset_config_for_tests()
+    with patch("plugin.framework.config.get_config_int", side_effect=ConfigError("bad", "CONFIG_TYPE_ERROR")):
+        with caplog.at_level(logging.WARNING, logger="plugin.framework.config"):
+            val = get_config_int_safe("request_timeout")
+    assert val == 120
+    assert not any("Unknown config key" in r.message or "CONFIG_KEY_NOT_FOUND" in r.message for r in caplog.records)
+
+
+def test_get_config_int_safe_propagates_non_config_error():
+    reset_config_for_tests()
+    with patch("plugin.framework.config.get_config_int", side_effect=RuntimeError("boom")):
+        with pytest.raises(RuntimeError):
+            get_config_int_safe("request_timeout")
+
+
+def test_get_config_bool_safe_propagates_non_config_error():
+    reset_config_for_tests()
+    with patch("plugin.framework.config.get_config_bool", side_effect=RuntimeError("boom")):
+        with pytest.raises(RuntimeError):
+            get_config_bool_safe("rich_text_control_sidebar")
