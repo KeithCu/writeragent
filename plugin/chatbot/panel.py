@@ -1238,29 +1238,25 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if getattr(self, "_panel_teardown", False) or getattr(self, "ctx", None) is None:
             return
 
-        try:
+        from plugin.chatbot.tool_loop_actions import current_turn
 
-            from plugin.chatbot.tool_loop_actions import current_turn
+        # Bugfix: parallel tools/call requests rebuilt _last_mcp_turn while other
+        # threads called pop or disposing cleared on the UI thread, causing race conditions.
+        # EventBus runs mcp:request / mcp:result on HTTP workers, while disposing clears
+        # on the UI thread. Mutating under _mcp_turn_lock with a second teardown check
+        # prevents data races and stops late requests from storing turns after teardown.
+        rid = str(kwargs.get("req_id", ""))
+        turn = current_turn(self)
+        with _get_mcp_turn_lock(self):
+            if getattr(self, "_panel_teardown", False) or getattr(self, "ctx", None) is None:
+                return
+            kept = {k: v for k, v in getattr(self, "_last_mcp_turn", {}).items() if getattr(v, "alive", False)}
+            kept[rid] = turn
+            self._last_mcp_turn = kept
+        from plugin.framework.logging import format_tool_call_for_display
 
-            # Bugfix: parallel tools/call requests rebuilt _last_mcp_turn while other
-            # threads called pop or disposing cleared on the UI thread, causing race conditions.
-            # EventBus runs mcp:request / mcp:result on HTTP workers, while disposing clears
-            # on the UI thread. Mutating under _mcp_turn_lock with a second teardown check
-            # prevents data races and stops late requests from storing turns after teardown.
-            rid = str(kwargs.get("req_id", ""))
-            turn = current_turn(self)
-            with _get_mcp_turn_lock(self):
-                if getattr(self, "_panel_teardown", False) or getattr(self, "ctx", None) is None:
-                    return
-                kept = {k: v for k, v in getattr(self, "_last_mcp_turn", {}).items() if getattr(v, "alive", False)}
-                kept[rid] = turn
-                self._last_mcp_turn = kept
-            from plugin.framework.logging import format_tool_call_for_display
-
-            fmt_str = format_tool_call_for_display(tool, args, method)
-            log.debug(f"MCP Request (hidden from UI, level=logging.DEBUG): {fmt_str}")
-        except Exception:
-            log.exception("_on_mcp_request error")
+        fmt_str = format_tool_call_for_display(tool, args, method)
+        log.debug(f"MCP Request (hidden from UI, level=logging.DEBUG): {fmt_str}")
 
     def _on_mcp_result(self, tool: str = "", result_snippet: str = "", **kwargs: Any) -> None:
         """Handle MCP result events from the bus (background thread)."""
