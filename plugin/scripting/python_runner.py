@@ -179,7 +179,7 @@ def format_result_for_writer(result: Any) -> str:
     if isinstance(result, str) and not result:
         return ""
 
-    if is_dataframe_payload(result):
+    if isinstance(result, dict) and is_dataframe_payload(result):
         cols = result.get("columns") or []
         data = result.get("data") or []
         return _format_list_to_table(data if isinstance(data, list) else [], headers=cols if cols else None)
