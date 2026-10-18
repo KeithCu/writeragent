@@ -2090,7 +2090,7 @@ def _diagnostics_workbook_key(ctx: Any, doc: Any | None = None) -> str:
         return "unknown"
     from plugin.scripting.session_manager import existing_calc_session_id
 
-    return best_effort(lambda: existing_calc_session_id(doc), "diagnostics workbook key", "unknown") or "unknown"
+    return best_effort(lambda: existing_calc_session_id(doc) or "unknown", "diagnostics workbook key", "unknown")
 
 
 def _record_py_diagnostic(ctx: Any, code: str, res: dict[str, Any] | None, *, status: str, message: str = "", traceback: str = "", doc: Any | None = None) -> None:

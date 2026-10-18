@@ -192,7 +192,11 @@ def install_calc_cell_context_menu(ctx: Any) -> None:
             frames = desktop.getFrames()
             if frames is not None:
                 for i in range(frames.getCount()):
-                    frame = best_effort(lambda idx=i: frames.getByIndex(idx), "get frame")
+
+                    def _frame(idx: int = i) -> Any:
+                        return frames.getByIndex(idx)
+
+                    frame = best_effort(_frame, "get frame")
                     if frame is not None:
                         _register_frame(frame)
         _install_doc_event_listener(ctx)

@@ -80,7 +80,11 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     if f:
         out.append(str(f))
     for prop in ("FormulaLocal", "Formula"):
-        val = uno_probe(lambda p=prop: cell.getPropertyValue(p), None)
+
+        def _read(p: str = prop) -> Any:
+            return cell.getPropertyValue(p)
+
+        val = uno_probe(_read, None)
         if val and str(val) not in out:
             out.append(str(val))
     if content is None:
