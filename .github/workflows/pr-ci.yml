@@ -169,6 +169,14 @@ jobs:
           unopkg list > "$RUNNER_TEMP/unopkg-list.txt"
           grep "org.extension.writeragent" "$RUNNER_TEMP/unopkg-list.txt"
 
+      # Dispatch only: exercises the Python clean / extract-strings / merge path on each OS.
+      - name: Release build (clean + release-build)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.test_mock_sidebar != true }}
+        continue-on-error: true
+        run: |
+          make clean
+          make release-build
+
       - name: Run tests (Pytest + UNO)
         if: ${{ inputs.test_mock_sidebar != true }}
         # Ubuntu/macOS stay at 25. Windows UNO after leftover_open=0 +
