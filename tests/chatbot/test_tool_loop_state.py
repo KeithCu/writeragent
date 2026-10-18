@@ -17,6 +17,7 @@ from plugin.chatbot.tool_loop_state import (
     UpdateDocumentContextEffect,
     CleanupAudioEffect,
     format_empty_model_response_debug,
+    format_replaced_zero_debug_line,
     format_tool_result_chat_text,
     format_tool_running_ui,
     is_replaced_zero_result,
@@ -161,6 +162,8 @@ def test_stream_done_no_text_includes_debug_sidebar():
     msg = next(e for e in effects if isinstance(e, AddMessageEffect))
     assert "No text from model" in msg.content
     assert "finish_reason='stop'" in msg.content
+    debug_eff = next(e for e in effects if isinstance(e, ToolLoopUIEffect) and e.is_empty_model_debug)
+    assert debug_eff.text == debug_line
 
 
 def test_format_empty_model_response_debug_overflow_pre_fails_closed():
@@ -618,6 +621,35 @@ def test_tool_result_parsing():
     assert not any(isinstance(e, UpdateDocumentContextEffect) for e in effects_adc)  # mutates_document=False
 
 
+def test_tool_result_missing_data_and_empty_call_id():
+    state = create_base_state()
+    # Missing call_id and None result/func_name should be safely handled without empty IDs
+    event = create_event(
+        EventKind.TOOL_RESULT,
+        call_id="",
+        func_name=None,
+        func_args_str=None,
+        result=None,
+        mutates_document=None,
+    )
+    tr = next_state(state, event)
+    msg_eff = next(e for e in tr.effects if isinstance(e, AddMessageEffect))
+    assert msg_eff.role == "tool"
+    assert msg_eff.call_id == "call_unknown"
+    assert msg_eff.content == ""
+
+    # When func_name is present but call_id is empty, use call_<func_name>
+    event_named = create_event(
+        EventKind.TOOL_RESULT,
+        call_id="",
+        func_name="lookup_text",
+        result='{"found": true}',
+    )
+    tr_named = next_state(state, event_named)
+    msg_named = next(e for e in tr_named.effects if isinstance(e, AddMessageEffect))
+    assert msg_named.call_id == "call_lookup_text"
+
+
 def test_object_dict_or_empty():
     from collections import UserDict
 
@@ -631,9 +663,18 @@ def test_object_dict_or_empty():
 
 def test_pending_tool_call_fields():
     assert pending_tool_call_fields({"id": "c1", "function": {"name": "foo", "arguments": "{}"}}) == ("foo", "{}", "c1")
-    assert pending_tool_call_fields(None) == ("unknown", "{}", "")
+    assert pending_tool_call_fields(None) == ("unknown", "{}", "call_unknown")
     assert pending_tool_call_fields({"id": "c2"}) == ("unknown", "{}", "c2")
-    assert pending_tool_call_fields({"function": "bad"}) == ("unknown", "{}", "")
+    assert pending_tool_call_fields({"function": "bad"}) == ("unknown", "{}", "call_unknown")
+    assert pending_tool_call_fields({"id": "", "function": {"name": "search", "arguments": "{}"}}) == ("search", "{}", "call_search")
+
+
+def test_format_replaced_zero_debug_line():
+    line = format_replaced_zero_debug_line('{"target": "doc"}')
+    assert line == '[Debug: params {"target": "doc"}]\n'
+    long_line = format_replaced_zero_debug_line("A" * 1000)
+    assert long_line.endswith("...]\n")
+    assert len(long_line) <= 820
 
 
 def test_format_tool_running_ui():

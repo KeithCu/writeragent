@@ -91,7 +91,7 @@ class SpawnWebWorkerEffect(NamedTuple):
 
 
 class SendHandlerUIEffect(NamedTuple):
-    kind: str  # UIEffectKind — str for CrossHair cover (Literal is not proxyable)
+    kind: UIEffectKind
     text: str
     is_thinking: bool = False
     role: str = "assistant"
