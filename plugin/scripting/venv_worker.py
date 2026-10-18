@@ -46,7 +46,6 @@ from plugin.scripting.config_limits import (
 )
 from plugin.scripting.ipc import (
     _stop_requested,
-    _write_all,
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
     IpcFrameError,
@@ -54,6 +53,7 @@ from plugin.scripting.ipc import (
     pack_pickle_frame,
     read_frame_payload,
     unpack_pickle_frame,
+    write_packed_frame_with_timeout,
 )
 from plugin.scripting.payload_codec import _HOST_UNPACK_ERRORS, host_unpack_data
 from plugin.scripting.sandbox import (
@@ -308,7 +308,6 @@ class PythonWorkerManager:
         self._retired = False
         self._proc_lock = threading.Lock()
         self._stderr_drain: StderrTail | None = None
-        self._stdin_writer_thread: threading.Thread | None = None
         # In-flight background reaps. get() moves a replaced manager's handles
         # onto the replacement so the next spawn waits for the old tree.
         self._reap_handles = []
@@ -613,7 +612,7 @@ class PythonWorkerManager:
 
         def _stdin_write(blob: bytes) -> None:
             try:
-                self._write_bytes_with_timeout(
+                self._write_packed_frame_with_timeout(
                     stdin,
                     blob,
                     timeout_sec=write_timeout_sec,
@@ -868,7 +867,7 @@ class PythonWorkerManager:
                 log.warning("Python worker retired: %s", e)
                 return _worker_error("WORKER_IPC_ERROR", str(e), details={"exe": self.exe})
             except subprocess.TimeoutExpired as e:
-                # Initial stdin write only. _write_bytes_with_timeout already
+                # Initial stdin write only. _write_packed_frame_with_timeout already
                 # detached the child and started the reap. Terminating again
                 # made it unclear who kills the worker, and a second wait
                 # would block on that reap. Host read timeouts return above.
@@ -1009,59 +1008,48 @@ class PythonWorkerManager:
         timeout_sec: float,
         label: str,
     ) -> None:
-        """Serialize one frame, then bound only the potentially blocking pipe write."""
-        frame = pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-        self._write_bytes_with_timeout(stdin, frame, timeout_sec=timeout_sec, label=label)
+        """Pack, then bound the pipe write.
 
-    def _write_bytes_with_timeout(
+        ``pack_pickle_frame`` raises ``IpcFrameError`` before any byte is written.
+        ``_execute_ipc_attempts`` returns that as ``WORKER_IPC_ERROR`` and leaves
+        the warm child up. Do not catch ``IpcFrameError`` here.
+        """
+        frame = pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+        self._write_packed_frame_with_timeout(stdin, frame, timeout_sec=timeout_sec, label=label)
+
+    def _write_packed_frame_with_timeout(
         self,
         stdin: IO[bytes],
-        payload: bytes,
+        frame: bytes,
         *,
         timeout_sec: float,
         label: str,
     ) -> None:
-        """Write and flush bytes without allowing a stalled child to hold ``_io_lock`` forever.
+        """Write an already-packed frame. A stalled child must not hold ``_io_lock``.
 
-        Skip a reusable writer thread: this per-write daemon is how a stalled child
-        cannot hold ``_io_lock``. Thread creation is cheap vs a venv round-trip;
-        a pooled writer adds shutdown races on Windows pipes. Measure before changing.
+        POSIX does this in-process (non-blocking ``os.write`` + ``select``).
+        Windows is ipc's join-timeout daemon; on timeout that helper does not
+        join the stuck thread and does not kill. A timeout can mean a partial
+        frame is already in the pipe, so kill here and re-raise with
+        ``cmd=self.exe`` (ipc's exception says ``cmd="IPC frame"``).
+        ``wait=False``: do not join the reap or the Windows ``ipc-stdin-write``
+        thread. The reap closes the pipe; the next ``_ensure_running`` joins it.
+
+        Do not catch ``BrokenPipeError`` / ``OSError``. A dead child is
+        ``BrokenPipeError`` from ``is_alive``, not a timeout. See below.
         """
-        errors: list[Exception] = []
-
-        def _writer() -> None:
-            try:
-                # Short writes on a raw pipe (bufsize=0) desync the length prefix.
-                # _write_all loops; this thread only bounds how long that can block.
-                _write_all(stdin, payload)
-            except Exception as exc:
-                errors.append(exc)
-
-        writer = threading.Thread(
-            target=_writer,
-            name=f"venv-stdin-{label.replace(' ', '-').lower()}",
-            daemon=True,
-        )
-        self._stdin_writer_thread = writer
-        writer.start()
-        writer.join(timeout=max(0.01, timeout_sec))
-        if not writer.is_alive():
-            # Join finished. A completed writer thread keeps its stack until
-            # the next write replaces this reference.
-            self._stdin_writer_thread = None
-        if writer.is_alive():
-            # Previously a child that stopped reading stdin left this thread and the
-            # caller blocked in write()/flush() while _io_lock serialized the whole
-            # pool. Killing the child closes the pipe reader and unblocks the writer.
-            # The writer is a daemon on the old pipe. Do not join it here: that
-            # waited another 5s on the caller after the kill. The reap closes the
-            # pipe; the next spawn joins the reap first.
+        try:
+            write_packed_frame_with_timeout(
+                stdin,
+                frame,
+                timeout_sec,
+                is_alive=self._is_worker_alive,
+            )
+        except subprocess.TimeoutExpired as exc:
             log.warning("%s write timed out after %ss; terminating Python worker", label, timeout_sec)
             self._terminate_worker(wait=False)
             _clear_host_state_after_worker_death()
-            raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec)
-        if errors:
-            raise errors[0]
+            raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_sec) from exc
 
     def _normalize_response(self, response: dict[str, Any]) -> dict[str, Any]:
         if response.get("status") == "ok":

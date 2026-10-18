@@ -443,7 +443,7 @@ def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
         started = time.monotonic()
         with mgr._io_lock:
             with pytest.raises(subprocess.TimeoutExpired):
-                mgr._write_bytes_with_timeout(
+                mgr._write_packed_frame_with_timeout(
                     mgr._proc.stdin,
                     b"x" * (8 * 1024 * 1024),
                     timeout_sec=0.2,
@@ -451,13 +451,13 @@ def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
                 )
         assert time.monotonic() - started < 5
         assert mgr._proc is None
-        # The write returns before the reap finishes. Join it, then the
-        # daemon writer (blocked on the old pipe) can exit.
+        # The write returns before the reap finishes. Join it, then any
+        # Windows daemon writer (blocked on the old pipe) can exit.
         mgr._join_reaps()
-        writer = mgr._stdin_writer_thread
-        assert writer is not None
-        writer.join(timeout=5)
-        assert not writer.is_alive()
+        for t in threading.enumerate():
+            if t.name == "ipc-stdin-write":
+                t.join(timeout=5)
+                assert not t.is_alive()
         assert mgr._io_lock.acquire(timeout=1)
         mgr._io_lock.release()
     finally:
@@ -478,9 +478,8 @@ def test_large_stdin_write_completes_intact():
     mgr = PythonWorkerManager(sys.executable, {})
     stream = io.BytesIO()
     payload = b"large-payload-" * (256 * 1024)
-    mgr._write_bytes_with_timeout(stream, payload, timeout_sec=2, label="test request")
+    mgr._write_packed_frame_with_timeout(stream, payload, timeout_sec=2, label="test request")
     assert stream.getvalue() == payload
-    assert mgr._stdin_writer_thread is None
 
 
 def test_initial_write_timeout_retries_once():
@@ -556,7 +555,7 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     mgr._proc = proc
     mgr._ensure_running = MagicMock()  # type: ignore[method-assign]
     mgr._write_frame_with_timeout = MagicMock()  # type: ignore[method-assign]
-    mgr._write_bytes_with_timeout = MagicMock(  # type: ignore[method-assign]
+    mgr._write_packed_frame_with_timeout = MagicMock(  # type: ignore[method-assign]
         side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1)
     )
     response_payload = pickle.dumps({"status": "host_request"}, protocol=5)
@@ -2789,7 +2788,7 @@ def test_partial_stdin_write_delivers_full_frame():
 
     stdin.write = _short_write
 
-    mgr._write_bytes_with_timeout(stdin, b"12345", timeout_sec=1, label="test")
+    mgr._write_packed_frame_with_timeout(stdin, b"12345", timeout_sec=1, label="test")
 
     assert written == [b"12", b"34", b"5"]
     stdin.flush.assert_called_once()
