@@ -1379,9 +1379,8 @@ def _split_markdown_image_src(raw: str) -> str:
 
 def _file_url_to_local_path(src: str) -> str:
     """Convert a file: URL to a local filesystem path with percent-decoding."""
-    from urllib.parse import unquote, urlparse
-    from urllib.request import url2pathname
     from plugin.doc.text_helpers import normalize_file_url
+    from plugin.scripting.sandbox import _path_from_file_url
 
     norm = normalize_file_url(src)
     try:
@@ -1390,7 +1389,8 @@ def _file_url_to_local_path(src: str) -> str:
         return str(uno.fileUrlToSystemPath(norm))
     except Exception:
         log.debug("uno.fileUrlToSystemPath failed for %s", norm, exc_info=True)
-        return url2pathname(unquote(urlparse(norm).path))
+        # Stdlib fallback. ty flags url2pathname as deprecated on Windows; this helper also keeps UNC hosts.
+        return _path_from_file_url(norm) or ""
 
 
 def _fetch_remote_image(url: str, *, timeout: float) -> str | None:
