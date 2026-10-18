@@ -1253,15 +1253,20 @@ def _doc_frame(doc: Any) -> Any:
     return uno_probe(lambda: doc.getCurrentController().getFrame() if doc.getCurrentController() is not None else None, None)
 
 
-def execute_debug_sidebar_op(op: str, *, ctx: Any = None) -> dict[str, Any]:
-    """URP client: dispatch ``org.extension.writeragent:chatbot.debug_sidebar.<OP>`` in soffice."""
+def execute_debug_sidebar_op(op: str, *, ctx: Any = None, doc: Any = None) -> dict[str, Any]:
+    """URP client: dispatch ``org.extension.writeragent:chatbot.debug_sidebar.<OP>`` in soffice.
+
+    Tip: pass *doc* to aim at that document's deck. On macOS the desktop's current
+    component does not always follow the window brought to front.
+    """
     _require_debug()
     uno_ctx = ctx if ctx is not None else _HOOK_CTX
     if uno_ctx is None:
         from plugin.framework.uno_context import get_ctx
 
         uno_ctx = get_ctx()
-    doc = current_component(uno_ctx)
+    if doc is None:
+        doc = current_component(uno_ctx)
     frame = _doc_frame(doc)
     if frame is None:
         raise RuntimeError("debug_sidebar: no frame for executeDispatch")
