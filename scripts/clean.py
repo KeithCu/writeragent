@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# WriterAgent — remove build/, __pycache__ and .pyc files
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Remove build artifacts, __pycache__ directories, and loose .pyc files."""
 
 from __future__ import annotations

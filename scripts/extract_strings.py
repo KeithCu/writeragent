@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# WriterAgent — extract translatable strings into the .pot and merge the .po files
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Extract translatable strings and update localization catalogs."""
 
 from __future__ import annotations
@@ -111,6 +115,7 @@ def merge_translations(root_path: Path = PROJECT_ROOT) -> int:
             any_failed = True
             continue
 
+        # Drop obsolete (#~) entries so removed strings do not pile up; msgattrib works where msgmerge lacks --no-obsolete.
         tmp_po = f"{po_path}.tmp"
         attrib_cmd = [
             "msgattrib",
