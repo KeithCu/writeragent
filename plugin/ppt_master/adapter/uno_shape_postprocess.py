@@ -68,10 +68,7 @@ def _copy_property(source: Any, dest: Any, name: str) -> None:
 
 def _copy_text_portion_props(source_portion: Any, dest_portion: Any) -> None:
     for prop in _TEXT_CHAR_PROPS:
-        best_effort(
-            lambda prop=prop: dest_portion.setPropertyValue(prop, source_portion.getPropertyValue(prop)),
-            f"copy text prop {prop}",
-        )
+        _copy_property(source_portion, dest_portion, prop)
 
 
 def _copy_shape_text(source_shape: Any, dest_shape: Any) -> None:
@@ -81,10 +78,7 @@ def _copy_shape_text(source_shape: Any, dest_shape: Any) -> None:
         dst_text = dest_shape.getText()
         dst_text.setString(src_text.getString())
         for prop in _TEXT_CHAR_PROPS:
-            best_effort(
-                lambda prop=prop: dest_shape.setPropertyValue(prop, source_shape.getPropertyValue(prop)),
-                f"copy shape text prop {prop}",
-            )
+            _copy_property(source_shape, dest_shape, prop)
         src_portions = []
         src_enum = src_text.createEnumeration()
         while src_enum.hasMoreElements():
