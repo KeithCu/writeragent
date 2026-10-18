@@ -1989,6 +1989,95 @@ def test_e22_nested_max_steps(ctx):
     _hello_ok()
 
 
+def _e23_cell_text(cell, timeout: float = 30.0) -> str:
+    """Poll a Calc cell until it shows text. getString() runs the add-in when the cell is dirty."""
+    deadline = time.monotonic() + timeout
+    text = ""
+    while time.monotonic() < deadline:
+        text = str(cell.getString() or "")
+        if text:
+            return text
+        time.sleep(0.2)
+    return text
+
+
+@native_test
+def test_e23_calc_prompt_formula(ctx):
+    """=PROMPT() in a Calc cell returns the mock's reply; an HTTP 401 shows up as error text in the cell."""
+    from plugin.chatbot.sidebar_test_hooks import current_component, open_calc_document
+    from scripts.mock_llm_server import CompletionRule
+
+    _reset_mock_runtime()
+    assert _session is not None
+    writer = current_component(ctx)
+    saved_controls = getattr(_session, "controls", None)
+    saved_listener = getattr(_session, "listener", None)
+    # A scripted rule gives an exact reply to compare against (the default hello reply is HTML).
+    reply = "Mock PROMPT cell reply."
+    rule = CompletionRule(user_contains="prompt cell ping", content=reply)
+    _session.config.rules.append(rule)
+    calc = None
+    try:
+        calc = open_calc_document(ctx)
+        sheet = calc.getSheets().getByIndex(0)
+        ok_cell = sheet.getCellByPosition(0, 0)
+        ok_cell.setFormula('=PROMPT("prompt cell ping")')
+        text = _e23_cell_text(ok_cell)
+        assert text == reply, "E23 =PROMPT expected %r, got %r (formula %r)" % (reply, text, ok_cell.getFormula())
+        # =PROMPT asks for a plain JSON reply, not SSE.
+        rows = [r for r in _captures() if "prompt cell ping" in (r.get("user_text") or "")]
+        assert rows and rows[-1].get("stream") is False, "E23 expected one stream=False POST, got %r" % rows
+
+        err_cell = sheet.getCellByPosition(0, 1)
+        err_cell.setFormula('=PROMPT("error 401")')
+        err_text = _e23_cell_text(err_cell)
+        assert err_text and err_text != reply, "E23 401 left the cell %r" % err_text
+        _assert_errorish(err_text, "401", "unauthorized", "auth", "error")
+    finally:
+        _session.config.rules.remove(rule)
+        _restore_writer_after_calc(ctx, writer, calc, saved_controls, saved_listener)
+    _hello_ok()
+
+
+def _e24_python_round_done() -> bool:
+    """True once the inner agent got the run_venv_python_script result back."""
+    from scripts.mock_llm_server import PYTHON_TOOL
+
+    return any(PYTHON_TOOL in (r.get("called_tools") or []) and r.get("last_role") == "tool" for r in _captures())
+
+
+@native_test
+def test_e24_kill_venv_worker_mid_tool(ctx):
+    """Killing the venv worker mid run_venv_python_script ends the turn with an error, not a hang."""
+    from plugin.chatbot.sidebar_test_hooks import execute_debug_sidebar_op
+    from scripts.mock_llm_server import PYTHON_TOOL
+
+    _reset_mock_runtime()
+    _set_writer_body(ctx, WELCOME_BODY)
+    kills0 = int(execute_debug_sidebar_op("SNAPSHOT", ctx=ctx).get("venv_worker_kills", 0) or 0)
+    # The mock delegates to the python domain; the inner turn runs a 20 s sleep in the worker.
+    before = _start_until_stop_enabled("run slow python", delay_ms=20, timeout=30.0)
+    deadline = time.monotonic() + 60.0
+    while time.monotonic() < deadline and not any(PYTHON_TOOL in (r.get("decided_tools") or []) for r in _captures()):
+        time.sleep(0.2)
+    assert any(PYTHON_TOOL in (r.get("decided_tools") or []) for r in _captures()), (
+        "E24 inner agent never called %s: %r" % (PYTHON_TOOL, _captures()[-6:])
+    )
+    # Keep killing until the tool result comes back. A kill before the script starts
+    # is retried once on a fresh worker, so one kill is not always enough.
+    kills = kills0
+    while time.monotonic() < deadline and not _e24_python_round_done():
+        kills = int(execute_debug_sidebar_op("KILL_VENV_WORKER", ctx=ctx).get("venv_worker_kills", kills) or kills)
+        time.sleep(1.0)
+    assert kills > kills0, "E24 never found a live venv worker to kill"
+    assert _e24_python_round_done(), "E24 python tool round never finished after the kill: %r" % _captures()[-6:]
+    _wait_idle_after_send(before, timeout=30.0)
+    body = _suffix(before)
+    assert "slept" not in body, "E24 script finished despite the kill: %r" % body[-500:]
+    _assert_errorish(body, "error", "closed", "terminated", "died")
+    _hello_ok()
+
+
 _WAV_1S = os.path.join(os.path.dirname(__file__), "fixtures", "hello-writeragent-1s.wav")
 _WAV_5S = os.path.join(os.path.dirname(__file__), "fixtures", "hello-writeragent-5s.wav")
 
@@ -3339,6 +3428,85 @@ def test_m6_stop_mid_stream_settles(ctx):
     _hello_ok()
 
 
+def _m_wait_open_streams(done: Callable[[int], bool], timeout: float) -> bool:
+    """Poll the mock's count of SSE responses still being written."""
+    assert _session is not None
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if done(_session.config.open_streams):
+            return True
+        time.sleep(0.1)
+    return done(_session.config.open_streams)
+
+
+def _m_ramble_in_calc_then_close(ctx, case: str, before_close: Callable[[], None] | None = None) -> None:
+    """Stream a ramble on a Calc deck, close Calc mid-stream, require the HTTP stream to end.
+
+    Calc is used so the Writer session the other cases share survives the close.
+    """
+    from plugin.chatbot.sidebar_test_hooks import close_component, current_component, open_calc_document
+
+    _reset_mock_runtime()
+    assert _session is not None
+    writer = current_component(ctx)
+    saved_controls = getattr(_session, "controls", None)
+    saved_listener = getattr(_session, "listener", None)
+    calc = None
+    try:
+        calc = open_calc_document(ctx)
+        _adopt_calc_sidebar(ctx, calc)
+        # 100 ms per chunk keeps the 200-chunk ramble going ~20 s, well past the checks below.
+        _start_until_stop_enabled(_M_RAMBLE, delay_ms=100)
+        assert _m_wait_open_streams(lambda n: n >= 1, timeout=10.0), "%s ramble never started streaming" % case
+        time.sleep(1.0)  # some chunks are already painted
+        calc_transcript = _transcript()
+        if before_close is not None:
+            before_close()
+        close_component(calc)
+        calc = None
+        # The mock only stops writing when the client hangs up, so 0 here means the stream was cancelled.
+        assert _m_wait_open_streams(lambda n: n == 0, timeout=8.0), (
+            "%s stream still open 8 s after closing the document" % case
+        )
+        assert "traceback" not in calc_transcript.lower(), "%s traceback in transcript: %r" % (case, calc_transcript[-400:])
+    finally:
+        _session.config.delay_ms = 20
+        _restore_writer_after_calc(ctx, writer, calc, saved_controls, saved_listener)
+    _m_wait_until_idle(timeout=10.0)
+    assert not _is_busy(), "%s Writer sidebar still busy after the Calc close" % case
+
+
+@native_test
+def test_m7_close_doc_mid_stream(ctx):
+    """Closing the document while plain text streams cancels the stream; Writer chat still works."""
+    _m_ramble_in_calc_then_close(ctx, "M7")
+    _hello_ok()
+
+
+@native_test
+def test_m8_terminate_hook_mid_stream(ctx):
+    """Office quit with a stream in flight: the terminate hook returns fast, then the doc close ends the stream.
+
+    Quitting soffice would end the test run, so this calls the real XTerminateListener
+    (plugin.main) via a debug op, then closes the document like quit does next.
+    """
+    from plugin.chatbot.sidebar_test_hooks import execute_debug_sidebar_op
+
+    hook_s: list[float] = []
+
+    def _terminate() -> None:
+        snap = execute_debug_sidebar_op("SNAPSHOT", ctx=ctx)
+        assert snap.get("terminate_listener_installed"), "M8 plugin.main has no terminate listener installed"
+        t0 = time.monotonic()
+        execute_debug_sidebar_op("SIMULATE_TERMINATION", ctx=ctx)
+        hook_s.append(time.monotonic() - t0)
+
+    _m_ramble_in_calc_then_close(ctx, "M8", before_close=_terminate)
+    # The op itself sleeps 0.25 s and takes a snapshot; anything near 5 s means the hook blocked.
+    assert hook_s and hook_s[0] < 5.0, "M8 terminate hook took %r s with a stream in flight" % hook_s
+    _hello_ok()
+
+
 
 # =============================================================================
 # Packet R — Tracking / Redline Sidebar Actions
@@ -4488,6 +4656,34 @@ def test_s10_clear_while_stt_in_flight(ctx):
     finally:
         set_late_transcript_delay(0.0)
         _s_clear()
+
+
+@native_test
+def test_s11_stop_while_transcribing(ctx):
+    """Stop during the STT wait (run_blocking_in_thread) settles; the transcript is not sent; hello works."""
+    from plugin.chatbot.sidebar_test_hooks import press_record, press_stop, set_late_transcript_delay
+
+    _reset_mock_runtime()
+    _s_install("noisy")
+    # Hold the endpoint STT call 4 s so Stop lands while the sidebar is still waiting on it.
+    set_late_transcript_delay(4.0)
+    try:
+        press_record()
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline and "transcribing audio" not in _transcript().lower():
+            time.sleep(0.1)
+        assert "transcribing audio" in _transcript().lower(), "S11 never reached the STT wait: %r" % _transcript()[-300:]
+        press_stop()
+        # Stop keeps the transcription running to the end (it goes to the Ask box), so idle
+        # comes after the 4 s hold, not instantly.
+        _s_assert_idle()
+        sent = [c for c in _captures() if not c.get("stt") and "Fake STT transcript" in (c.get("user_text") or "")]
+        assert not sent, "S11 transcript was sent to chat after Stop: %r" % sent
+        _hello_ok()
+    finally:
+        set_late_transcript_delay(0.0)
+        _s_clear()
+
 
 @native_test
 def test_r10_late_transcript_not_auto_sent(ctx):

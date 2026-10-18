@@ -941,10 +941,18 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
         "slash_lru": _slash_lru_names(),
         "paint_session_count": int(getattr(rich_widget, "_debug_paint_session_count", 0) or 0),
         "stream_session_count": int(getattr(rich_widget, "_debug_stream_session_count", 0) or 0),
+        "venv_worker_kills": _VENV_WORKER_KILLS,
+        "terminate_listener_installed": _terminate_listener_installed(),
     }
     with open(debug_sidebar_snapshot_path(), "w", encoding="utf-8") as handle:
         json.dump(data, handle)
     return data
+
+
+def _terminate_listener_installed() -> bool:
+    import plugin.main as plugin_main
+
+    return getattr(plugin_main, "_terminate_listener", None) is not None
 
 
 def _read_debug_snapshot() -> dict[str, Any]:
@@ -975,6 +983,8 @@ def _parse_debug_sidebar_command(command: str) -> tuple[str, str]:
 
 
 _SAVED_REQUEST_TIMEOUT: Any = None
+# KILL_VENV_WORKER count, reported in the snapshot so the URP test knows a kill landed.
+_VENV_WORKER_KILLS = 0
 
 
 def handle_debug_sidebar_command(command: str) -> None:
@@ -1112,6 +1122,33 @@ def handle_debug_sidebar_command(command: str) -> None:
     if op.startswith("FAKE_STT_DELAY_"):
         global _FAKE_STT_DELAY
         _FAKE_STT_DELAY = float(op.removeprefix("FAKE_STT_DELAY_"))
+        _write_debug_snapshot(sl)
+        return
+    # Packet E24: SIGKILL the live venv worker the way an OOM kill or crash would.
+    # Only the child dies; the host side has to notice on its own.
+    if op == "KILL_VENV_WORKER":
+        global _VENV_WORKER_KILLS
+        from plugin.scripting import venv_worker
+
+        with venv_worker._registry_lock:
+            managers = list(venv_worker._instances.values())
+        for mgr in managers:
+            proc = mgr._proc
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+                _VENV_WORKER_KILLS += 1
+        _write_debug_snapshot(sl)
+        return
+    # Packet M8: run the real XTerminateListener.notifyTermination that File > Exit
+    # triggers, without quitting soffice (that would end the whole test run).
+    if op == "SIMULATE_TERMINATION":
+        import plugin.main as plugin_main
+
+        listener = plugin_main._terminate_listener
+        if listener is None:
+            log.warning("debug_sidebar SIMULATE_TERMINATION: no terminate listener installed")
+        else:
+            listener.notifyTermination(None)
         _write_debug_snapshot(sl)
         return
     # Slash ops only touch the Ask ListBox. Run inline like SNAPSHOT —

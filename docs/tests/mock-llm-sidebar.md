@@ -26,6 +26,7 @@ This plan is **finished**. Mouse Stop, HITL Change dialog, live DuckDuckGo, and 
 | **[Packet I](#packet-i--image-generation)** | Image generation tool lifecycle & delays | Automated (`FILTER=I`) | **Landed.** 8 Landed. |
 | **[Packet T](#packet-t--tts-races-and-child-lifecycle)** | TTS stop / cut-off / crash / missing binary, fake child, no audio device | Automated (`FILTER=T`) | **Landed.** 4 Landed. |
 | **[Packet R](#packet-r--tracking--redline-sidebar-actions)** | Redline hooks, overlapping user edits, close-doc pending | Automated (`FILTER=R`) | **Landed.** 9 Landed. |
+| **[Packet M](#packet-m--stream-drain-and-teardown)** | Drain responsiveness, close doc / office quit mid-stream | Automated (`FILTER=M`) | **Landed.** 8 Landed. |
 
 
 
@@ -92,6 +93,7 @@ The mock server matches incoming user queries (case-insensitive, first match win
 | `two dones` | Emits a normal stream followed by two `data: [DONE]` lines. |
 | `empty body` | Returns HTTP 200 with `Content-Length: 0`. |
 | `connection reset` | Closes socket before sending HTTP status line. |
+| `run slow python` | E24: delegates to the `python` domain; the inner turn calls `run_venv_python_script` with a 20 s sleep, then finishes echoing the tool result. |
 
 ### 2.3. Automated Test Execution (`make test-mock-sidebar`)
 
@@ -111,6 +113,7 @@ make test-mock-sidebar FILTER=K        # Packet K only (sidebar compaction smoke
 make test-mock-sidebar FILTER=K        # Packet K only (sidebar compaction smoke)
 make test-mock-sidebar FILTER=T        # Packet T only (TTS stop / cut-off / crash / missing)
 make test-mock-sidebar FILTER=R        # Packet R only (tracking/redlines, overlap, etc)
+make test-mock-sidebar FILTER=M        # Packet M only (drain, close doc / quit mid-stream)
 make test-mock-sidebar FILTER=p1       # Single peer case
 make test-mock-sidebar FILTER=b13      # Run a single case by ID
 make test-mock-sidebar FILTER=e12      # Calc list_sheets (opens Calc after Writer deck)
@@ -172,6 +175,9 @@ Debug test hooks live in [`plugin/chatbot/sidebar_test_hooks.py`](../../plugin/c
 | `press_accept()` | Fires Send action when label is `Accept` | HITL approval |
 | `press_change()` / `press_reject()` | Fires Stop listener `Change` / `Reject` branch | HITL change / rejection |
 | `approval_active()` | Checks if `_approval_event is not None` | HITL state verification |
+| `execute_debug_sidebar_op("KILL_VENV_WORKER")` | SIGKILLs the live venv worker child inside soffice; snapshot `venv_worker_kills` counts kills | E24 |
+| `execute_debug_sidebar_op("SIMULATE_TERMINATION")` | Calls the real `plugin.main` `XTerminateListener.notifyTermination` without quitting soffice; snapshot `terminate_listener_installed` | M8 |
+| `MockLLMConfig.open_streams` | SSE responses the mock is still writing; drops to 0 only when the stream ends or the client hangs up | M7 / M8 |
 | `install_fake_tts(mode)` / `clear_fake_tts()` | Fake TTS backend lifecycle via state file (`writeragent_fake_tts.json`) and debug ops `FAKE_TTS_HOLD`, `FAKE_TTS_CRASH`, `FAKE_TTS_MISSING`, `FAKE_TTS_OFF`. Test-hook only; production `tts_service` does not read this file | Packet T |
 
 Fake hold/stop still rewinds `_speech_generation` so the in-flight worker's `on_complete` runs. The rewind is published under `_FAKE_TTS_LOCK` before that lock is released, and the hooked `_end_utterance` takes the same lock. Otherwise `stop_speech` bumps the generation and kills the child first, the worker treats the utterance as superseded, and `on_complete` never runs. Production `stop_speech` does not rewind; playback-only Stop disables the button itself.
@@ -301,6 +307,8 @@ Every test must satisfy:
 | **E15** | CI | `insert filler` | Stop after tool result queued, before HTML | Mutation applied; UI returns to idle; no double drain; `next_hello_ok()` | **OK / Landed** |
 | **E17** | CI | `empty nested answer` | Specialized delegate returns empty answer | Main wrap-up displays clean empty banner; no stale HTML paste-over; `next_hello_ok()` | **OK / Landed** |
 | **E21** | CI | `mixed tools` / `one tool fails` | Send query | `apply_document_content` succeeds while `add_comment` fails; mutation kept, error surfaced; `next_hello_ok()` | **OK / Landed** |
+| **E23** | mock-sidebar | Scripted rule `prompt cell ping`, then `error 401` | Open Calc; `setFormula('=PROMPT(...)')` on A1 and A2 | A1 shows the exact mock reply via one `stream=False` POST; A2 shows error text (401); `next_hello_ok()` | **Landed** |
+| **E24** | mock-sidebar | `run slow python` | Kill the venv worker (`KILL_VENV_WORKER`, repeated until the tool round returns) | Tool round returns an error (no `slept`); turn goes idle; `next_hello_ok()` | **Landed** |
 | **E22** | CI | `endless nested outline` | Specialized delegate never finishes | Triggers max tool budget error; main UI returns to idle; inner `decided_tools` must not include `final_answer` / `specialized_workflow_finished`; `next_hello_ok()` | **OK / Landed** (leftover Calc after E12/P advertises `send_peer_work / send_peer_result`; mock must not take the Packet P finish-immediately path — never-finish / phrase wins so smol hits `chatbot.max_tool_rounds`) |
 
 #### Dropped Cases (Packet E)
@@ -505,15 +513,32 @@ Smol ReAct web-research subagent compaction is out of scope.
 | **R8** | CI | `look up cats` (HITL on, mock online) | Stop then Accept on the approval | Turn settles; web_research runs at most once | **Landed** |
 | **R9** | CI | `three agent edits` (3 paragraphs, record mode) | User redline in paragraph 2; resolve all | 2 resolved with a user note; the middle agent change stays pending | **Landed** |
 
+### Packet M — Stream drain and teardown
+
+- **Focus:** The drain stays responsive while streaming, and closing the document or quitting the office mid-stream cancels the HTTP stream.
+- **Mode:** Automated (`make test-mock-sidebar FILTER=M`).
+- **M8 is simulated:** really quitting soffice would end the test run, so M8 calls the real terminate listener through `SIMULATE_TERMINATION` and then closes the document, which is what quit does next.
+
+| ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
+|:--:|:----:|----------------|-----------------|------------------------|:--------------:|
+| **M1** | mock-sidebar | `keep talking` | Free a PyUNO proxy on a worker thread mid-stream | Worker does not wait on the drain | **Landed** |
+| **M2** | mock-sidebar | `keep talking` | Read a sidebar control over URP while streaming | Worst read < 0.5 s | **Landed** |
+| **M3** | mock-sidebar | `fill the sidebar` | Time each drain slice | Longest slice < 0.15 s | **Landed** |
+| **M4** | mock-sidebar | `keep talking` | Count paints while streaming | Appends only; no full repaint | **Landed** |
+| **M5** | mock-sidebar | `hello` ×2 after Clear | Count rows | One You:/Assistant: pair per turn | **Landed** |
+| **M6** | mock-sidebar | `keep talking` | Stop mid-stream | Idle < 5 s; no text after Stop | **Landed** |
+| **M7** | mock-sidebar | `keep talking` on Calc (100 ms/chunk) | Close Calc mid-stream | Mock stream closed within 8 s; no traceback; Writer idle; `next_hello_ok()` | **Landed** |
+| **M8** | mock-sidebar | Same as M7 | `SIMULATE_TERMINATION`, then close Calc | Hook returns < 5 s; stream closed within 8 s; Writer idle; `next_hello_ok()` | **Landed** (simulated quit) |
+
 
 ## 4. Out-of-Scope Items & Boundary Invariants
 
 The following areas are intentionally excluded from the mock LLM sidebar test suite:
 - **Visual watching:** Scroll, HTML look, resize, theme, focus steal. Use `make mock-llm` in the product.
-- **Killing the shared soffice:** Close/switch document mid-stream, exit while ramble.
+- **Killing the shared soffice:** A real exit while streaming (M8 runs the terminate hook instead).
 - **Speech Recognition Accuracy:** Testing real microphone audio quality or ASR word-error rate (covered by external benchmarks).
 - **Non-Chat Sidebar Workflows:** Librarian full-corpus indexing, brainstorm mode, presentation slide deck generation.
-- **Calc Formula Add-Ins:** `=PROMPT()` and `=PYTHON()` formula execution (tested separately in `tests/calc/`).
+- **Calc Formula Add-Ins:** `=PYTHON()` formula execution (tested in `tests/calc/`). E23 covers `=PROMPT()` against the mock.
 - **External MCP Server Testing:** Live third-party MCP server communication (mocked in `tests/mcp/`).
 ### Packet S — STT fake recorder tests
 
@@ -532,4 +557,5 @@ The following areas are intentionally excluded from the mock LLM sidebar test su
 | **S8** | mock-sidebar | `missing` | press record | binary not found, returns to idle with message | **Landed** |
 | **S9** | mock-sidebar | `noisy`, `delay` | press record with STT delay | late transcript handled safely with hands-free | **Landed** |
 | **S10** | mock-sidebar | `noisy`, `delay` | clear while STT in flight | late transcript handles safely | **Landed** |
+| **S11** | mock-sidebar | `noisy`, 4 s STT hold | press Stop during `[Transcribing audio...]` | goes idle after the hold; transcript not sent to chat; `next_hello_ok()` | **Landed** |
 | **R10** | mock-sidebar | `noisy`, `delay` | type + send while STT in flight | typed sent, late STT not auto sent to new turn | **Landed** |

@@ -143,6 +143,8 @@ _SCENARIO_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("adjacent_edits", re.compile(r"\b(adjacent agent edits)\b", re.IGNORECASE)),
     ("three_edits", re.compile(r"\b(three agent edits)\b", re.IGNORECASE)),
     ("style_parallel", re.compile(r"\b(style tools)\b", re.IGNORECASE)),
+    # Packet E24: python-domain delegate whose inner turn runs a slow venv script.
+    ("python_slow", re.compile(r"\brun slow python\b", re.IGNORECASE)),
 )
 
 # Packet F HTTP/SSE faults that apply on the user turn (not tool follow-ups).
@@ -207,6 +209,7 @@ SCENARIO_IDS = frozenset(
         "adjacent_edits",
         "three_edits",
         "style_parallel",
+        "python_slow",
     }
 )
 FAIL_MODES = ("none", "http500", "http429", "hang")
@@ -214,6 +217,9 @@ FAIL_MODES = ("none", "http500", "http429", "hang")
 _DELEGATE_WRITER = "delegate_to_specialized_writer_toolset"
 _DELEGATE_CALC = "delegate_to_specialized_calc_toolset"
 _DELEGATE_DRAW = "delegate_to_specialized_draw_toolset"
+# Packet E24: the venv-worker tool and a script slow enough to kill mid-run.
+PYTHON_TOOL = "run_venv_python_script"
+PYTHON_SLOW_CODE = "import time\ntime.sleep(20)\nresult = 'slept'"
 _PEER_WORK_TOOL = "send_peer_work"
 _PEER_RESULT_TOOL = "send_peer_result"
 _PEER_TOOLS = frozenset({_PEER_WORK_TOOL, _PEER_RESULT_TOOL})
@@ -265,6 +271,8 @@ class MockLLMConfig:
     peer_wait_after_accepted: bool = False
     # Packet K: first matching *stream* POST returns prompt-too-large, then OK.
     overflow_once_seen: int = 0
+    # SSE responses still being written. M7/M8 wait for 0 to prove the client hung up.
+    open_streams: int = 0
 
 
 def response_delay_s(config: MockLLMConfig, *, stream: bool) -> float:
@@ -1274,6 +1282,15 @@ def _specialized_inner_completion(
         if "image_generate" in called:
             return _finish("Mock image task complete.")
         return _image_generate_completion(scenario)
+    if scenario == "python_slow" and PYTHON_TOOL in tool_names:
+        if PYTHON_TOOL in called:
+            # Echo the tool result so the sidebar shows how the script ended.
+            tool_text = next(
+                (_as_text(m.get("content")) for m in reversed(messages) if isinstance(m, dict) and m.get("role") == "tool"),
+                "",
+            )
+            return _finish("Python tool result: " + tool_text[:300])
+        return Completion(tool_name=PYTHON_TOOL, tool_args={"code": PYTHON_SLOW_CODE}, finish_reason="tool_calls")
     # One discovery step, then finish. Calling every advertised tool (especially
     # delegate_read_document with path="") loops the inner agent (Packet E7 soak).
     if any(name in called for name in _SPECIALIZED_INNER_PRE_FINISH):
@@ -1474,6 +1491,12 @@ def _scenario_user_turn(
                 finish_reason="tool_calls",
             )
         return Completion(content=_html_chat(user_text, turn), reasoning=reasoning, finish_reason="stop")
+    if scenario == "python_slow":
+        # run_venv_python_script is specialized-tier: delegate to the python domain.
+        delegate = _delegate_for_tools(tool_names)
+        if delegate:
+            return _tool_or_html(tool_names, delegate, {"domain": "python", "task": user_text}, user_text, turn)
+        return Completion(content=_html_chat(user_text, turn), reasoning=reasoning)
     if scenario in ("image_one", "image_two"):
         # image_generate is specialized-tier: delegate to the images domain; the inner
         # turn (_specialized_inner_completion) issues the image_generate call(s).
@@ -2068,6 +2091,16 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
                     time.sleep(delay)
                 self._send_json(200, sync_response_body(completion, model))
                 return
+            with config._capture_lock:
+                config.open_streams += 1
+            try:
+                self._write_sse(completion, model, hang)
+            finally:
+                with config._capture_lock:
+                    config.open_streams -= 1
+
+        def _write_sse(self, completion: Completion, model: str, hang: bool) -> None:
+            delay = response_delay_s(config, stream=True)
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
