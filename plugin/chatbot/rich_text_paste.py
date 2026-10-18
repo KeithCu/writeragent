@@ -123,11 +123,12 @@ def _text_table_cell_rows(table: Any) -> list[list[str]]:
     n_rows = int(table.getRows().getCount())
     n_cols = int(table.getColumns().getCount())
     rows: list[list[str]] = []
+
+    def _cell(c: int, r: int) -> str:
+        return uno_probe(lambda: table.getCellByPosition(c, r).getString() or "", "")
+
     for row_idx in range(n_rows):
-        cells: list[str] = [
-            uno_probe(lambda c=col_idx, r=row_idx: table.getCellByPosition(c, r).getString() or "", "")
-            for col_idx in range(n_cols)
-        ]
+        cells: list[str] = [_cell(col_idx, row_idx) for col_idx in range(n_cols)]
         rows.append(cells)
     return rows
 
@@ -362,7 +363,11 @@ def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: Any
         "CharFontName",
         "CharUnderlineColor",
     ):
-        uno_probe(lambda p=prop: setattr(dest_cursor, p, getattr(src_portion, p)), None)
+
+        def _copy(p: str = prop) -> None:
+            setattr(dest_cursor, p, getattr(src_portion, p))
+
+        uno_probe(_copy, None)
     resolved = char_color
     if resolved is None:
         raw = getattr(src_portion, "CharColor", None)
