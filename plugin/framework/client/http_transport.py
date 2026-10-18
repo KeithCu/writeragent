@@ -414,12 +414,7 @@ class LlmHttpTransport:
 
     def _openrouter_for_pacing(self) -> bool:
         endpoint = self._redirect_origin if self._redirect_origin else self._endpoint_getter()
-        explicit = False
-        if self._openrouter_getter is not None:
-            try:
-                explicit = bool(self._openrouter_getter())
-            except Exception:
-                explicit = False
+        explicit = bool(self._openrouter_getter()) if self._openrouter_getter is not None else False
         return is_openrouter_endpoint(endpoint, explicit_is_openrouter=explicit)
 
     def _pacing_parts(self) -> tuple[str, int, bool]:

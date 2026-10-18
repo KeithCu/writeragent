@@ -1274,14 +1274,11 @@ def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True,
     endpoint_str = normalize_endpoint_url(endpoint or "")
 
     # 1. Persistent User Config Cache check
-    try:
-        cache = get_config("vision_support_map")
-        if isinstance(cache, dict):
-            key = f"{endpoint_str}@{model_id_str.lower()}"
-            if key in cache:
-                return as_bool(cache[key])
-    except Exception as e:
-        log.debug("has_native_vision config cache read exception: %s", e)
+    cache = get_config("vision_support_map")
+    if isinstance(cache, dict):
+        key = f"{endpoint_str}@{model_id_str.lower()}"
+        if key in cache:
+            return as_bool(cache[key])
 
     # 2. Static Default Models check
     caps = get_model_capability(model_id_str, endpoint_str)
@@ -1334,12 +1331,9 @@ def has_native_vision(model_id: Any, endpoint: Any, *, allow_fetch: bool = True,
                 show_caps = cached_show.get("capabilities") or []
                 return "vision" in show_caps if isinstance(show_caps, list) else False
         else:
-            try:
-                res = query_ollama_model_capabilities(endpoint_str, model_id_str)
-                if res is not None:
-                    return res
-            except Exception as e:
-                log.debug("Ollama /api/show capability query failed: %s", e)
+            res = query_ollama_model_capabilities(endpoint_str, model_id_str)
+            if res is not None:
+                return res
 
     # A static row without VISION is a real "no" (caps != NONE). No row and
     # no modalities/map answer above is "not looked up". The UI tool gate
@@ -1447,11 +1441,7 @@ def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
 
 def query_ollama_model_capabilities(endpoint: str, model_id: str) -> bool | None:
     """Query POST /api/show to check if an Ollama model supports vision."""
-    try:
-        info = query_ollama_show(endpoint, model_id)
-    except Exception as e:
-        log.debug("query_ollama_model_capabilities failed: %s", e)
-        return None
+    info = query_ollama_show(endpoint, model_id)
     if info is None:
         return None
     caps = info.get("capabilities") or []
@@ -1462,11 +1452,7 @@ def query_ollama_runtime_num_ctx(endpoint: str, model_id: str) -> int | None:
     """Live Ollama ``num_ctx`` from the cached ``/api/show`` body, or None."""
     if not endpoint or not model_id:
         return None
-    try:
-        info = query_ollama_show(endpoint, model_id)
-    except Exception as e:
-        log.debug("query_ollama_runtime_num_ctx failed: %s", e)
-        return None
+    info = query_ollama_show(endpoint, model_id)
     if not info:
         return None
     num_ctx = info.get("num_ctx")
