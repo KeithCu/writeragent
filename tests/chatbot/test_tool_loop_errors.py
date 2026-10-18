@@ -1,13 +1,13 @@
 import pytest
 import json
+import queue
 import sys
+from typing import Any
 from unittest.mock import MagicMock, patch
 
-
-
-
-from plugin.chatbot.tool_loop_actions import build_tool_execute_fn
-from plugin.chatbot.tool_loop import ToolCallingMixin
+from plugin.framework.stream_batch import StreamQueueKind
+from plugin.chatbot.tool_loop_actions import build_tool_execute_fn, current_turn
+from plugin.chatbot.tool_loop import ToolCallingMixin, take_stop_partial
 from plugin.chatbot.tool_loop_state import ToolLoopState
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.chatbot.send_state import SendButtonState
@@ -676,6 +676,89 @@ def test_final_stream_compacts_then_sends_view(test_instance):
     assert mock_compact.call_args.kwargs["max_tokens"] == 256
     client.stream_chat_response.assert_called_once()
     assert client.stream_chat_response.call_args[0][0] is view
+
+
+def test_final_stream_done_and_stop_partial(test_instance):
+    captured = {}
+
+    def capture_run(fn, name=None, dedicated=False):
+        captured["fn"] = fn
+
+    client = MagicMock()
+    client._stopped = False
+    view = [{"role": "system", "content": "final-view"}]
+
+    def fake_stream(messages, max_tokens, append_c, append_t, stop_checker=None, status_callback=None):
+        append_c("ab")
+        append_c("c")
+
+    client.stream_chat_response.side_effect = fake_stream
+
+    turn = current_turn(test_instance)
+    assert turn is not None
+    q1: queue.Queue[Any] = queue.Queue()
+    turn.queue = q1
+    turn.batcher = None
+
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
+        patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
+        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
+    ):
+        mock_lane.return_value.__enter__ = MagicMock()
+        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
+        test_instance._spawn_final_stream(q1, client, 256)
+        original_set_status = test_instance._set_status
+        mock_set_status = MagicMock()
+        test_instance._set_status = mock_set_status
+        captured["fn"]()
+        test_instance._set_status = original_set_status
+
+    mock_set_status.assert_not_called()
+    assert "\nAI: " in test_instance.responses
+    assert "Finishing..." in test_instance.statuses
+    client.stream_request_with_tools.assert_not_called()
+
+    items1: list[Any] = []
+    while not q1.empty():
+        items1.append(q1.get_nowait())
+
+    assert (StreamQueueKind.CHUNK, "ab") in items1
+    assert (StreamQueueKind.CHUNK, "c") in items1
+    assert items1[-1] == (StreamQueueKind.FINAL_DONE, "abc")
+    assert not any(item[0] == StreamQueueKind.STREAM_DONE for item in items1)
+
+    # 2. Second run on a fresh queue: aborted mid-stream
+    q2: queue.Queue[Any] = queue.Queue()
+    turn.queue = q2
+    turn.batcher = None
+    client._stopped = False
+
+    def fake_stream_abort(messages, max_tokens, append_c, append_t, stop_checker=None, status_callback=None):
+        append_c("ab")
+        client._stopped = True
+
+    client.stream_chat_response.side_effect = fake_stream_abort
+
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
+        patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
+        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+        patch("plugin.chatbot.tool_loop.messages_for_llm", return_value=view),
+    ):
+        mock_lane.return_value.__enter__ = MagicMock()
+        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
+        test_instance._spawn_final_stream(q2, client, 256)
+        captured["fn"]()
+
+    items2: list[Any] = []
+    while not q2.empty():
+        items2.append(q2.get_nowait())
+
+    assert items2[-1] == (StreamQueueKind.STOPPED,)
+    assert not any(item[0] == StreamQueueKind.FINAL_DONE for item in items2)
+    assert take_stop_partial(current_turn(test_instance)) == "ab"
 
 
 def test_start_tool_calling_resets_overflow_attempts(test_instance):
