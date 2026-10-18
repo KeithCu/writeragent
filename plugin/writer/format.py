@@ -57,17 +57,14 @@ def _deletion_author() -> Any:  # pyright: ignore[reportUnusedFunction]
 
 def _resolve_style_name(model: Any, style_name: str) -> str:  # pyright: ignore[reportUnusedFunction]
     """Resolve a style name case-insensitively against document ParagraphStyles."""
-    try:
-        families = model.getStyleFamilies()
-        para_styles = families.getByName("ParagraphStyles")
-        if para_styles.hasByName(style_name):
-            return style_name
-        lower = style_name.lower()
-        for name in para_styles.getElementNames():
-            if name.lower() == lower:
-                return name
-    except Exception:
-        pass
+    families = model.getStyleFamilies()
+    para_styles = families.getByName("ParagraphStyles")
+    if para_styles.hasByName(style_name):
+        return style_name
+    lower = style_name.lower()
+    for name in para_styles.getElementNames():
+        if name.lower() == lower:
+            return name
     return style_name
 
 
@@ -376,18 +373,15 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
 
     walk_notes: list[str] = []
 
-    def _expand_to_full_paragraphs(cur: Any) -> Any | None:
-        try:
-            text = cur.getText()
-            start = text.createTextCursorByRange(cur.getStart())
-            end = text.createTextCursorByRange(cur.getEnd())
-            start.gotoStartOfParagraph(False)
-            end.gotoEndOfParagraph(True)
-            expanded = text.createTextCursorByRange(start.getStart())
-            expanded.gotoRange(end.getEnd(), True)
-            return expanded
-        except Exception:
-            return None
+    def _expand_to_full_paragraphs(cur: Any) -> Any:
+        text = cur.getText()
+        start = text.createTextCursorByRange(cur.getStart())
+        end = text.createTextCursorByRange(cur.getEnd())
+        start.gotoStartOfParagraph(False)
+        end.gotoEndOfParagraph(True)
+        expanded = text.createTextCursorByRange(start.getStart())
+        expanded.gotoRange(end.getEnd(), True)
+        return expanded
 
     def _capture_direct_char_overrides(capture_cursor: Any) -> list[Any]:
         overrides: list[Any] = []
@@ -445,7 +439,7 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
         record_walk_cap(para_enum, _paras, _CAPTURE_PARA_LIMIT, "paragraphs", walk_notes)
         return overrides
 
-    capture_cursor = _expand_to_full_paragraphs(cursor) or cursor
+    capture_cursor = _expand_to_full_paragraphs(cursor)
     overrides = _capture_direct_char_overrides(capture_cursor)
     found = _summarize_char_overrides(overrides)
     cursor.setPropertyValue("ParaStyleName", style_name)

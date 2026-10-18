@@ -18,6 +18,7 @@ import base64
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import clone_text_range
+from plugin.framework.errors import best_effort
 from plugin.framework.tool import ToolBase
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes, get_selected_image_base64
 
@@ -70,13 +71,9 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
     except Exception as e:
         return None, "could not render page %d: no document view available (%s)" % (page, e)
 
-    saved = None
-    try:
-        # Same save/restore idiom as get_page_objects (structural.py). If the cursor sits in nested
-        # text (table cell / frame) this raises and we simply skip the best-effort restore.
-        saved = clone_text_range(vc)
-    except Exception:
-        saved = None
+    # Full SwXTextViewCursor: createTextCursorByRange raises RuntimeException on a
+    # Writer body (PR #796). A failed save only skips the restore below.
+    saved = best_effort(lambda: clone_text_range(vc), "save view cursor before page render")
 
     tmp_path = None
     try:
@@ -86,11 +83,8 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
         actual = int(vc.getPage())
         if actual != lo_page:
             # jumpToPage clamps out-of-range targets; jump to the end to report the real total.
-            try:
-                vc.jumpToLastPage()
-                total = int(vc.getPage())
-            except Exception:
-                total = actual
+            vc.jumpToLastPage()
+            total = int(vc.getPage())
             return None, "could not render page %d: page not found (document has %d page(s))." % (page, total)
         # UNO imports only here: nothing above needs them, so validation/error paths stay
         # exception-free even where the uno module is unavailable (e.g. mocked test envs).
@@ -214,36 +208,33 @@ class GetImage(ToolBase):
         b64: str | None
         want_selection = bool(kwargs.get("selection"))
         page = kwargs.get("page")
-        try:
-            if page is not None:
-                if page < 0:
-                    return self._tool_error("page must be a non-negative integer (0-based).")
-                raw, reason = _render_page_png(ctx.ctx, doc, int(page))
-                if raw is None:
-                    return self._tool_error(reason or "Could not render the page.")
-                b64 = base64.b64encode(raw).decode("utf-8")
-                return {"status": "ok", "source": f"page {page}", "_mcp_image": {"data": b64, "mimeType": "image/png"}}
-            if want_selection or not name:
-                b64 = get_selected_image_base64(doc, ctx.ctx)
-                if not b64:
-                    return self._tool_error("No image selected. Select an image in the document, or pass image=<name> (see image_list).")
-                source = "selection"
-            else:
-                # visual_helpers walks Writer GraphicObjects and Draw/Impress GraphicObjectShapes.
-                # Do not call getGraphicObjects() here — that Writer-only API is missing on Draw
-                # and would look like a successful miss ("no such name") instead of a real lookup.
-                from plugin.doc.visual_helpers import get_graphic_object_by_name
+        if page is not None:
+            if page < 0:
+                return self._tool_error("page must be a non-negative integer (0-based).")
+            raw, reason = _render_page_png(ctx.ctx, doc, int(page))
+            if raw is None:
+                return self._tool_error(reason or "Could not render the page.")
+            b64 = base64.b64encode(raw).decode("utf-8")
+            return {"status": "ok", "source": f"page {page}", "_mcp_image": {"data": b64, "mimeType": "image/png"}}
+        if want_selection or not name:
+            b64 = get_selected_image_base64(doc, ctx.ctx)
+            if not b64:
+                return self._tool_error("No image selected. Select an image in the document, or pass image=<name> (see image_list).")
+            source = "selection"
+        else:
+            # visual_helpers walks Writer GraphicObjects and Draw/Impress GraphicObjectShapes.
+            # Do not call getGraphicObjects() here — that Writer-only API is missing on Draw
+            # and would look like a successful miss ("no such name") instead of a real lookup.
+            from plugin.doc.visual_helpers import get_graphic_object_by_name
 
-                obj = get_graphic_object_by_name(doc, name)
-                if obj is None:
-                    return self._tool_error(f"No embedded image named '{name}'. Call image_list to see the available names.")
-                raw = export_graphic_object_to_bytes(ctx.ctx, obj)
-                if not raw:
-                    return self._tool_error(f"Could not export image '{name}'.")
-                b64 = base64.b64encode(raw).decode("utf-8")
-                source = name
-            # _mcp_image is recognized by the MCP tools/call serializer (mcp_protocol) and returned as a
-            # native image content block; over non-image transports it is just an ignorable marker.
-            return {"status": "ok", "source": source, "_mcp_image": {"data": b64, "mimeType": "image/png"}}
-        except Exception as e:
-            return self._tool_error(f"get_image failed: {e}")
+            obj = get_graphic_object_by_name(doc, name)
+            if obj is None:
+                return self._tool_error(f"No embedded image named '{name}'. Call image_list to see the available names.")
+            raw = export_graphic_object_to_bytes(ctx.ctx, obj)
+            if not raw:
+                return self._tool_error(f"Could not export image '{name}'.")
+            b64 = base64.b64encode(raw).decode("utf-8")
+            source = name
+        # _mcp_image is recognized by the MCP tools/call serializer (mcp_protocol) and returned as a
+        # native image content block; over non-image transports it is just an ignorable marker.
+        return {"status": "ok", "source": source, "_mcp_image": {"data": b64, "mimeType": "image/png"}}

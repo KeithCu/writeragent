@@ -100,14 +100,10 @@ class EndpointImageProvider(ImageProvider):
         fallback_content = ""
 
         if self.client.config.get("is_openrouter"):
-            # Check if we should use OpenRouter's dedicated Image Generation API
             use_dedicated = False
-            try:
-                from plugin.framework.client.model_fetcher import is_image_only_model
-                if is_image_only_model(self.client._endpoint(), model):
-                    use_dedicated = True
-            except Exception:
-                pass
+            from plugin.framework.client.model_fetcher import is_image_only_model
+            if is_image_only_model(self.client._endpoint(), model):
+                use_dedicated = True
 
             if use_dedicated:
                 valid_steps = steps if (steps is not None and steps > 0) else None

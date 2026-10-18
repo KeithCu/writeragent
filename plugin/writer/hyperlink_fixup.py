@@ -55,6 +55,8 @@ from __future__ import annotations
 import logging
 from typing import Any, ClassVar, Iterator
 
+from plugin.framework.errors import uno_read
+
 log = logging.getLogger("writeragent.writer.hyperlink")
 
 _OUTLINE_SUFFIX = "|outline"
@@ -129,18 +131,12 @@ def _prop(obj: Any, name: str) -> str:
 
 def _point_before(text: Any, left: Any, right: Any) -> bool:
     """True when *left* starts before *right* (``compareRegionStarts`` == 1)."""
-    try:
-        return int(text.compareRegionStarts(left, right)) == 1
-    except Exception:
-        return False
+    return uno_read(lambda: int(text.compareRegionStarts(left, right)) == 1, False)
 
 
 def _point_after(text: Any, left: Any, right: Any) -> bool:
     """True when *left* ends after *right* (``compareRegionEnds`` == -1)."""
-    try:
-        return int(text.compareRegionEnds(left, right)) == -1
-    except Exception:
-        return False
+    return uno_read(lambda: int(text.compareRegionEnds(left, right)) == -1, False)
 
 
 def _ranges_overlap(text: Any, portion: Any, match: Any) -> bool:
@@ -240,10 +236,7 @@ def _cursor_at(text: Any, pos: Any) -> Any:
 
 
 def _same_point(text: Any, left: Any, right: Any) -> bool:
-    try:
-        return int(text.compareRegionStarts(left, right)) == 0
-    except Exception:
-        return False
+    return uno_read(lambda: int(text.compareRegionStarts(left, right)) == 0, False)
 
 
 def _paragraph_edges(text: Any, text_range: Any) -> tuple[Any, Any, bool]:

@@ -29,6 +29,7 @@ from com.sun.star.beans import PropertyValue
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_FRAME
 from plugin.doc import visual_helpers
 from plugin.doc.text_helpers import clone_text_range
+from plugin.framework.errors import best_effort
 
 # WriterCompoundUndo is intentionally imported function-locally in insert_image,
 # insert_image_at_locator, insert_image_into_header_footer, and
@@ -314,13 +315,12 @@ def insert_image_into_header_footer(
 
 
 def _place_view_cursor_at_text_range(model: Any, text_cursor: Any) -> bool:
-    try:
+    def _place() -> bool:
         vc = model.CurrentController.ViewCursor
         vc.gotoRange(text_cursor.getStart(), False)
         return True
-    except Exception:
-        log.debug("_place_view_cursor_at_text_range failed", exc_info=True)
-        return False
+
+    return best_effort(_place, "_place_view_cursor_at_text_range failed", default=False)
 
 
 def _cursor_for_writer_view(vc: Any) -> tuple[Any, Any]:
