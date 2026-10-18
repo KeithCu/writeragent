@@ -6,33 +6,6 @@ _repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
-if sys.platform == "win32":
-    import socket as _s0
-    try:
-        _s0.socket().close()
-        _W0 = True
-    except OSError:
-        _W0 = False
-    import warnings as _w0
-    _w0.warn("WINSOCK_AT_CONFTEST_START ok=%s" % _W0)
-    _A_RECENT: list = []
-    _A_DONE = [False]
-
-    def _a_hook(event, args):
-        if _A_DONE[0] or event not in ("import", "ctypes.dlopen", "os.add_dll_directory", "sys._getframe") or event == "sys._getframe":
-            return
-        try:
-            _s0.socket().close()
-            ok = True
-        except OSError:
-            ok = False
-        if not ok:
-            _A_DONE[0] = True
-            _w0.warn("WINSOCK_AUDIT_BROKEN before=%r recent=%r" % ((event, str(args[:1])[:200]), _A_RECENT[-12:]))
-        _A_RECENT.append((event, str(args[:1])[:120]))
-
-    sys.addaudithook(_a_hook)
-
 # Layer A thread guard defaults on in non-release bundles; keep headless pytest stable.
 os.environ.setdefault("WRITERAGENT_UNO_THREAD_GUARD", "0")
 import time
@@ -821,33 +794,3 @@ def pytest_sessionfinish(session, exitstatus):
                 "MagicMock/ exists under the repo root after the suite — config path isolation leaked",
                 red=True,
             )
-
-
-# TEMP DIAGNOSTIC (remove before merge): find which import breaks Winsock.
-if sys.platform == "win32":
-    import socket as _probe_socket
-    import warnings as _probe_warnings
-
-    def _winsock_ok() -> bool:
-        try:
-            _probe_socket.socket(_probe_socket.AF_INET, _probe_socket.SOCK_STREAM).close()
-            return True
-        except OSError:
-            return False
-
-    def _winsock_repair() -> None:
-        import ctypes
-
-        data = ctypes.create_string_buffer(512)
-        ctypes.windll.ws2_32.WSAStartup(0x0202, ctypes.byref(data))
-
-    _probe_warnings.warn("WINSOCK_AT_CONFTEST_END ok=%s" % _winsock_ok())
-    _probe_seen_mods = set(sys.modules)
-
-    def pytest_collectreport(report):
-        global _probe_seen_mods
-        if not _winsock_ok():
-            new = sorted(set(sys.modules) - _probe_seen_mods)
-            _probe_warnings.warn("WINSOCK_BROKEN_AFTER_COLLECT %s newmods=%s" % (report.nodeid, ",".join(new[:80])))
-            _winsock_repair()
-        _probe_seen_mods = set(sys.modules)
