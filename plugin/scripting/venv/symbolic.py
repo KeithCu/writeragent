@@ -444,6 +444,6 @@ def run_symbolic(
     helper, params, _headers, _header_row, ctx, _spec = parsed
 
     result = _dispatch_helper(helper, params)
-    if isinstance(result, dict) and result.get("status") == "ok" and ctx:
+    if result.get("status") == "ok" and ctx:
         result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
     return result

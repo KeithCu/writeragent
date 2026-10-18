@@ -533,6 +533,6 @@ def run_quant(
     else:
         return _error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
 
-    if isinstance(result, dict) and result.get("status") == "ok" and ctx:
+    if result.get("status") == "ok" and ctx:
         result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
     return result

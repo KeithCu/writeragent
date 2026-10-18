@@ -646,8 +646,6 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except SystemExit:
-        raise
     except Exception:
         traceback.print_exc(file=sys.stderr)
         raise SystemExit(1) from None

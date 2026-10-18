@@ -955,7 +955,7 @@ def run_forecast(
         log.exception("Forecast helper %s failed", helper)
         return _error_result("FORECAST_FAILED", str(exc), helper=helper)
 
-    if isinstance(result, dict) and result.get("status") == "ok" and ctx:
+    if result.get("status") == "ok" and ctx:
         result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
 
     return result

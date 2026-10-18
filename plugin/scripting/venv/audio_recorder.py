@@ -143,11 +143,10 @@ def record_to_wav(
                 stream.close()
             except Exception:
                 pass
-        if wav_file is not None:
-            try:
-                wav_file.close()
-            except (OSError, ValueError):
-                pass
+        try:
+            wav_file.close()
+        except (OSError, ValueError):
+            pass
 
     # An exception inside callback used to leave the callback, sounddevice
     # aborted the stream, and stop_event.wait blocked until the 4 hour cap.

@@ -92,10 +92,7 @@ def _is_bound_scalar(x: Any) -> bool:
     if isinstance(x, bool):
         return False
     if isinstance(x, (int, float, np.integer, np.floating)):
-        try:
-            return math.isfinite(float(x))
-        except (ValueError, TypeError):
-            return False
+        return math.isfinite(float(x))
     return False
 
 
@@ -560,7 +557,7 @@ def run_optimize(
         log.exception("Optimization helper %s failed", helper)
         return _error_result("OPTIMIZATION_FAILED", str(exc), helper=helper)
 
-    if isinstance(result, dict) and result.get("status") == "ok" and ctx:
+    if result.get("status") == "ok" and ctx:
         result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
 
     return result
