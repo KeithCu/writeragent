@@ -668,14 +668,10 @@ class PythonWorkerManager:
                 stdin = proc.stdin
                 stdout = proc.stdout
                 write_timeout_sec = min(float(timeout_sec), float(VENV_IPC_WRITE_TIMEOUT_SEC))
-                # What was wrong: resolve_allowed_tools and host_script_session_id ran
-                # after the request frame was written and before _read_until_terminal.
-                # How it happened: tool RPC was added in the attempt loop after the write
-                # (24a737750). OSError and RuntimeError from that import are in the retry
-                # tuple, and may_have_run is still false because the read has not started,
-                # so the same request id was sent to a new child.
-                # Why this change: both values are host-only. A failure here is a pre-write
-                # retry. The child does not have the request yet.
+                # Resolve tools and session id before writing the request. These are
+                # host-only; if they fail after the write, the retry path would resend
+                # the same id to a new child (may_have_run is still false until the
+                # read starts).
                 from plugin.scripting.host_rpc import resolve_allowed_tools
 
                 allowed_tools = resolve_allowed_tools(req.python_tool_domain)
@@ -720,17 +716,12 @@ class PythonWorkerManager:
                         resolved_script_session_id=resolved_script_session_id,
                     )
                 except (subprocess.TimeoutExpired, IpcPartialFrameTimeout) as e:
-                    # User code / C-extension hung: killing and replaying would double the wait.
-                    # Windows raises IpcPartialFrameTimeout (an OSError) once any
-                    # byte of a frame is buffered. That missed this branch, and
-                    # with exec_started only partly read may_have_run was still
-                    # false, so the outer handler resent the script. The child
-                    # writes exec_started and then runs user code immediately, so
-                    # file and DuckDB side effects ran twice. Both platforms raise
-                    # IpcPartialFrameTimeout once any byte of the current chunk has
-                    # been taken; a chunk whose buffer is still empty raises
-                    # TimeoutExpired with the configured window. Both are caught
-                    # here so neither replays.
+                    # Hung user code / C-extension: do not kill and replay (doubles the
+                    # wait and side effects). Windows used to raise IpcPartialFrameTimeout
+                    # (OSError) after buffering any byte, which missed this branch while
+                    # may_have_run was still false, so the outer handler resent the script.
+                    # Both platforms: partial chunk -> IpcPartialFrameTimeout; empty buffer
+                    # -> TimeoutExpired. Catch both here so neither replays.
                     log.warning("Python worker read timed out: %s", e)
                     return self._fail_no_replay(
                         "VENV_TIMEOUT",
@@ -745,29 +736,21 @@ class PythonWorkerManager:
                     log.warning("Python worker frame rejected (not replaying): %s", e)
                     return self._fail_ipc_no_replay(e)
                 except (OSError, RuntimeError) as e:
-                    # RuntimeError must not look only at dispatched_intermediate. A
-                    # later RuntimeError (bad frame, closed pipe) after
-                    # exec_started re-raised into the attempt loop and ran the
-                    # same script on a new child. _NonReplayableIpcWriteTimeout
-                    # is a RuntimeError, so a mid-turn host-response write
-                    # timeout is caught here first. Re-raising when the turn
-                    # has not started lets the dedicated handler below refuse
-                    # the replay; after exec_started this branch already does.
+                    # After may_have_run, do not replay on RuntimeError (bad frame,
+                    # closed pipe, or mid-turn host-response write timeout —
+                    # _NonReplayableIpcWriteTimeout). Looking only at
+                    # dispatched_intermediate used to re-raise into the attempt
+                    # loop and run the script again. Before the turn starts, re-raise
+                    # so the dedicated handler below can refuse the replay.
                     if not state.may_have_run:
                         raise
                     log.warning("Python worker failed after execution started (not replaying): %s", e)
                     return self._fail_ipc_no_replay(e)
                 req_id = wire.get("id")
-                # What was wrong: the harness writes {"id": "", "status": "error",
-                # "message": "Invalid pickle request: ..."} and loops. The host treated
-                # that as an id mismatch and _fail_no_replay killed a child that was
-                # already back at read().
-                # How it happened: read_pickle_frame raises ValueError for a non-dict or
-                # a bad unpickle after the length prefix and payload are consumed
-                # (worker_harness.main). The pipe stays aligned. The host only compared ids.
-                # Why this change: that empty id is only used on this pre-exec reject.
-                # Return the child's message and leave the process up. Any other id, or
-                # this frame after exec_started / a tool frame, still kills.
+                # Empty-id error before exec: the harness rejected the pickle and is
+                # back at read(). Return its message and keep the worker. Treating this
+                # as an id mismatch used to kill a healthy child. After exec_started or
+                # a tool frame, any other id mismatch still kills.
                 if (
                     response.get("id") == ""
                     and response.get("status") == "error"
@@ -1082,16 +1065,11 @@ class PythonWorkerManager:
         # One load: _terminate_worker may store None concurrently.
         proc = self._proc
         if proc is not None and proc.poll() is None:
-            # What was wrong: _retired was checked only on entry. get() and
-            # shutdown_all set the flag, then kill. _join_reaps() can block, so
-            # the flag can flip during that wait and this return handed the
-            # still-live child to the writer.
-            # How it happened: the _retired re-check under _proc_lock runs only
-            # before Popen, to stop an untracked spawn. The live-proc return skipped it.
-            # Why this change: refuse the return with the same _WorkerRetired the
-            # spawn path raises. Do not take a lock here. get() must not take
-            # _io_lock, and holding _proc_lock across the later write would deadlock
-            # a retire that already needs _proc_lock inside _terminate_worker.
+            # Re-check _retired after _join_reaps: the flag can flip while that
+            # wait blocks, and returning the still-live child would hand a retired
+            # worker to the writer. Same _WorkerRetired as the spawn path. No lock
+            # here — holding _proc_lock across the later write deadlocks a
+            # concurrent retire.
             if self._retired:
                 raise _WorkerRetired(
                     "Python worker was replaced by a new venv path and will not be restarted"
@@ -1129,16 +1107,10 @@ class PythonWorkerManager:
                 log_start_failure=False,
                 label="Python worker",
             )
-            # What was wrong: Popen ran on the execute / warm caller. Linux
-            # PR_SET_PDEATHSIG kills the child when that thread exits, so a warm
-            # worker died while LibreOffice was still running and shared sessions
-            # were dropped.
-            # How it happened: _die_with_parent arms SIGKILL for the creating
-            # thread. warm_venv_worker, corpus index, and chat tool workers are
-            # dedicated=True threads that return after the call.
-            # Why this change: ManagedSubprocess.start runs on this manager's
-            # venv-worker-spawn thread, which stays alive until the manager is
-            # retired or shutdown_all.
+            # Spawn on this manager's long-lived venv-worker-spawn thread, not
+            # the caller. On Linux, PR_SET_PDEATHSIG kills the child when the
+            # creating thread exits — warm/index/chat workers return after the
+            # call, which dropped shared sessions while LibreOffice was still up.
             self._start_child(managed)
             # Publish the drain before _proc. A reader can observe _proc without
             # _proc_lock. The old order let that reader see a live proc with no drain.
@@ -1207,14 +1179,9 @@ class PythonWorkerManager:
         cap = float(HEARTBEAT_ABSOLUTE_CAP_SEC if absolute_cap_sec is None else absolute_cap_sec)
         start = time.monotonic()
         ceiling = start + cap
-        # What was wrong: the first-frame deadline was max(timeout_sec, grace_sec),
-        # so a grace longer than the caller timeout became the wait, and
-        # TimeoutExpired reported grace.
-        # How it happened: the heartbeat reader in 13301df45 used that max so a
-        # short timeout could not fire before grace. Production grace is 90s and
-        # the long trusted timeout is 300s, so the max was a no-op there.
-        # Why this change: grace is silence allowed after a heartbeat. The first
-        # byte is bounded by timeout_sec, then each heartbeat sets
+        # First-byte wait is timeout_sec, not max(timeout, grace). Grace is only
+        # silence allowed after a heartbeat; using the max made a short timeout
+        # wait for grace instead. After a heartbeat:
         # deadline = min(now + grace, ceiling).
         window = float(timeout_sec)
         deadline = start + window
@@ -1253,16 +1220,9 @@ class PythonWorkerManager:
                 continue
             if frame_type == FRAME_RESULT or frame_type is None:
                 return data
-            # Unknown frames must not extend the deadline. A protocol drift
-            # then fails as a timeout instead of looking like a silent stall.
-            # What was wrong: each ignored frame logged a warning before the
-            # next deadline check, so logging latency counted as wait.
-            # How it happened: run 38800801506 gw2, timeout_sec=0.2 and
-            # grace_sec=2.0, stubbed reads returning an unknown frame.
-            # Captured log has 185 warnings and wall time 1.031606279s, so
-            # `elapsed < 1.0` failed. Grace was not the deadline.
-            # Why this change fixes it: log the first unknown type once.
-            # Further unknown frames only recheck the deadline.
+            # Unknown frames must not extend the deadline (protocol drift should
+            # time out, not look like a stall). Log the first unknown type once —
+            # per-frame warnings used to inflate wait time and flake short-timeout tests.
             if not logged_unknown:
                 log.warning("venv worker ignoring unknown frame type: %r", frame_type)
                 logged_unknown = True
