@@ -2040,10 +2040,14 @@ def test_e23_calc_prompt_formula(ctx):
 
 
 def _e24_python_round_done() -> bool:
-    """True once the inner agent got the run_venv_python_script result back."""
+    """True once the inner agent posts again after calling run_venv_python_script.
+
+    The smol inner agent returns the tool result as a user "Observation:" message, so
+    look for the tool in called_tools rather than a role=tool message.
+    """
     from scripts.mock_llm_server import PYTHON_TOOL
 
-    return any(PYTHON_TOOL in (r.get("called_tools") or []) and r.get("last_role") == "tool" for r in _captures())
+    return any(PYTHON_TOOL in (r.get("called_tools") or []) for r in _captures())
 
 
 @native_test

@@ -1284,12 +1284,10 @@ def _specialized_inner_completion(
         return _image_generate_completion(scenario)
     if scenario == "python_slow" and PYTHON_TOOL in tool_names:
         if PYTHON_TOOL in called:
-            # Echo the tool result so the sidebar shows how the script ended.
-            tool_text = next(
-                (_as_text(m.get("content")) for m in reversed(messages) if isinstance(m, dict) and m.get("role") == "tool"),
-                "",
-            )
-            return _finish("Python tool result: " + tool_text[:300])
+            # Echo the tool result so the sidebar shows how the script ended. Smol agents
+            # send it back as the last message ("Observation: ..."), not as role=tool.
+            last = messages[-1] if messages and isinstance(messages[-1], dict) else {}
+            return _finish("Python tool result: " + _as_text(last.get("content"))[:300])
         return Completion(tool_name=PYTHON_TOOL, tool_args={"code": PYTHON_SLOW_CODE}, finish_reason="tool_calls")
     # One discovery step, then finish. Calling every advertised tool (especially
     # delegate_read_document with path="") loops the inner agent (Packet E7 soak).
