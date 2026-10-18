@@ -187,6 +187,19 @@ def _transcript(which: str) -> str:
         return ""
 
 
+def _listener_transcript(which: str) -> str:
+    """The listener's own transcript, for failure messages only (compare with the cached controls)."""
+    sl = _listener(which)
+    if sl is None:
+        return "<no listener>"
+    from plugin.chatbot.sidebar_test_hooks import transcript_text
+
+    try:
+        return transcript_text(listener=sl)
+    except Exception as exc:
+        return "<error %r>" % exc
+
+
 def _send(which: str, text: str, timeout: float = 90.0) -> None:
     from plugin.chatbot.sidebar_test_hooks import (
         press_send,
@@ -460,7 +473,7 @@ def test_p1_total_row_peer_roundtrip(ctx):
         "Calc did not write a Total row: formula=%r calc=%r" % (formula, calc_txt[-300:])
     )
     assert "[Peer work from:" in writer_txt or "Total" in writer_txt or "total" in writer_txt.lower(), (
-        "Writer follow-up never saw the reply: %r" % writer_txt[-400:]
+        "Writer follow-up never saw the reply: %r listener=%r" % (writer_txt[-400:], _listener_transcript("writer")[-400:])
     )
     snaps = _captures()
     assert finish_immediately_after_peer_sends(snaps), "specialized did not finish immediately after accepted: %r" % [
@@ -643,7 +656,10 @@ def test_p3_writer_busy_queues_calc_reply(ctx):
         time.sleep(0.12)
     try:
         assert calc_replied, "Calc never sent the reply: decided=%r" % _capture_tools()
-        assert saw_mid, "Writer ramble never painted mid-stream: %r" % writer_txt[-300:]
+        assert saw_mid, "Writer ramble never painted mid-stream: %r listener=%r" % (
+            writer_txt[-300:],
+            _listener_transcript("writer")[-300:],
+        )
         assert not injected_mid, (
             "Calc reply injected while Writer ramble was still streaming: %r" % writer_txt[-300:]
         )

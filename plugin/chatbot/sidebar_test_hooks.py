@@ -269,6 +269,17 @@ def _remove_quiet(path: str) -> None:
         os.remove(path)
 
 
+def _fake_child_python() -> str:
+    """Python that the fake recorder / TTS children run under.
+
+    Tip: inside LibreOffice on macOS, sys.executable is soffice, not Python, so
+    "soffice -c script" just exits 1. Use the office's real bundled Python.
+    """
+    from plugin.scripting.sandbox import resolve_libreoffice_python
+
+    return resolve_libreoffice_python() or sys.executable
+
+
 def read_fake_stt_state() -> dict[str, Any]:
     return _read_json_dict(fake_stt_state_path(), retry=True)
 
@@ -456,7 +467,7 @@ def _apply_fake_stt(mode: str) -> None:
         if not _FAKE_STT_STATE or _FAKE_STT_STATE.get("mode") != mode:
             _FAKE_STT_STATE = {
                 "mode": mode,
-                "interpreter": sys.executable,
+                "interpreter": _fake_child_python(),
                 "spawn_count": 0,
                 "pids": [],
                 "alive": [],
@@ -505,7 +516,7 @@ def _apply_fake_stt(mode: str) -> None:
                 elif is_recorder and _FAKE_STT_MODE in ("silence", "noisy", "hold"):
                     script = _fake_recorder_script(_FAKE_STT_MODE, _fake_recorder_output(requested_cmd))
 
-                new_cmd = [sys.executable, "-c", script]
+                new_cmd = [_fake_child_python(), "-c", script]
                 new_args = list(args)
                 if new_args:
                     new_args[0] = new_cmd
@@ -545,7 +556,7 @@ def _apply_fake_stt(mode: str) -> None:
             # interpreter the fake children run under.
             def fake_resolve_recording_python(ctx: Any) -> tuple[str | None, str]:
                 del ctx
-                return sys.executable, ""
+                return _fake_child_python(), ""
 
             setattr(audio_recorder, "resolve_recording_python", fake_resolve_recording_python)
 
@@ -620,7 +631,7 @@ def _fake_tts_refresh_locked() -> None:
             rcs[str(pid)] = rc
     _FAKE_TTS_STATE["alive"] = alive
     _FAKE_TTS_STATE["mode"] = _FAKE_TTS_MODE
-    _FAKE_TTS_STATE["interpreter"] = sys.executable
+    _FAKE_TTS_STATE["interpreter"] = _fake_child_python()
     _FAKE_TTS_STATE.setdefault("spawn_count", 0)
     _FAKE_TTS_STATE.setdefault("pids", [])
     _FAKE_TTS_STATE.setdefault("overlap_spawns", 0)
@@ -656,7 +667,7 @@ def _fake_tts_note_spawn_locked(requested: list[str], proc: subprocess.Popen[Any
     _FAKE_TTS_PROCS[pid] = proc
     _FAKE_TTS_STATE.setdefault("pids", []).append(pid)
     _FAKE_TTS_STATE["spawn_count"] = _FAKE_TTS_STATE.get("spawn_count", 0) + 1
-    _FAKE_TTS_STATE.setdefault("argv0s", []).append(sys.executable)
+    _FAKE_TTS_STATE.setdefault("argv0s", []).append(_fake_child_python())
     base = os.path.basename(requested[0]) if requested else ""
     _FAKE_TTS_STATE.setdefault("requested_basenames", []).append(base)
     _fake_tts_refresh_locked()
@@ -746,7 +757,7 @@ def _apply_fake_tts(mode: str) -> None:
         if not _FAKE_TTS_STATE or _FAKE_TTS_STATE.get("mode") != mode:
             _FAKE_TTS_STATE = {
                 "mode": mode,
-                "interpreter": sys.executable,
+                "interpreter": _fake_child_python(),
                 "spawn_count": 0,
                 "pids": [],
                 "alive": [],
@@ -784,7 +795,7 @@ def _apply_fake_tts(mode: str) -> None:
                     return None
                 if _FAKE_TTS_MODE in ("hold", "crash"):
                     if os.path.basename(cmd) == "espeak":
-                        return sys.executable
+                        return _fake_child_python()
                 return orig_which(cmd, *args, **kwargs)
 
             setattr(fake_which, "_writeragent_fake_tts", True)
@@ -814,7 +825,7 @@ def _apply_fake_tts(mode: str) -> None:
                 else:
                     requested_cmd = []
 
-                new_cmd = [sys.executable, "-c", script]
+                new_cmd = [_fake_child_python(), "-c", script]
                 new_args = list(args)
                 if new_args:
                     new_args[0] = new_cmd
@@ -3014,9 +3025,14 @@ def get_writer_graphics_count(*, ctx: Any = None) -> int:
         return 0
     return len(doc.getGraphicObjects().getElementNames())
 
-def get_draw_graphics_count(*, ctx: Any = None) -> int:
-    """Return the number of Draw/Impress GraphicObjectShapes on the first page."""
-    doc = current_component(ctx)
+def get_draw_graphics_count(*, ctx: Any = None, doc: Any = None) -> int:
+    """Return the number of shapes on the first draw page of *doc* (default: current component).
+
+    Tip: pass *doc* when several documents are open. On macOS the desktop's current
+    component can stay on Writer after Calc opens, which would count the wrong document.
+    """
+    if doc is None:
+        doc = current_component(ctx)
     if doc is None or not hasattr(doc, "getDrawPages"):
         return 0
     return doc.getDrawPages().getByIndex(0).getCount()
