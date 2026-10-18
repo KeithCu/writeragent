@@ -34,9 +34,9 @@ from plugin.scripting.ipc import (
 from plugin.scripting.sandbox import scrub_subprocess_env
 from plugin.scripting.venv_worker import (
     PythonWorkerManager,
-    _ExecRequest,
     _worker_error,
     _worker_error_message,
+    _ExecRequest,
     reset_python_session,
     run_code_in_user_venv,
     warm_venv_worker,
