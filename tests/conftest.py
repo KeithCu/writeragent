@@ -794,3 +794,32 @@ def pytest_sessionfinish(session, exitstatus):
                 "MagicMock/ exists under the repo root after the suite — config path isolation leaked",
                 red=True,
             )
+
+
+# TEMP DIAGNOSTIC (remove before merge): find which test breaks Winsock.
+if sys.platform == "win32":
+    import socket as _probe_socket
+    import warnings as _probe_warnings
+
+    def _winsock_ok() -> bool:
+        try:
+            _probe_socket.socket(_probe_socket.AF_INET, _probe_socket.SOCK_STREAM).close()
+            return True
+        except OSError:
+            return False
+
+    def _winsock_repair() -> None:
+        import ctypes
+
+        data = ctypes.create_string_buffer(512)
+        ctypes.windll.ws2_32.WSAStartup(0x0202, ctypes.byref(data))
+
+    @pytest.fixture(autouse=True)
+    def _winsock_probe(request):
+        if not _winsock_ok():
+            _probe_warnings.warn("WINSOCK_BROKEN_BEFORE %s" % request.node.nodeid)
+            _winsock_repair()
+        yield
+        if not _winsock_ok():
+            _probe_warnings.warn("WINSOCK_BROKEN_AFTER %s" % request.node.nodeid)
+            _winsock_repair()
