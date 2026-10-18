@@ -621,12 +621,12 @@ def test_tool_result_parsing():
     assert not any(isinstance(e, UpdateDocumentContextEffect) for e in effects_adc)  # mutates_document=False
 
 
-def test_tool_result_missing_data_and_empty_call_id():
+def test_tool_result_missing_data():
     state = create_base_state()
-    # Missing call_id and None result/func_name should be safely handled without empty IDs
+    # None fields from a bad TOOL_RESULT event become safe defaults.
     event = create_event(
         EventKind.TOOL_RESULT,
-        call_id="",
+        call_id="c1",
         func_name=None,
         func_args_str=None,
         result=None,
@@ -635,19 +635,25 @@ def test_tool_result_missing_data_and_empty_call_id():
     tr = next_state(state, event)
     msg_eff = next(e for e in tr.effects if isinstance(e, AddMessageEffect))
     assert msg_eff.role == "tool"
-    assert msg_eff.call_id == "call_unknown"
+    assert msg_eff.call_id == "c1"
     assert msg_eff.content == ""
 
-    # When func_name is present but call_id is empty, use call_<func_name>
-    event_named = create_event(
-        EventKind.TOOL_RESULT,
-        call_id="",
-        func_name="lookup_text",
-        result='{"found": true}',
-    )
-    tr_named = next_state(state, event_named)
-    msg_named = next(e for e in tr_named.effects if isinstance(e, AddMessageEffect))
-    assert msg_named.call_id == "call_lookup_text"
+
+def test_stream_done_fills_missing_tool_call_ids():
+    state = create_base_state()
+    calls = [
+        {"id": "", "function": {"name": "a", "arguments": "{}"}},
+        {"function": {"name": "b", "arguments": "{}"}},
+        {"id": "keep", "function": {"name": "c", "arguments": "{}"}},
+    ]
+    event = create_event(EventKind.STREAM_DONE, response={"content": "", "tool_calls": calls, "finish_reason": "tool_calls"})
+    tr = next_state(state, event)
+    msg = next(e for e in tr.effects if isinstance(e, AddMessageEffect))
+    ids = [tc["id"] for tc in msg.tool_calls]
+    assert ids == ["call_%d_0" % state.round_num, "call_%d_1" % state.round_num, "keep"]
+    # The pending list uses the same ids, so each tool reply matches its call.
+    assert [tc["id"] for tc in tr.state.pending_tools] == ids
+    assert calls[0]["id"] == ""  # input is not mutated
 
 
 def test_object_dict_or_empty():
@@ -663,11 +669,10 @@ def test_object_dict_or_empty():
 
 def test_pending_tool_call_fields():
     assert pending_tool_call_fields({"id": "c1", "function": {"name": "foo", "arguments": "{}"}}) == ("foo", "{}", "c1")
-    assert pending_tool_call_fields(None) == ("unknown", "{}", "call_unknown")
+    assert pending_tool_call_fields(None) == ("unknown", "{}", "")
     assert pending_tool_call_fields({"id": "c2"}) == ("unknown", "{}", "c2")
-    assert pending_tool_call_fields({"function": "bad"}) == ("unknown", "{}", "call_unknown")
-    assert pending_tool_call_fields({"id": "", "function": {"name": "search", "arguments": "{}"}}) == ("search", "{}", "call_search")
-
+    assert pending_tool_call_fields({"function": "bad"}) == ("unknown", "{}", "")
+    
 
 def test_format_replaced_zero_debug_line():
     line = format_replaced_zero_debug_line('{"target": "doc"}')

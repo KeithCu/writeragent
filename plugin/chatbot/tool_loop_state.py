@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Mapping, Optional, NamedTuple, assert_never,
 
 from plugin.framework.service import BaseState, FsmTransition
 from plugin.chatbot.memory import format_upsert_memory_chat_line
-from plugin.chatbot.state_machine import UIEffectKind
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
 from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
@@ -76,8 +75,7 @@ def _describe_empty_response_content(content: Any) -> str:
     )
 )
 def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
-    # crosshair: off
-    # dict values still Any; three-line helper. Doable later with value bounds (cover-all 33258921875: 311k lines).
+    # crosshair: off  # dict values still Any; three-line helper. Doable later with value bounds (cover-all 33258921875: 311k lines).
     if tool_calls is None:
         return "none"
     if isinstance(tool_calls, list):
@@ -147,8 +145,7 @@ _deal_func_args_ok = _deal_func_args_ok_crosshair if UNDER_CROSSHAIR else _deal_
 
 @deal.pre(lambda func_args: _deal_func_args_ok(func_args))
 def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
-    # crosshair: off
-    # Mapping Any domain extract (cover-all 33569420452: 4647 examples / ~634s est despite UNDER_CROSSHAIR dual-profile). Doable later.
+    # crosshair: off  # Mapping Any domain extract (cover-all 33569420452: 4647 examples / ~634s est despite UNDER_CROSSHAIR dual-profile). Doable later.
     domain = func_args.get("domain")
     if isinstance(domain, str) and domain.strip():
         return domain.strip()
@@ -157,8 +154,7 @@ def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
 
 @deal.pre(lambda func_args: _deal_func_args_ok(func_args))
 def delegate_status_label(func_args: Mapping[str, Any]) -> str:
-    # crosshair: off
-    # thin wrapper over domain_from_delegate_args (cover-all 33569420452: 2063 examples / ~282s est). Doable later.
+    # crosshair: off  # thin wrapper over domain_from_delegate_args (cover-all 33569420452: 2063 examples / ~282s est). Doable later.
     return f"delegate ({domain_from_delegate_args(func_args)})"
 
 
@@ -233,8 +229,7 @@ def _result_note(result_data: Mapping[str, Any]) -> str:
     lambda func_args, result_data: _deal_func_args_ok(func_args) and type(result_data) is dict
 )
 def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
-    # crosshair: off
-    # dual Mapping (cover-all 33569420452: 2249 examples / ~307s est). Doable later.
+    # crosshair: off  # dual Mapping (cover-all 33569420452: 2249 examples / ~307s est). Doable later.
     """Completion line for delegate gateway tools (domain shown; success is short)."""
     domain = domain_from_delegate_args(func_args)
     if result_data.get("status") == "error":
@@ -291,9 +286,6 @@ def format_replaced_zero_debug_line(func_args_str: str) -> str:
     return f"[Debug: params {params_display}]\n"
 
 
-# --- Normalization and Parsing Helpers ---
-
-
 @deal.post(lambda result: isinstance(result, dict))
 def object_dict_or_empty(value: object) -> dict[str, Any]:
     """Return *value* when it is a dict; otherwise ``{}`` (post-JSON coerce)."""
@@ -314,13 +306,24 @@ def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
     func_args_str = func_data.get("arguments", "{}")
     if not isinstance(func_args_str, str):
         func_args_str = "{}"
-    raw_id = tc_dict.get("id")
-    # Empty or missing IDs get a fallback so tool responses are not produced with empty ids silently.
-    if isinstance(raw_id, str) and raw_id.strip():
-        call_id = raw_id.strip()
-    else:
-        call_id = f"call_{func_name}"
+    call_id = tc_dict.get("id", "")
+    if type(call_id) is not str:
+        call_id = ""
     return func_name, func_args_str, call_id
+
+
+@deal.post(lambda result: isinstance(result, list))
+def with_tool_call_ids(tool_calls: List[Any], round_num: int) -> List[Any]:
+    """Copy *tool_calls*, giving each dict with a missing or blank id ``call_<round>_<index>``."""
+    # crosshair: off
+    out: List[Any] = []
+    for index, tc in enumerate(tool_calls):
+        if type(tc) is dict:
+            call_id = tc.get("id")
+            if not (isinstance(call_id, str) and call_id.strip()):
+                tc = {**tc, "id": f"call_{round_num}_{index}"}
+        out.append(tc)
+    return out
 
 
 @deal.post(lambda result: isinstance(result, bool))
@@ -416,7 +419,7 @@ class SpawnToolWorkerEffect:
 
 @dataclasses.dataclass(frozen=True)
 class ToolLoopUIEffect:
-    kind: UIEffectKind
+    kind: str  # UIEffectKind — str for CrossHair cover (Literal is not proxyable)
     text: str = ""
     is_empty_model_debug: bool = False
 
@@ -583,6 +586,10 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                 return FsmTransition(dataclasses.replace(state, status="Ready"), effects)
 
             else:
+                # Some providers send tool calls with no id. The tool reply must
+                # carry the same id as its call, so fill one in here, before the
+                # assistant message and the pending list are built from it.
+                tool_calls = with_tool_call_ids(tool_calls, state.round_num)
                 effects.append(
                     AddMessageEffect(
                         role="assistant",
@@ -654,10 +661,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             raw_func_args_str = event_data.get("func_args_str")
             func_args_str = raw_func_args_str if isinstance(raw_func_args_str, str) else ""
             raw_call_id = event_data.get("call_id")
-            if isinstance(raw_call_id, str) and raw_call_id.strip():
-                call_id = raw_call_id.strip()
-            else:
-                call_id = f"call_{func_name}"
+            call_id = raw_call_id if isinstance(raw_call_id, str) else ""
             mutates_document = bool(event_data.get("mutates_document", False))
 
             result_data = object_dict_or_empty(safe_json_loads(result) if result else {})
