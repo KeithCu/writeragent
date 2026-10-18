@@ -15,6 +15,23 @@ if sys.platform == "win32":
         _W0 = False
     import warnings as _w0
     _w0.warn("WINSOCK_AT_CONFTEST_START ok=%s" % _W0)
+    _A_RECENT: list = []
+    _A_DONE = [False]
+
+    def _a_hook(event, args):
+        if _A_DONE[0] or event not in ("import", "ctypes.dlopen", "os.add_dll_directory", "sys._getframe") or event == "sys._getframe":
+            return
+        try:
+            _s0.socket().close()
+            ok = True
+        except OSError:
+            ok = False
+        if not ok:
+            _A_DONE[0] = True
+            _w0.warn("WINSOCK_AUDIT_BROKEN before=%r recent=%r" % ((event, str(args[:1])[:200]), _A_RECENT[-12:]))
+        _A_RECENT.append((event, str(args[:1])[:120]))
+
+    sys.addaudithook(_a_hook)
 
 # Layer A thread guard defaults on in non-release bundles; keep headless pytest stable.
 os.environ.setdefault("WRITERAGENT_UNO_THREAD_GUARD", "0")
