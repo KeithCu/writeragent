@@ -219,19 +219,16 @@ class IndexService(ServiceBase):
             return None
 
     def _detect_language(self, doc: Any) -> str:
-        try:
-            text = doc.getText()
-            enum = text.createEnumeration()
-            if enum.hasMoreElements():
-                first_para = enum.nextElement()
-                locale = first_para.getPropertyValue("CharLocale")
-                iso = locale.Language
-                lang = _ISO_TO_SNOWBALL.get(iso)
-                if lang:
-                    return lang
-        except Exception as e:
-            log.debug("Language detection failed: %s", e)
-        return "english"
+        text = doc.getText()
+        enum = text.createEnumeration()
+        if not enum.hasMoreElements():
+            return "english"
+        first = enum.nextElement()
+        # Body enumeration yields paragraphs and tables. A table has no CharLocale.
+        if not first.supportsService("com.sun.star.text.Paragraph"):
+            return "english"
+        iso = first.getPropertyValue("CharLocale").Language
+        return _ISO_TO_SNOWBALL.get(iso) or "english"
 
     def _stem(self, stemmer: Any, tokens: list[str], stop_words: Any) -> list[str]:
         return [stemmer.stemWord(t) for t in tokens if t not in stop_words]

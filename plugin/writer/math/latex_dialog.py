@@ -51,16 +51,14 @@ def show_latex_input_dialog(
 
         # Populate initial values
         edit = dlg.getControl("LatexEdit")
-        if edit is not None:
-            edit.setText(initial_text)
-            # Use a monospaced font
-            fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
-            fd.Name = "Courier New"
-            edit.getModel().FontDescriptor = fd
+        edit.setText(initial_text)
+        # Use a monospaced font
+        fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
+        fd.Name = "Courier New"
+        edit.getModel().FontDescriptor = fd
 
         cbc = dlg.getControl("DisplayBlockCheck")
-        if cbc is not None:
-            cbc.getModel().State = 1 if initial_display else 0
+        cbc.getModel().State = 1 if initial_display else 0
 
         _outcome: list[tuple[str, bool] | None] | None = None
 
@@ -85,16 +83,13 @@ def show_latex_input_dialog(
                 pass
 
         btn_insert = dlg.getControl("BtnInsert")
-        if btn_insert is not None:
-            btn_insert.getModel().Label = _("Update") if update else _("Insert")
-            btn_insert.addActionListener(_InsertListener())
+        btn_insert.getModel().Label = _("Update") if update else _("Insert")
+        btn_insert.addActionListener(_InsertListener())
         btn_cancel = dlg.getControl("BtnCancel")
-        if btn_cancel is not None:
-            btn_cancel.addActionListener(_CancelListener())
+        btn_cancel.addActionListener(_CancelListener())
 
         # Set focus to the edit control
-        if edit is not None:
-            edit.setFocus()
+        edit.setFocus()
 
         dlg.execute()
         dlg.dispose()
@@ -120,11 +115,7 @@ def _selection_latex_prefill(
         selected_math_embeds,
     )
 
-    try:
-        hits = selected_math_embeds(doc)
-    except Exception:
-        log.debug("latex dialog: selected_math_embeds failed", exc_info=True)
-        return None, last_latex, last_display, False
+    hits = selected_math_embeds(doc)
 
     if len(hits) > 1:
         msgbox(

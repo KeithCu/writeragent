@@ -19,9 +19,6 @@ _LANGDETECT_SESSION_ID = f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:langdetect"
 
 def detect_languages(ctx: Any, texts: list[str]) -> list[str | None]:
     """Detect BCP-47 tags for *texts* via the embeddings venv worker."""
-    if texts is None:
-        texts = []
-
     timeout_sec = embeddings_worker_timeout_sec()
     try:
         result = run_trusted_worker_action(ctx, domain="langdetect", helper="detect", params={}, additional_data={"texts": list(texts)}, session_id=_LANGDETECT_SESSION_ID, timeout_sec=timeout_sec, worker_pool=WORKER_POOL_EMBEDDINGS, error_code="LANGDETECT_ERROR", error_label="Language detection")

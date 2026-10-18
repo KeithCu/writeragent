@@ -82,7 +82,7 @@ def _debug_newline_stats(prefix: str, s: str, *, max_repr: int = 400) -> None:
 
 def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = False) -> MathConversionResult:
     """Convert LaTeX to StarMath via ``latex2mathml`` then :func:`convert_mathml_to_starmath`."""
-    if not latex or not isinstance(latex, str):
+    if not latex:
         return MathConversionResult(False, None, "empty_latex")
     trimmed = latex.strip()
     if not trimmed:
@@ -97,7 +97,7 @@ def convert_latex_to_starmath(ctx: Any, latex: str, *, display_block: bool = Fal
     except Exception as exc:
         log.debug("latex2mathml convert failed: %s", exc, exc_info=True)
         return MathConversionResult(False, None, _exception_message(exc))
-    if not isinstance(mathml, str) or not mathml.strip():
+    if not mathml.strip():
         return MathConversionResult(False, None, "latex2mathml_empty_output")
     return convert_mathml_to_starmath(ctx, mathml.strip())
 
@@ -108,7 +108,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
     *mathml_fragment* should be a well-formed ``<math>...</math>`` subtree (may
     include an XML declaration — not required).
     """
-    if not mathml_fragment or not isinstance(mathml_fragment, str):
+    if not mathml_fragment:
         return MathConversionResult(False, None, "empty_mathml")
     text = mathml_fragment.strip()
     if not text.lower().startswith("<math"):
@@ -135,7 +135,7 @@ def convert_mathml_to_starmath(ctx: Any, mathml_fragment: str) -> MathConversion
             return MathConversionResult(False, None, "load_returned_none")
         try:
             formula = doc.getPropertyValue("Formula")
-            if not isinstance(formula, str) or not formula.strip():
+            if not formula.strip():
                 return MathConversionResult(False, None, "empty_formula_property: LibreOffice Math opened the file but returned no formula text (unsupported or invalid MathML for this build).")
             _formula_stripped = formula.strip()
             _debug_newline_stats("convert_mathml_to_starmath: Formula from LO (before return.strip)", formula, max_repr=500)
@@ -197,7 +197,7 @@ def replace_writer_math_formula(embed: Any, starmath: str) -> None:
     Must not insert a second embed or paragraph breaks: doing that while the
     OLE is selected is a native LibreOffice crash (no Python traceback).
     """
-    if not starmath or not isinstance(starmath, str) or not starmath.strip():
+    if not starmath.strip():
         raise ValueError("empty_starmath")
     inner = embed.getEmbeddedObject() if hasattr(embed, "getEmbeddedObject") else embed
     if inner is None or not hasattr(inner, "Formula"):
