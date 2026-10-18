@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 
 from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.async_stream import run_stream_drain_loop
+from plugin.framework.async_stream import StreamQueue, run_stream_drain_loop
 from plugin.framework.worker_pool import run_in_background
 from tests.framework.stream_test_helpers import DummyToolkit
 
@@ -241,7 +241,7 @@ def test_closed_over_queue_error_skips_wrapper_stream_done():
 
     ctx = MagicMock()
     toolkit = DummyToolkit()
-    shared: queue.Queue = queue.Queue()
+    shared: StreamQueue = StreamQueue()
     applied = []
     done_payloads = []
     errors = []
@@ -279,7 +279,7 @@ def test_worker_error_put_then_raise_queues_single_error(caplog):
 
     ctx = MagicMock()
     toolkit = DummyToolkit()
-    shared: queue.Queue = queue.Queue()
+    shared: StreamQueue = StreamQueue()
     applied = []
     errors = []
 
@@ -322,7 +322,7 @@ def test_non_tuple_terminal_skips_wrapper_stream_done():
     def _run(terminal):
         ctx = MagicMock()
         toolkit = DummyToolkit()
-        shared: queue.Queue = queue.Queue()
+        shared: StreamQueue = StreamQueue()
         done = []
 
         def worker(worker_q):
@@ -981,3 +981,55 @@ def test_run_stream_drain_loop_tool_call_and_tool_result():
     assert any("[Tool call]" in t for t, th in applied if not th)
     assert any("[Tool result]" in t for t, th in applied if not th)
     assert any(payload_call["name"] in t for t, th in applied if not th)
+
+
+def test_stream_queue_terminal_subscribers_are_independent():
+    """Verify StreamQueue per-drain subscriber cell independence and lifecycle."""
+    q = StreamQueue()
+    cell1 = q.subscribe_terminal()
+    cell2 = q.subscribe_terminal()
+    assert cell1 == [False]
+    assert cell2 == [False]
+    assert cell1 is not cell2
+
+    q.put((StreamQueueKind.STREAM_DONE, None))
+    assert cell1[0] is True
+    assert cell2[0] is True
+
+    q.unsubscribe_terminal(cell1)
+    assert cell2[0] is True
+
+    cell3 = q.subscribe_terminal()
+    assert cell3[0] is False
+
+    q.put((StreamQueueKind.FINAL_DONE, None))
+    assert cell3[0] is True
+
+    # A different [False] list that compares equal is not removed by unsubscribe_terminal
+    equal_cell = [False]
+    cell4 = q.subscribe_terminal()
+    assert cell4[0] is False
+    q.unsubscribe_terminal(equal_cell)
+    assert cell4 in q._terminal_flags
+
+    # Non-terminal kinds do not set a fresh cell
+    cell5 = q.subscribe_terminal()
+    assert cell5[0] is False
+    q.put((StreamQueueKind.CHUNK, "x"))
+    assert cell5[0] is False
+    q.put((StreamQueueKind.TOOL_DONE, None))
+    assert cell5[0] is False
+
+    # After the last unsubscribe, put of a terminal does not change old cells
+    q.unsubscribe_terminal(cell2)
+    q.unsubscribe_terminal(cell3)
+    q.unsubscribe_terminal(cell4)
+    q.unsubscribe_terminal(cell5)
+    assert len(q._terminal_flags) == 0
+
+    cell5[0] = False
+    q.put((StreamQueueKind.ERROR, None))
+    assert cell5[0] is False
+
+    assert type(q).put is StreamQueue.put
+    assert not hasattr(q, "_wa_terminal_watch")

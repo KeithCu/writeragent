@@ -14,13 +14,12 @@ from __future__ import annotations
 import os
 import json
 import threading
-import queue
 import logging
 from typing import TYPE_CHECKING, Protocol, Any, Callable, TypeVar
 
 from plugin.framework.i18n import _
 from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.async_stream import defer_until_drain_done, run_async_worker_with_drain
+from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_async_worker_with_drain
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.errors import (
     AgentParsingError,
@@ -90,14 +89,14 @@ class _SendWorkerQueue:
             turn.put(item)
 
 
-def _send_worker_queues(host: Any) -> tuple["queue.Queue[Any]", _SendWorkerQueue]:
+def _send_worker_queues(host: Any) -> tuple[StreamQueue, _SendWorkerQueue]:
     from plugin.chatbot.tool_loop_actions import begin_send_turn
 
     # ``_do_send`` starts the turn. A direct handler call with no turn yet
     # starts one before the worker. An aborted turn is not replaced.
     if current_turn(host) is None:
         begin_send_turn(host, "")
-    raw: queue.Queue[Any] = queue.Queue()
+    raw: StreamQueue = StreamQueue()
     turn = current_turn(host)
     if isinstance(turn, TurnController) and turn.alive:
         turn.queue = raw
@@ -157,6 +156,7 @@ def _reset_active_run_flags(host: Any) -> None:
 
 
 if TYPE_CHECKING:
+    import queue
     from plugin.chatbot.panel import ChatSession
 
 
@@ -478,7 +478,7 @@ class SendHandlersMixin:
 
         def worker_wrapper(worker_q: queue.Queue[Any]) -> None:
             # worker_q is the q passed to run_async_worker_with_drain. worker_fn
-            # closes over that queue. _watch_queue_terminal patches its put.
+            # closes over that queue. StreamQueue tracks terminal puts.
             # Putting on a different object would miss terminal items and the
             # drain wrapper would queue a second STREAM_DONE.
             worker_fn()

@@ -59,65 +59,98 @@ class StreamQueueKind(str, Enum):
     TOOL_RESULT = "tool_result"
 
 
-class _ReusableBurstTimer:
-    """One daemon thread for a batcher. ``arm`` sets the deadline; it does not start a new thread.
+class _DelayedPokeTimer:
+    """One reusable thread waiting on a Condition until a monotonic deadline."""
 
-    ``threading.Timer`` cannot be restarted, so each burst used to construct
-    another one. This thread waits until the deadline, fires once, then waits
-    again. ``cancel`` clears the deadline without leaving the thread.
-    """
-
-    _interval: float
-    _owner: weakref.ReferenceType["BatchingStreamQueue"]
+    _name: str
+    _replace: bool
+    _retry: bool
+    _logger: logging.Logger
+    _max_failures: Callable[[], int] | None
+    _retry_delay: Callable[[int], float] | None
     _cv: threading.Condition
     _deadline: float | None
+    _fire: Callable[[], None] | None
+    _on_give_up: Callable[[], None] | None
+    _generation: int
+    _failures: int
     _started: bool
     _stopped: bool
 
-    def __init__(self, owner: "BatchingStreamQueue", interval: float) -> None:
+    def __init__(
+        self,
+        name: str,
+        *,
+        replace: bool,
+        retry: bool,
+        logger: logging.Logger,
+        max_failures: Callable[[], int] | None = None,
+        retry_delay: Callable[[int], float] | None = None,
+    ) -> None:
         # crosshair: off
-        self._interval = interval
-        # Weak so a finished send can drop the batcher. The thread would
-        # otherwise keep it alive through the flush callback.
-        self._owner = weakref.ref(owner)
+        self._name = name
+        self._replace = replace
+        self._retry = retry
+        self._logger = logger
+        self._max_failures = max_failures
+        self._retry_delay = retry_delay
+
         self._cv = threading.Condition()
         self._deadline = None
+        self._fire = None
+        self._on_give_up = None
+        self._generation = 0
+        self._failures = 0
         self._started = False
         self._stopped = False
 
-    def arm(self) -> None:
-        """Start the interval if idle. A live deadline is left alone."""
+    def arm(
+        self,
+        delay: float,
+        fire: Callable[[], None] | None = None,
+        on_give_up: Callable[[], None] | None = None,
+    ) -> None:
         # crosshair: off
         with self._cv:
-            if self._stopped or self._deadline is not None:
+            if self._stopped:
                 return
+            if not self._replace and self._deadline is not None:
+                return
+            if self._replace:
+                self._generation += 1
+                self._failures = 0
+                self._fire = fire
+                self._on_give_up = on_give_up
+            elif fire is not None:
+                self._fire = fire
             if not self._started:
-                # Infinite wait: dedicated, not a pool slot. Start before the
-                # deadline is visible so a failed start can be retried.
-                run_in_background(self._run, name="batch-stream-timer", dedicated=True)
+                run_in_background(self._run, name=self._name, dedicated=True)
                 self._started = True
-            self._deadline = time.monotonic() + self._interval
+            self._deadline = time.monotonic() + delay
             self._cv.notify()
 
     def cancel(self) -> None:
-        """Drop the deadline. The thread stays for the next burst."""
         # crosshair: off
         with self._cv:
+            if self._replace:
+                self._generation += 1
+                self._failures = 0
+                self._fire = None
+                self._on_give_up = None
             self._deadline = None
             self._cv.notify()
 
     def stop(self) -> None:
-        """Wake the thread so it exits. Used when the batcher is released."""
         # crosshair: off
         with self._cv:
             self._stopped = True
             self._deadline = None
+            self._fire = None
+            self._on_give_up = None
             self._cv.notify()
 
     def _run(self) -> None:
         # crosshair: off
-        # Catch here: run_in_background ends the thread on Exception, and a
-        # later burst would then have no timer.
         while True:
             with self._cv:
                 while self._deadline is None and not self._stopped:
@@ -125,24 +158,61 @@ class _ReusableBurstTimer:
                 if self._stopped:
                     return
                 deadline = self._deadline
-                assert deadline is not None
+                generation = self._generation
+                fire = self._fire
+                if deadline is None or fire is None:
+                    continue
                 remaining = deadline - time.monotonic()
                 if remaining > 0:
                     self._cv.wait(timeout=remaining)
                     continue
                 self._deadline = None
-            owner = self._owner()
-            if owner is None:
-                return
+                if self._replace:
+                    self._fire = None
             try:
-                owner._timer_flush()
+                fire()
+                if self._retry:
+                    with self._cv:
+                        self._failures = 0
             except Exception:
-                log.exception("BatchingStreamQueue timer flush failed")
-            finally:
-                # Drop the strong ref before waiting again. Holding it across
-                # the wait would keep the batcher (and this thread) alive
-                # after the send released it.
-                del owner
+                if not self._retry:
+                    self._logger.exception("Delayed poke timer fire failed")
+                    continue
+                give_up = False
+                give_up_cb = None
+                delay = None
+                failures = 0
+                with self._cv:
+                    if not self._stopped and self._deadline is None and self._generation == generation:
+                        self._failures += 1
+                        failures = self._failures
+                        max_fail = self._max_failures() if self._max_failures is not None else 8
+                        if self._failures >= max_fail:
+                            self._fire = None
+                            give_up = True
+                            give_up_cb = self._on_give_up
+                        else:
+                            delay = (
+                                self._retry_delay(failures)
+                                if self._retry_delay is not None
+                                else min(1.0, 0.1 * 2 ** min(failures - 1, 4))
+                            )
+                            self._deadline = time.monotonic() + delay
+                            self._fire = fire
+                            self._cv.notify()
+                if give_up:
+                    self._logger.warning("drain idle re-arm failed %d times; giving up", failures)
+                    if give_up_cb is not None:
+                        try:
+                            give_up_cb()
+                        except Exception:
+                            self._logger.exception("drain idle give-up callback failed")
+                elif delay is None:
+                    self._logger.debug("drain idle re-arm failed after stop/re-arm; not retrying", exc_info=True)
+                elif failures == 1:
+                    self._logger.exception("drain idle re-arm failed")
+                else:
+                    self._logger.warning("drain idle re-arm failed %d times, retrying in %.2fs", failures, delay)
 
 
 class BatchingStreamQueue:
@@ -200,7 +270,7 @@ class BatchingStreamQueue:
         # every THINKING buffer showed the reply before [Thinking].
         self._runs: list[tuple[StreamQueueKind, list[str]]] = []
         self._lock = threading.Lock()
-        self._timer: _ReusableBurstTimer | None = None
+        self._timer: _DelayedPokeTimer | None = None
         self._dropped = False
 
     def __del__(self) -> None:
@@ -230,8 +300,26 @@ class BatchingStreamQueue:
         # other kind arrived. Leave an armed deadline alone. Caller holds _lock.
         # The thread itself is created once and reused.
         if self._timer is None:
-            self._timer = _ReusableBurstTimer(self, self._interval)
-        self._timer.arm()
+            timer = _DelayedPokeTimer("batch-stream-timer", replace=False, retry=False, logger=log)
+            self._timer = timer
+            ref = weakref.ref(self)
+
+            def _burst_fire() -> None:
+                # crosshair: off
+                owner = ref()
+                if owner is None:
+                    timer.stop()
+                    return
+                try:
+                    owner._timer_flush()
+                except Exception:
+                    log.exception("BatchingStreamQueue timer flush failed")
+                finally:
+                    del owner
+
+            timer.arm(self._interval, fire=_burst_fire)
+        else:
+            self._timer.arm(self._interval)
 
     def _timer_flush(self) -> None:
         # crosshair: off

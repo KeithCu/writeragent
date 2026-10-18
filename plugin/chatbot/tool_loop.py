@@ -17,15 +17,15 @@ from __future__ import annotations
 import logging
 import inspect
 import dataclasses
-import queue
 from typing import TYPE_CHECKING, Protocol, Any, Callable, Sequence, cast
 
 if TYPE_CHECKING:
+    import queue
     from plugin.framework.client.llm_client import LlmClient
     from plugin.chatbot.panel import ChatSession
 
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
-from plugin.framework.async_stream import defer_until_drain_done, run_stream_drain_loop
+from plugin.framework.async_stream import StreamQueue, defer_until_drain_done, run_stream_drain_loop
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.errors import BlockingWaitStopped, best_effort, format_error_message, is_disposed_exception, suppress_disposed, UnoObjectError
 from plugin.framework.client.errors import (
@@ -941,7 +941,7 @@ class ToolCallingMixin:
         if turn is None:
             return
         try:
-            raw_q: queue.Queue[Any] = queue.Queue()
+            raw_q: StreamQueue = StreamQueue()
             batched = BatchingStreamQueue(raw_q, batch_interval=CHAT_STREAM_BATCH_INTERVAL)
             # The drain attaches the queue. Workers only enqueue on it.
             turn.queue = raw_q

@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Tests for async_stream batching, flushing, error handling, and drain guards."""
 
+import logging
 import queue
 import threading
 import time
@@ -11,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
+from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind, _DelayedPokeTimer
 from plugin.framework.async_stream import run_stream_drain_loop
 from plugin.framework.worker_pool import run_in_background
 from tests.framework.stream_test_helpers import DummyToolkit
@@ -356,7 +357,7 @@ def test_async_worker_stop_flushes_batcher_before_worker_returns():
 
 
 def test_batcher_flush_error_still_emits_error_and_unpatches():
-    """A raising flush must not swallow ERROR or leave the put wrapper installed."""
+    """A raising flush must not swallow ERROR."""
     from plugin.framework.async_stream import run_async_worker_with_drain
 
     ctx = MagicMock()
@@ -729,9 +730,7 @@ def test_error_item_on_error_raise_is_not_called_twice():
 
 
 def test_idle_rearm_cancel_resets_failures():
-    from plugin.framework.async_stream import _IdleRearmThread
-
-    timer = _IdleRearmThread()
+    timer = _DelayedPokeTimer("drain-rearm", replace=True, retry=True, logger=logging.getLogger("test"))
     timer._failures = 4
     timer.cancel()
     assert timer._failures == 0
