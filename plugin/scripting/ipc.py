@@ -1085,24 +1085,6 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     return response.get("result", {})
 
 
-def _stop_requested(stop_checker: Callable[[], bool] | None) -> bool:
-    """True when the user pressed Stop.
-
-    A checker that raises (KeyError, or anything outside the IPC except
-    tuples) is not a stop. Calling it bare escaped ``run_code_in_user_venv``
-    and left the child blocked on an unread request. Log it and keep reading
-    so the pipe stays aligned. A tool_call frame is still answered in
-    ``host_rpc``, which has a frame to reply to.
-    """
-    if stop_checker is None:
-        return False
-    try:
-        return bool(stop_checker())
-    except Exception:
-        log.exception("stop_checker failed (continuing)")
-        return False
-
-
 def read_frame_payload_with_timeout(
     stream: IO[bytes],
     timeout_sec: float,
@@ -1224,38 +1206,14 @@ def read_pickle_frame_with_timeout(
     require_dict: bool = False,
     is_alive: Callable[[], bool] | None = None,
     unpacker: Callable[[bytes], Any] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    deadline: float | None = None,
-    timeout_label: float | None = None,
-    cmd: str | None = None,
 ) -> Any | None:
-    """Read one pickle frame, bounding the whole header+payload with *timeout_sec*.
-
-    POSIX uses ``select`` in a deadline loop so a partial frame cannot hang the
-    parent after the first byte. Windows uses PeekNamedPipe (pipes are not
-    selectable). Raises ``subprocess.TimeoutExpired`` on deadline.
-    Returns None on clean EOF or truncation.
-
-    A ``stop_checker`` raises ``TimeoutExpired`` (the worker maps that to cancel);
-    ``deadline`` is an absolute ``time.monotonic()`` stamp; ``timeout_label`` is
-    only the number stored on ``TimeoutExpired``.
-
-    The stream must be unbuffered (``bufsize=0``). ``select`` then
-    ``stream.read`` is correct on raw ``FileIO``: ``read`` returns the bytes
-    already available. A ``BufferedReader`` waits until ``n`` bytes arrive,
-    ``ManagedSubprocess.start`` (compute and Kokoro), ``editor_host``, and
-    ``venv_worker`` open the pipe with ``bufsize=0``.
-    """
+    """``read_frame_payload_with_timeout``, then unpickle. None on clean EOF or truncation."""
     payload = read_frame_payload_with_timeout(
         stream,
         timeout_sec,
         max_payload_bytes=max_payload_bytes,
         frame_label=frame_label,
         is_alive=is_alive,
-        stop_checker=stop_checker,
-        deadline=deadline,
-        timeout_label=timeout_label,
-        cmd=cmd,
     )
     return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict, unpacker=unpacker)
 
@@ -1271,6 +1229,24 @@ def write_json_line(stream: IO[str] | IO[bytes], payload: dict[str, Any]) -> Non
         _write_all(cast("Any", stream), line)
     except TypeError:
         _write_all(cast("Any", stream), line.encode("utf-8"))
+
+
+def _stop_requested(stop_checker: Callable[[], bool] | None) -> bool:
+    """True when the user pressed Stop.
+
+    A checker that raises (KeyError, or anything outside the IPC except
+    tuples) is not a stop. Calling it bare escaped ``run_code_in_user_venv``
+    and left the child blocked on an unread request. Log it and keep reading
+    so the pipe stays aligned. A tool_call frame is still answered in
+    ``host_rpc``, which has a frame to reply to.
+    """
+    if stop_checker is None:
+        return False
+    try:
+        return bool(stop_checker())
+    except Exception:
+        log.exception("stop_checker failed (continuing)")
+        return False
 
 
 def _read_bytes_with_timeout_win32(
