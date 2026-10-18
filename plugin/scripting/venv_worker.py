@@ -1008,12 +1008,7 @@ class PythonWorkerManager:
         timeout_sec: float,
         label: str,
     ) -> None:
-        """Pack, then bound the pipe write.
-
-        ``pack_pickle_frame`` raises ``IpcFrameError`` before any byte is written.
-        ``_execute_ipc_attempts`` returns that as ``WORKER_IPC_ERROR`` and leaves
-        the warm child up. Do not catch ``IpcFrameError`` here.
-        """
+        """Pack, then bound the pipe write. ``IpcFrameError`` means no byte was written."""
         frame = pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         self._write_packed_frame_with_timeout(stdin, frame, timeout_sec=timeout_sec, label=label)
 
@@ -1025,18 +1020,9 @@ class PythonWorkerManager:
         timeout_sec: float,
         label: str,
     ) -> None:
-        """Write an already-packed frame. A stalled child must not hold ``_io_lock``.
+        """Write a packed frame; on timeout kill the child (a partial frame may be in the pipe).
 
-        POSIX does this in-process (non-blocking ``os.write`` + ``select``).
-        Windows is ipc's join-timeout daemon; on timeout that helper does not
-        join the stuck thread and does not kill. A timeout can mean a partial
-        frame is already in the pipe, so kill here and re-raise with
-        ``cmd=self.exe`` (ipc's exception says ``cmd="IPC frame"``).
-        ``wait=False``: do not join the reap or the Windows ``ipc-stdin-write``
-        thread. The reap closes the pipe; the next ``_ensure_running`` joins it.
-
-        Do not catch ``BrokenPipeError`` / ``OSError``. A dead child is
-        ``BrokenPipeError`` from ``is_alive``, not a timeout. See below.
+        A dead child raises ``BrokenPipeError`` from ``is_alive``; the caller handles it.
         """
         try:
             write_packed_frame_with_timeout(
