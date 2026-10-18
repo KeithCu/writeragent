@@ -5,9 +5,12 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 import tempfile
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from plugin.doc.document_research_grep import (
     _grep_text_in_calc,
@@ -81,7 +84,8 @@ def test_resolve_grep_candidates_file_url_opens_that_file():
 
 
 def test_resolve_grep_candidates_missing_file_url_is_an_error():
-    missing_path = "/nonexistent/path/to/missing.ods"
+    # Under the temp dir so as_uri() also works on Windows (it needs a drive letter).
+    missing_path = os.path.join(tempfile.gettempdir(), "nonexistent-writeragent-dir", "missing.ods")
     missing_url = Path(missing_path).as_uri()
     with patch("plugin.doc.document_research_grep.list_nearby_files") as mock_list:
         candidates, truncated, err = resolve_grep_candidates(MagicMock(), MagicMock(), file_subset=missing_url)
@@ -92,6 +96,7 @@ def test_resolve_grep_candidates_missing_file_url_is_an_error():
     assert f"No file matching {missing_url!r}" in err
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows maps file://server/share to a real UNC path")
 def test_resolve_grep_candidates_unc_file_url_rejected():
     unc_url = "file://server/share/Budget.ods"
     with patch("os.path.isfile", return_value=True):

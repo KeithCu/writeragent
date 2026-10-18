@@ -86,6 +86,25 @@ def pytest_collection_modifyitems(config, items):
     items[:] = [item for item in items if not is_native(item)]
 
 
+def _file_url_to_system_path_without_pyuno(url: str) -> str:
+    """Like pyuno.fileUrlToSystemPath, for venvs that cannot import LibreOffice's pyuno (macOS, Windows).
+
+    Tip: a bare MagicMock here returns a mock object, which the code then treats as a path.
+    LibreOffice refuses a remote host on Linux/macOS and maps it to a UNC path on Windows.
+    """
+    from urllib.parse import urlparse
+
+    from plugin.scripting.sandbox import _path_from_file_url
+
+    host = urlparse(url).netloc.lower()
+    if host not in ("", "localhost") and os.name != "nt":
+        raise RuntimeError("Couldn't convert %s to a system path" % url)
+    path = _path_from_file_url(url)
+    if path is None:
+        raise RuntimeError("Couldn't convert %s to a system path" % url)
+    return path
+
+
 # Create a mock for uno to prevent ModuleNotFoundError in headless tests
 _mock_uno = MagicMock()
 try:
@@ -94,7 +113,7 @@ try:
     _mock_uno.fileUrlToSystemPath = MagicMock(side_effect=pyuno.fileUrlToSystemPath)
     _mock_uno.systemPathToFileUrl = MagicMock(side_effect=pyuno.systemPathToFileUrl)
 except Exception:
-    pass
+    _mock_uno.fileUrlToSystemPath = MagicMock(side_effect=_file_url_to_system_path_without_pyuno)
 sys.modules["uno"] = _mock_uno
 
 

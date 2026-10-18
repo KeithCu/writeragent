@@ -86,7 +86,10 @@ def _wait_for(pred: Callable[[], bool], timeout: float = 30.0) -> bool:
 def test_kills_only_our_profile_real_processes(tmp_path: Path) -> None:
     """Two stand-in 'soffice' processes on different profiles: only ours dies."""
     fake = tmp_path / "soffice"
-    fake.symlink_to(os.path.realpath(sys.executable))
+    # macOS framework python3 re-execs into Python.app, so ps would show "Python", not
+    # "soffice". Link straight to that inner binary so argv[0] stays our name.
+    app_python = os.path.join(sys.base_prefix, "Resources", "Python.app", "Contents", "MacOS", "Python")
+    fake.symlink_to(app_python if sys.platform == "darwin" and os.path.isfile(app_python) else os.path.realpath(sys.executable))
     url_a, url_b = lo_paths.profile_url(tmp_path / "a"), lo_paths.profile_url(tmp_path / "a2")
     sleep = "import time; time.sleep(120)"
     ours = subprocess.Popen([str(fake), "-c", sleep, "-env:UserInstallation=" + url_a])

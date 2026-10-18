@@ -30,7 +30,8 @@ def test_reuseaddr_follows_allow_reuse_address() -> None:
     server = DualStackThreadPoolHTTPServer(("127.0.0.1", 0), _Handler)
     try:
         assert server.sockets
-        assert all(_reuse(sock) == 1 for sock in server.sockets)
+        # macOS/BSD getsockopt returns the option's flag bit (4), not 1; any nonzero means on.
+        assert all(_reuse(sock) != 0 for sock in server.sockets)
     finally:
         server.server_close()
 
