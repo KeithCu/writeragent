@@ -539,10 +539,7 @@ class PersistentEditor:
             if exit_code is not None:
                 log.error("Editor child exited before ready (code=%s). stderr=%s", exit_code, self.read_stderr_tail())
                 return False
-            try:
-                process_events_to_idle(ctx)
-            except Exception:
-                log.debug("process_events_to_idle failed while waiting for ready", exc_info=True)
+            process_events_to_idle(ctx)
             time.sleep(0.05)
         if not self._ready_event.is_set():
             log.error("Editor ready timeout (%ss). child_running=%s stderr=%s", timeout_sec, proc is not None, self.read_stderr_tail())
@@ -590,9 +587,7 @@ class PersistentEditor:
         )
         if msg is None:
             return None
-        if not isinstance(msg, dict):
-            raise ValueError("Editor message must be a dict")
-        return msg
+        return cast("dict[str, Any]", msg)
 
     def _read_loop_select(self, proc: subprocess.Popen[bytes], stdout: Any) -> None:
         """POSIX: use select() to poll the pipe with periodic liveness checks."""
@@ -1015,12 +1010,9 @@ def _on_config_changed(**kwargs: Any) -> None:
         log.info("editor_host: scripting.python_venv_path changed, terminating background Monaco process")
         _PROBE_CACHE.clear()
         _PROBE_FAILURE_CACHE.clear()
-        try:
-            from plugin.vision.vision_availability import invalidate_vision_availability_cache
+        from plugin.vision.vision_availability import invalidate_vision_availability_cache
 
-            invalidate_vision_availability_cache()
-        except Exception:
-            log.debug("vision availability cache invalidation failed", exc_info=True)
+        invalidate_vision_availability_cache()
 
     if force_changed:
         log.info("editor_host: scripting.force_internal_script_editor changed, terminating background Monaco process")
@@ -1316,17 +1308,13 @@ def launch_monaco_editor(
     # We always recompute on send so that switching cells or reopening picks
     # up a theme change. See plugin/framework/appearance.py.
     if "theme" not in ipc_message:
-        try:
-            from plugin.framework.appearance import get_monaco_theme_info
+        from plugin.framework.appearance import get_monaco_theme_info
 
-            # Prefer any doc we had for the run_script case or if caller left it in msg.
-            # Leave run_script_doc on the message until after the unsaved-changes
-            # question. Cancel must not retarget the script picker document.
-            doc_for_theme = ipc_message.get("doc") or ipc_message.get("run_script_doc")
-            ipc_message["theme"] = get_monaco_theme_info(doc=doc_for_theme, ctx=ctx)
-        except Exception:
-            log.debug("Failed to compute monaco theme info; falling back to light", exc_info=True)
-            ipc_message["theme"] = {"monaco": "vs", "is_dark": False}
+        # Prefer any doc we had for the run_script case or if caller left it in msg.
+        # Leave run_script_doc on the message until after the unsaved-changes
+        # question. Cancel must not retarget the script picker document.
+        doc_for_theme = ipc_message.get("doc") or ipc_message.get("run_script_doc")
+        ipc_message["theme"] = get_monaco_theme_info(doc=doc_for_theme, ctx=ctx)
 
     # One gate covers cell, Run Script, init script, and LaTeX. Replacing the
     # focused buffer before asking dropped the other buffer: the cell editor

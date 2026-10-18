@@ -892,11 +892,8 @@ def supports_calc_or_writer_manual(doc: Any) -> bool:
     """True when Run Python Script should expose helpers for Calc or Writer *doc*."""
     if doc is None:
         return False
-    try:
-        from plugin.doc.doc_type import is_calc, is_writer
+    from plugin.doc.doc_type import is_calc, is_writer
 
-        return is_writer(doc) or is_calc(doc)
-    except Exception:
-        return False
+    return is_writer(doc) or is_calc(doc)
 
 

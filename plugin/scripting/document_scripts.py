@@ -207,8 +207,6 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
         return _readonly_document_error()
     try:
         set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, payload)
-    except DocumentDisposedError:
-        raise
     except Exception as exc:
         # A disposed document is not "read-only". Callers that swallow the
         # message used to keep writing as if the file were still open.

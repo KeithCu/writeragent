@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -24,7 +23,6 @@ from plugin.scripting.sheet_layout import extract_sheet_layout
 from plugin.scripting.trusted_rpc import run_trusted_worker_action
 from plugin.vision.vision_common import resolve_engine
 
-log = logging.getLogger(__name__)
 
 
 def _split_spec(spec: Any) -> tuple[str, dict[str, Any]]:
@@ -223,14 +221,9 @@ def run_text_analytics(
     For sentiment: uses transformers + a multilingual model (default: XLM-RoBERTa based).
     Requires `spacy` + `textdescriptives` for other helpers; `transformers` + `torch` (CPU) for sentiment.
     """
-    model: Any = None
-    try:
-        from plugin.framework.config import get_config_dict
+    from plugin.framework.config import get_config_dict
 
-        cfg = get_config_dict() or {}
-        model = cfg.get("text_analytics_sentiment_model") or None
-    except Exception:
-        log.exception("Could not read text_analytics_sentiment_model")
+    model = get_config_dict().get("text_analytics_sentiment_model") or None
 
     timeout_sec = long_trusted_worker_timeout_sec()
     helper, params = _split_spec(spec)
